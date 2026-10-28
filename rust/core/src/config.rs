@@ -541,9 +541,9 @@ impl Config {
             },
         }
     }
-    /// The Dolby Vision offer on HEVC HDR streams, for devices that pick it
-    /// (`hdr_dolby_vision`, on by default; `extensions::hdr_offer`): 8.1, and 8.4
-    /// while `hdr_hlg` is on too.
+    /// The Dolby Vision offer on HEVC and AV1 HDR streams, for devices that
+    /// pick it (`hdr_dolby_vision`, on by default; `extensions::hdr_offer`):
+    /// 8.1 on HEVC, and 8.4 while `hdr_hlg` is on too; 10.1 on AV1.
     pub fn hdr_dolby_vision(&self) -> bool {
         self.boolean("hdr_dolby_vision", true)
     }

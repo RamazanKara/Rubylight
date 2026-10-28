@@ -248,7 +248,7 @@ pub struct SdpParams<'a> {
     pub pyrowave_records_enabled: bool,
     /// The HDR format asked for (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit);
     /// 0 sends nothing and streams stock HDR. Sent only on a 10-bit (HDR) stream, Dolby Vision
-    /// only on HEVC, and only when `hdr_formats_offered` has it.
+    /// 8.1 and 8.4 only on HEVC and 10.1 only on AV1, and only when `hdr_formats_offered` has it.
     pub hdr_format: u8,
     /// The host's `DescribeInfo::hdr_formats`.
     pub hdr_formats_offered: u8,
@@ -265,14 +265,16 @@ fn one_offered_bit(asked: u8, offered: u8) -> Option<u8> {
 }
 
 /// The HDR format the description asks for, if the stream can carry it: a 10-bit HEVC or AV1
-/// stream (PyroWave's 10-bit formats carry none), and Dolby Vision only on HEVC.
+/// stream (PyroWave's 10-bit formats carry none), Dolby Vision 8.1 and 8.4 only on HEVC and
+/// 10.1 only on AV1.
 fn announced_hdr_format(p: &SdpParams<'_>) -> Option<u8> {
+    use rubylight_protocol::hdr::{DOLBY_VISION_AV1, DOLBY_VISION_HEVC};
     let format = p.negotiated_video_format;
     one_offered_bit(p.hdr_format, p.hdr_formats_offered).filter(|&bit| {
         format & VIDEO_FORMAT_MASK_10BIT != 0
             && format & (VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1) != 0
-            && (bit & rubylight_protocol::hdr::DOLBY_VISION == 0
-                || format & VIDEO_FORMAT_MASK_H265 != 0)
+            && (bit & DOLBY_VISION_HEVC == 0 || format & VIDEO_FORMAT_MASK_H265 != 0)
+            && (bit & DOLBY_VISION_AV1 == 0 || format & VIDEO_FORMAT_MASK_AV1 != 0)
     })
 }
 

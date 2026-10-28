@@ -17,8 +17,11 @@
 #define RL_HDR_HLG 2
 #define RL_HDR_DV_81 4
 #define RL_HDR_DV_84 8
-#define RL_HDR_ALL (RL_HDR_PQ | RL_HDR_HLG | RL_HDR_DV_81 | RL_HDR_DV_84)
-#define RL_HDR_DOLBY_VISION (RL_HDR_DV_81 | RL_HDR_DV_84)
+#define RL_HDR_DV_101 16
+#define RL_HDR_ALL (RL_HDR_PQ | RL_HDR_HLG | RL_HDR_DV_81 | RL_HDR_DV_84 | RL_HDR_DV_101)
+// Dolby Vision profile 8 (8.1, 8.4) is HEVC, profile 10 (10.1) AV1.
+#define RL_HDR_DOLBY_VISION_HEVC (RL_HDR_DV_81 | RL_HDR_DV_84)
+#define RL_HDR_DOLBY_VISION_AV1 RL_HDR_DV_101
 
 // MoonBridge.requestHdrFormat for this connection (callbacks.c), the DESCRIBE answer's formats
 // (android_rtsp.c) and what the ANNOUNCE then asked for (android_sdp.c), 0 when nothing.
@@ -54,12 +57,13 @@ static inline uint8_t rlParseHdrFormats(const char* sdp) {
 }
 
 // The format the ANNOUNCE asks for, or 0 for none: exactly one offered bit, on a 10-bit (HDR)
-// HEVC or AV1 stream (PyroWave's 10-bit formats carry none), and Dolby Vision only on HEVC. The
-// same rule as the Rust client's announced_hdr_format.
+// HEVC or AV1 stream (PyroWave's 10-bit formats carry none), Dolby Vision 8.1 and 8.4 only on
+// HEVC and 10.1 only on AV1. The same rule as the Rust client's announced_hdr_format.
 static inline uint8_t rlAnnouncedHdrFormat(uint8_t asked, uint8_t offered, int videoFormat) {
     if (asked == 0 || (asked & (asked - 1)) != 0 || (asked & offered & RL_HDR_ALL) == 0) return 0;
     if ((videoFormat & VIDEO_FORMAT_MASK_10BIT) == 0) return 0;
     if ((videoFormat & (VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1)) == 0) return 0;
-    if ((asked & RL_HDR_DOLBY_VISION) != 0 && (videoFormat & VIDEO_FORMAT_MASK_H265) == 0) return 0;
+    if ((asked & RL_HDR_DOLBY_VISION_HEVC) != 0 && (videoFormat & VIDEO_FORMAT_MASK_H265) == 0) return 0;
+    if ((asked & RL_HDR_DOLBY_VISION_AV1) != 0 && (videoFormat & VIDEO_FORMAT_MASK_AV1) == 0) return 0;
     return asked;
 }

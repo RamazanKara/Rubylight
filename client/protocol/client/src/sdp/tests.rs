@@ -368,7 +368,7 @@ fn wireless_route_is_flagged_for_every_codec_and_never_sent_as_zero() {
 #[test]
 fn hdr_format_and_audio_codec_are_sent_only_when_asked_for_and_offered() {
     use rubylight_protocol::audio_ext::{CODECS_ALL, CODEC_AC3, CODEC_PCM};
-    use rubylight_protocol::hdr::{ALL, DV_81, DV_84, HLG, PQ};
+    use rubylight_protocol::hdr::{ALL, DV_81, DV_84, DV_101, HLG, PQ};
     const HDR: &str = rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE;
     const CODEC: &str = rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE;
     let config = StreamConfig::default();
@@ -407,18 +407,23 @@ fn hdr_format_and_audio_codec_are_sent_only_when_asked_for_and_offered() {
         assert_eq!(sent(format, (0, 0), (CODEC_PCM, CODECS_ALL)), (None, pcm.clone()));
     }
 
-    // An HDR format needs a 10-bit HEVC or AV1 stream, and Dolby Vision HEVC.
+    // An HDR format needs a 10-bit HEVC or AV1 stream, Dolby Vision 8.1 and 8.4 HEVC and
+    // 10.1 AV1.
     let hdr = |format: u32, bit: u8| sent(format, (bit, ALL), (0, 0)).0;
     assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, DV_84), dv);
     assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, HLG), Some("a=x-rl-video[0].hdrFormat:2".into()));
     assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, HLG), Some("a=x-rl-video[0].hdrFormat:2".into()));
     assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, DV_84), None);
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, DV_81), None);
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, DV_101), Some("a=x-rl-video[0].hdrFormat:16".into()));
+    assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, DV_101), None);
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN8, DV_101), None);
     assert_eq!(hdr(VIDEO_FORMAT_H265, HLG), None);
     assert_eq!(hdr(VIDEO_FORMAT_PYROWAVE, HLG), None);
     // PyroWave's 10-bit formats are in the 10-bit mask but carry no HDR format: the host refuses
     // one in the ANNOUNCE.
     for format in [VIDEO_FORMAT_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10_444] {
-        for bit in [PQ, HLG, DV_81, DV_84] {
+        for bit in [PQ, HLG, DV_81, DV_84, DV_101] {
             assert_eq!(hdr(format, bit), None, "{format:#x} {bit}");
         }
     }

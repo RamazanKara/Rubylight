@@ -1,6 +1,8 @@
 package com.limelight.files;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -51,6 +53,26 @@ public class FileTransferScreenTest {
         Intent intent = FileTransferActivity.forPc(context, "tower");
         assertEquals(FileTransferActivity.class.getName(), intent.getComponent().getClassName());
         assertEquals("tower", intent.getStringExtra(FileTransferActivity.EXTRA_PC_UUID));
+        assertEquals("tower", FileTransferActivity.chosenPc(intent));
+    }
+
+    @Test
+    public void aShareAlwaysAsksWhichPcAndSendsOnlyAnotherAppsFiles() {
+        // Another app naming the PC would send without the user choosing it.
+        for (String action : new String[] {Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE}) {
+            Intent share = FileTransferActivity.forPc(context, "tower").setAction(action)
+                    .putExtra(Intent.EXTRA_STREAM, Uri.parse("content://media/1"));
+            assertNull(action, FileTransferActivity.chosenPc(share));
+        }
+        String own = "com.butterpollo.client";
+        assertTrue(FileTransferActivity.sendable(Uri.parse("content://media/external/1"), own, "com.android.providers.media"));
+        // Served by nobody: it is let through and fails to open as a local problem.
+        assertTrue(FileTransferActivity.sendable(Uri.parse("content://gone/1"), own, null));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content://com.butterpollo.client.reports/r/log.txt"), own, own));
+        assertFalse(FileTransferActivity.sendable(
+                Uri.parse("file:///data/data/com.butterpollo.client/shared_prefs/settings.xml"), own, null));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("android.resource://com.butterpollo.client/1"), own, null));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content:///no-authority"), own, null));
     }
 
     @Test

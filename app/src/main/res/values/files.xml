@@ -38,6 +38,7 @@
     <string name="files_pick_pc">Send to which PC?</string>
     <string name="files_no_pc">No paired PC is online. Wake or pair one in the PC list first.</string>
     <string name="files_waiting_to_send">Files waiting to send: %1$d. They go once this device may send files.</string>
+    <string name="files_share_refused">%1$d shared items were not sent: only another app’s files can be sent.</string>
     <string name="files_size_unknown">%1$s was not sent: its size is unknown.</string>
     <string name="files_problem_no_permission">This device lacks the permission; allow it on the PC’s web UI, under Devices.</string>
     <string name="files_problem_transfer_off">File transfer is off on the PC; turn it on in its web UI.</string>

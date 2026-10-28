@@ -36,6 +36,7 @@
     <string name="files_pick_pc">An welchen PC senden?</string>
     <string name="files_no_pc">Kein gekoppelter PC ist online. Wecke oder kopple zuerst einen in der PC-Liste.</string>
     <string name="files_waiting_to_send">Wartende Dateien: %1$d. Sie werden gesendet, sobald dieses Gerät Dateien senden darf.</string>
+    <string name="files_share_refused">%1$d geteilte Elemente wurden nicht gesendet: Nur Dateien einer anderen App lassen sich senden.</string>
     <string name="files_size_unknown">%1$s wurde nicht gesendet: die Größe ist unbekannt.</string>
     <string name="files_problem_no_permission">Diesem Gerät fehlt die Berechtigung; erlaube sie in der Web-UI des PCs unter Devices.</string>
     <string name="files_problem_transfer_off">Die Dateiübertragung ist auf dem PC aus; schalte sie in seiner Web-UI ein.</string>

@@ -325,18 +325,10 @@ pub fn entry_name(name: &str) -> String {
     format!("{name}{ENTRY_SUFFIX}")
 }
 
-/// Whether the app lists its co-op entry: only an explicit false
-/// ([`ENTRY_KEY`]) hides it.
+/// Whether the app lists its co-op entry ([`ENTRY_KEY`], on by default),
+/// read as every app switch is and as the console's game page reads it.
 fn entry_shown(app: &App) -> bool {
-    match app.extra.get(ENTRY_KEY) {
-        Some(Value::Bool(shown)) => *shown,
-        Some(Value::String(text)) => !matches!(
-            text.trim().to_ascii_lowercase().as_str(),
-            "false" | "0" | "no" | "off"
-        ),
-        Some(Value::Number(n)) => n.as_i64() != Some(0),
-        _ => true,
-    }
+    crate::process::app_bool(app, ENTRY_KEY, true)
 }
 
 /// A co-op library entry: an app whose program Nucleus Co-op has a handler
@@ -1982,13 +1974,15 @@ mod tests {
     #[test]
     fn an_app_can_hide_its_coop_entry_and_its_status_stays() {
         let (registry, _pc, mut apps) = setup();
-        for hidden in [json!(false), json!("false"), json!(0)] {
-            apps[1].extra.insert(ENTRY_KEY.into(), hidden);
-            assert!(registry.entries(&apps, "").is_empty());
+        // As every app switch reads (and the console's flagValue): true, "true", "1" and "yes"
+        // are on, any other text is off, and any other value is the default, on.
+        for hidden in [json!(false), json!("false"), json!("0"), json!("off"), json!("TRUE")] {
+            apps[1].extra.insert(ENTRY_KEY.into(), hidden.clone());
+            assert!(registry.entries(&apps, "").is_empty(), "{hidden}");
         }
-        for shown in [json!(true), json!("1")] {
-            apps[1].extra.insert(ENTRY_KEY.into(), shown);
-            assert_eq!(registry.entries(&apps, "").len(), 1);
+        for shown in [json!(true), json!("true"), json!("1"), json!("yes"), json!(0), json!(null)] {
+            apps[1].extra.insert(ENTRY_KEY.into(), shown.clone());
+            assert_eq!(registry.entries(&apps, "").len(), 1, "{shown}");
         }
         apps[1].extra.insert(ENTRY_KEY.into(), json!(false));
         let games = registry.games(&apps, &Config::default()).unwrap().unwrap();

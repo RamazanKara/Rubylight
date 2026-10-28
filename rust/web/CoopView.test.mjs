@@ -157,6 +157,13 @@ test('ready: the players, how to start it, the library switch on by default, and
   assert.equal(draft.record()['coop-entry'], false);
   draft.setFlag('coop-entry', true);
   assert.equal('coop-entry' in draft.record(), false);
+  // The switch reads a stored value as the host lists the entry (nucleus::entry_shown's test has the same table).
+  for (const hidden of [false, 'false', '0', 'off', 'TRUE']) {
+    assert.equal(new AppDraft({ name: 'Portal 2', 'coop-entry': hidden }).flag('coop-entry'), false, String(hidden));
+  }
+  for (const shown of [true, 'true', '1', 'yes', 0, null]) {
+    assert.equal(new AppDraft({ name: 'Portal 2', 'coop-entry': shown }).flag('coop-entry'), true, String(shown));
+  }
 });
 
 test('a second app of the same name is not shown as ready: the library lists only the first one’s entry', () => {

@@ -91,14 +91,13 @@ public class MediaCodecHdrMetadataTest {
     }
 
     /** A renderer streaming HDR on a running codec, taken to be HDR before the PC's report. */
-    private MediaCodecDecoderRenderer streaming(Activity activity, boolean asParameter) throws IOException {
+    private MediaCodecDecoderRenderer streaming(Activity activity) throws IOException {
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
         MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity, prefs,
                 crashes::add, 0, false, true, "", null);
         ReflectionHelpers.setField(renderer, "videoDecoder", MediaCodec.createDecoderByType("video/avc"));
         ReflectionHelpers.setField(renderer, "currentHdrMode", Boolean.TRUE);
-        ReflectionHelpers.setField(renderer, "hdrMetadataAsParameter", asParameter);
         return renderer;
     }
 
@@ -117,9 +116,10 @@ public class MediaCodecHdrMetadataTest {
     }
 
     @Test
-    public void aMediaTekDecoderTakesTheMetadataAsAParameterUntilItsOutputShowsIt() throws IOException {
+    public void anyDecoderTakesTheMetadataAsAParameterUntilItsOutputShowsIt() throws IOException {
+        // Not only MediaTek's Codec2 decoders: streaming() runs the platform's video/avc decoder.
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
             renderer.setHdrMode(true, METADATA);
 
@@ -144,7 +144,7 @@ public class MediaCodecHdrMetadataTest {
     @Test
     public void anOutputThatNeverShowsTheMetadataRestartsTheDecoder() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
             renderer.setHdrMode(true, METADATA);
             ReflectionHelpers.setField(renderer, "outputFormat", outputWith(new byte[25]));
@@ -160,22 +160,9 @@ public class MediaCodecHdrMetadataTest {
     }
 
     @Test
-    public void otherDecodersRestartForTheMetadataAsBefore() throws IOException {
-        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), false);
-            AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
-            renderer.setHdrMode(true, METADATA);
-            assertTrue(RecordingCodec.parameters.isEmpty());
-            assertEquals(recovery("CR_RECOVERY_TYPE_RESTART"), type.get());
-            assertEquals("HDR metadata", ReflectionHelpers.getField(renderer, "restartReason"));
-            assertNull(ReflectionHelpers.getField(renderer, "uncheckedHdrStaticInfo"));
-        }
-    }
-
-    @Test
     public void aRefusedParameterRestartsTheDecoder() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
             RecordingCodec.refuseParameters = new IllegalStateException("refused");
             renderer.setHdrMode(true, METADATA);
@@ -187,7 +174,7 @@ public class MediaCodecHdrMetadataTest {
     @Test
     public void aPendingRecoveryConfiguresTheMetadataWithoutAParameter() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
             type.set(recovery("CR_RECOVERY_TYPE_RESET"));
             renderer.setHdrMode(true, METADATA);
@@ -201,7 +188,7 @@ public class MediaCodecHdrMetadataTest {
     @Test
     public void noNewCodecAfterTheReleaseSetsUpAgainWithoutResetOrBlamingDolbyVision() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
             ReflectionHelpers.setField(renderer, "restartRecreates", true);
             ReflectionHelpers.setField(renderer, "dolbyVisionActive", true);
@@ -231,7 +218,7 @@ public class MediaCodecHdrMetadataTest {
     @Test
     public void aDecoderThatFailsItsResetIsRebuiltWithoutDolbyVision() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             ReflectionHelpers.setField(renderer, "dolbyVisionActive", true);
             CodecRecoverySteps.Codec codec = ReflectionHelpers.getField(renderer, "recoveryCodec");
             try {
@@ -247,7 +234,7 @@ public class MediaCodecHdrMetadataTest {
     @Test
     public void aRecreatedCodecReplacesTheReleasedOne() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             MediaCodec old = ReflectionHelpers.getField(renderer, "videoDecoder");
             CodecRecoverySteps.Codec codec = ReflectionHelpers.getField(renderer, "recoveryCodec");
             assertTrue(codec.recreate());
@@ -266,7 +253,7 @@ public class MediaCodecHdrMetadataTest {
     @Test
     public void aDecoderThatCannotBeCreatedWhileRecoveringIsACodecError() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
-            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
             RecordingCodec.createFails = true;
             // Codec recovery reports an IllegalStateException as a crash; anything else would kill its thread.
             try {

@@ -509,7 +509,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile String restartReason = "CodecException";
     // Set with each decoder: a restart releases the codec and creates a new one instead of stop()
     // and configure() (restartRecreates), and HDR metadata alone reaches it as a parameter.
-    private boolean restartRecreates, hdrMetadataAsParameter;
+    private boolean restartRecreates;
     // The metadata setParameters gave the running decoder until its output format carries it, and
     // the outputs seen since. Set and cleared under codecRecoveryMonitor.
     private volatile byte[] uncheckedHdrStaticInfo;
@@ -2543,7 +2543,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         describeKeys(lowLatencyKeysDropped));
                 dolbyVisionActive = dolbyVision;
                 restartRecreates = restartRecreates(selectedDecoderInfo.getName(), lowLatencyKeysApplied);
-                hdrMetadataAsParameter = takesHdrStaticInfoParameter(selectedDecoderInfo.getName());
                 if (restartRecreates) {
                     LimeLog.info("Decoder " + selectedDecoderInfo.getName() + " restarts as a new codec: with its" +
                             " vendor low-latency mode, stop() and configure() leave it without input buffers");
@@ -3699,8 +3698,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VulkanRendererBridge vulkan = vulkanRenderer;
                 if (vulkan != null) vulkan.setHdrMode(enabled, metadata);
                 if (enabled && upscaler != null) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
-                HdrChange change = hdrChange(previousMode, enabled, currentHdrMetadata, metadata, Build.VERSION.SDK_INT,
-                        hdrMetadataAsParameter);
+                HdrChange change = hdrChange(previousMode, enabled, currentHdrMetadata, metadata, Build.VERSION.SDK_INT);
                 if (change == HdrChange.NONE) {
                     return;
                 }
@@ -3733,29 +3731,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * The metadata alone goes to a running decoder that takes it as a parameter
-     * (takesHdrStaticInfoParameter). HDR turning on or off, the metadata going away, Android 9 and
-     * older and every other decoder restart it.
+     * The metadata alone goes to the running decoder as a parameter, on every decoder: the TCL C6K's
+     * c2.mtk.dvhe.st.decoder and c2.mtk.av1.decoder put it in their output format, and one that takes
+     * the parameter and ignores it (a Shield's OMX.Nvidia.h265.decode may) restarts once its output
+     * still lacks it (checkRunningHdrStaticInfo). HDR turning on or off, the metadata going away and
+     * Android 9 and older restart it.
      */
     static HdrChange hdrChange(boolean previousMode, boolean enabled, byte[] previousMetadata, byte[] metadata,
-                               int sdkInt, boolean metadataAsParameter) {
+                               int sdkInt) {
         if (previousMode == enabled && Arrays.equals(previousMetadata, metadata)) {
             return HdrChange.NONE;
         }
-        if (metadataAsParameter && previousMode == enabled && enabled && metadata != null &&
-                sdkInt >= Build.VERSION_CODES.Q) {
+        if (previousMode == enabled && enabled && metadata != null && sdkInt >= Build.VERSION_CODES.Q) {
             return HdrChange.PARAMETERS;
         }
         return HdrChange.RESTART;
-    }
-
-    /**
-     * Whether a decoder gets HDR metadata alone with setParameters instead of a restart. On the TCL
-     * C6K, c2.mtk.dvhe.st.decoder and c2.mtk.av1.decoder put it in their output format; OMX decoders
-     * (a Shield's OMX.Nvidia.h265.decode) may take the parameter and ignore it.
-     */
-    static boolean takesHdrStaticInfoParameter(String decoderName) {
-        return decoderName.toLowerCase(Locale.ROOT).startsWith("c2.mtk.");
     }
 
     /**

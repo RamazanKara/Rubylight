@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Синхронизация буфера обмена</string>
+    <string name="summary_clipboard_sync">Текст, скопированный на этом устройстве, попадает в буфер обмена ПК, а текст, скопированный на ПК, приходит сюда. Android разрешает приложению читать буфер обмена, только пока стрим на переднем плане, поэтому копия из другого приложения уйдёт, когда вы вернётесь. ПК должен разрешить этому устройству читать и записывать свой буфер обмена.</string>
+    <string name="clipboard_sync_not_offered">Синхронизация буфера обмена выключена: ПК её не предложил. Он должен разрешить этому устройству читать и записывать свой буфер обмена.</string>
+    <string name="clipboard_sync_failed">Не удалось запустить синхронизацию буфера обмена.</string>
+    <string name="clipboard_sync_read_refused">Android не дал синхронизации прочитать буфер обмена, поэтому эта копия остаётся на этом устройстве.</string>
+    <string name="clipboard_sync_too_large">Эта копия слишком велика для синхронизации. Отправьте её через %1$s.</string>
+    <string name="clipboard_sync_send_failed">Синхронизации не удалось отправить эту копию на ПК.</string>
+    <string name="clipboard_sync_write_failed">Синхронизации не удалось поместить копию с ПК в буфер обмена этого устройства.</string>
+    <string name="clipboard_sync_image">ПК скопировал изображение. Синхронизация передаёт текст; используйте %1$s.</string>
+    <string name="clipboard_sync_refused">Синхронизации не удалось использовать копию с ПК.</string>
+</resources>

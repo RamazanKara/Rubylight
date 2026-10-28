@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Synchroniser le presse-papiers</string>
+    <string name="summary_clipboard_sync">Le texte copié sur cet appareil va dans le presse-papiers du PC, et le texte copié sur le PC arrive ici. Android ne laisse l\'app lire le presse-papiers que lorsque le stream est au premier plan : une copie faite dans une autre app part donc à votre retour. Le PC doit autoriser cet appareil à lire et à écrire son presse-papiers.</string>
+    <string name="clipboard_sync_not_offered">La synchronisation du presse-papiers est désactivée : le PC ne l\'a pas proposée. Il doit autoriser cet appareil à lire et à écrire son presse-papiers.</string>
+    <string name="clipboard_sync_failed">La synchronisation du presse-papiers n\'a pas pu démarrer.</string>
+    <string name="clipboard_sync_read_refused">Android n\'a pas laissé la synchronisation lire le presse-papiers : cette copie reste sur cet appareil.</string>
+    <string name="clipboard_sync_too_large">Cette copie est trop grande pour la synchronisation. Envoyez-la avec %1$s.</string>
+    <string name="clipboard_sync_send_failed">La synchronisation n\'a pas pu envoyer cette copie au PC.</string>
+    <string name="clipboard_sync_write_failed">La synchronisation n\'a pas pu mettre la copie du PC dans le presse-papiers de cet appareil.</string>
+    <string name="clipboard_sync_image">Le PC a copié une image. La synchronisation transporte du texte ; utilisez %1$s.</string>
+    <string name="clipboard_sync_refused">La synchronisation n\'a pas pu utiliser une copie du PC.</string>
+</resources>

@@ -25,6 +25,8 @@ public class StreamConfiguration {
     private boolean virtualDisplay;
     private int virtualDisplayScale = 100;
     private boolean vrr;
+    // Asks a Rubylight PC for clipboard sync (0x5508).
+    private boolean clipboardSync;
     // The PC's display choice as saved for the PC the stream was started from; null: look it up.
     private HostDisplayChoice hostDisplay;
     // The video FEC to ask a PC that lets the client choose; null sends nothing.
@@ -173,6 +175,11 @@ public class StreamConfiguration {
 
         public StreamConfiguration.Builder setVrr(boolean enabled) {
             config.vrr = enabled;
+            return this;
+        }
+
+        public StreamConfiguration.Builder setClipboardSync(boolean enabled) {
+            config.clipboardSync = enabled;
             return this;
         }
 
@@ -340,6 +347,10 @@ public class StreamConfiguration {
 
     public boolean getVrr() {
         return vrr;
+    }
+
+    public boolean getClipboardSync() {
+        return clipboardSync;
     }
 
     public HostDisplayChoice getHostDisplay() {

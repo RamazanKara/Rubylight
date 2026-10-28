@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Sincronizar portapapeles</string>
+    <string name="summary_clipboard_sync">El texto copiado en este dispositivo pasa al portapapeles del PC, y el texto copiado en el PC llega aquí. Android solo deja que la app lea el portapapeles mientras el stream está delante, así que una copia hecha en otra app se envía cuando vuelves. El PC debe permitir que este dispositivo lea y escriba su portapapeles.</string>
+    <string name="clipboard_sync_not_offered">La sincronización del portapapeles está desactivada: el PC no la ofreció. Debe permitir que este dispositivo lea y escriba su portapapeles.</string>
+    <string name="clipboard_sync_failed">La sincronización del portapapeles no pudo iniciarse.</string>
+    <string name="clipboard_sync_read_refused">Android no dejó que la sincronización leyera el portapapeles, así que esta copia se queda en este dispositivo.</string>
+    <string name="clipboard_sync_too_large">Esta copia es demasiado grande para la sincronización. Envíala con %1$s.</string>
+    <string name="clipboard_sync_send_failed">La sincronización no pudo enviar esta copia al PC.</string>
+    <string name="clipboard_sync_write_failed">La sincronización no pudo poner la copia del PC en el portapapeles de este dispositivo.</string>
+    <string name="clipboard_sync_image">El PC copió una imagen. La sincronización lleva texto; usa %1$s.</string>
+    <string name="clipboard_sync_refused">La sincronización no pudo usar una copia del PC.</string>
+</resources>

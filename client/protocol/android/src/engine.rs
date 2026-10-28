@@ -6,10 +6,12 @@ use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use nightjar_core::control::clipboard_sync::{ClipboardItem, ClipboardSync, Local, Received};
 use nightjar_core::control::ClientMessage;
 use nightjar_core::rtsp::MicrophoneState;
 use nightjar_core::sdp::{self, StreamConfig};
 use nightjar_core::session::{HostInfo, Interrupt, NetworkHint, Session, SessionConfig};
+use rubylight_protocol::clipboard_sync::{Frame, CLIPBOARD_SYNC_MESSAGE_TYPE};
 use rubylight_protocol::control::ClockSyncReply;
 use rubylight_protocol::present_clock::{Grid, GridSchedule, PresentClock, Schedule, Settings};
 
@@ -24,6 +26,18 @@ pub const MIC_STATE_OFF: i32 = 0;
 pub const MIC_STATE_NOT_OFFERED: i32 = 1;
 pub const MIC_STATE_UNAVAILABLE: i32 = 2;
 pub const MIC_STATE_READY: i32 = 3;
+
+/// `MoonBridge.CLIPBOARD_SYNC_*`: what [`clipboard_sync_start`] did.
+pub const CLIPBOARD_SYNC_ON: i32 = 0;
+pub const CLIPBOARD_SYNC_NOT_OFFERED: i32 = 1;
+pub const CLIPBOARD_SYNC_FAILED: i32 = 2;
+
+/// `MoonBridge.CLIPBOARD_COPY_*`: what [`clipboard_sync_local`] did with a copy made here.
+pub const CLIPBOARD_COPY_SENT: i32 = 0;
+pub const CLIPBOARD_COPY_SKIPPED: i32 = 1;
+pub const CLIPBOARD_COPY_TOO_LARGE: i32 = 2;
+/// The sync is off or the send failed.
+pub const CLIPBOARD_COPY_FAILED: i32 = 3;
 
 struct Microphone {
     encoder: opus::Encoder,
@@ -53,6 +67,9 @@ struct Engine {
     host_packed444_modes: AtomicI32,
     /// The HDR format this stream's ANNOUNCE asked for, 0 until the handshake has it.
     announced_hdr_format: AtomicI32,
+    /// Clipboard sync (0x5508) from `clipboardSyncStart` until the stream stops. Locked before
+    /// `session` when both are.
+    clipboard: Mutex<Option<ClipboardSync>>,
 }
 
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
@@ -67,6 +84,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
     host_messages: Mutex::new(Vec::new()),
     host_packed444_modes: AtomicI32::new(-1),
     announced_hdr_format: AtomicI32::new(0),
+    clipboard: Mutex::new(None),
 });
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -166,6 +184,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     set_host_messages(&[]);
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
     ENGINE.announced_hdr_format.store(0, Ordering::SeqCst);
+    *lock(&ENGINE.clipboard) = None;
 
     let microphone_requested = params.config.stream.microphone;
     let audio_passthrough = params.config.stream.audio_passthrough;
@@ -252,6 +271,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
 /// `LiStopConnection`.
 pub fn stop() {
     let session = lock(&ENGINE.session).take();
+    *lock(&ENGINE.clipboard) = None;
     set_host_messages(&[]);
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
     ENGINE.announced_hdr_format.store(0, Ordering::SeqCst);
@@ -472,6 +492,66 @@ pub fn present_clock_offset(now_us: u64) -> Option<(i64, i64)> {
     ))
 }
 
+/// `RustBridge.clipboardSyncStart`: starts clipboard sync with a host that offered it. The
+/// clipboard here as it is (`current`, None when it could not be read) stays here; the hello
+/// starts the host's copies.
+pub fn clipboard_sync_start(current: Option<String>) -> i32 {
+    if !host_supports(CLIPBOARD_SYNC_MESSAGE_TYPE) {
+        *lock(&ENGINE.clipboard) = None;
+        return CLIPBOARD_SYNC_NOT_OFFERED;
+    }
+    let mut sync = ClipboardSync::new(false);
+    sync.baseline(
+        current
+            .filter(|text| !text.is_empty())
+            .map(ClipboardItem::Text),
+    );
+    let hello = sync.hello();
+    let mut clipboard = lock(&ENGINE.clipboard);
+    // Stored before the hello goes, so the host's first copy finds it.
+    *clipboard = Some(sync);
+    if send(hello) {
+        platform::info("Clipboard sync: on");
+        CLIPBOARD_SYNC_ON
+    } else {
+        *clipboard = None;
+        platform::error("Clipboard sync: the hello could not be sent");
+        CLIPBOARD_SYNC_FAILED
+    }
+}
+
+/// `RustBridge.clipboardSyncLocal`: text copied here, sent unless the sync knows it.
+pub fn clipboard_sync_local(text: String) -> i32 {
+    let mut clipboard = lock(&ENGINE.clipboard);
+    let Some(sync) = clipboard.as_mut() else {
+        return CLIPBOARD_COPY_FAILED;
+    };
+    match sync.local(ClipboardItem::Text(text), Instant::now()) {
+        Local::Send(message) => {
+            if send(message) {
+                CLIPBOARD_COPY_SENT
+            } else {
+                platform::warn("Clipboard sync: a copy could not be sent");
+                CLIPBOARD_COPY_FAILED
+            }
+        }
+        Local::Skip => CLIPBOARD_COPY_SKIPPED,
+        Local::TooLarge(bytes) => {
+            platform::warn(&format!(
+                "Clipboard sync: a copy of {bytes} bytes is too large to send"
+            ));
+            CLIPBOARD_COPY_TOO_LARGE
+        }
+    }
+}
+
+/// A clipboard frame from the host, through the sync's rules; None while the sync is off.
+pub fn clipboard_sync_received(frame: Frame) -> Option<Received> {
+    lock(&ENGINE.clipboard)
+        .as_mut()
+        .map(|sync| sync.received(frame, Instant::now()))
+}
+
 /// A clock sync reply from the control thread (`BridgeClClockSync`).
 pub fn clock_sync(reply: &ClockSyncReply, received_us: u64) {
     if let Some(clock) = lock(&ENGINE.present_clock).as_mut() {
@@ -504,6 +584,47 @@ mod tests {
         assert!(!host_supports(CLOCK_SYNC), "an interrupted start must not record messages");
 
         *lock(&ENGINE.interrupt) = Interrupt::default();
+    }
+
+    #[test]
+    fn clipboard_sync_runs_only_with_a_host_that_offered_it_and_ends_with_the_stream() {
+        let _serial = lock(&ENGINE_TESTS);
+        *lock(&ENGINE.interrupt) = Interrupt::default();
+        stop();
+        let from_host = || Frame {
+            kind: rubylight_protocol::clipboard_sync::KIND_TEXT,
+            token: 9,
+            payload: b"pc".to_vec(),
+        };
+        assert_eq!(
+            clipboard_sync_start(Some("here".into())),
+            CLIPBOARD_SYNC_NOT_OFFERED
+        );
+        assert_eq!(clipboard_sync_local("copied".into()), CLIPBOARD_COPY_FAILED);
+        assert!(clipboard_sync_received(from_host()).is_none());
+
+        // Offered, but no stream takes the hello: said, and the sync stays off.
+        set_host_messages(&[CLIPBOARD_SYNC_MESSAGE_TYPE]);
+        assert_eq!(clipboard_sync_start(None), CLIPBOARD_SYNC_FAILED);
+        assert!(clipboard_sync_received(from_host()).is_none());
+
+        // Running, the host's copy applies once; a stop ends it.
+        *lock(&ENGINE.clipboard) = Some(ClipboardSync::new(false));
+        assert!(matches!(
+            clipboard_sync_received(from_host()),
+            Some(Received::Apply(ClipboardItem::Text(ref text))) if text == "pc"
+        ));
+        assert_eq!(
+            clipboard_sync_local("pc".into()),
+            CLIPBOARD_COPY_SKIPPED,
+            "the host's copy does not go back"
+        );
+        assert_eq!(
+            clipboard_sync_local("x".repeat(70_000)),
+            CLIPBOARD_COPY_TOO_LARGE
+        );
+        stop();
+        assert!(clipboard_sync_received(from_host()).is_none());
     }
 
     #[test]

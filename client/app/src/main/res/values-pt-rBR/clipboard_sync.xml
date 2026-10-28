@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Sincronizar área de transferência</string>
+    <string name="summary_clipboard_sync">O texto copiado neste dispositivo vai para a área de transferência do PC, e o texto copiado no PC chega aqui. O Android só deixa o app ler a área de transferência enquanto o stream está na frente, então uma cópia feita em outro app é enviada quando você volta. O PC precisa permitir que este dispositivo leia e grave a área de transferência dele.</string>
+    <string name="clipboard_sync_not_offered">A sincronização da área de transferência está desligada: o PC não a ofereceu. Ele precisa permitir que este dispositivo leia e grave a área de transferência dele.</string>
+    <string name="clipboard_sync_failed">A sincronização da área de transferência não pôde iniciar.</string>
+    <string name="clipboard_sync_read_refused">O Android não deixou a sincronização ler a área de transferência, então esta cópia fica neste dispositivo.</string>
+    <string name="clipboard_sync_too_large">Esta cópia é grande demais para a sincronização. Envie com %1$s.</string>
+    <string name="clipboard_sync_send_failed">A sincronização não pôde enviar esta cópia ao PC.</string>
+    <string name="clipboard_sync_write_failed">A sincronização não pôde colocar a cópia do PC na área de transferência deste dispositivo.</string>
+    <string name="clipboard_sync_image">O PC copiou uma imagem. A sincronização leva texto; use %1$s.</string>
+    <string name="clipboard_sync_refused">A sincronização não pôde usar uma cópia do PC.</string>
+</resources>

@@ -48,6 +48,8 @@ pub struct Methods {
     pub steam_settings: JStaticMethodID,
     pub text_input: JStaticMethodID,
     pub usb_changed: JStaticMethodID,
+    pub clipboard_sync: JStaticMethodID,
+    pub clipboard_sync_refused: JStaticMethodID,
 }
 
 pub struct Bridge {
@@ -103,6 +105,8 @@ pub fn init(env: &mut JNIEnv) -> jni::errors::Result<()> {
         steam_settings: id("bridgeClSteamSettings", "(SB[B)V")?,
         text_input: id("bridgeClTextInput", "(IIII)V")?,
         usb_changed: id("bridgeClUsbChanged", "()V")?,
+        clipboard_sync: id("bridgeClClipboardSync", "(Ljava/lang/String;)V")?,
+        clipboard_sync_refused: id("bridgeClClipboardSyncRefused", "(I)V")?,
     };
     let bridge = Bridge {
         vm: env.get_java_vm()?,

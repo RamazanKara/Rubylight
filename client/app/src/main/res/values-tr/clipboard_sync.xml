@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Pano eşitleme</string>
+    <string name="summary_clipboard_sync">Bu cihazda kopyalanan metin bilgisayarın panosuna gider, bilgisayarda kopyalanan metin buraya gelir. Android uygulamanın panoyu yalnızca yayın öndeyken okumasına izin verir; başka bir uygulamada yapılan kopya geri döndüğünüzde gönderilir. Bilgisayar bu cihazın panosunu okumasına ve yazmasına izin vermelidir.</string>
+    <string name="clipboard_sync_not_offered">Pano eşitleme kapalı: bilgisayar bunu sunmadı. Bilgisayar bu cihazın panosunu okumasına ve yazmasına izin vermelidir.</string>
+    <string name="clipboard_sync_failed">Pano eşitleme başlatılamadı.</string>
+    <string name="clipboard_sync_read_refused">Android eşitlemenin panoyu okumasına izin vermedi, bu kopya bu cihazda kalıyor.</string>
+    <string name="clipboard_sync_too_large">Bu kopya eşitleme için çok büyük. %1$s ile gönderin.</string>
+    <string name="clipboard_sync_send_failed">Eşitleme bu kopyayı bilgisayara gönderemedi.</string>
+    <string name="clipboard_sync_write_failed">Eşitleme bilgisayarın kopyasını bu cihazın panosuna koyamadı.</string>
+    <string name="clipboard_sync_image">Bilgisayar bir görüntü kopyaladı. Eşitleme metin taşır; %1$s kullanın.</string>
+    <string name="clipboard_sync_refused">Eşitleme bilgisayardan gelen bir kopyayı kullanamadı.</string>
+</resources>

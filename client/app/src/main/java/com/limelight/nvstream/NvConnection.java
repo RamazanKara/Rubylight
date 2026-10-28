@@ -1566,6 +1566,11 @@ public class NvConnection {
         return nativeUsbForwarding;
     }
 
+    /** Whether this stream's launch asked the PC for clipboard sync (NvHTTP.asksClipboardSync). */
+    public boolean askedForClipboardSync() {
+        return context.hostCaps != null && NvHTTP.asksClipboardSync(context);
+    }
+
     /**
      * Whether the host carries PNG images on its clipboard ({@code clipboard.image}), as it last said; false until
      * known. The clipboard read and write permissions still decide each direction.

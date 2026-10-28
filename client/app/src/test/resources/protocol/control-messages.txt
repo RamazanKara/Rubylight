@@ -1,4 +1,4 @@
-# The 3.0 control message types MoonBridge.java names: field, then type.
+# The 3.0 and adopted control message types MoonBridge.java names: field, then type.
 # MoonBridgeControlMessagesTest checks the Java constants against this file, and nightjar-core's
 # tests/control_messages_contract.rs checks it against rubylight_protocol (protocol/core/src/ids.rs).
 CONTROL_MESSAGE_FEC_REPORT 0x5539
@@ -8,3 +8,4 @@ CONTROL_MESSAGE_RATE_CHANGE 0x553C
 CONTROL_MESSAGE_PIPELINE_RATES 0x553D
 CONTROL_MESSAGE_KEYBOARD_LAYOUT 0x553E
 CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST 0x5540
+CONTROL_MESSAGE_CLIPBOARD_SYNC 0x5508

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Clipboard sync</string>
+    <string name="summary_clipboard_sync">Text copied on this device goes on the PC\'s clipboard, and text copied on the PC comes here. Android lets the app read the clipboard only while the stream is in front, so a copy made in another app goes once you are back. The PC must allow this device to read and write its clipboard.</string>
+    <string name="clipboard_sync_not_offered">Clipboard sync is off: the PC did not offer it. It must allow this device to read and write its clipboard.</string>
+    <string name="clipboard_sync_failed">Clipboard sync could not start.</string>
+    <string name="clipboard_sync_read_refused">Android did not let clipboard sync read the clipboard, so this copy stays on this device.</string>
+    <string name="clipboard_sync_too_large">This copy is too large for clipboard sync. Send it with %1$s.</string>
+    <string name="clipboard_sync_send_failed">Clipboard sync could not send this copy to the PC.</string>
+    <string name="clipboard_sync_write_failed">Clipboard sync could not put the PC\'s copy on this device\'s clipboard.</string>
+    <string name="clipboard_sync_image">The PC copied an image. Clipboard sync carries text; use %1$s.</string>
+    <string name="clipboard_sync_refused">Clipboard sync could not use a copy from the PC.</string>
+</resources>

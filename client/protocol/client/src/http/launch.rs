@@ -287,11 +287,11 @@ impl LaunchRequest {
         if let Some(fec) = self.fec.filter(|_| caps.has(Feature::ClientFec)) {
             q.push_str(&format!("&{LAUNCH_PARAMETER}={}", fec.as_param()));
         }
-        if self.rate_change {
-            q.push_str(&format!("&{}=1", rate_change::LAUNCH_PARAMETER));
-        }
         if self.clipboard_sync && caps.family() == Family::Rubylight {
             q.push_str(&format!("&{}=1", clipboard_sync::LAUNCH_PARAMETER));
+        }
+        if self.rate_change {
+            q.push_str(&format!("&{}=1", rate_change::LAUNCH_PARAMETER));
         }
         q.push_str(CORE_LAUNCH_PARAMETERS);
         q

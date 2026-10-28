@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">剪贴板同步</string>
+    <string name="summary_clipboard_sync">在本设备上复制的文本会进入电脑的剪贴板，在电脑上复制的文本会来到这里。Android 只允许应用在串流位于前台时读取剪贴板，因此在其他应用中复制的内容会在你返回后发送。电脑必须允许本设备读写其剪贴板。</string>
+    <string name="clipboard_sync_not_offered">剪贴板同步已关闭：电脑没有提供。电脑必须允许本设备读写其剪贴板。</string>
+    <string name="clipboard_sync_failed">剪贴板同步无法启动。</string>
+    <string name="clipboard_sync_read_refused">Android 不允许同步读取剪贴板，因此这次复制的内容留在本设备上。</string>
+    <string name="clipboard_sync_too_large">这次复制的内容太大，无法同步。请用%1$s发送。</string>
+    <string name="clipboard_sync_send_failed">同步无法将这次复制的内容发送到电脑。</string>
+    <string name="clipboard_sync_write_failed">同步无法将电脑复制的内容放入本设备的剪贴板。</string>
+    <string name="clipboard_sync_image">电脑复制了一张图片。同步只传送文本；请使用%1$s。</string>
+    <string name="clipboard_sync_refused">同步无法使用来自电脑的复制内容。</string>
+</resources>

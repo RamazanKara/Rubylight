@@ -837,6 +837,30 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendKeyboardLa
     jbool(message.is_some_and(engine::send))
 }
 
+/// Starts clipboard sync (0x5508) with a host that offered it: `MoonBridge.CLIPBOARD_SYNC_*`.
+/// `current` is the clipboard here as it is, null when it could not be read; it stays here.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_clipboardSyncStart(
+    mut env: JNIEnv,
+    _: JClass,
+    current: JString,
+) -> jint {
+    engine::clipboard_sync_start(string(&mut env, &current))
+}
+
+/// Text copied here, for clipboard sync: `MoonBridge.CLIPBOARD_COPY_*`.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_clipboardSyncLocal(
+    mut env: JNIEnv,
+    _: JClass,
+    text: JString,
+) -> jint {
+    match string(&mut env, &text) {
+        Some(text) => engine::clipboard_sync_local(text),
+        None => engine::CLIPBOARD_COPY_SKIPPED,
+    }
+}
+
 /// DualSense microphone PCM (0x5534) or USB audio endpoint status (0x5535).
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendControllerAudio(

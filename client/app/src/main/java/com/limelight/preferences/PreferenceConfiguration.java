@@ -113,6 +113,7 @@ public class PreferenceConfiguration {
     private static final String BACK_OPENS_MENU_PREF_STRING = "checkbox_back_opens_menu";
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING = "checkbox_keyboard_follows_text_fields";
+    static final String CLIPBOARD_SYNC_PREF_STRING = "checkbox_clipboard_sync";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
     private static final String MOUSE_NAV_BUTTONS_STRING = "checkbox_mouse_nav_buttons";
     static final String INPUT_ONLY_ANY_HOST_PREF_STRING = "checkbox_input_only_any_host";
@@ -326,6 +327,8 @@ public class PreferenceConfiguration {
     public boolean backOpensMenu;
     public boolean rightAltAsMeta;
     public boolean keyboardFollowsTextFields;
+    // Clipboard sync (0x5508) with a Rubylight PC that offers it.
+    public boolean clipboardSync;
     public AnalogStickForScrolling analogStickForScrolling;
     public boolean mouseNavButtons;
     /** Offer Input-only over a small stream on PCs whose host has no Input-only mode. */
@@ -1319,6 +1322,7 @@ public class PreferenceConfiguration {
         config.backOpensMenu = prefs.getBoolean(BACK_OPENS_MENU_PREF_STRING, false);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.keyboardFollowsTextFields = prefs.getBoolean(KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING, true);
+        config.clipboardSync = prefs.getBoolean(CLIPBOARD_SYNC_PREF_STRING, false);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);
         config.inputOnlyAnyHost = prefs.getBoolean(INPUT_ONLY_ANY_HOST_PREF_STRING, DEFAULT_INPUT_ONLY_ANY_HOST);
         config.unlockFps = prefs.getBoolean(UNLOCK_FPS_STRING, DEFAULT_UNLOCK_FPS);

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">クリップボードの同期</string>
+    <string name="summary_clipboard_sync">このデバイスでコピーしたテキストは PC のクリップボードに入り、PC でコピーしたテキストはここに届きます。Android はストリームが前面にある間だけアプリにクリップボードの読み取りを許すため、別のアプリでのコピーは戻ったときに送られます。PC がこのデバイスにクリップボードの読み書きを許可している必要があります。</string>
+    <string name="clipboard_sync_not_offered">クリップボードの同期はオフです: PC が提供しませんでした。PC がこのデバイスにクリップボードの読み書きを許可している必要があります。</string>
+    <string name="clipboard_sync_failed">クリップボードの同期を開始できませんでした。</string>
+    <string name="clipboard_sync_read_refused">Android がクリップボードの読み取りを許可しなかったため、このコピーはこのデバイスに残ります。</string>
+    <string name="clipboard_sync_too_large">このコピーは同期するには大きすぎます。%1$s で送ってください。</string>
+    <string name="clipboard_sync_send_failed">このコピーを PC に送れませんでした。</string>
+    <string name="clipboard_sync_write_failed">PC のコピーをこのデバイスのクリップボードに入れられませんでした。</string>
+    <string name="clipboard_sync_image">PC が画像をコピーしました。同期で送れるのはテキストです。%1$s を使ってください。</string>
+    <string name="clipboard_sync_refused">PC からのコピーを使えませんでした。</string>
+</resources>

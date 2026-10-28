@@ -132,6 +132,9 @@ final class RustBridge {
     static native boolean sendTextInputRequest(boolean enabled);
     static native boolean sendRateChange(int serial, int bitrateKbps, int fpsMillihz);
     static native boolean sendKeyboardLayout(String bcp47Tag);
+    // Clipboard sync (0x5508): MoonBridge.CLIPBOARD_SYNC_* and MoonBridge.CLIPBOARD_COPY_*.
+    static native int clipboardSyncStart(String current);
+    static native int clipboardSyncLocal(String text);
     // USB forwarding (0x553A): a request id, or one of MoonBridge.USB_*.
     static native int usbAttach(int fd, String path, String name, String address, int httpPort,
                                 int httpsPort, String serverCertificatePem, String uniqueId,

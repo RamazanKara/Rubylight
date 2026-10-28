@@ -5,10 +5,15 @@
 ;            /DOutputDir=<folder> /DOutputBaseName=<name> nightjar.iss
 ;
 ; Per user, no administrator prompt: %LOCALAPPDATA%\Programs\Nightjar, a Start menu shortcut, an
-; optional desktop shortcut and an Apps & features entry. The settings, the paired PCs and the
-; logs live in %APPDATA%\Nightjar (config.rs, config_dir), outside the install folder: an upgrade
-; never touches them, and an uninstall removes them only when the user ticks the box for it (or
-; passes /REMOVESETTINGS to a silent uninstall).
+; optional desktop shortcut and an Apps & features entry. The client keeps everything in
+; %APPDATA%\Nightjar\config (config.rs, config_dir), outside the install folder: an upgrade never
+; touches it, and an uninstall removes it only when the user ticks the box for it (or passes
+; /REMOVESETTINGS to a silent uninstall), and even then keeps the screenshots and the saved
+; statistics, which are the user's own files.
+;
+; /DTestDataDir=<folder> builds a test installer that uses <folder> in place of
+; %APPDATA%\Nightjar, so build-installer.ps1 -Smoke can check the removal on a developer's PC
+; without touching the real settings. Release builds never define it.
 
 #ifndef AppVersion
   #error Pass /DAppVersion=<version>
@@ -80,19 +85,20 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "de"; MessagesFile: "compiler:Languages\German.isl"
 
 [CustomMessages]
-en.SettingsKept=Your settings and paired PCs stay in %1, so installing Nightjar again picks them up.
-en.RemoveSettings=&Remove my settings and paired PCs too
-de.SettingsKept=Deine Einstellungen und gekoppelten PCs bleiben in %1, damit eine neue Installation sie wieder verwendet.
-de.RemoveSettings=&Meine Einstellungen und gekoppelten PCs auch entfernen
+en.SettingsKept=Your settings, paired PCs, controller layouts, app lists, cover art and logs stay in %1, so installing Nightjar again picks them up.
+en.RemoveSettings=&Remove them too (screenshots and statistics stay)
+de.SettingsKept=Deine Einstellungen, gekoppelten PCs, Controller-Belegungen, App-Listen, Cover-Bilder und Protokolle bleiben in %1, damit eine neue Installation sie wieder verwendet.
+de.RemoveSettings=&Diese auch entfernen (Screenshots und Statistiken bleiben)
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [InstallDelete]
 ; An upgrade replaces the libraries: a DLL the new version no longer ships (another FFmpeg
-; version) must not stay behind. Only files the package itself brings are matched.
-Type: files; Name: "{app}\*.dll"
-Type: filesandordirs; Name: "{app}\licenses-*"
+; version) must not stay behind. Only over Nightjar's own previous install (the folder its
+; uninstall entry names), never in a folder a first install was pointed at with /DIR.
+Type: files; Name: "{app}\*.dll"; Check: IsUpgradeOfThisFolder
+Type: filesandordirs; Name: "{app}\licenses-*"; Check: IsUpgradeOfThisFolder
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -106,10 +112,72 @@ Name: "{autodesktop}\Nightjar"; Filename: "{app}\nightjar.exe"; IconFilename: "{
 Filename: "{app}\nightjar.exe"; Description: "{cm:LaunchProgram,Nightjar}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// The client's data folder (directories' ProjectDirs for "Nightjar": %APPDATA%\Nightjar\config).
+const
+  // The entry Setup writes for the AppId above (per user, so under HKCU).
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6A3C8F12-5E7B-4D2A-9C41-7B0E8D3F2A65}_is1';
+
+// True when {app} is the folder of the Nightjar this Setup upgrades.
+function IsUpgradeOfThisFolder(): Boolean;
+var
+  Previous: String;
+begin
+  Result := RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', Previous) and
+    (CompareText(RemoveBackslashUnlessRoot(Previous), RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) = 0);
+end;
+
+// The folder above the client's data (directories' ProjectDirs for "Nightjar":
+// %APPDATA%\Nightjar\config).
 function DataDir(): String;
 begin
+#ifdef TestDataDir
+  Result := '{#TestDataDir}';
+#else
   Result := ExpandConstant('{userappdata}\Nightjar');
+#endif
+end;
+
+function ConfigDir(): String;
+begin
+  Result := AddBackslash(DataDir()) + 'config';
+end;
+
+// The user's own files in the data folder: kept even when the settings go.
+function IsUserFile(Name: String): Boolean;
+begin
+  Result := (CompareText(Name, 'screenshots') = 0) or (CompareText(Name, 'statistics') = 0);
+end;
+
+// Removes everything in the data folder but the user's own files, then the folders that leaves
+// empty. False when something could not be removed.
+function RemoveSettings(): Boolean;
+var
+  Found: TFindRec;
+  Path: String;
+begin
+  Result := True;
+  if FindFirst(ConfigDir() + '\*', Found) then begin
+    try
+      repeat
+        Path := ConfigDir() + '\' + Found.Name;
+        if (Found.Name <> '.') and (Found.Name <> '..') and not IsUserFile(Found.Name) then begin
+          if (Found.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then begin
+            if not DelTree(Path, True, True, True) then begin
+              Log('Could not remove ' + Path);
+              Result := False;
+            end;
+          end else if not DeleteFile(Path) then begin
+            Log('Could not remove ' + Path);
+            Result := False;
+          end;
+        end;
+      until not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+  end;
+  // RemoveDir only removes an empty folder: one with screenshots in it stays.
+  RemoveDir(ConfigDir());
+  RemoveDir(DataDir());
 end;
 
 // After the files are gone: say where the settings stay, and remove them only when asked.
@@ -120,7 +188,7 @@ var
   Box: TNewCheckBox;
   Button: TNewButton;
 begin
-  Form := CreateCustomForm(ScaleX(420), ScaleY(150), False, True);
+  Form := CreateCustomForm(ScaleX(500), ScaleY(176), False, True);
   try
     Form.Caption := 'Nightjar';
     Text := TNewStaticText.Create(Form);
@@ -130,12 +198,12 @@ begin
     Text.Width := Form.ClientWidth - ScaleX(32);
     Text.AutoSize := False;
     Text.WordWrap := True;
-    Text.Height := ScaleY(48);
-    Text.Caption := FmtMessage(CustomMessage('SettingsKept'), [DataDir()]);
+    Text.Height := ScaleY(72);
+    Text.Caption := FmtMessage(CustomMessage('SettingsKept'), [ConfigDir()]);
     Box := TNewCheckBox.Create(Form);
     Box.Parent := Form;
     Box.Left := ScaleX(16);
-    Box.Top := ScaleY(72);
+    Box.Top := ScaleY(96);
     Box.Width := Form.ClientWidth - ScaleX(32);
     Box.Height := ScaleY(20);
     Box.Caption := CustomMessage('RemoveSettings');
@@ -149,10 +217,9 @@ begin
     Button.Caption := SetupMessage(msgButtonOK);
     Button.ModalResult := mrOk;
     Button.Default := True;
-    Button.Cancel := True;
     Form.ActiveControl := Button;
-    Form.ShowModal();
-    Result := Box.Checked;
+    // Closing the box with X keeps everything, ticked or not.
+    Result := (Form.ShowModal() = mrOk) and Box.Checked;
   finally
     Form.Free();
   end;
@@ -173,14 +240,14 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Remove: Boolean;
 begin
-  if (CurUninstallStep <> usPostUninstall) or not DirExists(DataDir()) then
+  if (CurUninstallStep <> usPostUninstall) or not DirExists(ConfigDir()) then
     Exit;
   if UninstallSilent() then
     Remove := RemoveSettingsParam()
   else
     Remove := AskRemoveSettings();
-  if Remove and not DelTree(DataDir(), True, True, True) then begin
-    Log(FmtMessage('Could not remove %1 completely.', [DataDir()]));
-    MsgBox(FmtMessage('Could not remove %1 completely.', [DataDir()]), mbError, MB_OK);
+  if Remove and not RemoveSettings() then begin
+    Log(FmtMessage('Could not remove everything in %1.', [ConfigDir()]));
+    MsgBox(FmtMessage('Could not remove everything in %1.', [ConfigDir()]), mbError, MB_OK);
   end;
 end;

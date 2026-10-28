@@ -51,5 +51,4 @@
     <string name="folders_save_lost">Il file da salvare è andato perso mentre la finestra di salvataggio era aperta. Non è stato salvato nulla.</string>
     <string name="folders_partial_left">%1$s Rimane un file parziale in %2$s.</string>
     <string name="folders_bad_path">Nightjar non può aprire questo percorso: %1$s</string>
-    <string name="host_menu_folders_note">Sperimentale</string>
 </resources>

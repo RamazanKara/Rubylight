@@ -4,6 +4,6 @@
     <string name="summary_fec_choice">Rubylight 电脑在视频中加入的恢复数据量。自动会跟随此设备的丢包情况。其他电脑使用自己的设置。</string>
     <string name="fec_choice_host">电脑的设置</string>
     <string name="fec_choice_auto">自动</string>
-    <string name="title_link_probe">首次码率前测试连接（实验性）</string>
+    <string name="title_link_probe">首次码率前测试连接</string>
     <string name="summary_link_probe">使用自动码率的新串流会先测试与 Rubylight 电脑的连接，起始码率不会超过连接能承受的水平。</string>
 </resources>

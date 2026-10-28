@@ -4,6 +4,6 @@
     <string name="summary_fec_choice">Rubylight PC が映像に加える復元用データの量です。自動ではこのデバイスの損失に合わせます。ほかの PC は独自の設定を使います。</string>
     <string name="fec_choice_host">PC の設定</string>
     <string name="fec_choice_auto">自動</string>
-    <string name="title_link_probe">最初のビットレートの前に回線をテスト（試験運用）</string>
+    <string name="title_link_probe">最初のビットレートの前に回線をテスト</string>
     <string name="summary_link_probe">自動ビットレートの新しいストリームは、まず Rubylight PC との回線をテストし、回線が耐えられる以上のビットレートでは開始しません。</string>
 </resources>

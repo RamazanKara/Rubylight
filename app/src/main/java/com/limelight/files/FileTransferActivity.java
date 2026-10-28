@@ -144,7 +144,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             }
             if (refused > 0) {
                 LimeLog.warning("File transfer: refused " + refused + " shared items that are not another app's files");
-                Toast.makeText(this, getString(R.string.files_share_refused, refused), Toast.LENGTH_LONG).show();
+                Toast.makeText(this, getResources().getQuantityString(R.plurals.files_share_refused, refused, refused), Toast.LENGTH_LONG).show();
             }
             work.engine = FileTransferEngine.jni();
         }
@@ -261,6 +261,10 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     }
 
     private Button button(LinearLayout parent, int label) {
+        return button(parent, getText(label));
+    }
+
+    private Button button(LinearLayout parent, CharSequence label) {
         Button button = new com.google.android.material.button.MaterialButton(this, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         button.setText(label);
@@ -511,8 +515,8 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
                 continue;
             }
             any = true;
-            Button pick = button(pcs, 0);
-            pick.setText(details.displayName());
+            // By name: the label used to be the string resource 0, which crashed every share.
+            Button pick = button(pcs, details.displayName());
             pick.setOnClickListener(v -> {
                 work.uuid = details.uuid;
                 work.computer = null;

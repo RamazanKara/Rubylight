@@ -19,6 +19,8 @@ import android.widget.TextView;
 import com.limelight.PcViewLifecycleTest;
 import com.limelight.R;
 import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.NativeApiFixtures;
+import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.jni.FileTransferBridge;
 
 import org.junit.Before;
@@ -32,6 +34,7 @@ import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.shadows.ShadowToast;
+import org.robolectric.util.ReflectionHelpers;
 
 import java.util.function.BooleanSupplier;
 
@@ -152,6 +155,22 @@ public class FileTransferRecreationTest {
         clear.performClick();
         assertTrue(work.leftovers.isEmpty());
         assertFalse(shows(screen.get().getWindow().getDecorView(), left));
+        screen.get().finish();
+        screen.pause().stop().destroy();
+    }
+
+    @Test
+    public void aShareWithoutAPcListsTheOnlinePcsByName() {
+        Intent share = new Intent(app, FileTransferActivity.class).setAction(Intent.ACTION_SEND)
+                .putExtra(Intent.EXTRA_STREAM, SHARED);
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class, share)
+                .setup();
+        screen.get().work.engine = new Engine();
+        ComputerDetails tower = NativeApiFixtures.nativeHost("tower-uuid", "Tower", true);
+        // Every share crashed here: the PC's button was labelled with the string resource 0.
+        ReflectionHelpers.callInstanceMethod(screen.get(), "onComputer",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, tower));
+        assertTrue(shows(screen.get().getWindow().getDecorView(), "Tower"));
         screen.get().finish();
         screen.pause().stop().destroy();
     }

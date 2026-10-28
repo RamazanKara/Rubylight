@@ -1531,6 +1531,64 @@ mod tests {
         assert_eq!(fixed.recovery_fec_percent(), 10);
     }
     #[test]
+    fn auto_fec_finds_the_largest_recovery_frame_its_own_percentage_covers_in_full() {
+        use crate::extensions::FecChoice;
+        use crate::statistical_fec::FecReport;
+        let report = |seq, missing| {
+            FecReport {
+                seq,
+                data_shards: 900,
+                parity_shards: 180,
+                missing_shards: missing,
+                unrecovered_blocks: 0,
+                interval_ms: 1000,
+            }
+            .encode()
+        };
+        let stream = Negotiated {
+            packet_size: 1392,
+            fps: 60,
+            ..Default::default()
+        };
+        let packetizer = |percent| crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: percent,
+            min_fec: stream.min_fec,
+            key: Some([0; 16]),
+        };
+        let auto = Session::new(launch("auto-whole", Role::Stream), stream.clone());
+        auto.configure_fec_choice(FecChoice::Auto, true, 20, 40);
+        auto.bitrate.store(200_000, Ordering::Release);
+        let start = Instant::now();
+        // Only a fixed choice: the packetizer's own limit applies.
+        let fixed = Session::new(launch("fixed-whole", Role::Stream), stream.clone());
+        fixed.configure_fec_choice(FecChoice::Fixed(20), true, 20, 40);
+        assert_eq!(fixed.statistical_fec_whole_payload(start), None);
+        // A clean link: recovery frames keep the configured 20 %, so the limit
+        // is the fixed one.
+        auto.record_fec_report_at(&report(0, 0), start).unwrap();
+        let clean = auto.statistical_fec_whole_payload(start).unwrap();
+        assert_eq!(clean, packetizer(20).fec_whole_payload_limit());
+        // A lossy link raises an average frame's share to 40 %, but a large
+        // frame gets the most parity it can carry in full, and a recovery
+        // frame at least the configured 20 %: the limit is the 20 % one, not
+        // the smaller 40 % limit the average frame's share would give.
+        let later = start + Duration::from_secs(1);
+        auto.record_fec_report_at(&report(1, 540), later).unwrap();
+        assert_eq!(auto.recovery_fec_percent(), 40);
+        let lossy = auto.statistical_fec_whole_payload(later).unwrap();
+        assert_eq!(lossy, clean);
+        assert!(lossy > packetizer(40).fec_whole_payload_limit());
+        let percent = |payload| auto.video_fec_percent(true, payload);
+        assert!(!packetizer(percent(lossy)).fec_limited(lossy));
+        // The next shard is a frame its own percentage no longer covers.
+        let next = lossy + 1376;
+        assert!(packetizer(percent(next)).fec_limited(next));
+    }
+    #[test]
     fn adaptive_fec_follows_reports_and_stays_fixed_without_them_or_when_off() {
         let start = Instant::now();
         // A client that never reports: the configured percentage, for minutes.
@@ -3504,6 +3562,31 @@ impl<P, A> Session<P, A> {
     /// (`rlFecPercentage=auto`) rather than taking a fixed percentage.
     pub fn statistical_fec(&self) -> bool {
         self.client_fec_on.load(Ordering::Acquire)
+    }
+    /// Under `rlFecPercentage=auto`, the largest recovery frame whose own
+    /// [`Self::video_fec_percent`] still applies in full within Moonlight's
+    /// four blocks (with no parity, the four-block packet limit), as
+    /// [`crate::packet::VideoPacketizer::fec_whole_payload_limit`] finds it for
+    /// a fixed percentage. The statistical choice depends on the frame's size,
+    /// so every size is tried, from the largest down. `None` without
+    /// statistical FEC.
+    pub fn statistical_fec_whole_payload(&self, now: Instant) -> Option<usize> {
+        if !self.client_fec_on.load(Ordering::Acquire) {
+            return None;
+        }
+        let slice = self.config.packet_size.saturating_sub(16).max(1);
+        let minimum = self.config.min_fec;
+        let ceiling = self.adaptive_fec.lock().unwrap().ceiling();
+        let client = self.client_fec.lock().unwrap();
+        let fec = client.as_ref()?;
+        let shards = (1..=4 * 255)
+            .rev()
+            .find(|&shards| {
+                let percent = fec.percent(now, shards).max(ceiling);
+                crate::packet::conventional_fec(shards, percent, minimum).1 >= percent
+            })
+            .unwrap_or(1);
+        Some((shards * slice).saturating_sub(8))
     }
     /// The FEC percentage to budget a recovery frame's parity with before it
     /// is encoded: [`Self::video_fec_percent`] for an average frame.

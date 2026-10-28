@@ -1171,6 +1171,27 @@ mod tests {
         );
     }
     #[test]
+    fn a_scene_cut_gets_no_more_than_one_frame_budget_so_it_needs_no_frame_cap() {
+        // The AMF cap holds a conventional recovery frame to full four-block
+        // FEC but never below two nominal frames. PyroWave's rate control
+        // already gives every picture, a cut included, at most one frame's
+        // share of the bitrate, with its parity inside the plan the
+        // packetizer builds, so that cap could never bind here.
+        for records in [false, true] {
+            for fec in [0, 20, 50] {
+                for kbps in [20_000, 250_000, 1_000_000, 4_000_000] {
+                    for fps in [60., 120., 240.] {
+                        let period = Duration::from_secs_f64(1. / fps);
+                        let nominal = (f64::from(kbps) * 125. * period.as_secs_f64()) as usize;
+                        let picture = budget_with_minimum(kbps, period, 1392, records, fec, 2);
+                        assert!(picture <= nominal, "{kbps} kbps {fps} fps {fec} %");
+                        assert!(picture <= max_frame_bytes(1392, records && fec > 0));
+                    }
+                }
+            }
+        }
+    }
+    #[test]
     fn a_new_picture_after_a_repeat_keeps_a_full_frame_budget() {
         let ms = Duration::from_millis;
         let start = Instant::now();

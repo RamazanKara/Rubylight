@@ -240,7 +240,7 @@ impl Pc for OnPc {
             return Ok(Setup::new(
                 &exe.to_string_lossy(),
                 &app.name,
-                Some(&install_dir.to_string_lossy()),
+                Some((appid, &install_dir.to_string_lossy())),
             ));
         }
         let exe = executable(app)
@@ -1182,14 +1182,17 @@ impl Registry {
                 // Last, so a launch refused for another reason leaves the
                 // user's window open.
                 self.close_for_session(&app.name)?;
-                let handler = match found {
-                    Chosen::Hub(handler) => handler,
-                    Chosen::Own(setup) => pc.write_own(&folder, &setup).map_err(|error| {
-                        Refusal::unavailable(format!(
-                            "Rubylight's Nucleus Co-op handler for {} was not written: {error:#}",
-                            app.name
-                        ))
-                    })?,
+                let (handler, steam_app) = match found {
+                    Chosen::Hub(handler) => (handler, None),
+                    Chosen::Own(setup) => (
+                        pc.write_own(&folder, &setup).map_err(|error| {
+                            Refusal::unavailable(format!(
+                                "Rubylight's Nucleus Co-op handler for {} was not written: {error:#}",
+                                app.name
+                            ))
+                        })?,
+                        setup.steam_app,
+                    ),
                 };
                 let id = {
                     let mut state = self.lock();
@@ -1201,6 +1204,7 @@ impl Registry {
                     kind,
                     folder: &folder,
                     handler: &handler,
+                    steam_app,
                     title: &app.name,
                     players,
                     owner: (&client.uuid, &client.name),
@@ -1755,6 +1759,8 @@ pub(crate) mod fake {
         pub free: Mutex<usize>,
         pub start_error: Mutex<Option<String>>,
         pub started: Mutex<Vec<Arc<Instance>>>,
+        /// The Steam app each started session's Nucleus got, in order.
+        pub steam_apps: Mutex<Vec<Option<u32>>>,
         pub installs: AtomicUsize,
         pub reads: AtomicUsize,
         /// The game each app's .exe is for Rubylight's own handler, by app
@@ -1805,6 +1811,7 @@ pub(crate) mod fake {
                 free: Mutex::new(4),
                 start_error: Mutex::new(None),
                 started: Mutex::new(Vec::new()),
+                steam_apps: Mutex::new(Vec::new()),
                 installs: AtomicUsize::new(0),
                 reads: AtomicUsize::new(0),
                 one_player: Mutex::new(BTreeMap::new()),
@@ -1938,6 +1945,7 @@ pub(crate) mod fake {
                 reports: Mutex::new(Vec::new()),
             });
             self.started.lock().unwrap().push(instance.clone());
+            self.steam_apps.lock().unwrap().push(start.steam_app);
             Ok(Box::new(instance))
         }
     }
@@ -2811,6 +2819,31 @@ mod tests {
     }
 
     #[test]
+    fn a_steam_game_with_ours_starts_nucleus_with_its_app_id() {
+        let (registry, pc, _) = setup();
+        let owner = client("A", false);
+        let config = Config::default();
+        let link = app("Black Flag", "steam://rungameid/242050");
+        pc.one_player.lock().unwrap().insert(
+            link.name.clone(),
+            Setup::new(
+                r"D:\Steam\steamapps\common\Black Flag\AC4BFSP.exe",
+                &link.name,
+                Some((242050, r"D:\Steam\steamapps\common\Black Flag")),
+            ),
+        );
+        background(&registry, &link, "a", &owner, &config).unwrap();
+        assert_eq!(pc.own.lock().unwrap().len(), 1);
+        assert_eq!(*pc.steam_apps.lock().unwrap(), [Some(242050)]);
+        // A game started by its own .exe gets none.
+        let ice = app("Ice", r"C:\NoSuchGames\Ice\Ice.exe");
+        let first = registry.sessions()[0].session.id;
+        assert!(registry.end(first));
+        background(&registry, &ice, "b", &owner, &config).unwrap();
+        assert_eq!(*pc.steam_apps.lock().unwrap(), [Some(242050), None]);
+    }
+
+    #[test]
     fn a_hub_handler_always_wins_over_ours() {
         let (registry, pc, apps) = setup();
         let owner = client("A", false);
@@ -2824,11 +2857,13 @@ mod tests {
         let link = app("Portal 2 Link", "steam://rungameid/620");
         pc.one_player.lock().unwrap().insert(
             link.name.clone(),
-            Setup::new(fake::EXE, &link.name, Some(r"C:\Games\Portal 2")),
+            Setup::new(fake::EXE, &link.name, Some((620, r"C:\Games\Portal 2"))),
         );
         background(&registry, &link, "b", &owner, &config).unwrap();
         assert_eq!(pc.last().session.lock().unwrap().game, fake::GUID);
         assert!(pc.own.lock().unwrap().is_empty());
+        // A hub handler sets up Steam as it needs: Nucleus gets no app id.
+        assert_eq!(*pc.steam_apps.lock().unwrap(), [None, None]);
         // A hub handler for a game the user did not add yet: add it, not ours.
         let other = registry.sessions()[0].session.id;
         assert!(registry.end(other));

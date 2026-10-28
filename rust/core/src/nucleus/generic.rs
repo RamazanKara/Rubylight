@@ -56,16 +56,20 @@ pub struct Setup {
     /// install folder, an Unreal game's folder above `Binaries`, else the
     /// .exe's.
     pub root: String,
+    /// The Steam app the game was found from. Nucleus Co-op starts with it
+    /// as `SteamAppId`, so the game's .exe runs as Steam would start it
+    /// rather than restarting through Steam.
+    pub steam_app: Option<u32>,
 }
 
 impl Setup {
-    /// The setup for `exe_path`; `install` is the folder Steam installed the
-    /// game to, when it did.
-    pub fn new(exe_path: &str, name: &str, install: Option<&str>) -> Self {
+    /// The setup for `exe_path`; `steam` is the Steam app it was found from
+    /// and the folder Steam installed it to, when it was.
+    pub fn new(exe_path: &str, name: &str, steam: Option<(u32, &str)>) -> Self {
         let exe_path = normalized(exe_path);
         let exe_folder = parent(&exe_path).to_string();
-        let root = install
-            .map(normalized)
+        let root = steam
+            .map(|(_, install)| normalized(install))
             .filter(|folder| below(&exe_path, folder).is_some())
             .map(|folder| folder.trim_end_matches('\\').to_string())
             .or_else(|| unreal_root(&exe_folder))
@@ -74,6 +78,7 @@ impl Setup {
             exe_path,
             name: name.trim().to_string(),
             root,
+            steam_app: steam.map(|(app, _)| app),
         }
     }
 
@@ -365,7 +370,7 @@ mod tests {
         Setup::new(
             r"D:\SteamLibrary\steamapps\common\Black Flag\bin\AC4BFSP.exe",
             "Assassin's Creed \"IV\"",
-            Some(r"D:\SteamLibrary\steamapps\common\Black Flag"),
+            Some((242050, r"D:\SteamLibrary\steamapps\common\Black Flag")),
         )
     }
 
@@ -442,12 +447,18 @@ mod tests {
         );
         assert_eq!(unreal.root, r"D:\Epic\Hero");
         // A Steam folder the exe is not in does not count.
-        let elsewhere = Setup::new(r"C:\Other\Game.exe", "Game", Some(r"D:\Steam\common\Game\"));
+        let elsewhere = Setup::new(
+            r"C:\Other\Game.exe",
+            "Game",
+            Some((7, r"D:\Steam\common\Game\")),
+        );
         assert_eq!(elsewhere.root, r"C:\Other");
+        assert_eq!(elsewhere.steam_app, Some(7));
+        assert_eq!(plain.steam_app, None);
         let inside = Setup::new(
             r"D:\Steam\common\Game\Game.exe",
             "Game",
-            Some(r"D:\Steam\common\Game\"),
+            Some((7, r"D:\Steam\common\Game\")),
         );
         assert_eq!(inside.root, r"D:\Steam\common\Game");
     }

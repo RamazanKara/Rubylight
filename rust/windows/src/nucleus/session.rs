@@ -51,14 +51,40 @@ pub trait Nucleus: Send {
 
 /// Starts Nucleus Co-op: elevated on the PC, a fake in tests.
 pub trait Launcher {
-    fn launch(&mut self, folder: &Path, guid: &str) -> Result<Box<dyn Nucleus>>;
+    /// Start it for game `guid` with `environment` added to the user's: the
+    /// game it starts gets the same.
+    fn launch(
+        &mut self,
+        folder: &Path,
+        guid: &str,
+        environment: &BTreeMap<String, String>,
+    ) -> Result<Box<dyn Nucleus>>;
+}
+
+/// What Nucleus Co-op starts with for a game found from Steam app
+/// `steam_app`. A Steam game started by its .exe restarts through Steam
+/// unless Steam started it; Steam's own launch sets these, and Nucleus
+/// starts a handler's game with its own environment unless the handler sets
+/// `UseNucleusEnvironment`.
+pub fn steam_environment(steam_app: Option<u32>) -> BTreeMap<String, String> {
+    steam_app
+        .into_iter()
+        .flat_map(|app| ["SteamAppId", "SteamGameId"].map(|key| (key.to_string(), app.to_string())))
+        .collect()
 }
 
 /// Nucleus Co-op as the signed-in user, elevated: it makes symbolic links.
 pub struct Elevated;
 impl Launcher for Elevated {
-    fn launch(&mut self, folder: &Path, guid: &str) -> Result<Box<dyn Nucleus>> {
+    fn launch(
+        &mut self,
+        folder: &Path,
+        guid: &str,
+        extra: &BTreeMap<String, String>,
+    ) -> Result<Box<dyn Nucleus>> {
         require_administrator(crate::process::user_runs_elevated()?)?;
+        let mut environment = environment()?;
+        environment.extend(extra.clone());
         let since = crate::process::now();
         let program = folder.join(EXECUTABLE);
         // Nucleus reads Settings.ini from its working folder, and its window
@@ -68,11 +94,16 @@ impl Launcher for Elevated {
             &[guid.into()],
             Some(folder),
             crate::process::Target::User { elevated: true },
-            &environment()?,
+            &environment,
             false,
         )
         .with_context(|| format!("starting {} elevated", program.display()))?;
-        tracing::info!(pid = process.pid, guid, "Nucleus Co-op started");
+        tracing::info!(
+            pid = process.pid,
+            guid,
+            ?environment,
+            "Nucleus Co-op started"
+        );
         Ok(Box::new(Started { process, since }))
     }
 }
@@ -436,6 +467,9 @@ pub struct Start<'a> {
     /// Nucleus Co-op's folder.
     pub folder: &'a Path,
     pub handler: &'a Handler,
+    /// The Steam app the game was found from, for Rubylight's own handler
+    /// ([`environment`]).
+    pub steam_app: Option<u32>,
     /// The game as the stream names it.
     pub title: &'a str,
     pub players: usize,
@@ -528,7 +562,11 @@ pub fn start(
         players = start.players,
         "Nucleus Co-op profile {TITLE} written"
     );
-    let nucleus = launcher.launch(start.folder, &start.handler.guid)?;
+    let nucleus = launcher.launch(
+        start.folder,
+        &start.handler.guid,
+        &steam_environment(start.steam_app),
+    )?;
     let content = start.folder.join("content");
     let keeper = Keeper::new(
         start.players,
@@ -748,6 +786,7 @@ mod tests {
         exit: Arc<Mutex<Option<u32>>>,
         stopped: Arc<Mutex<Option<BTreeMap<u32, u64>>>>,
         launched: Arc<Mutex<Vec<String>>>,
+        environments: Arc<Mutex<Vec<BTreeMap<String, String>>>>,
     }
     struct FakeNucleus {
         probe: Probe,
@@ -776,8 +815,18 @@ mod tests {
         }
     }
     impl Launcher for (Probe, Screen) {
-        fn launch(&mut self, _folder: &Path, guid: &str) -> Result<Box<dyn Nucleus>> {
+        fn launch(
+            &mut self,
+            _folder: &Path,
+            guid: &str,
+            environment: &BTreeMap<String, String>,
+        ) -> Result<Box<dyn Nucleus>> {
             self.0.launched.lock().unwrap().push(guid.into());
+            self.0
+                .environments
+                .lock()
+                .unwrap()
+                .push(environment.clone());
             self.1
                 .0
                 .lock()
@@ -1159,6 +1208,17 @@ mod tests {
         screen: &Screen,
         probe: &Probe,
     ) -> (Result<Running>, Arc<Recorder>) {
+        start_steam(folder, players, taken, screen, probe, None)
+    }
+
+    fn start_steam(
+        folder: &Path,
+        players: usize,
+        taken: [bool; 4],
+        screen: &Screen,
+        probe: &Probe,
+        steam_app: Option<u32>,
+    ) -> (Result<Running>, Arc<Recorder>) {
         let recorder = Arc::new(Recorder::default());
         let handler = handler();
         let mut xinput = FakeXInput {
@@ -1172,6 +1232,7 @@ mod tests {
             kind: kind(players),
             folder,
             handler: &handler,
+            steam_app,
             title: "Game",
             players,
             owner: ("phone", "Phone"),
@@ -1222,6 +1283,8 @@ mod tests {
         );
         assert_eq!(recorder.sent.lock().unwrap().len(), 2);
         assert_eq!(*probe.launched.lock().unwrap(), ["Game"]);
+        // Found from no Steam app: Nucleus gets the user's environment alone.
+        assert_eq!(*probe.environments.lock().unwrap(), [BTreeMap::new()]);
         let profile = std::fs::read_to_string(
             folder
                 .path()
@@ -1278,6 +1341,23 @@ mod tests {
             *probe.stopped.lock().unwrap(),
             Some(BTreeMap::from([(20, SINCE + 1), (21, SINCE + 2)]))
         );
+    }
+
+    #[test]
+    fn a_game_found_from_steam_starts_with_its_app_id() {
+        let folder = tempfile::tempdir().unwrap();
+        let (screen, probe) = (screen(), Probe::default());
+        let (running, _) = start_steam(folder.path(), 1, [false; 4], &screen, &probe, Some(242050));
+        running.unwrap().stop();
+        let app = || "242050".to_string();
+        assert_eq!(
+            *probe.environments.lock().unwrap(),
+            [BTreeMap::from([
+                ("SteamAppId".to_string(), app()),
+                ("SteamGameId".to_string(), app()),
+            ])]
+        );
+        assert_eq!(steam_environment(None), BTreeMap::new());
     }
 
     #[test]
@@ -1441,7 +1521,8 @@ mod tests {
     /// `RUBYLIGHT_NUCLEUS_ZIP`) or at `RUBYLIGHT_NUCLEUS_PATH`, the game of
     /// handler `RUBYLIGHT_NUCLEUS_HANDLER` started for
     /// `RUBYLIGHT_NUCLEUS_PLAYERS`, held `RUBYLIGHT_NUCLEUS_HOLD` seconds and
-    /// stopped. Run as SYSTEM, like the service.
+    /// stopped; `RUBYLIGHT_NUCLEUS_STEAM_APP` is the Steam app a game was
+    /// found from. Run as SYSTEM, like the service.
     #[test]
     #[ignore = "requires Nucleus Co-op, a handler with its game, the virtual gamepad driver and SYSTEM"]
     fn a_session_on_this_pc() -> Result<()> {
@@ -1472,6 +1553,10 @@ mod tests {
             kind: kind(players),
             folder: &folder,
             handler: &handler,
+            steam_app: std::env::var("RUBYLIGHT_NUCLEUS_STEAM_APP")
+                .ok()
+                .map(|app| app.parse().context("RUBYLIGHT_NUCLEUS_STEAM_APP"))
+                .transpose()?,
             title: &handler.name,
             players,
             owner: ("hw-queue", "hw-queue"),

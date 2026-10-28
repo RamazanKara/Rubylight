@@ -2,7 +2,7 @@
 
 use super::hdr::{HdrAction, hdr_action, restore_hdr};
 use super::modes::{Timing, supported_modes};
-use super::virtual_display::{DisplayLease, display_lease, joined_monitor};
+use super::virtual_display::{DisplayLease, display_lease, joined_monitor, raise_lease};
 use super::*;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -939,15 +939,11 @@ impl Guard {
         }
     }
     /// Raise this guard's own virtual display to at least `rate` without
-    /// recreating it, returning the refresh (millihertz) it has now. None
-    /// without a virtual display of its own (another stream shares it at its
-    /// mode), or when Windows refused the rate.
+    /// recreating it, returning the refresh (millihertz) it has now. A shared
+    /// one is raised too, as for a stream that joins it. None without a
+    /// virtual display, or when Windows refused the rate.
     pub fn raise_virtual_rate(&self, rate: butterpollo_core::framegen::Rate) -> Option<u32> {
-        let display = self.virtual_display.as_ref()?;
-        if std::sync::Arc::strong_count(display) > 1 {
-            return None;
-        }
-        display.lock().unwrap().raise_rate(rate.0)
+        raise_lease(self.virtual_display.as_ref()?, rate.0)
     }
     /// Give this guard's own virtual display another size at the stream's
     /// refresh without recreating it, for a stream that turned between

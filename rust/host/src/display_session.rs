@@ -214,7 +214,7 @@ struct ModeReportState {
     last: Option<std::result::Result<AppliedMode, String>>,
     /// Why the display could not follow the stream's last turn, until a turn follows.
     unfollowed: Option<String>,
-    /// A shared virtual display: a stream that joined it may have raised its
+    /// A shared virtual display: another stream on it may have raised its
     /// refresh above the requested one, which serves this stream too.
     shared: bool,
 }

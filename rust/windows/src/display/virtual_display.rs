@@ -334,6 +334,15 @@ pub(super) fn joined_monitor(
     }
     Ok(monitor)
 }
+/// Raise a leased display's refresh in place for a stream that asks for more
+/// than its launch did, keeping the display and what runs on it ([`raise`]).
+/// A shared display too: a faster refresh serves the streams on it.
+pub(super) fn raise_lease(
+    display: &std::sync::Mutex<impl SharedDisplay>,
+    rate: u32,
+) -> Option<u32> {
+    raise(&mut *display.lock().unwrap(), rate)
+}
 /// Raise the refresh in place to at least `rate`: the refresh (millihertz)
 /// the display has now, or None when Windows refused it. A refusal puts the
 /// previous mode back, since Windows can refuse the rate yet leave another
@@ -920,13 +929,6 @@ impl VirtualDisplay {
             .store(size_applied, std::sync::atomic::Ordering::Relaxed);
         applied
     }
-    /// Raise the refresh in place for a stream that asks for more than its
-    /// launch did, keeping the display and what runs on it. Returns the
-    /// refresh (millihertz) the display has now, at least `rate`, or None
-    /// when Windows refused it and the display went back to its previous mode.
-    pub(super) fn raise_rate(&mut self, rate: u32) -> Option<u32> {
-        raise(self, rate)
-    }
     /// Give the display another size at its refresh in place, for a stream
     /// that turned between portrait and landscape. False when Windows did not
     /// show that size; the display goes back to its previous mode then.
@@ -1222,6 +1224,23 @@ mod tests {
             display.log.borrow().last().map(String::as_str),
             Some("stream raise refused")
         );
+    }
+
+    #[test]
+    fn a_stream_that_asks_for_more_than_its_launch_raises_a_shared_display_too() {
+        // Two streams launched at 60 fps on one display; one asks for 240 Hz
+        // at stream start.
+        let fixed = (1920, 1080, 120_000);
+        let mut displays = super::Leases::new();
+        let first = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
+        let second = stream(&mut displays, fixed, None).unwrap();
+        assert_eq!(super::raise_lease(&second, 240_000), Some(240_000));
+        assert_eq!(first.lock().unwrap().shown.get(), (1920, 1080, 240_000));
+        // Asking for less leaves the faster refresh; a refusal puts it back.
+        assert_eq!(super::raise_lease(&first, 120_000), Some(240_000));
+        first.lock().unwrap().refuses.push(1_000_000);
+        assert_eq!(super::raise_lease(&first, 1_000_000), None);
+        assert_eq!(second.lock().unwrap().shown.get(), (1920, 1080, 240_000));
     }
 
     #[test]

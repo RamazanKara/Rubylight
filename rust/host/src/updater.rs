@@ -311,7 +311,25 @@ pub fn cancel(h: &Shared) -> Result<()> {
 /// Called by maintenance. All admission checks and the final handoff share the
 /// Moonlight launch lock, so a connection cannot slip between the check and setup.
 pub fn poll(h: &Shared) {
-    let Ok(_transition) = h.launch_transition.try_lock() else {
+    poll_with(h, None, &hash_installer)
+}
+
+type InstallerHash = std::io::Result<(u64, String)>;
+/// The ready installer, hashed with no lock held.
+struct Hashed {
+    download_id: Value,
+    path: PathBuf,
+    digest: InstallerHash,
+}
+fn hash_installer(path: &std::path::Path) -> InstallerHash {
+    let mut file = std::fs::File::open(path)?;
+    let mut hash = Sha256::new();
+    let size = std::io::copy(&mut file, &mut hash)?;
+    Ok((size, hex::encode(hash.finalize())))
+}
+
+fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path) -> InstallerHash) {
+    let Ok(transition) = h.launch_transition.try_lock() else {
         return;
     };
     let phase = h.updates.lock().unwrap()["phase"]
@@ -411,6 +429,32 @@ pub fn poll(h: &Shared) {
             }
         });
     } else {
+        // Hashing up to MAX_INSTALLER bytes holds neither lock, so status
+        // reads and Moonlight launches don't wait on the disk. Every check
+        // above runs again after it.
+        let path = state["installer_path"].as_str().map(PathBuf::from);
+        let hashed = match (hashed, path) {
+            (Some(hashed), Some(path))
+                if hashed.download_id == state["download_id"] && hashed.path == path =>
+            {
+                Some(hashed.digest)
+            }
+            // Replaced or cancelled meanwhile: the next poll hashes again.
+            (Some(_), _) => return,
+            (None, Some(path)) => {
+                let download_id = state["download_id"].clone();
+                drop(state);
+                drop(transition);
+                let digest = hash(&path);
+                let hashed = Hashed {
+                    download_id,
+                    path,
+                    digest,
+                };
+                return poll_with(h, Some(hashed), hash);
+            }
+            (None, None) => None,
+        };
         let result = (|| -> Result<()> {
             if !supported(h) {
                 bail!("Updates require the installed Windows service");
@@ -421,10 +465,8 @@ pub fn poll(h: &Shared) {
                     .context("installer missing")?,
             );
             let candidate = installer(release.as_ref().context("release missing")?)?;
-            let mut file = std::fs::File::open(&path)?;
-            let mut hash = Sha256::new();
-            let size = std::io::copy(&mut file, &mut hash)?;
-            verify(size, &hex::encode(hash.finalize()), &candidate)?;
+            let (size, digest) = hashed.context("installer missing")??;
+            verify(size, &digest, &candidate)?;
             let install = std::env::current_exe()?
                 .parent()
                 .context("installation folder missing")?
@@ -730,6 +772,59 @@ mod tests {
         poll(h);
         assert_eq!(h.updates.lock().unwrap()["phase"], "ready");
         assert_eq!(h.updates.lock().unwrap()["idle_since"], 0);
+    }
+    #[test]
+    fn the_installer_is_hashed_with_no_lock_held_and_checked_again_after() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let ready = json!({"phase":"ready","idle_since":0,"now":true,
+                           "download_id":"a","installer_path":"C:\\setup.exe"});
+        let hashes = std::cell::Cell::new(0);
+        // Unchanged meanwhile: on to the installer, which this test host,
+        // no installed service, refuses.
+        *h.updates.lock().unwrap() = ready.clone();
+        poll_with(h, None, &|path| {
+            hashes.set(hashes.get() + 1);
+            assert_eq!(path, std::path::Path::new("C:\\setup.exe"));
+            assert!(h.launch_transition.try_lock().is_ok());
+            assert!(h.updates.try_lock().is_ok());
+            Ok((1, "00".into()))
+        });
+        assert_eq!(hashes.get(), 1);
+        let state = h.updates.lock().unwrap().clone();
+        assert_eq!(state["phase"], "failed");
+        assert!(
+            state["error"]
+                .as_str()
+                .unwrap()
+                .contains("installed Windows service")
+        );
+        // Cancelled and downloaded again while it was hashed: nothing starts,
+        // and the next poll hashes the new download.
+        *h.updates.lock().unwrap() = ready.clone();
+        poll_with(h, None, &|_| {
+            hashes.set(hashes.get() + 1);
+            h.updates.lock().unwrap()["download_id"] = json!("b");
+            Ok((1, "00".into()))
+        });
+        assert_eq!(hashes.get(), 2);
+        let state = h.updates.lock().unwrap().clone();
+        assert_eq!(state["phase"], "ready");
+        assert_eq!(state["download_id"], "b");
+        // A busy host by then keeps the update waiting.
+        *h.updates.lock().unwrap() = json!({"phase":"ready","idle_since":now()-3600,
+                                            "download_id":"a","installer_path":"C:\\setup.exe"});
+        poll_with(h, None, &|_| {
+            h.sessions
+                .lock()
+                .unwrap()
+                .queue(launch(butterpollo_core::session::Role::Stream))
+                .unwrap();
+            Ok((1, "00".into()))
+        });
+        let state = h.updates.lock().unwrap().clone();
+        assert_eq!(state["phase"], "ready");
+        assert_eq!(state["idle_since"], 0);
     }
     #[test]
     fn cancellation_invalidates_a_download_and_stops_automatic_requeue() {

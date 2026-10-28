@@ -778,7 +778,9 @@ mod tests {
         type BlockRule = fn() -> Result<bool>;
         let cases: [(FakeRegistry, BlockRule); 3] = [
             (FakeRegistry::rdp_on(), || Ok(false)),
-            (FakeRegistry::rdp_on(), || bail!("Windows Firewall is not running")),
+            (FakeRegistry::rdp_on(), || {
+                bail!("Windows Firewall is not running")
+            }),
             (
                 {
                     let mut off = FakeRegistry::default();

@@ -22,8 +22,38 @@ that background streams run through Nucleus Co-op. Only the device that
 started it can return to it; nobody else can join a background stream.
 
 A background launch that Nucleus Co-op cannot run is refused with the reason,
-for example "Notepad can't stream in the background: No Nucleus Co-op handler
-for notepad.exe". It never falls back to streaming the PC's monitors.
+for example "Store Game can't stream in the background: Nucleus Co-op starts
+games by their .exe, and Store Game does not name one". It never falls back to
+streaming the PC's monitors.
+
+### Games without a handler
+
+A background stream needs no handler from the hub. When none covers the game,
+the host writes its own one-player handler into Nucleus Co-op's `handlers`
+folder (`Rubylight-<game>-<hash>.js`) and adds the game to your Nucleus Co-op
+game list, as Nucleus' own "add game" would. It does that only while Nucleus
+Co-op isn't running, and never over a file it did not write. A hub handler for
+the same .exe always wins, and co-op still needs one.
+
+The game runs from its own folder: nothing is copied, linked or written there,
+and Nucleus Co-op needs no extra tools for it. Its window keeps running and
+reading the pad without focus, and it never sees the PC's keyboard or moves
+the PC's cursor.
+
+- **The app names the game's .exe, or is a Steam link.** For
+  `steam://rungameid/<id>` the host starts the .exe Steam would, found from
+  the game's install folder and Steam's launch option for Windows, and starts
+  Nucleus Co-op with the game's Steam app id (`SteamAppId`, `SteamGameId`), so
+  the game runs without restarting through Steam. Steam must know the game:
+  one that is not installed, or that Steam's app cache does not list yet, is
+  refused with the reason (start it once in Steam). Other launchers' links
+  are refused: set the app's command to the game's .exe.
+- **No anti-cheat.** A game that ships anti-cheat, such as Easy Anti-Cheat,
+  BattlEye or Riot Vanguard, is refused before anything is written: Nucleus
+  Co-op's hooks would look like cheating. Its Play together panel says so.
+- **Controllers only**, as for every background stream.
+- **Some games pause anyway** when their window is not in front, despite the
+  focus hooks. Those need a hub handler made for them.
 
 A `background_mode` line that an earlier build wrote (`auto`,
 `child_session` or `virtual_display`) becomes `nucleus`, and the host log
@@ -67,9 +97,10 @@ something), the stream is refused until you answer it at the PC. Only
 Nucleus Co-op itself is closed: what it started (a browser, a game) is left
 alone. A Nucleus
 Co-op you started yourself is never closed: Open and launches are refused
-while it runs. A game without a handler is refused
+while it runs. Co-op in a game without a handler is refused
 with "No Nucleus Co-op handler for <exe>: add one in Nucleus Co-op's handler
-hub".
+hub"; a background stream of it uses Rubylight's own handler
+([Games without a handler](#games-without-a-handler)).
 
 Rubylight writes a Nucleus profile named **Rubylight** for each session and
 loads it. When a start times out with "open Nucleus Co-op and load the profile
@@ -137,6 +168,12 @@ the Nucleus Co-op panel under **Help**.
   player needs Windows build 20348 or later. On older builds the host says so.
 - One Nucleus Co-op session at a time: a second one is refused while Nucleus
   Co-op is busy with another game.
+- **Compatibility settings come back.** As it starts each instance, Nucleus
+  Co-op sets the game's .exe to its DPI mode in your Windows compatibility
+  settings (Properties › Compatibility), replacing what you set there. The
+  host keeps those settings from before the session and puts them back
+  exactly when it ends, also after a crash or a failed start. Should the
+  host stop mid-session, the next session puts them back before it starts.
 
 ## Status
 

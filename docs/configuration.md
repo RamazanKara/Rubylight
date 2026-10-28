@@ -344,7 +344,7 @@ Nucleus Co-op runs every background stream: the game runs as a
 [Nucleus Co-op](nucleus-coop.md) instance whose window is captured on its own,
 away from the PC's monitors. There is no mode to choose; a `background_mode`
 line an earlier build wrote reads as Nucleus Co-op. A background launch
-Nucleus Co-op cannot run, such as a game without a handler, is refused with the
+Nucleus Co-op cannot run, such as a game with anti-cheat, is refused with the
 reason and never streams the PC's monitors instead.
 
 A background stream:
@@ -359,10 +359,16 @@ A background stream:
   PC user's calls and music stay private. The game is still audible on the
   PC's speakers unless you route it to another playback device.
 
-Nucleus Co-op needs a handler for the game from its handler hub, the host
-running as the Windows service and an administrator account signed in on the
-PC; [Nucleus Co-op](nucleus-coop.md) has the
-install, the limits, and co-op for several devices at once. Two settings under
+A game needs no handler from Nucleus Co-op's handler hub for this: without
+one, the host writes its own one-player handler. The app's command must be the
+game's .exe or a Steam link; a Steam game starts with its Steam app id, so it
+doesn't restart through Steam. Other launchers' links and games with
+anti-cheat are refused, and some games pause anyway when their window is not
+in front ([Games without a handler](nucleus-coop.md#games-without-a-handler)).
+Co-op still needs a hub handler. Nucleus Co-op needs the host running as the
+Windows service and an administrator account signed in on the PC;
+[Nucleus Co-op](nucleus-coop.md) has the install, the limits, and co-op for
+several devices at once. Two settings under
 **Settings → General → Background streaming** shape it:
 **Nucleus Co-op folder** (`nucleus_path`, empty: the host's own copy, which it
 downloads on first use) and **Co-op players** (`nucleus_coop_players`, default

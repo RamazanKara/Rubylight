@@ -43,6 +43,12 @@ fn pro_and_higher_use_the_child_session() {
         let kept = decide(ModeSetting::VirtualDisplay, id, false);
         assert_eq!(kept.mode, Mode::VirtualDisplay);
         assert!(kept.reason.contains("background_mode = virtual_display"));
+        // Help shows the reason: no Experimental label there.
+        assert!(
+            !kept.reason.to_lowercase().contains("experiment"),
+            "{}",
+            kept.reason
+        );
     }
 }
 

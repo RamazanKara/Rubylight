@@ -67,7 +67,7 @@ pub enum ModeSetting {
     VirtualDisplay,
 }
 impl ModeSetting {
-    /// Unset means `virtual_display`: child sessions are Experimental and
+    /// Unset means `virtual_display`: child sessions are opt-in and
     /// only run when `auto` or `child_session` asks for them.
     pub fn parse(text: &str) -> Result<Self> {
         match text.trim().to_ascii_lowercase().as_str() {
@@ -156,7 +156,7 @@ pub fn decide(setting: ModeSetting, edition_id: &str, inside_child_session: bool
             Mode::VirtualDisplay,
             virtual_display,
             format!(
-                "{MODE_KEY} = virtual_display, the default; child sessions are Experimental and need {MODE_KEY} = auto or child_session (Windows edition {shown})"
+                "{MODE_KEY} = virtual_display, the default; child sessions need {MODE_KEY} = auto or child_session (Windows edition {shown})"
             ),
         ),
         (_, Edition::Home) => decision(

@@ -38,8 +38,8 @@ pub(crate) const PERMISSIONS: [(u32, &str); 13] = [
     (0x00001000, "Keyboard"),
     (0x00010000, "Write to the clipboard"),
     (0x00020000, "Read the clipboard"),
-    (0x00040000, "Upload files (Experimental)"),
-    (0x00080000, "Download files (Experimental)"),
+    (0x00040000, "Upload files"),
+    (0x00080000, "Download files"),
     (0x00100000, "Host commands"),
 ];
 pub(crate) fn esc(value: &str) -> String {

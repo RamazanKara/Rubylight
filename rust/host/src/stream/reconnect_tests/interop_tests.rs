@@ -1107,9 +1107,16 @@ fn upload(client: &HostClient, name: &str, bytes: &[u8]) -> Result<u64, FileErro
     assert_eq!(uploaded.name, name);
     Ok(uploaded.size)
 }
-fn download(client: &HostClient, name: &str) -> Result<Vec<u8>, FileError> {
+/// Downloads `name`, which the list gave as `listed` bytes, as Nightjar does.
+fn download(client: &HostClient, name: &str, listed: u64) -> Result<Vec<u8>, FileError> {
     let mut bytes = vec![];
-    let length = client.download_file(name, &mut bytes, &mut |_, _| {}, &TransferCancel::new())?;
+    let length = client.download_file(
+        name,
+        listed,
+        &mut bytes,
+        &mut |_, _| {},
+        &TransferCancel::new(),
+    )?;
     assert_eq!(length, bytes.len() as u64);
     Ok(bytes)
 }
@@ -1168,7 +1175,7 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
         .map(|f| (f.name.as_str(), f.size))
         .collect();
     assert_eq!(listed, [("notes.txt", 13)]);
-    assert_eq!(download(&client, "notes.txt")?, b"from Nightjar");
+    assert_eq!(download(&client, "notes.txt", 13)?, b"from Nightjar");
 
     // Sent again: the host keeps both and answers with the name it gave (Nightjar's "Sent as").
     let again = client.upload_file(
@@ -1183,14 +1190,29 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
     // left behind by a refused one.
     let here = Folder::new()?;
     let dest = here.0.join("notes.txt");
-    let saved =
-        client.download_to_path("notes.txt", &dest, &mut |_, _| {}, &TransferCancel::new())?;
+    let saved = client.download_to_path(
+        "notes.txt",
+        13,
+        &dest,
+        &mut |_, _| {},
+        &TransferCancel::new(),
+    )?;
     assert_eq!(saved, 13);
     assert_eq!(std::fs::read(&dest)?, b"from Nightjar");
+    // A file that grew past its listed size since the list is refused, and leaves nothing.
+    let listed_short = client.download_to_path(
+        "notes.txt",
+        4,
+        &here.0.join("short.txt"),
+        &mut |_, _| {},
+        &TransferCancel::new(),
+    );
+    assert!(listed_short.is_err(), "{listed_short:?}");
     let missing = here.0.join("missing.txt");
     assert_eq!(
         refusal(client.download_to_path(
             "missing.txt",
+            0,
             &missing,
             &mut |_, _| {},
             &TransferCancel::new()
@@ -1221,7 +1243,7 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
     .await;
 
     assert_eq!(
-        refusal(download(&client, "missing.txt")),
+        refusal(download(&client, "missing.txt", 0)),
         (404, "not_found")
     );
     assert_eq!(refusal(upload(&client, "CON", b"x")), (400, "invalid_name"));
@@ -1243,7 +1265,7 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
         refusal(upload(&client, "later.txt", b"x")),
         (403, "forbidden")
     );
-    assert_eq!(download(&client, "notes.txt")?, b"from Nightjar");
+    assert_eq!(download(&client, "notes.txt", 13)?, b"from Nightjar");
     let capabilities = info
         .capabilities
         .with_native(&client.native_capabilities_with_files()?);
@@ -1254,7 +1276,10 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
     assert!(capabilities.has(Feature::FileDownload));
     paired(&h, |c| c.perm &= !FILE_DOWNLOAD);
     assert_eq!(refusal(client.list_files()), (403, "forbidden"));
-    assert_eq!(refusal(download(&client, "notes.txt")), (403, "forbidden"));
+    assert_eq!(
+        refusal(download(&client, "notes.txt", 13)),
+        (403, "forbidden")
+    );
     assert!(!folder.0.join("later.txt").exists() && !folder.0.join("big.bin").exists());
     Ok(())
 }
@@ -1276,7 +1301,7 @@ async fn nightjar_reads_file_transfer_turned_off() -> Result<()> {
     let disabled = (403, "file_transfer_disabled");
     assert_eq!(refusal(client.list_files()), disabled);
     assert_eq!(refusal(upload(&client, "notes.txt", b"x")), disabled);
-    assert_eq!(refusal(download(&client, "notes.txt")), disabled);
+    assert_eq!(refusal(download(&client, "notes.txt", 13)), disabled);
     Ok(())
 }
 
@@ -1373,8 +1398,9 @@ async fn nightjar_browses_and_moves_files_through_shared_folders() -> Result<()>
 
     // Saved twice: the second copy takes the next free name, as the host names uploads.
     let stop = TransferCancel::new();
-    let first = client.save_folder_file("games", "readme.txt", &saved, &mut |_, _| {}, &stop)?;
-    let second = client.save_folder_file("games", "readme.txt", &saved, &mut |_, _| {}, &stop)?;
+    let first = client.save_folder_file("games", "readme.txt", 5, &saved, &mut |_, _| {}, &stop)?;
+    let second =
+        client.save_folder_file("games", "readme.txt", 5, &saved, &mut |_, _| {}, &stop)?;
     assert_eq!(
         (first, second),
         (saved.join("readme.txt"), saved.join("readme (1).txt"))
@@ -1382,7 +1408,14 @@ async fn nightjar_browses_and_moves_files_through_shared_folders() -> Result<()>
     assert_eq!(std::fs::read(saved.join("readme (1).txt"))?, b"hello");
     // A file the host doesn't have leaves nothing behind.
     assert_eq!(
-        refusal(client.save_folder_file("games", "saves/none.sav", &saved, &mut |_, _| {}, &stop)),
+        refusal(client.save_folder_file(
+            "games",
+            "saves/none.sav",
+            0,
+            &saved,
+            &mut |_, _| {},
+            &stop
+        )),
         (404, "not_found")
     );
     assert_eq!(names(&saved)?, ["readme (1).txt", "readme.txt"]);
@@ -1424,7 +1457,7 @@ async fn nightjar_browses_and_moves_files_through_shared_folders() -> Result<()>
     grant("read");
     assert_eq!(client.shared_folders()?[0].access, FolderAccess::Read);
     let mut bytes = vec![];
-    client.download_folder_file("games", "readme.txt", &mut bytes, &mut |_, _| {}, &stop)?;
+    client.download_folder_file("games", "readme.txt", 5, &mut bytes, &mut |_, _| {}, &stop)?;
     assert_eq!(bytes, b"hello");
     assert_eq!(
         refusal(upload_to(&client, "games", "later.txt", b"x")),

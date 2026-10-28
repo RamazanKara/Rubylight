@@ -4163,25 +4163,24 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         // MediaTek shows a stream with HDR Vivid as SDR on displays without Vivid; see HdrBitstream.dropsVivid.
         String vividDecoder = vividSeiDropDecoder;
-        boolean dropVivid = vividDecoder != null && HdrBitstream.findVividSei(decodeUnitData, queuedLength, vividSeiRange);
-        if (dropVivid) {
-            queuedLength -= vividSeiRange[1] - vividSeiRange[0];
-            if (!vividSeiDropLogged) {
-                vividSeiDropLogged = true;
-                LimeLog.warning("HDR Vivid: " + vividDecoder + " shows Vivid as SDR on displays without it;" +
-                        " frames reach it without the host's Vivid SEI (" + (vividSeiRange[1] - vividSeiRange[0]) +
-                        " bytes), with HDR10+ and HDR10");
-            }
+        int[] vividRange = vividDecoder != null &&
+                HdrBitstream.findVividSei(decodeUnitData, queuedLength, vividSeiRange) ? vividSeiRange : null;
+        if (vividRange != null && !vividSeiDropLogged) {
+            vividSeiDropLogged = true;
+            LimeLog.warning("HDR Vivid: " + vividDecoder + " shows Vivid as SDR on displays without it;" +
+                    " frames reach it without the host's Vivid SEI (" + (vividRange[1] - vividRange[0]) +
+                    " bytes), with HDR10+ and HDR10");
         }
+        int putLength = HdrBitstream.putLength(queuedLength, vividRange);
 
-        if (queuedLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
+        if (putLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
             // The recovery drops this buffer and frame; the IDR asked for then fits.
-            if (requestInputBufferGrowth((long) nextInputBuffer.position() + queuedLength, nextInputBuffer.limit())) {
+            if (requestInputBufferGrowth((long) nextInputBuffer.position() + putLength, nextInputBuffer.limit())) {
                 doCodecRecoveryIfRequired(CR_FLAG_INPUT_THREAD);
                 return MoonBridge.DR_NEED_IDR;
             }
             IllegalArgumentException exception = new IllegalArgumentException(
-                    "Decode unit length "+queuedLength+" too large for input buffer "+nextInputBuffer.limit()+
+                    "Decode unit length "+putLength+" too large for input buffer "+nextInputBuffer.limit()+
                     " (requested "+requiredInputBufferSize+")");
             if (!reportedCrash) {
                 reportedCrash = true;
@@ -4191,12 +4190,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Copy data from our buffer list into the input buffer
-        if (dropVivid) {
-            nextInputBuffer.put(decodeUnitData, 0, vividSeiRange[0]);
-            nextInputBuffer.put(decodeUnitData, vividSeiRange[1], queuedLength - vividSeiRange[0]);
-        } else {
-            nextInputBuffer.put(decodeUnitData, 0, queuedLength);
-        }
+        HdrBitstream.put(nextInputBuffer, decodeUnitData, queuedLength, vividRange);
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again

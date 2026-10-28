@@ -163,6 +163,53 @@ public class HdrBitstreamTest {
         }
     }
 
+    /** A VPS and an SPS, as a fused IDR frame puts them first. */
+    private static final byte[] CSD = {0, 0, 0, 1, 0x40, 0x01, 0x0C, 0x01, 0, 0, 0, 1, 0x42, 0x01, 0x01, 0x01};
+
+    @Test
+    public void theDecoderGetsTheFrameAfterItsParameterSetsWithoutVividOrPadding() {
+        byte[] hdr10Plus = t35Sei(HDR10_PLUS, 20);
+        byte[] vivid = t35Sei(VIVID, 300);
+        byte[] padded = concat(AUD, hdr10Plus, vivid, slice(), rpu(), new byte[1391]);
+        // As submitDecodeUnit: the Dolby Vision trim, then the Vivid SEI in what is left of the frame.
+        int length = HdrBitstream.queuedLength(true, padded, padded.length);
+        int[] range = new int[2];
+        assertTrue(HdrBitstream.findVividSei(padded, length, range));
+        byte[] queued = concat(AUD, hdr10Plus, slice(), rpu());
+        assertEquals(queued.length, HdrBitstream.putLength(length, range));
+
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocate(8192);
+        buffer.put(CSD);
+        HdrBitstream.put(buffer, padded, length, range);
+        assertEquals(CSD.length + queued.length, buffer.position());
+        assertArrayEquals(concat(CSD, queued), java.util.Arrays.copyOf(buffer.array(), buffer.position()));
+    }
+
+    @Test
+    public void aVividSeiLastInWhatIsQueuedLeavesNothingAfterIt() {
+        byte[] au = concat(AUD, t35Sei(VIVID, 10));
+        int[] range = new int[2];
+        assertTrue(HdrBitstream.findVividSei(au, au.length, range));
+        assertEquals(au.length, range[1]);
+        assertEquals(AUD.length, HdrBitstream.putLength(au.length, range));
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocate(64);
+        HdrBitstream.put(buffer, au, au.length, range);
+        assertArrayEquals(AUD, java.util.Arrays.copyOf(buffer.array(), buffer.position()));
+    }
+
+    @Test
+    public void aFrameWithNothingToDropIsPutAsQueued() {
+        // The bridge's buffer is reused: bytes past the decode unit's length are an older frame's.
+        byte[] au = concat(AUD, slice());
+        byte[] reused = java.util.Arrays.copyOf(au, au.length + 50);
+        reused[au.length] = 0x55;
+        assertEquals(au.length, HdrBitstream.putLength(au.length, null));
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocate(8192);
+        buffer.put(CSD);
+        HdrBitstream.put(buffer, reused, au.length, null);
+        assertArrayEquals(concat(CSD, au), java.util.Arrays.copyOf(buffer.array(), buffer.position()));
+    }
+
     @Test
     public void theLoggedTailEndsAtTheRpuStopByte() {
         byte[] au = accessUnit(5);

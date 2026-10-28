@@ -320,7 +320,7 @@ mod tests {
                 "{key}"
             );
         }
-        assert_eq!(PER_DEVICE.len(), 9);
+        assert_eq!(PER_DEVICE.len(), 7);
     }
 
     /// The settings whose features have shipped, so the console shows them.

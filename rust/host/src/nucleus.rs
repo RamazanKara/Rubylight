@@ -572,6 +572,12 @@ fn refuse_path(exe_path: &str) -> Result<(), Refusal> {
     }
 }
 
+/// Whether `app` starts a launcher's .exe (`steam.exe -applaunch`), which
+/// Rubylight's handler refuses: the console says so rather than "no handler".
+pub fn starts_launcher(app: &App) -> bool {
+    executable(app).is_some_and(generic::launcher)
+}
+
 /// The handler a session starts with.
 enum Chosen {
     /// A hub or user handler, with the game the user added.

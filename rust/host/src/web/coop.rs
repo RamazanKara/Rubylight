@@ -172,7 +172,9 @@ fn status(h: &Shared) -> Value {
             let uuid = app.extra.get("uuid")?.as_str()?;
             let (status, reason, handler, players) = match status {
                 // Started through a launcher: no handler can match it.
-                _ if !crate::nucleus::starts_exe(app) => ("launcher", None, None, None),
+                _ if !crate::nucleus::starts_exe(app) || crate::nucleus::starts_launcher(app) => {
+                    ("launcher", None, None, None)
+                }
                 None => ("unknown", None, None, None),
                 Some(GameStatus::Ready { handler, players }) => {
                     ("ready", None, Some(handler), Some(players))
@@ -758,6 +760,11 @@ mod tests {
                 "cmd /c start \"\" steam://rungameid/730",
                 "cs2",
             ),
+            app(
+                "Portal",
+                r#""C:\Program Files (x86)\Steam\steam.exe" -applaunch 400"#,
+                "portal1",
+            ),
         ];
         let body = value(
             request(&f, "GET", "/api/coop", Value::Null).await,
@@ -774,6 +781,8 @@ mod tests {
                  "handler": null, "players": null, "entry": "Puzzle (Co-op)"},
                 {"app": "cs2", "name": "Counter-Strike 2", "status": "launcher", "reason": null,
                  "handler": null, "players": null, "entry": "Counter-Strike 2 (Co-op)"},
+                {"app": "portal1", "name": "Portal", "status": "launcher", "reason": null,
+                 "handler": null, "players": null, "entry": "Portal (Co-op)"},
             ])
         );
         assert_eq!(body["catalog_error"], Value::Null);

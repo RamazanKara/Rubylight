@@ -21,6 +21,9 @@ pub const WGC: u32 = 17134;
 /// Windows 10 1903: `IGraphicsCaptureItemInterop::CreateForMonitor`, so WGC can
 /// capture a whole display.
 pub const WGC_MONITOR: u32 = 18362;
+/// Windows 10 1903: `IGraphicsCaptureItemInterop::CreateForWindow`, the same
+/// interface, so WGC can capture one window by its handle.
+pub const WGC_WINDOW: u32 = 18362;
 /// Windows 10 2004: `GraphicsCaptureSession.IsCursorCaptureEnabled`. Before it
 /// the cursor is always in the picture.
 pub const WGC_CURSOR_SWITCH: u32 = 19041;
@@ -52,6 +55,7 @@ fn at_least(build: Option<u32>, minimum: u32) -> bool {
 pub enum Feature {
     Wgc,
     WgcMonitor,
+    WgcWindow,
     WgcCursorSwitch,
     WgcBorderSwitch,
     WgcUpdateInterval,
@@ -65,6 +69,7 @@ impl Feature {
         match self {
             Self::Wgc => WGC,
             Self::WgcMonitor => WGC_MONITOR,
+            Self::WgcWindow => WGC_WINDOW,
             Self::WgcCursorSwitch => WGC_CURSOR_SWITCH,
             Self::WgcBorderSwitch => WGC_BORDER_SWITCH,
             Self::WgcUpdateInterval => WGC_UPDATE_INTERVAL,
@@ -79,6 +84,9 @@ impl Feature {
             Self::Wgc => "Windows Graphics Capture is unavailable; use Desktop Duplication",
             Self::WgcMonitor => {
                 "Windows Graphics Capture cannot capture a whole display; use Desktop Duplication"
+            }
+            Self::WgcWindow => {
+                "Windows Graphics Capture cannot capture a single game window, so Nucleus Co-op streams cannot start; use a child session"
             }
             Self::WgcCursorSwitch => {
                 "the cursor is always part of the captured picture and cannot be switched"
@@ -104,6 +112,7 @@ impl Feature {
         match self {
             Self::Wgc => "Windows Graphics Capture",
             Self::WgcMonitor => "WGC display capture",
+            Self::WgcWindow => "WGC window capture",
             Self::WgcCursorSwitch => "WGC cursor switch",
             Self::WgcBorderSwitch => "WGC border switch",
             Self::WgcUpdateInterval => "WGC minimum update interval",
@@ -154,11 +163,12 @@ mod tests {
     const WIN11_24H2: (&str, u32) = ("Windows 11 24H2", 26100);
     const WIN11_25H2: (&str, u32) = ("Windows 11 25H2", 26200);
 
-    fn row(release: (&str, u32)) -> [bool; 8] {
+    fn row(release: (&str, u32)) -> [bool; 9] {
         let build = Some(release.1);
         [
             supported(build, Feature::Wgc),
             supported(build, Feature::WgcMonitor),
+            supported(build, Feature::WgcWindow),
             supported(build, Feature::WgcCursorSwitch),
             supported(build, Feature::WgcBorderSwitch),
             supported(build, Feature::WgcUpdateInterval),
@@ -170,42 +180,42 @@ mod tests {
 
     #[test]
     fn each_release_gets_the_expected_apis() {
-        // Wgc, Monitor, Cursor, Border, Interval, DuplicateOutput1, Desc1, VirtualDisplay
+        // Wgc, Monitor, Window, Cursor, Border, Interval, DuplicateOutput1, Desc1, VirtualDisplay
         assert_eq!(
             row(WIN10_1709),
-            [false, false, false, false, false, true, false, false]
+            [false, false, false, false, false, false, true, false, false]
         );
         assert_eq!(
             row(WIN10_1809),
-            [true, false, false, false, false, true, true, false]
+            [true, false, false, false, false, false, true, true, false]
         );
         assert_eq!(
             row(WIN10_1903),
-            [true, true, false, false, false, true, true, false]
+            [true, true, true, false, false, false, true, true, false]
         );
         assert_eq!(
             row(WIN10_22H2),
-            [true, true, true, false, false, true, true, false]
+            [true, true, true, true, false, false, true, true, false]
         );
         assert_eq!(
             row(WIN11_21H2),
-            [true, true, true, true, false, true, true, false]
+            [true, true, true, true, true, false, true, true, false]
         );
         assert_eq!(
             row(WIN11_22H2),
-            [true, true, true, true, false, true, true, false]
+            [true, true, true, true, true, false, true, true, false]
         );
         assert_eq!(
             row(WIN11_23H2),
-            [true, true, true, true, false, true, true, true]
+            [true, true, true, true, true, false, true, true, true]
         );
         assert_eq!(
             row(WIN11_24H2),
-            [true, true, true, true, true, true, true, true]
+            [true, true, true, true, true, true, true, true, true]
         );
         assert_eq!(
             row(WIN11_25H2),
-            [true, true, true, true, true, true, true, true]
+            [true, true, true, true, true, true, true, true, true]
         );
     }
 
@@ -214,6 +224,7 @@ mod tests {
         for feature in [
             Feature::Wgc,
             Feature::WgcMonitor,
+            Feature::WgcWindow,
             Feature::WgcCursorSwitch,
             Feature::WgcBorderSwitch,
             Feature::WgcUpdateInterval,
@@ -233,6 +244,10 @@ mod tests {
         assert!(text.contains("build 20348"), "{text}");
         assert!(text.contains("build 19045"), "{text}");
         assert!(text.contains("capture border"), "{text}");
+        let text = missing(Some(WIN10_1809.1), Feature::WgcWindow).unwrap();
+        assert!(text.contains("build 18362"), "{text}");
+        assert!(text.contains("single game window"), "{text}");
+        assert!(!text.contains("Desktop Duplication"), "{text}");
         let text = missing(Some(WIN11_22H2.1), Feature::VirtualDisplay).unwrap();
         assert!(text.contains("IddCx 1.10"), "{text}");
         assert!(text.contains("physical display"), "{text}");

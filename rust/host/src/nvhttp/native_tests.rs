@@ -394,6 +394,28 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
         (true, true, false)
     );
     assert!(!permissions.host_control);
+    assert!(!permissions.coop_join);
+    // While this host can run Nucleus Co-op sessions, `coop` follows the couch menu.
+    s.host()
+        .nucleus
+        .use_pc(Arc::new(crate::nucleus::fake::Pc::installed()));
+    let coop: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
+    assert_eq!(
+        coop.features,
+        [
+            "library",
+            "session",
+            "session.close_game",
+            "session.launcher",
+            "wake",
+            "session.couch_menu",
+            "coop",
+            "clipboard.image"
+        ]
+    );
+    s.host()
+        .nucleus
+        .use_pc(Arc::new(crate::nucleus::fake::Pc::unavailable()));
     // The console grants Host control: the very next request shows it.
     s.host_control(true);
     let granted: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();

@@ -29,7 +29,7 @@ Nightjar 4.0 streams your PC to Android phones, handhelds, tablets, Android TV a
 
 - **H.264, HEVC and AV1** hardware decoding, with low-latency settings per chip for Snapdragon, MediaTek, Tegra, Exynos, Google Tensor and Amlogic decoders on Android ([decoder flags](decoder-flags.md)), D3D11VA on Windows and VAAPI on Linux.
 - **HDR10, HDR10+, HLG and Dolby Vision**, each where the screen and decoder show it, with HDR10+ scene statistics and Dolby Vision 10.1 on AV1 or 8.1 and 8.4 on HEVC from a Rubylight 3.0 PC. Dolby Vision, HDR10+ and HLG on Android; HDR10 on Windows and Linux. [HDR formats](video-and-latency.md#hdr-formats)
-- **10-bit SDR** against banding and **full-colour 4:4:4** for sharp coloured text, on Android, Windows and Linux. Each is offered only where this device's decoder handles it; elsewhere the stream is 8-bit or 4:2:0 and names the reason. [HDR and color](video-and-latency.md#hdr-and-color)
+- **10-bit SDR** against banding and **full-colour 4:4:4** for sharp coloured text, on Android, Windows and Linux. Full chroma packs 4:4:4 into a stream ordinary hardware decoders handle; true 4:4:4 needs a decoder that has it, usually the software one. Each is offered only where this device's decoder handles it; elsewhere the stream is 8-bit or 4:2:0 and names the reason. [HDR and color](video-and-latency.md#hdr-and-color)
 - **PyroWave**, the low-latency wavelet codec, decoded through Vulkan on Android and on the GPU on Windows and Linux, in 4:4:4 and HDR. On Snapdragon you can load a newer Adreno driver for it. Rubylight. [PyroWave decode](pyrowave-decode.md)
 - **Upscaling** on this device with FSR 1 or Snapdragon GSR.
 - **Render through Vulkan** on Android, so frame-generation overlays can hook the video, with HDR10, HDR10+ and HLG.

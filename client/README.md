@@ -111,7 +111,7 @@ Press Back while you play. **Session and graphics** has Resume, Disconnect, End 
 
 ## One engine, every screen
 
-Phones, foldables, handhelds, tablets, Android TV and Fire TV run the same Rust streaming engine as the Windows and Linux client. Home, your PCs, your settings, the session menu and the Radeon panel come with you to every one of them. The desktop client brings hardware decoding, HDR10, 10-bit SDR and 4:4:4, VRR pacing, controller-first navigation, GPU PyroWave decoding and beam racing, and brings its own FFmpeg, so the Linux build runs across distributions, from Ubuntu to Arch. [Android and desktop](docs/CLIENT-PARITY.md) · [Desktop client](protocol/desktop/README.md).
+Phones, foldables, handhelds, tablets, Android TV and Fire TV run the same Rust streaming engine as the Windows and Linux client. Home, your PCs, your settings, the session menu and the Radeon panel come with you to every one of them. The desktop client brings hardware decoding, HDR10, 10-bit SDR, full-chroma 4:4:4 on the hardware decoder, VRR pacing, controller-first navigation, GPU PyroWave decoding and beam racing, and brings its own FFmpeg, so the Linux build runs across distributions, from Ubuntu to Arch. [Android and desktop](docs/CLIENT-PARITY.md) · [Desktop client](protocol/desktop/README.md).
 
 <!-- showcase -->
 

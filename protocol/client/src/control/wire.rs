@@ -50,6 +50,7 @@ pub mod ptype {
         rubylight_protocol::pipeline_rates::PIPELINE_RATES_MESSAGE_TYPE;
     pub const KEYBOARD_LAYOUT: u16 =
         rubylight_protocol::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE;
+    pub const RATE_CHANGE: u16 = rubylight_protocol::rate_change::RATE_CHANGE_MESSAGE_TYPE;
     pub const CURSOR_SHAPE_REQUEST: u16 = 0x5540;
     pub const CURSOR_SHAPE: u16 = 0x5541;
     /// Rubylight's USB forwarding (both ways).

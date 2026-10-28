@@ -223,7 +223,10 @@ pub(crate) mod tests {
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-    const MARKED_ONLY: [(&str, &str); 1] = [("stream/mod.rs", include_str!("stream/mod.rs"))];
+    const MARKED_ONLY: [(&str, &str); 2] = [
+        ("stream/mod.rs", include_str!("stream/mod.rs")),
+        ("stream/rate_change.rs", include_str!("stream/rate_change.rs")),
+    ];
 
     fn production(source: &str) -> &str {
         source.split("#[cfg(test)]").next().unwrap_or(source)

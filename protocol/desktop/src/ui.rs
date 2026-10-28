@@ -2022,6 +2022,9 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["adaptive_bitrate"], "Adapt bitrate to the connection", "Reduce bitrate during sustained congestion and recover gradually. Requires a compatible host.", |ui, s| {
                 toggle(ui, &mut s.adaptive_bitrate)
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["client_hint_bitrate"], "Client-hint bitrate", "Lower the bitrate when frames are lost and raise it again after clean seconds, from the next frame on. Works with Rubylight PCs that take mid-stream rate changes, and replaces Adapt bitrate to the connection there.", |ui, s| {
+                toggle(ui, &mut s.client_hint_bitrate)
+            });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["adaptive_quality"], "Automatic quality", "Adjust resolution and frame rate under sustained load. Requires a host that supports live stream changes.", |ui, s| {
                 egui::ComboBox::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {

@@ -1768,7 +1768,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         });
                     }
                     if s.facts.runtime_bitrate {
-                        if s.facts.role == nightjar_core::http::AppRole::Stream {
+                        if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
                             let mut enabled = s.adaptive_bitrate;
                             if ui.add_enabled(!s.bitrate_busy, egui::Checkbox::new(&mut enabled, tr("Adapt bitrate to the connection"))).changed() {
                                 s.enable_adaptive_bitrate(enabled);
@@ -1780,6 +1780,21 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 s.set_bitrate();
                             }
                         });
+                    }
+                    if let Some(rates) = &mut s.rate_change {
+                        let mut apply = false;
+                        egui::CollapsingHeader::new(tr("Change bitrate / frame rate")).id_salt("rate-change").show(ui, |ui| {
+                            let busy = rates.menu_busy();
+                            ui.add_enabled_ui(!busy, |ui| {
+                                ui.horizontal(|ui| {
+                                    theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
+                                    theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
+                                });
+                                apply = ui.button(tr("Apply bitrate and frame rate")).clicked();
+                            });
+                            if busy { ui.label(tr("Waiting for the PC…")); }
+                        });
+                        if apply { s.change_rates(); }
                     }
                     if s.facts.role != nightjar_core::http::AppRole::InputOnly {
                         egui::CollapsingHeader::new(tr("Why did my stream stutter?")).id_salt("stream-health").show(ui, |ui| {

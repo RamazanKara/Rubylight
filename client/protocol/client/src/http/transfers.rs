@@ -93,6 +93,8 @@ impl Problem {
                 FileRefusal::NoConsoleUser => Problem::NoConsoleUser,
                 FileRefusal::TransferBusy => Problem::Busy,
                 FileRefusal::NotFound => Problem::NotFound,
+                // Only the shared folder calls answer this; on a file transfer call it is the host's fault.
+                FileRefusal::FoldersDisabled => Problem::Host,
             },
             FileError::Local(_) => Problem::Local,
             FileError::Host(Error::Cancelled) => return None,
@@ -629,6 +631,7 @@ mod tests {
             (FileRefusal::NoConsoleUser, Problem::NoConsoleUser),
             (FileRefusal::TransferBusy, Problem::Busy),
             (FileRefusal::NotFound, Problem::NotFound),
+            (FileRefusal::FoldersDisabled, Problem::Host),
         ];
         for (refusal, problem) in table {
             assert_eq!(Problem::of(&refused(refusal)), Some(problem), "{refusal:?}");

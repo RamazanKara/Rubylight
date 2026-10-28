@@ -4522,10 +4522,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> placeClipboardImage(clipboard, incoming, generation));
             } catch (ClipboardImageException e) {
                 LimeLog.warning("Clipboard image refused: " + e.getMessage());
-                showClipboardImageResult(ClipboardImages.message(e.reason), generation);
+                showClipboardImageResult(ClipboardImages.message(e.reason, send), generation);
             } catch (OutOfMemoryError e) {
                 LimeLog.warning("Clipboard image out of memory: " + e);
-                showClipboardImageResult(R.string.clipboard_image_too_large, generation);
+                showClipboardImageResult(ClipboardImages.message(ClipboardImageException.Reason.TOO_LARGE, send),
+                        generation);
             } catch (IOException | XmlPullParserException | RuntimeException e) {
                 showHostActionError(e, generation);
             } finally {

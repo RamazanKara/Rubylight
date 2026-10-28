@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">A área de transferência do host não tem imagem</string>
     <string name="stream_clipboard_image_received">Imagem do host copiada para a área de transferência</string>
     <string name="clipboard_image_too_large">A imagem é grande demais para a área de transferência do host</string>
+    <string name="clipboard_image_too_large_here">A imagem do host é grande demais para ser copiada para este dispositivo</string>
     <string name="clipboard_image_not_png">Não foi possível ler a imagem</string>
     <string name="clipboard_image_no_host">Este host não pode compartilhar imagens da área de transferência</string>
     <string name="clipboard_image_forbidden">O host não permite que este dispositivo use a área de transferência dele</string>

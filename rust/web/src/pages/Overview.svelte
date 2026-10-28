@@ -19,7 +19,7 @@
   import { api, type App, type Client, type CoopStatus, type SessionStatus, type StreamSession } from '../lib/api';
   import { liveCoop } from '../lib/coop-view';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
-  import { poll } from '../lib/format';
+  import { marked, poll } from '../lib/format';
   import { link } from '../lib/router.svelte';
   import { refreshMetadata, session } from '../lib/session.svelte';
 
@@ -59,7 +59,8 @@
     }
     if (!liveCoop(coop).length) return;
     try {
-      coopClients = (await api.clients.list()).clients;
+      // After the status's await, so marked here: the poll's own mark covers only its first request.
+      coopClients = (await marked(() => api.clients.list())).clients;
       coopClientsError = '';
     } catch (error) {
       coopClientsError = reason(error);

@@ -1,7 +1,7 @@
 <script lang="ts">
   // The game page's co-op: set Nucleus Co-op up, get the game's handler, then play together.
   // States come from lib/coop-view.ts; this file only draws them and runs the two actions.
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Banner from '../Banner.svelte';
   import Button from '../Button.svelte';
   import LoadState from '../LoadState.svelte';
@@ -10,6 +10,7 @@
   import { api, type CoopStatus } from '../../lib/api';
   import { AWAY_FROM_PC, COOP_LIMITS, OPEN_ON_PC, playTogether, pollsView } from '../../lib/coop-view';
   import { failed, notify } from '../../lib/feedback.svelte';
+  import { poll } from '../../lib/format';
   import { statusLoader } from '../maintenance/status-loader';
   import { reason } from '../maintenance/util';
   import type { AppDraft } from './draft.svelte';
@@ -31,7 +32,6 @@
   let loadError = $state('');
   /** 'install', 'open' or 'close' while its request is out. */
   let busy = $state('');
-  let timer: ReturnType<typeof setInterval> | undefined;
 
   const view = $derived(status ? playTogether(status, uuid) : null);
 
@@ -87,11 +87,11 @@
 
   onMount(() => {
     if (!status) load();
-    timer = setInterval(() => {
-      if (view && pollsView(view) && !busy) loader.tick();
+    // Marked as a poll and paused while the tab is hidden, so a page left open lets the PC sleep.
+    return poll(() => {
+      if (view && pollsView(view) && !busy) return loader.tick();
     }, 3000);
   });
-  onDestroy(() => clearInterval(timer));
 </script>
 
 {#snippet closeAction()}

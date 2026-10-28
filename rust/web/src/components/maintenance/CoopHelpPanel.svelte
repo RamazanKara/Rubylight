@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Badge from '../Badge.svelte';
   import Banner from '../Banner.svelte';
   import Button from '../Button.svelte';
@@ -8,6 +8,7 @@
   import { api, type CoopStatus } from '../../lib/api';
   import { downloadText, sentence } from '../../lib/coop-view';
   import { failed } from '../../lib/feedback.svelte';
+  import { poll } from '../../lib/format';
   import { link } from '../../lib/router.svelte';
   import { installStates } from './coop';
   import { statusLoader } from './status-loader';
@@ -22,7 +23,6 @@
   let status = $state<CoopStatus | null>(untrack(() => initial));
   let loadError = $state('');
   let retrying = $state(false);
-  let timer: ReturnType<typeof setInterval> | undefined;
 
   const install = $derived(status ? installStates[status.install.state] : null);
 
@@ -52,11 +52,10 @@
 
   onMount(() => {
     if (!status) load();
-    timer = setInterval(() => {
-      if (status?.install.state === 'installing') loader.tick();
+    return poll(() => {
+      if (status?.install.state === 'installing') return loader.tick();
     }, 3000);
   });
-  onDestroy(() => clearInterval(timer));
 </script>
 
 <Panel title="Nucleus Co-op" level={3} description="Runs co-op games, and games played while someone uses this PC.">

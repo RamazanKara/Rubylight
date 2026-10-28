@@ -1416,6 +1416,7 @@ impl Streaming {
         if let Some(why) = usb_refused { eprintln!("nightjar: USB forwarding is on, but no USB devices are offered: {why}"); }
         let usb = if settings.usb_forwarding && usb_refused.is_none() { lock(&connecting.shared.host_client).clone() } else { None }
             .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
+        let hdr_stream = present::hdr_negotiated(settings.hdr, facts.format);
         let mut streaming = Self {
             usb,
             usb_refused,
@@ -1423,7 +1424,7 @@ impl Streaming {
             shared: connecting.shared,
             facts,
             pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog),
-            texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear),
+            texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear, hdr_stream),
             upscaler: None,
             upscale_failed: false,
             phase: phase::Phase::default(),

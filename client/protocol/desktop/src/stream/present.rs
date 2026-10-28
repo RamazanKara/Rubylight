@@ -173,6 +173,9 @@ pub struct VideoTexture {
     white_level: f32,
     hdr_mode: Option<bool>,
     hdr_metadata: Option<nightjar_core::control::HdrMetadata>,
+    /// The session negotiated HDR (asked for it and got a 10-bit format), for pictures before or
+    /// without the host's HDR mode; a 10-bit SDR stream is not HDR.
+    hdr_stream: bool,
 }
 
 impl Default for VideoTexture {
@@ -199,8 +202,30 @@ impl Default for VideoTexture {
             white_level: 1.0,
             hdr_mode: None,
             hdr_metadata: None,
+            hdr_stream: false,
         }
     }
+}
+
+/// Whether the session negotiated HDR: the client asked for it and the host chose a 10-bit format.
+/// With "10-bit color (SDR)" a 10-bit format alone is SDR.
+pub fn hdr_negotiated(asked_hdr: bool, negotiated_format: u32) -> bool {
+    asked_hdr && negotiated_format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0
+}
+
+/// Whether a picture is shown as HDR: as the host's HDR mode says once it has, else when it
+/// carries the PQ transfer or the session negotiated HDR. A 10-bit format alone is not HDR.
+fn shows_hdr(hdr_mode: Option<bool>, hdr_stream: bool, color_trc: i32) -> bool {
+    hdr_mode.unwrap_or(hdr_stream || color_trc == 16)
+}
+
+/// The plane shader's constants for a software-decoded planar picture: its colour description is
+/// FFmpeg's, read as `colorspace` reads it (the shader's matrix 0 is BT.601, 2 BT.2020, else BT.709).
+pub(super) fn planar_parameters(info: &FrameInfo, layout: media::PlanarLayout, hdr: bool, white_level: f32) -> [u32; 8] {
+    let matrix = match info.color_space { 5 | 6 => 0, 9 | 10 => 2, _ => 1 };
+    let flags = u32::from(info.color_range == 2) | (u32::from(hdr) << 1) | (matrix << 2) | (u32::from(layout.ten_bit) << 4)
+        | (u32::from(layout.chroma444) << 5) | (u32::from(layout.ten_bit) << 6);
+    [layout.width, layout.height, layout.width, layout.height, 0, 3, flags, white_level.to_bits()]
 }
 
 /// FFmpeg's colour description as an SDL colorspace.
@@ -261,8 +286,9 @@ fn pixel_format_name(format: SDL_PixelFormat) -> String {
 }
 
 impl VideoTexture {
-    pub fn new(_direct_packed: bool) -> Self {
-        Self { #[cfg(windows)] direct_packed: _direct_packed, ..Default::default() }
+    /// `hdr_stream`: the session negotiated HDR.
+    pub fn new(_direct_packed: bool, hdr_stream: bool) -> Self {
+        Self { #[cfg(windows)] direct_packed: _direct_packed, hdr_stream, ..Default::default() }
     }
 
     pub fn set_hdr_mode(
@@ -406,10 +432,7 @@ impl VideoTexture {
         let Some(frame) = decoded.picture.frame() else { return false };
         let info = frame.info();
         // SDL's HDR headroom and tone mapping are relative to the display's SDR white.
-        let white_level = if self.hdr_mode.unwrap_or(
-            info.color_trc == 16
-                || decoded.setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0,
-        ) {
+        let white_level = if shows_hdr(self.hdr_mode, self.hdr_stream, info.color_trc) {
             // SAFETY: The live renderer belongs to the presenting thread.
             unsafe {
                 SDL_GetFloatProperty(
@@ -543,8 +566,11 @@ impl VideoTexture {
             }
             return success;
         }
-        let space = colorspace(&info);
         self.hdr_frame = info.color_trc == 16;
+        if let Some(layout) = media::PlanarLayout::of(&info) {
+            return self.upload_planar(renderer, &info, layout, white_level);
+        }
+        let space = colorspace(&info);
         let (w, h) = (info.width, info.height);
         // SAFETY: plane pointers and pitches come from the live AVFrame.
         unsafe {
@@ -724,6 +750,55 @@ impl VideoTexture {
         drawn
     }
 
+    /// Draws a software-decoded planar picture (4:4:4, or 10-bit) with the plane shader into an
+    /// RGBA64F texture, as the GPU decoder's planes are drawn: SDL has no texture formats for them.
+    fn upload_planar(&mut self, renderer: *mut SDL_Renderer, info: &FrameInfo, layout: media::PlanarLayout, white_level: f32) -> bool {
+        let hdr = shows_hdr(self.hdr_mode, self.hdr_stream, info.color_trc);
+        if hdr && !crate::sdl::hdr_available(renderer) {
+            self.destroy();
+            self.fail(format!("an HDR {}x{} picture needs HDR output, which the renderer {} does not offer", layout.width, layout.height, crate::sdl::renderer_name(renderer)), "the display has no HDR output".into());
+            return false;
+        }
+        let parameters = planar_parameters(info, layout, hdr, white_level);
+        if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
+        if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return false; }
+        #[cfg(windows)]
+        let drawn = {
+            if self.planes.is_none() {
+                if self.d3d11.is_null() {
+                    self.fail(format!("the RGBA64F video texture has no Direct3D 11 texture (renderer {})", crate::sdl::renderer_name(renderer)), "it needs the Direct3D 11 renderer".into());
+                    return false;
+                }
+                // SAFETY: `d3d11` is the live texture of the renderer's device.
+                match unsafe { super::d3d11::PlanesPass::new(self.d3d11) } {
+                    Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
+                    Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
+                }
+            }
+            self.planes.as_mut().unwrap().draw_frame(info, &parameters)
+        };
+        #[cfg(unix)]
+        let drawn = {
+            if self.planes.is_none() {
+                // SAFETY: The live renderer belongs to the presenting thread.
+                match unsafe { super::planes_gpu::PlanesPass::for_frames(renderer, layout) } {
+                    Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
+                    Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
+                }
+            }
+            let texture = self.texture;
+            // SAFETY: The pass was made on this renderer for pictures shaped like `info` (a change
+            // of shape changes the parameters, which destroys it), and `info` is the live frame's.
+            unsafe { self.planes.as_mut().unwrap().draw_frame(renderer, texture, info, &parameters) }
+        };
+        #[cfg(not(any(windows, unix)))]
+        let drawn: Result<(), String> = Err("this platform has no plane shader pass".into());
+        match drawn {
+            Ok(()) => true,
+            Err(error) => { self.fail(format!("drawing a {}x{} planar picture failed: {error}", layout.width, layout.height), error); false }
+        }
+    }
+
     pub fn destroy(&mut self) {
         #[cfg(any(windows, unix))]
         { self.planes = None; }
@@ -743,6 +818,7 @@ impl VideoTexture {
             failure: self.failure.take(),
             hdr_mode: self.hdr_mode,
             hdr_metadata: self.hdr_metadata,
+            hdr_stream: self.hdr_stream,
             // Facts about the stream, not the texture: `ensure` calls `destroy` before it reads them.
             hdr_frame: self.hdr_frame,
             logged_failure: self.logged_failure.take(),
@@ -844,6 +920,52 @@ pub(crate) mod tests {
         assert_eq!(texture.logged_failure.as_deref(), Some("detail"));
         assert_eq!(texture.failure.as_deref(), Some("short"));
         assert!(hdr_properties(texture.hdr_frame, 2.5, None).white_point == Some(200.0));
+        let mut sdr10 = VideoTexture::new(true, false);
+        let mut hdr = VideoTexture::new(true, true);
+        sdr10.destroy();
+        hdr.destroy();
+        assert!(!sdr10.hdr_stream && hdr.hdr_stream, "what the session negotiated must survive destroy");
+    }
+
+    #[test]
+    fn a_10_bit_sdr_stream_keeps_the_sdr_white_until_the_host_says_hdr() {
+        // The bug: every 10-bit picture without the host's HDR mode took the display's SDR white
+        // (and HDR conversion), so 10-bit SDR came out too dark or too bright.
+        use nightjar_core::sdp::{VIDEO_FORMAT_AV1_MAIN10, VIDEO_FORMAT_H265, VIDEO_FORMAT_H265_MAIN10};
+        assert!(!hdr_negotiated(false, VIDEO_FORMAT_H265_MAIN10), "10-bit color (SDR) is not HDR");
+        assert!(!hdr_negotiated(false, VIDEO_FORMAT_AV1_MAIN10));
+        assert!(hdr_negotiated(true, VIDEO_FORMAT_H265_MAIN10));
+        assert!(!hdr_negotiated(true, VIDEO_FORMAT_H265), "HDR asked for, 8-bit chosen");
+        let bt709 = 1;
+        assert!(!shows_hdr(None, hdr_negotiated(false, VIDEO_FORMAT_H265_MAIN10), bt709));
+        assert!(shows_hdr(None, hdr_negotiated(true, VIDEO_FORMAT_H265_MAIN10), bt709));
+        // The PQ transfer, and the host's HDR mode once it is known, still decide.
+        assert!(shows_hdr(None, false, 16));
+        assert!(!shows_hdr(Some(false), true, 16));
+        assert!(shows_hdr(Some(true), false, bt709));
+    }
+
+    #[test]
+    fn planar_pictures_get_the_plane_shader_flags_of_their_colour_description() {
+        let info = |kind, width, height, space, range| FrameInfo { kind, width, height, ten_bit: 0, ..frame(1, space, range) };
+        let layout = |info: &FrameInfo| media::PlanarLayout::of(info).unwrap();
+        // 8-bit 4:4:4, BT.709 limited: matrix 1, 4:4:4 (32).
+        let yuv444 = info(media::FRAME_YUV444P, 64, 32, 1, 1);
+        assert_eq!(planar_parameters(&yuv444, layout(&yuv444), false, 1.0), [64, 32, 64, 32, 0, 3, 4 | 32, 1.0f32.to_bits()]);
+        // 10-bit 4:2:0, BT.601 full: full (1), matrix 0, ten (16), FFmpeg's low-bit samples (64).
+        let main10 = info(media::FRAME_YUV420P10, 7, 3, 6, 2);
+        assert_eq!(planar_parameters(&main10, layout(&main10), false, 1.0)[6], 1 | 16 | 64);
+        // 10-bit 4:4:4 HDR, BT.2020, white 2.5.
+        let hdr = info(media::FRAME_YUV444P10, 16, 16, 9, 1);
+        assert_eq!(planar_parameters(&hdr, layout(&hdr), true, 2.5)[6..], [2 | 8 | 16 | 32 | 64, 2.5f32.to_bits()]);
+        // Odd 4:2:0 pictures round their chroma up, as FFmpeg does.
+        assert_eq!([0, 1, 2].map(|p| layout(&main10).plane_size(p)), [(7, 3), (4, 2), (4, 2)]);
+        assert_eq!([0, 1, 2].map(|p| layout(&yuv444).plane_size(p)), [(64, 32); 3]);
+        // Only the three planar kinds take this path.
+        for kind in [media::FRAME_NV12, media::FRAME_P010, media::FRAME_YUV420P, media::FRAME_D3D11, media::FRAME_WAVELET] {
+            assert!(media::PlanarLayout::of(&info(kind, 64, 32, 1, 1)).is_none());
+        }
+        assert!(media::PlanarLayout::of(&info(media::FRAME_YUV444P, 0, 32, 1, 1)).is_none());
     }
 
     /// The report: an HDR stream showed "Cannot show d3d11 pictures". Needs a Direct3D 11 display.

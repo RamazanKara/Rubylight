@@ -96,6 +96,8 @@ pub struct PlanesPass {
     /// Shader resource views of the plane sets seen so far, for the `Planes` they belong to.
     views: std::collections::HashMap<usize, [Option<ID3D11ShaderResourceView>; 3]>,
     owner: Option<std::sync::Arc<Planes>>,
+    /// The textures of software-decoded planar pictures (`draw_frame`).
+    frame: Option<FramePlanes>,
 }
 
 impl PlanesPass {
@@ -130,7 +132,7 @@ impl PlanesPass {
             DepthClipEnable: true.into(), ScissorEnable: true.into(), ..Default::default() }, Some(&mut raster))?;
         Ok(Self { context, queue, deferred: deferred.unwrap(), device, target: [target_view],
             vertex: vertex.unwrap(), fragment: fragment.unwrap(), constants: [constants], sampler: [sampler],
-            raster: raster.unwrap(), size: (desc.Width, desc.Height), views: Default::default(), owner: None })
+            raster: raster.unwrap(), size: (desc.Width, desc.Height), views: Default::default(), owner: None, frame: None })
     }
 
     /// Compiles the plane shader for a probe: whether the pass can be built at all.
@@ -204,10 +206,42 @@ impl PlanesPass {
         self.retarget(planes);
         fence_ready_within(planes.decode_fence(), fence_value, deadline)?;
         let views = self.views(planes, set).map_err(|e| format!("cannot read the PyroWave planes: {e}"))?;
+        // SAFETY: The immediate context belongs to this (the presenting) thread.
+        unsafe {
+            self.queue.Wait(planes.decode_fence(), fence_value).map_err(|e| format!("cannot order the picture after the PyroWave decode: {e}"))?;
+        }
+        self.record_views(&views, parameters, rows).map_err(|e| format!("cannot record the PyroWave plane pass: {e}"))
+    }
+
+    /// Draws a software-decoded planar picture (FFmpeg's yuv444p, yuv420p10 or yuv444p10) into
+    /// the target: its planes go into textures of the pass and are converted like the decoder's.
+    pub fn draw_frame(&mut self, info: &media::FrameInfo, parameters: &[u32; 8]) -> Result<(), String> {
+        let layout = media::PlanarLayout::of(info).ok_or_else(|| format!("frame kind {} has no planes to draw", info.kind))?;
+        // Checked before anything is recorded, so a refused picture leaves no upload behind.
+        if let Some(plane) = (0..3).find(|&plane| info.data[plane].is_null() || info.linesize[plane] <= 0) {
+            return Err(format!("plane {plane} of the picture is missing"));
+        }
+        if self.frame.as_ref().is_none_or(|frame| frame.layout != layout) {
+            self.frame = None;
+            // SAFETY: Textures and views on the pass's own device.
+            self.frame = Some(unsafe { FramePlanes::new(&self.device, layout) }.map_err(|e| format!("cannot make the {}x{} picture planes: {e}", layout.width, layout.height))?);
+        }
+        let frame = self.frame.as_ref().unwrap();
+        for (plane, texture) in frame.textures.iter().enumerate() {
+            // SAFETY: The plane pointer and pitch come from the live AVFrame, whose plane holds
+            // the texture's rows; the deferred context copies the data when it records.
+            unsafe { self.deferred.UpdateSubresource(texture, 0, None, info.data[plane].cast_const().cast(), info.linesize[plane] as u32, 0) };
+        }
+        let views = frame.views.clone();
+        self.record_views(&views, parameters, None).map_err(|e| format!("cannot record the picture's plane pass: {e}"))
+    }
+
+    /// Records and runs the plane pass over `views` (bound at t1 to t3), after anything already
+    /// recorded in the deferred context.
+    fn record_views(&self, views: &[Option<ID3D11ShaderResourceView>; 3], parameters: &[u32; 8], rows: Option<(u32, u32)>) -> windows::core::Result<()> {
         // SAFETY: The immediate context belongs to this (the presenting) thread; the deferred
         // context records the draw so SDL's cached immediate-context state is restored.
         unsafe {
-            self.queue.Wait(planes.decode_fence(), fence_value).map_err(|e| format!("cannot order the picture after the PyroWave decode: {e}"))?;
             let c = &self.deferred;
             c.ClearState();
             c.UpdateSubresource(self.constants[0].as_ref().unwrap(), 0, None, parameters.as_ptr().cast(), 0, 0);
@@ -224,15 +258,42 @@ impl PlanesPass {
             c.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             c.VSSetShader(&self.vertex, None);
             c.PSSetShader(&self.fragment, None);
-            c.PSSetShaderResources(1, Some(&views));
+            c.PSSetShaderResources(1, Some(views));
             c.PSSetSamplers(0, Some(&self.sampler));
             c.PSSetConstantBuffers(0, Some(&self.constants));
             c.Draw(3, 0);
             let mut commands = None;
-            c.FinishCommandList(false, Some(&mut commands)).map_err(|e| format!("cannot record the PyroWave plane pass: {e}"))?;
+            c.FinishCommandList(false, Some(&mut commands))?;
             self.context.ExecuteCommandList(commands.as_ref().unwrap(), true);
         }
         Ok(())
+    }
+}
+
+/// The textures a planar picture is uploaded into, kept while pictures keep their shape.
+struct FramePlanes {
+    layout: media::PlanarLayout,
+    textures: [ID3D11Texture2D; 3],
+    views: [Option<ID3D11ShaderResourceView>; 3],
+}
+
+impl FramePlanes {
+    unsafe fn new(device: &ID3D11Device, layout: media::PlanarLayout) -> windows::core::Result<Self> {
+        let format = if layout.ten_bit { DXGI_FORMAT_R16_UNORM } else { DXGI_FORMAT_R8_UNORM };
+        let mut textures = Vec::with_capacity(3);
+        let mut views = [None, None, None];
+        for (plane, view) in views.iter_mut().enumerate() {
+            let (width, height) = layout.plane_size(plane);
+            let mut texture = None;
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Width: width, Height: height, MipLevels: 1, ArraySize: 1, Format: format,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32, ..Default::default() }, None, Some(&mut texture))?;
+            let texture = texture.unwrap();
+            device.CreateShaderResourceView(&texture, None, Some(view))?;
+            textures.push(texture);
+        }
+        let textures: [ID3D11Texture2D; 3] = textures.try_into().unwrap_or_else(|_| unreachable!());
+        Ok(Self { layout, textures, views })
     }
 }
 
@@ -499,5 +560,152 @@ mod tests {
         assert_eq!(signals.get(), 2);
         let result = after_slice_draw(Ok(()), || Err("device removed".into()));
         assert_eq!(result.unwrap_err(), "device removed");
+    }
+
+    use super::*;
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0};
+
+    fn from_half(bits: u16) -> f32 {
+        let (exponent, mantissa) = (i32::from((bits >> 10) & 31), f32::from(bits & 1023));
+        let magnitude = if exponent == 0 { mantissa * 2f32.powi(-24) } else { (1.0 + mantissa / 1024.0) * 2f32.powi(exponent - 15) };
+        if bits & 0x8000 != 0 { -magnitude } else { magnitude }
+    }
+
+    /// BT.709 limited-range codes to linear RGB, written out from the standard (not the shader).
+    fn bt709_limited_to_linear(code: [u16; 3], ten_bit: bool) -> [f32; 3] {
+        let scale = if ten_bit { 4.0 } else { 1.0 };
+        let y = (f32::from(code[0]) - 16.0 * scale) / (219.0 * scale);
+        let (cb, cr) = ((f32::from(code[1]) - 128.0 * scale) / (224.0 * scale), (f32::from(code[2]) - 128.0 * scale) / (224.0 * scale));
+        let r = y + 1.5748 * cr;
+        let b = y + 1.8556 * cb;
+        let g = y - 0.187324 * cb - 0.468124 * cr;
+        [r, g, b].map(|c| {
+            let c = c.clamp(0.0, 1.0);
+            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        })
+    }
+
+    /// A planar picture in padded rows, as FFmpeg hands it over: `code(plane, x, y)` per sample.
+    fn picture(kind: i32, width: u32, height: u32, code: impl Fn(usize, u32, u32) -> u16) -> (Vec<Vec<u8>>, media::FrameInfo) {
+        let mut info = media::FrameInfo { width: width as i32, height: height as i32, kind, ten_bit: i32::from(kind != media::FRAME_YUV444P),
+            pts: 0, data: [std::ptr::null_mut(); 3], linesize: [0; 3], color_space: 1, color_range: 1, color_trc: 1 };
+        let layout = media::PlanarLayout::of(&info).unwrap();
+        let bytes = if layout.ten_bit { 2 } else { 1 };
+        let mut planes = Vec::new();
+        for plane in 0..3 {
+            let (w, h) = layout.plane_size(plane);
+            let pitch = w as usize * bytes + 24;
+            let mut data = vec![0xEEu8; pitch * h as usize];
+            for y in 0..h {
+                for x in 0..w {
+                    let at = y as usize * pitch + x as usize * bytes;
+                    let value = code(plane, x, y);
+                    if layout.ten_bit { data[at..at + 2].copy_from_slice(&value.to_le_bytes()); } else { data[at] = value as u8; }
+                }
+            }
+            info.linesize[plane] = pitch as i32;
+            planes.push(data);
+        }
+        for (plane, data) in planes.iter_mut().enumerate() { info.data[plane] = data.as_mut_ptr(); }
+        (planes, info)
+    }
+
+    /// Draws `info` through the plane pass on a WARP device and reads the linear RGB back.
+    fn draw_on_warp(info: &media::FrameInfo, parameters: &[u32; 8]) -> Vec<[f32; 3]> {
+        let (width, height) = (info.width as u32, info.height as u32);
+        // SAFETY: Plain D3D11 calls on a device made and used on this thread.
+        unsafe {
+            let (mut device, mut context) = (None, None);
+            D3D11CreateDevice(None, D3D_DRIVER_TYPE_WARP, HMODULE::default(), D3D11_CREATE_DEVICE_FLAG(0), Some(&[D3D_FEATURE_LEVEL_11_0]),
+                D3D11_SDK_VERSION, Some(&mut device), None, Some(&mut context)).unwrap();
+            let (device, context): (ID3D11Device, ID3D11DeviceContext) = (device.unwrap(), context.unwrap());
+            let desc = D3D11_TEXTURE2D_DESC { Width: width, Height: height, MipLevels: 1, ArraySize: 1, Format: DXGI_FORMAT_R16G16B16A16_FLOAT,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32, ..Default::default() };
+            let mut target = None;
+            device.CreateTexture2D(&desc, None, Some(&mut target)).unwrap();
+            let target = target.unwrap();
+            let mut pass = PlanesPass::new(target.as_raw()).unwrap();
+            pass.draw_frame(info, parameters).unwrap();
+            let mut staging = None;
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Usage: D3D11_USAGE_STAGING, BindFlags: 0, CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32, ..desc },
+                None, Some(&mut staging)).unwrap();
+            let staging = staging.unwrap();
+            context.CopyResource(&staging, &target);
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
+            let mut pixels = Vec::new();
+            for y in 0..height as usize {
+                let row = std::slice::from_raw_parts(mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize).cast::<u16>(), width as usize * 4);
+                pixels.extend(row.chunks(4).map(|p| [from_half(p[0]), from_half(p[1]), from_half(p[2])]));
+            }
+            context.Unmap(&staging, 0);
+            pixels
+        }
+    }
+
+    fn assert_close(got: [f32; 3], expected: [f32; 3], what: &str) {
+        assert!(got.iter().zip(expected).all(|(g, e)| (g - e).abs() <= 0.003), "{what}: got {got:?}, expected {expected:?}");
+    }
+
+    #[test]
+    fn software_planar_pictures_convert_to_the_bt709_colours_of_their_codes() {
+        // White, black and red first, then a spread of codes; 8-bit codes are the 10-bit ones / 4.
+        let anchors: [[u16; 3]; 3] = [[940, 512, 512], [64, 512, 512], [250, 409, 960]];
+        for kind in [media::FRAME_YUV444P, media::FRAME_YUV444P10, media::FRAME_YUV420P10] {
+            let ten = kind != media::FRAME_YUV444P;
+            let chroma444 = kind != media::FRAME_YUV420P10;
+            // Odd sizes: FFmpeg's 4:2:0 chroma planes round up.
+            let (width, height) = if chroma444 { (8, 4) } else { (7, 3) };
+            let code = |plane: usize, x: u32, y: u32| -> u16 {
+                let ten_bit = if x < 3 && y == 0 && chroma444 { anchors[x as usize][plane] }
+                    // 4:2:0 chroma is sampled between sites, so it stays one value there.
+                    else if plane > 0 && !chroma444 { 300 }
+                    else { 64 + ((x * 97 + y * 211 + plane as u32 * 53) % 877) as u16 };
+                if ten { ten_bit } else { ten_bit / 4 }
+            };
+            let (_planes, info) = picture(kind, width, height, code);
+            let layout = media::PlanarLayout::of(&info).unwrap();
+            // The presenter's constants for an SDR picture.
+            let pixels = draw_on_warp(&info, &crate::stream::present::planar_parameters(&info, layout, false, 1.0));
+            for y in 0..height {
+                for x in 0..width {
+                    let (cx, cy) = if layout.chroma444 { (x, y) } else { (x / 2, y / 2) };
+                    let expected = bt709_limited_to_linear([code(0, x, y), code(1, cx, cy), code(2, cx, cy)], ten);
+                    assert_close(pixels[(y * width + x) as usize], expected, &format!("kind {kind} pixel ({x}, {y})"));
+                }
+            }
+            if chroma444 {
+                assert_close(pixels[0], [1.0, 1.0, 1.0], "white");
+                assert_close(pixels[1], [0.0, 0.0, 0.0], "black");
+                let red = pixels[2];
+                assert!(red[0] > 0.98 && red[1] < 0.01 && red[2] < 0.01, "kind {kind}: red came out {red:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_picture_with_a_missing_plane_is_refused_by_name() {
+        let (_planes, mut info) = picture(media::FRAME_YUV444P, 4, 2, |_, _, _| 128);
+        info.data[2] = std::ptr::null_mut();
+        let error = draw_on_warp_error(&info);
+        assert!(error.contains("plane 2"), "{error}");
+    }
+
+    fn draw_on_warp_error(info: &media::FrameInfo) -> String {
+        // SAFETY: Plain D3D11 calls on a device made and used on this thread.
+        unsafe {
+            let mut device = None;
+            D3D11CreateDevice(None, D3D_DRIVER_TYPE_WARP, HMODULE::default(), D3D11_CREATE_DEVICE_FLAG(0), Some(&[D3D_FEATURE_LEVEL_11_0]),
+                D3D11_SDK_VERSION, Some(&mut device), None, None).unwrap();
+            let device: ID3D11Device = device.unwrap();
+            let mut target = None;
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Width: 4, Height: 2, MipLevels: 1, ArraySize: 1, Format: DXGI_FORMAT_R16G16B16A16_FLOAT,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_RENDER_TARGET.0 as u32, ..Default::default() }, None, Some(&mut target)).unwrap();
+            let mut pass = PlanesPass::new(target.unwrap().as_raw()).unwrap();
+            pass.draw_frame(info, &[4, 2, 4, 2, 0, 3, 1 << 5, 1.0f32.to_bits()]).unwrap_err()
+        }
     }
 }

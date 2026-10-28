@@ -681,7 +681,7 @@ mod tests {
                     assert!(SDL_SetBooleanProperty(properties, SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, true));
                     assert!(SDL_SetFloatProperty(properties, SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 2.0));
                     for direct in [true, false] {
-                        let mut video = VideoTexture::new(direct);
+                        let mut video = VideoTexture::new(direct, true);
                         for (peak, available) in [(320, 16.0), (4000, 16.0), (320, 16.0), (320, 1.0), (320, 16.0)] {
                             assert!(SDL_SetFloatProperty(properties, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, available));
                             video.set_hdr_mode(true, Some(nightjar_core::control::HdrMetadata {

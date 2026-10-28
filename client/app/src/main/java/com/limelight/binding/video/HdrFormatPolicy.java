@@ -11,10 +11,11 @@ import com.limelight.nvstream.jni.MoonBridge;
  * capabilities. The bits are rubylight_protocol::hdr's. A host that lists none (every other host)
  * gets nothing new, and nothing asked for streams stock PQ.
  * <ul>
- * <li>Dolby Vision profile 8 when the screen reports Dolby Vision and a hardware decoder takes
- * video/dolby-vision profile 8: 8.1 (PQ base layer) before 8.4 (HLG base layer). Both are plain
- * HEVC Main10 to every other decoder, so a decoder that then fails falls back to HEVC with the
- * same stream.</li>
+ * <li>Dolby Vision when the screen reports Dolby Vision, a hardware decoder takes the profile and
+ * the stream can be in its codec: profile 10.1 (AV1 Main10, PQ base layer) first, as the handshake
+ * takes AV1 before HEVC, then profile 8.1 (HEVC Main10, PQ base layer) before 8.4 (HLG base
+ * layer). Each is plain AV1 or HEVC Main10 to every other decoder, so a decoder that then fails
+ * falls back to AV1 or HEVC with the same stream.</li>
  * <li>HLG when the screen reports HLG and no HDR10, so a panel without PQ still gets HDR.</li>
  * </ul>
  * Neither when the client draws the picture itself (packed full chroma, PyroWave, the Vulkan
@@ -28,24 +29,39 @@ public final class HdrFormatPolicy {
     public static final int HLG = 2;
     public static final int DV_81 = 4;
     public static final int DV_84 = 8;
-    public static final int ALL = PQ | HLG | DV_81 | DV_84;
-    public static final int DOLBY_VISION = DV_81 | DV_84;
+    public static final int DV_101 = 16;
+    public static final int ALL = PQ | HLG | DV_81 | DV_84 | DV_101;
+    public static final int DOLBY_VISION = DV_81 | DV_84 | DV_101;
+    /** Profile 8 (8.1 and 8.4): HEVC Main10 with RPU NAL units, decoded as video/dolby-vision DvheSt. */
+    public static final int DOLBY_VISION_HEVC = DV_81 | DV_84;
+    /** Profile 10 (10.1): AV1 Main10 with RPU metadata OBUs, decoded as video/dolby-vision Dvav110. */
+    public static final int DOLBY_VISION_AV1 = DV_101;
 
     public static final String MIME_DOLBY_VISION = "video/dolby-vision";
+
+    /** The order Dolby Vision formats are asked for in: AV1 first, as the handshake takes it. */
+    private static final int[] DOLBY_VISION_ORDER = {DV_101, DV_81, DV_84};
 
     /**
      * @param hostFormats  the host's HdrFormats bits (serverinfo), 0 when it lists none
      * @param displayTypes the types from Display.getHdrCapabilities(), null when there are none
-     * @param dolbyVisionDecoder a hardware decoder takes video/dolby-vision profile 8 (DvheSt)
+     * @param dolbyVisionDecoders the Dolby Vision bits a hardware decoder takes:
+     *                     {@link #DOLBY_VISION_HEVC} for video/dolby-vision profile 8 (DvheSt),
+     *                     {@link #DOLBY_VISION_AV1} for profile 10 (Dvav110)
+     * @param videoFormats the video formats both sides can negotiate (MoonBridge.VIDEO_FORMAT_*)
      * @param pqSurface    the client draws the picture itself on a BT.2020/PQ surface (packed full
      *                     chroma, PyroWave, the Vulkan renderer)
      * @return one bit to ask for, or 0 for stock HDR10
      */
-    public static int pick(int hostFormats, int[] displayTypes, boolean dolbyVisionDecoder, boolean pqSurface) {
+    public static int pick(int hostFormats, int[] displayTypes, int dolbyVisionDecoders, int videoFormats,
+                           boolean pqSurface) {
         if (pqSurface) return 0;
-        if (dolbyVisionDecoder && has(displayTypes, Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION)) {
-            if ((hostFormats & DV_81) != 0) return DV_81;
-            if ((hostFormats & DV_84) != 0) return DV_84;
+        if (has(displayTypes, Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION)) {
+            for (int format : DOLBY_VISION_ORDER) {
+                if ((hostFormats & dolbyVisionDecoders & format) != 0 && (videoFormats & carriers(format)) != 0) {
+                    return format;
+                }
+            }
         }
         if ((hostFormats & HLG) != 0 && !HdrPolicy.hasHdr10(displayTypes) &&
                 has(displayTypes, Display.HdrCapabilities.HDR_TYPE_HLG)) {
@@ -66,17 +82,17 @@ public final class HdrFormatPolicy {
 
     /**
      * The video formats that can carry {@code format}, 0 when every format can. Dolby Vision
-     * profile 8 (8.1 and 8.4) is HEVC Main10 with RPUs; a Dolby Vision format on AV1 (profile 10)
-     * would list its AV1 formats here, and videoFormats then keeps AV1 for it.
+     * profile 8 (8.1 and 8.4) is HEVC Main10 with RPUs, profile 10 (10.1) AV1 Main10.
      */
     public static int carriers(int format) {
-        return dolbyVision(format) ? MoonBridge.VIDEO_FORMAT_H265_MAIN10 : 0;
+        if ((format & DOLBY_VISION_AV1) != 0) return MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        return (format & DOLBY_VISION_HEVC) != 0 ? MoonBridge.VIDEO_FORMAT_H265_MAIN10 : 0;
     }
 
     /**
      * The video formats to negotiate once {@code format} is picked: with the automatic codec
      * choice, a codec that the host can carry the format on. The handshake takes AV1 before HEVC
-     * and the ANNOUNCE drops a format its codec can't carry (Dolby Vision on AV1 became AV1 HDR10),
+     * and the ANNOUNCE drops a format its codec can't carry (profile 8 on AV1 became AV1 HDR10),
      * so each of AV1 and HEVC is left out when none of its formats can carry it, as long as one
      * that can is left. H.264 stays: the handshake takes it only without HEVC and AV1. A codec the
      * user chose stays.
@@ -129,6 +145,7 @@ public final class HdrFormatPolicy {
             case HLG: return "HLG";
             case DV_81: return "Dolby Vision 8.1";
             case DV_84: return "Dolby Vision 8.4";
+            case DV_101: return "Dolby Vision 10.1";
             default: return "HDR10";
         }
     }

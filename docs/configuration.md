@@ -271,24 +271,14 @@ device (`background_stream`), or **Library → (app) → Behavior → Stream in 
 background** for one app (`background-stream`). Either one is enough; it applies
 from the next launch.
 
-**Settings › Displays › Background mode** (`background_mode`, Experimental)
-picks how a background stream runs:
+Nucleus Co-op runs every background stream (Experimental): the game runs as a
+[Nucleus Co-op](nucleus-coop.md) instance whose window is captured on its own,
+away from the PC's monitors. There is no mode to choose; a `background_mode`
+line an earlier build wrote reads as Nucleus Co-op. A background launch
+Nucleus Co-op cannot run, such as a game without a handler, is refused with the
+reason and never streams the PC's monitors instead.
 
-- **Nucleus Co-op** (`nucleus`, the default when unset): the game runs as a
-  [Nucleus Co-op](nucleus-coop.md) instance whose window is captured on its
-  own, away from the PC's monitors. The older value `virtual_display` reads as
-  `nucleus`.
-- **Child session** (`child_session`): the device plays on a
-  [Windows child session](background-child-session.md) of your account, with
-  its own desktop and input focus. Windows Pro and higher.
-- **Automatic** (`auto`): a child session where this PC can run one, otherwise
-  Nucleus Co-op.
-
-The console's Maintenance page and the host log say which mode runs and why. A
-mode this PC cannot run refuses background launches with the reason; it is
-never swapped for another one.
-
-A background stream in either mode:
+A background stream:
 
 - **Leaves the PC's displays alone.** The PC's monitors, layout and primary
   display stay as they are, and the PC user keeps the keyboard and mouse

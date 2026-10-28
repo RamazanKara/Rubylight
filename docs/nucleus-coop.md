@@ -11,32 +11,27 @@ That gives two things:
 - **Co-op.** Several devices play the same game together, each in its own
   instance of it, with up to 4 players per session.
 
-Both are **Experimental**. The other background mode is a
-[Windows child session](background-child-session.md).
+Both are **Experimental**.
 
-## Which background mode runs
+## Background streams
 
-**Settings › Displays › Background mode** (`background_mode`) picks how a
-background stream runs:
+Nucleus Co-op is the only background mode: there is nothing to choose. A
+device asks for a background stream as before: **Devices → (device) → Play in
+the background** (`background_stream`) or **Library → (app) → Behavior →
+Stream in the background** (`background-stream`). Either one runs the app as a
+Nucleus Co-op session of its own with one player, and the host log says once
+that background streams run through Nucleus Co-op. Only the device that
+started it can return to it; nobody else can join a background stream.
 
-| Setting | Mode |
-| --- | --- |
-| Unset (the default), **Nucleus Co-op** (`nucleus`) | Nucleus Co-op |
-| **Automatic** (`auto`) | A child session where this PC can run one, otherwise Nucleus Co-op |
-| **Child session** (`child_session`) | A child session |
+A background launch that Nucleus Co-op cannot run is refused with the reason,
+for example "Notepad can't stream in the background: No Nucleus Co-op handler
+for notepad.exe". It never falls back to streaming the PC's monitors.
 
-The older value `virtual_display` reads as `nucleus`, and the host log says so.
-The console's Maintenance page and the host log show the mode that runs and
-why, for example "Background streaming (Nucleus Co-op)" or "Background
-streaming (child session)". A mode that this PC cannot run is not swapped for
-another one. The launch is refused with the reason, for example "Background
-streaming is set to a child session, which this PC cannot run (why): choose
-Automatic or Nucleus Co-op in the settings".
-
-A device still asks for a background stream as before: **Devices → (device) →
-Play in the background** (`background_stream`) or **Library → (app) →
-Behavior → Stream in the background** (`background-stream`). Either one now runs
-in the chosen mode.
+A `background_mode` line that an earlier build wrote (`auto`,
+`child_session` or `virtual_display`) reads as Nucleus Co-op; the host log
+and the Nucleus Co-op panel under **Maintenance** say so, and you can remove
+the line. A value that is no mode at all refuses background launches and says
+why.
 
 ## Installing Nucleus Co-op
 
@@ -54,7 +49,7 @@ come from Nucleus Co-op's handler hub and are your own content: Rubylight
 ships none. Open Nucleus Co-op, download the handler for each game you want to
 play this way, and play it once there. A game without a handler is refused
 with "No Nucleus Co-op handler for <exe>: add one in Nucleus Co-op's handler
-hub, or use a child session".
+hub".
 
 Rubylight writes a Nucleus profile named **Rubylight** for each session and
 loads it. When a start times out with "open Nucleus Co-op and load the profile
@@ -79,12 +74,13 @@ Without it, the join is refused with "Turn on Join co-op for this device in the
 Rubylight console." A device that already holds a slot can always go back to
 it. When a device's stream ends, its slot is held for 120 s so it can come back.
 
-In Nightjar the PC's details page lists the running co-op sessions on that PC
-with their free slots and this device's own seat. **Join** (or **Return to my
-slot**) takes the slot and starts the stream. A refusal is shown with the PC's
-own words.
+Nightjar lists the running co-op sessions on a PC with their free slots and
+this device's own seat: on Android under **Join co-op** in the PC's menu, on
+the desktop on the PC's details page. **Join** (or returning to your own seat)
+takes the slot and starts the stream. A refusal is shown with the PC's own
+words.
 
-Maintenance in the console lists the sessions with their players. From there
+The Nucleus Co-op panel under **Maintenance** in the console lists the sessions with their players. From there
 you can remove a player or end a session. Ending a session stops Nucleus Co-op
 and every instance, and ends each player's stream. A session also ends when
 every player has left, when an instance crashes, or when its start fails; the

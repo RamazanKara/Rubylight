@@ -435,7 +435,7 @@ impl<C: Clipboard> Watch<C> {
             match self.clipboard.read_png(max) {
                 Ok(Some(png)) => Item::Png(png),
                 Ok(None) => return Ok(None),
-                Err(e) if e.downcast_ref() == Some(&ImageError::TooLarge) => bail!(Large(max)),
+                Err(e) if e.downcast_ref().is_some_and(ImageError::too_large) => bail!(Large(max)),
                 Err(e) => return Err(e),
             }
         } else {
@@ -545,7 +545,11 @@ pub(crate) mod tests {
         }
         fn read_png(&self, max_bytes: usize) -> Result<Option<Vec<u8>>> {
             match self.0.lock().unwrap().png.clone() {
-                Some(png) if png.len() > max_bytes => Err(ImageError::TooLarge.into()),
+                Some(png) if png.len() > max_bytes => Err(ImageError::TooManyBytes {
+                    bytes: png.len(),
+                    max: max_bytes,
+                }
+                .into()),
                 png => Ok(png),
             }
         }

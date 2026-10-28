@@ -102,7 +102,11 @@ pub(crate) mod clipboard {
     }
     pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
         match PNG.lock().unwrap().clone() {
-            Some(png) if png.len() > max_bytes => Err(ImageError::TooLarge.into()),
+            Some(png) if png.len() > max_bytes => Err(ImageError::TooManyBytes {
+                bytes: png.len(),
+                max: max_bytes,
+            }
+            .into()),
             png => Ok(png),
         }
     }
@@ -1619,6 +1623,15 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     // ...but `clipboard_image_max_mb` does, by the Content-Length or, without
     // one, once the body passes it.
     set("clipboard_image_max_mb", "1");
+    // Each refusal is logged with the size and the limit.
+    let path = f.host.directory.join("clipboard-limit.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
     for length in [Some(MIB + 1), None] {
         assert_eq!(
             post_png(&f, Some("image/png"), length, vec![0; MIB + 1]).await,
@@ -1630,6 +1643,31 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     *clipboard::PNG.lock().unwrap() = Some(vec![0; MIB + 1]);
     assert_eq!(get().await.status(), StatusCode::PAYLOAD_TOO_LARGE);
     *clipboard::PNG.lock().unwrap() = None;
+    drop(guard);
+    let log = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = log.lines().collect();
+    assert_eq!(lines.len(), 3, "{log}");
+    assert!(
+        lines[0].contains(&format!(
+            "refused an image of {} bytes by its Content-Length, over the limit of {MIB} bytes",
+            MIB + 1
+        )),
+        "{log}"
+    );
+    assert!(
+        lines[1].contains(&format!(
+            "refused an image whose body passed the limit of {MIB} bytes"
+        )),
+        "{log}"
+    );
+    assert!(
+        lines[2].contains(&format!(
+            "the image is {} bytes as PNG, over the limit of {MIB} bytes",
+            MIB + 1
+        )),
+        "{log}"
+    );
+    assert!(!log.contains("pixels"), "{log}");
     // While one of its image requests runs, the device's next one is
     // refused, both ways; text doesn't wait for images.
     let running = IMAGE_TURNS.take(&client_uuid).await.unwrap();

@@ -18,9 +18,6 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("qr_pairing", "false"),
     ("dd_rotation_option", "disabled"),
     ("dd_manual_rotation", "0"),
-    ("background_mode", "auto"),
-    ("child_session_resolution", "1920x1080"),
-    ("child_session_scale", "100"),
     ("child_session_port", "48289"),
 ];
 
@@ -43,14 +40,6 @@ pub enum DisplayAdjust {
     Auto,
     /// Use the `dd_manual_*` value.
     Manual,
-}
-
-/// `background_mode`: where a stream beside the signed-in user runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BackgroundMode {
-    Auto,
-    ChildSession,
-    VirtualDisplay,
 }
 
 impl Config {
@@ -154,29 +143,6 @@ impl Config {
             ],
         )
     }
-    /// `background_mode`: `auto` (the default), `child_session` or `virtual_display`.
-    pub fn background_mode(&self) -> BackgroundMode {
-        self.choice30(
-            "background_mode",
-            &[
-                ("auto", BackgroundMode::Auto),
-                ("child_session", BackgroundMode::ChildSession),
-                ("virtual_display", BackgroundMode::VirtualDisplay),
-            ],
-        )
-    }
-    /// The child session's resolution, `WIDTHxHEIGHT` (1920x1080 by default).
-    pub fn child_session_resolution(&self) -> (u32, u32) {
-        let value = self.text30("child_session_resolution", "1920x1080");
-        crate::display_policy::parse_resolution(value).unwrap_or_else(|| {
-            invalid("child_session_resolution", value);
-            (1920, 1080)
-        })
-    }
-    /// The child session's scaling in percent (100 to 500, 100 by default).
-    pub fn child_session_scale(&self) -> u16 {
-        self.integer30("child_session_scale", 100, |n| (100..=500).contains(&n)) as u16
-    }
     /// The child session's base port, as `port` is for the host
     /// ([`super::Ports::from_base`]); 48289 by default, so its ports are 48284 to 48310.
     pub fn child_session_port(&self) -> u16 {
@@ -230,9 +196,6 @@ mod tests {
                     c.qr_pairing(),
                     c.dd_rotation_option(),
                     c.dd_manual_rotation(),
-                    c.background_mode(),
-                    c.child_session_resolution(),
-                    c.child_session_scale(),
                     c.child_session_port(),
                 ),
             )
@@ -240,9 +203,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_15_unique_settings() {
+    fn there_are_12_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (15, 15));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (12, 12));
     }
 
     #[test]
@@ -259,9 +222,6 @@ mod tests {
         assert!(!c.qr_pairing());
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Disabled);
         assert_eq!(c.dd_manual_rotation(), 0);
-        assert_eq!(c.background_mode(), BackgroundMode::Auto);
-        assert_eq!(c.child_session_resolution(), (1920, 1080));
-        assert_eq!(c.child_session_scale(), 100);
         assert_eq!(c.child_session_port(), 48289);
         let ports = super::super::Ports::from_base(c.child_session_port());
         assert_eq!((ports.https, ports.rtsp), (48284, 48310));
@@ -304,11 +264,6 @@ mod tests {
             "dd_rotation_option = sideways",
             "dd_manual_rotation = 45",
             "dd_manual_rotation = 360",
-            "background_mode = session",
-            "child_session_resolution = 1920",
-            "child_session_resolution = 0x1080",
-            "child_session_scale = 99",
-            "child_session_scale = 501",
             "child_session_port = 1028",
             "child_session_port = 65515",
         ] {
@@ -324,9 +279,6 @@ mod tests {
             "clipboard_image_max_mb = 64\n",
             "dd_rotation_option = manual\n",
             "dd_manual_rotation = 270\n",
-            "background_mode = child_session\n",
-            "child_session_resolution = 2560x1440\n",
-            "child_session_scale = 150\n",
             "child_session_port = 50000\n",
         ));
         assert_eq!(c.touch_mode(), TouchMode::Trackpad);
@@ -334,9 +286,6 @@ mod tests {
         assert_eq!(c.clipboard_image_max_bytes(), 64 * 1024 * 1024);
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Manual);
         assert_eq!(c.dd_manual_rotation(), 270);
-        assert_eq!(c.background_mode(), BackgroundMode::ChildSession);
-        assert_eq!(c.child_session_resolution(), (2560, 1440));
-        assert_eq!(c.child_session_scale(), 150);
         assert_eq!(c.child_session_port(), 50000);
         let folders = config(
             "shared_folders = [{\"id\": \"games\", \"name\": \"Games\", \"path\": \"D:\\\\Games\"}, {\"id\": \"saves-2\", \"name\": \"Saves\", \"path\": \"E:\\\\Saves\"}]",

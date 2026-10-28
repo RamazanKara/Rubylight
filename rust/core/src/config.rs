@@ -9,7 +9,7 @@ use std::{
 };
 
 mod settings30;
-pub use settings30::{BackgroundMode, DisplayAdjust, SETTINGS_30, TouchMode};
+pub use settings30::{DisplayAdjust, SETTINGS_30, TouchMode};
 
 /// Setting values Rubylight no longer offers, and what replaces each:
 /// the ViGEmBus controllers, which Sunshine, Apollo, Vibepollo and earlier

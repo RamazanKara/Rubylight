@@ -1919,9 +1919,10 @@ impl Media {
                     let mut encode_route = None;
                     let mut encode_route_due = Instant::now();
                     let mut recovery_packetizer = packetizer.clone();
-                    // The largest frame with full parity, for the FEC percentage and
-                    // packet size it was found at.
-                    let mut fec_whole = ((usize::MAX, 0), 0);
+                    // The largest frame with full parity, for the FEC percentage,
+                    // packet size and FEC choice it was found at.
+                    let mut fec_whole = ((usize::MAX, 0, false), 0);
+                    let mut fec_whole_due = Instant::now();
                     let mut fec_reported = None;
                     // A frame that holds the stream thread this long is logged
                     // with where the time went, at most every five seconds.
@@ -3052,22 +3053,17 @@ impl Media {
                                 );
                                 // Moonlight takes four FEC blocks a frame: a recovery keyframe
                                 // past them leaves with less parity or none, and one lost
-                                // packet costs it. Statistical FEC (not measured with the
-                                // hold) keeps the cap; so does a stream without FEC.
-                                let cap = butterpollo_core::network_pacing::fixed_fec_frame_cap(
-                                    cap,
-                                    recovery_packetizer.fec_percent,
-                                    s.statistical_fec(),
-                                    || {
-                                        let key = (recovery_packetizer.fec_percent, recovery_packetizer.packet_size);
-                                        if fec_whole.0 != key {
-                                            fec_whole = (key, recovery_packetizer.fec_whole_payload_limit());
-                                        }
-                                        fec_whole.1
-                                    },
-                                    bitrate,
-                                    period,
-                                );
+                                // packet costs it. Without FEC the cap is the four-block packet
+                                // limit, so a cut exposes as few packets as it can. Statistical
+                                // FEC picks parity by frame size; its search runs once a second.
+                                let statistical = s.statistical_fec();
+                                let key = (recovery_packetizer.fec_percent, recovery_packetizer.packet_size, statistical);
+                                if fec_whole.0 != key || (statistical && now >= fec_whole_due) {
+                                    let whole = s.statistical_fec_whole_payload(now).unwrap_or_else(|| recovery_packetizer.fec_whole_payload_limit());
+                                    fec_whole = (key, whole);
+                                    fec_whole_due = now + Duration::from_secs(1);
+                                }
+                                let cap = butterpollo_core::network_pacing::fec_whole_frame_cap(cap, fec_whole.1, bitrate, period);
                                 let _ = active.set_frame_cap(cap);
                             }
                             // The device draws the pointer: only Desktop Duplication supplies

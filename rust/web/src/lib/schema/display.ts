@@ -65,6 +65,8 @@ export const settings: Setting[] = [
       ],
     },
     default: '',
+    // config.rs virtual_display_mode: per client where os_gate::virtual_display holds.
+    defaultText: 'One for each device on Windows 11 23H2 or later, otherwise a monitor',
   },
   {
     key: 'virtual_display_layout',

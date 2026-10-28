@@ -86,6 +86,7 @@
   {#if settings}<div class="settings">{@render settings()}</div>{/if}
   {#if updates}
     <div class="stack">
+      <!-- The versions and Check now stay in view; schedule, notes and links fold under More. -->
       <dl class="facts">
         <dt>Installed</dt><dd class="num">{installed || '…'}</dd>
         <dt>Latest release</dt>
@@ -95,13 +96,7 @@
             {#if latest.published_at}<span class="muted"> · {localTime(latest.published_at)}</span>{/if}
           {:else}<span class="muted">{updates.checked_at ? 'No releases found for your update settings' : 'Not checked yet'}</span>{/if}
         </dd>
-        <dt>Last checked</dt><dd>{updates.checked_at ? `${ago(updates.checked_at)}${updates.check_failed ? ' (failed)' : ''}` : 'Never'}</dd>
-        {#if updates.next_check_at != null}
-          <dt>Next check</dt><dd>{updates.deferred ? 'After the stream' : updates.next_check_at * 1000 <= Date.now() ? 'Shortly' : when(updates.next_check_at)}</dd>
-        {/if}
-        <dt>Automatic installation</dt><dd>{!updates.install_supported ? 'Unavailable — requires the Windows service' : updates.update_check_interval <= 0 ? 'Off — automatic update checks are disabled' : updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
       </dl>
-      {#if !updates.install_supported}<p class="notice">In-app installation requires the installed Windows service. Use the release page for portable builds.</p>{/if}
       {#if updates.check_failed}<p class="notice warn" role="alert">The last check failed. {updates.check_error || 'Check that this PC can reach GitHub.'}{updates.next_check_at != null ? ' Rubylight tries again automatically.' : ''}</p>{/if}
       {#if loadError}<p class="notice warn" role="alert">Could not refresh update status: {loadError}</p>{/if}
       {#if (updates.phase === 'waiting' || updates.phase === 'ready') && updates.now}
@@ -133,7 +128,17 @@
           <Button variant="danger" busy={acting === 'installNow'} disabled={acting !== null} onclick={() => act('installNow')}>Install now</Button>
         {/if}
       </div>
-      <div class="links">
+      <details class="more">
+        <summary>More<span class="visually-hidden"> about updates</span></summary>
+        <div class="links">
+        <dl class="facts">
+          <dt>Last checked</dt><dd>{updates.checked_at ? `${ago(updates.checked_at)}${updates.check_failed ? ' (failed)' : ''}` : 'Never'}</dd>
+          {#if updates.next_check_at != null}
+            <dt>Next check</dt><dd>{updates.deferred ? 'After the stream' : updates.next_check_at * 1000 <= Date.now() ? 'Shortly' : when(updates.next_check_at)}</dd>
+          {/if}
+          <dt>Automatic installation</dt><dd>{!updates.install_supported ? 'Unavailable — requires the Windows service' : updates.update_check_interval <= 0 ? 'Off — automatic update checks are disabled' : updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
+        </dl>
+        {#if !updates.install_supported}<p class="notice">In-app installation requires the installed Windows service. Use the release page for portable builds.</p>{/if}
         <details>
           <summary>How installing works</summary>
           <p><strong>Install when idle</strong> waits for streams, pending connections and host apps to stop, then installs after one minute of idle time. <strong>Install now</strong> installs right away: the stream ends, games started from Moonlight close, and you can connect again once Rubylight has restarted. Settings and paired devices stay in place.</p>
@@ -143,7 +148,8 @@
           <a href="/settings/general?setting=update_check_interval" use:link>Change update settings</a>
           {#if latest}<a class="release" href={latest.html_url} target="_blank" rel="noreferrer">Open the release page<Icon name="external" size={14} /></a>{/if}
         </div>
-      </div>
+        </div>
+      </details>
     </div>
   {:else}<LoadState error={loadError} what="the update status" onretry={load} />{/if}
 </Panel>
@@ -161,19 +167,60 @@
   }
   .links {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-3);
+    margin-top: var(--space-2);
   }
-  details {
+  /* The same More as a setting row's. */
+  .more > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    width: fit-content;
+    padding: 2px 0;
+    border: 0;
+    color: var(--ink-2);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    list-style: none;
+  }
+  .more > summary::-webkit-details-marker {
+    display: none;
+  }
+  .more > summary::after {
+    content: '';
+    width: 5px;
+    height: 5px;
+    margin-left: 2px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform var(--duration-fast);
+  }
+  .more[open] > summary::after {
+    transform: translateY(1px) rotate(225deg);
+  }
+  .more > summary:hover {
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  @media (max-width: 520px) {
+    .more > summary {
+      min-height: var(--control-height);
+    }
+  }
+  .links details {
     border: 1px solid var(--line);
     border-radius: var(--radius);
     font-size: var(--text-sm);
   }
-  summary {
+  .links summary {
     padding: var(--space-2) var(--space-3);
     cursor: pointer;
     font-weight: var(--weight-medium);
   }
-  details p {
+  .links details p {
     padding: 0 var(--space-3) var(--space-3);
     color: var(--ink-2);
   }

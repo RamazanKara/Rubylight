@@ -297,7 +297,7 @@ test('an unset virtual display mode keeps the OS-dependent default without hidin
   const key = 'virtual_display_mode';
   const setting = settings.get(key);
   assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Default (by Windows version)');
+  assert.equal(describeDefault(setting).text, 'One for each device on Windows 11 23H2 or later, otherwise a monitor');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
   assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
 });

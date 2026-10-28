@@ -8,6 +8,7 @@ const { schema, categoriesOf, settingsGroup } = await server.ssrLoadModule('/src
 const main = await server.ssrLoadModule('/src/lib/schema/main.ts');
 const { searchSettings } = await server.ssrLoadModule('/src/components/settings/search.ts');
 const { settings: extensions } = await server.ssrLoadModule('/src/lib/schema/extensions.ts');
+const { describeDefault } = await server.ssrLoadModule('/src/components/settings/values.ts');
 const { MAIN_SECTIONS, MAIN_KEYS, MAIN_BUDGET, ALWAYS_ON, EXPERT_GROUPS, DEBUG_GROUP, onHome } = main;
 const settings = new Map(schema.settings.map(setting => [setting.key, setting]));
 const source = name => readFile(new URL(`./src/${name}`, import.meta.url), 'utf8');
@@ -110,4 +111,11 @@ test('All settings has no second Advanced fold, and the home owns updates, power
   for (const name of ['pages/Settings.svelte', 'pages/Maintenance.svelte', 'components/devices/PairPanel.svelte']) {
     assert.doesNotMatch(await source(name), /maintenance#account/, name);
   }
+});
+
+test('a default says what it does, never just "Default"', () => {
+  for (const setting of schema.settings) {
+    assert.doesNotMatch(describeDefault(setting).text, /^Default/, setting.key);
+  }
+  assert.equal(describeDefault(settings.get('amd_vbaq')).text, 'Off for H.264, on for HEVC and AV1');
 });

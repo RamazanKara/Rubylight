@@ -595,6 +595,7 @@ test('an update action spins only its own button, and update settings open insid
   held.resolve();
   await page.waitForFunction(() => [...document.querySelectorAll('button')].every(button => button.getAttribute('aria-busy') !== 'true'));
   await page.evaluate(() => { window.consoleStayedLoaded = true; });
+  await page.locator('summary', { hasText: 'about updates' }).click();
   await page.getByRole('link', { name: 'Change update settings', exact: true }).click();
   await page.waitForURL(base + '/settings/general?setting=update_check_interval');
   assert.equal(await page.evaluate(() => window.consoleStayedLoaded), true);

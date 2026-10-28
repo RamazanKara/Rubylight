@@ -5,7 +5,7 @@
   import Toggle from '../Toggle.svelte';
   import AccessChoice from './AccessChoice.svelte';
   import CommandList from './CommandList.svelte';
-  import { accessOf, withAccess, type Access } from './access';
+  import { accessOf, coopJoinAfterAccess, coopJoinAfterSwitch, withAccess, type Access } from './access';
   import { api, PERM, type Client, type DisplayDevice } from '../../lib/api';
   import { joinsCoop } from '../../lib/coop-view';
   import { failed, notify } from '../../lib/feedback.svelte';
@@ -76,8 +76,9 @@
     if (next === 'custom') permissionsOpen = true;
     else {
       draft.perm = withAccess(draft.perm, next);
-      // A preset decides co-op too: Play games and Everything join, Watch only does not.
-      draft.coop_join = null;
+      // A preset decides co-op too (Play games and Everything join, Watch only does not),
+      // except that a device turned off stays off.
+      draft.coop_join = coopJoinAfterAccess(draft.coop_join, draft.perm);
     }
   }
 
@@ -87,7 +88,7 @@
   const launches = $derived((draft.perm & PERM.LAUNCH_APPS) !== 0);
   const joins = $derived(joinsCoop(draft.perm, draft.coop_join));
   function setJoins(next: boolean) {
-    draft.coop_join = next === saved.coop_join ? saved.coop_join : next ? null : false;
+    draft.coop_join = coopJoinAfterSwitch(next, saved.coop_join);
   }
 
   // Follow edits made elsewhere while this form has none of its own.

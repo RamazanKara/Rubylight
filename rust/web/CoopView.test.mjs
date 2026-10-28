@@ -13,7 +13,8 @@ const home = await server.ssrLoadModule('/src/lib/coop-view.ts');
 const CoopCard = (await server.ssrLoadModule('/src/components/overview/CoopCard.svelte')).default;
 const DeviceEditor = (await server.ssrLoadModule('/src/components/devices/DeviceEditor.svelte')).default;
 const { api, PERM } = await server.ssrLoadModule('/src/lib/api.ts');
-const { ACCESS_PERM } = await server.ssrLoadModule('/src/components/devices/access.ts');
+const access = await server.ssrLoadModule('/src/components/devices/access.ts');
+const { ACCESS_PERM } = access;
 
 const SIZE = 97_396_862;
 /** `GET /api/coop` as the host answers it: Nucleus Co-op available, set up, Portal 2 ready. */
@@ -358,6 +359,33 @@ test('a device’s page shows “Can join co-op games”, on for Play games and 
   assert.match(toggle, /disabled/);
   assert.doesNotMatch(toggle, /checked/);
   assert.match(watching, /Needs Launch apps, which Play games and Everything include\./);
+});
+
+test('a preset change keeps a device turned off for co-op off while the preset still launches apps', () => {
+  const { coopJoinAfterAccess } = access;
+  // Turned off, then Everything or Play games: still off, as the host would read it.
+  assert.equal(coopJoinAfterAccess(false, ACCESS_PERM.all), false);
+  assert.equal(coopJoinAfterAccess(false, ACCESS_PERM.play), false);
+  assert.equal(home.joinsCoop(ACCESS_PERM.all, coopJoinAfterAccess(false, ACCESS_PERM.all)), false);
+  // Watch only can't join anyway: the preset decides again.
+  assert.equal(coopJoinAfterAccess(false, ACCESS_PERM.view), null);
+  // Never set or on: the preset decides.
+  assert.equal(coopJoinAfterAccess(null, ACCESS_PERM.play), null);
+  assert.equal(coopJoinAfterAccess(true, ACCESS_PERM.view), null);
+  assert.equal(home.joinsCoop(ACCESS_PERM.play, coopJoinAfterAccess(true, ACCESS_PERM.play)), true);
+});
+
+test('the co-op switch lands back on the stored value, follows Launch apps when on and is false when off', () => {
+  const { coopJoinAfterSwitch } = access;
+  // Never set: off is an explicit false, back on follows Launch apps again.
+  assert.equal(coopJoinAfterSwitch(false, null), false);
+  assert.equal(coopJoinAfterSwitch(true, null), null);
+  // Stored off: on follows Launch apps, off again keeps the stored false.
+  assert.equal(coopJoinAfterSwitch(true, false), null);
+  assert.equal(coopJoinAfterSwitch(false, false), false);
+  // Stored on: back on keeps it, off is false.
+  assert.equal(coopJoinAfterSwitch(true, true), true);
+  assert.equal(coopJoinAfterSwitch(false, true), false);
 });
 
 test('every co-op text names the permission the way the device page does', () => {

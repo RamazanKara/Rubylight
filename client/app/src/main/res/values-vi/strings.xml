@@ -364,6 +364,7 @@
     <string name="stream_end_input">Kết thúc phiên đầu vào</string>
     <string name="launch_confirm_title">Xác nhận trên thiết bị này</string>
     <string name="launch_confirm_replace">Thoát ứng dụng đang chạy và mở ứng dụng này?\nHãy xác nhận trong vòng 60 giây.</string>
+    <string name="launch_confirm_replace_named">Thoát %1$s và bắt đầu %2$s?\nHãy xác nhận trong vòng 60 giây.</string>
     <string name="launch_confirm_terminate">Thoát ứng dụng?\nCác thiết bị giám sát/đầu vào vẫn được kết nối.\nHãy xác nhận trong vòng 60 giây.</string>
     <string name="launch_confirm">Xác nhận</string>
     <string name="summary_about">Phiên bản %1$s · Dựa trên Moonlight (GPL-3.0)</string>

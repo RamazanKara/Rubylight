@@ -364,6 +364,7 @@
     <string name="stream_end_input">Завершити сеанс введення</string>
     <string name="launch_confirm_title">Підтвердьте на цьому пристрої</string>
     <string name="launch_confirm_replace">Закрити запущений застосунок і запустити цей?\nПідтвердьте протягом 60 секунд.</string>
+    <string name="launch_confirm_replace_named">Закрити %1$s і запустити %2$s?\nПідтвердьте протягом 60 секунд.</string>
     <string name="launch_confirm_terminate">Закрити застосунок?\nКлієнти моніторингу/введення залишаться підключеними.\nПідтвердьте протягом 60 секунд.</string>
     <string name="launch_confirm">Підтвердити</string>
     <string name="summary_about">Версія %1$s · На основі Moonlight (GPL-3.0)</string>

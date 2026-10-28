@@ -2,9 +2,13 @@ package com.limelight.utils;
 
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
+import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.TestHosts;
 
 import org.junit.Test;
+
+import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.Assert.*;
 
@@ -58,5 +62,20 @@ public class ServerHelperTest {
         computer.caps = TestHosts.rubylight();
         computer.activeAddress = null;
         assertNull(ServerHelper.getHostSettingsUrl(computer));
+    }
+
+    @Test
+    public void theHostsConfirmationNamesTheGameItReplaces() {
+        ComputerDetails computer = computer("192.168.1.10", 47989, 47984);
+        NvApp balatro = new NvApp("Balatro", 11, false);
+        NvApp celeste = new NvApp("Celeste", 22, false);
+        List<NvApp> apps = Arrays.asList(balatro, celeste);
+        assertNull("nothing runs", ServerHelper.replacedAppName(computer, celeste, apps));
+        computer.runningGameId = 11;
+        assertEquals("Balatro", ServerHelper.replacedAppName(computer, celeste, apps));
+        assertNull("a resume replaces nothing", ServerHelper.replacedAppName(computer, balatro, apps));
+        assertNull("no app list yet", ServerHelper.replacedAppName(computer, celeste, null));
+        computer.runningGameId = 33;
+        assertNull("a game the list does not have", ServerHelper.replacedAppName(computer, celeste, apps));
     }
 }

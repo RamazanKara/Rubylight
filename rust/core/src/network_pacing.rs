@@ -470,6 +470,36 @@ mod tests {
     }
 
     #[test]
+    fn without_fec_the_cap_is_the_four_block_packet_limit() {
+        let period = Duration::from_secs_f64(1. / 60.);
+        let packetizer = crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 0,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        // 255 data shards in each of four blocks: about 1.40 MB.
+        let whole = packetizer.fec_whole_payload_limit();
+        assert_eq!(whole, 4 * 255 * 1376 - 8);
+        // The automatic cap, about 3.1 MB without parity, puts over 2,000
+        // packets of a recovery frame at risk; held, it has 1,020.
+        let cap = recovery_frame_cap(800_000_000, 200_000, period, 0, 1392, false);
+        let held = fec_whole_frame_cap(cap, whole, 200_000, period);
+        let packets = |payload: u64| {
+            packetizer
+                .block_layout(payload as usize)
+                .iter()
+                .map(|(data, parity)| data + parity)
+                .sum::<usize>()
+        };
+        assert!(packets(cap) > 2000, "{}", packets(cap));
+        assert_eq!(packets(held), 4 * 255);
+    }
+
+    #[test]
     fn conventional_wire_budget_includes_framing_encryption_and_fec_rounding() {
         for ipv6 in [false, true] {
             for key in [None, Some([0; 16])] {

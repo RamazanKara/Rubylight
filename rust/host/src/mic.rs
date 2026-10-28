@@ -291,12 +291,18 @@ fn decode_packet(
 #[derive(Default)]
 struct Output {
     thread: Option<(Arc<AtomicBool>, thread::JoinHandle<Result<()>>)>,
+    /// A stopped render thread still installing or opening the device. The
+    /// next one starts once it has gone, so they never share the device.
+    stopping: Option<thread::JoinHandle<Result<()>>>,
     /// Set by the render thread once Steam Streaming Microphone is open.
     opened: Arc<AtomicBool>,
     retry: Option<Instant>,
 }
 impl Output {
     fn ensure(&mut self, h: &Shared, session: &Arc<Session>, playout: &Arc<Mutex<Playout>>) {
+        if !self.stopped() {
+            return;
+        }
         if self.opened.swap(false, Ordering::AcqRel) {
             session.launch.warnings.clear(WARNING);
         }
@@ -341,12 +347,39 @@ impl Output {
         }
     }
     fn stop(&mut self, session: &Arc<Session>) {
-        if let Some((stop, thread)) = self.thread.take() {
-            stop.store(true, Ordering::Release);
-            Self::report(session, thread.join());
+        if let Some(result) = self.retire() {
+            Self::report(session, result);
         }
         self.retry = None;
         session.launch.warnings.clear(ROUTING_WARNING);
+    }
+    /// Stops the render thread without waiting for one still installing or
+    /// opening the device: that would hold up the receiver, and with it every
+    /// other session's microphone packets. Its result, if it has ended.
+    fn retire(&mut self) -> Option<thread::Result<Result<()>>> {
+        let (stop, thread) = self.thread.take()?;
+        stop.store(true, Ordering::Release);
+        // A late "opened" from it must not clear the next session's warning.
+        self.opened = Arc::default();
+        if thread.is_finished() {
+            return Some(thread.join());
+        }
+        self.stopping = Some(thread);
+        None
+    }
+    /// Whether no stopped render thread is still running.
+    fn stopped(&mut self) -> bool {
+        let Some(thread) = self.stopping.take_if(|thread| thread.is_finished()) else {
+            return self.stopping.is_none();
+        };
+        match thread.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(error = %format!("{error:#}"), "stopped microphone output failed")
+            }
+            Err(_) => tracing::warn!("stopped microphone render thread panicked"),
+        }
+        true
     }
     fn report(session: &Arc<Session>, result: thread::Result<Result<()>>) {
         let error = match result {
@@ -362,6 +395,16 @@ impl Output {
     }
 }
 
+impl Drop for Output {
+    /// At shutdown, a stopped thread still gets to put the microphone
+    /// defaults back.
+    fn drop(&mut self) {
+        if let Some(thread) = self.stopping.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 fn render(
     config: &Config,
     directory: &std::path::Path,
@@ -372,7 +415,15 @@ fn render(
 ) -> Result<()> {
     let _com = ComGuard::new()?;
     let _priority = Priority::input();
-    let mut render = Render::open(&endpoint(config)?)?;
+    let endpoint = endpoint(config)?;
+    // Stopped while installing: neither open the device nor move the defaults.
+    if stop.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let mut render = Render::open(&endpoint)?;
+    if stop.load(Ordering::Acquire) {
+        return Ok(());
+    }
     let _route = match audio_route::MicrophoneRoute::acquire(directory) {
         Ok(route) => {
             warnings.clear(ROUTING_WARNING);
@@ -391,9 +442,32 @@ fn render(
     }
     Ok(())
 }
+/// After an install that did not bring the device, the next one waits this
+/// long: each holds the audio routes while it waits for the device.
+const INSTALL_BACKOFF: Duration = Duration::from_secs(120);
+/// Whether Steam Streaming Microphone may be installed now.
+struct Install {
+    installed: bool,
+    /// When the last install that has not succeeded started.
+    tried: Option<Instant>,
+}
+impl Install {
+    /// Claims an install unless one succeeded, runs, or failed recently.
+    fn begin(&mut self, now: Instant) -> bool {
+        let due = !self.installed
+            && self
+                .tried
+                .is_none_or(|at| now.saturating_duration_since(at) >= INSTALL_BACKOFF);
+        if due {
+            self.tried = Some(now);
+        }
+        due
+    }
+}
 /// Steam Streaming Microphone's playback endpoint, installed from Steam's
 /// drivers the first time a client sends its microphone, when Steam is
-/// installed and "install_steam_audio_drivers" is on.
+/// installed and "install_steam_audio_drivers" is on. A failed install is
+/// tried again on a later connection.
 fn endpoint(config: &Config) -> Result<String> {
     let find = || -> Result<Option<String>> {
         Ok(audio_route::steam_microphone(&audio_route::endpoints()?).map(|e| e.id.clone()))
@@ -401,22 +475,32 @@ fn endpoint(config: &Config) -> Result<String> {
     if let Some(id) = find()? {
         return Ok(id);
     }
-    static INSTALLED: AtomicBool = AtomicBool::new(false);
-    if !INSTALLED.swap(true, Ordering::AcqRel)
-        && let Some(saved) = audio_route::install_steam_microphone(config)?
-    {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(250));
-            if let Some(id) = find()? {
-                // Windows may make the new device a default when its
-                // endpoints arrive; give it a moment, then put them back.
-                thread::sleep(Duration::from_millis(500));
-                if let Err(error) = saved.restore() {
-                    tracing::warn!(error = %format!("{error:#}"), "default audio devices could not be restored after installing Steam Streaming Microphone");
+    static INSTALL: Mutex<Install> = Mutex::new(Install {
+        installed: false,
+        tried: None,
+    });
+    if INSTALL.lock().unwrap().begin(Instant::now()) {
+        let saved = audio_route::install_steam_microphone(config);
+        if matches!(saved, Ok(None)) {
+            // Nothing was tried (no Steam, or the setting is off): the next
+            // connection checks again, as the advice below suggests.
+            INSTALL.lock().unwrap().tried = None;
+        }
+        if let Some(saved) = saved? {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(250));
+                if let Some(id) = find()? {
+                    // Windows may make the new device a default when its
+                    // endpoints arrive; give it a moment, then put them back.
+                    thread::sleep(Duration::from_millis(500));
+                    if let Err(error) = saved.restore() {
+                        tracing::warn!(error = %format!("{error:#}"), "default audio devices could not be restored after installing Steam Streaming Microphone");
+                    }
+                    INSTALL.lock().unwrap().installed = true;
+                    tracing::info!("Steam Streaming Microphone installed");
+                    return Ok(id);
                 }
-                tracing::info!("Steam Streaming Microphone installed");
-                return Ok(id);
             }
         }
     }
@@ -519,6 +603,67 @@ mod tests {
         assert_eq!(playout.take(&mut actual), 960);
         assert_eq!(actual, pcm[pcm.len() - 960..]);
         Ok(())
+    }
+
+    #[test]
+    fn a_failed_microphone_install_is_tried_again_after_a_pause() {
+        let start = Instant::now();
+        let mut install = Install {
+            installed: false,
+            tried: None,
+        };
+        assert!(install.begin(start));
+        // Running, or failed a moment ago: other connections do not install.
+        assert!(!install.begin(start + Duration::from_secs(5)));
+        assert!(install.begin(start + INSTALL_BACKOFF));
+        // Nothing was tried (Steam missing): the next connection checks again.
+        install.tried = None;
+        assert!(install.begin(start + INSTALL_BACKOFF));
+        install.installed = true;
+        install.tried = None;
+        assert!(!install.begin(start + INSTALL_BACKOFF * 2));
+    }
+
+    #[test]
+    fn stopping_a_render_thread_that_is_still_opening_does_not_wait_for_it() {
+        // The thread is still in the install wait and does not see the flag.
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut output = Output::default();
+        output.thread = Some((
+            stop.clone(),
+            thread::spawn(move || {
+                let _ = held.recv();
+                Ok(())
+            }),
+        ));
+        let opened = output.opened.clone();
+        let started = Instant::now();
+        assert!(output.retire().is_none());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(stop.load(Ordering::Acquire));
+        assert!(!Arc::ptr_eq(&opened, &output.opened));
+        // No second render thread starts while the first one still runs.
+        assert!(!output.stopped());
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !output.stopped() {
+            assert!(
+                Instant::now() < deadline,
+                "the stopped thread was not collected"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(output.stopping.is_none());
+        // A thread that has already ended gives its result straight away.
+        output.thread = Some((
+            Arc::default(),
+            thread::spawn(|| Err(anyhow::anyhow!("device gone"))),
+        ));
+        while !output.thread.as_ref().unwrap().1.is_finished() {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(matches!(output.retire(), Some(Ok(Err(_)))));
     }
 
     #[test]

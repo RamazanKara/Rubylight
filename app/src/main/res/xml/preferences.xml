@@ -7,6 +7,10 @@
     Rows show their title and current value. android:summary is an optional short line;
     android:dialogMessage holds the longer explanation, shown in the picker or behind the
     switch's info button. A category without a title continues its section's own heading.
+
+    settings_tiers.xml lists each section's main rows. The others fold behind the section's
+    last row, category_more_<section> (StreamSettings): they keep their key and category, and
+    search still finds them.
 -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:seekbar="http://schemas.moonlight-stream.com/apk/res/seekbar">
@@ -56,6 +60,7 @@
             android:key="checkbox_auto_bitrate"
             android:title="@string/title_auto_bitrate"
             android:dialogMessage="@string/dialog_auto_bitrate"
+            android:summaryOff="@string/summary_off_auto_bitrate"
             android:defaultValue="false" />
         <!-- The same feature as the stream menu's Automatic quality; the two minimums show only while it is on
              (StreamSettings, SettingRules). -->
@@ -105,6 +110,9 @@
             android:title="@string/title_enable_sdr10"
             android:dialogMessage="@string/summary_enable_sdr10"
             android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_video">
+        <Preference android:key="more_video" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
 
     <!-- Display & image -->
@@ -210,6 +218,9 @@
             android:max="200"
             seekbar:step="5"
             android:text="%" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_display">
+        <Preference android:key="more_display" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
 
     <!-- Controls -->
@@ -528,6 +539,9 @@
             seekbar:step="5"
             android:text="%" />
     </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_input">
+        <Preference android:key="more_input" android:title="@string/settings_more" android:persistent="false" />
+    </PreferenceCategory>
 
     <!-- Audio -->
     <PreferenceCategory android:key="category_audio_settings">
@@ -596,6 +610,9 @@
             android:dialogMessage="@string/summary_checkbox_audio_passthrough"
             android:defaultValue="false" />
     </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_audio">
+        <Preference android:key="more_audio" android:title="@string/settings_more" android:persistent="false" />
+    </PreferenceCategory>
 
     <!-- Streaming -->
     <PreferenceCategory android:key="category_streaming">
@@ -617,7 +634,7 @@
             android:key="checkbox_auto_reconnect"
             android:title="@string/title_auto_reconnect"
             android:dialogMessage="@string/summary_auto_reconnect"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_network_grace"
             android:title="@string/title_network_grace"
@@ -636,16 +653,6 @@
             android:title="@string/title_roaming_metered"
             android:dialogMessage="@string/summary_roaming_metered"
             android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_tell_host_wireless"
-            android:title="@string/title_tell_host_wireless"
-            android:dialogMessage="@string/summary_tell_host_wireless"
-            android:defaultValue="true" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_tell_host_link_speed"
-            android:title="@string/title_tell_host_link_speed"
-            android:dialogMessage="@string/summary_tell_host_link_speed"
-            android:defaultValue="true" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_fec_choice"
             android:title="@string/title_fec_choice"
@@ -653,11 +660,6 @@
             android:entries="@array/fec_choice_names"
             android:entryValues="@array/fec_choice_values"
             android:defaultValue="host" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_link_probe"
-            android:title="@string/title_link_probe"
-            android:dialogMessage="@string/summary_link_probe"
-            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_input_only_any_host"
             android:title="@string/title_checkbox_input_only_any_host"
@@ -668,6 +670,9 @@
             android:title="@string/title_checkbox_disable_warnings"
             android:dialogMessage="@string/summary_checkbox_disable_warnings"
             android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_streaming">
+        <Preference android:key="more_streaming" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
 
     <!-- App -->
@@ -742,9 +747,17 @@
             android:entryValues="@array/reduce_motion_values"
             android:defaultValue="system" />
     </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_app">
+        <Preference android:key="more_app" android:title="@string/settings_more" android:persistent="false" />
+    </PreferenceCategory>
 
     <!-- Advanced -->
     <PreferenceCategory android:key="category_advanced_settings">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_rust_engine"
+            android:title="@string/title_rust_engine"
+            android:dialogMessage="@string/summary_rust_engine"
+            android:defaultValue="true" />
         <!-- Sets the decoder, chipset and phone switches below together (StreamSettings). -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="low_latency_decoding"
@@ -830,17 +843,7 @@
             android:dialogMessage="@string/summary_network_priority"
             android:defaultValue="true" />
     </PreferenceCategory>
-    <PreferenceCategory android:key="category_advanced_diagnostics" android:title="@string/settings_category_diagnostics">
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_enable_post_stream_toast"
-            android:title="@string/title_enable_post_stream_toast"
-            android:dialogMessage="@string/summary_enable_post_stream_toast"
-            android:defaultValue="false"/>
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_rust_engine"
-            android:title="@string/title_rust_engine"
-            android:dialogMessage="@string/summary_rust_engine"
-            android:defaultValue="true" />
+    <PreferenceCategory android:key="category_advanced_experimental" android:title="@string/settings_category_experimental">
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="experimental_packed_444"
             android:title="@string/title_packed_444"
@@ -851,11 +854,36 @@
             android:title="@string/title_experimental_chipset_tuning"
             android:dialogMessage="@string/summary_experimental_chipset_tuning"
             android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_advanced_diagnostics" android:title="@string/settings_category_diagnostics">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_wireless"
+            android:title="@string/title_tell_host_wireless"
+            android:dialogMessage="@string/summary_tell_host_wireless"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_link_speed"
+            android:title="@string/title_tell_host_link_speed"
+            android:dialogMessage="@string/summary_tell_host_link_speed"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_link_probe"
+            android:title="@string/title_link_probe"
+            android:dialogMessage="@string/summary_link_probe"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_post_stream_toast"
+            android:title="@string/title_enable_post_stream_toast"
+            android:dialogMessage="@string/summary_enable_post_stream_toast"
+            android:defaultValue="false"/>
         <Preference android:key="latency_benchmark" android:title="@string/latency_benchmark_title"
             android:summary="@string/settings_latency_benchmark_summary" />
         <Preference
             android:key="export_latency_csv"
             android:title="@string/title_export_latency_csv"
             android:summary="@string/settings_csv_summary" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_advanced">
+        <Preference android:key="more_advanced" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
 </PreferenceScreen>

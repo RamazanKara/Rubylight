@@ -28,28 +28,38 @@ public class AutoReconnectDefaultTest {
         return PreferenceManager.getDefaultSharedPreferences(app());
     }
 
-    @Test public void aNewInstallStartsWithRecoveryOff() {
+    @Test public void aNewInstallStartsWithRecoveryOn() {
         // What the PC list stores on its first launch.
         PreferenceManager.setDefaultValues(app(), R.xml.preferences, true);
-        assertFalse(prefs().getBoolean(KEY, true));
-        assertFalse(PreferenceConfiguration.readPreferences(app()).autoReconnect);
-    }
-
-    @Test public void theOldStoredDefaultIsSwitchedOffOnceAndALaterChoiceIsKept() {
-        prefs().edit().putBoolean(KEY, true).commit();
-        assertFalse(PreferenceConfiguration.readPreferences(app()).autoReconnect);
-        assertFalse(prefs().getBoolean(KEY, true));
-
-        // Turning it back on in Settings is a real choice and survives later reads.
-        prefs().edit().putBoolean(KEY, true).commit();
-        assertTrue(PreferenceConfiguration.readPreferences(app()).autoReconnect);
+        assertTrue(prefs().getBoolean(KEY, false));
         assertTrue(PreferenceConfiguration.readPreferences(app()).autoReconnect);
     }
 
-    @Test public void anInstallThatNeverStoredItReadsOff() {
+    @Test public void theOldStoredDefaultIsSwitchedOnOnceAndALaterChoiceIsKept() {
+        // Installs that stored off, including those the earlier migration switched off.
+        prefs().edit().putBoolean(KEY, false).putBoolean("auto_reconnect_default_off", true).commit();
+        assertTrue(PreferenceConfiguration.readPreferences(app()).autoReconnect);
+        assertTrue(prefs().getBoolean(KEY, false));
+
+        // Turning it off in Settings is a real choice and survives later reads.
+        prefs().edit().putBoolean(KEY, false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(app()).autoReconnect);
+        assertFalse(PreferenceConfiguration.readPreferences(app()).autoReconnect);
+        assertFalse(prefs().getBoolean(KEY, true));
+    }
+
+    @Test public void anInstallThatNeverStoredItReadsOn() {
         assertFalse(prefs().contains(KEY));
-        assertFalse(PreferenceConfiguration.readPreferences(app()).autoReconnect);
-        prefs().edit().putBoolean(KEY, true).commit();
         assertTrue(PreferenceConfiguration.readPreferences(app()).autoReconnect);
+        prefs().edit().putBoolean(KEY, false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(app()).autoReconnect);
+    }
+
+    @Test public void theMigrationRunsOnce() {
+        prefs().edit().putBoolean(KEY, false).commit();
+        assertTrue(PreferenceConfiguration.migrateAutoReconnectDefault(prefs()));
+        prefs().edit().putBoolean(KEY, false).commit();
+        assertFalse(PreferenceConfiguration.migrateAutoReconnectDefault(prefs()));
+        assertFalse(prefs().getBoolean(KEY, true));
     }
 }

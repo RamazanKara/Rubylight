@@ -16,6 +16,7 @@ public class VulkanRendererBridge {
     public static final long NO_SCANOUT = -1;
 
     private static Boolean supported;
+    private static boolean hdrColorSpaces;
     private static String unsupportedReason;
 
     private long handle;
@@ -36,6 +37,7 @@ public class VulkanRendererBridge {
             try {
                 System.loadLibrary("vulkan_renderer");
                 result = nativeProbe();
+                hdrColorSpaces = result && nativeProbedHdrColorSpaces();
                 if (!result) {
                     unsupportedReason = nativeLastError();
                 }
@@ -44,10 +46,19 @@ public class VulkanRendererBridge {
             }
             LimeLog.info("Vulkan renderer supported: " + result + " (probe took " +
                     (System.nanoTime() - startNs) / 1000000 + " ms)" +
+                    (result ? ", HDR colour spaces: " + hdrColorSpaces : "") +
                     (result || unsupportedReason == null ? "" : ", " + unsupportedReason));
             supported = result;
         }
         return supported;
+    }
+
+    /**
+     * Whether the renderer runs here and its instance has VK_EXT_swapchain_colorspace: it then shows
+     * HLG as well as HDR10, through the HDR colour spaces (Android 15+) or the window dataspace.
+     */
+    public static synchronized boolean drawsHlg() {
+        return isSupported() && hdrColorSpaces;
     }
 
     /** Why {@link #isSupported()} is false, or null if it is true or not yet known. */
@@ -71,12 +82,13 @@ public class VulkanRendererBridge {
      *              pacer traces
      * @param traceDirectory where frame pacing traces are written when switched on with
      *                       {@code adb shell setprop debug.moonlight.pacer_trace 1}, or null
+     * @param hlg the stream's HDR is HLG rather than PQ
      * @param frontBuffer draw into a front buffer the display reads directly, timed to each scan,
      *                    where the device has one
      */
     public static VulkanRendererBridge create(Surface output, int streamWidth, int streamHeight, int streamFps,
                                               int framePacing, int jitterBuffer, int ditherMode, int colorspace,
-                                              boolean fullRange, boolean tenBit, float displayRefreshHz,
+                                              boolean fullRange, boolean tenBit, boolean hlg, float displayRefreshHz,
                                               String codec, String decoderName, String traceDirectory,
                                               boolean frontBuffer) {
         if (!isSupported()) {
@@ -84,7 +96,7 @@ public class VulkanRendererBridge {
         }
 
         long handle = nativeCreate(output, streamWidth, streamHeight, streamFps, framePacing, jitterBuffer, ditherMode,
-                colorspace, fullRange, tenBit, displayRefreshHz, codec, decoderName, traceDirectory, frontBuffer);
+                colorspace, fullRange, tenBit, hlg, displayRefreshHz, codec, decoderName, traceDirectory, frontBuffer);
         if (handle == 0) {
             LimeLog.warning("Vulkan renderer could not start: " + nativeLastError());
             return null;
@@ -160,6 +172,14 @@ public class VulkanRendererBridge {
     /** Whether frames are drawn into a front buffer. Known once the first frame is drawn. */
     public synchronized boolean isFrontBufferActive() {
         return handle != 0 && nativeIsFrontBufferActive(handle);
+    }
+
+    /**
+     * Whether the PC sends HDR but the surface took neither an HDR format nor the HDR window
+     * dataspace, so the picture is tone mapped to SDR. Known once the HDR swapchain is made.
+     */
+    public synchronized boolean isHdrToneMapped() {
+        return handle != 0 && nativeIsHdrToneMapped(handle);
     }
 
     /**
@@ -242,11 +262,12 @@ public class VulkanRendererBridge {
     }
 
     private static native boolean nativeProbe();
+    private static native boolean nativeProbedHdrColorSpaces();
     private static native String nativeLastError();
     private static native String nativeFatalReason(long handle);
     private static native long nativeCreate(Surface output, int streamWidth, int streamHeight, int streamFps,
                                             int framePacing, int jitterBuffer, int ditherMode, int colorspace,
-                                            boolean fullRange, boolean tenBit, float displayRefreshHz,
+                                            boolean fullRange, boolean tenBit, boolean hlg, float displayRefreshHz,
                                             String codec, String decoderName, String traceDirectory,
                                             boolean frontBuffer);
     private static native Surface nativeGetDecoderSurface(long handle);
@@ -258,6 +279,7 @@ public class VulkanRendererBridge {
     private static native int nativeTakePresentedFrames(long handle);
     private static native boolean nativeIsFrontBufferUnavailable(long handle);
     private static native boolean nativeIsFrontBufferActive(long handle);
+    private static native boolean nativeIsHdrToneMapped(long handle);
     private static native void nativeTakeCaptureLatency(long handle, long[] out);
     private static native boolean nativeReportsPresentTimes(long handle);
     private static native int nativeTakePresentReports(long handle, long[] out);

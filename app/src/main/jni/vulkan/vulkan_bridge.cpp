@@ -2,6 +2,7 @@
 #include <android/native_window_jni.h>
 #include <vector>
 
+#include "output_format.h"
 #include "vulkan_renderer.h"
 
 using vkr::RendererConfig;
@@ -16,6 +17,11 @@ namespace {
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeProbe(JNIEnv*, jclass) {
     return VulkanRenderer::probe() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeProbedHdrColorSpaces(JNIEnv*, jclass) {
+    return VulkanRenderer::probedHdrColorSpaces() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -36,7 +42,8 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeCreate(
         JNIEnv* env, jclass, jobject outputSurface, jint streamWidth, jint streamHeight, jint streamFps,
         jint framePacing, jint jitterBuffer, jint ditherMode, jint colorspace, jboolean fullRange, jboolean tenBit,
-        jfloat displayRefreshHz, jstring codec, jstring decoderName, jstring traceDirectory, jboolean frontBuffer) {
+        jboolean hlg, jfloat displayRefreshHz, jstring codec, jstring decoderName, jstring traceDirectory,
+        jboolean frontBuffer) {
     ANativeWindow* output = ANativeWindow_fromSurface(env, outputSurface);
     if (!output) {
         return 0;
@@ -52,6 +59,7 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeCreate(
     config.colorspace = colorspace;
     config.fullRange = fullRange;
     config.tenBit = tenBit;
+    config.hdrTransfer = hlg ? vkr::kHdrTransferHlg : vkr::kHdrTransferPq;
     config.displayRefreshHz = displayRefreshHz;
     config.frontBuffer = frontBuffer;
     auto toString = [env](jstring string) {
@@ -146,6 +154,12 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeIsFrontBufferActive(JNIEnv*, jclass, jlong handle) {
     VulkanRenderer* renderer = fromHandle(handle);
     return renderer && renderer->frontBufferActive() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeIsHdrToneMapped(JNIEnv*, jclass, jlong handle) {
+    VulkanRenderer* renderer = fromHandle(handle);
+    return renderer && renderer->hdrToneMapped() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

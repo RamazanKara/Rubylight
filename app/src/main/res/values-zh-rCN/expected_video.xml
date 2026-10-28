@@ -15,4 +15,7 @@
     <string name="stream_hdr_output_not_pq">HDR 已开启，但此设备的解码器报告输出不是 HDR，因此颜色可能显得发灰。</string>
     <string name="stream_hdr_hlg_needs_direct_output">此屏幕只能以 HLG 显示 HDR，而“通过 Vulkan 渲染”无法绘制 HLG，因此视频流为 SDR。</string>
     <string name="stream_hdr_pq_on_hlg_screen">此屏幕只能以 HLG 显示 HDR，但电脑发送的是 HDR10，因此亮度和颜色可能不正确。</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s 以 SDR 显示：屏幕拒绝了“通过 Vulkan 渲染”的 HDR。</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision 需要关闭“通过 Vulkan 渲染”，因此视频流为 HDR10。</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ 需要关闭“通过 Vulkan 渲染”，因此视频流为不含 HDR10+ 的 HDR10。</string>
 </resources>

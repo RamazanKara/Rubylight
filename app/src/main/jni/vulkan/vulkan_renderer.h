@@ -34,6 +34,7 @@ struct RendererConfig {
     int colorspace = 1;        // MoonBridge.COLORSPACE_*
     bool fullRange = false;
     bool tenBit = false;       // The stream is 10-bit
+    int hdrTransfer = 0;       // Its HDR: kHdrTransferPq or kHdrTransferHlg (output_format.h)
     float displayRefreshHz = 60.0f;
     bool frontBuffer = false;    // A front buffer aligned to the scan, where the device has one
     std::string codec;           // h264, hevc or av1, for pacer traces
@@ -81,6 +82,9 @@ class VulkanRenderer {
 public:
     // Whether this device can run the renderer at all
     static bool probe();
+    // The last probe() found VK_EXT_swapchain_colorspace, which the native HDR colour spaces need:
+    // only then is HLG asked for on this renderer (VulkanRendererBridge.drawsHlg)
+    static bool probedHdrColorSpaces();
 
     // Why the last probe() or create() failed, or the last thing that went wrong: the final
     // error the renderer logged. Empty if nothing has.
@@ -120,6 +124,8 @@ public:
     bool frontBufferUnavailable() const { return frontBufferUnavailable_; }
     // The swapchain is a front buffer
     bool frontBufferActive() const { return frontBuffer_; }
+    // The PC sends HDR, but the surface took no HDR format or dataspace, so it is tone mapped to SDR
+    bool hdrToneMapped() const { return hdrToneMapped_; }
 
     // Capture latency since the last call: the time from each frame's origin (see
     // VideoFrame::originNs) until it was decoded, and until it reached the screen. Frames measured
@@ -288,6 +294,8 @@ private:
     ImportedBuffer* importBuffer(AHardwareBuffer* buffer);
     void destroyImport(AHardwareBuffer* buffer, ImportedBuffer& imported);
     void evictImports();
+    // Sets the window dataspace HDR goes through (0: none to set). False when the window refused it.
+    bool applyWindowDataspace(int32_t dataspace);
     void applyHdrMetadata();
 
     const NdkApi* ndk_;
@@ -363,7 +371,11 @@ private:
     // The display rotation we render in ourselves, so the compositor needn't rotate
     VkSurfaceTransformFlagBitsKHR preTransform_ = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     int outputBits_ = 8;
-    bool outputPq_ = false;
+    // HDR passes through to the compositor: in the swapchain's colour space, or with the window
+    // dataspace set to outputDataspace_ (output_format.h)
+    bool outputHdr_ = false;
+    int32_t outputDataspace_ = 0;
+    std::atomic<bool> hdrToneMapped_ {false};
     bool swapchainDirty_ = true;
     std::vector<VkImageView> swapchainViews_;
     std::vector<VkFramebuffer> framebuffers_;

@@ -15,4 +15,7 @@
     <string name="stream_hdr_output_not_pq">HDR đang bật nhưng bộ giải mã của thiết bị này báo đầu ra không phải HDR, nên màu có thể trông nhạt.</string>
     <string name="stream_hdr_hlg_needs_direct_output">Màn hình này chỉ hiển thị HDR dưới dạng HLG, mà “Kết xuất qua Vulkan” không vẽ được, nên luồng ở SDR.</string>
     <string name="stream_hdr_pq_on_hlg_screen">Màn hình này chỉ hiển thị HDR dưới dạng HLG, nhưng PC gửi HDR10, nên độ sáng và màu có thể trông sai.</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s đang hiển thị dưới dạng SDR: màn hình đã từ chối HDR từ “Kết xuất qua Vulkan”.</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision cần tắt “Kết xuất qua Vulkan”, nên luồng ở HDR10.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ cần tắt “Kết xuất qua Vulkan”, nên luồng ở HDR10 không có HDR10+.</string>
 </resources>

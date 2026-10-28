@@ -187,6 +187,9 @@ public class PreferenceConfiguration {
     // must not be reused for anything else.
     static final String RETIRED_GL_RENDER_PREF_STRING = "checkbox_gl_render";
     static final String VULKAN_RENDER_PREF_STRING = "checkbox_vulkan_render";
+    // Hidden, no UI, honoured in debug builds only (HdrPolicy.setDebugHlgOnly): HDR screens count as
+    // HLG-only. Set with adb for HLG tests on screens that also have HDR10.
+    static final String DEBUG_HDR_HLG_ONLY_PREF_STRING = "debug_hdr_hlg_only";
 
     static final String DEFAULT_RESOLUTION = "1280x720";
     static final String DEFAULT_FPS = "60";
@@ -388,6 +391,8 @@ public class PreferenceConfiguration {
     // Present MediaCodec frames through the GLES path even when nothing is upscaled.
     // Present MediaCodec frames through the native Vulkan renderer, which paces them itself.
     public boolean vulkanRender;
+    // debug_hdr_hlg_only as stored; HdrPolicy.setDebugHlgOnly ignores it outside debug builds.
+    public boolean debugHdrHlgOnly;
 
     /** A new stream tests the link before its first bitrate: switched on, and the bitrate is automatic. */
     public boolean probesFirstBitrate() {
@@ -1390,6 +1395,7 @@ public class PreferenceConfiguration {
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
         config.upscalingSharpness = Math.max(0, Math.min(100, prefs.getInt(UPSCALING_SHARPNESS_PREF_STRING, 50)));
         config.vulkanRender = prefs.getBoolean(VULKAN_RENDER_PREF_STRING, false);
+        config.debugHdrHlgOnly = prefs.getBoolean(DEBUG_HDR_HLG_ONLY_PREF_STRING, false);
         if (config.vrr) {
             // VRR streams arrive at the game's own cadence: show each frame as soon as it is
             // decoded; Game votes for ARR where supported, or the highest refresh rate otherwise.

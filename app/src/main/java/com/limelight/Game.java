@@ -32,6 +32,7 @@ import com.limelight.binding.video.PackedFallback;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
+import com.limelight.binding.video.HdrFormatPolicy;
 import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.LatencyProbe;
 import com.limelight.binding.video.LinkNoticeStatus;
@@ -1108,6 +1109,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         prefConfig.experimentalPacked444 = PackedFallback.effective(prefConfig.experimentalPacked444,
                 getIntent().getBooleanExtra(EXTRA_PACKED_OFF, false));
         getIntent().putExtra(EXTRA_STREAM_NETWORK, prefConfig.layers.network.name());
+        HdrPolicy.setDebugHlgOnly(BuildConfig.DEBUG, prefConfig.debugHdrHlgOnly);
         showStreamLayers(prefConfig, startNetwork == null);
         recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
                 getIntent().getLongExtra(EXTRA_RECOVERY_STARTED, 0));
@@ -1291,10 +1293,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Check if the user has enabled HDR
         boolean willStreamHdr = false;
         if (mediaStream && prefConfig.enableHdr) {
-            // HLG stands in for HDR10 only when the decoder draws the picture, not the Vulkan renderer.
+            // HLG stands in for HDR10 unless the Vulkan renderer draws the picture on a PQ-only surface.
             HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(getVideoDisplay(), true,
                     cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
-                    MediaCodecDecoderRenderer.vulkanPresents(prefConfig));
+                    MediaCodecDecoderRenderer.vulkanSurface(prefConfig));
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
             if (!willStreamHdr) refuseHdr(refusal);
         }
@@ -7626,12 +7628,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         String text = null;
         if (streamHdr && decoderRenderer != null) {
             int format = decoderRenderer.getActiveVideoFormat();
-            HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.status(true,
+            HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.drawnStatus(HdrPolicy.status(true,
                     (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, decoderRenderer.getHostHdrReport(),
                     decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer(),
-                    decoderRenderer.getStreamTransfer(), HdrPolicy.hlgOnly(HdrPolicy.displayHdrTypes(getVideoDisplay())));
+                    decoderRenderer.getStreamTransfer(), HdrPolicy.hlgOnly(HdrPolicy.displayHdrTypes(getVideoDisplay()))),
+                    decoderRenderer.isVulkanHdrToneMapped());
             int res = hdrStatusText(status);
-            if (res != 0) text = getString(res);
+            if (status == HdrPolicy.Status.SHOWN_AS_SDR) {
+                text = getString(res, HdrFormatPolicy.baseLayerName(decoderRenderer.getAnnouncedHdrFormat()));
+            } else if (res != 0) {
+                text = getString(res);
+            }
+            // Plain words, once per PC, for what the Vulkan renderer cannot show of this screen's HDR.
+            int limit = vulkanHdrLimitText(decoderRenderer.takeVulkanHdrLimit());
+            if (limit != 0) hostNotice(HostNotices.Notice.VULKAN_HDR_LIMIT, limit);
             if (status != lastHdrStatus) {
                 lastHdrStatus = status;
                 if (res != 0) LimeLog.warning("HDR requested but " + status);
@@ -7664,6 +7674,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case NO_METADATA: return R.string.stream_hdr_no_metadata;
             case OUTPUT_NOT_PQ: return R.string.stream_hdr_output_not_pq;
             case PQ_ON_HLG_SCREEN: return R.string.stream_hdr_pq_on_hlg_screen;
+            case SHOWN_AS_SDR: return R.string.stream_hdr_vulkan_shown_as_sdr;
+            default: return 0;
+        }
+    }
+
+    static int vulkanHdrLimitText(HdrFormatPolicy.DrawnLimit limit) {
+        switch (limit) {
+            case DOLBY_VISION: return R.string.stream_hdr_vulkan_no_dolby_vision;
+            case HDR10_PLUS: return R.string.stream_hdr_vulkan_no_hdr10_plus;
             default: return 0;
         }
     }

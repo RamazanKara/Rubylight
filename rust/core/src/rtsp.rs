@@ -174,7 +174,8 @@ pub struct Negotiated {
     pub client_wireless: bool,
     /// The client asked for long-term reference recovery on H.264 and HEVC
     /// (`rubylight_protocol::ltr_recovery`, a launch parameter, not SDP; set
-    /// at ANNOUNCE). AV1 has it without asking.
+    /// at ANNOUNCE). Since 3.0.0 every client has it without asking; still
+    /// parsed from clients that send it.
     #[serde(default)]
     pub ltr_recovery: bool,
     /// The pace the client's calibration found loss-free, in Mbps

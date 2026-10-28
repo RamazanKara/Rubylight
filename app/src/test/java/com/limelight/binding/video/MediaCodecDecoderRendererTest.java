@@ -193,4 +193,41 @@ public class MediaCodecDecoderRendererTest {
         assertNull(MediaCodecDecoderRenderer.createHdrStaticInfo(new byte[23]));
         assertEquals(25, MediaCodecDecoderRenderer.createHdrStaticInfo(new byte[24]).remaining());
     }
+
+    @Test
+    public void hdrMetadataAloneNeverRestartsTheDecoder() {
+        // The PC's first HDR report on the TCL C6K: HDR was assumed on, and the mastering metadata
+        // arrives. A stop() and configure() then left its decoder without input buffers.
+        byte[] first = new byte[24];
+        first[0] = 1;
+        byte[] next = first.clone();
+        next[23] = 2;
+        int q = android.os.Build.VERSION_CODES.Q;
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.PARAMETERS,
+                MediaCodecDecoderRenderer.hdrChange(true, true, null, first, q));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.PARAMETERS,
+                MediaCodecDecoderRenderer.hdrChange(true, true, first, next, q + 5));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
+                MediaCodecDecoderRenderer.hdrChange(true, true, first, first.clone(), q));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
+                MediaCodecDecoderRenderer.hdrChange(false, false, null, null, q));
+    }
+
+    @Test
+    public void hdrOnOrOffAndMetadataSetParametersCannotCarryRecreateTheDecoder() {
+        byte[] metadata = new byte[24];
+        int q = android.os.Build.VERSION_CODES.Q;
+        // The colour keys change with the mode.
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
+                MediaCodecDecoderRenderer.hdrChange(false, true, null, metadata, q));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
+                MediaCodecDecoderRenderer.hdrChange(false, true, null, null, q));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
+                MediaCodecDecoderRenderer.hdrChange(true, false, metadata, null, q));
+        // Before Android 10 setParameters does not take it, and it can't remove it.
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
+                MediaCodecDecoderRenderer.hdrChange(true, true, null, metadata, q - 1));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
+                MediaCodecDecoderRenderer.hdrChange(true, true, metadata, null, q));
+    }
 }

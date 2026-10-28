@@ -158,6 +158,23 @@ async fn stream_with(
     client: &HostClient,
     fec: Option<FecChoice>,
 ) -> Result<(Launch, Arc<Session>, Stream, Recorder)> {
+    stream_asking(
+        h,
+        client,
+        LaunchRequest {
+            fec,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+/// [`stream`] with `asked`'s choices; the app, mode and key are the fixture's.
+async fn stream_asking(
+    h: &Harness,
+    client: &HostClient,
+    asked: LaunchRequest,
+) -> Result<(Launch, Arc<Session>, Stream, Recorder)> {
     let info = client.server_info(true)?;
     assert!(info.paired);
     let apps = client.app_list(&info.capabilities)?;
@@ -174,8 +191,7 @@ async fn stream_with(
         fps: 60,
         ri_key: KEY,
         ri_key_id: KEY_ID,
-        fec,
-        ..Default::default()
+        ..asked
     };
     let launched = client.launch(&request, &info)?.expect("a session URL");
     assert_eq!(
@@ -478,6 +494,111 @@ fec_max_percentage = 40
     assert!(!launch.options.contains_key("rlFecPercentage"));
     assert!(session.client_fec.lock().unwrap().is_none());
     assert_eq!(session.adaptive_fec.lock().unwrap().ceiling(), 20);
+    stream.stop();
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
+    h.finish().await
+}
+
+/// Nightjar's `rlRateChange=1` adds 0x553C to its stream's DESCRIBE; its requests reach the
+/// host, which caps a bitrate by `max_bitrate` and answers each with its serial. A launch
+/// without it is neither offered 0x553C nor sends a request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nightjar_changes_the_bitrate_mid_stream() -> Result<()> {
+    use butterpollo_core::rate_change::{Outcome, RateChangeRequest, RateChangeResult, Reason};
+    use nightjar_core::control::{ClientMessage, SendError};
+    let h = Harness::configured(
+        10_000,
+        1,
+        "max_bitrate = 30000
+",
+    )
+    .await?;
+    let client = device(&h, u32::MAX, &[])?;
+    let answer = |recorder: &Recorder, serial: u32| {
+        recorder.seen(|s| {
+            s.events.iter().find_map(|event| match event {
+                ControlEvent::RateChange(result) if result.serial == serial => Some(*result),
+                _ => None,
+            })
+        })
+    };
+    let ask = |serial, bitrate_kbps| {
+        ClientMessage::RateChange(RateChangeRequest {
+            serial,
+            bitrate_kbps,
+            fps_millihz: 0,
+        })
+    };
+
+    let (launch, _, stream, recorder) = stream(&h, &client).await?;
+    assert!(!launch.options.contains_key("rlRateChange"));
+    assert!(
+        !stream
+            .outcome()
+            .host_control_messages
+            .contains(&ptype::RATE_CHANGE)
+    );
+    assert_eq!(stream.send(ask(1, 12_000)), Err(SendError::Unsupported));
+    stream.stop();
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
+    assert!(recorder.seen(|s| {
+        s.events
+            .iter()
+            .all(|e| !matches!(e, ControlEvent::RateChange(_)))
+    }));
+
+    let (launch, session, stream, recorder) = stream_asking(
+        &h,
+        &client,
+        LaunchRequest {
+            rate_change: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    assert_eq!(
+        launch.options.get("rlRateChange").map(String::as_str),
+        Some("1")
+    );
+    assert!(
+        stream
+            .outcome()
+            .host_control_messages
+            .contains(&ptype::RATE_CHANGE)
+    );
+    stream.send(ask(1, 50_000))?;
+    until("the host's capped answer", LOADED, || {
+        answer(&recorder, 1).is_some()
+    })
+    .await;
+    assert_eq!(
+        answer(&recorder, 1),
+        Some(RateChangeResult {
+            serial: 1,
+            bitrate_kbps: 30_000,
+            fps_millihz: 60_000,
+            bitrate: Outcome::clamped(Reason::HostLimit),
+            fps: Outcome::UNCHANGED,
+        })
+    );
+    assert_eq!(session.bitrate.load(Ordering::Acquire), 30_000);
+    stream.send(ask(2, 12_000))?;
+    until("the host's answer", LOADED, || {
+        answer(&recorder, 2).is_some()
+    })
+    .await;
+    let applied = answer(&recorder, 2).unwrap();
+    assert_eq!(
+        (applied.bitrate, applied.bitrate_kbps),
+        (Outcome::APPLIED, 12_000)
+    );
+    assert_eq!(session.bitrate.load(Ordering::Acquire), 12_000);
     stream.stop();
     until("sessions released", LOADED, || {
         h.h.sessions.lock().unwrap().idle()

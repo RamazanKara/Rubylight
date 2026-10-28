@@ -475,7 +475,10 @@ mod tests {
         assert_eq!(fec_whole_frame_cap(fast, whole, 400_000, period), fast);
         // The re-encode bound for scene cuts is the same: full parity where the
         // cap keeps it, none where a keyframe at the cap would lose it too.
-        assert_eq!(fec_whole_frame_limit(whole, 200_000, period), Some(whole as u64));
+        assert_eq!(
+            fec_whole_frame_limit(whole, 200_000, period),
+            Some(whole as u64)
+        );
         assert_eq!(fec_whole_frame_limit(whole, 400_000, period), None);
     }
 

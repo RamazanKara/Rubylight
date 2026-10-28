@@ -710,12 +710,15 @@ mod tests {
         // PyroWave is still refused.
         let error = pick(&ALL_ON, 3, hdr::HLG).unwrap_err().to_string();
         assert!(error.contains("(HLG) needs HEVC or AV1"), "{error}");
-        // Dolby Vision stays HEVC only, and the flag is never a format.
+        // Dolby Vision profile 8 stays HEVC only, and the flag is never a format.
         for format in [hdr::DV_81, hdr::DV_84] {
             let error = pick(&all, 3, format).unwrap_err().to_string();
-            assert!(error.contains("(Dolby Vision) needs HEVC"), "{error}");
+            assert!(
+                error.contains("(Dolby Vision profile 8) needs HEVC"),
+                "{error}"
+            );
         }
-        for format in [hdr::PYROWAVE_HLG, hdr::PYROWAVE_HLG | hdr::HLG, 16] {
+        for format in [hdr::PYROWAVE_HLG, hdr::PYROWAVE_HLG | hdr::HLG, 32] {
             let error = pick(&all, 3, format).unwrap_err().to_string();
             assert!(error.contains("is not a single HDR format"), "{error}");
         }

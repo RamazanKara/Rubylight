@@ -515,10 +515,11 @@ round_trip!(
 );
 round_trip!(
     text_input_request,
-    (any::<bool>(), any::<bool>(), 0u16..5000).prop_map(|(notices, surrounding_text, max_text)| {
+    (any::<[bool; 3]>(), 0u16..5000).prop_map(|(flags, max_text)| {
         text_input::TextInputRequest {
-            notices,
-            surrounding_text,
+            notices: flags[0],
+            surrounding_text: flags[1],
+            element_ids: flags[2],
             max_text,
         }
         .encode()
@@ -547,12 +548,20 @@ round_trip!(
             text_input::InputType::Multiline,
         ]),
         any::<[bool; 4]>(),
-        any::<u32>(),
+        // The element id: 0 keeps the notice at version 1.
+        (any::<u32>(), prop_oneof![Just(0u32), any::<u32>()]),
         (0u16..40, 0u16..40),
         "\\PC{0,24}",
     )
         .prop_map(
-            |(kind, input_type, flags, serial, (selection_start, selection_end), text)| {
+            |(
+                kind,
+                input_type,
+                flags,
+                (serial, element),
+                (selection_start, selection_end),
+                text,
+            )| {
                 text_input::TextInputNotice {
                     kind,
                     input_type,
@@ -564,6 +573,7 @@ round_trip!(
                     selection_start,
                     selection_end,
                     text,
+                    element,
                 }
                 .encode()
                 .unwrap_or_default()

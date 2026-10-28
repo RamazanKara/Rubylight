@@ -29,7 +29,7 @@ use butterpollo_core::{
     crypto,
     pairing::Pairing,
     remote::{self, Control},
-    session::{Role, Seat, Transport},
+    session::{Role, Transport},
     state::{App, Client},
 };
 #[cfg(not(test))]
@@ -1507,12 +1507,6 @@ fn launch_back_half(
     // reply returns it to what it was.
     let mut session =
         (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
-    // Until the launch gets through, a failure gives its co-op slot back.
-    let mut seated = Seated {
-        h,
-        seat: None,
-        launch: &id,
-    };
     match &coop {
         Some(coop) => {
             let config = crate::stream::effective_config(h, &launch)?;
@@ -1525,8 +1519,10 @@ fn launch_back_half(
                 warnings: launch.warnings.clone(),
             })?;
             tracing::info!(client = %launch.client.name, session = seat.session, slot = seat.slot, "Nucleus Co-op seat taken");
-            seated.seat = Some(seat);
             launch.nucleus = Some(seat);
+            // Every copy holds the slot: a failure here, the launch's expiry
+            // or replacement, or the end of its stream gives it back.
+            launch.held = Some(std::sync::Arc::new(crate::nucleus::Held::new(h, seat, &id)));
         }
         None => replace_launch_app(h, &launch, resume, owner)?,
     }
@@ -1611,8 +1607,6 @@ fn launch_back_half(
     if launch.nucleus.is_none() {
         retain_launch_app(h, &launch, prepared_app);
     }
-    // From here on the launch's stream, or its expiry, gives the slot back.
-    seated.seat = None;
     drop(preparing);
     let mode = args.get("mode").map_or("", String::as_str);
     let hdr = args.get("hdrMode").is_some_and(|v| v == "1");
@@ -1643,20 +1637,6 @@ fn launch_back_half(
         );
     }
     Ok(launch)
-}
-/// A co-op launch's slot while the launch is still being prepared: dropped
-/// with its seat set, it gives the slot back.
-struct Seated<'a> {
-    h: &'a Shared,
-    seat: Option<Seat>,
-    launch: &'a str,
-}
-impl Drop for Seated<'_> {
-    fn drop(&mut self) {
-        if let Some(seat) = self.seat.take() {
-            self.h.nucleus.leave(seat, self.launch);
-        }
-    }
 }
 /// The width and height a launch asks for (`mode`, else `fallback_mode`),
 /// even like the stream's.

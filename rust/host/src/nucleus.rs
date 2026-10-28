@@ -3,11 +3,13 @@
 //! session Nucleus runs at a time.
 //!
 //! A launch of a co-op entry is admitted here ([`Registry::admit`]) and
-//! carries its [`Seat`] (`Launch::nucleus`). Its stream reaches the
-//! session's [`Instance`] through [`Registry::instance`] and gives the slot
-//! back with [`Registry::leave`]; the launch id that holds a slot makes a
-//! stale leave do nothing. [`Pc`] and [`Instance`] are the seams to
+//! carries its [`Seat`] (`Launch::nucleus`) and its [`Held`] slot
+//! (`Launch::held`). Its stream reaches the session's [`Instance`] through
+//! [`Registry::instance`]; the launch's last copy gives the slot back with
+//! [`Registry::leave`], and the launch id that holds a slot makes a stale
+//! leave do nothing. [`Pc`] and [`Instance`] are the seams to
 //! `butterpollo_windows::nucleus`; the tests use the fakes in `fake`.
+use crate::state::{Host, Launch, Shared};
 use anyhow::{Context, Result, anyhow, ensure};
 use butterpollo_core::config::Config;
 use butterpollo_core::input::Input;
@@ -24,7 +26,7 @@ use butterpollo_windows::process::AudioProcess;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, Weak};
 use std::time::{Duration, Instant};
 
 /// A co-op library entry's name: this, then the app's name.
@@ -761,6 +763,70 @@ fn stop(instances: Vec<Arc<dyn Instance>>) {
     for instance in instances {
         instance.stop();
     }
+}
+
+/// A co-op launch's slot, shared by every copy of the launch
+/// (`Launch::held`): the last copy dropped gives it back with
+/// [`Registry::leave`]. That is an expired, replaced or failed launch at
+/// once, a started one with its stream's session.
+pub struct Held {
+    host: Weak<Host>,
+    seat: Seat,
+    launch: String,
+}
+impl Held {
+    pub fn new(host: &Shared, seat: Seat, launch: &str) -> Self {
+        Self {
+            host: Arc::downgrade(host),
+            seat,
+            launch: launch.into(),
+        }
+    }
+}
+impl Drop for Held {
+    fn drop(&mut self) {
+        if let Some(h) = self.host.upgrade() {
+            h.nucleus.leave(self.seat, &self.launch);
+        }
+    }
+}
+
+/// End the streams of co-op session `session`, only `device`'s when given:
+/// pending launches are removed, running streams stop. The removed launches
+/// are dropped after the sessions lock, so their slots are given back
+/// outside it.
+pub fn end_streams(h: &Host, session: u32, device: Option<&str>) {
+    let canceled: Vec<_> = {
+        let mut sessions = h.sessions.lock().unwrap();
+        let matches = |launch: &Launch| {
+            launch.nucleus.is_some_and(|seat| seat.session == session)
+                && device.is_none_or(|device| launch.client.uuid == device)
+        };
+        let ids: Vec<String> = sessions
+            .pending
+            .values()
+            .filter(|launch| matches(launch))
+            .chain(
+                sessions
+                    .active
+                    .values()
+                    .map(|s| &s.launch)
+                    .filter(|launch| matches(launch)),
+            )
+            .map(|launch| launch.id.clone())
+            .collect();
+        ids.iter()
+            .flat_map(|id| sessions.request_stop(Some(id)))
+            .collect()
+    };
+    if !canceled.is_empty() {
+        tracing::info!(
+            session,
+            launches = canceled.len(),
+            "Nucleus Co-op: pending launches canceled"
+        );
+    }
+    drop(canceled);
 }
 
 #[cfg(test)]

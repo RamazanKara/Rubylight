@@ -3126,11 +3126,12 @@ async fn co_op_launches_share_one_session_beside_the_running_app() -> Result<()>
     let listed = h.h.nucleus.sessions();
     assert_eq!(listed[0].held, [true, true]);
     assert_eq!(listed[0].app_id, id);
+    // The launches' last copies give their slots back.
     for launch in [a, b] {
         let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
         drop(canceled);
-        h.h.nucleus.leave(launch.nucleus.unwrap(), &launch.id);
     }
+    assert_eq!(h.h.nucleus.sessions()[0].held, [false, false]);
     h.finish().await
 }
 
@@ -3167,8 +3168,7 @@ async fn refused_co_op_launches_answer_their_status_and_leave_nothing_pending() 
     assert_eq!(h.h.nucleus.sessions()[0].held, [true, false]);
     let canceled = h.h.sessions.lock().unwrap().pending.remove(&seated.id);
     drop(canceled);
-    h.h.nucleus.leave(seated.nucleus.unwrap(), &seated.id);
-    // The copy holds the launch's display lease.
+    // The copy holds the launch's display lease and its slot.
     drop(seated);
     h.finish().await
 }
@@ -3208,7 +3208,6 @@ async fn a_co_op_launch_that_fails_later_gives_its_slot_back() -> Result<()> {
     assert_eq!(pc.started.lock().unwrap().len(), 1);
     let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
     drop(canceled);
-    h.h.nucleus.leave(launch.nucleus.unwrap(), &launch.id);
     drop(launch);
     h.finish().await
 }
@@ -3242,10 +3241,7 @@ async fn webrtc_co_op_launches_take_seats_and_answer_refusals() -> Result<()> {
     }
     *pc.start_error.lock().unwrap() = None;
     assert!(launch_app(&h, 1, id).await?.contains("status_code=\"200\""));
-    let (first, seat) = {
-        let launch = pending_of(&h, 1).unwrap();
-        (launch.id.clone(), launch.nucleus.unwrap())
-    };
+    let seat = pending_of(&h, 1).unwrap().nucleus.unwrap();
     match webrtc(0).await?.err() {
         Some(WebRtcLaunchError::SessionActive(message)) => {
             assert!(message.contains("Join co-op"), "{message}")
@@ -3272,8 +3268,54 @@ async fn webrtc_co_op_launches_take_seats_and_answer_refusals() -> Result<()> {
     assert_eq!(pc.started.lock().unwrap().len(), 1);
     let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
     drop(canceled);
-    h.h.nucleus.leave(launch.nucleus.unwrap(), &launch.id);
-    h.h.nucleus.leave(seat, &first);
     drop(launch);
+    // The first device's Moonlight launch was ended by the WebRTC launch.
+    assert_eq!(h.h.nucleus.sessions()[0].held, [false, false]);
+    h.finish().await
+}
+
+/// A co-op launch replaced by the device's next launch gives its slot back:
+/// the player shows as away and keeps the slot for `coop::GRACE`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replaced_co_op_launch_gives_its_slot_back() -> Result<()> {
+    let (h, _pc, id) = coop_harness().await?;
+    assert!(launch_app(&h, 0, id).await?.contains("status_code=\"200\""));
+    let listed = h.h.nucleus.sessions();
+    assert_eq!(listed[0].held, [true, false]);
+    assert!(!listed[0].session.players()[0].away);
+    let other = h.launch(0, false).await?;
+    assert!(other.nucleus.is_none());
+    let listed = h.h.nucleus.sessions();
+    assert_eq!(listed[0].held, [false, false]);
+    assert!(listed[0].session.players()[0].away);
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&other.id);
+    drop(canceled);
+    drop(other);
+    h.finish().await
+}
+
+/// A co-op launch whose device never connects gives its slot back when it
+/// expires, once the expired launch is dropped outside the sessions lock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_expired_co_op_launch_gives_its_slot_back() -> Result<()> {
+    let (h, _pc, id) = coop_harness().await?;
+    assert!(launch_app(&h, 0, id).await?.contains("status_code=\"200\""));
+    let expired = {
+        let mut sessions = h.h.sessions.lock().unwrap();
+        let long_ago = Instant::now()
+            .checked_sub(butterpollo_core::session::LAUNCH_WAIT + Duration::from_secs(1))
+            .unwrap();
+        for launch in sessions.pending.values_mut() {
+            launch.created = long_ago;
+        }
+        sessions.expire()
+    };
+    assert_eq!(expired.len(), 1);
+    // The expired launch still holds the slot until it is dropped.
+    assert_eq!(h.h.nucleus.sessions()[0].held, [true, false]);
+    drop(expired);
+    let listed = h.h.nucleus.sessions();
+    assert_eq!(listed[0].held, [false, false]);
+    assert!(listed[0].session.players()[0].away);
     h.finish().await
 }

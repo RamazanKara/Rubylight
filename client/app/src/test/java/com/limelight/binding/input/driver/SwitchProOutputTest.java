@@ -16,7 +16,6 @@ import org.robolectric.util.ReflectionHelpers;
 
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
@@ -48,15 +47,17 @@ public class SwitchProOutputTest {
 
     @Test
     public void rumbleNeverWaitsForUsbAndOnlyTheNewestLevelIsSent() throws Exception {
-        UsbPads.Connection.outputWriteMs = 100;
         SwitchProController pad = startedPad();
+        // The first level goes out and stays in USB until the gate opens.
+        UsbPads.holdOutputs();
         pad.startOutput();
-        long start = System.nanoTime();
-        for (int i = 1; i <= 20; i++) {
+        pad.rumble((short) 1000, (short) 0);
+        UsbPads.awaitOutputHeld();
+        for (int i = 2; i <= 20; i++) {
             pad.rumble((short) (i * 1000), (short) 0);
         }
-        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-        assertTrue("rumble() held its caller for " + elapsedMs + " ms", elapsedMs < 50);
+        assertTrue("rumble() waited for the USB write", UsbPads.Connection.outputHeld.get());
+        UsbPads.releaseOutputs();
 
         UsbPads.await(() -> {
             int count = UsbPads.Connection.outputs.size();

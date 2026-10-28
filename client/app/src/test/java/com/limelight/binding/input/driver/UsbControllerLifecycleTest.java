@@ -25,7 +25,6 @@ import org.robolectric.shadows.ShadowUsbManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
@@ -69,28 +68,24 @@ public class UsbControllerLifecycleTest {
         app.sendBroadcast(new Intent(UsbManager.ACTION_USB_DEVICE_DETACHED).putExtra(UsbManager.EXTRA_DEVICE, pad));
     }
 
-    private static long msSince(long start) {
-        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-    }
-
     @Test
     public void aPadThatStallsWhileStartingNeitherHoldsTheMainThreadNorLeaks() throws Exception {
-        // A failing pad: each feature read runs into its one-second timeout.
+        // A failing pad: its feature reads stall until the gate opens, so nothing that waited
+        // for one can come back before then, however slowly the test machine runs.
         UsbPads.Connection.controlGate = new CountDownLatch(1);
+        UsbPads.Connection.holdControls = true;
         UsbDevice pad = UsbPads.dualSense("/dev/bus/usb/001/002");
         UsbDriverService.UsbDriverBinder binder = bind(pad);
-        long start = System.nanoTime();
         binder.start();
-        long startMs = msSince(start);
-        assertTrue("Starting the USB driver held the main thread for " + startMs + " ms", startMs < 500);
-        UsbPads.await(() -> !UsbPads.Connection.controlThreads.isEmpty());
+        assertEquals("Starting the USB driver waited for the pad", 0, UsbPads.Connection.controlsEnded.get());
+        UsbPads.await(UsbPads.Connection.controlHeld::get);
         assertFalse(UsbPads.Connection.controlThreads.contains(Thread.currentThread().getName()));
 
         // The pad is unplugged while it is still starting.
-        long detached = System.nanoTime();
         detach(pad);
         shadowOf(Looper.getMainLooper()).idle();
-        assertTrue(msSince(detached) < 500);
+        assertTrue("Unplugging waited for the stalled pad", UsbPads.Connection.controlHeld.get());
+        assertEquals(0, UsbPads.Connection.controlsEnded.get());
 
         UsbPads.Connection.controlGate.countDown();
         UsbPads.await(() -> UsbPads.Connection.closes.get() == 1);

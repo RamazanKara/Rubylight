@@ -264,6 +264,29 @@ fn shared_folder(folder: &str) -> bool {
         || (is("common") && file_name(parent(folder)).eq_ignore_ascii_case("steamapps"))
 }
 
+/// Why Rubylight never writes its handler for `exe_path`, checked before
+/// anything opens the path: the host runs as SYSTEM, which must not reach
+/// out to a network share, and Windows' own programs (`windows`, the
+/// Windows folder) are no game. A folder in the user's profile is fine.
+pub fn refused_path(exe_path: &str, windows: &str) -> Option<String> {
+    let path = normalized(exe_path);
+    // `\\server\share`, `\\?\UNC\...` and device paths; `\\?\C:\` is local.
+    let local = path
+        .strip_prefix(r"\\?\")
+        .filter(|rest| {
+            !rest
+                .get(..4)
+                .is_some_and(|unc| unc.eq_ignore_ascii_case(r"UNC\"))
+        })
+        .unwrap_or(&path);
+    if local.starts_with(r"\\") {
+        return Some(format!(
+            "{exe_path} is on a network share: Rubylight starts only a game on this PC's own drives"
+        ));
+    }
+    below(local, &normalized(windows)).map(|_| format!("{exe_path} is part of Windows, not a game"))
+}
+
 /// The anti-cheat `setup`'s game ships: one known from elsewhere (Steam's
 /// Valve Anti-Cheat flag), else from the .exe's name and the files and
 /// folders beside it and in the folders above it up to the game's root,
@@ -593,6 +616,39 @@ mod tests {
             ..Setup::new(r"Z:\NoSuch\Portal\hl2.exe", "Portal", None)
         };
         assert_eq!(anti_cheat(&flagged), Some("Valve Anti-Cheat"));
+    }
+
+    #[test]
+    fn a_network_share_or_windows_own_program_is_refused_before_it_opens() {
+        let windows = r"C:\Windows";
+        for share in [
+            r"\\nas\games\Ice\Ice.exe",
+            "//nas/games/Ice/Ice.exe",
+            r"\\?\UNC\nas\games\Ice\Ice.exe",
+            r"\\.\pipe\Ice.exe",
+        ] {
+            let why = refused_path(share, windows).unwrap();
+            assert!(
+                why.ends_with(
+                    "is on a network share: Rubylight starts only a game on this PC's own drives"
+                ),
+                "{why}"
+            );
+        }
+        assert_eq!(
+            refused_path(r"C:\Windows\notepad.exe", windows).unwrap(),
+            r"C:\Windows\notepad.exe is part of Windows, not a game"
+        );
+        assert!(refused_path(r"\\?\c:\windows\System32\mspaint.exe", windows).is_some());
+        // The user's own folders and other drives are fine.
+        for game in [
+            r"C:\Users\Player\Games\Ice\Ice.exe",
+            r"\\?\D:\Games\Ice\Ice.exe",
+            r"C:\WindowsGames\Ice.exe",
+            r"D:\Games\Windows\Ice.exe",
+        ] {
+            assert_eq!(refused_path(game, windows), None, "{game}");
+        }
     }
 
     #[test]

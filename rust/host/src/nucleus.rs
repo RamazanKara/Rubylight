@@ -256,6 +256,7 @@ impl Pc for OnPc {
                     app: app.name.clone(),
                 })
             })?;
+        refuse_path(exe)?;
         if !Path::new(exe).is_file() {
             return Err(Refusal {
                 status: 404,
@@ -510,6 +511,21 @@ pub fn starts_exe(app: &App) -> bool {
     })
 }
 
+/// Refuses a game Rubylight's handler never starts (on a network share, or
+/// Windows' own program) before anything opens its path as SYSTEM.
+fn refuse_path(exe_path: &str) -> Result<(), Refusal> {
+    let windows = std::env::var("SystemRoot").map_err(|error| {
+        Refusal::unavailable(format!("Windows' folder is unknown (SystemRoot): {error}"))
+    })?;
+    match generic::refused_path(exe_path, &windows) {
+        Some(message) => Err(Refusal {
+            status: 404,
+            message,
+        }),
+        None => Ok(()),
+    }
+}
+
 /// The handler a session starts with.
 enum Chosen {
     /// A hub or user handler, with the game the user added.
@@ -531,6 +547,8 @@ impl Chosen {
 /// hooks would look like cheating.
 fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refusal> {
     let setup = pc.one_player(app)?;
+    // Before the anti-cheat scan reads its folders.
+    refuse_path(&setup.exe_path)?;
     // Found by another path than the app's command: the game the user added
     // at exactly that path keeps its hub handler. A file-name match is
     // another game's (Portal's hl2.exe is not Half-Life 2).
@@ -2749,6 +2767,24 @@ mod tests {
             "{}",
             desktop.message
         );
+        // Windows' own program, or a game on a network share, which the
+        // host as SYSTEM would open: refused before anything reads it.
+        let notepad = app("Notepad", r"C:\Windows\notepad.exe");
+        let refused = background(&registry, &notepad, "a", &owner, &config).unwrap_err();
+        assert_eq!(refused.status, 404);
+        assert_eq!(
+            refused.message,
+            r"Notepad can't stream in the background: C:\Windows\notepad.exe is part of Windows, not a game"
+        );
+        let shared = app("Shared", r"\\nas\games\Ice\Ice.exe");
+        let refused = background(&registry, &shared, "a", &owner, &config).unwrap_err();
+        assert!(
+            refused.message.ends_with(
+                "is on a network share: Rubylight starts only a game on this PC's own drives"
+            ),
+            "{refused}"
+        );
+        assert!(pc.own.lock().unwrap().is_empty());
         // A background_mode that is no mode runs none.
         let bad = Config::parse("background_mode = rdp\n").unwrap();
         let refused = background(&registry, &apps[1], "a", &owner, &bad).unwrap_err();

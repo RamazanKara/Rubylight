@@ -75,6 +75,25 @@ public final class HdrBitstream {
         return false;
     }
 
+    /** The number of bytes {@link #put} queues: {@code length} without the range {@code drop}, if any. */
+    public static int putLength(int length, int[] drop) {
+        return drop == null ? length : length - (drop[1] - drop[0]);
+    }
+
+    /**
+     * Puts the first {@code length} bytes of {@code data} into a decoder input buffer after what it
+     * already holds (the parameter sets of a fused IDR frame), without the bytes from
+     * {@code drop[0]} to {@code drop[1]} unless {@code drop} is null.
+     */
+    public static void put(java.nio.ByteBuffer buffer, byte[] data, int length, int[] drop) {
+        if (drop == null) {
+            buffer.put(data, 0, length);
+        } else {
+            buffer.put(data, 0, drop[0]);
+            buffer.put(data, drop[1], length - drop[1]);
+        }
+    }
+
     /** Whether the SEI payload at {@code at} is a T.35 message with the HDR Vivid header. */
     private static boolean isVivid(byte[] data, int at, int end) {
         int payloadType = 0;

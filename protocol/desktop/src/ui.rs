@@ -20,6 +20,9 @@ use crate::theme::*;
 
 pub enum Command {
     Launch { host: u64, app: i32, resume: bool },
+    /// Input-only through a small ordinary stream, on a PC without its own Input-only mode.
+    LaunchInputOnly { host: u64, app: i32, resume: bool },
+    SetQuitOnLeave { host: u64, uuid: String, id: i32, enabled: bool },
     QuitApp(u64),
     ControlAction { host: u64, app: i32 },
     /// `named` is the app the prompt said would be closed; it is checked again before closing.
@@ -978,7 +981,7 @@ impl Launcher {
                         self.focus_item(&response, &format!("host:{}", host.id), row == 0 && i == 0);
                         self.focus_item(&options, &format!("options:{}", host.id), false);
                         if response.clicked() {
-                            host_clicked(host, commands);
+                            host_clicked(host, self.settings.quick_resume, commands);
                         }
                         if options.clicked() || options_requested(ui, &[&response, &options]) {
                             self.dialog = Dialog::HostOptions { host: host.id };
@@ -1225,7 +1228,7 @@ impl Launcher {
                     let response = host_card(ui, host, Some(&line));
                     self.focus_item(&response, &format!("host:{}", host.id), std::mem::take(&mut first));
                     if response.clicked() {
-                        host_clicked(host, commands);
+                        host_clicked(host, self.settings.quick_resume, commands);
                     }
                 }
             });
@@ -1388,6 +1391,9 @@ impl Launcher {
                         }
                     }
                 }
+                if let Some(app) = &classic {
+                    self.leave_and_input_only(ui, host, app, can_play, resumes, commands);
+                }
                 ui.add_space(14.0);
                 let kind = self.network.kind(&self.profiles.home_wifi);
                 let mut settings = host.record.settings(&self.profiles.settings(&self.settings, kind));
@@ -1426,6 +1432,41 @@ impl Launcher {
                     });
                 }
             });
+        });
+    }
+
+    /// A game's quit on leave switch and, on a PC without its own mode, Input-only through a
+    /// small stream: Android's game menu entries.
+    fn leave_and_input_only(&mut self, ui: &mut Ui, host: &Host, app: &nightjar_core::http::App, can_play: bool, running: bool, commands: &mut Vec<Command>) {
+        use nightjar_policy::launch::{self, InputOnlyBlocker};
+        if launch::offers_quit_on_leave(host.paired(), policy_control(app.control), policy_role(app.role(false))) {
+            let mut on = host.record.quits_on_leave(&app.uuid, app.id);
+            let r = ui.checkbox(&mut on, tr("Quit the game when I leave the stream"));
+            self.focus_item(&r, "quit-on-leave", false);
+            if r.changed() {
+                commands.push(Command::SetQuitOnLeave { host: host.id, uuid: app.uuid.clone(), id: app.id, enabled: on });
+            }
+            let note = if on { tr("On: Disconnect also quits it on the PC") } else { tr("Off: Disconnect leaves it running on the PC") };
+            ui.label(RichText::new(note).color(ON_SURFACE_VARIANT));
+        }
+        let Some(blocker) = small_stream_offer(host, app, running, self.settings.input_only_any_host) else { return };
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let r = ui.add_enabled_ui(blocker.is_none() && can_play, |ui| quiet_button(ui, "Input-only")).inner;
+            self.focus_item(&r, "input-only", false);
+            if r.clicked() {
+                commands.push(Command::LaunchInputOnly { host: host.id, app: app.id, resume: running });
+            }
+            let note = match blocker {
+                Some(InputOnlyBlocker::Pair) => tr("Pair with this PC first").to_owned(),
+                Some(InputOnlyBlocker::ViewPermission) => tr("Allow viewing streams for this device on the host").to_owned(),
+                Some(InputOnlyBlocker::InputPermission) => tr("Allow input for this device on the host").to_owned(),
+                None => trf("Video still streams at the smallest size, about {} Mbit/s ({} MB an hour), but isn’t shown", &[
+                    &format!("{:.1}", f64::from(launch::estimated_kbps()) / 1000.0),
+                    &launch::estimated_megabytes_per_hour().to_string(),
+                ]),
+            };
+            ui.label(RichText::new(note).color(if blocker.is_some() { ERROR } else { ON_SURFACE_VARIANT }));
         });
     }
 
@@ -2133,8 +2174,26 @@ impl Launcher {
                     toggle(ui, &mut s.vsync)
                 });
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["overlay"], "Performance overlay", "Frame rates, decode and network times. Ctrl+Alt+Shift+S toggles it.", |ui, s| {
-                toggle(ui, &mut s.overlay)
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["overlay", "overlay_mode"], "Performance overlay",
+                "Compact shows one line with the stream's health, Statistics the frame rates, network, host and decode times, Debug every measurement. Ctrl+Alt+Shift+S and the stream menu change it too.", |ui, s| {
+                let shown = if s.overlay { tr(s.overlay_mode.label()) } else { tr("Off") };
+                egui::ComboBox::from_id_salt("overlay-mode").selected_text(shown).show_ui(ui, |ui| {
+                    if ui.selectable_label(!s.overlay, tr("Off")).clicked() { s.overlay = false; }
+                    for mode in crate::config::OverlayMode::ALL {
+                        if ui.selectable_label(s.overlay && s.overlay_mode == mode, tr(mode.label())).clicked() {
+                            (s.overlay, s.overlay_mode) = (true, mode);
+                        }
+                    }
+                }).response
+            });
+            ui.add_enabled_ui(s.overlay, |ui| {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["overlay_position"], "Overlay position", "The corner the performance overlay sits in.", |ui, s| {
+                    egui::ComboBox::from_id_salt("overlay-position").selected_text(tr(s.overlay_position.label())).show_ui(ui, |ui| {
+                        for corner in crate::config::OverlayCorner::ALL {
+                            ui.selectable_value(&mut s.overlay_position, corner, tr(corner.label()));
+                        }
+                    }).response
+                });
             });
 
             section_at(ui, "Controls", &mut jump);
@@ -2305,6 +2364,12 @@ impl Launcher {
                 section_at(ui, "App", &mut jump);
                 row(ui, "Open on Home", "Start on the games to continue and your library. Off starts on the list of PCs.", |ui| {
                     toggle(ui, &mut s.console_home)
+                });
+                row(ui, "Quick resume", "Clicking a PC that is running a game goes straight back into the game instead of opening its library.", |ui| {
+                    toggle(ui, &mut s.quick_resume)
+                });
+                row(ui, "Input-only on any PC", "Adds Input-only to a game’s menu on PCs whose host has no Input-only mode of its own. The PC still sends video and audio at the smallest size, under 1 Mbit/s; Nightjar doesn’t show or play them. Hosts with their own mode keep using it.", |ui| {
+                    toggle(ui, &mut s.input_only_any_host)
                 });
                 row(ui, "Language", "The language of the launcher and the stream menu. System default follows the operating system.", |ui| {
                     egui::ComboBox::from_id_salt("language")
@@ -3355,13 +3420,57 @@ fn options_requested(ui: &Ui, responses: &[&Response]) -> bool {
             && ui.input(|i| i.key_pressed(Key::F2) || (i.modifiers.shift && i.key_pressed(Key::F10))))
 }
 
-fn host_clicked(host: &Host, commands: &mut Vec<Command>) {
-    if host.paired() {
+/// Quick resume: a paired PC running a game from its known library goes straight back into it.
+fn host_clicked(host: &Host, quick_resume: bool, commands: &mut Vec<Command>) {
+    let running = running_entry(host).filter(|_| host.paired());
+    if let Some(app) = running.filter(|_| nightjar_policy::launch::resumes_on_pc_tap(quick_resume, true)) {
+        commands.push(Command::Launch { host: host.id, app: app.id, resume: true });
+    } else if host.paired() {
         commands.push(Command::OpenApps(host.id));
     } else if host.reach == Reach::Offline {
         commands.push(Command::Refresh(host.id));
     } else {
         commands.push(Command::Pair(host.id));
+    }
+}
+
+/// Whether a game offers Input-only through a small stream, and what blocks it now: only an
+/// ordinary game on a PC without its own Input-only mode, with the setting on, that leaves the
+/// PC's running game alone.
+fn small_stream_offer(host: &Host, app: &nightjar_core::http::App, running: bool, any_host: bool) -> Option<Option<nightjar_policy::launch::InputOnlyBlocker>> {
+    use nightjar_policy::launch::{self, InputOnlyMode};
+    let lists_input_only = matches!(&host.apps, Apps::Loaded(apps) if apps.iter().any(|a| a.role(false) == nightjar_core::http::AppRole::InputOnly));
+    let tiles = host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::RemoteSessionTiles));
+    let offered = app.control == nightjar_core::http::AppControl::None
+        && launch::keeps_running_game(host.running_app().is_some(), running)
+        && launch::input_only_mode(any_host, tiles, lists_input_only) == InputOnlyMode::SmallStream;
+    let permission = host.info.as_ref().and_then(|i| i.permission).map(u64::from);
+    offered.then(|| launch::small_stream_blocker(host.paired(), permission))
+}
+
+/// The launch policy's names for an app's role and control tile.
+pub fn policy_role(role: nightjar_core::http::AppRole) -> nightjar_policy::launch::Role {
+    use nightjar_core::http::AppRole;
+    use nightjar_policy::launch::Role;
+    match role {
+        AppRole::Stream => Role::Stream,
+        AppRole::RemoteMonitor => Role::RemoteMonitor,
+        AppRole::InputOnly => Role::InputOnly,
+    }
+}
+
+fn policy_control(control: nightjar_core::http::AppControl) -> nightjar_policy::launch::Control {
+    use nightjar_core::http::AppControl;
+    use nightjar_policy::launch::Control;
+    match control {
+        AppControl::None => Control::None,
+        AppControl::Resume => Control::Resume,
+        AppControl::DisconnectMonitor => Control::DisconnectMonitor,
+        AppControl::DisconnectInput => Control::DisconnectInput,
+        AppControl::Terminate => Control::Terminate,
+        AppControl::Monitor => Control::Monitor,
+        AppControl::Input => Control::Input,
+        AppControl::RunningGame => Control::RunningGame,
     }
 }
 
@@ -4533,6 +4642,46 @@ mod tests {
         unlisted.apps = Apps::NotLoaded;
         let options = host_options(&unlisted);
         assert!(!options.contains(&HostOption::Resume) && options.contains(&HostOption::QuitApp));
+    }
+
+    #[test]
+    fn quick_resume_goes_back_into_the_running_game_and_otherwise_opens_the_library() {
+        let states = every_state();
+        let by = |name: &str| states.iter().find(|s| s.name == name).unwrap().frames().hosts.list.remove(0);
+        let clicked = |host: &Host, quick_resume| {
+            let mut commands = Vec::new();
+            host_clicked(host, quick_resume, &mut commands);
+            commands
+        };
+        let busy = by("running a game");
+        assert!(matches!(clicked(&busy, true)[..], [Command::Launch { app: 7, resume: true, .. }]));
+        assert!(matches!(clicked(&busy, false)[..], [Command::OpenApps(_)]), "off: the library, as before");
+        assert!(matches!(clicked(&by("paired"), true)[..], [Command::OpenApps(_)]), "nothing running");
+        let mut unlisted = by("running a game");
+        unlisted.apps = Apps::NotLoaded;
+        assert!(matches!(clicked(&unlisted, true)[..], [Command::OpenApps(_)]), "an unnamed game opens the library to load it");
+    }
+
+    #[test]
+    fn input_only_through_a_small_stream_needs_the_setting_and_leaves_a_running_game_alone() {
+        use nightjar_core::http::{App, AppControl};
+        use nightjar_policy::launch::InputOnlyBlocker;
+        let states = every_state();
+        let by = |name: &str| states.iter().find(|s| s.name == name).unwrap().frames().hosts.list.remove(0);
+        let busy = by("running a game");
+        assert_eq!(small_stream_offer(&busy, &game(7), true, false), None, "the setting is off");
+        assert_eq!(small_stream_offer(&busy, &game(7), true, true), Some(Some(InputOnlyBlocker::ViewPermission)),
+            "permission 1 allows neither viewing nor launching");
+        assert_eq!(small_stream_offer(&busy, &game(8), false, true), None, "another game runs: never replace it");
+        let mut allowed = by("running a game");
+        allowed.info.as_mut().unwrap().permission = None;
+        assert_eq!(small_stream_offer(&allowed, &game(7), true, true), Some(None), "joins the running game");
+        assert_eq!(small_stream_offer(&allowed, &App { control: AppControl::Resume, ..game(7) }, true, true), None, "only ordinary games");
+        allowed.apps = Apps::Loaded(vec![game(7), App { control: AppControl::Input, ..game(9) }]);
+        assert_eq!(small_stream_offer(&allowed, &game(7), true, true), None, "the host's own Input-only tile is used instead");
+        let mut idle = by("paired");
+        idle.info.as_mut().unwrap().permission = None;
+        assert_eq!(small_stream_offer(&idle, &game(8), false, true), Some(None), "starts the game on an idle PC");
     }
 
     #[test]

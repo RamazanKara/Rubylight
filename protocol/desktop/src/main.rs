@@ -121,13 +121,16 @@ struct App {
     waking: wol::Wakes,
     streaming: Option<(Streaming, TimerResolution)>,
     pending_launch: Option<(u64, i32)>,
+    /// The PC and game being quit because the player chose quit on leave for it.
+    quitting_on_leave: Option<(u64, String)>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
     shortcut_file: Option<(bool, sdl::FileChoice)>,
     /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
     folder_pick: Option<(FolderPick, sdl::FileChoice)>,
     network_query: Option<Receiver<network::Network>>,
     network_test: Option<network_test::Test>,
-    network_launch: Option<(u64, i32, bool)>,
+    /// Host, app, resume, and Input-only through a small stream.
+    network_launch: Option<(u64, i32, bool, bool)>,
     next_network_check: Instant,
     waker: hosts::Waker,
     wake_event: u32,
@@ -366,6 +369,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         waking: wol::Wakes::default(),
         streaming: None,
         pending_launch: None,
+        quitting_on_leave: None,
         identity: None,
         shortcut_file: None,
         folder_pick: None,
@@ -574,7 +578,7 @@ impl App {
                 self.launcher.network = network;
                 self.network_query = None;
                 self.next_network_check = Instant::now() + Duration::from_secs(5);
-                if let Some((host, app, resume)) = self.network_launch.take() { self.launch_ready(host, app, resume); }
+                if let Some((host, app, resume, small)) = self.network_launch.take() { self.launch_ready(host, app, resume, small); }
             }
         } else if Instant::now() >= self.next_network_check {
             self.network_query = Some(network::query(self.waker.clone()));
@@ -646,10 +650,15 @@ impl App {
                     }
                 }
                 HostEvent::Quit { id, result } => match result {
+                    Err(e) if self.quitting_on_leave.as_ref().is_some_and(|(host, _)| *host == id) => {
+                        let (_, name) = self.quitting_on_leave.take().expect("checked above");
+                        self.launcher.message(tr("Could not quit the app"), trf("Couldn’t quit {} on the PC, so it is still running. {}", &[&name, &e]));
+                    }
                     Ok(()) => {
+                        if self.quitting_on_leave.as_ref().is_some_and(|(host, _)| *host == id) { self.quitting_on_leave = None; }
                         if let Some((host, app)) = self.pending_launch.take() {
                             if host == id {
-                                self.launch(host, app, false, LaunchFrom::Replace);
+                                self.launch(host, app, false, false, LaunchFrom::Replace);
                             }
                         }
                     }
@@ -699,10 +708,10 @@ impl App {
         // A launch without a network query in flight is waiting for its app list (see
         // `launch_ready`); it goes on once the list is no longer loading.
         if self.network_query.is_none() {
-            if let Some((host, app, resume)) = self.network_launch {
+            if let Some((host, app, resume, small)) = self.network_launch {
                 if !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loading)) {
                     self.network_launch = None;
-                    self.launch_ready(host, app, resume);
+                    self.launch_ready(host, app, resume, small);
                 }
             }
         }
@@ -735,7 +744,7 @@ impl App {
             app: c.app_name.clone(),
             host: c.host_name.clone(),
             stage: c.stage.clone(),
-        }).or_else(|| self.network_launch.map(|(host, _, _)| ConnectingView {
+        }).or_else(|| self.network_launch.map(|(host, ..)| ConnectingView {
             app: tr("Starting stream").into(),
             host: self.hosts.get(host).map_or(String::new(), |h| h.display_name().to_owned()),
             stage: tr("Checking network profile").into(),
@@ -791,7 +800,8 @@ impl App {
 
     fn command(&mut self, command: Command) {
         match command {
-            Command::Launch { host, app, resume } => self.launch(host, app, resume, LaunchFrom::Launcher),
+            Command::Launch { host, app, resume } => self.launch(host, app, resume, false, LaunchFrom::Launcher),
+            Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, true, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
                 config::toggle_favourite(&mut self.launcher.favourites, entry);
                 if let Err(e) = self.store.save_favourites(&self.launcher.favourites) {
@@ -799,6 +809,12 @@ impl App {
                 }
             }
             Command::QuitApp(host) => self.hosts.quit_app(host),
+            Command::SetQuitOnLeave { host, uuid, id, enabled } => {
+                if let Some(h) = self.hosts.get_mut(host) {
+                    h.record.set_quit_on_leave(&uuid, id, enabled);
+                    self.save_hosts();
+                }
+            }
             Command::ControlAction { host, app } => self.hosts.control_action(host, app),
             Command::QuitAndLaunch { host, app, named } => {
                 // The PC may run another app than the prompt named: look again before closing anything.
@@ -808,7 +824,7 @@ impl App {
                         tr("The running app changed"),
                         tr("The PC runs another app now. Check the screen and try again."),
                     ),
-                    console::Running::Gone => self.launch(host, app, false, LaunchFrom::Replace),
+                    console::Running::Gone => self.launch(host, app, false, false, LaunchFrom::Replace),
                     console::Running::Same => {
                         self.pending_launch = Some((host, app));
                         self.hosts.quit_app(host);
@@ -1127,7 +1143,7 @@ impl App {
                 self.hosts.pair(id, auto.pin.clone(), None);
             }
             autostream::Step::LoadApps(id) => self.hosts.load_apps(id),
-            autostream::Step::Launch(host, app) => self.launch(host, app, false, LaunchFrom::Autostream),
+            autostream::Step::Launch(host, app) => self.launch(host, app, false, false, LaunchFrom::Autostream),
             autostream::Step::Fail(why) => {
                 auto.fail(&why);
                 self.running = false;
@@ -1160,7 +1176,7 @@ impl App {
             cli::Step::Wait => {}
             cli::Step::OpenApps(id) => self.command(Command::OpenApps(id)),
             cli::Step::LoadApps(id) => self.hosts.load_apps(id),
-            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, LaunchFrom::CommandLine),
+            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, false, LaunchFrom::CommandLine),
             cli::Step::Fail(why) => {
                 cli.fail(&why);
                 self.running = false;
@@ -1172,15 +1188,16 @@ impl App {
         }
     }
 
-    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, from: LaunchFrom) {
+    /// `small`: Input-only through a small ordinary stream, on a PC without its own mode.
+    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool, from: LaunchFrom) {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
-        eprintln!("nightjar: {}", launch_line(from, app_id, resume, busy));
+        eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), if small { ", input only through a small stream" } else { "" });
         if busy { return; }
-        self.network_launch = Some((host_id, app_id, resume));
+        self.network_launch = Some((host_id, app_id, resume, small));
         self.network_query = Some(network::query(self.waker.clone()));
     }
 
-    fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool) {
+    fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool) {
         if self.connecting.is_some() {
             return;
         }
@@ -1192,7 +1209,7 @@ impl App {
             LaunchApp::Wait => {
                 // The list is being read again (the first native read of a run reloads it).
                 // Starting over once it lands keeps the launch instead of dropping it unseen.
-                self.network_launch = Some((host_id, app_id, resume));
+                self.network_launch = Some((host_id, app_id, resume, small));
                 return;
             }
             LaunchApp::Gone => return,
@@ -1212,13 +1229,16 @@ impl App {
         let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
         if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
-        if app.role(false) == nightjar_core::http::AppRole::InputOnly {
+        if app.role(small) == nightjar_core::http::AppRole::InputOnly {
             settings.hdr = false;
             settings.experimental_packed_444 = false;
             settings.codec = config::CodecPreference::H264;
             settings.width = 1280;
             settings.height = 720;
             settings.fps = 60;
+        }
+        if small {
+            small_stream(&mut settings);
         }
         if settings.hdr && !sdl::hdr_available(self.renderer) {
             self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
@@ -1279,6 +1299,7 @@ impl App {
             info,
             app,
             resume,
+            small_stream_input_only: small,
             settings: settings.clone(),
             identity,
             display,
@@ -1402,6 +1423,17 @@ impl App {
                 Exit::Ended(Some(m)) => m.clone(),
             }
         );
+        // Quit on leave: only a leave the player asked for quits the game; a stream that is still
+        // up when it ends that way was connected.
+        if matches!(exit, Exit::User) {
+            let app = streaming.app();
+            let chosen = self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id));
+            if nightjar_policy::launch::quits_on_leave(chosen, ui::policy_role(streaming.facts.role), true) {
+                eprintln!("nightjar: quitting {} on the PC, as chosen for leaving its stream", app.name);
+                self.quitting_on_leave = Some((host, app.name.clone()));
+                self.hosts.quit_app(host);
+            }
+        }
         streaming.finish(self.window, &mut self.pads);
         // SAFETY: window and renderer calls on the main thread.
         unsafe {
@@ -1476,6 +1508,13 @@ impl App {
         }
         if streaming.update_overlay() && streaming.overlay_visible {
             streaming.needs_redraw = true;
+        }
+        if let Some((shown, mode, corner)) = streaming.take_overlay_change() {
+            let s = &mut self.launcher.settings;
+            (s.overlay, s.overlay_mode, s.overlay_position) = (shown, mode, corner);
+            if let Err(e) = self.store.save_settings(s) {
+                eprintln!("nightjar: saving settings failed: {e}");
+            }
         }
         if let Some((_, at)) = &streaming.toast {
             if at.elapsed() > Duration::from_secs(4) {
@@ -1597,10 +1636,14 @@ impl App {
 fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &shortcuts::Shortcuts) {
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
     let input_only = s.facts.role == nightjar_core::http::AppRole::InputOnly;
+    let small_stream = s.small_stream_input_only();
     if !s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible {
         return;
     }
-    let lines = s.overlay.lines.clone();
+    let mode = s.overlay_mode;
+    let lines = s.overlay.lines(mode).to_vec();
+    let compact = (mode == config::OverlayMode::Compact).then(|| (s.overlay.compact.clone(), s.overlay.notice.clone()));
+    let (anchor, offset) = overlay_anchor(s.overlay_corner);
     let visible = s.overlay_visible;
     let title = format!("{} · {}", s.facts.app_name, s.facts.host_name);
     let output = gui.run(window, renderer, |ui| {
@@ -1612,6 +1655,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     ui.label(egui::RichText::new(tr("Remote Input connected")).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
                     ui.label(&title);
                     ui.label(tr("Keyboard, mouse and controllers control the PC. Ctrl+Alt+Shift+Q disconnects."));
+                    if small_stream {
+                        let mbps = format!("{:.1}", f64::from(nightjar_policy::launch::estimated_kbps()) / 1000.0);
+                        ui.label(trf("The PC still streams small video (about {} Mbit/s); it isn’t shown.", &[&mbps]));
+                    }
                 });
         }
         if s.menu_visible && s.session_page.is_some() {
@@ -1647,7 +1694,28 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     let back = ui.button(tr("Return to stream"));
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
                     if back.clicked() { s.toggle_menu(window, pads); }
-                    ui.checkbox(&mut s.overlay_visible, tr("Performance overlay"));
+                    ui.horizontal(|ui| {
+                        ui.label(tr("Performance overlay"));
+                        let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
+                        egui::ComboBox::from_id_salt("stream-overlay").selected_text(shown).show_ui(ui, |ui| {
+                            if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
+                            for mode in config::OverlayMode::ALL {
+                                if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
+                                    (s.overlay_visible, s.overlay_mode) = (true, mode);
+                                }
+                            }
+                        });
+                    });
+                    if s.overlay_visible {
+                        ui.horizontal(|ui| {
+                            ui.label(tr("Overlay position"));
+                            egui::ComboBox::from_id_salt("stream-overlay-corner").selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
+                                for corner in config::OverlayCorner::ALL {
+                                    ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
+                                }
+                            });
+                        });
+                    }
                     let current = s.video_scaling();
                     let (mut scaling, mut top) = current;
                     egui::ComboBox::from_id_salt("stream-scaling").selected_text(tr(scaling.label())).show_ui(ui, |ui| {
@@ -1812,13 +1880,25 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
         }
         if visible {
             egui::Area::new(egui::Id::unique("overlay"))
-                .fixed_pos(egui::pos2(16.0, 16.0))
+                .anchor(anchor, offset)
                 .show(&ctx, |ui| {
                     egui::Frame::new()
                         .fill(egui::Color32::from_rgba_unmultiplied(0x0E, 0x10, 0x17, 215))
                         .corner_radius(egui::CornerRadius::same(10))
                         .inner_margin(egui::Margin::symmetric(14, 10))
                         .show(ui, |ui| {
+                            if let Some((line, notice)) = &compact {
+                                ui.horizontal(|ui| {
+                                    let [r, g, b] = stream::overlay::health_rgb(line.health);
+                                    ui.label(egui::RichText::new(line.health.glyph()).font(theme::semibold(theme::text::LABEL)).color(egui::Color32::from_rgb(r, g, b)));
+                                    let text = if line.text.is_empty() { tr("Waiting for video").to_owned() } else { line.text.clone() };
+                                    ui.label(egui::RichText::new(text).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE));
+                                });
+                                if let Some(notice) = notice {
+                                    ui.label(egui::RichText::new(notice).font(theme::regular(theme::text::CAPTION)).color(theme::ON_SURFACE_VARIANT));
+                                }
+                                return;
+                            }
                             ui.label(egui::RichText::new(&title).font(theme::semibold(theme::text::LABEL)).color(theme::MOON));
                             ui.add_space(2.0);
                             ui.spacing_mut().interact_size.y = 16.0;
@@ -1854,6 +1934,27 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
         gui.platform(window, &output.platform_output);
     }
     gui.paint(renderer, output);
+}
+
+/// Input-only on a PC without its own mode: the smallest stream every host takes, as on Android.
+/// It leaves the PC's display mode and its speakers alone: no virtual display or VRR, and the
+/// PC keeps playing its sound.
+fn small_stream(settings: &mut config::Settings) {
+    use nightjar_policy::launch::{SMALL_BITRATE_KBPS, SMALL_FPS, SMALL_HEIGHT, SMALL_WIDTH};
+    (settings.width, settings.height, settings.fps, settings.bitrate_kbps) = (SMALL_WIDTH, SMALL_HEIGHT, SMALL_FPS, SMALL_BITRATE_KBPS);
+    settings.audio = config::AudioChannels::Stereo;
+    (settings.virtual_display, settings.vrr, settings.play_audio_on_host) = (false, false, true);
+}
+
+/// Where the overlay sits: its corner, 16 points in from both edges.
+fn overlay_anchor(corner: config::OverlayCorner) -> (egui::Align2, egui::Vec2) {
+    use config::OverlayCorner;
+    match corner {
+        OverlayCorner::TopLeft => (egui::Align2::LEFT_TOP, egui::vec2(16.0, 16.0)),
+        OverlayCorner::TopRight => (egui::Align2::RIGHT_TOP, egui::vec2(-16.0, 16.0)),
+        OverlayCorner::BottomLeft => (egui::Align2::LEFT_BOTTOM, egui::vec2(16.0, -16.0)),
+        OverlayCorner::BottomRight => (egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0)),
+    }
 }
 
 fn save_hosts(store: &config::Store, hosts: &Hosts) {
@@ -1987,6 +2088,25 @@ mod shot;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn input_only_through_a_small_stream_asks_for_the_smallest_stream_and_leaves_the_pc_alone() {
+        let mut settings = config::Settings { width: 3840, height: 2160, fps: 120, bitrate_kbps: 80_000, vrr: true,
+            virtual_display: true, audio: config::AudioChannels::Surround71, ..Default::default() };
+        super::small_stream(&mut settings);
+        assert_eq!((settings.width, settings.height, settings.fps, settings.bitrate_kbps), (640, 360, 30, 500));
+        assert_eq!(settings.audio, config::AudioChannels::Stereo);
+        assert!(!settings.virtual_display && !settings.vrr && settings.play_audio_on_host, "the PC's display and speakers stay as they are");
+    }
+
+    #[test]
+    fn the_overlay_sits_in_its_corner() {
+        use config::OverlayCorner;
+        assert_eq!(super::overlay_anchor(OverlayCorner::TopLeft), (egui::Align2::LEFT_TOP, egui::vec2(16.0, 16.0)));
+        assert_eq!(super::overlay_anchor(OverlayCorner::BottomRight), (egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0)));
+        assert_eq!(super::overlay_anchor(OverlayCorner::TopRight).0, egui::Align2::RIGHT_TOP);
+        assert_eq!(super::overlay_anchor(OverlayCorner::BottomLeft).0, egui::Align2::LEFT_BOTTOM);
+    }
+
     use super::*;
     use std::sync::Arc;
 

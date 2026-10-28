@@ -1263,6 +1263,7 @@ impl Hosts {
                 for (key, settings) in dropped.app_settings {
                     kept.app_settings.entry(key).or_insert(settings);
                 }
+                kept.quit_on_leave.extend(dropped.quit_on_leave);
                 for a in std::iter::once(dropped.address).chain(dropped.other_addresses) {
                     if a != kept.address && !kept.other_addresses.contains(&a) {
                         kept.other_addresses.push(a);
@@ -1389,6 +1390,7 @@ mod tests {
             manual: true,
             settings: None,
             app_settings: Default::default(),
+            quit_on_leave: Default::default(),
         }
     }
 

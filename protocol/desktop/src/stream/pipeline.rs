@@ -82,6 +82,8 @@ pub enum Notice {
     HealthTrial(super::doctor::TrialOutcome),
     /// Client roaming: the network watcher saw this device change networks.
     NetworkChanged(nightjar_core::session::NetworkHint),
+    /// The host's hardware readings for the overlay, answering poll `generation`.
+    HardwareMetrics { generation: u32, result: Result<nightjar_core::http::HardwareMetrics, nightjar_core::http::HostApiError> },
 }
 
 #[derive(Default)]
@@ -95,6 +97,8 @@ pub struct Counters {
     /// how many did: the overlay's Host processing, counted like Artemis does, before any decode.
     pub host_latency_total: AtomicU64,
     pub host_latency_frames: AtomicU64,
+    /// Video payload bytes of the frames handed to the decoder: the overlay's Mbps.
+    pub video_bytes: AtomicU64,
     /// PyroWave early decode: frames whose blocks were decoded while they arrived, frames
     /// whose chunks did not match and decoded whole, and the time spent decoding chunks.
     pub early_frames: AtomicU64,
@@ -455,6 +459,7 @@ impl VideoDecoder for Decoder {
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
         self.shared.counters.count_host_latency(frame.host_processing_latency);
+        self.shared.counters.video_bytes.fetch_add(frame.data().len() as u64, Ordering::Relaxed);
         if self.pyrowave.is_some() {
             let start = session::now_us();
             let setup = self.setup.expect("decoder setup precedes frames");

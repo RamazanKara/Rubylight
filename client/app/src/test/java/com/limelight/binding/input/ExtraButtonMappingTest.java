@@ -62,9 +62,12 @@ public class ExtraButtonMappingTest {
 
     private static class XboxPad extends AbstractController {
         XboxPad() {
+            this(0);
+        }
+        XboxPad(int extraButtons) {
             super(42, null, 0x045e, 0x028e);
             type = MoonBridge.LI_CTYPE_XBOX;
-            supportedButtonFlags = ControllerPacket.A_FLAG | ControllerPacket.B_FLAG;
+            supportedButtonFlags = ControllerPacket.A_FLAG | ControllerPacket.B_FLAG | extraButtons;
         }
         @Override public boolean start() { return true; }
         @Override public void stop() { }
@@ -148,6 +151,47 @@ public class ExtraButtonMappingTest {
                 activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
             }
         }
+    }
+
+    @Test
+    public void usbShareMappedToTheTouchpadPressesTheTouchpad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ControllerButtonMap stored = new ControllerButtonMap();
+            stored.put(KeyEvent.KEYCODE_MEDIA_RECORD, ControllerButtonMap.TARGET_TOUCHPAD);
+            stored.save(activity.get(), ControllerButtonMap.deviceKey(0x045e, 0x028e, null));
+
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            try {
+                handler.deviceAdded(new XboxPad(ControllerPacket.MISC_FLAG));
+                handler.reportControllerState(42, ControllerPacket.MISC_FLAG, 0, 0, 0, 0, 0, 0);
+                assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG, connection.last());
+                handler.reportControllerState(42, ControllerPacket.MISC_FLAG | ControllerPacket.A_FLAG, 0, 0, 0, 0, 0, 0);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG | ControllerPacket.A_FLAG, connection.last());
+                handler.reportControllerState(42, 0, 0, 0, 0, 0, 0, 0);
+                assertEquals(0, connection.last());
+            } finally {
+                handler.destroy();
+                activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
+
+    @Test
+    public void usbShareKeepsItsFlagUnlessMapped() {
+        ControllerButtonMap none = new ControllerButtonMap();
+        assertEquals(ControllerPacket.MISC_FLAG, none.mapButtonFlags(ControllerPacket.MISC_FLAG, false));
+        ControllerButtonMap swap = new ControllerButtonMap();
+        swap.put(KeyEvent.KEYCODE_MEDIA_RECORD, KeyEvent.KEYCODE_BUTTON_A);
+        swap.put(KeyEvent.KEYCODE_BUTTON_A, ControllerButtonMap.TARGET_MISC);
+        assertEquals(ControllerPacket.A_FLAG, swap.mapButtonFlags(ControllerPacket.MISC_FLAG, false));
+        assertEquals(ControllerPacket.MISC_FLAG, swap.mapButtonFlags(ControllerPacket.A_FLAG, false));
+        ControllerButtonMap off = new ControllerButtonMap();
+        off.put(KeyEvent.KEYCODE_MEDIA_RECORD, ControllerButtonMap.DISABLED);
+        assertEquals(0, off.mapButtonFlags(ControllerPacket.MISC_FLAG, false));
     }
 
     @Test

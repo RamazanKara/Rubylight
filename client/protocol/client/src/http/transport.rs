@@ -1690,15 +1690,16 @@ mod tests {
         let cancel = Arc::new(Cancel::default());
         cancel.register(&abort).unwrap();
         let started = std::time::Instant::now();
-        // The write passed its check; the cancel runs before it reaches the socket.
-        let canceller = {
-            let cancel = cancel.clone();
-            std::thread::spawn(move || { cancel.cancel(); std::time::Instant::now() })
-        };
-        let (written, ended) = abort.guard(|| {
+        // The write passed its check; the cancel runs before it reaches the socket. The
+        // canceller starts inside the guard, so the cancel always races a write in flight.
+        let (written, ended, canceller) = abort.guard(|| {
+            let canceller = {
+                let cancel = cancel.clone();
+                std::thread::spawn(move || { cancel.cancel(); std::time::Instant::now() })
+            };
             while !abort.aborted.load(Ordering::SeqCst) { std::thread::yield_now(); }
             std::thread::sleep(Duration::from_millis(50));
-            Ok(((&tcp.socket).write_all(&vec![7; 64 << 20]), std::time::Instant::now()))
+            Ok(((&tcp.socket).write_all(&vec![7; 64 << 20]), std::time::Instant::now(), canceller))
         }).unwrap();
         let cancelled = canceller.join().unwrap();
         assert!(written.is_err());

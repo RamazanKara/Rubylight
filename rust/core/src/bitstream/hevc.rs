@@ -879,6 +879,164 @@ mod tests {
         assert_eq!(PictureOrder::default().rewrite(&rewritten), Ok(None));
     }
 
+    /// A slice like `template`, one of `STREAM`'s P slices, for picture
+    /// `poc` naming the long-term pictures `long_term` (POCs, newest first,
+    /// the first used) as AMF writes them: four LSB bits and every MSB.
+    fn amf_slice(template: &[u8], poc: i64, long_term: &[i64]) -> Vec<u8> {
+        let units = units(STREAM);
+        let rbsp = |unit: (usize, usize)| unescape(&STREAM[unit.0 + 2..unit.1], usize::MAX).0;
+        let sps = sequence_parameter_set(&rbsp(units[1])).unwrap().1;
+        let pps = picture_parameter_set(&rbsp(units[2])).unwrap().1;
+        assert!(sps.lsb_bits == 4 && sps.long_term && !pps.output_flag);
+        let (rbsp, _) = unescape(&template[2..], usize::MAX);
+        let mut reader = Reader::new(&rbsp);
+        assert!(reader.flag().unwrap(), "one slice a frame");
+        reader.ue().unwrap();
+        reader.skip(pps.extra_bits).unwrap();
+        let slice_type = reader.ue().unwrap();
+        let poc_at = reader.at;
+        reader.skip(4).unwrap();
+        let short_term = if reader.flag().unwrap() {
+            sps.sets[reader.bits(ceil_log2(sps.sets.len() as u32)).unwrap() as usize].clone()
+        } else {
+            let count = sps.sets.len();
+            short_term_set(&mut reader, count, count, &sps.sets).unwrap()
+        };
+        let long_term_at = reader.at;
+        let mut used = short_term.deltas().filter(|(_, used)| *used).count() as u32;
+        for _ in 0..reader.ue().unwrap() {
+            reader.skip(4).unwrap();
+            used += u32::from(reader.flag().unwrap());
+            if reader.flag().unwrap() {
+                reader.ue().unwrap();
+            }
+        }
+        let long_term_end = reader.at;
+        // One long-term picture is used, in the template as in its copies.
+        let end = rest_of_header(&mut reader, &sps, &pps, slice_type, used).unwrap();
+
+        let mut writer = Writer::default();
+        writer.copy(&rbsp, 0, poc_at);
+        writer.bits(4, poc.rem_euclid(16) as u32);
+        writer.copy(&rbsp, poc_at + 4, long_term_at);
+        writer.ue(long_term.len() as u32);
+        let mut previous = 0;
+        for (index, full) in long_term.iter().enumerate() {
+            writer.bits(4, full.rem_euclid(16) as u32);
+            writer.flag(index == 0);
+            writer.flag(true);
+            let cycle = poc.div_euclid(16) - full.div_euclid(16);
+            writer.ue((cycle - previous) as u32);
+            previous = cycle;
+        }
+        writer.copy(&rbsp, long_term_end, end);
+        let mut nal = vec![0, 0, 0, 1, template[0], template[1]];
+        super::super::rbsp::escape(&writer.finish(), &mut nal);
+        nal
+    }
+
+    const REPAIR: u64 = 801;
+    /// AMF's stream for wire frames 1..=840 as `References` plans it, POC
+    /// the wire frame less one, with the loss of `first_lost..REPAIR`
+    /// reported before frame `REPAIR`: the stream up to the end, or to the
+    /// repair the host turned into a keyframe, each picture's long-term
+    /// POCs, and whether it repaired.
+    fn amf_stream(first_lost: u64) -> (Vec<u8>, Vec<Vec<i64>>, bool) {
+        use crate::ltr::{Counter, References};
+        let units = units(STREAM);
+        let template = &STREAM[units[7].0..units[7].1];
+        // VPS, SPS, PPS and the IDR, wire frame 1.
+        let mut stream = STREAM[..units[3].1].to_vec();
+        let mut pictures = vec![Vec::new()];
+        let mut references = References::new(4, Counter::PictureOrder);
+        let mut slots = [None; 4];
+        for frame in 1..=840u64 {
+            if frame == REPAIR && !references.invalidate(first_lost, REPAIR - 1) {
+                return (stream, pictures, false);
+            }
+            let plan = references.plan(frame, frame == 1);
+            if let Some(slot) = plan.reference {
+                // A repair names only its reference, which is all it keeps.
+                slots = std::array::from_fn(|index| slots[index].filter(|_| index == slot));
+            }
+            if frame > 1 {
+                let mut long_term: Vec<i64> =
+                    slots.iter().flatten().map(|&f| f as i64 - 1).collect();
+                long_term.sort_unstable_by(|a, b| b.cmp(a));
+                stream.extend(amf_slice(template, frame as i64 - 1, &long_term));
+                pictures.push(long_term);
+            }
+            references.accepted(frame, &plan);
+            if let Some(slot) = plan.mark {
+                slots[slot] = Some(frame);
+            }
+        }
+        (stream, pictures, true)
+    }
+
+    #[test]
+    fn a_long_stream_keeps_its_order_across_wraps_and_repairs_up_to_the_window() {
+        // The client last showed wire frame 673 (POC 672), 128 before the
+        // repair (POC 800, after the third wrap of eight bits at 768).
+        let (stream, pictures, repaired) = amf_stream(674);
+        assert!(repaired);
+        assert_eq!(pictures.len(), 840);
+        let rewritten = PictureOrder::default().rewrite(&stream).unwrap().unwrap();
+        let wide = headers(&rewritten);
+        assert_eq!(wide.len(), 840);
+        assert!(wide.iter().all(|(bits, ..)| *bits == POC_LSB_BITS));
+        for (index, poc, references) in derived(&wide, |_| true) {
+            assert_eq!(poc, index as i64);
+            let expected: Vec<_> = pictures[index].iter().map(|&poc| Some(poc)).collect();
+            assert_eq!(references, expected, "frame {index}");
+        }
+        // Long-term pictures on both sides of the wrap at 768, and the IDR
+        // three wraps back.
+        assert_eq!(
+            wide[772].2,
+            [
+                (3, true, Some(0)),
+                (255, false, Some(1)),
+                (251, false, Some(0)),
+                (0, false, Some(2)),
+            ]
+        );
+        assert_eq!(wide[800].2, [(0, true, Some(3))]);
+        // 128 frames after its last picture the client orders the repair;
+        // one more and it would derive POC 544, so the host sends a keyframe.
+        for (last, ordered) in [(672, true), (671, false)] {
+            let pictures = derived(&wide, |index| index <= last || index >= 800);
+            let repair = pictures.iter().find(|(index, ..)| *index == 800).unwrap();
+            assert_eq!(repair.1 == 800, ordered, "last shown {last}");
+            if ordered {
+                assert_eq!(repair.2, [Some(0)]);
+                assert!(pictures.iter().all(|(index, poc, _)| *poc == *index as i64));
+            } else {
+                assert_eq!(repair.1, 544);
+            }
+        }
+        let (_, _, repaired) = amf_stream(673);
+        assert!(
+            !repaired,
+            "129 frames after the last picture shown is a keyframe"
+        );
+        // Frame by frame, as AMF returns them, gives the same stream.
+        let units = super::units(&stream);
+        let mut order = PictureOrder::default();
+        let mut frames = order.rewrite(&stream[..units[4].0 - 4]).unwrap().unwrap();
+        for unit in units[4..].windows(2) {
+            frames.extend(
+                order
+                    .rewrite(&stream[unit[0].0 - 4..unit[1].0 - 4])
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        let last = units.last().unwrap();
+        frames.extend(order.rewrite(&stream[last.0 - 4..]).unwrap().unwrap());
+        assert_eq!(frames, rewritten);
+    }
+
     /// Deterministic bytes for the mutation test (xorshift).
     fn random(state: &mut u64) -> u64 {
         *state ^= *state << 13;

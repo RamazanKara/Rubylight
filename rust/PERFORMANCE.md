@@ -8203,10 +8203,23 @@ after the loss on any decoder: a freeze. Only HEVC at gap 1 saved bytes (35% sma
 gap 7 on the recovery frame is 2.2 to 2.8 times the IDR. The verdict: no improvement without freezes, so
 LTR stays off by default, behind its Experimental launch parameter, and no Nightjar setting asks for it.
 
-Not measured: HEVC gaps 11 and 15. The run stopped at the wrapper's 900 s limit while HEVC gap 11 was
-finishing; the test's own 2 s AMF stall check never fired and every arm printed its result, so it was a
-slow run (HEVC arms took 50 to 220 s), but the rule for an exit code 3 is to stop, so it was not rerun.
-Not run either: decodes on the NUC and the laptop. On the stock stream (before any loss), ffmpeg's
+HEVC gaps 11 and 15 were not measured in that run: it stopped at the wrapper's 900 s limit while HEVC gap
+11 was finishing (the test's own 2 s AMF stall check never fired; HEVC arms took 50 to 220 s). A rerun on
+main `e2b24ff23` with 30 minutes froze both the way gap 8 did.
+
+The freeze, fixed on October 28: AMF writes HEVC with a four-bit POC LSB
+(`log2_max_pic_order_cnt_lsb_minus4 = 0`), and a decoder that never saw the lost frames derives the
+recovery frame's POC from the last frame it showed. More than 8 frames on, it lands 16 too low (236
+instead of 252 at gap 11), and the long-term reference, named by its MSB cycle from that POC, points at a
+picture the decoder never had (FFmpeg: "Could not find ref with POC -16"). The October 10 HEVC branch in
+[PERFORMANCE_WORK.md](PERFORMANCE_WORK.md) had found the same bound. The host now answers such an
+invalidation with a keyframe and logs why; H.264 keeps its rule of one 16-frame frame_num period, and AV1
+names its references by slot with an explicit order hint. Rerun on branch `rl-ltr` (`467894869`, same
+test): HEVC gap 7 is still an LTR P frame (224,558 B), and gaps 8, 11 and 15 now get an IDR (90,634 to
+91,305 B, the stock arm's was 90,633 B). Software, d3d11va and dxva2 show the full stream's pictures from
+the recovery frame to the end on every arm, with no decoder errors. The slowest AMF call was 433 ms.
+
+Not run: decodes on the NUC and the laptop. On the stock stream (before any loss), ffmpeg's
 d3d12va decoder failed with "No space for new Reference frame" after about 17 frames, Vulkan with
 `VK_ERROR_OUT_OF_DEVICE_MEMORY`, and `h264_amf` exited nonzero with no message, so those were left out.
 

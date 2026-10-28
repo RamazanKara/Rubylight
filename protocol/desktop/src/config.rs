@@ -253,6 +253,10 @@ pub struct Settings {
     #[serde(default)]
     pub auto_reconnect_default_on: bool,
     pub virtual_display: bool,
+    /// "PC render resolution": the percent of the stream resolution the PC renders its virtual
+    /// display at (`scaleFactor`), as on Android. Kept in `RENDER_SCALE` when read: older versions
+    /// offered up to 300 %.
+    #[serde(deserialize_with = "render_scale")]
     pub virtual_display_scale: u32,
     pub host_display: HostDisplay,
     /// The video FEC asked for at launch from a PC that lets the client choose it.
@@ -427,6 +431,13 @@ impl From<ErrorCorrection> for rubylight_protocol::fec_report::FecChoice {
             ErrorCorrection::Percent(percentage) => Self::Fixed(percentage),
         }
     }
+}
+
+/// The PC render resolution's range in percent, as on Android (`seekbar_virtual_display_scale`).
+pub const RENDER_SCALE: std::ops::RangeInclusive<u32> = 50..=200;
+
+fn render_scale<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+    Ok(u32::deserialize(deserializer)?.clamp(*RENDER_SCALE.start(), *RENDER_SCALE.end()))
 }
 
 impl Settings {
@@ -1509,6 +1520,21 @@ mod tests {
         settings.auto_reconnect = false;
         store.save_settings(&settings).unwrap();
         assert!(!store.settings().auto_reconnect, "the user's off after the switch is kept");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_saved_pc_render_resolution_is_kept_in_androids_range() {
+        let dir = std::env::temp_dir().join(format!("nightjar-render-scale-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        for (saved, read) in [(300, 200), (225, 200), (200, 200), (150, 150), (50, 50), (25, 50)] {
+            std::fs::write(dir.join("settings.json"), format!(r#"{{"virtual_display_scale": {saved}}}"#)).unwrap();
+            assert_eq!(store.settings().virtual_display_scale, read, "settings.json at {saved} %");
+            // A profile's, PC's or game's own value is kept in the range too.
+            let own: Overrides = serde_json::from_str(&format!(r#"{{"virtual_display_scale": {saved}}}"#)).unwrap();
+            assert_eq!(own.apply(&Settings::default()).virtual_display_scale, read, "an override at {saved} %");
+        }
+        assert_eq!(Settings::default().virtual_display_scale, 100);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

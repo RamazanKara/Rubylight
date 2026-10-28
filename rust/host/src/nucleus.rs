@@ -1159,6 +1159,21 @@ impl Registry {
         })
     }
 
+    /// The game of the running background stream of app `app_id` that
+    /// `device` plays in, which it returns to.
+    fn returning(&self, app_id: u32, device: &str) -> Option<String> {
+        self.lock()
+            .sessions
+            .values()
+            .filter(|entry| entry.app_id == app_id)
+            .find_map(|entry| {
+                entry.instance.session(|s| {
+                    (!s.ended() && s.kind == Kind::Background && s.slot_of(device).is_some())
+                        .then(|| s.game.clone())
+                })
+            })
+    }
+
     fn admit_game(&self, request: Admission) -> Result<Seat, Refusal> {
         let pc = self.pc();
         if let Some(why) = pc.unavailable() {
@@ -1173,24 +1188,31 @@ impl Registry {
             ))
         })?;
         let app = request.game.app();
-        let found = match catalog.find(&app.name, executable(app)) {
-            Ok(found) => Chosen::Hub(found.handler),
+        let client = request.client;
+        stop(self.reap());
+        let (found, returning) = match catalog.find(&app.name, executable(app)) {
+            Ok(found) => (Some(Chosen::Hub(found.handler)), None),
             // A one-player game without a hub handler streams in the
-            // background with ours.
+            // background with ours. Its owner returning to it finds the
+            // session's game: no Steam read or folder scan again.
             Err(Missing::NoHandler { .. }) if kind == Kind::Background => {
-                own_handler(pc.as_ref(), &catalog, app)?
+                match self.returning(request.game.app_id(), &client.uuid) {
+                    Some(game) => (None, Some(game)),
+                    None => (Some(own_handler(pc.as_ref(), &catalog, app)?), None),
+                }
             }
             Err(missing) => return Err(Refusal::missing(&missing)),
         };
-        stop(self.reap());
-        let client = request.client;
+        let game = returning
+            .or_else(|| found.as_ref().map(Chosen::guid))
+            .unwrap_or_default();
         let decision = {
             let state = self.lock();
             let current = state
                 .sessions
                 .values()
                 .find_map(|entry| entry.instance.session(|s| (!s.ended()).then(|| s.clone())));
-            coop::admit(current.as_ref(), &found.guid(), kind, &client.uuid)
+            coop::admit(current.as_ref(), &game, kind, &client.uuid)
         };
         match decision {
             Admit::Busy(text) => Err(Refusal::busy(text)),
@@ -1212,6 +1234,13 @@ impl Registry {
                 Ok(Seat { session: id, slot })
             }
             Admit::Start => {
+                // The session returned to ended meanwhile.
+                let Some(found) = found else {
+                    return Err(Refusal::busy(format!(
+                        "The {} session ended: launch it again",
+                        app.name
+                    )));
+                };
                 let free = pc.free_pads().map_err(|error| {
                     Refusal::unavailable(format!(
                         "Nucleus Co-op could not count the free controller slots: {error:#}"
@@ -1840,6 +1869,8 @@ pub(crate) mod fake {
         pub ready_error: Mutex<Option<String>>,
         /// Rubylight's superseded handler files removed, in order.
         pub removed: Mutex<Vec<String>>,
+        /// How often an app's game was looked up for Rubylight's handler.
+        pub lookups: AtomicUsize,
     }
     impl Pc {
         pub(crate) fn unavailable() -> Self {
@@ -1890,6 +1921,7 @@ pub(crate) mod fake {
                 write_error: Mutex::new(None),
                 ready_error: Mutex::new(None),
                 removed: Mutex::new(Vec::new()),
+                lookups: AtomicUsize::new(0),
             }
         }
         /// The session started last.
@@ -1965,6 +1997,7 @@ pub(crate) mod fake {
             Ok(*self.free.lock().unwrap())
         }
         fn one_player(&self, app: &App) -> Result<Setup, Refusal> {
+            self.lookups.fetch_add(1, Ordering::Relaxed);
             if let Some(setup) = self.one_player.lock().unwrap().get(&app.name) {
                 return Ok(setup.clone());
             }
@@ -2927,12 +2960,15 @@ mod tests {
         assert_eq!(listed[0].session.slots.len(), 1);
         assert_eq!(listed[0].session.game, own[0].guid());
         assert_eq!(listed[0].app_id, apps[3].id());
-        // Its owner returns to it without another write.
+        // Its owner returns to it without another write, Steam read or
+        // folder scan.
+        assert_eq!(pc.lookups.load(std::sync::atomic::Ordering::Relaxed), 1);
         registry.leave(seat, "a");
         assert_eq!(
             background(&registry, &apps[3], "b", &owner, &config).unwrap(),
             seat
         );
+        assert_eq!(pc.lookups.load(std::sync::atomic::Ordering::Relaxed), 1);
         assert_eq!(pc.own.lock().unwrap().len(), 1);
         assert_eq!(pc.started.lock().unwrap().len(), 1);
         // Co-op still needs a hub handler: no entry, and a co-op launch is refused.

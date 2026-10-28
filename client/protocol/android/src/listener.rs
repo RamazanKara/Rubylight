@@ -7,6 +7,7 @@ use nightjar_core::control::{haptics, ConnectionStatus, ControlEvent};
 use nightjar_core::roaming::RoamEvent;
 use nightjar_core::session::{Listener, Stage};
 use rubylight_protocol::control::{HostTiming, HostTimingExtra, LinkNotice, LinkState};
+use rubylight_protocol::rate_change::RateChangeResult;
 use rubylight_protocol::steam_controller::SteamSettings;
 use rubylight_protocol::text_input::{InputType, NoticeKind, TextInputNotice};
 
@@ -62,6 +63,23 @@ fn link_notice_args(notice: &LinkNotice) -> (i32, i32, i32) {
     };
     let kbps = |value: u32| i32::try_from(value).unwrap_or(i32::MAX);
     (state, kbps(notice.ceiling_kbps), kbps(notice.current_kbps))
+}
+
+/// The arguments of `bridgeClRateChange(serial, bitrateKbps, fpsMillihz, bitrateStatus,
+/// bitrateReason, fpsStatus, fpsReason)`: the serial's bits, the stream's bitrate and rate after
+/// the request, and each status (0 unchanged, 1 applied, 2 clamped, 3 refused) and reason as
+/// the wire has them.
+fn rate_change_args(result: &RateChangeResult) -> [i32; 7] {
+    let value = |value: u32| i32::try_from(value).unwrap_or(i32::MAX);
+    [
+        result.serial as i32,
+        value(result.bitrate_kbps),
+        value(result.fps_millihz),
+        result.bitrate.status as i32,
+        result.bitrate.reason as i32,
+        result.fps.status as i32,
+        result.fps.reason as i32,
+    ]
 }
 
 /// The arguments of `bridgeClTextInput(kind, inputType, flags)`, as the wire has them: kind 0
@@ -300,8 +318,10 @@ impl Listener for Events {
             }
             // Android doesn't ask for the host's pipeline rates yet.
             ControlEvent::PipelineRates(_) => {}
-            // Android doesn't ask for rate changes yet.
-            ControlEvent::RateChange(_) => {}
+            ControlEvent::RateChange(result) => {
+                let args = rate_change_args(&result).map(bridge::int);
+                b.post(m.rate_change, &args);
+            }
             ControlEvent::ClockSync { reply, received } => {
                 engine::clock_sync(&reply, platform::monotonic_us_at(received));
             }
@@ -436,6 +456,29 @@ mod tests {
             ..notice(LinkState::Limited, LinkReason::Network)
         };
         assert_eq!(link_notice_args(&huge).1, i32::MAX);
+    }
+
+    #[test]
+    fn a_rate_change_result_reaches_java_as_its_wire_values() {
+        use rubylight_protocol::rate_change::{Outcome, Reason};
+        let result = RateChangeResult {
+            serial: u32::MAX,
+            bitrate_kbps: 150_000,
+            fps_millihz: 60_000,
+            bitrate: Outcome::clamped(Reason::HostLimit),
+            fps: Outcome::refused(Reason::Other),
+        };
+        assert_eq!(
+            rate_change_args(&result),
+            [-1, 150_000, 60_000, 2, 4, 3, 255]
+        );
+        let huge = RateChangeResult {
+            bitrate_kbps: u32::MAX,
+            bitrate: Outcome::APPLIED,
+            fps: Outcome::UNCHANGED,
+            ..result
+        };
+        assert_eq!(rate_change_args(&huge), [-1, i32::MAX, 60_000, 1, 0, 0, 0]);
     }
 
     #[test]

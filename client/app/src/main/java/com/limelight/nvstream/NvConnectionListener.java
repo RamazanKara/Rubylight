@@ -37,6 +37,9 @@ public interface NvConnectionListener {
      */
     default void linkNotice(int state, int ceilingKbps, int currentKbps) {}
 
+    /** The host's answer to a 0x553C rate change (MoonBridge.sendRateChange). On the receive thread. */
+    default void rateChange(RateChangeResult result) {}
+
     /**
      * The host's text field notice (0x553B): kind 0 lower, 1 raise, 2 update; inputType in wire
      * order (text, number, decimal, phone, email, url, password, search, multiline); flags 1

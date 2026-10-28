@@ -809,6 +809,20 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendTextInputR
     )))
 }
 
+/// A bitrate in kbps, a rate in mHz or both (0x553C), 0 keeping that value; the host answers
+/// with `bridgeClRateChange` and the same serial. False for a negative or invalid value, or
+/// without a host that announced it.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendRateChange(
+    _: JNIEnv,
+    _: JClass,
+    serial: jint,
+    bitrate_kbps: jint,
+    fps_millihz: jint,
+) -> jboolean {
+    jbool(extras::rate_change_message(serial, bitrate_kbps, fps_millihz).is_some_and(engine::send))
+}
+
 /// The device's keyboard layout as a BCP-47 tag (0x553E); false for a tag the wire cannot
 /// carry or without a host that announced it.
 #[no_mangle]

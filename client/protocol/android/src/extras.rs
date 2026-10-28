@@ -12,6 +12,7 @@ use rubylight_protocol::control::DisplayCaps;
 use rubylight_protocol::keyboard_layout::{KeyboardLayout, LayoutSource};
 use rubylight_protocol::phase_lock::{self, SlackWindow};
 use rubylight_protocol::present_clock::{Grid, GridSchedule};
+use rubylight_protocol::rate_change::RateChangeRequest;
 use rubylight_protocol::text_input::TextInputRequest;
 
 /// `LI_ERR_UNSUPPORTED`: the Java side falls back (touch to mouse, for example).
@@ -183,6 +184,21 @@ pub fn text_input_request(enabled: bool) -> ClientMessage {
         surrounding_text: false,
         max_text: 0,
     })
+}
+
+/// `sendRateChange`: a bitrate in kbps, a rate in mHz or both (0x553C), 0 keeping that value;
+/// `None` for a negative value or a request the host would refuse as invalid.
+pub fn rate_change_message(
+    serial: i32,
+    bitrate_kbps: i32,
+    fps_millihz: i32,
+) -> Option<ClientMessage> {
+    let message = ClientMessage::RateChange(RateChangeRequest {
+        serial: serial as u32,
+        bitrate_kbps: u32::try_from(bitrate_kbps).ok()?,
+        fps_millihz: u32::try_from(fps_millihz).ok()?,
+    });
+    message.is_valid().then_some(message)
 }
 
 /// `sendKeyboardLayout`: the device's BCP-47 layout tag (0x553E), or `None` for an empty tag
@@ -401,6 +417,26 @@ mod tests {
         assert_eq!(keyboard_layout_message(""), None);
         assert_eq!(keyboard_layout_message(&"a".repeat(65)), None);
         assert_eq!(keyboard_layout_message("de DE"), None);
+    }
+
+    #[test]
+    fn rate_changes_go_out_as_asked_and_refuse_what_the_host_would() {
+        let both = rate_change_message(-2, 40_000, 120_000).unwrap();
+        assert_eq!(
+            RateChangeRequest::decode(&both.payload()),
+            Some(RateChangeRequest {
+                serial: u32::MAX - 1,
+                bitrate_kbps: 40_000,
+                fps_millihz: 120_000,
+            })
+        );
+        assert!(rate_change_message(1, 40_000, 0).is_some());
+        assert!(rate_change_message(1, 0, 60_000).is_some());
+        assert_eq!(rate_change_message(1, 0, 0), None);
+        assert_eq!(rate_change_message(1, -1, 60_000), None);
+        assert_eq!(rate_change_message(1, 40_000, -1), None);
+        assert_eq!(rate_change_message(1, 40_000, 9_999), None);
+        assert_eq!(rate_change_message(1, 0, 500_001), None);
     }
 
     #[test]

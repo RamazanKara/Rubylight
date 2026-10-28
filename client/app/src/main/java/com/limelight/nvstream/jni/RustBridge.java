@@ -130,6 +130,7 @@ final class RustBridge {
     static native boolean sendCursorShapeRequest(boolean enabled);
     static native boolean sendControllerAudio(int kind, byte[] payload);
     static native boolean sendTextInputRequest(boolean enabled);
+    static native boolean sendRateChange(int serial, int bitrateKbps, int fpsMillihz);
     static native boolean sendKeyboardLayout(String bcp47Tag);
     // USB forwarding (0x553A): a request id, or one of MoonBridge.USB_*.
     static native int usbAttach(int fd, String path, String name, String address, int httpPort,

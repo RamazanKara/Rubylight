@@ -162,6 +162,7 @@ public class StreamMenuTest {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.imageClipboard = true;
         options.microphoneOffered = true;
+        options.micButtonAvailable = true;
         options.mouseConnected = true;
         options.onscreenControls = true;
         options.gameControls = true;
@@ -290,6 +291,8 @@ public class StreamMenuTest {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         assertFalse("No microphone, no button to show", items(StreamMenu.mainPage(options)).contains(MIC_BUTTON));
         options.microphoneOffered = true;
+        assertFalse("A stream without the button has nothing to show", items(StreamMenu.mainPage(options)).contains(MIC_BUTTON));
+        options.micButtonAvailable = true;
         options.micButtonShown = true;
         StreamMenu.Entry hide = entry(StreamMenu.mainPage(options), MIC_BUTTON);
         assertEquals(StreamMenu.Section.INPUT, hide.section);
@@ -381,7 +384,7 @@ public class StreamMenuTest {
             reachable.addAll(items(StreamMenu.nativePage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
-            options.microphoneOffered = options.mouseConnected = options.onscreenControls = options.gameControls = true;
+            options.microphoneOffered = options.micButtonAvailable = options.mouseConnected = options.onscreenControls = options.gameControls = true;
             options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));

@@ -2992,6 +2992,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.imageClipboard = conn.hasImageClipboard();
         options.microphoneOffered = conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = conn.isMicrophoneMuted();
+        options.micButtonAvailable = micButton != null;
         options.micButtonShown = micButton != null && prefConfig.micButton;
         options.overlayShown = prefConfig.enablePerfOverlay;
         options.overlayMode = overlayMode;

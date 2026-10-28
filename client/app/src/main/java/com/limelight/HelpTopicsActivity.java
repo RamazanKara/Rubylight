@@ -37,8 +37,11 @@ public class HelpTopicsActivity extends NightjarActivity {
     private void link(View topics, int id, String page, boolean canOpenLinks) {
         View link = topics.findViewById(id);
         link.setVisibility(canOpenLinks ? View.VISIBLE : View.GONE);
-        // The label lines up with the paragraph above rather than inside the text button's inset.
-        link.setPaddingRelative(0, link.getPaddingTop(), link.getPaddingEnd(), link.getPaddingBottom());
+        // The label lines up with the paragraph above rather than inside the text button's inset. A TV keeps the inset:
+        // the remote's focus ring is always on one link, and it was drawn through the label's first letter.
+        boolean television = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+        if (!television) link.setPaddingRelative(0, link.getPaddingTop(), link.getPaddingEnd(), link.getPaddingBottom());
         link.setOnClickListener(v -> HelpLauncher.launchUrl(this, DOCS_URL + page));
     }
 }

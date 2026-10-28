@@ -624,6 +624,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_set_up_request_dropped_after_its_first_poll_still_installs() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        *pc.installed.lock().unwrap() = None;
+        f.host.nucleus.use_pc(pc.clone());
+        // The client hangs up at once: the request is polled once and dropped.
+        let dropped = tokio::time::timeout(
+            std::time::Duration::ZERO,
+            request(&f, "POST", "/api/coop/install", json!({})),
+        )
+        .await;
+        assert!(
+            dropped.is_err(),
+            "the request was answered before it was dropped"
+        );
+        // The install it claimed still runs, rather than staying "installing".
+        let mut state = Value::Null;
+        for _ in 0..500 {
+            state = settled(&f).await["install"]["state"].clone();
+            if state == "installed" || state == "failed" {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(state, "installed");
+        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
     async fn set_up_and_open_answer_503_when_the_install_folder_is_refused() {
         let f = Fixture::new();
         let pc = Arc::new(fake::Pc::installed());

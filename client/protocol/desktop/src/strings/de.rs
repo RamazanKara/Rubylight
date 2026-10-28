@@ -789,6 +789,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Attached", "Verbunden"),
     ("Failed: {}", "Fehlgeschlagen: {}"),
     ("The PC has not allowed USB devices for this client.", "Der PC hat USB-Geräte für diesen Client nicht erlaubt."),
+    ("This PC has not allowed USB devices for this device. On the PC, open the web UI's Devices page and allow USB devices for it.", "Dieser PC hat USB-Geräte für dieses Gerät nicht erlaubt. Öffne am PC in der Web-UI die Seite Devices und erlaube ihm „USB devices“."),
+    ("Could not ask the PC whether it forwards USB devices.", "Der PC konnte nicht gefragt werden, ob er USB-Geräte weiterleitet."),
     ("USB forwarding is off on the PC.", "USB-Weiterleitung ist auf dem PC aus."),
     ("The PC has as many USB devices attached as it allows.", "Am PC sind schon so viele USB-Geräte verbunden, wie er erlaubt."),
     ("The PC's USB/IP driver is missing or failed.", "Der USB/IP-Treiber des PCs fehlt oder ist fehlgeschlagen."),

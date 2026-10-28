@@ -1889,6 +1889,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if let Some(panel) = s.usb.as_mut() {
                         ui.separator();
                         usb::show(ui, panel);
+                    } else if let Some(why) = s.usb_refused {
+                        ui.separator();
+                        usb::show_refusal(ui, why);
                     }
                     if !s.facts.server_commands.is_empty() {
                         ui.separator();

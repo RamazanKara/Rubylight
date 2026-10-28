@@ -13,7 +13,9 @@ use nightjar_core::usb::{wire, AttachError, Attachment, Blocking, BlockingDevice
 use rusb::constants::{LIBUSB_ERROR_NO_DEVICE, LIBUSB_ERROR_OVERFLOW, LIBUSB_ERROR_PIPE, LIBUSB_ERROR_TIMEOUT, LIBUSB_SUCCESS};
 use rusb::{TransferType, UsbContext};
 
-use crate::strings::{tr, trf};
+use nightjar_core::http::{Availability, Feature, HostCapabilities, NativeCapabilities, Reason};
+
+use crate::strings::{en, tr, trf};
 
 /// How long one bulk or interrupt call waits before the transfer looks at its cancel flag.
 const SLICE: Duration = Duration::from_millis(200);
@@ -577,6 +579,39 @@ impl Panel {
     }
 }
 
+/// Whether the PC forwards USB devices and lets this device attach them. `native` is the PC's
+/// native capabilities, None when there was nothing to ask (a host without the native API).
+pub fn availability(caps: &HostCapabilities, native: Option<Result<NativeCapabilities, String>>) -> Availability {
+    match native {
+        None => caps.availability(Feature::UsbForwarding),
+        Some(Ok(native)) => caps.with_native(&native).availability(Feature::UsbForwarding),
+        Some(Err(e)) => {
+            eprintln!("nightjar: USB: the PC's capabilities could not be read: {e}");
+            Availability::Unknown
+        }
+    }
+}
+
+/// Why the stream controls offer no USB devices although the setting is on, or None when the
+/// PC forwards them and lets this device attach them.
+pub fn refusal(availability: Availability) -> Option<&'static str> {
+    match availability {
+        Availability::Supported => None,
+        Availability::Unsupported(Some(Reason::UsbPermission)) => Some(en(
+            "This PC has not allowed USB devices for this device. On the PC, open the web UI's Devices page and allow USB devices for it.",
+        )),
+        // A host without the native API is a 2.6.x one or another family: it doesn't offer it.
+        Availability::Unsupported(_) => Some(en("The PC does not forward USB devices.")),
+        Availability::Unknown => Some(en("Could not ask the PC whether it forwards USB devices.")),
+    }
+}
+
+/// The stream controls' USB section when the setting is on but the PC offers nothing: why.
+pub fn show_refusal(ui: &mut egui::Ui, why: &str) {
+    ui.label(tr("USB devices (Experimental)"));
+    ui.colored_label(crate::theme::ERROR, tr(why));
+}
+
 /// The stream controls' USB section: each device plugged in here with Attach or Detach and
 /// where it stands, a device that can't be forwarded with why, and what the PC made of the
 /// ones that ended.
@@ -666,6 +701,33 @@ mod tests {
         assert_eq!(busid(1, &[2]), "1-2");
         assert_eq!(busid(3, &[1, 4, 2]), "3-1.4.2");
         assert!(wire::valid_busid(&busid(255, &[15, 15, 15, 15, 15, 15, 15])));
+    }
+
+    /// The native answer with these features and the usb permission.
+    fn native(features: &str, usb: bool) -> NativeCapabilities {
+        serde_json::from_str(&format!(
+            "{{\"api_version\":1,\"host\":{{\"name\":\"PC\",\"version\":\"3.0.0\",\"unique_id\":\"uid\"}},\"features\":[{features}],\
+             \"permissions\":{{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":false,\"usb\":{usb}}}}}"
+        ))
+        .expect("the answer parses")
+    }
+
+    #[test]
+    fn the_stream_controls_offer_usb_devices_only_when_the_pc_does() {
+        let caps = crate::ui::files::tests::native_answer().capabilities;
+        let offered = |native| refusal(availability(&caps, Some(native)));
+        assert_eq!(offered(Ok(native("\"usb\"", true))), None);
+        assert_eq!(
+            offered(Ok(native("\"usb\"", false))),
+            Some("This PC has not allowed USB devices for this device. On the PC, open the web UI's Devices page and allow USB devices for it.")
+        );
+        // The permission alone is no offer: the host turned USB forwarding off.
+        assert_eq!(offered(Ok(native("\"files.upload\"", true))), Some("The PC does not forward USB devices."));
+        assert_eq!(offered(Err("timed out".into())), Some("Could not ask the PC whether it forwards USB devices."));
+        // A host without the native API is not asked, and offers nothing.
+        let old = crate::host_page::tests::info("SUNSHINE_SERVER_FREE", "<RustHostVersion>2.6.4</RustHostVersion>").capabilities;
+        assert_eq!(refusal(availability(&old, None)), Some("The PC does not forward USB devices."));
+        assert!(!old.has(Feature::NativeApi));
     }
 
     #[test]

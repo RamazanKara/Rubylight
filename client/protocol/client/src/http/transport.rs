@@ -140,16 +140,15 @@ pub(crate) struct Timeouts {
 pub(crate) struct Cancel {
     cancelled: AtomicBool,
     next: AtomicU64,
-    sockets: Mutex<Vec<(u64, TcpStream)>>,
+    sockets: Mutex<Vec<(u64, Arc<Abort>)>>,
 }
 
 impl Cancel {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
-        for (_, socket) in self.sockets.lock().unwrap().drain(..) {
-            let _ = socket.shutdown(Shutdown::Both);
-            #[cfg(windows)]
-            abort_blocked_io(&socket);
+        let sockets: Vec<_> = self.sockets.lock().unwrap().drain(..).collect();
+        for (_, socket) in sockets {
+            socket.abort();
         }
     }
 
@@ -157,11 +156,11 @@ impl Cancel {
         self.cancelled.load(Ordering::SeqCst)
     }
 
-    fn register(&self, socket: &TcpStream) -> Result<u64, Error> {
+    fn register(&self, socket: &Arc<Abort>) -> Result<u64, Error> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.sockets.lock().unwrap().push((id, socket.try_clone()?));
+        self.sockets.lock().unwrap().push((id, socket.clone()));
         if self.is_cancelled() {
-            let _ = socket.shutdown(Shutdown::Both);
+            socket.abort();
             self.unregister(id);
             return Err(Error::Cancelled);
         }
@@ -173,9 +172,59 @@ impl Cancel {
     }
 }
 
+/// A connection's socket as its cancels hold it. The abort is sticky: every read and write
+/// through [`DeadlineSocket`] checks it before it starts, so none begins blocking after a cancel.
+struct Abort {
+    socket: TcpStream,
+    aborted: AtomicBool,
+    /// While a read or write may block on the socket.
+    busy: AtomicBool,
+}
+
+/// The most [`Abort::abort`] waits for a call it aborted to come back.
+#[cfg(windows)]
+const ABORT_WAIT: Duration = Duration::from_secs(1);
+
+impl Abort {
+    fn new(socket: &TcpStream) -> Result<Arc<Self>, Error> {
+        Ok(Arc::new(Self { socket: socket.try_clone()?, aborted: AtomicBool::new(false), busy: AtomicBool::new(false) }))
+    }
+
+    /// Shuts the socket, so any later call fails at once, and aborts the call in progress. A
+    /// call that passed its check just before the abort may reach the socket only after
+    /// `CancelIoEx` ran; it is aborted again until it returns.
+    fn abort(&self) {
+        self.aborted.store(true, Ordering::SeqCst);
+        let _ = self.socket.shutdown(Shutdown::Both);
+        #[cfg(windows)]
+        {
+            let until = std::time::Instant::now() + ABORT_WAIT;
+            loop {
+                abort_blocked_io(&self.socket);
+                if !self.busy.load(Ordering::SeqCst) || std::time::Instant::now() >= until {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    /// Runs `call` on the socket unless it was aborted; `abort` sees it as busy meanwhile.
+    fn guard<T>(&self, call: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+        self.busy.store(true, Ordering::SeqCst);
+        let result = if self.aborted.load(Ordering::SeqCst) {
+            Err(std::io::Error::new(ErrorKind::ConnectionAborted, "the request was cancelled"))
+        } else {
+            call()
+        };
+        self.busy.store(false, Ordering::SeqCst);
+        result
+    }
+}
+
 /// Windows does not wake a read or write blocked on a socket that was shut down until the peer
 /// answers, which a stalled host never does; this aborts it at once, through any handle of the
-/// socket. Later calls see the shutdown and fail at once.
+/// socket.
 #[cfg(windows)]
 fn abort_blocked_io(socket: &TcpStream) {
     use std::os::windows::io::AsRawSocket;
@@ -514,11 +563,12 @@ fn connection<T>(request: &Request<'_>, cancels: &[&Cancel], deadline: Deadline,
     }
     let connect_by = match deadline { Deadline::At(at) => Some(at), _ => None };
     let result = connect(request.host, request.port, request.timeouts.connect, connect_by).and_then(|tcp| {
+        let abort = Abort::new(&tcp)?;
         let mut ids = Vec::with_capacity(cancels.len());
         let result = cancels
             .iter()
-            .try_for_each(|cancel| cancel.register(&tcp).map(|id| ids.push(id)))
-            .and_then(|()| open(request, tcp, deadline, write_timeout, head, continue_by))
+            .try_for_each(|cancel| cancel.register(&abort).map(|id| ids.push(id)))
+            .and_then(|()| open(request, tcp, abort, deadline, write_timeout, head, continue_by))
             .and_then(|(mut stream, peer)| exchange(&mut *stream, peer));
         for (cancel, id) in cancels.iter().zip(ids) {
             cancel.unregister(id);
@@ -559,7 +609,7 @@ fn connect_each<S>(addresses: &[SocketAddr], timeout: Duration, deadline: Option
 }
 
 /// Sets the timeouts, completes any TLS handshake, writes `head` and arms `continue_by`.
-fn open(request: &Request<'_>, tcp: TcpStream, deadline: Deadline, write_timeout: Option<Duration>,
+fn open(request: &Request<'_>, tcp: TcpStream, abort: Arc<Abort>, deadline: Deadline, write_timeout: Option<Duration>,
     head: &str, continue_by: Option<&ContinueBy>) -> Result<(Box<dyn Stream>, SocketAddr), Error> {
     let peer = tcp.peer_addr()?;
     tcp.set_read_timeout(request.timeouts.read)?;
@@ -570,7 +620,7 @@ fn open(request: &Request<'_>, tcp: TcpStream, deadline: Deadline, write_timeout
         Deadline::At(at) => (Some(at), None),
         Deadline::Idle(idle) => (Some(std::time::Instant::now() + idle), Some(idle)),
     };
-    let tcp = DeadlineSocket { socket: tcp, deadline, idle, read_timeout: request.timeouts.read, write_timeout,
+    let tcp = DeadlineSocket { socket: tcp, abort, deadline, idle, read_timeout: request.timeouts.read, write_timeout,
         continue_by: continue_by.cloned(), capped: false };
     let mut stream: Box<dyn Stream> = match &request.tls {
         None => Box::new(tcp),
@@ -625,6 +675,8 @@ fn head_with(method: &str, request: &Request<'_>, body: Option<(&str, u64)>) -> 
 
 struct DeadlineSocket {
     socket: TcpStream,
+    /// Every read and write goes through it, so a cancel ends them all.
+    abort: Arc<Abort>,
     deadline: Option<std::time::Instant>,
     /// Moves `deadline` this far ahead after every byte.
     idle: Option<Duration>,
@@ -671,7 +723,7 @@ impl Read for DeadlineSocket {
             self.socket.set_read_timeout(capped.or(limit))?;
             self.capped = capped.is_some();
         }
-        let read = self.socket.read(bytes);
+        let read = self.abort.guard(|| self.socket.read(bytes));
         if capped.is_some() && matches!(&read, Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock)) {
             return Err(continue_elapsed());
         }
@@ -684,7 +736,7 @@ impl Write for DeadlineSocket {
         if let Some(left) = self.remaining()? {
             self.socket.set_write_timeout(Some(self.write_timeout.map_or(left, |timeout| timeout.min(left))))?;
         }
-        let written = self.socket.write(bytes);
+        let written = self.abort.guard(|| self.socket.write(bytes));
         self.moved(written, bytes.len())
     }
     fn flush(&mut self) -> std::io::Result<()> { self.socket.flush() }
@@ -912,7 +964,7 @@ pub(crate) fn upgrade(request: &Request<'_>, cancel: &Cancel, protocol: &str, fi
     -> Result<Result<Upgraded, Response>, Error> {
     let config = request.tls.clone().ok_or_else(|| Error::InvalidArgument("an upgrade needs TLS".into()))?;
     let tcp = connect(request.host, request.port, request.timeouts.connect, None)?;
-    let id = cancel.register(&tcp)?;
+    let id = cancel.register(&Abort::new(&tcp)?)?;
     let result = (|| {
         tcp.set_read_timeout(request.timeouts.read)?;
         tcp.set_write_timeout(Some(write_timeout(request)))?;
@@ -1526,7 +1578,8 @@ mod tests {
         let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (mut peer, _) = listener.accept().unwrap();
         let continue_by = ContinueBy::default();
-        let mut tcp = DeadlineSocket { socket, deadline: None, idle: None, read_timeout: Some(Duration::from_secs(10)),
+        let abort = Abort::new(&socket).unwrap();
+        let mut tcp = DeadlineSocket { socket, abort, deadline: None, idle: None, read_timeout: Some(Duration::from_secs(10)),
             write_timeout: None, continue_by: Some(continue_by.clone()), capped: false };
         continue_by.set(Some(std::time::Instant::now() + Duration::from_millis(200)));
         let started = std::time::Instant::now();
@@ -1621,6 +1674,41 @@ mod tests {
         client.cancel();
         let result = download(&transfer(&host_name, port, "f"), &client, &mut Vec::new(), &mut |_, _| {}, &job);
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+    }
+
+    #[test]
+    fn a_cancel_also_ends_a_write_that_reaches_the_socket_after_it() {
+        // A host that reads nothing: the write below blocks once the buffers are full.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (_peer, _) = listener.accept().unwrap();
+        // Bounds the test if the cancel misses the write.
+        socket.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+        let abort = Abort::new(&socket).unwrap();
+        let mut tcp = DeadlineSocket { socket, abort: abort.clone(), deadline: None, idle: None, read_timeout: None,
+            write_timeout: None, continue_by: None, capped: false };
+        let cancel = Arc::new(Cancel::default());
+        cancel.register(&abort).unwrap();
+        let started = std::time::Instant::now();
+        // The write passed its check; the cancel runs before it reaches the socket.
+        let canceller = {
+            let cancel = cancel.clone();
+            std::thread::spawn(move || { cancel.cancel(); std::time::Instant::now() })
+        };
+        let (written, ended) = abort.guard(|| {
+            while !abort.aborted.load(Ordering::SeqCst) { std::thread::yield_now(); }
+            std::thread::sleep(Duration::from_millis(50));
+            Ok(((&tcp.socket).write_all(&vec![7; 64 << 20]), std::time::Instant::now()))
+        }).unwrap();
+        let cancelled = canceller.join().unwrap();
+        assert!(written.is_err());
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        // The cancel returned only once the write it raced had ended.
+        assert!(cancelled >= ended);
+        // Any later call fails before it reaches the socket.
+        for error in [tcp.write(b"x").unwrap_err(), tcp.read(&mut [0; 1]).unwrap_err()] {
+            assert_eq!(error.kind(), ErrorKind::ConnectionAborted, "{error}");
+        }
     }
 
     /// A TLS host with the test identity's certificate, and the client config that pins it.
@@ -1738,7 +1826,8 @@ mod tests {
         let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let idle = Duration::from_secs(60);
         let start = std::time::Instant::now() + Duration::from_millis(10);
-        let mut tcp = DeadlineSocket { socket, deadline: Some(start), idle: Some(idle), read_timeout: None, write_timeout: None,
+        let abort = Abort::new(&socket).unwrap();
+        let mut tcp = DeadlineSocket { socket, abort, deadline: Some(start), idle: Some(idle), read_timeout: None, write_timeout: None,
             continue_by: None, capped: false };
         // What Linux returns for a write whose timeout ran out with part of it sent.
         tcp.moved(Ok(7876), 16406).unwrap();

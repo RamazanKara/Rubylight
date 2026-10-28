@@ -53,6 +53,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Sterownik Switch Pro USB</string>
-    <string name="summary_usb_switch_pro">Eksperymentalne. Odczytuje bezpośrednio przewodowy Nintendo Switch Pro Controller z czujnikami ruchu, wibracjami oraz przyciskami Home i Capture.</string>
+    <string name="summary_usb_switch_pro">Odczytuje bezpośrednio przewodowy Nintendo Switch Pro Controller z czujnikami ruchu, wibracjami oraz przyciskami Home i Capture.</string>
     <string name="usb_switch_pro_denied">Brak dostępu do USB; Switch Pro Controller nadal używa wejścia Androida.\nPodłącz kabel ponownie, aby spróbować jeszcze raz.</string>
 </resources>

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Експериментальна повна кольоровість</string>
-    <string name="summary_packed_444">Потрібні експериментальна опція повної кольоровості в Rubylight, новий рушій стримінгу та сумісний апаратний декодер HEVC/AV1. Непідтримувані режими переривають з’єднання. Для HDR також потрібна сумісна 10-бітна поверхня виведення HDR.</string>
-    <string name="title_experimental_chipset_tuning">Експериментальне налаштування чипсета</string>
+    <string name="title_packed_444">Повна кольоровість</string>
+    <string name="summary_packed_444">Потрібні опція повної кольоровості в Rubylight, новий рушій стримінгу та сумісний апаратний декодер HEVC/AV1. Непідтримувані режими переривають з’єднання. Для HDR також потрібна сумісна 10-бітна поверхня виведення HDR.</string>
+    <string name="title_experimental_chipset_tuning">Налаштування чипсета</string>
     <string name="summary_experimental_chipset_tuning">Додаткові налаштування низької затримки для декодерів MediaTek Dimensity і Samsung Exynos. Якщо відео зупиняється або смикається, вимкніть цю функцію.</string>
     <string name="scut_deleted_pc">ПК видалено</string>
     <string name="scut_not_paired">ПК не сполучено</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Змініть дозволи в налаштуваннях або вебінтерфейсі хоста.</string>
     <string name="stream_input_denied">ПК блокує введення з цього пристрою. Дозвольте його в налаштуваннях або вебінтерфейсі хоста.</string>
     <string name="stream_bitrate">Бітрейт</string>
-    <string name="stream_bitrate_help">Задайте Мбіт/с для цього сеансу.\nЦе вимкне автоматичний бітрейт.</string>
+    <string name="stream_bitrate_help">Задайте Мбіт/с для цього сеансу.\nЦе вимкне «Пристрій керує бітрейтом».</string>
     <string name="stream_bitrate_invalid">Введіть бітрейт від 0,5 до 2000 Мбіт/с</string>
     <string name="stream_bitrate_applied">Хост застосував %1$.1f Мбіт/с</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Мбіт/с нижче мінімуму PyroWave у %2$d Мбіт/с для %3$d×%4$d, %5$d FPS. Зображення розсипатиметься.</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Вимкнено (прямий вивід)</string>
     <string name="title_vulkan_render">Рендеринг через Vulkan</string>
-    <string name="summary_vulkan_render">Експериментально. Виводить відео через Vulkan із власним керуванням темпом кадрів, для оверлеїв генерації кадрів, які підключаються до Vulkan. Додає прохід рендерингу, тому затримка трохи зростає. Потрібен Android 10 або новіший. З PyroWave не використовується. Поки ввімкнено, масштабування вимкнене.</string>
+    <string name="summary_vulkan_render">Виводить відео через Vulkan із власним керуванням темпом кадрів, для оверлеїв генерації кадрів, які підключаються до Vulkan. Додає прохід рендерингу, тому затримка трохи зростає. Потрібен Android 10 або новіший. З PyroWave не використовується. Поки ввімкнено, масштабування вимкнене.</string>
     <string name="vulkan_render_fallback">Рендеринг через Vulkan не використовується. %1$s</string>
     <string name="vulkan_reason_pyrowave">Відео PyroWave його не використовує.</string>
     <string name="vulkan_reason_api">Потрібен Android 10 або новіший.</string>

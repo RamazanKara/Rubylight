@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Chroma complet expérimental</string>
-    <string name="summary_packed_444">Nécessite l’option expérimentale de chroma complet de Rubylight, le nouveau moteur de streaming et un décodeur matériel HEVC/AV1 compatible. Les modes non pris en charge interrompent la connexion. Le HDR nécessite aussi une surface d’affichage HDR 10 bits compatible.</string>
-    <string name="title_experimental_chipset_tuning">Réglage expérimental du chipset</string>
+    <string name="title_packed_444">Chroma complet</string>
+    <string name="summary_packed_444">Nécessite l’option de chroma complet de Rubylight, le nouveau moteur de streaming et un décodeur matériel HEVC/AV1 compatible. Les modes non pris en charge interrompent la connexion. Le HDR nécessite aussi une surface d’affichage HDR 10 bits compatible.</string>
+    <string name="title_experimental_chipset_tuning">Réglage du chipset</string>
     <string name="summary_experimental_chipset_tuning">Réglages supplémentaires de faible latence pour les décodeurs MediaTek Dimensity et Samsung Exynos. Si la vidéo se fige ou saccade, désactivez cette option.</string>
     <string name="scut_deleted_pc">PC supprimé</string>
     <string name="scut_not_paired">PC non associé</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Modifiez les autorisations dans les paramètres ou l’interface Web de votre hôte.</string>
     <string name="stream_input_denied">Le PC bloque la saisie depuis cet appareil. Autorisez-la dans les paramètres ou l’interface Web de l’hôte.</string>
     <string name="stream_bitrate">Débit</string>
-    <string name="stream_bitrate_help">Définissez les Mbit/s pour cette session.\nCela désactive le débit automatique.</string>
+    <string name="stream_bitrate_help">Définissez les Mbit/s pour cette session.\nCela désactive « L\'appareil contrôle le débit ».</string>
     <string name="stream_bitrate_invalid">Saisissez un débit de 0,5 à 2000 Mbit/s</string>
     <string name="stream_bitrate_applied">Débit appliqué par l’hôte : %1$.1f Mbit/s</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbit/s est sous le minimum de PyroWave de %2$d Mbit/s en %3$d×%4$d à %5$d FPS. L’image sera fragmentée.</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d %%</string>
     <string name="upscaling_direct">Désactivée (sortie directe)</string>
     <string name="title_vulkan_render">Rendu via Vulkan</string>
-    <string name="summary_vulkan_render">Expérimental. Affiche la vidéo via Vulkan avec sa propre gestion du rythme des images, pour les surcouches de génération d’images qui s’accrochent à Vulkan. Ajoute une passe de rendu, donc un peu de latence. Nécessite Android 10 ou version ultérieure. Non utilisé avec PyroWave. La mise à l’échelle est désactivée tant que cette option est activée.</string>
+    <string name="summary_vulkan_render">Affiche la vidéo via Vulkan avec sa propre gestion du rythme des images, pour les surcouches de génération d’images qui s’accrochent à Vulkan. Ajoute une passe de rendu, donc un peu de latence. Nécessite Android 10 ou version ultérieure. Non utilisé avec PyroWave. La mise à l’échelle est désactivée tant que cette option est activée.</string>
     <string name="vulkan_render_fallback">Le rendu Vulkan n’est pas utilisé. %1$s</string>
     <string name="vulkan_reason_pyrowave">La vidéo PyroWave ne l’utilise pas.</string>
     <string name="vulkan_reason_api">Il nécessite Android 10 ou version ultérieure.</string>

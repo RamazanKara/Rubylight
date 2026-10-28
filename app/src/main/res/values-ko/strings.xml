@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">실험적 전체 크로마</string>
-    <string name="summary_packed_444">Rubylight의 실험적 전체 크로마 옵션, 새 스트리밍 엔진, 호환되는 HEVC/AV1 하드웨어 디코더가 필요합니다. 지원하지 않는 모드는 연결을 중단합니다. HDR에는 호환되는 10비트 HDR 디스플레이 서피스도 필요합니다.</string>
-    <string name="title_experimental_chipset_tuning">실험적 칩셋 튜닝</string>
+    <string name="title_packed_444">전체 크로마</string>
+    <string name="summary_packed_444">Rubylight의 전체 크로마 옵션, 새 스트리밍 엔진, 호환되는 HEVC/AV1 하드웨어 디코더가 필요합니다. 지원하지 않는 모드는 연결을 중단합니다. HDR에는 호환되는 10비트 HDR 디스플레이 서피스도 필요합니다.</string>
+    <string name="title_experimental_chipset_tuning">칩셋 튜닝</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity 및 Samsung Exynos 디코더용 추가 저지연 설정입니다. 영상이 멈추거나 끊기면 끄세요.</string>
     <string name="scut_deleted_pc">PC 삭제됨</string>
     <string name="scut_not_paired">PC와 페어링되지 않음</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">호스트의 설정 또는 웹 UI에서 권한을 변경하세요.</string>
     <string name="stream_input_denied">PC가 이 기기의 입력을 차단합니다. 호스트의 설정 또는 웹 UI에서 허용하세요.</string>
     <string name="stream_bitrate">비트레이트</string>
-    <string name="stream_bitrate_help">이 세션의 Mbps를 설정합니다.\n자동 비트레이트가 꺼집니다.</string>
+    <string name="stream_bitrate_help">이 세션의 Mbps를 설정합니다.\n\'기기가 비트레이트 제어\'가 꺼집니다.</string>
     <string name="stream_bitrate_invalid">0.5~2000 Mbps 사이의 비트레이트를 입력하세요</string>
     <string name="stream_bitrate_applied">호스트가 %1$.1f Mbps를 적용했습니다</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps는 %3$d×%4$d, %5$d FPS에서 PyroWave 최솟값 %2$d Mbps보다 낮습니다. 화면이 깨집니다.</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">사용 안함(직접 출력)</string>
     <string name="title_vulkan_render">Vulkan으로 렌더링</string>
-    <string name="summary_vulkan_render">실험적 기능입니다. 자체 프레임 페이싱으로 Vulkan을 통해 영상을 표시하며, Vulkan에 연결되는 프레임 생성 오버레이용입니다. 렌더 패스가 하나 추가되어 지연이 조금 늘어납니다. Android 10 이상이 필요합니다. PyroWave에서는 사용되지 않습니다. 켜져 있는 동안 업스케일링은 꺼집니다.</string>
+    <string name="summary_vulkan_render">자체 프레임 페이싱으로 Vulkan을 통해 영상을 표시하며, Vulkan에 연결되는 프레임 생성 오버레이용입니다. 렌더 패스가 하나 추가되어 지연이 조금 늘어납니다. Android 10 이상이 필요합니다. PyroWave에서는 사용되지 않습니다. 켜져 있는 동안 업스케일링은 꺼집니다.</string>
     <string name="vulkan_render_fallback">Vulkan 렌더링을 사용하지 않습니다. %1$s</string>
     <string name="vulkan_reason_pyrowave">PyroWave 영상에서는 사용되지 않습니다.</string>
     <string name="vulkan_reason_api">Android 10 이상이 필요합니다.</string>

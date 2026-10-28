@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">USB デバイスを転送（試験運用）</string>
+    <string name="title_usb_forwarding">USB デバイスを転送</string>
     <string name="summary_usb_forwarding">ストリームメニューに USB デバイスを追加します。このデバイスに接続したペンタブレットやセキュリティキーなどを PC で使えるようになります。USB 転送に対応した PC が必要です。</string>
     <string name="stream_usb_devices">USB デバイス</string>
     <string name="usb_forwarding_pick_title">USB デバイスを転送</string>

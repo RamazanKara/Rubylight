@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_client_roaming">Roaming del client (sperimentale)</string>
+    <string name="title_client_roaming">Roaming del client</string>
     <string name="summary_client_roaming">Mantiene attivo lo stream quando questo dispositivo cambia rete. Funziona con i PC Rubylight che lo supportano.</string>
     <string name="title_roaming_metered">Continua con i dati mobili</string>
     <string name="summary_roaming_metered">Consente allo stream di passare ai dati mobili o a un\'altra rete a consumo. Lo streaming usa molti dati.</string>

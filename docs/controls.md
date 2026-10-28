@@ -15,7 +15,7 @@ The menu is one sheet:
 | Top row | **System keyboard** (Android's keyboard), **PC keyboard** (the full on-screen PC keyboard, see below), **Overlay** (show or hide the performance overlay) and **Microphone** (mute or unmute, when the PC offers a microphone). Overlay and Microphone switch in place. |
 | Input | Touch mode, Show mouse cursor (with a mouse attached), Show on-screen controls, Edit controller layout, Controls for this game, Keyboard & mouse. |
 | Display | Video scaling (Fit, Fill, Stretch or 1:1, local video without upscaling), Enable pinch zoom and pan, Reset zoom, **Overlay and diagnostics**, Picture-in-picture, Video output (with an external display). |
-| Quality | Set bitrate, Automatic stream quality and Automatic bitrate, where the host supports them. |
+| Quality | Set bitrate, Automatic stream quality and Device controls bitrate, where the host supports them. |
 | Host | Server commands, Send clipboard to host, Copy host clipboard, Open host web UI, Permissions and frame limits, as the host and its permissions allow. |
 | Bottom | Reconnect stream, Disconnect, and **Quit game** in red, which asks first. Remote Monitor and Input-only end their session instead. Disconnect also quits a game set to **Quit the game when I leave the stream** (see [leaving a game](#leaving-a-game)). |
 
@@ -71,7 +71,7 @@ For a GameSir G8+ MFi, use its green **Xbox mode** for direct USB input and rumb
 
 Android reads a Switch Pro Controller through its own input path; what that offers for motion, rumble and the Capture button depends on the device and Android version. For the direct USB driver:
 
-1. Enable **Settings → Controls → USB Switch Pro driver** (off by default).
+1. Open **Settings → Controls → More Controls settings** and enable **USB Switch Pro driver** (off by default).
 2. Connect a Nintendo Switch Pro Controller by USB and start a stream.
 3. Allow Android's USB access request. Denying it keeps the ordinary Android input path; unplug and reconnect to retry.
 

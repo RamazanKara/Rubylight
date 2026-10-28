@@ -114,7 +114,7 @@ public class HostMenuCoopTest {
     }
 
     @Test
-    public void theEntryIsMarkedExperimentalAndChoosesCoop() throws Exception {
+    public void theEntrySaysWhatItDoesAndChoosesCoop() throws Exception {
         try (ActivityController<ToolbarIconTintTest.Screen> controller =
                      Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
             ToolbarIconTintTest.Screen screen = controller.get();
@@ -129,7 +129,7 @@ public class HostMenuCoopTest {
             ActionSheet menu = HostMenu.build(screen, pc("pc"), PcGridAdapter.RowState.READY, null, chosen::add);
             menu.show();
             MaterialButton entry = row(menu.findViewById(android.R.id.content), label);
-            assertEquals("Join co-op\nExperimental", entry.getText().toString());
+            assertEquals("Join co-op\nTake a free player slot", entry.getText().toString());
             entry.performClick();
             Shadows.shadowOf(Looper.getMainLooper()).idle();
             assertEquals(List.of(HostMenu.COOP), chosen);

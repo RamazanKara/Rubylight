@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">启用自动码率</string>
-    <string name="stream_auto_bitrate_disable">停用自动码率</string>
+    <string name="stream_auto_bitrate_enable">启用“由设备控制码率”</string>
+    <string name="stream_auto_bitrate_disable">停用“由设备控制码率”</string>
     <string name="stream_auto_bitrate_help">根据你的网络连接调整码率。\n按此电脑保存；手动更改会将其关闭。</string>
     <string name="stream_pyrowave_bitrate_help">为此电脑自动调整 PyroWave。\n手动设置码率会将其关闭。</string>
     <string name="stream_auto_bitrate_failed">码率暂时更新失败。正在自动重试。</string>
-    <string name="stream_auto_bitrate_unavailable">此电脑不报告串流码率。此串流的自动码率已关闭。</string>
-    <string name="stream_auto_bitrate_status">自动码率：%1$.1f Mbps</string>
+    <string name="stream_auto_bitrate_unavailable">此电脑不报告串流码率。此串流的“由设备控制码率”已关闭。</string>
+    <string name="stream_auto_bitrate_status">由设备控制码率：%1$.1f Mbps</string>
     <string name="stream_bitrate_busy">主机繁忙。请稍后重试。</string>
-    <string name="title_auto_bitrate">自动码率</string>
+    <string name="title_auto_bitrate">由设备控制码率</string>
     <string name="dialog_auto_bitrate">连接或设备跟不上时降低码率，恢复后再提高。不会超过串流码率。这是所有电脑的默认设置；可在串流菜单中为单台电脑更改。</string>
 </resources>

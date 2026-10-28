@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">实验性全色度</string>
-    <string name="summary_packed_444">需要启用 Rubylight 的实验性全色度选项和新串流引擎，并使用兼容的 HEVC/AV1 硬件解码器。不支持的模式会终止连接。HDR 还需要兼容的 10 位 HDR 显示表面。</string>
-    <string name="title_experimental_chipset_tuning">实验性芯片组调优</string>
+    <string name="title_packed_444">全色度</string>
+    <string name="summary_packed_444">需要启用 Rubylight 的全色度选项和新串流引擎，并使用兼容的 HEVC/AV1 硬件解码器。不支持的模式会终止连接。HDR 还需要兼容的 10 位 HDR 显示表面。</string>
+    <string name="title_experimental_chipset_tuning">芯片组调优</string>
     <string name="summary_experimental_chipset_tuning">为联发科天玑和三星 Exynos 解码器提供额外的低延迟设置。如果视频停住或卡顿，请关闭此选项。</string>
     <string name="scut_deleted_pc">电脑已删除</string>
     <string name="scut_not_paired">电脑未配对</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">请在主机的设置或网页界面中更改权限。</string>
     <string name="stream_input_denied">电脑阻止了来自此设备的输入。请在主机的设置或网页界面中允许。</string>
     <string name="stream_bitrate">码率</string>
-    <string name="stream_bitrate_help">为本次会话设置 Mbps。\n这会关闭自动码率。</string>
+    <string name="stream_bitrate_help">为本次会话设置 Mbps。\n这会关闭“由设备控制码率”。</string>
     <string name="stream_bitrate_invalid">请输入 0.5 到 2000 Mbps 之间的码率</string>
     <string name="stream_bitrate_applied">主机已应用 %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps 低于 PyroWave 在 %3$d×%4$d、%5$d FPS 下的最低要求 %2$d Mbps，画面会碎裂。</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">关闭（直接输出）</string>
     <string name="title_vulkan_render">通过 Vulkan 渲染</string>
-    <string name="summary_vulkan_render">实验性功能。通过 Vulkan 显示视频，并使用其自带的帧节奏控制，适用于挂接 Vulkan 的帧生成叠加层。会增加一个渲染通道，因此延迟略有增加。需要 Android 10 或更高版本。PyroWave 不使用。开启期间超分辨率会关闭。</string>
+    <string name="summary_vulkan_render">通过 Vulkan 显示视频，并使用其自带的帧节奏控制，适用于挂接 Vulkan 的帧生成叠加层。会增加一个渲染通道，因此延迟略有增加。需要 Android 10 或更高版本。PyroWave 不使用。开启期间超分辨率会关闭。</string>
     <string name="vulkan_render_fallback">未使用 Vulkan 渲染。%1$s</string>
     <string name="vulkan_reason_pyrowave">PyroWave 视频不使用它。</string>
     <string name="vulkan_reason_api">它需要 Android 10 或更高版本。</string>

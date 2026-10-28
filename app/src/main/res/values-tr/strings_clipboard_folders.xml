@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Pano görüntüsünü ana bilgisayara gönder (Deneysel)</string>
-    <string name="stream_clipboard_image_receive">Ana bilgisayarın pano görüntüsünü kopyala (Deneysel)</string>
+    <string name="stream_clipboard_image_send">Pano görüntüsünü ana bilgisayara gönder</string>
+    <string name="stream_clipboard_image_receive">Ana bilgisayarın pano görüntüsünü kopyala</string>
     <string name="stream_clipboard_image_empty">Panoda görüntü yok</string>
     <string name="stream_clipboard_image_sent">Pano görüntüsü ana bilgisayara gönderildi</string>
     <string name="stream_clipboard_image_none">Ana bilgisayarın panosunda görüntü yok</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">Kaydetme penceresi açıkken kaydedilecek dosya kayboldu. Hiçbir şey kaydedilmedi.</string>
     <string name="folders_partial_left">%1$s Yarım kalan bir dosya %2$s konumunda duruyor.</string>
     <string name="folders_bad_path">Nightjar bu yolu açamıyor: %1$s</string>
-    <string name="host_menu_folders_note">Deneysel</string>
 </resources>

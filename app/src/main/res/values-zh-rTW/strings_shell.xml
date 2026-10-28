@@ -12,7 +12,6 @@
     <string name="host_unpair_message">電腦會忘記這台裝置，已儲存的遊戲庫也會在此清除。之後必須重新配對才能串流。電腦仍保留在清單中。</string>
     <string name="host_wake_needs_pairing">請在電腦開機時配對一次，以啟用喚醒</string>
     <string name="host_menu_sleep">讓電腦睡眠</string>
-    <string name="host_menu_sleep_note">實驗性</string>
     <string name="host_sleep_title">要讓 %1$s 進入睡眠嗎？</string>
     <string name="host_sleep_message">需先關閉電腦上的遊戲和串流。可透過 Wake-on-LAN 再次喚醒。</string>
     <string name="host_sleep_asking">正在詢問電腦…</string>

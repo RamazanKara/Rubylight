@@ -12,7 +12,6 @@
     <string name="host_unpair_message">Il PC dimentica questo dispositivo e la libreria salvata viene cancellata qui. Dovrai accoppiarlo di nuovo per lo streaming. Il PC resta nell’elenco.</string>
     <string name="host_wake_needs_pairing">Accoppia il PC una volta mentre è acceso per poterlo riattivare</string>
     <string name="host_menu_sleep">Sospendi PC</string>
-    <string name="host_menu_sleep_note">Sperimentale</string>
     <string name="host_sleep_title">Sospendere %1$s?</string>
     <string name="host_sleep_message">Prima chiudi giochi e stream sul PC. Wake-on-LAN può riattivarlo.</string>
     <string name="host_sleep_asking">Richiesta al PC in corso…</string>

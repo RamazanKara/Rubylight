@@ -53,6 +53,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro sürücüsü</string>
-    <string name="summary_usb_switch_pro">Deneysel. Kabloyla bağlı Nintendo Switch Pro Controller’ı doğrudan okur; hareket sensörleri, titreşim, Home ve Capture desteklenir.</string>
+    <string name="summary_usb_switch_pro">Kabloyla bağlı Nintendo Switch Pro Controller’ı doğrudan okur; hareket sensörleri, titreşim, Home ve Capture desteklenir.</string>
     <string name="usb_switch_pro_denied">USB erişimi yok; Switch Pro Controller Android girişini kullanmaya devam ediyor.\nTekrar denemek için kabloyu yeniden takın.</string>
 </resources>

@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Enable Automatic bitrate</string>
-    <string name="stream_auto_bitrate_disable">Disable Automatic bitrate</string>
+    <string name="stream_auto_bitrate_enable">Turn on Device controls bitrate</string>
+    <string name="stream_auto_bitrate_disable">Turn off Device controls bitrate</string>
     <string name="stream_auto_bitrate_help">Adjust bitrate to your connection.\nSaved for this PC; manual changes turn it off.</string>
     <string name="stream_pyrowave_bitrate_help">Auto-adjust PyroWave for this PC.\nManual bitrate turns this off.</string>
     <string name="stream_auto_bitrate_failed">Temporary bitrate update failure. Retrying automatically.</string>
-    <string name="stream_auto_bitrate_unavailable">This PC does not report its stream bitrate. Automatic bitrate is off for this stream.</string>
-    <string name="stream_auto_bitrate_status">Automatic bitrate: %1$.1f Mbps</string>
+    <string name="stream_auto_bitrate_unavailable">This PC does not report its stream bitrate. Device controls bitrate is off for this stream.</string>
+    <string name="stream_auto_bitrate_status">Device controls bitrate: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host busy. Try again in a moment.</string>
-    <string name="title_auto_bitrate">Automatic bitrate</string>
+    <string name="title_auto_bitrate">Device controls bitrate</string>
     <string name="dialog_auto_bitrate">Lowers the bitrate when your connection or device can\'t keep up, and raises it again when things recover. It never goes above the stream\'s bitrate. This is the default for every PC; the stream menu can change it for one PC.</string>
 </resources>

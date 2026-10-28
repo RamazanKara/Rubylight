@@ -12,7 +12,6 @@
     <string name="host_unpair_message">ПК забудет это устройство, а сохранённая библиотека будет удалена здесь. Для трансляции потребуется повторное сопряжение. ПК останется в списке.</string>
     <string name="host_wake_needs_pairing">Выполните сопряжение один раз, пока ПК включён, чтобы его можно было разбудить</string>
     <string name="host_menu_sleep">Спящий режим ПК</string>
-    <string name="host_menu_sleep_note">Экспериментально</string>
     <string name="host_sleep_title">Перевести %1$s в спящий режим?</string>
     <string name="host_sleep_message">Сначала закройте игры и трансляции на ПК. Wake-on-LAN может снова его разбудить.</string>
     <string name="host_sleep_asking">Запрос к ПК…</string>

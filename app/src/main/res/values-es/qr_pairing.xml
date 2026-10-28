@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="addpc_scan_qr">Scan QR code</string>
-    <string name="addpc_qr_hint">Experimental: turn on Pair with a QR code in the PC’s settings, show the code on its Devices page and scan it to add and pair the PC at once.</string>
+    <string name="addpc_qr_hint">Turn on Pair with a QR code in the PC’s settings, show the code on its Devices page and scan it to add and pair the PC at once.</string>
     <string name="addpc_qr_invalid">This is not a valid pairing code. Show a new QR code on the PC and scan it again.</string>
     <string name="addpc_qr_camera_denied">Scanning needs the camera. Allow it in Android’s settings for this app, or type the PC’s address.</string>
     <string name="addpc_qr_paired">PC added and paired</string>

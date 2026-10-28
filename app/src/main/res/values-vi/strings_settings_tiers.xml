@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings: each section's More row (settings_tiers.xml), the Advanced Experimental group
+     and the short line under Device controls bitrate while it is off. -->
+<resources>
+    <string name="settings_more">Cài đặt khác</string>
+    <string name="settings_more_count">Cài đặt %1$s khác (%2$d)</string>
+    <string name="settings_fewer">Thu gọn cài đặt %1$s</string>
+    <string name="settings_category_experimental">Tùy chọn khác</string>
+    <string name="summary_off_auto_bitrate">Tắt: PC tự điều chỉnh tốc độ bit (khuyên dùng)</string>
+</resources>

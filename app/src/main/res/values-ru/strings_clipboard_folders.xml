@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Отправить изображение из буфера обмена на хост (экспериментально)</string>
-    <string name="stream_clipboard_image_receive">Скопировать изображение из буфера обмена хоста (экспериментально)</string>
+    <string name="stream_clipboard_image_send">Отправить изображение из буфера обмена на хост</string>
+    <string name="stream_clipboard_image_receive">Скопировать изображение из буфера обмена хоста</string>
     <string name="stream_clipboard_image_empty">В буфере обмена нет изображения</string>
     <string name="stream_clipboard_image_sent">Изображение из буфера обмена отправлено на хост</string>
     <string name="stream_clipboard_image_none">В буфере обмена хоста нет изображения</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">Файл для сохранения был потерян, пока было открыто окно сохранения. Ничего не сохранено.</string>
     <string name="folders_partial_left">%1$s Неполный файл остался в %2$s.</string>
     <string name="folders_bad_path">Nightjar не может открыть этот путь: %1$s</string>
-    <string name="host_menu_folders_note">Экспериментально</string>
 </resources>

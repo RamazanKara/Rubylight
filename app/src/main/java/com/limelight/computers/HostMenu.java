@@ -80,11 +80,7 @@ public final class HostMenu {
                     });
         }
         if (hasSharedFolders(details, state)) {
-            sheet.addAction(R.drawable.ic_folder, activity.getString(R.string.folders_title),
-                    activity.getString(R.string.host_menu_folders_note)).setOnClickListener(v -> {
-                        sheet.dismiss();
-                        onAction.accept(SHARED_FOLDERS);
-                    });
+            add(sheet, onAction, SHARED_FOLDERS, R.drawable.ic_folder, activity.getString(R.string.folders_title));
         }
         if (state == PcGridAdapter.RowState.NOT_PAIRED) {
             add(sheet, onAction, PAIR, R.drawable.ic_lock, activity.getString(R.string.pcview_menu_pair_pc));
@@ -100,9 +96,10 @@ public final class HostMenu {
         }
         SleepEntry sleep = sleepEntry(details);
         if (sleep != SleepEntry.HIDDEN) {
-            MaterialButton action = sheet.addAction(R.drawable.ic_power, activity.getString(R.string.host_menu_sleep),
-                    activity.getString(sleep == SleepEntry.ENABLED ? R.string.host_menu_sleep_note :
-                            details.caps.availability(HostCapabilities.Feature.SLEEP).reasonText()));
+            String label = activity.getString(R.string.host_menu_sleep);
+            MaterialButton action = sleep == SleepEntry.ENABLED ? sheet.addAction(R.drawable.ic_power, label)
+                    : sheet.addAction(R.drawable.ic_power, label,
+                            activity.getString(details.caps.availability(HostCapabilities.Feature.SLEEP).reasonText()));
             if (sleep == SleepEntry.DISABLED) {
                 // Dimmed but still reachable by D-pad and TalkBack: choosing it asks the host again, which
                 // says where to allow it, or offers Sleep if it was allowed since.

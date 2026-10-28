@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">将剪贴板图片发送到主机（实验性）</string>
-    <string name="stream_clipboard_image_receive">复制主机剪贴板图片（实验性）</string>
+    <string name="stream_clipboard_image_send">将剪贴板图片发送到主机</string>
+    <string name="stream_clipboard_image_receive">复制主机剪贴板图片</string>
     <string name="stream_clipboard_image_empty">剪贴板中没有图片</string>
     <string name="stream_clipboard_image_sent">剪贴板图片已发送到主机</string>
     <string name="stream_clipboard_image_none">主机剪贴板中没有图片</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">保存对话框打开期间，要保存的文件信息丢失了。未保存任何内容。</string>
     <string name="folders_partial_left">%1$s 不完整的文件仍留在 %2$s。</string>
     <string name="folders_bad_path">Nightjar 无法打开此路径：%1$s</string>
-    <string name="host_menu_folders_note">实验性</string>
 </resources>

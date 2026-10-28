@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Invia immagine degli appunti all’host (sperimentale)</string>
-    <string name="stream_clipboard_image_receive">Copia immagine degli appunti dell’host (sperimentale)</string>
+    <string name="stream_clipboard_image_send">Invia immagine degli appunti all’host</string>
+    <string name="stream_clipboard_image_receive">Copia immagine degli appunti dell’host</string>
     <string name="stream_clipboard_image_empty">Gli appunti non contengono immagini</string>
     <string name="stream_clipboard_image_sent">Immagine degli appunti inviata all’host</string>
     <string name="stream_clipboard_image_none">Gli appunti dell’host non contengono immagini</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">Il file da salvare è andato perso mentre la finestra di salvataggio era aperta. Non è stato salvato nulla.</string>
     <string name="folders_partial_left">%1$s Rimane un file parziale in %2$s.</string>
     <string name="folders_bad_path">Nightjar non può aprire questo percorso: %1$s</string>
-    <string name="host_menu_folders_note">Sperimentale</string>
 </resources>

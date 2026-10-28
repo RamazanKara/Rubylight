@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Sắc độ đầy đủ thử nghiệm</string>
-    <string name="summary_packed_444">Cần tùy chọn sắc độ đầy đủ thử nghiệm của Rubylight, bộ máy truyền phát mới và bộ giải mã phần cứng HEVC/AV1 tương thích. Chế độ không được hỗ trợ sẽ dừng kết nối. HDR cũng cần bề mặt hiển thị HDR 10 bit tương thích.</string>
-    <string name="title_experimental_chipset_tuning">Tinh chỉnh chipset thử nghiệm</string>
+    <string name="title_packed_444">Sắc độ đầy đủ</string>
+    <string name="summary_packed_444">Cần tùy chọn sắc độ đầy đủ của Rubylight, bộ máy truyền phát mới và bộ giải mã phần cứng HEVC/AV1 tương thích. Chế độ không được hỗ trợ sẽ dừng kết nối. HDR cũng cần bề mặt hiển thị HDR 10 bit tương thích.</string>
+    <string name="title_experimental_chipset_tuning">Tinh chỉnh chipset</string>
     <string name="summary_experimental_chipset_tuning">Thiết lập độ trễ thấp bổ sung cho bộ giải mã MediaTek Dimensity và Samsung Exynos. Nếu video bị dừng hoặc giật, hãy tắt tùy chọn này.</string>
     <string name="scut_deleted_pc">Đã xóa PC</string>
     <string name="scut_not_paired">Chưa ghép đôi PC</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Thay đổi quyền trong cài đặt hoặc giao diện web của máy chủ.</string>
     <string name="stream_input_denied">PC chặn đầu vào từ thiết bị này. Hãy cho phép trong cài đặt hoặc giao diện web của máy chủ.</string>
     <string name="stream_bitrate">Tốc độ bit</string>
-    <string name="stream_bitrate_help">Đặt Mbps cho phiên này.\nThao tác này sẽ tắt tốc độ bit tự động.</string>
+    <string name="stream_bitrate_help">Đặt Mbps cho phiên này.\nThao tác này sẽ tắt “Thiết bị điều khiển tốc độ bit”.</string>
     <string name="stream_bitrate_invalid">Nhập tốc độ bit từ 0,5 đến 2000 Mbps</string>
     <string name="stream_bitrate_applied">Máy chủ đã áp dụng %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps thấp hơn mức tối thiểu %2$d Mbps của PyroWave ở %3$d×%4$d, %5$d FPS. Hình ảnh sẽ bị vỡ.</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Tắt (xuất trực tiếp)</string>
     <string name="title_vulkan_render">Kết xuất qua Vulkan</string>
-    <string name="summary_vulkan_render">Thử nghiệm. Hiển thị video qua Vulkan với cơ chế điều nhịp khung hình riêng, dành cho lớp phủ tạo khung hình bám vào Vulkan. Thêm một lượt kết xuất nên độ trễ tăng đôi chút. Cần Android 10 trở lên. Không dùng với PyroWave. Khi bật, nâng tỷ lệ bị tắt.</string>
+    <string name="summary_vulkan_render">Hiển thị video qua Vulkan với cơ chế điều nhịp khung hình riêng, dành cho lớp phủ tạo khung hình bám vào Vulkan. Thêm một lượt kết xuất nên độ trễ tăng đôi chút. Cần Android 10 trở lên. Không dùng với PyroWave. Khi bật, nâng tỷ lệ bị tắt.</string>
     <string name="vulkan_render_fallback">Không dùng kết xuất Vulkan. %1$s</string>
     <string name="vulkan_reason_pyrowave">Video PyroWave không dùng nó.</string>
     <string name="vulkan_reason_api">Cần Android 10 trở lên.</string>

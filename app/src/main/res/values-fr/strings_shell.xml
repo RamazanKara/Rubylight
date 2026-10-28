@@ -12,7 +12,6 @@
     <string name="host_unpair_message">Le PC oublie cet appareil et sa bibliothèque enregistrée est effacée ici. Vous devrez l’associer de nouveau pour diffuser. Le PC reste dans la liste.</string>
     <string name="host_wake_needs_pairing">Associez le PC une fois, allumé, pour pouvoir le réveiller</string>
     <string name="host_menu_sleep">Mettre le PC en veille</string>
-    <string name="host_menu_sleep_note">Expérimental</string>
     <string name="host_sleep_title">Mettre %1$s en veille ?</string>
     <string name="host_sleep_message">Les jeux et les streams du PC doivent d’abord être fermés. Wake-on-LAN peut le réveiller.</string>
     <string name="host_sleep_asking">Interrogation du PC…</string>

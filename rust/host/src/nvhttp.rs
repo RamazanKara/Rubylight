@@ -2660,9 +2660,13 @@ fn clipboard_what(kind: Option<ClipboardType>) -> &'static str {
 }
 /// How often a device that isn't paired gets a refusal logged.
 const UNPAIRED_REFUSAL_LOG_INTERVAL: Duration = Duration::from_secs(60);
+/// How many addresses get a refusal logged in one interval.
+const UNPAIRED_REFUSAL_LOG_PEERS: usize = 64;
 /// Size refusals of devices that aren't paired, refused before they are
-/// authenticated: logged once per address in [`UNPAIRED_REFUSAL_LOG_INTERVAL`],
-/// so one on the network can't fill the log.
+/// authenticated: logged once per address in [`UNPAIRED_REFUSAL_LOG_INTERVAL`]
+/// (IPv6 per /64, as a device's privacy addresses rotate within it), for at
+/// most [`UNPAIRED_REFUSAL_LOG_PEERS`] addresses, so one on the network can't
+/// fill the log.
 struct RefusalLog(Mutex<BTreeMap<std::net::IpAddr, (Instant, u32)>>);
 static UNPAIRED_REFUSALS: RefusalLog = RefusalLog::new();
 impl RefusalLog {
@@ -2672,7 +2676,12 @@ impl RefusalLog {
     /// Whether `peer`'s refusal at `now` is logged: with the count left
     /// unlogged since its last line, or `None` while it is suppressed too.
     fn admit(&self, peer: std::net::IpAddr, now: Instant) -> Option<u32> {
-        let peer = peer.to_canonical();
+        let peer = match peer.to_canonical() {
+            std::net::IpAddr::V6(v6) => {
+                std::net::IpAddr::V6((u128::from(v6) & (u128::MAX << 64)).into())
+            }
+            v4 => v4,
+        };
         let mut logged = self.0.lock().unwrap();
         if let Some((at, suppressed)) = logged.get_mut(&peer)
             && now.saturating_duration_since(*at) < UNPAIRED_REFUSAL_LOG_INTERVAL
@@ -2685,6 +2694,9 @@ impl RefusalLog {
         logged.retain(|_, (at, _)| {
             now.saturating_duration_since(*at) < UNPAIRED_REFUSAL_LOG_INTERVAL
         });
+        if logged.len() >= UNPAIRED_REFUSAL_LOG_PEERS {
+            return None;
+        }
         logged.insert(peer, (now, 0));
         Some(suppressed)
     }

@@ -1757,6 +1757,32 @@ fn unpaired_size_refusals_are_logged_once_a_minute_per_address() {
     assert_eq!(log.0.lock().unwrap().len(), 1);
 }
 
+#[test]
+fn unpaired_size_refusals_from_rotating_addresses_cannot_fill_the_log() {
+    let log = RefusalLog::new();
+    let now = Instant::now();
+    // A device's IPv6 privacy addresses rotate within its /64: one line a minute for all of them.
+    let first: std::net::IpAddr = "2001:db8:1:2::1".parse().unwrap();
+    assert_eq!(log.admit(first, now), Some(0));
+    for n in 2..100u16 {
+        let rotated = std::net::Ipv6Addr::new(0x2001, 0xdb8, 1, 2, n, n, n, n);
+        assert_eq!(log.admit(rotated.into(), now), None);
+    }
+    // Many addresses in one minute: only the first are logged.
+    let logged = (0..=255u8)
+        .filter(|&n| {
+            log.admit(std::net::Ipv4Addr::new(10, 0, 0, n).into(), now)
+                .is_some()
+        })
+        .count();
+    assert_eq!(logged, UNPAIRED_REFUSAL_LOG_PEERS - 1);
+    assert_eq!(log.0.lock().unwrap().len(), UNPAIRED_REFUSAL_LOG_PEERS);
+    // A minute on, they are logged again.
+    let later = now + UNPAIRED_REFUSAL_LOG_INTERVAL;
+    let ten: std::net::IpAddr = std::net::Ipv4Addr::new(10, 0, 0, 200).into();
+    assert_eq!(log.admit(ten, later), Some(0));
+}
+
 #[tokio::test]
 async fn an_unpaired_device_over_the_clipboard_limit_is_logged_once() {
     let f = Fixture::new();

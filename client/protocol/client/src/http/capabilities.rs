@@ -1020,7 +1020,12 @@ mod tests {
                 Feature::DolbyVision,
                 &[("4", true), ("8", true), ("3", false), ("x", false)][..],
             ),
-            ("HdrFormats", Feature::Hlg, &[("2", true), ("13", false), ("256", false)]),
+            // 131 and 143 add the PyroWave HLG offer flag to HLG; 128 is the flag alone.
+            (
+                "HdrFormats",
+                Feature::Hlg,
+                &[("2", true), ("131", true), ("143", true), ("13", false), ("128", false), ("256", false)],
+            ),
             (
                 "AudioCodecs",
                 Feature::AudioPassthrough,

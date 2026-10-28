@@ -89,7 +89,9 @@ const ENCODER_WRITES_HLG: bool = true;
 /// HDR (A): the `rubylight_protocol::hdr` formats this host can encode now:
 /// HLG on HEVC or AV1 Main10 while `hdr_hlg` is on, and Dolby Vision 8.1 (8.4
 /// with HLG) beside PQ on HEVC Main10 while `hdr_dolby_vision` is on
-/// (`extensions::hdr_offer`).
+/// (`extensions::hdr_offer`). `h.codecs` holds the PyroWave probe's bits too,
+/// so PyroWave Main10 adds HLG with the offer flag `hdr::PYROWAVE_HLG`; its
+/// conversion takes the same HLG curve from `gpu_color::constants`.
 fn hdr_formats(h: &Shared, config: &Config) -> u8 {
     butterpollo_core::extensions::hdr_offer(
         h.codecs.load(std::sync::atomic::Ordering::Acquire),

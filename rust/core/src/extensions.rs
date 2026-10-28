@@ -28,18 +28,25 @@ pub const CLIPBOARD_TYPE_PNG: &str = "png";
 const HEVC_MAIN10: u32 = 0x200;
 /// The `ServerCodecModeSupport` bit of AV1 Main10.
 const AV1_MAIN10: u32 = 0x2_0000;
+/// The `ServerCodecModeSupport` bit of PyroWave Main10 (4:2:0), from the
+/// separate PyroWave probe.
+const PYROWAVE_MAIN10: u32 = 0x0200_0000;
 
 /// The `hdr` formats a host with these `ServerCodecModeSupport` bits offers:
-/// HLG on HEVC or AV1 Main10 while `hlg` (`hdr_hlg`) is on, Dolby Vision 8.1
-/// on HEVC Main10 while `dolby_vision` (`hdr_dolby_vision`) is on, and Dolby
-/// Vision 8.4, which is HLG underneath, while both are, beside stock PQ. PQ
-/// alone is stock HDR and is not listed, so a host with nothing beyond it
-/// shows stock clients nothing new.
+/// HLG on HEVC, AV1 or PyroWave Main10 while `hlg` (`hdr_hlg`) is on, Dolby
+/// Vision 8.1 on HEVC Main10 while `dolby_vision` (`hdr_dolby_vision`) is on,
+/// and Dolby Vision 8.4, which is HLG underneath, while both are, beside stock
+/// PQ. HLG on PyroWave also sets the offer flag `hdr::PYROWAVE_HLG`, which 3.0
+/// rc hosts never sent. PQ alone is stock HDR and is not listed, so a host
+/// with nothing beyond it shows stock clients nothing new.
 pub fn hdr_offer(codecs: u32, hlg: bool, dolby_vision: bool) -> u8 {
     let hevc = codecs & HEVC_MAIN10 != 0;
     let mut formats = 0;
     if hlg && (hevc || codecs & AV1_MAIN10 != 0) {
         formats |= hdr::HLG;
+    }
+    if hlg && codecs & PYROWAVE_MAIN10 != 0 {
+        formats |= hdr::HLG | hdr::PYROWAVE_HLG;
     }
     if dolby_vision && hevc {
         formats |= hdr::DV_81;
@@ -108,10 +115,7 @@ impl Offered {
         let version = || VERSION.to_string();
         let mut fields = Vec::new();
         if self.hdr_formats & hdr::ALL != 0 {
-            fields.push((
-                hdr::SERVERINFO_FIELD,
-                (self.hdr_formats & hdr::ALL).to_string(),
-            ));
+            fields.push((hdr::SERVERINFO_FIELD, self.hdr_bits().to_string()));
         }
         if self.client_fec {
             fields.push((fec_report::SERVERINFO_FIELD, version()));
@@ -160,7 +164,7 @@ impl Offered {
             lines.push_str(&format!(
                 "a={}:{}\r\n",
                 hdr::DESCRIBE_ATTRIBUTE,
-                self.hdr_formats & hdr::ALL
+                self.hdr_bits()
             ));
         }
         if let Some(codecs) = self.codecs() {
@@ -234,8 +238,11 @@ impl Offered {
             if format & hdr::DOLBY_VISION != 0 && n.codec != 1 {
                 bail!("{attribute} {format} (Dolby Vision) needs HEVC");
             }
-            if format == hdr::HLG && !matches!(n.codec, 1 | 2) {
-                bail!("{attribute} {format} (HLG) needs HEVC or AV1");
+            if format == hdr::HLG
+                && !(matches!(n.codec, 1 | 2)
+                    || n.codec == 3 && self.hdr_formats & hdr::PYROWAVE_HLG != 0)
+            {
+                bail!("{attribute} {format} (HLG) needs HEVC or AV1, or PyroWave where offered");
             }
         }
         let codec = n.audio_codec;
@@ -255,6 +262,11 @@ impl Offered {
             bail!("unsupported audio layout: 7.1.4 (12 channels) was not offered");
         }
         Ok(())
+    }
+
+    /// The `HdrFormats` and `hdrFormats` mask: the formats and the offer flags.
+    fn hdr_bits(&self) -> u8 {
+        self.hdr_formats & (hdr::ALL | hdr::OFFER_FLAGS)
     }
 
     /// The `AudioCodecs` mask, Opus included, when anything besides Opus is offered.
@@ -503,6 +515,7 @@ mod tests {
             (hevc_main10, false, false),
             (av1_main10, false, true),
             (0x1 | 0x100 | 0x1_0000, true, true),
+            (0x0200_0000, false, true),
             (0, true, true),
         ] {
             assert_eq!(hdr_offer(codecs, hlg, dolby_vision), 0, "{codecs:#x}");
@@ -561,6 +574,93 @@ mod tests {
                 error.contains("(HLG) needs HEVC or AV1"),
                 "{codec}: {error}"
             );
+        }
+    }
+
+    #[test]
+    fn hlg_on_pyrowave_is_offered_with_its_flag_and_taken_only_then() {
+        let hevc_main10 = 0x1 | 0x100 | 0x200;
+        let pyrowave_main10 = 0x0200_0000;
+        // PyroWave Main10 with HLG on adds the flag; HLG alone, without
+        // PyroWave Main10 (8-bit or 4:4:4 only), or with HLG off adds nothing.
+        for (codecs, hlg, dolby_vision, formats) in [
+            (
+                hevc_main10 | pyrowave_main10,
+                true,
+                false,
+                hdr::PQ | hdr::HLG | hdr::PYROWAVE_HLG,
+            ),
+            (
+                hevc_main10 | pyrowave_main10,
+                true,
+                true,
+                hdr::ALL | hdr::PYROWAVE_HLG,
+            ),
+            (
+                pyrowave_main10,
+                true,
+                true,
+                hdr::PQ | hdr::HLG | hdr::PYROWAVE_HLG,
+            ),
+            (
+                hevc_main10 | pyrowave_main10,
+                false,
+                true,
+                hdr::PQ | hdr::DV_81,
+            ),
+            (
+                hevc_main10 | 0x0080_0000 | 0x0400_0000,
+                true,
+                false,
+                hdr::PQ | hdr::HLG,
+            ),
+            (pyrowave_main10, false, true, 0),
+        ] {
+            assert_eq!(
+                hdr_offer(codecs, hlg, dolby_vision),
+                formats,
+                "{codecs:#x} {hlg} {dolby_vision}"
+            );
+        }
+        let with_flag = |codecs, dolby_vision| Offered {
+            hdr_formats: hdr_offer(codecs, true, dolby_vision),
+            ..Offered::NONE
+        };
+        let hlg = with_flag(hevc_main10 | pyrowave_main10, false);
+        assert_eq!(hlg.serverinfo_fields(), [("HdrFormats", "131".to_owned())]);
+        assert_eq!(hlg.describe_lines(), "a=x-rl-video.hdrFormats:131\r\n");
+        let all = with_flag(hevc_main10 | pyrowave_main10, true);
+        assert_eq!(all.serverinfo_fields(), [("HdrFormats", "143".to_owned())]);
+        assert_eq!(all.describe_lines(), "a=x-rl-video.hdrFormats:143\r\n");
+        // The flag alone is no format, so it shows nothing.
+        let flag_only = Offered {
+            hdr_formats: hdr::PYROWAVE_HLG,
+            ..Offered::NONE
+        };
+        assert!(flag_only.serverinfo_fields().is_empty());
+        assert!(flag_only.describe_lines().is_empty());
+
+        let pick = |offered: &Offered, codec: u8, format: u8| {
+            offered.check_announce(&announce(&format!(
+                "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:{codec}\na=x-rl-video[0].hdrFormat:{format}\n"
+            )))
+        };
+        // HLG on PyroWave with the flag, beside HEVC; PQ on PyroWave as ever.
+        for (codec, format) in [(3, hdr::HLG), (3, hdr::PQ), (1, hdr::HLG)] {
+            pick(&all, codec, format).unwrap();
+        }
+        // Without the flag (a host whose PyroWave has no Main10) HLG on
+        // PyroWave is still refused.
+        let error = pick(&ALL_ON, 3, hdr::HLG).unwrap_err().to_string();
+        assert!(error.contains("(HLG) needs HEVC or AV1"), "{error}");
+        // Dolby Vision stays HEVC only, and the flag is never a format.
+        for format in [hdr::DV_81, hdr::DV_84] {
+            let error = pick(&all, 3, format).unwrap_err().to_string();
+            assert!(error.contains("(Dolby Vision) needs HEVC"), "{error}");
+        }
+        for format in [hdr::PYROWAVE_HLG, hdr::PYROWAVE_HLG | hdr::HLG, 16] {
+            let error = pick(&all, 3, format).unwrap_err().to_string();
+            assert!(error.contains("is not a single HDR format"), "{error}");
         }
     }
 

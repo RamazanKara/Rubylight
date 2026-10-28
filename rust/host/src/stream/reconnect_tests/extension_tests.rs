@@ -153,6 +153,45 @@ a=x-nv-audio.surround.channelMask:185919
     h.finish().await
 }
 
+/// A host whose PyroWave probe found Main10 adds the PyroWave HLG offer flag (128) to its
+/// formats, and a client that then asks for HLG on PyroWave streams it and gets the HDR mode
+/// message (0x010e) as on HEVC. Without PyroWave Main10 the same ANNOUNCE is refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hlg_on_pyrowave_is_offered_and_sends_the_hdr_mode_message() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let sdp = "a=x-nv-vqos[0].bitStreamFormat:3\r\na=x-nv-video[0].dynamicRangeMode:1\r\na=x-rl-video[0].hdrFormat:2\r\n";
+    let launch = h.launch_hdr(0, false, None).await?;
+    let describe = h.rtsp(&launch, 10, "DESCRIBE", "").await?;
+    assert!(
+        describe.contains("a=x-rl-video.hdrFormats:15\r\n"),
+        "{describe}"
+    );
+    let response = h
+        .rtsp(&launch, 11, "ANNOUNCE", &format!("{VIEWPORT}{sdp}"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(response.starts_with("RTSP/1.0 400"), "{response}");
+    assert!(response.contains("(HLG) needs HEVC or AV1"), "{response}");
+    h.h.codecs
+        .store(0x1 | 0x100 | 0x200 | 0x0200_0000, Ordering::Release);
+    let describe = h.rtsp(&launch, 12, "DESCRIBE", "").await?;
+    assert!(
+        describe.contains("a=x-rl-video.hdrFormats:143\r\n"),
+        "{describe}"
+    );
+    let (session, client) = h.connect_announcing(&launch, 0, sdp).await?;
+    assert_eq!((session.config.codec, session.config.hdr_format), (3, 2));
+    assert!(session.config.hlg());
+    until("HDR mode message", WAIT, || {
+        !client.hdr_modes.lock().unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(client.hdr_modes.lock().unwrap()[0].1[0], 1);
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
 /// A default host offers 7.1.4, so a client that asks for 12 channels streams with them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_default_host_streams_the_7_1_4_a_client_asks_for() -> Result<()> {

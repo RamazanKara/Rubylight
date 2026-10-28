@@ -116,6 +116,9 @@ pub enum ClientMessage {
     /// USB forwarding (0x553A): an attach request or a detach. [`crate::usb::Forwarder`]
     /// makes them.
     Usb(UsbMessage),
+    /// A clipboard item or the hello that starts the host's copies (0x5508), as
+    /// [`super::clipboard_sync::ClipboardSync`] makes them.
+    ClipboardSync(rubylight_protocol::clipboard_sync::Frame),
 }
 
 impl ClientMessage {
@@ -143,6 +146,7 @@ impl ClientMessage {
             Self::ControllerMicrophone(_) => ptype::CONTROLLER_MICROPHONE,
             Self::ControllerAudioStatus { .. } => ptype::CONTROLLER_AUDIO_CONTROL,
             Self::Usb(_) => ptype::USB,
+            Self::ClipboardSync(_) => ptype::CLIPBOARD_SYNC,
         }
     }
 
@@ -187,6 +191,7 @@ impl ClientMessage {
             }
             // `is_valid` refused what does not encode.
             Self::Usb(message) => message.encode().unwrap_or_default(),
+            Self::ClipboardSync(frame) => frame.encode().unwrap_or_default(),
         }
     }
 
@@ -231,7 +236,8 @@ impl ClientMessage {
             | Self::KeyboardLayout(_)
             | Self::ControllerMicrophone(_)
             | Self::ControllerAudioStatus { .. }
-            | Self::Usb(_) => Some(self.message_type()),
+            | Self::Usb(_)
+            | Self::ClipboardSync(_) => Some(self.message_type()),
             _ => None,
         }
     }
@@ -262,6 +268,7 @@ impl ClientMessage {
             }
             Self::KeyboardLayout(layout) => layout.encode().is_some(),
             Self::RateChange(request) => request.valid(),
+            Self::ClipboardSync(frame) => frame.encode().is_some(),
             // Only the client's kinds, and only what encodes.
             Self::Usb(message) => {
                 matches!(

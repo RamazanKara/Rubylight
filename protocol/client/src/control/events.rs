@@ -259,6 +259,12 @@ pub enum ControlEvent {
     /// USB forwarding from the host (0x553A): a tunnel token, a status or a detach, for
     /// [`crate::usb::Forwarder::on_message`]. Never coalesced.
     Usb(UsbMessage),
+    /// A clipboard frame from the host (0x5508), for
+    /// [`ClipboardSync::received`](super::clipboard_sync::ClipboardSync::received). Never
+    /// coalesced.
+    ClipboardSync(rubylight_protocol::clipboard_sync::Frame),
+    /// A 0x5508 payload of this many bytes that is not a v1 frame.
+    ClipboardSyncRejected(usize),
     ConnectionStatus(ConnectionStatus),
     /// Client roaming started, moved the stream, gave up, or was not needed.
     Roam(RoamEvent),
@@ -445,6 +451,14 @@ pub(crate) fn link_notice(p: &[u8]) -> Option<ControlEvent> {
 /// format's rules is dropped.
 pub(crate) fn text_input(p: &[u8]) -> Option<ControlEvent> {
     rubylight_protocol::text_input::TextInputNotice::decode(p).map(ControlEvent::TextInput)
+}
+
+/// A clipboard frame, or its rejection when it is not a v1 frame.
+pub(crate) fn clipboard_sync(p: &[u8]) -> ControlEvent {
+    match rubylight_protocol::clipboard_sync::Frame::decode(p) {
+        Some(frame) => ControlEvent::ClipboardSync(frame),
+        None => ControlEvent::ClipboardSyncRejected(p.len()),
+    }
 }
 
 /// Pipeline frame rates: 28 bytes, and a newer host may append fields. Anything over 256

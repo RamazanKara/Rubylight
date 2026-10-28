@@ -7,6 +7,7 @@ use super::transport::encode_query;
 use super::xml;
 use super::{der, Error};
 use crate::sdp::AudioConfiguration;
+use rubylight_protocol::clipboard_sync;
 use rubylight_protocol::fec_report::{FecChoice, LAUNCH_PARAMETER};
 use rubylight_protocol::rate_change;
 
@@ -97,6 +98,9 @@ pub struct LaunchRequest {
     pub rate_change: bool,
     /// The user confirmed closing the running app for this launch ([`CONFIRM_REPLACE`]).
     pub confirm_replace: bool,
+    /// Asks a Rubylight host for clipboard sync (`rlClipboardSync=1`); it offers 0x5508 on
+    /// DESCRIBE when the device's clipboard permissions allow it.
+    pub clipboard_sync: bool,
 }
 
 impl Default for LaunchRequest {
@@ -127,6 +131,7 @@ impl Default for LaunchRequest {
             fec: None,
             rate_change: false,
             confirm_replace: false,
+            clipboard_sync: false,
         }
     }
 }
@@ -285,6 +290,9 @@ impl LaunchRequest {
         if self.rate_change {
             q.push_str(&format!("&{}=1", rate_change::LAUNCH_PARAMETER));
         }
+        if self.clipboard_sync && caps.family() == Family::Rubylight {
+            q.push_str(&format!("&{}=1", clipboard_sync::LAUNCH_PARAMETER));
+        }
         q.push_str(CORE_LAUNCH_PARAMETERS);
         q
     }
@@ -380,6 +388,26 @@ mod tests {
         );
         assert_eq!(request.stream_frame_rate_millihz(&rubylight(), 60), 59_940);
         assert_eq!(request.stream_frame_rate_millihz(&rubylight(), 30), 30_000);
+    }
+
+    #[test]
+    fn clipboard_sync_is_asked_only_of_a_rubylight_host() {
+        let asked = LaunchRequest {
+            clipboard_sync: true,
+            ..request()
+        };
+        assert_eq!(
+            asked.query(&rubylight(), false),
+            request()
+                .query(&rubylight(), false)
+                .replace("&corever=1", "&rlClipboardSync=1&corever=1")
+        );
+        // Other hosts get exactly today's query.
+        let caps = HostCapabilities::UNKNOWN;
+        assert_eq!(asked.query(&caps, false), request().query(&caps, false));
+        assert!(!request()
+            .query(&rubylight(), false)
+            .contains("rlClipboardSync"));
     }
 
     #[test]

@@ -18,6 +18,8 @@ use nightjar_core::http::{
     ServerInfo, DEFAULT_HTTP_PORT,
 };
 
+use rubylight_protocol::pairing_uri::{PairingUri, PREFIX};
+
 use crate::strings::{en, trf};
 use crate::config::{HostRecord, Store};
 
@@ -216,6 +218,11 @@ pub const PAIR_OTP_PIN_WRONG: &str =
 pub const PAIR_IN_PROGRESS: &str = en("Finish or cancel the pending request on the host.");
 pub const PAIR_DECLINED: &str = en("Cancel the old request in your host's settings or web UI, then retry.");
 pub const PAIR_NETWORK: &str = en("Use the same network and start the host. Check its firewall, then retry.");
+pub const PAIR_LINK_MISMATCH: &str =
+    en("This PC's certificate does not match the pairing link, so Nightjar did not pair. Pair only with a link or QR code from your own PC.");
+pub const LINK_INVALID: &str = en("That pairing link is not valid. Show a new QR code on the PC and copy its link again.");
+pub const ADDRESS_INVALID: &str = en("That address is not valid");
+pub const CLIPBOARD_NO_LINK: &str = en("Copy the link under the QR code on the PC's Devices page, then paste it here.");
 pub const UNPAIR_FAILED: &str = en("Failed to unpair. The PC may still list this device.");
 pub const UNPAIR_NOT_PAIRED: &str = en("Device was not paired.");
 // Why the PC handed out no sleep token. A refusal shows the host's own words instead.
@@ -355,6 +362,42 @@ pub fn random_pin() -> String {
     format!("{:04}", hasher.finish() % 10_000)
 }
 
+/// What proves the pairing user is at the PC.
+enum Secret {
+    /// A PIN this device shows; the user types it on the PC.
+    Pin(String),
+    /// A one-time PIN and passphrase created on the PC.
+    OneTime { pin: String, passphrase: String },
+    /// A QR pairing link (Experimental): a one-time PIN, and the certificate the PC must have.
+    Link(Box<PairingUri>),
+}
+
+/// What was typed or pasted in Add PC.
+#[derive(Debug, PartialEq)]
+pub enum Entry {
+    /// An address with an optional HTTP port.
+    Address(String, Option<u16>),
+    /// A QR pairing link (`rubylight://pair?...`) to add the PC and pair with at once.
+    Link(Box<PairingUri>),
+}
+
+/// Reads an Add PC entry. A pairing link that does not parse is refused with [`LINK_INVALID`],
+/// never read as an address.
+pub fn parse_entry(text: &str) -> Result<Entry, &'static str> {
+    let text = text.trim();
+    if text.starts_with(PREFIX) {
+        let mut link = PairingUri::parse(text).ok_or(LINK_INVALID)?;
+        // Records keep IPv6 addresses without brackets, as typed ones are.
+        if let Some(bare) = link.host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+            link.host = bare.to_owned();
+        }
+        return Ok(Entry::Link(Box::new(link)));
+    }
+    crate::config::parse_address(text)
+        .map(|(address, port)| Entry::Address(address, port))
+        .ok_or(ADDRESS_INVALID)
+}
+
 /// What a pairing attempt that reached the host says to the user.
 fn pair_outcome(result: PairResult, one_time: bool) -> Result<String, String> {
     match result {
@@ -386,6 +429,8 @@ fn unpair_error(error: &nightjar_core::http::Error) -> String {
 fn pair_error(error: &nightjar_core::http::Error) -> String {
     match error {
         nightjar_core::http::Error::Io(_) => PAIR_NETWORK.into(),
+        // Pairing starts without a stored certificate, so only a link's fingerprint refuses one.
+        nightjar_core::http::Error::CertificateMismatch => PAIR_LINK_MISMATCH.into(),
         other => describe(other),
     }
 }
@@ -718,6 +763,22 @@ impl Hosts {
 
     /// Starts pairing with `pin`; the host's user types it in its web UI.
     pub fn pair(&mut self, id: u64, pin: String, passphrase: Option<String>) {
+        self.start_pairing(
+            id,
+            match passphrase {
+                Some(passphrase) => Secret::OneTime { pin, passphrase },
+                None => Secret::Pin(pin),
+            },
+        );
+    }
+
+    /// Pairs with a QR pairing link (Experimental): its one-time PIN, refused when the PC's
+    /// certificate is not the link's.
+    pub fn pair_link(&mut self, id: u64, link: PairingUri) {
+        self.start_pairing(id, Secret::Link(Box::new(link)));
+    }
+
+    fn start_pairing(&mut self, id: u64, secret: Secret) {
         self.cancel_pairing();
         let request = self.pairing_generation;
         let Some(identity) = self.identity.clone() else {
@@ -736,13 +797,14 @@ impl Hosts {
             }
         };
         self.pairing = Some((id, client.clone()));
-        let one_time = passphrase.is_some();
+        let one_time = !matches!(secret, Secret::Pin(_));
         self.spawn("pair", move || {
             let result = client
                 .server_info_http(true)
-                .and_then(|info| match &passphrase {
-                    Some(passphrase) => client.pair_with_passphrase(&info, &pin, passphrase),
-                    None => client.pair(&info, &pin),
+                .and_then(|info| match &secret {
+                    Secret::Pin(pin) => client.pair(&info, pin),
+                    Secret::OneTime { pin, passphrase } => client.pair_with_passphrase(&info, pin, passphrase),
+                    Secret::Link(link) => client.pair_with_link(&info, link),
                 })
                 .map_err(|e| pair_error(&e))
                 .and_then(|result| pair_outcome(result, one_time));
@@ -1683,6 +1745,32 @@ mod tests {
 
     fn accepted() -> Result<PowerReply, PowerError> {
         Ok(power_reply(202, "Sleep request accepted; native completion is not confirmed", [true, true, false], None))
+    }
+
+    #[test]
+    fn add_pc_reads_addresses_and_pairing_links() {
+        assert_eq!(parse_entry(" 192.168.1.20:48123 "), Ok(Entry::Address("192.168.1.20".into(), Some(48123))));
+        assert_eq!(parse_entry("[::1]"), Ok(Entry::Address("::1".into(), None)));
+        assert_eq!(parse_entry("pc:port"), Err(ADDRESS_INVALID));
+        let invitation = PairingUri {
+            host: "192.168.4.2".into(),
+            port: 48123,
+            otp: "4821".into(),
+            passphrase: "a&b=c d".into(),
+            unique_id: "0123ABCD".into(),
+            cert_sha256: [7; 32],
+            name: "Wohnzimmer-PC".into(),
+        };
+        let pasted = format!("  {}\n", invitation.to_uri());
+        assert_eq!(parse_entry(&pasted), Ok(Entry::Link(Box::new(invitation.clone()))));
+        let v6 = PairingUri { host: "[fe80::1%eth0]".into(), ..invitation.clone() };
+        let Ok(Entry::Link(link)) = parse_entry(&v6.to_uri()) else { panic!("an IPv6 link") };
+        assert_eq!(link.host, "fe80::1%eth0", "kept without brackets, like a typed address");
+        // A broken link is refused as a link, never added as an address.
+        let short = invitation.to_uri().replace(&"07".repeat(32), &"07".repeat(31));
+        assert_eq!(parse_entry(&short), Err(LINK_INVALID));
+        assert_eq!(parse_entry("rubylight://pair?v=2"), Err(LINK_INVALID));
+        assert_eq!(pair_error(&nightjar_core::http::Error::CertificateMismatch), PAIR_LINK_MISMATCH);
     }
 
     #[test]

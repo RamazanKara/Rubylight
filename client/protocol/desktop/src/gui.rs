@@ -22,6 +22,20 @@ pub struct Gui {
     focused: bool,
 }
 
+/// The system clipboard's text, or None when it holds none.
+pub fn clipboard_text() -> Option<String> {
+    // SAFETY: SDL is initialised before the launcher runs; the string SDL returns is freed here.
+    unsafe {
+        let text = SDL_GetClipboardText();
+        if text.is_null() {
+            return None;
+        }
+        let pasted = std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned();
+        SDL_free(text.cast());
+        Some(pasted).filter(|t| !t.is_empty())
+    }
+}
+
 /// Window scale: egui points to pixels, and window coordinates to pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct Scale {

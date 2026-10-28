@@ -233,7 +233,7 @@ public class ModernControllerTest {
         assertEquals(1.1f, controller.layout().spec(PadLayout.Control.DPAD).scale, 1e-3);
         assertEquals(View.GONE, controller.view(PadLayout.Control.DPAD).getVisibility());
         controller.destroy();
-        assertTrue("Saved for this game by default when it was shared before",
+        assertTrue("A game without its own layout saves for every game, so another game sees it",
                 controller("pc-1/app-8").layout().spec(PadLayout.Control.DPAD).hidden);
     }
 
@@ -259,5 +259,54 @@ public class ModernControllerTest {
         assertEquals(box[1] + box[3], bottom, 1);
         controller.hide();
         assertTrue(Float.isNaN(controller.topRowBottom()));
+    }
+
+    @Test public void closingTheEditorTellsTheMicrophoneButtonToMove() {
+        ModernController controller = controller(GAME);
+        int[] runs = {0};
+        controller.setOnLayoutChanged(() -> runs[0]++);
+        controller.startEditing();
+        controller.finishEditing(false);
+        controller.startEditing();
+        controller.finishEditing(true);
+        assertEquals("Cancel and Done both report", 2, runs[0]);
+        controller.finishEditing(true);
+        assertEquals("Nothing to close, nothing reported", 2, runs[0]);
+    }
+
+    /** A portrait phone: Hide and Reset turn into 48 dp icons so Cancel and Done stay whole on the row. */
+    @Test @Config(qualifiers = "w360dp-h800dp-port-xhdpi")
+    public void aNarrowEditorKeepsEveryButtonWholeAndTouchable() {
+        frame.getLayoutParams().width = 720;
+        frame.getLayoutParams().height = 1600;
+        ModernController controller = new ModernController(frame.getContext(), frame, sink, prefs, GAME);
+        controller.refreshLayout();
+        controller.startEditing();
+        for (int pass = 0; pass < 2; pass++) {
+            ShadowLooper.idleMainLooper();
+            frame.measure(View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1600, View.MeasureSpec.EXACTLY));
+            frame.layout(0, 0, 720, 1600);
+        }
+        PadEditor editor = (PadEditor) frame.getChildAt(frame.getChildCount() - 1);
+        editor.select(PadLayout.Control.DPAD);
+        ShadowLooper.idleMainLooper();
+        float density = frame.getResources().getDisplayMetrics().density;
+        View row = (View) editor.findViewById(com.limelight.R.id.pad_editor_done).getParent();
+        assertTrue("The editor laid out", row.getWidth() > 0);
+        int[] ids = {com.limelight.R.id.pad_editor_hide, com.limelight.R.id.pad_editor_reset,
+                com.limelight.R.id.pad_editor_cancel, com.limelight.R.id.pad_editor_done};
+        for (int id : ids) {
+            com.google.android.material.button.MaterialButton button = editor.findViewById(id);
+            String name = frame.getResources().getResourceEntryName(id);
+            assertTrue(name + " is " + button.getWidth() / density + " dp wide", button.getWidth() >= 48 * density - 1);
+            assertTrue(name + " is " + button.getHeight() / density + " dp tall", button.getHeight() >= 48 * density - 1);
+            assertTrue(name + " ends inside the panel", button.getRight() <= row.getWidth());
+        }
+        com.google.android.material.button.MaterialButton hide = editor.findViewById(com.limelight.R.id.pad_editor_hide);
+        assertEquals("Icon alone", 0, hide.getText().length());
+        assertEquals("Still named for TalkBack", frame.getContext().getString(com.limelight.R.string.pad_edit_hide),
+                hide.getContentDescription());
+        controller.destroy();
     }
 }

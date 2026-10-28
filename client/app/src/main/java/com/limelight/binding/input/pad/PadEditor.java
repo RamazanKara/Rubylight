@@ -29,7 +29,7 @@ import java.util.Locale;
 final class PadEditor extends FrameLayout {
     /** Moved controls land on this grid, so rows and mirrored pairs line up without effort. */
     static final float GRID_DP = 8;
-    private static final float SCALE_STEP = .1f, PANEL_WIDTH_DP = 400, PANEL_MARGIN_DP = 16;
+    private static final float SCALE_STEP = .1f, PANEL_WIDTH_DP = 400, PANEL_MARGIN_DP = 16, SHORT_SURFACE_DP = 480;
 
     private final ModernController controller;
     private final PadPainter painter;
@@ -39,15 +39,18 @@ final class PadEditor extends FrameLayout {
     private PadLayout.Control selected;
     private final Surface surface;
     private final View panel;
-    private final TextView selection, sizeText;
-    private final MaterialButton hide;
+    private final TextView selection, sizeText, hint;
+    private final MaterialButton hide, reset;
+    private boolean compactButtons;
     private final Slider opacity;
     private final float density;
     private boolean settingOpacity;
 
     PadEditor(Context context, ModernController controller, PadPainter painter, PadLayout draft,
               boolean perGame, boolean gameAvailable) {
-        super(context);
+        // The stream's dark surfaces whatever theme the activity has, like the stream menu.
+        super(new androidx.appcompat.view.ContextThemeWrapper(context, R.style.StreamTheme));
+        context = getContext();
         this.controller = controller;
         this.painter = painter;
         this.draft = draft;
@@ -61,11 +64,13 @@ final class PadEditor extends FrameLayout {
         selection = panel.findViewById(R.id.pad_editor_selection);
         sizeText = panel.findViewById(R.id.pad_editor_size);
         hide = panel.findViewById(R.id.pad_editor_hide);
+        reset = panel.findViewById(R.id.pad_editor_reset);
+        hint = panel.findViewById(R.id.pad_editor_hint);
         opacity = panel.findViewById(R.id.pad_editor_opacity);
         panel.findViewById(R.id.pad_editor_smaller).setOnClickListener(v -> scaleBy(-SCALE_STEP));
         panel.findViewById(R.id.pad_editor_larger).setOnClickListener(v -> scaleBy(SCALE_STEP));
         hide.setOnClickListener(v -> toggleHidden());
-        panel.findViewById(R.id.pad_editor_reset).setOnClickListener(v -> {
+        reset.setOnClickListener(v -> {
             draft.reset();
             select(null);
         });
@@ -87,10 +92,19 @@ final class PadEditor extends FrameLayout {
         super.onSizeChanged(w, h, oldw, oldh);
         // As wide as the design asks on a tablet, never wider than a phone in portrait leaves room for.
         int width = Math.round(Math.min(PANEL_WIDTH_DP * density, w - 2 * PANEL_MARGIN_DP * density));
+        // A narrow panel shows Hide and Reset as icons so Cancel and Done stay on the row; a short
+        // surface (a phone in landscape) drops the hint so the panel covers fewer controls.
+        boolean narrow = width < PANEL_WIDTH_DP * density, shortSurface = h < SHORT_SURFACE_DP * density;
         LayoutParams params = (LayoutParams) panel.getLayoutParams();
-        if (params.width != width) {
+        if (params.width != width || narrow != compactButtons || shortSurface == (hint.getVisibility() == VISIBLE)) {
             params.width = Math.max(0, width);
-            post(() -> panel.setLayoutParams(params));
+            post(() -> {
+                compactButtons = narrow;
+                hint.setVisibility(shortSurface ? GONE : VISIBLE);
+                updatePanel();
+                panel.setLayoutParams(params);
+                keepPanelClear();
+            });
         }
     }
 
@@ -110,6 +124,7 @@ final class PadEditor extends FrameLayout {
         selected = control;
         updatePanel();
         surface.invalidate();
+        post(this::keepPanelClear);
     }
 
     /** The controls the editor shows: everything but what the settings keep off. */
@@ -165,8 +180,31 @@ final class PadEditor extends FrameLayout {
         opacity.setValue(Math.max(PadLayout.MIN_OPACITY, Math.min(PadLayout.MAX_OPACITY, Math.round(spec.opacity / 5f) * 5)));
         settingOpacity = false;
         hide.setEnabled(selected != null);
-        hide.setText(selected != null && spec.hidden ? R.string.pad_edit_show : R.string.pad_edit_hide);
-        hide.setIconResource(selected != null && spec.hidden ? R.drawable.ic_visibility : R.drawable.ic_visibility_off);
+        boolean showing = selected != null && spec.hidden;
+        hide.setIconResource(showing ? R.drawable.ic_visibility : R.drawable.ic_visibility_off);
+        label(hide, getContext().getString(showing ? R.string.pad_edit_show : R.string.pad_edit_hide));
+        label(reset, getContext().getString(R.string.pad_edit_reset));
+    }
+
+    /** A labelled button, or on a narrow panel its icon alone with the label as description and tooltip. */
+    private void label(MaterialButton button, String text) {
+        // The style's own padding and minimum width, kept so a panel that widens again restores them.
+        if (button.getTag(R.id.pad_editor_hide) == null) {
+            button.setTag(R.id.pad_editor_hide, new int[] {button.getPaddingStart(), button.getPaddingEnd(), button.getMinWidth()});
+        }
+        int[] wide = (int[]) button.getTag(R.id.pad_editor_hide);
+        int touch = Math.round(PadLayout.MIN_TOUCH_DP * density);
+        // Icon alone: a 48 dp square with the icon in its middle, so four buttons fit a phone's row.
+        int side = compactButtons ? Math.max(0, (touch - button.getIconSize()) / 2) : 0;
+        button.setText(compactButtons ? null : text);
+        button.setContentDescription(compactButtons ? text : null);
+        button.setIconPadding(compactButtons ? 0 : Math.round(8 * density));
+        button.setIconGravity(compactButtons ? MaterialButton.ICON_GRAVITY_TEXT_START : MaterialButton.ICON_GRAVITY_START);
+        button.setPaddingRelative(compactButtons ? side : wide[0], button.getPaddingTop(),
+                compactButtons ? side : wide[1], button.getPaddingBottom());
+        button.setMinWidth(compactButtons ? touch : wide[2]);
+        button.setMinimumWidth(compactButtons ? touch : wide[2]);
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(button, compactButtons ? text : null);
     }
 
     /** The control's name for people: its label, or what it is when it has none. */

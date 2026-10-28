@@ -364,6 +364,7 @@
     <string name="stream_end_input">Terminer la session de saisie</string>
     <string name="launch_confirm_title">Confirmer sur cet appareil</string>
     <string name="launch_confirm_replace">Quitter l’application en cours et lancer celle-ci ?\nConfirmez dans les 60 secondes.</string>
+    <string name="launch_confirm_replace_named">Quitter %1$s et lancer %2$s ?\nConfirmez dans les 60 secondes.</string>
     <string name="launch_confirm_terminate">Quitter l’application ?\nLes clients de visualisation/saisie restent connectés.\nConfirmez dans les 60 secondes.</string>
     <string name="launch_confirm">Confirmer</string>
     <string name="summary_about">Version %1$s · Basé sur Moonlight (GPL-3.0)</string>

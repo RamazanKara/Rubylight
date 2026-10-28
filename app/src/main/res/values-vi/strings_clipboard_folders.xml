@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">Bảng nhớ tạm của máy chủ không có hình ảnh</string>
     <string name="stream_clipboard_image_received">Đã sao chép hình ảnh của máy chủ vào bảng nhớ tạm</string>
     <string name="clipboard_image_too_large">Hình ảnh quá lớn cho bảng nhớ tạm của máy chủ</string>
+    <string name="clipboard_image_too_large_here">Hình ảnh của máy chủ quá lớn để sao chép vào thiết bị này</string>
     <string name="clipboard_image_not_png">Không đọc được hình ảnh</string>
     <string name="clipboard_image_no_host">Máy chủ này không chia sẻ được hình ảnh qua bảng nhớ tạm</string>
     <string name="clipboard_image_forbidden">Máy chủ không cho thiết bị này dùng bảng nhớ tạm của nó</string>

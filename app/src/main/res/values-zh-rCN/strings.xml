@@ -364,6 +364,7 @@
     <string name="stream_end_input">结束输入会话</string>
     <string name="launch_confirm_title">在此设备上确认</string>
     <string name="launch_confirm_replace">要退出正在运行的应用并启动此应用吗？\n请在 60 秒内确认。</string>
+    <string name="launch_confirm_replace_named">要退出 %1$s 并启动 %2$s 吗？\n请在 60 秒内确认。</string>
     <string name="launch_confirm_terminate">要退出该应用吗？\n监视/输入客户端将保持连接。\n请在 60 秒内确认。</string>
     <string name="launch_confirm">确认</string>
     <string name="summary_about">版本 %1$s · 基于 Moonlight (GPL-3.0)</string>

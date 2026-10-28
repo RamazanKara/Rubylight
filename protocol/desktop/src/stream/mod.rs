@@ -325,6 +325,14 @@ fn offered_formats(settings: &Settings, scm: u32, decodable: &(u32, String)) -> 
     color::offer(base, color_wants(settings), decodable.0, &decodable.1, scm)
 }
 
+/// Whether the launch says `hdrMode=0`: an SDR stream that offers a 10-bit format. Without it a
+/// host streams that format as HDR, and an SDR display ends the stream. The format is picked
+/// after the launch, so a stream that ends up 8-bit says it too: for an 8-bit format it means
+/// what saying nothing does.
+fn launches_ten_bit_sdr(settings: &Settings, offer: &color::Offer) -> bool {
+    !settings.hdr && offer.formats & VIDEO_FORMAT_MASK_10BIT != 0
+}
+
 fn refusal_text(refusal: &color::Refusal) -> String {
     use color::Refusal;
     match refusal {
@@ -885,7 +893,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let key_id_bytes: [u8; 4] = random_bytes();
     let ri_key_id = i32::from_be_bytes(key_id_bytes) & 0x7FFF_FFFF;
     let refresh_x100 = (plan.display.refresh_hz * 100.0).round() as u32;
-    let request = LaunchRequest {
+    let mut request = LaunchRequest {
         app_id: plan.app.id,
         app_uuid: plan.app.uuid.clone(),
         role,
@@ -942,6 +950,12 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
         }
     }
+    let scm = plan
+        .info
+        .capabilities
+        .trusted_codec_mode_support(plan.info.server_codec_mode_support);
+    let offer = offered_formats(settings, scm, &plan.color_decodable);
+    request.ten_bit_sdr = launches_ten_bit_sdr(settings, &offer);
     let bitrate = if probes_first_bitrate(settings, plan.resume, &plan.info) {
         match client.probe_link(&plan.info) {
             Ok(mbps) => {
@@ -986,10 +1000,6 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     if interrupt.is_interrupted() {
         return Err("Cancelled.".into());
     }
-    let scm = plan
-        .info
-        .capabilities
-        .trusted_codec_mode_support(plan.info.server_codec_mode_support);
     // The interface the system sends this host's traffic over decides, not the internet
     // connection; the connection is the fallback when that lookup tells nothing.
     let toward = crate::network::toward(&plan.record.address);
@@ -1028,7 +1038,6 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         BeamRace::Off => {}
     }
     let race_ask = race_request(beam, early_decode(settings.early_decode), height);
-    let offer = offered_formats(settings, scm, &plan.color_decodable);
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -3942,6 +3951,26 @@ mod tests {
         let both = offered_formats(&Settings { prefer_yuv444: true, sdr_10bit: true, ..hevc }, COLOR_SCM, &decodes_all());
         assert_eq!(color_notice(&both, VIDEO_FORMAT_H265_REXT8_444).as_deref(),
             Some("Streaming in YUV 4:4:4.\n10-bit SDR isn’t used, so the stream is 8-bit: 4:4:4 is on, and the PC takes 4:4:4 or 10-bit, not both."));
+    }
+
+    #[test]
+    fn a_ten_bit_sdr_offer_launches_with_hdr_mode_zero() {
+        // Hardware lane 4a: without hdrMode=0 the host streamed 10-bit SDR as HDR and the SDR
+        // display ended the stream at once, for HEVC Main10 and AV1 alike.
+        for codec in [CodecPreference::Hevc, CodecPreference::Av1] {
+            let sdr10 = Settings { sdr_10bit: true, codec, ..Default::default() };
+            let offer = offered_formats(&sdr10, COLOR_SCM, &decodes_all());
+            assert!(launches_ten_bit_sdr(&sdr10, &offer), "{codec:?}");
+            let request = LaunchRequest { ten_bit_sdr: launches_ten_bit_sdr(&sdr10, &offer), ..Default::default() };
+            assert!(request.query(&nightjar_core::http::HostCapabilities::UNKNOWN, false).contains("&hdrMode=0&"));
+            // HDR asks for HDR; plain 8-bit, and 10-bit the PC or the decoder can't do, say nothing.
+            let hdr = Settings { hdr: true, ..sdr10.clone() };
+            assert!(!launches_ten_bit_sdr(&hdr, &offered_formats(&hdr, COLOR_SCM, &decodes_all())));
+            let plain = Settings { codec, ..Default::default() };
+            assert!(!launches_ten_bit_sdr(&plain, &offered_formats(&plain, COLOR_SCM, &decodes_all())));
+            assert!(!launches_ten_bit_sdr(&sdr10, &offered_formats(&sdr10, SCM_H264 | SCM_HEVC | SCM_AV1_MAIN8, &decodes_all())));
+            assert!(!launches_ten_bit_sdr(&sdr10, &offered_formats(&sdr10, COLOR_SCM, &(0, "no".into()))));
+        }
     }
 
     #[test]

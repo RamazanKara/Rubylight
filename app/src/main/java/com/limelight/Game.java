@@ -1028,6 +1028,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_UNIQUEID = "UniqueId";
     public static final String EXTRA_PC_UUID = "UUID";
     public static final String EXTRA_PC_NAME = "PcName";
+    /** The running game this start replaces, named in the host's confirmation prompt. */
+    public static final String EXTRA_REPLACED_APP_NAME = "ReplacedAppName";
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
     private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
@@ -4124,7 +4126,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     /** The stream started again, {@code why} (a {@link LaunchSource}); the log keeps the start that opened it. */
     private Intent createStreamHandoffIntent(String why) {
         rememberMicrophoneMute();
-        return LaunchSource.put(new Intent(getIntent()), LaunchSource.again(why, getIntent()));
+        Intent again = LaunchSource.put(new Intent(getIntent()), LaunchSource.again(why, getIntent()));
+        // The game this start replaced may be long gone: another device's could be running by now.
+        again.removeExtra(EXTRA_REPLACED_APP_NAME);
+        return again;
     }
 
     private Intent createReconnectIntent() {
@@ -4522,10 +4527,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> placeClipboardImage(clipboard, incoming, generation));
             } catch (ClipboardImageException e) {
                 LimeLog.warning("Clipboard image refused: " + e.getMessage());
-                showClipboardImageResult(ClipboardImages.message(e.reason), generation);
+                showClipboardImageResult(ClipboardImages.message(e.reason, send), generation);
             } catch (OutOfMemoryError e) {
                 LimeLog.warning("Clipboard image out of memory: " + e);
-                showClipboardImageResult(R.string.clipboard_image_too_large, generation);
+                showClipboardImageResult(ClipboardImages.message(ClipboardImageException.Reason.TOO_LARGE, send),
+                        generation);
             } catch (IOException | XmlPullParserException | RuntimeException e) {
                 showHostActionError(e, generation);
             } finally {
@@ -7312,7 +7318,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             launchConfirmationDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(
                     new androidx.appcompat.view.ContextThemeWrapper(this, R.style.StreamTheme))
                     .setTitle(R.string.launch_confirm_title)
-                    .setMessage(confirmation.isTerminate() ? R.string.launch_confirm_terminate : R.string.launch_confirm_replace)
+                    .setMessage(launchConfirmationMessage(confirmation))
                     .setPositiveButton(R.string.launch_confirm, (dialog, which) -> {
                         confirmation.confirm(LaunchConfirmation.nowMs());
                         spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
@@ -7329,6 +7335,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             launchConfirmationDialog.setCanceledOnTouchOutside(false);
             launchConfirmationDialog.show();
         });
+    }
+
+    /** Names the running game and this one when the start knew both; otherwise "the running app". */
+    private String launchConfirmationMessage(LaunchConfirmation confirmation) {
+        if (confirmation.isTerminate()) {
+            return getString(R.string.launch_confirm_terminate);
+        }
+        String replaced = getIntent().getStringExtra(EXTRA_REPLACED_APP_NAME);
+        return replaced != null && appName != null
+                ? getString(R.string.launch_confirm_replace_named, replaced, appName)
+                : getString(R.string.launch_confirm_replace);
     }
 
     @Override

@@ -30,6 +30,9 @@ public abstract class VideoDecoderRenderer {
      */
     public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) { return 0; }
 
+    /** The video formats to negotiate once pickHdrFormat chose {@code hdrFormat}: the same unless it needs another codec. */
+    public int videoFormatsForHdrFormat(int hdrFormat, int videoFormats) { return videoFormats; }
+
     /** What this stream's ANNOUNCE asked for (0 for stock HDR10), set right before setup. */
     public void setAnnouncedHdrFormat(int format) {}
 

@@ -364,6 +364,7 @@
     <string name="stream_end_input">入力セッションを終了</string>
     <string name="launch_confirm_title">このデバイスで確認</string>
     <string name="launch_confirm_replace">実行中のアプリを終了して、このアプリを起動しますか？\n60 秒以内に確定してください。</string>
+    <string name="launch_confirm_replace_named">%1$s を終了して %2$s を開始しますか？\n60 秒以内に確定してください。</string>
     <string name="launch_confirm_terminate">アプリを終了しますか？\nモニター/入力クライアントは接続されたままです。\n60 秒以内に確定してください。</string>
     <string name="launch_confirm">確定</string>
     <string name="summary_about">バージョン %1$s · Moonlight（GPL-3.0）ベース</string>

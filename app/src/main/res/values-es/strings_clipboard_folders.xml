@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">El portapapeles del servidor no tiene ninguna imagen</string>
     <string name="stream_clipboard_image_received">Imagen del servidor copiada al portapapeles</string>
     <string name="clipboard_image_too_large">La imagen es demasiado grande para el portapapeles del servidor</string>
+    <string name="clipboard_image_too_large_here">La imagen del servidor es demasiado grande para copiarla a este dispositivo</string>
     <string name="clipboard_image_not_png">No se pudo leer la imagen</string>
     <string name="clipboard_image_no_host">Este servidor no puede compartir imágenes del portapapeles</string>
     <string name="clipboard_image_forbidden">El servidor no permite a este dispositivo usar su portapapeles</string>

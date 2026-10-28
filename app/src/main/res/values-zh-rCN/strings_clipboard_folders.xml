@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">主机剪贴板中没有图片</string>
     <string name="stream_clipboard_image_received">已将主机图片复制到剪贴板</string>
     <string name="clipboard_image_too_large">图片太大，主机剪贴板无法容纳</string>
+    <string name="clipboard_image_too_large_here">主机图片太大，无法复制到此设备</string>
     <string name="clipboard_image_not_png">无法读取图片</string>
     <string name="clipboard_image_no_host">此主机无法共享剪贴板图片</string>
     <string name="clipboard_image_forbidden">主机不允许此设备使用其剪贴板</string>

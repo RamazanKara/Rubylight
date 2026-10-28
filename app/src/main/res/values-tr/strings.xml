@@ -364,6 +364,7 @@
     <string name="stream_end_input">Giriş oturumunu sonlandır</string>
     <string name="launch_confirm_title">Bu cihazda onaylayın</string>
     <string name="launch_confirm_replace">Çalışan uygulamadan çıkılıp bu uygulama başlatılsın mı?\n60 saniye içinde onaylayın.</string>
+    <string name="launch_confirm_replace_named">%1$s oyunundan çıkılıp %2$s başlatılsın mı?\n60 saniye içinde onaylayın.</string>
     <string name="launch_confirm_terminate">Uygulamadan çıkılsın mı?\nMonitör/giriş istemcileri bağlı kalır.\n60 saniye içinde onaylayın.</string>
     <string name="launch_confirm">Onayla</string>
     <string name="summary_about">Sürüm %1$s · Moonlight tabanlı (GPL-3.0)</string>

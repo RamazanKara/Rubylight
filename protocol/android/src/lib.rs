@@ -473,6 +473,16 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getPendingAudi
     engine::with_session(0, |s| s.pending_audio_ms() as jint)
 }
 
+/// The Opus concealer for the AAudio callback (`aaudio_output.c`), as a C function pointer.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_audioConcealer(
+    _: JNIEnv,
+    _: JClass,
+) -> jlong {
+    let conceal: unsafe extern "C" fn(*mut i16, i32) -> i32 = renderers::conceal;
+    conceal as usize as jlong
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getPendingVideoFrames(
     _: JNIEnv,

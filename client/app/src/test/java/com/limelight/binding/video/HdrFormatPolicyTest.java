@@ -5,6 +5,8 @@ import static org.junit.Assert.*;
 import android.media.MediaFormat;
 import android.view.Display;
 
+import com.limelight.nvstream.jni.MoonBridge;
+
 import org.junit.Test;
 
 /** Made-up capabilities: the bits are rubylight_protocol::hdr's, the types Display.HdrCapabilities'. */
@@ -79,6 +81,38 @@ public class HdrFormatPolicyTest {
         assertTrue(HdrFormatPolicy.dolbyVision(HdrFormatPolicy.DV_84));
         assertFalse(HdrFormatPolicy.dolbyVision(HdrFormatPolicy.HLG));
         assertFalse(HdrFormatPolicy.dolbyVision(0));
+    }
+
+    @Test
+    public void dolbyVisionOnTheAutomaticCodecLeavesAv1OutForHevc() {
+        // The TCL C6K's formats: H.264, HEVC Main10 and AV1 Main10. The handshake would take AV1
+        // and the ANNOUNCE then drops Dolby Vision for AV1 HDR10.
+        int tv = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10 |
+                MoonBridge.VIDEO_FORMAT_AV1_MAIN8 | MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        int withoutAv1 = tv & ~MoonBridge.VIDEO_FORMAT_MASK_AV1;
+        assertEquals(withoutAv1, HdrFormatPolicy.videoFormats(HdrFormatPolicy.DV_81, tv, true));
+        assertEquals(withoutAv1, HdrFormatPolicy.videoFormats(HdrFormatPolicy.DV_84, tv, true));
+        // Any other format, a codec the user chose, or no HEVC Main10 to carry it: unchanged.
+        for (int format : new int[] {0, HdrFormatPolicy.PQ, HdrFormatPolicy.HLG}) {
+            assertEquals(tv, HdrFormatPolicy.videoFormats(format, tv, true));
+        }
+        assertEquals(tv, HdrFormatPolicy.videoFormats(HdrFormatPolicy.DV_81, tv, false));
+        int noHevc10 = tv & ~MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        assertEquals(noHevc10, HdrFormatPolicy.videoFormats(HdrFormatPolicy.DV_81, noHevc10, true));
+        assertEquals(withoutAv1, HdrFormatPolicy.videoFormats(HdrFormatPolicy.DV_81, withoutAv1, true));
+    }
+
+    @Test
+    public void theCodecsThatCarryAFormatAreItsCarriers() {
+        // Profile 8 is HEVC Main10 only; HLG and HDR10 go on any 10-bit codec.
+        assertEquals(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.carriers(HdrFormatPolicy.DV_81));
+        assertEquals(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.carriers(HdrFormatPolicy.DV_84));
+        assertEquals(0, HdrFormatPolicy.carriers(HdrFormatPolicy.HLG));
+        assertEquals(0, HdrFormatPolicy.carriers(0));
+        assertEquals("HEVC", HdrFormatPolicy.codecNames(HdrFormatPolicy.carriers(HdrFormatPolicy.DV_81)));
+        assertEquals("AV1", HdrFormatPolicy.codecNames(MoonBridge.VIDEO_FORMAT_MASK_AV1));
+        assertEquals("AV1 and HEVC", HdrFormatPolicy.codecNames(MoonBridge.VIDEO_FORMAT_AV1_MAIN10 |
+                MoonBridge.VIDEO_FORMAT_H265));
     }
 
     @Test

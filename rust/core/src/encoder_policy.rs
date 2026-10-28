@@ -1131,7 +1131,10 @@ mod tests {
             references: 1,
             ..Default::default()
         };
-        let mut recovery = crate::ltr::References::new(amf_ltr_frames(&config, &stream));
+        let mut recovery = crate::ltr::References::new(
+            amf_ltr_frames(&config, &stream),
+            crate::ltr::Counter::for_codec(stream.codec),
+        );
         for frame in 1..=64 {
             let plan = recovery.plan(frame, frame == 1);
             assert!(plan.mark.is_none());

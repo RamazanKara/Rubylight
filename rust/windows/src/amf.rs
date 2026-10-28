@@ -1486,16 +1486,10 @@ impl Encoder {
     pub fn invalidation_pending(&self) -> bool {
         self.references.invalidation_pending()
     }
+    /// False asks for a keyframe: no long-term reference repairs the range,
+    /// or the client's decoder could not order the recovery frame
+    /// ([`butterpollo_core::ltr::Counter`]).
     pub fn invalidate_ref_frames(&mut self, first: u64, last: u64) -> bool {
-        // VCN AVC uses a four-bit frame_num with POC type 2. A decoder cannot
-        // reliably infer a missing counter wrap. Use a recovery IDR for that
-        // window, and keep LTR recovery for losses within the same epoch.
-        if self.codec == 0
-            && self.references.enabled()
-            && first.saturating_sub(2) / 16 != self.index as u64 / 16
-        {
-            return false;
-        }
         self.references.invalidate(first, last)
     }
     fn ltr_properties(&self) -> [&'static str; 4] {
@@ -1584,7 +1578,10 @@ impl Encoder {
         })();
         match result {
             Ok(count) => {
-                self.references = butterpollo_core::ltr::References::new(count);
+                self.references = butterpollo_core::ltr::References::new(
+                    count,
+                    butterpollo_core::ltr::Counter::for_codec(self.codec),
+                );
                 tracing::info!(count, "AMF long-term reference recovery enabled");
             }
             Err(error) => {

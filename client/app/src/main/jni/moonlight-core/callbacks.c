@@ -22,6 +22,8 @@
 #include <cpu-features.h>
 
 static OpusMSDecoder* Decoder;
+// Guards Decoder: the decode thread decodes with it, the AAudio callback conceals a stall with it.
+static pthread_mutex_t DecoderLock = PTHREAD_MUTEX_INITIALIZER;
 static OPUS_MULTISTREAM_CONFIGURATION OpusConfig;
 
 static JavaVM *JVM;
@@ -255,6 +257,7 @@ int BridgeArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusCon
         err = -1;
     }
     if (err == 0) {
+        pthread_mutex_lock(&DecoderLock);
         memcpy(&OpusConfig, opusConfig, sizeof(*opusConfig));
         Decoder = opus_multistream_decoder_create(opusConfig->sampleRate,
                                                   opusConfig->channelCount,
@@ -262,6 +265,7 @@ int BridgeArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusCon
                                                   opusConfig->coupledStreams,
                                                   opusConfig->mapping,
                                                   &err);
+        pthread_mutex_unlock(&DecoderLock);
         if (Decoder == NULL) {
             (*env)->CallStaticVoidMethod(env, GlobalBridgeClass, BridgeArCleanupMethod);
             return -1;
@@ -289,7 +293,10 @@ void BridgeArStop(void) {
 void BridgeArCleanup() {
     JNIEnv* env = GetThreadEnv();
 
+    pthread_mutex_lock(&DecoderLock);
     opus_multistream_decoder_destroy(Decoder);
+    Decoder = NULL;
+    pthread_mutex_unlock(&DecoderLock);
 
     (*env)->DeleteGlobalRef(env, DecodedAudioBuffer);
 
@@ -301,12 +308,14 @@ void BridgeArDecodeAndPlaySample(char* sampleData, int sampleLength) {
 
     jshort* decodedData = (*env)->GetPrimitiveArrayCritical(env, DecodedAudioBuffer, NULL);
 
-    int decodeLen = opus_multistream_decode(Decoder,
+    pthread_mutex_lock(&DecoderLock);
+    int decodeLen = Decoder == NULL ? -1 : opus_multistream_decode(Decoder,
                                             (const unsigned char*)sampleData,
                                             sampleLength,
                                             decodedData,
                                             OpusConfig.samplesPerFrame,
                                             0);
+    pthread_mutex_unlock(&DecoderLock);
     if (decodeLen > 0) {
         // We must release the array elements before making further JNI calls
         (*env)->ReleasePrimitiveArrayCritical(env, DecodedAudioBuffer, decodedData, 0);
@@ -322,6 +331,24 @@ void BridgeArDecodeAndPlaySample(char* sampleData, int sampleLength) {
         // We can abort here to avoid the copy back since no data was modified
         (*env)->ReleasePrimitiveArrayCritical(env, DecodedAudioBuffer, decodedData, JNI_ABORT);
     }
+}
+
+// Opus packet loss concealment of frames stereo frames (a multiple of 2.5 ms) for the AAudio
+// callback while the network stalls: the frames concealed, or 0 when there is no stereo decoder
+// or the decode thread holds it (the callback must not wait).
+static int BridgeArConceal(int16_t* pcm, int frames) {
+    if (pthread_mutex_trylock(&DecoderLock) != 0) return 0;
+    int concealed = 0;
+    if (Decoder != NULL && OpusConfig.channelCount == 2 && pcm != NULL && frames > 0) {
+        concealed = opus_multistream_decode(Decoder, NULL, 0, pcm, frames, 0);
+    }
+    pthread_mutex_unlock(&DecoderLock);
+    return concealed > 0 ? concealed : 0;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cAudioConcealer(JNIEnv* env, jclass clazz) {
+    return (jlong)(intptr_t)BridgeArConceal;
 }
 
 void BridgeClStageStarting(int stage) {

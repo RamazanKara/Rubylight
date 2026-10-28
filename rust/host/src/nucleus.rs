@@ -232,16 +232,21 @@ impl Pc for OnPc {
                 .and_then(|app| butterpollo_core::steam::game_of(&app))
         {
             let roots = butterpollo_windows::steam::roots();
-            let (exe, install_dir) = butterpollo_core::steam::game_executable(appid, &roots)
-                .map_err(|message| Refusal {
-                    status: 404,
-                    message,
+            let launch =
+                butterpollo_core::steam::game_executable(appid, &roots).map_err(|message| {
+                    Refusal {
+                        status: 404,
+                        message,
+                    }
                 })?;
-            return Ok(Setup::new(
-                &exe.to_string_lossy(),
-                &app.name,
-                Some((appid, &install_dir.to_string_lossy())),
-            ));
+            return Ok(Setup {
+                anti_cheat: launch.vac.then_some("Valve Anti-Cheat"),
+                ..Setup::new(
+                    &launch.exe.to_string_lossy(),
+                    &app.name,
+                    Some((appid, &launch.install_dir.to_string_lossy())),
+                )
+            });
         }
         let exe = executable(app)
             .filter(|_| starts_exe(app))
@@ -2898,6 +2903,25 @@ mod tests {
         );
         assert!(pc.own.lock().unwrap().is_empty());
         assert!(pc.started.lock().unwrap().is_empty());
+        // Steam lists Valve Anti-Cheat for a game whose files say nothing.
+        let link = app("Portal", "steam://rungameid/400");
+        pc.one_player.lock().unwrap().insert(
+            link.name.clone(),
+            Setup {
+                anti_cheat: Some("Valve Anti-Cheat"),
+                ..Setup::new(
+                    r"Z:\NoSuch\common\Portal\hl2.exe",
+                    &link.name,
+                    Some((400, r"Z:\NoSuch\common\Portal")),
+                )
+            },
+        );
+        let refused = background(&registry, &link, "b", &owner, &config).unwrap_err();
+        assert_eq!(
+            refused.message,
+            "Portal can't stream in the background: hl2.exe uses Valve Anti-Cheat, and Rubylight never hooks a game with anti-cheat"
+        );
+        assert!(pc.own.lock().unwrap().is_empty());
     }
 
     #[test]

@@ -1622,13 +1622,13 @@ mod tests {
                 let setup = match (std::env::var("RUBYLIGHT_NUCLEUS_GAME"), steam_app) {
                     (Ok(game), _) => Setup::new(&game, "Rubylight hardware case", None),
                     (Err(_), Some(app)) => {
-                        let (exe, install) =
+                        let launch =
                             butterpollo_core::steam::game_executable(app, &crate::steam::roots())
                                 .map_err(anyhow::Error::msg)?;
                         Setup::new(
-                            &exe.to_string_lossy(),
+                            &launch.exe.to_string_lossy(),
                             "Rubylight hardware case",
-                            Some((app, &install.to_string_lossy())),
+                            Some((app, &launch.install_dir.to_string_lossy())),
                         )
                     }
                     _ => bail!(

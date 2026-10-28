@@ -60,6 +60,9 @@ pub struct Setup {
     /// as `SteamAppId`, so the game's .exe runs as Steam would start it
     /// rather than restarting through Steam.
     pub steam_app: Option<u32>,
+    /// The anti-cheat the game is known to ship from elsewhere than its
+    /// files: Steam's Valve Anti-Cheat flag.
+    pub anti_cheat: Option<&'static str>,
 }
 
 impl Setup {
@@ -79,6 +82,7 @@ impl Setup {
             name: name.trim().to_string(),
             root,
             steam_app: steam.map(|(app, _)| app),
+            anti_cheat: None,
         }
     }
 
@@ -224,34 +228,69 @@ fn anti_cheat_of(name: &str) -> Option<&'static str> {
             "Anti-Cheat Expert"
         } else if any(&["robloxplayerbeta.exe"]) {
             "Hyperion"
+        } else if any(&["cs2.exe", "csgo.exe", "dota2.exe", "tf.exe", "tf_win64.exe"]) {
+            "Valve Anti-Cheat"
+        } else if any(&["overwatch.exe"]) {
+            "Blizzard's anti-cheat"
+        } else if starts("faceit") {
+            "FACEIT"
+        } else if any(&["tslgame.exe", "rainbowsix.exe", "rainbowsix_be.exe"]) {
+            "BattlEye"
+        } else if any(&["fortniteclient-win64-shipping.exe", "r5apex.exe"]) {
+            "Easy Anti-Cheat"
         } else {
             return None;
         },
     )
 }
 
-/// The anti-cheat `setup`'s game ships, from the files and folders beside
-/// its .exe and in the folders above it, up to the game's root and at least
-/// two up (anti-cheat often sits beside a `bin` folder), never a drive's
-/// root. Nucleus Co-op injects hooks, which anti-cheat treats as cheating,
-/// so such a game is refused.
+/// A folder many games share, whose files say nothing about one game: a
+/// drive's root, Program Files, Steam's and Epic's game folders, XboxGames.
+fn shared_folder(folder: &str) -> bool {
+    let name = file_name(folder);
+    let is = |other: &str| name.eq_ignore_ascii_case(other);
+    folder.trim_end_matches('\\').len() <= 3
+        || !folder.contains('\\')
+        || [
+            "Program Files",
+            "Program Files (x86)",
+            "Epic Games",
+            "XboxGames",
+            "WindowsApps",
+            "steamapps",
+        ]
+        .iter()
+        .any(|shared| is(shared))
+        || (is("common") && file_name(parent(folder)).eq_ignore_ascii_case("steamapps"))
+}
+
+/// The anti-cheat `setup`'s game ships: one known from elsewhere (Steam's
+/// Valve Anti-Cheat flag), else from the .exe's name and the files and
+/// folders beside it and in the folders above it up to the game's root,
+/// never above it or in a folder many games share. Nucleus Co-op injects
+/// hooks, which anti-cheat treats as cheating, so such a game is refused.
 pub fn anti_cheat(setup: &Setup) -> Option<&'static str> {
-    if let Some(found) = anti_cheat_of(file_name(&setup.exe_path)) {
+    if let Some(found) = setup
+        .anti_cheat
+        .or_else(|| anti_cheat_of(file_name(&setup.exe_path)))
+    {
         return Some(found);
     }
     let mut folder = parent(&setup.exe_path);
-    let mut up = 0;
-    while folder.len() > 3 && (up < 3 || folder.len() >= setup.root.len()) {
+    loop {
+        if shared_folder(folder) {
+            return None;
+        }
         let entries = std::fs::read_dir(Path::new(folder)).into_iter().flatten();
         for entry in entries.flatten() {
             if let Some(found) = anti_cheat_of(&entry.file_name().to_string_lossy()) {
                 return Some(found);
             }
         }
+        // Up to the game's root, never past it.
+        below(folder, &setup.root)?;
         folder = parent(folder);
-        up += 1;
     }
-    None
 }
 
 /// `json` (Nucleus' `userprofile.json`, None when there is none yet) with
@@ -518,6 +557,67 @@ mod tests {
         assert_eq!(anti_cheat_of("Shooter.exe"), None);
         let protected = Setup::new(r"C:\G\start_protected_game.exe", "G", None);
         assert_eq!(anti_cheat(&protected), Some("Easy Anti-Cheat"));
+    }
+
+    #[test]
+    fn anti_cheat_without_files_in_the_game_is_known_by_name_or_steam() {
+        for (exe, found) in [
+            (
+                r"D:\S\common\Counter-Strike Global Offensive\game\bin\win64\cs2.exe",
+                "Valve Anti-Cheat",
+            ),
+            (
+                r"D:\S\common\dota 2 beta\game\bin\win64\dota2.exe",
+                "Valve Anti-Cheat",
+            ),
+            (
+                r"D:\S\common\Team Fortress 2\tf_win64.exe",
+                "Valve Anti-Cheat",
+            ),
+            (
+                r"C:\Games\Overwatch\_retail_\Overwatch.exe",
+                "Blizzard's anti-cheat",
+            ),
+            (r"C:\Games\PUBG\TslGame.exe", "BattlEye"),
+        ] {
+            assert_eq!(
+                anti_cheat(&Setup::new(exe, "G", None)),
+                Some(found),
+                "{exe}"
+            );
+        }
+        assert_eq!(anti_cheat_of("FACEITClient.exe"), Some("FACEIT"));
+        // Steam's Valve Anti-Cheat flag, for a game whose files say nothing.
+        let flagged = Setup {
+            anti_cheat: Some("Valve Anti-Cheat"),
+            ..Setup::new(r"Z:\NoSuch\Portal\hl2.exe", "Portal", None)
+        };
+        assert_eq!(anti_cheat(&flagged), Some("Valve Anti-Cheat"));
+    }
+
+    #[test]
+    fn the_scan_stays_in_the_games_folder_and_out_of_shared_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        // Epic's system-wide EasyAntiCheat_EOS beside a plain game's folder.
+        let programs = dir.path().join("Programs");
+        let puzzle = programs.join("Puzzle");
+        std::fs::create_dir_all(&puzzle).unwrap();
+        std::fs::create_dir(programs.join("EasyAntiCheat_EOS")).unwrap();
+        let setup = Setup::new(&puzzle.join("Puzzle.exe").to_string_lossy(), "Puzzle", None);
+        assert_eq!(anti_cheat(&setup), None);
+        // An .exe right in Program Files (x86) or a Steam library's common
+        // folder: those are never read.
+        for shared in [
+            dir.path().join("Program Files (x86)"),
+            dir.path().join("steamapps").join("common"),
+            dir.path().join("Epic Games"),
+        ] {
+            std::fs::create_dir_all(shared.join("EasyAntiCheat_EOS")).unwrap();
+            let setup = Setup::new(&shared.join("Game.exe").to_string_lossy(), "Game", None);
+            assert_eq!(anti_cheat(&setup), None, "{}", shared.display());
+        }
+        assert!(shared_folder(r"C:\") && shared_folder("C:"));
+        assert!(!shared_folder(r"C:\Games\Puzzle"));
     }
 
     const PROFILE: &str = "\u{feff}{\r\n  \"Games\": [\r\n    {\r\n      \"GameGuid\": \"Portal 2\",\r\n      \"ExePath\": \"C:\\\\Games\\\\portal2.exe\"\r\n    },\r\n    {\r\n      \"GameGuid\": 7\r\n    }\r\n  ],\r\n  \"Theme\": \"dark\"\r\n}";

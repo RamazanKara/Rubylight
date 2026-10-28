@@ -423,10 +423,20 @@ fn installed(steamapps: &Path, manifest: &Path) -> Option<(u32, Vdf, PathBuf)> {
     (!folder.is_empty() && install_dir.is_dir()).then_some((appid, state, install_dir))
 }
 
+/// How Steam starts an installed game on Windows ([`game_executable`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Launch {
+    pub exe: PathBuf,
+    pub install_dir: PathBuf,
+    /// Whether the store lists Valve Anti-Cheat for it (`common/category`
+    /// `category_8`).
+    pub vac: bool,
+}
+
 /// The .exe Steam starts for `appid` on Windows and the game's install
 /// folder: the app cache's first launch option for Windows that is no
 /// beta's and starts an .exe below the folder, a 64-bit one first.
-pub fn game_executable(appid: u32, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf), String> {
+pub fn game_executable(appid: u32, roots: &[PathBuf]) -> Result<Launch, String> {
     let install_dir = libraries(roots)
         .iter()
         .find_map(|steamapps| {
@@ -461,7 +471,15 @@ pub fn game_executable(appid: u32, roots: &[PathBuf]) -> Result<(PathBuf, PathBu
             exe.display()
         ));
     }
-    Ok((exe, install_dir))
+    let vac = info
+        .at(&["common", "category", "category_8"])
+        .and_then(Vdf::text)
+        .is_some_and(|flag| flag.trim() == "1");
+    Ok(Launch {
+        exe,
+        install_dir,
+        vac,
+    })
 }
 
 /// The executable of the launch option (`config/launch`) Steam starts on
@@ -1337,6 +1355,10 @@ mod tests {
     /// A Steam folder with Black Flag (242050) installed and its launch
     /// options in the app cache, Steam's order first.
     fn steam_with_launch_options(options: &[Vec<u8>]) -> tempfile::TempDir {
+        steam_with_appinfo(options, &[])
+    }
+    /// The same with `common` holding `common`.
+    fn steam_with_appinfo(options: &[Vec<u8>], common: &[Vec<u8>]) -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
         let apps = root.path().join("steamapps");
         let game = apps.join("common").join("Black Flag");
@@ -1347,7 +1369,13 @@ mod tests {
             "\"AppState\"\n{\n\t\"appid\"\t\t\"242050\"\n\t\"installdir\"\t\t\"Black Flag\"\n}\n",
         )
         .unwrap();
-        let mut kv = object("appinfo", &[object("config", &[object("launch", options)])]);
+        let mut kv = object(
+            "appinfo",
+            &[
+                object("common", common),
+                object("config", &[object("launch", options)]),
+            ],
+        );
         kv.extend([0x08, 0x08]);
         let mut data = 0x0756_4428u32.to_le_bytes().to_vec();
         data.extend(1u32.to_le_bytes());
@@ -1384,11 +1412,38 @@ mod tests {
             .join("Black Flag");
         assert_eq!(
             game_executable(242050, &roots).unwrap(),
-            (game.join("bin").join("AC4BFSP.exe"), game.clone())
+            Launch {
+                exe: game.join("bin").join("AC4BFSP.exe"),
+                install_dir: game.clone(),
+                vac: false,
+            }
         );
         assert_eq!(
             game_executable(7, &roots).unwrap_err(),
             "Steam app 7 is not installed"
+        );
+    }
+    #[test]
+    fn a_steam_game_with_valve_anti_cheat_says_so() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let vac = steam_with_appinfo(
+            std::slice::from_ref(&launch),
+            &[object(
+                "category",
+                &[text("category_2", "1"), text("category_8", "1")],
+            )],
+        );
+        assert!(
+            game_executable(242050, &[vac.path().to_path_buf()])
+                .unwrap()
+                .vac
+        );
+        let other =
+            steam_with_appinfo(&[launch], &[object("category", &[text("category_2", "1")])]);
+        assert!(
+            !game_executable(242050, &[other.path().to_path_buf()])
+                .unwrap()
+                .vac
         );
     }
     #[test]

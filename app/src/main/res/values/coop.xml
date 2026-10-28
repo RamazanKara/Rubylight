@@ -33,7 +33,7 @@
     <string name="coop_refresh">Check again</string>
     <string name="coop_joining">Joining %1$s…</string>
     <string name="coop_unavailable_no_reason">The PC can’t run co-op sessions now.</string>
-    <string name="coop_problem_permission">Join co-op is off for this device</string>
+    <string name="coop_problem_permission">“Can join co-op games” is off for this device</string>
     <string name="coop_problem_refused">%1$s refused the join</string>
     <string name="coop_problem_gone">The co-op session is gone</string>
     <string name="coop_problem_busy">Co-op is busy on %1$s</string>

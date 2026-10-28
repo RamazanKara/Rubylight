@@ -302,7 +302,7 @@ public class CoopSheetTest {
         CoopSheet sheet = sheet();
         row(sheet, R.string.coop_join).performClick();
         assertEquals(Arrays.asList("problem"), ui.events);
-        assertEquals("Join co-op is off for this device", ui.title.toString());
+        assertEquals("“Can join co-op games” is off for this device", ui.title.toString());
         assertEquals("Turn on Join co-op for this device on the host.", ui.message.toString());
         assertNull(ui.retry);
         assertEquals(Arrays.asList("coop", "coop.join 3000000000"), calls);

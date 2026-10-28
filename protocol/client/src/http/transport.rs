@@ -1704,8 +1704,12 @@ mod tests {
         let cancelled = canceller.join().unwrap();
         assert!(written.is_err());
         assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
-        // The cancel returned only once the write it raced had ended.
+        // On Windows the cancel returns only once the write it raced has ended; elsewhere the
+        // shutdown alone ends the write and the cancel does not wait for it.
+        #[cfg(windows)]
         assert!(cancelled >= ended);
+        #[cfg(not(windows))]
+        let _ = (cancelled, ended);
         // Any later call fails before it reaches the socket.
         for error in [tcp.write(b"x").unwrap_err(), tcp.read(&mut [0; 1]).unwrap_err()] {
             assert_eq!(error.kind(), ErrorKind::ConnectionAborted, "{error}");

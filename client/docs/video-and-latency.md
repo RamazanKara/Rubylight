@@ -45,7 +45,11 @@ Nightjar for Windows shows HDR10. On Linux it asks the compositor for an HDR swa
 
 **10-bit color (SDR)** is for screens without HDR, or with HDR off, where gradients show banding. It streams SDR in 10-bit HEVC or AV1 and needs a Main10 decoder on this device. The PC must offer 10-bit; if it does not, the stream is 8-bit and a message says so once per PC. The PC's display has to be in SDR, because a PC whose display is in HDR sends HDR whatever you chose here, and the status line says so. It is not used with PyroWave, and when HDR is on, HDR wins. The overlay's stream line reads "10-bit SDR" while it is active.
 
-**Prefer YUV 4:4:4** can improve colored text. It applies when the host and decoder both support it, with 4:2:0 used otherwise. HDR takes priority over a conflicting chroma preference. **Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
+**Prefer YUV 4:4:4** can improve colored text. It applies when the host and decoder both support it, with 4:2:0 used otherwise. HDR takes priority over a conflicting chroma preference.
+
+Nightjar for Windows and Linux has both under **Settings → Video**. When a stream starts it decodes a short test picture in each codec and offers the PC only what this device's decoder returns as 4:4:4 or 10-bit pictures; a decoder that can't gets 4:2:0 or 8-bit, and the stream names the reason. The PC takes 4:4:4 or 10-bit SDR, not both.
+
+**Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
 
 ## Refresh rate and VRR
 

@@ -18,9 +18,12 @@
 #include <sys/resource.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
+#include <android/data_space.h>
 #include <android/log.h>
 #include <android/looper.h>
 
+#include "output_format.h"
+#include "../window-dataspace/window_dataspace.h"
 #include "shaders_spv.h"
 
 #include <sys/system_properties.h>
@@ -42,6 +45,7 @@ namespace {
 
     std::mutex gLastErrorMutex;
     std::string gLastError;
+    std::atomic<bool> gProbeHdrColorSpaces {false};
 
     __attribute__((format(printf, 2, 3)))
     void recordError(int priority, const char* format, ...) {
@@ -66,7 +70,18 @@ namespace {
 
     constexpr float kOutputPassthrough = 0.0f;
     constexpr float kOutputPqToSdr = 1.0f;
+    constexpr float kOutputHlgToSdr = 2.0f;
     constexpr float kSdrWhiteNits = 203.0f;
+    // The BT.2100 reference display an HLG picture is mapped for when it is shown as SDR
+    constexpr float kHlgNominalPeakNits = 1000.0f;
+
+    static_assert(vkr::kVkFormatR8G8B8A8Unorm == VK_FORMAT_R8G8B8A8_UNORM &&
+                  vkr::kVkFormatA2B10G10R10Unorm == VK_FORMAT_A2B10G10R10_UNORM_PACK32);
+    static_assert(vkr::kVkColorSpaceSrgbNonlinear == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+                  vkr::kVkColorSpaceHdr10St2084 == VK_COLOR_SPACE_HDR10_ST2084_EXT &&
+                  vkr::kVkColorSpaceHdr10Hlg == VK_COLOR_SPACE_HDR10_HLG_EXT);
+    static_assert(vkr::kDataspaceBt2020Pq == ADATASPACE_BT2020_PQ &&
+                  vkr::kDataspaceBt2020Hlg == ADATASPACE_BT2020_HLG);
 
     // Quarter turns clockwise for a pre-rotation, or -1 for a transform we can't render
     int quarterTurns(VkSurfaceTransformFlagBitsKHR transform) {
@@ -320,7 +335,12 @@ bool VulkanRenderer::probe() {
     if (!suitable) {
         ALOGR("No Vulkan device supports what the renderer needs (see the lines above)");
     }
+    gProbeHdrColorSpaces = suitable && hasColorspaceExt;
     return suitable;
+}
+
+bool VulkanRenderer::probedHdrColorSpaces() {
+    return gProbeHdrColorSpaces;
 }
 
 std::string VulkanRenderer::lastError() {
@@ -376,6 +396,7 @@ VulkanRenderer::VulkanRenderer(const NdkApi* ndk, const RendererConfig& config)
 bool VulkanRenderer::init(ANativeWindow* output) {
     ANativeWindow_acquire(output);
     outputWindow_ = output;
+    hdr10PlusWindow_ = Hdr10PlusWindow(output);
 
     if (!vk_.loadGlobal() || !createInstance() || !pickDevice() || !createDevice() ||
             !createFrameResources() || !createShaderModules()) {
@@ -933,6 +954,15 @@ void VulkanRenderer::stop() {
         releaseOutput();
     }
     if (outputWindow_) {
+        // The surface outlives the renderer, and a stream after this one may be SDR
+        if (hdr10PlusWindow_.holds()) {
+            hdr10PlusWindow_.set(nullptr, 0);
+        }
+        if (hdr10PlusCalls_ != 0) {
+            ALOGI("HDR10+ metadata set %u times, %.1f us per call on average, %.1f us at most", hdr10PlusCalls_,
+                  hdr10PlusCallNs_ / 1e3 / hdr10PlusCalls_, hdr10PlusMaxCallNs_ / 1e3);
+        }
+        hdr10PlusWindow_ = Hdr10PlusWindow();
         ANativeWindow_release(outputWindow_);
         outputWindow_ = nullptr;
     }
@@ -1717,8 +1747,10 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     }
     pc.params[0] = ditherAmplitude;
     pc.params[1] = static_cast<float>(frameCounter_ % 64);
-    pc.params[2] = (hdrActive_ && !outputPq_) ? kOutputPqToSdr : kOutputPassthrough;
-    pc.params[3] = contentPeakNits;
+    const bool hlg = config_.hdrTransfer == kHdrTransferHlg;
+    pc.params[2] = !hdrActive_ || outputHdr_ ? kOutputPassthrough : hlg ? kOutputHlgToSdr : kOutputPqToSdr;
+    // HLG carries no mastering data: it is mapped for the BT.2100 reference display
+    pc.params[3] = hlg ? kHlgNominalPeakNits : contentPeakNits;
     pc.params2[0] = kSdrWhiteNits;
     pc.params2[1] = static_cast<float>(std::max(quarterTurns(preTransform_), 0));
 
@@ -1894,6 +1926,7 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
             }
         }
     }
+    passHdr10Plus(*frame);
     int64_t presentCallNs = 0;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
@@ -2096,8 +2129,26 @@ void VulkanRenderer::noteReceived(int64_t hostPtsNs, int64_t receiveNs, int64_t 
     trace_.received(hostPtsNs, receiveNs, enqueueNs, queuedNs, commonToLocalNs, hostProcessingNs, rttMs);
 }
 
+void VulkanRenderer::noteHdr10Plus(int64_t hostPtsNs, const uint8_t* data, size_t size) {
+    auto blob = size != 0 ? std::make_shared<const std::vector<uint8_t>>(data, data + size) : nullptr;
+    std::lock_guard<std::mutex> lock(latencyMutex_);
+    hdr10PlusQueued_[hostPtsNs] = std::move(blob);
+    // Only changes are noted, but a decoder that drops its input never decodes them
+    while (hdr10PlusQueued_.size() > 64) {
+        hdr10PlusQueued_.erase(hdr10PlusQueued_.begin());
+    }
+}
+
 void VulkanRenderer::noteDecoded(VideoFrame& frame) {
     std::lock_guard<std::mutex> lock(latencyMutex_);
+    // The metadata noted last at or before this frame, which frames keep until it changes
+    auto hdr10PlusEnd = hdr10PlusQueued_.upper_bound(frame.timing.hostPtsNs);
+    if (hdr10PlusEnd != hdr10PlusQueued_.begin()) {
+        hdr10PlusDecoded_ = std::prev(hdr10PlusEnd)->second;
+        hdr10PlusQueued_.erase(hdr10PlusQueued_.begin(), hdr10PlusEnd);
+    }
+    frame.hdr10Plus = hdr10PlusDecoded_;
+
     auto it = origins_.find(frame.timing.hostPtsNs);
     if (it == origins_.end()) {
         return;
@@ -2189,34 +2240,19 @@ bool VulkanRenderer::createSwapchain() {
         return false;
     }
 
-    auto findFormat = [&](VkFormat format, VkColorSpaceKHR colorSpace, VkSurfaceFormatKHR* out) {
-        for (const auto& f : formats) {
-            if (f.format == format && f.colorSpace == colorSpace) {
-                *out = f;
-                return true;
-            }
-        }
-        return false;
-    };
-
-    VkSurfaceFormatKHR chosen {};
-    bool found = false;
-    bool pq = false;
-    if (hdrActive_ && hasColorspaceExt_) {
-        // The stream is already PQ-encoded BT.2020, so it passes straight through
-        found = pq = findFormat(VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT, &chosen);
-        if (!found) {
-            ALOGW("Surface has no HDR10 format; tone mapping HDR to SDR");
-        }
+    // The stream is already BT.2020 PQ or HLG, so its HDR passes straight through where the
+    // surface takes it (output_format.h)
+    std::vector<OutputSurfaceFormat> listed;
+    listed.reserve(formats.size());
+    for (const auto& f : formats) {
+        listed.push_back({static_cast<int32_t>(f.format), static_cast<int32_t>(f.colorSpace)});
     }
-    if (!found && (config_.tenBit || hdrActive_)) {
-        found = findFormat(VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, &chosen);
-    }
-    if (!found) {
-        found = findFormat(VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, &chosen);
-    }
-    if (!found) {
-        chosen = formats[0];
+    const bool hlg = config_.hdrTransfer == kHdrTransferHlg;
+    const OutputChoice choice = vkSelectOutput(listed.data(), listed.size(), hdrActive_, config_.hdrTransfer,
+                                               config_.tenBit || hdrActive_);
+    VkSurfaceFormatKHR chosen {static_cast<VkFormat>(choice.format), static_cast<VkColorSpaceKHR>(choice.colorSpace)};
+    if (choice.toneMapToSdr) {
+        ALOGW("%s shown as SDR: the surface lists no ten-bit format for it", hlg ? "HLG" : "HDR10");
     }
 
     uint32_t modeCount = 0;
@@ -2294,7 +2330,12 @@ bool VulkanRenderer::createSwapchain() {
     presentMode_ = presentMode;
     extent_ = extent;
     preTransform_ = transform;
-    outputPq_ = pq;
+    // The loader set the window dataspace from the swapchain's colour space just now, so the HDR one
+    // goes on after every (re)creation, before the first present
+    outputHdr_ = hdrActive_ && !choice.toneMapToSdr && applyWindowDataspace(choice.dataspaceOverride);
+    hdr10PlusDirty_ = true;
+    outputDataspace_ = outputHdr_ ? choice.dataspaceOverride : 0;
+    hdrToneMapped_ = hdrActive_ && !outputHdr_;
     outputBits_ = chosen.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ? 10 : 8;
     frontBuffer_ = shared;
     frontBufferUnavailable_ = frontBufferRequested_ && !shared;
@@ -2395,7 +2436,8 @@ bool VulkanRenderer::createSwapchain() {
         renderDone_.push_back(semaphore);
     }
 
-    if (outputPq_) {
+    // HLG carries no static metadata (and HDR10's would make the compositor map it as PQ)
+    if (outputHdr_ && !hlg) {
         applyHdrMetadata();
     }
 
@@ -2404,13 +2446,14 @@ bool VulkanRenderer::createSwapchain() {
         std::lock_guard<std::mutex> lock(mutex_);
         char description[128];
         snprintf(description, sizeof(description), "%s%s",
-                 outputPq_ ? "HDR10" : (outputBits_ == 10 ? "10-bit SDR" : "8-bit SDR"),
-                 (hdrActive_ && !outputPq_) ? " (tone mapped)" : "");
+                 outputHdr_ ? (hlg ? "HLG" : "HDR10") : (outputBits_ == 10 ? "10-bit SDR" : "8-bit SDR"),
+                 (hdrActive_ && !outputHdr_) ? " (tone mapped)" : "");
         outputDescription_ = description;
     }
 
-    ALOGI("Swapchain %ux%u, format %d, color space %d, %u images, %s, pre-rotated %d degrees", extent.width,
-          extent.height, chosen.format, chosen.colorSpace, count,
+    ALOGI("Swapchain %ux%u, format %d, color space %d, %s%s, %u images, %s, pre-rotated %d degrees", extent.width,
+          extent.height, chosen.format, chosen.colorSpace, outputDescription_.c_str(),
+          outputDataspace_ != 0 ? " (window dataspace)" : "", count,
           shared ? "front buffer" : presentMode == VK_PRESENT_MODE_MAILBOX_KHR ? "mailbox" : "FIFO",
           quarterTurns(transform) * 90);
     return true;
@@ -2435,6 +2478,31 @@ void VulkanRenderer::destroySwapchain() {
     }
 }
 
+bool VulkanRenderer::applyWindowDataspace(int32_t dataspace) {
+    if (dataspace == 0) {
+        return true;
+    }
+    // HLG goes through perform where the public call refuses it, as the window probe that let Java
+    // ask for HLG did (window_dataspace.h); PQ keeps the public call, whose refusal means no HDR here.
+    auto* setDataSpace = ndk_->ANativeWindow_setBuffersDataSpace;
+    const nwds::DataspaceOutcome outcome = nwds::setDataspace(
+            outputWindow_, dataspace, [setDataSpace](void* window, int32_t value) {
+                return setDataSpace ? setDataSpace(static_cast<ANativeWindow*>(window), value) : nwds::kMissing;
+            }, dataspace == kDataspaceBt2020Hlg);
+    if (!outcome.accepted()) {
+        // Shown as SDR then, and said on the status line (hdrToneMapped())
+        ALOGE("Window dataspace 0x%x was refused (ANativeWindow_setBuffersDataSpace %d%s, perform %d); tone mapping "
+              "HDR to SDR", static_cast<uint32_t>(dataspace), outcome.publicResult,
+              setDataSpace ? "" : " missing", outcome.performResult);
+        return false;
+    }
+    if (outcome.call == nwds::DataspaceCall::kPerform) {
+        ALOGI("Window dataspace 0x%x set through ANativeWindow::perform (the public call returned %d)",
+              static_cast<uint32_t>(dataspace), outcome.publicResult);
+    }
+    return true;
+}
+
 void VulkanRenderer::applyHdrMetadata() {
     if (!hasHdrMetadataExt_ || !swapchain_) {
         ALOGW("Can't pass HDR metadata to the compositor: %s",
@@ -2454,6 +2522,47 @@ void VulkanRenderer::applyHdrMetadata() {
     else {
         ALOGW("No HDR metadata from the host; the compositor will assume a default peak");
     }
+}
+
+void VulkanRenderer::passHdr10Plus(const VideoFrame& frame) {
+    // HDR10+ describes PQ pictures only
+    const bool pq = outputHdr_ && config_.hdrTransfer == kHdrTransferPq;
+    const std::shared_ptr<const std::vector<uint8_t>> wanted = pq ? frame.hdr10Plus : nullptr;
+    if (hdr10PlusWindow_.refused() || (wanted == hdr10PlusShown_ && !hdr10PlusDirty_)) {
+        return;
+    }
+    hdr10PlusDirty_ = false;
+    hdr10PlusShown_ = wanted;
+    const int64_t startNs = nowNs();
+    const Hdr10PlusResult result = hdr10PlusWindow_.set(wanted ? wanted->data() : nullptr, wanted ? wanted->size() : 0);
+    const int64_t callNs = nowNs() - startNs;
+    switch (result) {
+        case Hdr10PlusResult::kUnchanged:
+            return;
+        case Hdr10PlusResult::kSet:
+        case Hdr10PlusResult::kCleared:
+            if (hdr10PlusCalls_++ == 0) {
+                ALOGI("HDR10+ metadata passed to the output window (%zu bytes, %.1f us)", wanted ? wanted->size() : 0,
+                      callNs / 1e3);
+            }
+            hdr10PlusCallNs_ += callNs;
+            hdr10PlusMaxCallNs_ = std::max(hdr10PlusMaxCallNs_, callNs);
+            if (result == Hdr10PlusResult::kSet) {
+                hdr10PlusState_ = kHdr10PlusPassed;
+            }
+            return;
+        case Hdr10PlusResult::kUnsupported:
+            ALOGE("HDR10+ not passed on: the output window is not the ANativeWindow this build knows (magic 0x%x, "
+                  "version %d, expected %zu); HDR10 static metadata stays", static_cast<uint32_t>(hdr10PlusWindow_.magic()),
+                  hdr10PlusWindow_.version(), sizeof(NativeWindowMirror));
+            break;
+        case Hdr10PlusResult::kFailed:
+            ALOGE("HDR10+ not passed on: the output window refused it (%d%s); HDR10 static metadata stays",
+                  hdr10PlusWindow_.error(), hdr10PlusWindow_.error() == -ENOENT ? ", unknown to this Android" : "");
+            break;
+    }
+    hdr10PlusShown_ = nullptr;
+    hdr10PlusState_ = kHdr10PlusRefused;
 }
 
 bool VulkanRenderer::ensureConversion(const ConversionKey& key) {

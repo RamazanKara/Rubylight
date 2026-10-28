@@ -217,6 +217,7 @@
     <string name="pyrowave_missing_hdr">Desteklenmiyor: HDR kullanılamıyor</string>
     <string name="pyrowave_hdr_needs_android_15">HDR çıkışı için Android 15 gerekir</string>
     <string name="pyrowave_hdr_display_refused">ekran veya sürücü HDR çıkışını reddetti</string>
+    <string name="pyrowave_hlg_display_refused">ekran veya sürücü HLG çıkışını reddetti</string>
     <string name="pyrowave_check_failed">Desteklenmiyor: GPU kontrolü başarısız oldu</string>
     <string name="title_enable_hdr">HDR</string>
     <string name="summary_enable_hdr">Bu cihazda HDR ekran ve bilgisayarın ekranında HDR’nin açık olması gerekir.</string>
@@ -392,6 +393,7 @@
     <string name="vulkan_overrides_upscaling">Vulkan ile işleme açık, bu yüzden ölçekleme kullanılmıyor.</string>
     <string name="upscaling_vulkan_short">Vulkan ile işlerken kapalı</string>
     <string name="vulkan_renderer_failed">Vulkan işleyicisi çalışmayı durdurdu: %1$s\n\nVideo ayarlarında “Vulkan ile işle” seçeneğini kapatıp yayını yeniden başlatın.</string>
+    <string name="stream_vulkan_behind">“Vulkan ile işle” bu ekranda yetişemiyor. Akıcı görüntü için video ayarlarında kapatın.</string>
     <string name="vulkan_failure_unknown">bilinmeyen hata</string>
     <string name="upscaling_fallback">Ölçeklendirme: doğrudan çıkış. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bit, rengi ve hassasiyeti korumak için doğrudan çıkışı kullanır.</string>

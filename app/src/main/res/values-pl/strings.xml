@@ -217,6 +217,7 @@
     <string name="pyrowave_missing_hdr">Nieobsługiwane: HDR niedostępny</string>
     <string name="pyrowave_hdr_needs_android_15">wymaga Androida 15 do wyjścia HDR</string>
     <string name="pyrowave_hdr_display_refused">wyświetlacz lub sterownik odrzucił wyjście HDR</string>
+    <string name="pyrowave_hlg_display_refused">ekran lub sterownik odrzucił wyjście HLG</string>
     <string name="pyrowave_check_failed">Nieobsługiwane: sprawdzanie GPU nie powiodło się</string>
     <string name="title_enable_hdr">HDR</string>
     <string name="summary_enable_hdr">Wymaga ekranu HDR na tym urządzeniu i włączonego HDR na ekranie komputera.</string>
@@ -392,6 +393,7 @@
     <string name="vulkan_overrides_upscaling">Renderowanie przez Vulkan jest włączone, więc skalowanie nie jest używane.</string>
     <string name="upscaling_vulkan_short">Wyłączone przy renderowaniu przez Vulkan</string>
     <string name="vulkan_renderer_failed">Renderer Vulkan przestał działać: %1$s\n\nWyłącz „Renderowanie przez Vulkan” w ustawieniach wideo i uruchom strumień ponownie.</string>
+    <string name="stream_vulkan_behind">„Renderowanie przez Vulkan” nie nadąża na tym ekranie. Wyłącz je w ustawieniach wideo, aby obraz był płynny.</string>
     <string name="vulkan_failure_unknown">nieznany błąd</string>
     <string name="upscaling_fallback">Skalowanie: wyjście bezpośrednie. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit używa wyjścia bezpośredniego, aby zachować kolory i precyzję.</string>

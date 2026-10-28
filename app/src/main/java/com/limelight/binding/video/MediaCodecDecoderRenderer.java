@@ -60,11 +60,27 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Chosen for 10-bit SDR only (null when the usual decoder serves): the 8-bit formats never use them.
     private MediaCodecInfo hevcDecoder10;
     private MediaCodecInfo av1Decoder10;
-    // A hardware video/dolby-vision profile 8 decoder, looked for only when HDR is asked for. An
-    // ANNOUNCE that asked for Dolby Vision decodes through it until it fails (then the same stream
-    // goes to the HEVC decoder for good); dolbyVisionActive is the decoder running now.
+    // Hardware video/dolby-vision decoders for profile 8 (HEVC) and profile 10 (AV1), looked for only
+    // when HDR is asked for. An ANNOUNCE that asked for Dolby Vision decodes through its codec's one
+    // until it fails (then the same stream goes to the HEVC or AV1 decoder for good);
+    // dolbyVisionActive is the decoder running now.
     private MediaCodecInfo dolbyVisionDecoder;
+    private MediaCodecInfo dolbyVisionAv1Decoder;
     private volatile int announcedHdrFormat;
+    // What the Vulkan renderer leaves out of this screen's HDR, set by pickHdrFormat and said once
+    private volatile HdrFormatPolicy.DrawnLimit vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+    // The same for PyroWave, and whether an HLG-only screen gets HDR10 there for want of a host update.
+    private volatile HdrFormatPolicy.DrawnLimit pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+    private volatile boolean pyroWaveHlgNeedsHostUpdate;
+    // How outputDisplay's stream window took BT2020_HLG, asked once per session (this renderer has
+    // one display); this stream's answer when its HLG was decided by it, else null; whether an
+    // HLG-only screen gets HDR10 because its window refused HLG; and whether an HLG stream the window
+    // took stopped producing frames.
+    private HdrFormatPolicy.HlgWindow displayHlgWindow;
+    private volatile HdrFormatPolicy.HlgWindow pyroWaveHlgWindow;
+    private volatile boolean pyroWaveHlgRefused;
+    private volatile boolean pyroWaveHlgFramesStopped;
+    private final AtomicBoolean pyroWaveHlgLostSaid = new AtomicBoolean();
     private volatile boolean dolbyVisionFailed;
     private volatile boolean dolbyVisionActive;
     // The first Dolby Vision frame's padding after the RPU was logged for this decoder.
@@ -135,6 +151,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // The renderer's Lowest latency jitter buffer, which only matters to its host-timed pacing
     private static final int VULKAN_JITTER_BUFFER = 3;
     private volatile VulkanRendererBridge vulkanRenderer;
+    // The renderer hands each frame's HDR10+ metadata to its window (HdrFormatPolicy.passesHdr10Plus):
+    // the last payload noted, so only changes cross to native code, and whether its refusal was said
+    private boolean vulkanHdr10Plus;
+    private byte[] vulkanHdr10PlusNoted;
+    private volatile boolean vulkanHdr10PlusRefusalTaken;
+    // Render through Vulkan presents too few of the received frames on this display (decoder input thread).
+    private final VulkanPaceCheck vulkanPace = new VulkanPaceCheck();
+    private volatile boolean vulkanBehind;
     // Set once the renderer reports it gave up; the stream is then ended with a dialog that says so
     private volatile String vulkanFailure;
     // The screen tells the renderer when frames are shown, so frames wait for that report to count
@@ -485,7 +509,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile String restartReason = "CodecException";
     // Set with each decoder: a restart releases the codec and creates a new one instead of stop()
     // and configure() (restartRecreates), and HDR metadata alone reaches it as a parameter.
-    private boolean restartRecreates, hdrMetadataAsParameter;
+    private boolean restartRecreates;
     // The metadata setParameters gave the running decoder until its output format carries it, and
     // the outputs seen since. Set and cleared under codecRecoveryMonitor.
     private volatile byte[] uncheckedHdrStaticInfo;
@@ -1067,10 +1091,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VULKAN_JITTER_BUFFER, 0, getPreferredColorSpace(),
                 getPreferredColorRange() == MoonBridge.COLOR_RANGE_FULL,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
+                getStreamTransfer() == MediaFormat.COLOR_TRANSFER_HLG,
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                         outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate(),
                 vulkanCodecName(), videoDecoder.getName(), null, false);
         if (renderer != null) {
+            vulkanHdr10Plus = HdrFormatPolicy.passesHdr10Plus(HdrPolicy.displayHdrTypes(outputDisplay),
+                    getStreamTransfer());
+            vulkanHdr10PlusNoted = null;
             vulkanPresentReports = renderer.reportsPresentTimes();
             LimeLog.info("Using Vulkan renderer; the screen " + (vulkanPresentReports ?
                     "reports when frames are shown" : "does not report when frames are shown"));
@@ -1301,9 +1329,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         selectHevcAndAv1Decoders(prefs, meteredData, requestedHdr, false);
         if (requestedHdr) {
-            dolbyVisionDecoder = MediaCodecHelper.findDolbyVisionDecoder();
+            dolbyVisionDecoder = MediaCodecHelper.findDolbyVisionDecoder(
+                    MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt);
             LimeLog.info(dolbyVisionDecoder != null ? "Dolby Vision profile 8 decoder: " + dolbyVisionDecoder.getName() :
                     "No Dolby Vision profile 8 decoder");
+            dolbyVisionAv1Decoder = MediaCodecHelper.findDolbyVisionDecoder(
+                    MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvav110);
+            LimeLog.info(dolbyVisionAv1Decoder != null ? "Dolby Vision profile 10 decoder: " + dolbyVisionAv1Decoder.getName() :
+                    "No Dolby Vision profile 10 decoder");
         }
         if (Sdr10Policy.decoderChoiceMayChange(prefs.enableSdr10Bit, requestedHdr,
                 prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE, prefs.experimentalPacked444)) {
@@ -1723,8 +1756,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /**
      * The Vulkan renderer will present a HEVC or AV1 stream that is not packed, as setupUpscaling
-     * then chooses it: its surface is BT.2020/PQ only. Game asks before the stream to refuse HDR on
-     * a screen that has HLG alone (HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT).
+     * then chooses it. Game asks before the stream (vulkanSurface).
      */
     public static boolean vulkanPresents(PreferenceConfiguration prefs) {
         return VideoRendererChoice.choose(prefs.vulkanRender, false, Build.VERSION.SDK_INT,
@@ -1732,25 +1764,99 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VideoRendererChoice.Renderer.VULKAN;
     }
 
+    /**
+     * Who will put a HEVC or AV1 stream that is not packed on the screen: the Vulkan renderer, PQ and
+     * HLG or PQ only (VulkanRendererBridge.drawsHlg), or the decoder. Game asks before the stream to
+     * refuse HDR on a screen that has HLG alone where the surface is PQ only
+     * (HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT).
+     */
+    public static HdrFormatPolicy.DrawnSurface vulkanSurface(PreferenceConfiguration prefs) {
+        if (!vulkanPresents(prefs)) return HdrFormatPolicy.DrawnSurface.NONE;
+        return VulkanRendererBridge.drawsHlg() ? HdrFormatPolicy.DrawnSurface.PQ_HLG :
+                HdrFormatPolicy.DrawnSurface.PQ_ONLY;
+    }
+
     @Override
     public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
+        vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        pyroWaveHlgNeedsHostUpdate = false;
+        pyroWaveHlgWindow = null;
+        pyroWaveHlgRefused = false;
+        pyroWaveHlgFramesStopped = false;
+        pyroWaveHlgLostSaid.set(false);
         if (hostHdrFormats == 0) return 0;
         int[] displayTypes = HdrPolicy.displayHdrTypes(outputDisplay);
-        // The outputs this client draws itself are BT.2020/PQ surfaces (HdrFormatPolicy).
-        String pqSurface = packed444 ? "packed full chroma" :
-                (videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? "PyroWave" :
-                vulkanPresents(prefs) ? "the Vulkan renderer" : null;
-        int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoder != null, pqSurface != null);
+        // Packed full chroma draws a BT.2020/PQ surface, the Vulkan renderer PQ or HLG where this
+        // display's window takes HLG, PyroWave PQ or HLG where the host offers HLG on it and the
+        // window takes it (HdrFormatPolicy).
+        String drawer = null;
+        HdrFormatPolicy.DrawnSurface surface = HdrFormatPolicy.DrawnSurface.NONE;
+        boolean vulkan = false;
+        boolean pyroWave = false;
+        boolean vulkanHlgRefused = false;
+        if (packed444) {
+            drawer = "packed full chroma";
+            surface = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
+        } else if ((videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            drawer = "PyroWave";
+            surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats);
+            if (HdrFormatPolicy.pyroWaveNeedsHlgProbe(hostHdrFormats, displayTypes)) {
+                pyroWaveHlgWindow = displayHlgWindow();
+                surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats, pyroWaveHlgWindow);
+                pyroWaveHlgRefused = HdrFormatPolicy.pyroWaveHlgRefusedByDisplay(hostHdrFormats, displayTypes,
+                        pyroWaveHlgWindow);
+            }
+            pyroWave = true;
+        } else if (vulkanPresents(prefs)) {
+            drawer = "the Vulkan renderer";
+            surface = vulkanSurface(prefs);
+            if (HdrFormatPolicy.vulkanNeedsHlgProbe(hostHdrFormats, displayTypes, surface)) {
+                HdrFormatPolicy.HlgWindow window = displayHlgWindow();
+                surface = HdrFormatPolicy.vulkanSurface(surface, window);
+                vulkanHlgRefused = !window.accepted();
+            }
+            vulkan = true;
+        }
+        int dolbyVisionDecoders = (dolbyVisionDecoder != null ? HdrFormatPolicy.DOLBY_VISION_HEVC : 0) |
+                (dolbyVisionAv1Decoder != null ? HdrFormatPolicy.DOLBY_VISION_AV1 : 0);
+        int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoders, videoFormats, surface);
+        // Game says these once per PC (takeVulkanHdrLimit, takePyroWaveHdrLimit).
+        if (vulkan) {
+            vulkanHdrLimit = HdrFormatPolicy.vulkanLimit(hostHdrFormats, displayTypes, dolbyVisionDecoders,
+                    videoFormats);
+        } else if (pyroWave) {
+            pyroWaveHdrLimit = HdrFormatPolicy.pyroWaveLimit(hostHdrFormats, displayTypes, dolbyVisionDecoders,
+                    format);
+            pyroWaveHlgNeedsHostUpdate = HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(hostHdrFormats, displayTypes);
+        }
+        HdrFormatPolicy.DrawnLimit limit = vulkan ? vulkanHdrLimit : pyroWaveHdrLimit;
         LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +
-                HdrFormatPolicy.name(format) + (pqSurface != null ? " (" + pqSurface + " draws PQ only)" :
-                dolbyVisionDecoder == null ? " (no Dolby Vision decoder)" : ""));
-        if (pqSurface != null && !HdrPolicy.hasHdr10(displayTypes) &&
+                HdrFormatPolicy.name(format) + (drawer != null ? " (" + drawer + " draws " +
+                (surface == HdrFormatPolicy.DrawnSurface.PQ_HLG ? "PQ and HLG" : "PQ only") + ")" :
+                dolbyVisionDecoders == 0 ? " (no Dolby Vision decoder)" : "") +
+                (limit != HdrFormatPolicy.DrawnLimit.NONE ? ", without " + limit : ""));
+        if (surface == HdrFormatPolicy.DrawnSurface.PQ_ONLY && !HdrPolicy.hasHdr10(displayTypes) &&
                 HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes)) {
             // Game names it on the status line (HdrPolicy.Status.PQ_ON_HLG_SCREEN).
-            LimeLog.warning("The screen reports HLG and no HDR10, but " + pqSurface +
-                    " draws PQ only: this stream is HDR10");
+            LimeLog.warning("The screen reports HLG and no HDR10, but " + drawer +
+                    " draws PQ only" + (pyroWaveHlgNeedsHostUpdate ? " from this PC (HLG on PyroWave needs a host update)" :
+                    pyroWaveHlgRefused || vulkanHlgRefused ? " here (this display's window refused HLG)" : "") +
+                    ": this stream is HDR10");
         }
         return format;
+    }
+
+    // outputDisplay's answer, asked of renderTarget the first time a stream would ask for HLG.
+    private synchronized HdrFormatPolicy.HlgWindow displayHlgWindow() {
+        if (displayHlgWindow != null) return displayHlgWindow;
+        WindowDataspace.Probe probe = WindowDataspace.probeHlg(renderTarget);
+        displayHlgWindow = HdrFormatPolicy.HlgWindow.of(probe.call);
+        String text = "HLG window probe on display " + (outputDisplay != null ? outputDisplay.getDisplayId() : -1) +
+                ": " + probe.describe();
+        if (probe.accepted()) LimeLog.info(text);
+        else LimeLog.warning(text);
+        return displayHlgWindow;
     }
 
     @Override
@@ -1781,12 +1887,27 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return HdrFormatPolicy.transfer(announcedHdrFormat);
     }
 
-    // The next HEVC decoder is the Dolby Vision one: asked for, not failed, not packed (that output
-    // is not the picture) and 10-bit.
-    private boolean dolbyVisionDecoding() {
-        return HdrFormatPolicy.dolbyVision(announcedHdrFormat) && dolbyVisionDecoder != null && !dolbyVisionFailed &&
-                packing == null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 &&
-                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+    // The Dolby Vision decoder the next HEVC or AV1 decoder is, or null: asked for in the stream's
+    // codec (profile 8 on HEVC, 10 on AV1), not failed, not packed (that output is not the picture)
+    // and 10-bit.
+    private MediaCodecInfo dolbyVisionDecoderForStream() {
+        if (dolbyVisionFailed || packing != null || (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) == 0) {
+            return null;
+        }
+        if ((announcedHdrFormat & HdrFormatPolicy.DOLBY_VISION_HEVC) != 0 &&
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
+            return dolbyVisionDecoder;
+        }
+        if ((announcedHdrFormat & HdrFormatPolicy.DOLBY_VISION_AV1) != 0 &&
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
+            return dolbyVisionAv1Decoder;
+        }
+        return null;
+    }
+
+    // "AV1" or "HEVC": the codec a Dolby Vision stream falls back to, for logs.
+    private String dolbyVisionBaseCodec() {
+        return (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" : "HEVC";
     }
 
     /** The host's last HDR report, null until it has sent one. */
@@ -1796,6 +1917,91 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public HdrPolicy.Metadata getHdrMetadataState() {
         return HdrPolicy.metadata(currentHdrMetadata);
+    }
+
+    /** The Vulkan renderer tone maps the PC's HDR to SDR because its surface refused HDR. */
+    public boolean isVulkanHdrToneMapped() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        return vulkan != null && vulkan.isHdrToneMapped();
+    }
+
+    /** The Vulkan renderer hands this stream's HDR10+ metadata to the screen. */
+    private boolean vulkanPassesHdr10Plus() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        return vulkan != null && vulkan.getHdr10PlusState() == VulkanRendererBridge.HDR10_PLUS_PASSED;
+    }
+
+    /**
+     * The Vulkan renderer's window refused the stream's HDR10+ metadata, which is then left out (HDR10's
+     * static metadata stays): true once per stream, for the status line.
+     */
+    public boolean takeVulkanHdr10PlusRefused() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        if (vulkan == null || vulkanHdr10PlusRefusalTaken ||
+                vulkan.getHdr10PlusState() != VulkanRendererBridge.HDR10_PLUS_REFUSED) {
+            return false;
+        }
+        vulkanHdr10PlusRefusalTaken = true;
+        return true;
+    }
+
+    /**
+     * Render through Vulkan has presented under 80% of the received frames for 5 s on this display
+     * (see VulkanPaceCheck): true once per stream, for the status line. The renderer stays on.
+     */
+    public boolean takeVulkanBehind() {
+        if (!vulkanBehind) return false;
+        vulkanBehind = false;
+        return true;
+    }
+
+    /**
+     * What the Vulkan renderer leaves out of this screen's HDR (Dolby Vision), once the renderer
+     * runs; NONE after the first call for the stream.
+     */
+    public HdrFormatPolicy.DrawnLimit takeVulkanHdrLimit() {
+        if (vulkanRenderer == null) return HdrFormatPolicy.DrawnLimit.NONE;
+        HdrFormatPolicy.DrawnLimit limit = vulkanHdrLimit;
+        vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        return limit;
+    }
+
+    /**
+     * What PyroWave leaves out of this screen's HDR (Dolby Vision, HDR10+), once a PyroWave stream
+     * runs; NONE after the first call for the stream.
+     */
+    public HdrFormatPolicy.DrawnLimit takePyroWaveHdrLimit() {
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) return HdrFormatPolicy.DrawnLimit.NONE;
+        HdrFormatPolicy.DrawnLimit limit = pyroWaveHdrLimit;
+        pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        return limit;
+    }
+
+    /** A PyroWave stream is HDR10 on an HLG-only screen because the host offers no HLG on PyroWave. */
+    public boolean isPyroWaveHlgNeedingHostUpdate() {
+        return pyroWaveHlgNeedsHostUpdate && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+    }
+
+    /** A PyroWave stream is HDR10 on an HLG-only screen because this display's window refused HLG. */
+    public boolean isPyroWaveHlgRefusedByDisplay() {
+        return pyroWaveHlgRefused && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+    }
+
+    /**
+     * The PyroWave stream is HLG because this display's window took it, but it is not shown as HLG
+     * (HdrFormatPolicy.pyroWaveHlgLost); logged once per stream.
+     */
+    public boolean isPyroWaveHlgLost() {
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) return false;
+        boolean lost = HdrFormatPolicy.pyroWaveHlgLost(announcedHdrFormat, pyroWaveHlgWindow,
+                !PyroWaveDecoderRenderer.hlgWindowLost(), pyroWaveHlgFramesStopped);
+        if (lost && !pyroWaveHlgLostSaid.getAndSet(true)) {
+            LimeLog.severe("PyroWave HLG: this display's window took BT2020_HLG through " + pyroWaveHlgWindow +
+                    " before the stream, but the stream is not shown as HLG (" +
+                    (pyroWaveHlgFramesStopped ? "the decoder stopped producing frames" :
+                            "the window no longer holds it") + ")");
+        }
+        return lost;
     }
 
     /**
@@ -1921,7 +2127,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         } else if (this.videoFormat == MoonBridge.VIDEO_FORMAT_H265_REXT8_444) {
             videoFormat.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.HEVCProfileMain444);
         } else if (HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType)) {
-            videoFormat.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt);
+            videoFormat.setInteger(MediaFormat.KEY_PROFILE, (this.videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ?
+                    MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvav110 :
+                    MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt);
         }
 
         // Avoid setting KEY_FRAME_RATE on Lollipop and earlier to reduce compatibility risk
@@ -2237,10 +2445,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
             mimeType = "video/hevc";
             selectedDecoderInfo = decoderFor(videoFormat);
-            if (dolbyVisionDecoding()) {
+            MediaCodecInfo dolbyVisionInfo = dolbyVisionDecoderForStream();
+            if (dolbyVisionInfo != null) {
                 // Profile 8 is HEVC Main10 with RPUs: the HEVC decoder takes the same stream.
                 mimeType = HdrFormatPolicy.MIME_DOLBY_VISION;
-                selectedDecoderInfo = dolbyVisionDecoder;
+                selectedDecoderInfo = dolbyVisionInfo;
             }
 
             if (selectedDecoderInfo == null) {
@@ -2255,6 +2464,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
             mimeType = "video/av01";
             selectedDecoderInfo = decoderFor(videoFormat);
+            MediaCodecInfo dolbyVisionInfo = dolbyVisionDecoderForStream();
+            if (dolbyVisionInfo != null) {
+                // Profile 10 is AV1 Main10 with RPU metadata OBUs: the AV1 decoder takes the same stream.
+                mimeType = HdrFormatPolicy.MIME_DOLBY_VISION;
+                selectedDecoderInfo = dolbyVisionInfo;
+            }
 
             if (selectedDecoderInfo == null) {
                 LimeLog.severe("No available AV1 decoder!");
@@ -2274,7 +2489,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         boolean dolbyVision = HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType);
         dolbyVisionActive = false;
         dolbyVisionPaddingLogged = false;
-        vividSeiDropDecoder = HdrBitstream.dropsVivid(selectedDecoderInfo.getName(), mimeType) ?
+        vividSeiDropDecoder = HdrBitstream.dropsVivid(selectedDecoderInfo.getName(), videoFormat) ?
                 selectedDecoderInfo.getName() : null;
         vividSeiDropLogged = false;
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
@@ -2282,6 +2497,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         boolean retryWithoutUpscaling = false;
         List<String> firstTryKeys = null;
+        boolean vendorLowLatency = MediaCodecHelper.usesVendorLowLatency(prefs.vendorLowLatency,
+                selectedDecoderInfo.getName(), wantVulkan);
+        if (prefs.vendorLowLatency && !vendorLowLatency) {
+            LimeLog.info("Decoder " + selectedDecoderInfo.getName() +
+                    " gets no vendor low-latency keys: the Vulkan renderer draws its frames");
+        }
         for (int tryNumber = 0;; tryNumber++) {
             LimeLog.info("Decoder configuration try: "+tryNumber);
 
@@ -2289,7 +2510,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             // This will try low latency options until we find one that works (or we give up).
             boolean newFormat = MediaCodecHelper.setDecoderLowLatencyOptions(mediaFormat, selectedDecoderInfo, tryNumber,
-                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.hevcLowLatency(), false);
+                    prefs.codecLowLatency, vendorLowLatency, prefs.codecPerformance, prefs.hevcLowLatency(), false);
 
             // Each rejected configure drops keys on the next try; keep a record of which ones went.
             List<String> vendorParams = MediaCodecHelper.getIntegerVendorParameters(selectedDecoderInfo.getName());
@@ -2301,7 +2522,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             lowLatencyKeysApplied = triedKeys;
 
             // Throw the underlying codec exception on the last attempt if the caller requested it
-            // A Dolby Vision decoder that refuses every try falls back to HEVC below instead of throwing.
+            // A Dolby Vision decoder that refuses every try falls back to HEVC or AV1 below instead of throwing.
             if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat,
                     !newFormat && upscaler == null && throwOnCodecError && !dolbyVision)) {
                 boolean androidLowLatency = mediaFormat.containsKey(MediaFormat.KEY_LOW_LATENCY) &&
@@ -2322,7 +2543,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         describeKeys(lowLatencyKeysDropped));
                 dolbyVisionActive = dolbyVision;
                 restartRecreates = restartRecreates(selectedDecoderInfo.getName(), lowLatencyKeysApplied);
-                hdrMetadataAsParameter = takesHdrStaticInfoParameter(selectedDecoderInfo.getName());
                 if (restartRecreates) {
                     LimeLog.info("Decoder " + selectedDecoderInfo.getName() + " restarts as a new codec: with its" +
                             " vendor low-latency mode, stop() and configure() leave it without input buffers");
@@ -2334,7 +2554,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 if (dolbyVision) {
                     dolbyVisionFailed = true;
                     LimeLog.warning("Dolby Vision decoder " + selectedDecoderInfo.getName() +
-                            " refused the stream; decoding it as HEVC with its " +
+                            " refused the stream; decoding it as " + dolbyVisionBaseCodec() + " with its " +
                             HdrFormatPolicy.baseLayerName(announcedHdrFormat) + " base layer");
                     return initializeDecoder(throwOnCodecError);
                 }
@@ -2398,6 +2618,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if ((format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 setupUpscaling();
                 result = pyroWaveRenderer.getFormat() == format ? 0 : -1;
+                // The surface was made before the ANNOUNCE, as PQ; an HLG stream switches it now.
+                if (result == 0) pyroWaveRenderer.setTransfer(getStreamTransfer() == MediaFormat.COLOR_TRANSFER_HLG);
                 if (result == 0 && currentHdrMode != null) {
                     pyroWaveRenderer.setHdrMode(currentHdrMode, currentHdrMetadata);
                 }
@@ -2631,9 +2853,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (codecFailed) {
                 videoDecoder.release();
                 if (dolbyVisionActive) {
-                    // The same stream decodes as HEVC; the Dolby Vision decoder is not tried again.
+                    // The same stream decodes as HEVC or AV1; the Dolby Vision decoder is not tried again.
                     dolbyVisionFailed = true;
-                    LimeLog.warning("Dolby Vision decoder failed while streaming; recreating the decoder for HEVC");
+                    LimeLog.warning("Dolby Vision decoder failed while streaming; recreating the decoder for " +
+                            dolbyVisionBaseCodec());
                 }
             }
             int err = initializeDecoder(true);
@@ -3475,8 +3698,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VulkanRendererBridge vulkan = vulkanRenderer;
                 if (vulkan != null) vulkan.setHdrMode(enabled, metadata);
                 if (enabled && upscaler != null) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
-                HdrChange change = hdrChange(previousMode, enabled, currentHdrMetadata, metadata, Build.VERSION.SDK_INT,
-                        hdrMetadataAsParameter);
+                HdrChange change = hdrChange(previousMode, enabled, currentHdrMetadata, metadata, Build.VERSION.SDK_INT);
                 if (change == HdrChange.NONE) {
                     return;
                 }
@@ -3509,29 +3731,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * The metadata alone goes to a running decoder that takes it as a parameter
-     * (takesHdrStaticInfoParameter). HDR turning on or off, the metadata going away, Android 9 and
-     * older and every other decoder restart it.
+     * The metadata alone goes to the running decoder as a parameter, on every decoder: the TCL C6K's
+     * c2.mtk.dvhe.st.decoder and c2.mtk.av1.decoder put it in their output format, and one that takes
+     * the parameter and ignores it (a Shield's OMX.Nvidia.h265.decode may) restarts once its output
+     * still lacks it (checkRunningHdrStaticInfo). HDR turning on or off, the metadata going away and
+     * Android 9 and older restart it.
      */
     static HdrChange hdrChange(boolean previousMode, boolean enabled, byte[] previousMetadata, byte[] metadata,
-                               int sdkInt, boolean metadataAsParameter) {
+                               int sdkInt) {
         if (previousMode == enabled && Arrays.equals(previousMetadata, metadata)) {
             return HdrChange.NONE;
         }
-        if (metadataAsParameter && previousMode == enabled && enabled && metadata != null &&
-                sdkInt >= Build.VERSION_CODES.Q) {
+        if (previousMode == enabled && enabled && metadata != null && sdkInt >= Build.VERSION_CODES.Q) {
             return HdrChange.PARAMETERS;
         }
         return HdrChange.RESTART;
-    }
-
-    /**
-     * Whether a decoder gets HDR metadata alone with setParameters instead of a restart. On the TCL
-     * C6K, c2.mtk.dvhe.st.decoder and c2.mtk.av1.decoder put it in their output format; OMX decoders
-     * (a Shield's OMX.Nvidia.h265.decode) may take the parameter and ignore it.
-     */
-    static boolean takesHdrStaticInfoParameter(String decoderName) {
-        return decoderName.toLowerCase(Locale.ROOT).startsWith("c2.mtk.");
     }
 
     /**
@@ -3567,8 +3781,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return false;
         }
         LimeLog.info("HDR metadata set on the running decoder; its output format is checked for it");
-        uncheckedHdrStaticInfo = info.array();
+        // The count first: the output thread reads it after the volatile check it pairs with.
         hdrStaticInfoOutputs = 0;
+        uncheckedHdrStaticInfo = info.array();
         return true;
     }
 
@@ -3718,7 +3933,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" :
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
             String color = Boolean.TRUE.equals(currentHdrMode) ?
-                    HdrFormatPolicy.overlayWord(announcedHdrFormat, dolbyVisionActive) :
+                    HdrFormatPolicy.overlayWord(announcedHdrFormat, dolbyVisionActive, vulkanPassesHdr10Plus()) :
                     Sdr10Policy.overlayColor((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, sdr10, currentHdrMode);
             String stream = streamWidth + "×" + streamHeight + " · " + codec + " · " + color
                     + " · " + StreamEngine.label();
@@ -3873,7 +4088,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             VulkanRendererBridge vulkan = vulkanRenderer;
             if (vulkan != null) {
-                activeWindowVideoStats.totalFramesRendered += vulkan.takePresentedFrames();
+                int presented = vulkan.takePresentedFrames();
+                activeWindowVideoStats.totalFramesRendered += presented;
+                long windowMs = SystemClock.uptimeMillis() - activeWindowVideoStats.measurementStartTimestamp;
+                if (vulkanPace.window(activeWindowVideoStats.totalFramesReceived, presented, windowMs,
+                        outputDisplay.getRefreshRate())) {
+                    LimeLog.warning("Render through Vulkan presents " + presented + " of " +
+                            activeWindowVideoStats.totalFramesReceived + " frames received in " + windowMs +
+                            " ms at " + Math.round(outputDisplay.getRefreshRate()) + " Hz, under " +
+                            Math.round(VulkanPaceCheck.MIN_SHARE * 100) + "% for " +
+                            VulkanPaceCheck.BEHIND_MS / 1000 + " s");
+                    vulkanBehind = true;
+                }
                 // The display mode can change mid-stream
                 vulkan.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
             }
@@ -3951,7 +4177,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             } else {
                 frameLatencyStats.discard(ptsUs, submissionResult < 0 ? "decode_failed" : "invalid_frame");
                 if (submissionResult < 0 || ++pyroWaveFailures == 60) {
-                    LimeLog.severe("PyroWave decoder stopped producing frames");
+                    int hdrFailure = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 ?
+                            PyroWaveDecoderRenderer.streamHdrFailure() : 0;
+                    LimeLog.severe("PyroWave decoder stopped producing frames" +
+                            (hdrFailure != 0 ? ": " + context.getString(hdrFailure) : ""));
+                    pyroWaveHlgFramesStopped = true;
+                    // Game's end-of-stream text names HLG when the window took it (isPyroWaveHlgLost).
+                    isPyroWaveHlgLost();
                     stopping = true;
                     MoonBridge.bridgeClConnectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_FRAME);
                 }
@@ -4215,7 +4447,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         numFramesIn++;
 
         // The FEC padding after a Dolby Vision RPU breaks MediaTek's RPU parser; see HdrBitstream.
-        boolean dolbyVision = dolbyVisionActive;
+        boolean dolbyVision = dolbyVisionActive && HdrBitstream.endsAtRpu(videoFormat);
         int queuedLength = HdrBitstream.queuedLength(dolbyVision, decodeUnitData, decodeUnitLength);
         if (dolbyVision && !dolbyVisionPaddingLogged) {
             dolbyVisionPaddingLogged = true;
@@ -4258,6 +4490,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         VulkanRendererBridge vulkan = vulkanRenderer;
         if (vulkan != null) {
             vulkan.noteFrameReceived(timestampUs, receiveTimeUs, enqueueTimeUs, frameHostProcessingLatency);
+            if (vulkanHdr10Plus && Boolean.TRUE.equals(currentHdrMode)) {
+                noteVulkanHdr10Plus(vulkan, timestampUs, decodeUnitData, decodeUnitLength);
+            }
         }
 
         // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
@@ -4268,6 +4503,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         return MoonBridge.DR_OK;
+    }
+
+    // The frame's HDR10+ payload, when it differs from the last one: a frame without one keeps it.
+    private void noteVulkanHdr10Plus(VulkanRendererBridge vulkan, long timestampUs, byte[] data, int length) {
+        byte[] t35 = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? Hdr10PlusSei.av1(data, length) :
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? Hdr10PlusSei.hevc(data, length) : null;
+        if (t35 == null || Arrays.equals(t35, vulkanHdr10PlusNoted)) return;
+        if (vulkanHdr10PlusNoted == null) LimeLog.info("HDR10+ metadata in the stream (" + t35.length + " bytes)");
+        vulkanHdr10PlusNoted = t35;
+        vulkan.noteHdr10Plus(timestampUs, t35);
     }
 
     private boolean replaySps() {

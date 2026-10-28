@@ -42,6 +42,7 @@ namespace {
         ok &= loadSymbol("AHardwareBuffer_release", api.AHardwareBuffer_release);
         ok &= loadSymbol("AHardwareBuffer_describe", api.AHardwareBuffer_describe);
         ok &= loadSymbol("ANativeWindow_toSurface", api.ANativeWindow_toSurface);
+        loadSymbol("ANativeWindow_setBuffersDataSpace", api.ANativeWindow_setBuffersDataSpace, false);
 
         ok &= loadSymbol("AImageReader_newWithUsage", api.AImageReader_newWithUsage);
         ok &= loadSymbol("AImageReader_delete", api.AImageReader_delete);

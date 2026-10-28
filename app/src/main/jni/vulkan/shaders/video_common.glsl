@@ -12,6 +12,9 @@ layout(push_constant) uniform PushConstants {
 
 const float OUTPUT_PASSTHROUGH = 0.0;
 const float OUTPUT_PQ_TO_SDR = 1.0;
+const float OUTPUT_HLG_TO_SDR = 2.0;
+
+#include "hlg.glsl"
 
 // Interleaved gradient noise (Jimenez 2014). Its energy sits at high spatial frequencies
 // like blue noise, so the dither reads as fine grain rather than blotches.
@@ -30,10 +33,18 @@ vec3 pqToLinear(vec3 e) {
     return pow(max(ep - c1, 0.0) / (c2 - c3 * ep), vec3(1.0 / m1));
 }
 
-// HDR10 content on a surface that cannot take it: map to SDR BT.709
-vec3 pqToSdr(vec3 e) {
+// HLG signal to display light in nits on the BT.2100 reference display: the inverse OETF, then
+// the OOTF, which raises the scene luminance to the system gamma
+vec3 hlgToNits(vec3 e) {
+    vec3 scene = vec3(hlgInverseOetf(e.r), hlgInverseOetf(e.g), hlgInverseOetf(e.b));
+    float ys = dot(scene, vec3(0.2627, 0.6780, 0.0593));
+    return pc.params.w * pow(ys, HLG_SYSTEM_GAMMA - 1.0) * scene;
+}
+
+// Linear BT.2020 light where 1.0 is SDR white, from a picture whose peak is pc.params.w nits:
+// map to SDR BT.709
+vec3 linearToSdr(vec3 lin) {
     float sdrWhite = pc.params2.x;
-    vec3 lin = pqToLinear(e) * (10000.0 / sdrWhite);
 
     // BT.2020 to BT.709 primaries (column-major)
     lin = mat3(1.6605, -0.1246, -0.0182,
@@ -52,9 +63,21 @@ vec3 pqToSdr(vec3 e) {
     return pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2));
 }
 
+// HDR10 or HLG content on a surface that cannot take it: map to SDR BT.709
+vec3 pqToSdr(vec3 e) {
+    return linearToSdr(pqToLinear(e) * (10000.0 / pc.params2.x));
+}
+
+vec3 hlgToSdr(vec3 e) {
+    return linearToSdr(hlgToNits(e) / pc.params2.x);
+}
+
 vec4 outputColor(vec3 color) {
     if (pc.params.z == OUTPUT_PQ_TO_SDR) {
         color = pqToSdr(color);
+    }
+    else if (pc.params.z == OUTPUT_HLG_TO_SDR) {
+        color = hlgToSdr(color);
     }
 
     float amplitude = pc.params.x;

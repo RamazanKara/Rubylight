@@ -15,4 +15,12 @@
     <string name="stream_hdr_output_not_pq">HDR açık ancak bu cihazın kod çözücüsü HDR olmayan bir çıkış bildiriyor, bu yüzden renkler soluk görünebilir.</string>
     <string name="stream_hdr_hlg_needs_direct_output">Bu ekran HDR’yi yalnızca HLG olarak gösterir ve “Vulkan ile işle” HLG çizemez, bu yüzden yayın SDR.</string>
     <string name="stream_hdr_pq_on_hlg_screen">Bu ekran HDR’yi yalnızca HLG olarak gösterir ancak bilgisayar HDR10 gönderiyor, bu yüzden parlaklık ve renkler yanlış görünebilir.</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s SDR olarak gösteriliyor: ekran “Vulkan ile işle” HDR’sini reddetti.</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision için “Vulkan ile işle” kapalı olmalı, bu yüzden yayın HDR10.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ için “Vulkan ile işle” kapalı olmalı, bu yüzden yayın HDR10+ olmadan HDR10.</string>
+    <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision için HEVC veya AV1 gerekir, bu yüzden PyroWave %1$s olarak yayınlar.</string>
+    <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ için HEVC veya AV1 gerekir, bu yüzden PyroWave HDR10+ olmadan HDR10 yayınlar.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_host_update">Bu ekran HDR’yi yalnızca HLG olarak gösterir ancak bilgisayar PyroWave ile HDR10 gönderiyor, bu yüzden parlaklık ve renkler yanlış görünebilir. Bilgisayardaki ana makine yazılımını güncellemek PyroWave’e HLG ekler.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">Bu ekran HDR’yi yalnızca HLG olarak gösterir ancak PyroWave’den gelen HLG’yi reddetti, bu yüzden bilgisayar HDR10 gönderiyor ve parlaklık ve renkler yanlış görünebilir.</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">Bu ekran yayından önce PyroWave’den HLG’yi kabul etti, ancak ardından yayını HLG olarak göstermedi.</string>
 </resources>

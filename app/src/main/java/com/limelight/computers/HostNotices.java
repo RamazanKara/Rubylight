@@ -20,6 +20,10 @@ public final class HostNotices {
         PACKED_HDR_UNAVAILABLE,
         // PyroWave HDR that this device cannot show although the PC offers it.
         PYROWAVE_HDR_UNAVAILABLE,
+        // Dolby Vision the screen has and Render through Vulkan cannot show.
+        VULKAN_HDR_LIMIT,
+        // Dolby Vision or HDR10+ the screen has and PyroWave cannot carry.
+        PYROWAVE_HDR_LIMIT,
         // A codec forced in settings that this device cannot decode.
         CODEC_UNAVAILABLE,
         // GeForce Experience too old for 4K.
@@ -31,7 +35,11 @@ public final class HostNotices {
         // 10-bit SDR was offered and this PC streams 8-bit.
         SDR10_NOT_ACCEPTED,
         // 10-bit SDR was asked for and the PC sends HDR because its display is in HDR.
-        SDR10_HOST_HDR
+        SDR10_HOST_HDR,
+        // HDR10+ that Render through Vulkan could not hand to the screen on this Android version.
+        VULKAN_HDR10_PLUS_REFUSED,
+        // Render through Vulkan presented too few of the stream's frames on this device's display.
+        VULKAN_BEHIND
     }
 
     static final String PREFERENCES = "HostNotices";

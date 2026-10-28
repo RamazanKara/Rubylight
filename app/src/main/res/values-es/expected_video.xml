@@ -15,4 +15,12 @@
     <string name="stream_hdr_output_not_pq">HDR está activo, pero el decodificador de este dispositivo indica una salida sin HDR, así que los colores pueden verse apagados.</string>
     <string name="stream_hdr_hlg_needs_direct_output">Esta pantalla muestra HDR solo como HLG, que «Renderizar con Vulkan» no puede dibujar, así que la transmisión es en SDR.</string>
     <string name="stream_hdr_pq_on_hlg_screen">Esta pantalla muestra HDR solo como HLG, pero el PC envía HDR10, así que el brillo y los colores pueden verse mal.</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s se muestra como SDR: la pantalla rechazó el HDR de «Renderizar con Vulkan».</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision necesita «Renderizar con Vulkan» desactivado, así que la transmisión es HDR10.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ necesita «Renderizar con Vulkan» desactivado, así que la transmisión es HDR10 sin él.</string>
+    <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision necesita HEVC o AV1, así que PyroWave transmite en %1$s.</string>
+    <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ necesita HEVC o AV1, así que PyroWave transmite HDR10 sin él.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_host_update">Esta pantalla muestra HDR solo como HLG, pero el PC envía HDR10 en PyroWave, así que el brillo y los colores pueden verse mal. Actualizar el host del PC añade HLG en PyroWave.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">Esta pantalla muestra HDR solo como HLG, pero rechazó el HLG de PyroWave, así que el PC envía HDR10 y el brillo y los colores pueden verse mal.</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">Esta pantalla aceptó HLG de PyroWave antes de la transmisión, pero luego no mostró la transmisión como HLG.</string>
 </resources>

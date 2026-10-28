@@ -15,4 +15,12 @@
     <string name="stream_hdr_output_not_pq">HDR 已開啟，但此裝置的解碼器回報輸出不是 HDR，因此顏色可能顯得偏灰。</string>
     <string name="stream_hdr_hlg_needs_direct_output">此螢幕只能以 HLG 顯示 HDR，而「透過 Vulkan 算繪」無法繪製 HLG，因此串流為 SDR。</string>
     <string name="stream_hdr_pq_on_hlg_screen">此螢幕只能以 HLG 顯示 HDR，但電腦傳送的是 HDR10，因此亮度和顏色可能不正確。</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s 以 SDR 顯示：螢幕拒絕了「透過 Vulkan 算繪」的 HDR。</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision 需要關閉「透過 Vulkan 算繪」，因此串流為 HDR10。</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ 需要關閉「透過 Vulkan 算繪」，因此串流為不含 HDR10+ 的 HDR10。</string>
+    <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision 需要 HEVC 或 AV1，因此 PyroWave 以 %1$s 串流。</string>
+    <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ 需要 HEVC 或 AV1，因此 PyroWave 串流不含 HDR10+ 的 HDR10。</string>
+    <string name="stream_hdr_pq_on_hlg_screen_host_update">此螢幕只能以 HLG 顯示 HDR，但電腦透過 PyroWave 傳送的是 HDR10，因此亮度和顏色可能不正確。更新電腦上的主機程式即可在 PyroWave 上使用 HLG。</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">此螢幕只能以 HLG 顯示 HDR，但它拒絕了 PyroWave 的 HLG，因此電腦傳送的是 HDR10，亮度和顏色可能不正確。</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">此螢幕在串流開始前接受了 PyroWave 的 HLG，但隨後沒有以 HLG 顯示串流。</string>
 </resources>

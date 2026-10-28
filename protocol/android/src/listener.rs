@@ -82,10 +82,11 @@ fn rate_change_args(result: &RateChangeResult) -> [i32; 7] {
     ]
 }
 
-/// The arguments of `bridgeClTextInput(kind, inputType, flags)`, as the wire has them: kind 0
-/// lower, 1 raise, 2 update; the input type in `InputType` order (0 text to 8 multiline); flags
-/// 1 sensitive, 2 no autocorrect, 4 no autocapitalize, 8 enter submits.
-fn text_input_args(notice: &TextInputNotice) -> (i32, i32, i32) {
+/// The arguments of `bridgeClTextInput(kind, inputType, flags, element)`, as the wire has them:
+/// kind 0 lower, 1 raise, 2 update; the input type in `InputType` order (0 text to 8
+/// multiline); flags 1 sensitive, 2 no autocorrect, 4 no autocapitalize, 8 enter submits; the
+/// element id's bits, 0 when the host sent none.
+fn text_input_args(notice: &TextInputNotice) -> (i32, i32, i32, i32) {
     let kind = match notice.kind {
         NoticeKind::Lower => 0,
         NoticeKind::Raise => 1,
@@ -112,7 +113,7 @@ fn text_input_args(notice: &TextInputNotice) -> (i32, i32, i32) {
     .enumerate()
     .filter(|(_, set)| **set)
     .fold(0, |flags, (bit, _)| flags | 1 << bit);
-    (kind, input_type, flags)
+    (kind, input_type, flags, notice.element as i32)
 }
 
 /// An extension no record can fit (`capture_us + convert_us` above any `queue_us`), which Java
@@ -373,13 +374,14 @@ impl Listener for Events {
             }
             ControlEvent::Roam(event) => platform::info(&event.to_string()),
             ControlEvent::TextInput(notice) => {
-                let (kind, input_type, flags) = text_input_args(&notice);
+                let (kind, input_type, flags, element) = text_input_args(&notice);
                 b.post(
                     m.text_input,
                     &[
                         bridge::int(kind),
                         bridge::int(input_type),
                         bridge::int(flags),
+                        bridge::int(element),
                     ],
                 );
             }
@@ -494,8 +496,15 @@ mod tests {
             selection_start: 0,
             selection_end: 0,
             text: String::new(),
+            element: 0,
         };
-        assert_eq!(text_input_args(&raise), (1, 6, 1 | 4 | 8));
+        assert_eq!(text_input_args(&raise), (1, 6, 1 | 4 | 8, 0));
+        // The element id's bits, the top one too.
+        let high = TextInputNotice {
+            element: 0x8000_0001,
+            ..raise.clone()
+        };
+        assert_eq!(text_input_args(&high).3, 0x8000_0001_u32 as i32);
         let kinds = [NoticeKind::Lower, NoticeKind::Raise, NoticeKind::Update];
         let types = [
             InputType::Text,
@@ -522,7 +531,12 @@ mod tests {
                     };
                     // Java reads what the host wrote: kind, type and flags bytes.
                     let wire = notice.encode().unwrap();
-                    let expected = (i32::from(wire[1]), i32::from(wire[2]), i32::from(wire[3]));
+                    let expected = (
+                        i32::from(wire[1]),
+                        i32::from(wire[2]),
+                        i32::from(wire[3]),
+                        0,
+                    );
                     assert_eq!(text_input_args(&notice), expected, "{notice:?}");
                 }
             }

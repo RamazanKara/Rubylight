@@ -176,12 +176,14 @@ pub fn controller_audio_message(kind: i32, payload: &[u8]) -> Option<ClientMessa
     message.is_valid().then_some(message)
 }
 
-/// `sendTextInputRequest`: raise and lower notices (0x553B) on or off, never the surrounding
-/// text, which Nightjar does not show.
+/// `sendTextInputRequest`: raise and lower notices (0x553B) on or off, with the focused
+/// element's id from a host that sends it (`TextInputVersion` 2; an older one ignores the ask),
+/// never the surrounding text, which Nightjar does not show.
 pub fn text_input_request(enabled: bool) -> ClientMessage {
     ClientMessage::TextInputRequest(TextInputRequest {
         notices: enabled,
         surrounding_text: false,
+        element_ids: enabled,
         max_text: 0,
     })
 }
@@ -395,6 +397,7 @@ mod tests {
             Some(TextInputRequest {
                 notices: true,
                 surrounding_text: false,
+                element_ids: true,
                 max_text: 0,
             })
         );

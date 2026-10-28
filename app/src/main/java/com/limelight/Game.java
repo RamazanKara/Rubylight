@@ -75,6 +75,7 @@ import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.HostKeyboard;
 import com.limelight.ui.HostTextField;
 import com.limelight.ui.KeyboardOverlay;
+import com.limelight.ui.LegacyKeyboardInsets;
 import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.binding.input.keyboard.PcKeyboardController;
 import com.limelight.binding.input.keyboard.PcKeyboardEngine;
@@ -575,15 +576,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             WindowInsets insets = streamView.getRootWindowInsets();
             return insets != null && insets.isVisible(WindowInsets.Type.ime());
         }
+        if (legacyKeyboard != null) return legacyKeyboard.visible();
         WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(streamView);
         return insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
     }
 
     // The host's text field notice, on the UI thread: a raise or an update (the focus moved to
     // another field) types the keyboard for the field, and opens it right after the user's own
-    // tap, click or key on the stream unless they closed it for this field; a lower hides only a
-    // keyboard the host opened. The keyboard the user opened stays open.
-    private void onHostTextField(int kind, int inputType, int flags) {
+    // tap, click or key on the stream unless they closed it for this field (the host's element id,
+    // 0 from a host that sends none); a lower hides only a keyboard the host opened. The keyboard
+    // the user opened stays open.
+    private void onHostTextField(int kind, int inputType, int flags, int element) {
         if (isFinishing() || streamView == null) return;
         if (kind == HostTextField.KIND_LOWER) {
             LimeLog.info("Host text field lost focus");
@@ -592,8 +595,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         if (kind != HostTextField.KIND_RAISE && kind != HostTextField.KIND_UPDATE) return;
-        LimeLog.info("Host text field focused: type " + inputType + ", flags " + flags);
-        hostKeyboard.onFocus();
+        LimeLog.info("Host text field focused: type " + inputType + ", flags " + flags +
+                ", element " + Integer.toHexString(element));
+        hostKeyboard.onFocus(element);
         reportKeyboardLayout();
         if (!HostTextField.mayShowKeyboard(foreground, connected, streamMenu != null,
                 conn != null && conn.canSendInput(), isPcKeyboardVisible(), hasHardwareKeyboard())) {
@@ -644,11 +648,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // Every inset dispatch on the stream window. The window takes no room from the keyboard
     // (adjustNothing): the video surface keeps its size, and the stream moves up instead. Android
-    // reports the keyboard's insets to such a window from 11 on.
+    // reports the keyboard's insets to such a window from 11 on; before, legacyKeyboard measures it.
     private void onWindowInsets(WindowInsetsCompat insets) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || streamView == null) return;
-        keyboardInsetBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
-        if (hostKeyboard.onVisibility(insets.isVisible(WindowInsetsCompat.Type.ime()), SystemClock.uptimeMillis())) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        onKeyboardInsets(insets.isVisible(WindowInsetsCompat.Type.ime()),
+                insets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
+    }
+
+    // The keyboard showed, hid or changed height, covering imeBottom px of the content view's bottom.
+    private void onKeyboardInsets(boolean visible, int imeBottom) {
+        if (streamView == null) return;
+        keyboardInsetBottom = imeBottom;
+        if (hostKeyboard.onVisibility(visible, SystemClock.uptimeMillis())) {
             LimeLog.info(hostKeyboard.visible() ? "Soft keyboard shown" : "Soft keyboard hidden");
         }
         // Insets come before layout: measure the stream once it is laid out, once for a burst.
@@ -785,6 +796,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final HostKeyboard hostKeyboard = new HostKeyboard();
     // How much of the window's bottom the soft keyboard covers, from the last inset dispatch.
     private int keyboardInsetBottom;
+    // The soft keyboard below Android 11, which tells an adjustNothing window nothing of it.
+    private LegacyKeyboardInsets legacyKeyboard;
     private final Handler keyboardPanHandler = new Handler(Looper.getMainLooper());
     private final Runnable keyboardPan = this::updateKeyboardPan;
     // The layout last reported to the host this connection, or null.
@@ -1124,6 +1137,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         streamView.setInputCallbacks(this);
         adaptiveLayout = com.limelight.ui.AdaptiveLayout.attach(this, findViewById(android.R.id.content));
         adaptiveLayout.setInsetsObserver(this::onWindowInsets);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            legacyKeyboard = new LegacyKeyboardInsets(this, findViewById(android.R.id.content), this::onKeyboardInsets);
+            legacyKeyboard.start();
+        }
         streamView.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (connected) updatePipAutoEnter();
         });
@@ -2710,6 +2727,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         bitrateHandler.removeCallbacksAndMessages(null);
         keyboardPanHandler.removeCallbacks(keyboardPan);
+        if (legacyKeyboard != null) legacyKeyboard.stop();
 
         if (controllerHandler != null) {
             controllerHandler.destroy();
@@ -7375,8 +7393,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
-    public void textInput(int kind, int inputType, int flags) {
-        runOnUiThread(() -> onHostTextField(kind, inputType, flags));
+    public void textInput(int kind, int inputType, int flags, int element) {
+        runOnUiThread(() -> onHostTextField(kind, inputType, flags, element));
     }
 
     @Override

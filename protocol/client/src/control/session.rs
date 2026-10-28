@@ -1090,6 +1090,7 @@ mod tests {
         let request = TextInputRequest {
             notices: true,
             surrounding_text: false,
+            element_ids: false,
             max_text: 0,
         };
         let layout = KeyboardLayout {
@@ -1127,6 +1128,7 @@ mod tests {
             selection_start: 0,
             selection_end: 0,
             text: String::new(),
+            element: 0,
         };
         let lower = TextInputNotice {
             kind: NoticeKind::Lower,

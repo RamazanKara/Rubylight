@@ -483,6 +483,19 @@ impl Running {
         session.slots.iter().map(|s| s.window).collect()
     }
 
+    /// Slot `slot`'s capture target: its game window, captured on the GPU
+    /// of `display`. A window Nucleus replaced gives a new target, which the
+    /// stream reopens on; an error while the slot has no window.
+    pub fn capture_target(&self, slot: usize, display: &str) -> Result<String> {
+        let window = self
+            .windows()
+            .get(slot)
+            .copied()
+            .with_context(|| format!("the session has {} players, not {}", self.players, slot + 1))?
+            .with_context(|| format!("Player {}'s game window is not open", slot + 1))?;
+        Ok(crate::capture::WindowTarget::new(window, display).to_string())
+    }
+
     /// Park slot `slot`'s window at its player's stream size from the next
     /// pass on.
     pub fn resize(&self, slot: usize, size: (u32, u32)) -> Result<()> {
@@ -1071,6 +1084,8 @@ mod tests {
             &probe,
         );
         let mut running = running.unwrap();
+        let error = running.capture_target(0, r"\\.\DISPLAY1").unwrap_err();
+        assert_eq!(error.to_string(), "Player 1's game window is not open");
         // One pad per player, skipping the PC's own at index 1.
         assert_eq!(
             running.with_session(|s| s.slots.iter().map(|s| s.pad).collect::<Vec<_>>()),
@@ -1098,6 +1113,33 @@ mod tests {
         instance(&screen, 1);
         wait_for(&running, |p| *p == Phase::Running);
         assert_eq!(running.windows(), [Some(200), Some(210)]);
+        // Each player's stream captures that player's window, which capture
+        // reads back as the same window and display.
+        let target = running.capture_target(1, r"\\.\DISPLAY2").unwrap();
+        assert_eq!(target, r"window:210@\\.\DISPLAY2");
+        assert_eq!(
+            crate::capture::WindowTarget::parse(&target).unwrap(),
+            Some(crate::capture::WindowTarget::new(210, r"\\.\DISPLAY2"))
+        );
+        assert_eq!(
+            running.capture_target(0, r"\\.\DISPLAY1").unwrap(),
+            r"window:200@\\.\DISPLAY1"
+        );
+        let error = running.capture_target(2, r"\\.\DISPLAY1").unwrap_err();
+        assert_eq!(error.to_string(), "the session has 2 players, not 3");
+        // Player 2's game replaced its window: the target follows it.
+        {
+            let mut desktop = screen.0.lock().unwrap();
+            desktop.windows.retain(|w| w.id != 210);
+            desktop.windows.push(window(211, 21, ON_SCREEN));
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while running.capture_target(1, r"\\.\DISPLAY2").ok().as_deref()
+            != Some(r"window:211@\\.\DISPLAY2")
+        {
+            assert!(Instant::now() < deadline, "{:?}", running.windows());
+            std::thread::sleep(Duration::from_millis(10));
+        }
         running.stop();
         assert_eq!(
             running.with_session(|s| s.phase.clone()),
@@ -1239,5 +1281,150 @@ mod tests {
         );
         let error = running.audio_on(Some(26100), 0).err().unwrap().to_string();
         assert_eq!(error, "Player 1's game instance is not running");
+    }
+
+    /// The archive downloaded beforehand, for the install's own checks.
+    struct Downloaded(std::path::PathBuf);
+    impl super::super::install::Fetch for Downloaded {
+        fn fetch(&mut self, _url: &str, limit: u64) -> Result<Vec<u8>> {
+            let bytes =
+                std::fs::read(&self.0).with_context(|| format!("reading {}", self.0.display()))?;
+            ensure!(
+                bytes.len() as u64 <= limit,
+                "{} is too large",
+                self.0.display()
+            );
+            Ok(bytes)
+        }
+    }
+
+    fn env<T: std::str::FromStr>(name: &str, default: T) -> Result<T>
+    where
+        T::Err: std::error::Error + Send + Sync + 'static,
+    {
+        std::env::var(name).map_or(Ok(default), |v| {
+            v.parse().with_context(|| format!("{name}={v}"))
+        })
+    }
+
+    /// A real session on this PC (hw-queue.md, "Nucleus Co-op session"):
+    /// Nucleus Co-op installed below `RUBYLIGHT_NUCLEUS_DATA` (from
+    /// `RUBYLIGHT_NUCLEUS_ZIP`) or at `RUBYLIGHT_NUCLEUS_PATH`, the game of
+    /// handler `RUBYLIGHT_NUCLEUS_HANDLER` started for
+    /// `RUBYLIGHT_NUCLEUS_PLAYERS`, held `RUBYLIGHT_NUCLEUS_HOLD` seconds and
+    /// stopped. Run as SYSTEM, like the service.
+    #[test]
+    #[ignore = "requires Nucleus Co-op, a handler with its game, the virtual gamepad driver and SYSTEM"]
+    fn a_session_on_this_pc() -> Result<()> {
+        let data = std::path::PathBuf::from(
+            std::env::var("RUBYLIGHT_NUCLEUS_DATA").context("set RUBYLIGHT_NUCLEUS_DATA")?,
+        );
+        let configured = std::env::var("RUBYLIGHT_NUCLEUS_PATH").unwrap_or_default();
+        let folder = match std::env::var("RUBYLIGHT_NUCLEUS_ZIP") {
+            Ok(zip) => {
+                super::super::install::ensure(&data, &configured, &mut Downloaded(zip.into()))?
+            }
+            Err(_) => super::super::install::installed(&data, &configured)?
+                .context("Nucleus Co-op is not installed: set RUBYLIGHT_NUCLEUS_ZIP")?,
+        };
+        let file =
+            std::env::var("RUBYLIGHT_NUCLEUS_HANDLER").context("set RUBYLIGHT_NUCLEUS_HANDLER")?;
+        let path = folder.join("handlers").join(&file);
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let handler =
+            butterpollo_core::nucleus::handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
+        let players = env("RUBYLIGHT_NUCLEUS_PLAYERS", 1usize)?;
+        let hold = Duration::from_secs(env("RUBYLIGHT_NUCLEUS_HOLD", 20u64)?);
+        let since = crate::process::now();
+        let warnings = Arc::new(butterpollo_core::session::Warnings::default());
+        let request = Start {
+            id: 1,
+            kind: kind(players),
+            folder: &folder,
+            handler: &handler,
+            title: &handler.name,
+            players,
+            owner: ("hw-queue", "hw-queue"),
+            size: (1280, 720),
+        };
+        let policy = butterpollo_core::input_policy::Policy::resolve(&Default::default())?;
+        let mut running = start_on_pc(&request, policy, warnings.clone())?;
+        println!(
+            "pads {:?}",
+            running.with_session(|s| s.slots.iter().map(|s| s.pad).collect::<Vec<_>>())
+        );
+        let started = Instant::now();
+        loop {
+            match running.with_session(|s| s.phase.clone()) {
+                Phase::Running => break,
+                Phase::Ended(why) => bail!("{why}"),
+                Phase::Starting => std::thread::sleep(PERIOD),
+            }
+        }
+        println!(
+            "running after {:?}, windows {:?}",
+            started.elapsed(),
+            running.windows()
+        );
+        // Each parked window streams through WGC, on the primary display's GPU.
+        let display = crate::capture::primary_display().context("no display")?;
+        let _com = crate::capture::ComGuard::new()?;
+        for slot in 0..players {
+            let target = running.capture_target(slot, &display)?;
+            let mut capture = crate::capture::Capture::open_for_stream_reported(
+                &target,
+                "wgc",
+                false,
+                &Default::default(),
+                warnings.clone(),
+            )?;
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let image = loop {
+                if let Some(image) = capture.next_gpu()? {
+                    break image;
+                }
+                ensure!(
+                    Instant::now() < deadline,
+                    "Player {}'s window gave no frame within 5 s",
+                    slot + 1
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            };
+            println!(
+                "player {} capture {target}: {} {}x{}",
+                slot + 1,
+                capture.backend(),
+                image.width,
+                image.height
+            );
+        }
+        for slot in 0..players {
+            match running.audio(slot) {
+                Ok(audio) => println!("player {} audio pid {}", slot + 1, audio.identity.pid),
+                Err(error) => println!("player {} audio: {error:#}", slot + 1),
+            }
+        }
+        std::thread::sleep(hold);
+        let phase = running.with_session(|s| s.phase.clone());
+        ensure!(phase == Phase::Running, "after {hold:?}: {phase:?}");
+        let stopping = Instant::now();
+        running.stop();
+        println!("stopped in {:?}", stopping.elapsed());
+        for warning in warnings.snapshot() {
+            println!("warning {}: {}", warning.code, warning.message);
+        }
+        let left: Vec<String> = Win32::default()
+            .processes()?
+            .into_iter()
+            .filter(|p| p.started >= since)
+            .filter(|p| {
+                p.name.eq_ignore_ascii_case(EXECUTABLE)
+                    || p.name.eq_ignore_ascii_case(&handler.executable)
+            })
+            .map(|p| format!("{} {}", p.name, p.pid))
+            .collect();
+        ensure!(left.is_empty(), "still running after the stop: {left:?}");
+        Ok(())
     }
 }

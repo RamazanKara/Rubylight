@@ -441,4 +441,37 @@ pub(crate) mod tests {
         };
         assert_eq!(feedback(motion, 1), None);
     }
+
+    /// The real pads (hw-queue.md, "Nucleus Co-op pads"): each player's pad
+    /// takes an XInput index the PC's own controllers leave free, and all
+    /// of them are gone again once the pads are dropped.
+    #[test]
+    #[ignore = "plugs virtual Xbox pads: requires the virtual gamepad driver and an idle PC"]
+    fn virtual_pads_take_free_xinput_indices_on_this_pc() -> Result<()> {
+        let players = std::env::var("RUBYLIGHT_NUCLEUS_PLAYERS").map_or(Ok(2), |p| p.parse())?;
+        let policy = butterpollo_core::input_policy::Policy::resolve(&Default::default())?;
+        let warnings = std::sync::Arc::new(butterpollo_core::session::Warnings::default());
+        let pads = virtual_pads(policy, warnings.clone())?;
+        let mut xinput = System::open()?;
+        let before = xinput.connected()?;
+        let started = Instant::now();
+        let indices = plug(&pads, &mut xinput, players, PLUG_TIMEOUT)?;
+        println!(
+            "before {before:?}, indices {indices:?} in {:?}",
+            started.elapsed()
+        );
+        for warning in warnings.snapshot() {
+            println!("warning {}: {}", warning.code, warning.message);
+        }
+        for &index in &indices {
+            ensure!(!before[usize::from(index)], "index {index} was the PC's");
+        }
+        drop(pads);
+        let deadline = Instant::now() + PLUG_TIMEOUT;
+        while xinput.connected()? != before {
+            ensure!(Instant::now() < deadline, "the pads did not unplug");
+            std::thread::sleep(POLL);
+        }
+        Ok(())
+    }
 }

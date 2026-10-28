@@ -31,7 +31,7 @@
     <string name="coop_refresh">Erneut prüfen</string>
     <string name="coop_joining">Beitritt zu %1$s…</string>
     <string name="coop_unavailable_no_reason">Der PC kann gerade keine Co-op-Sitzungen ausführen.</string>
-    <string name="coop_problem_permission">„Kann Co-op-Spielen beitreten“ ist für dieses Gerät aus</string>
+    <string name="coop_problem_permission">„Can join co-op games“ ist für dieses Gerät in der Rubylight-Konsole aus</string>
     <string name="coop_problem_refused">%1$s hat den Beitritt abgelehnt</string>
     <string name="coop_problem_gone">Die Co-op-Sitzung gibt es nicht mehr</string>
     <string name="coop_problem_busy">Co-op ist auf %1$s belegt</string>

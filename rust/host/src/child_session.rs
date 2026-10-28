@@ -1562,7 +1562,10 @@ mod tests {
                 problem.contains("S-1-5-21-9") || problem.contains("access denied"),
                 "{problem}"
             );
-            assert!(problem.contains("Remote Desktop was turned off"), "{problem}");
+            assert!(
+                problem.contains("Remote Desktop was turned off"),
+                "{problem}"
+            );
         }
         // A folder setup never made holds no setup of Rubylight's: any user could make one in
         // a data root they can write, so RDP, the user's own, is left as it is. Still said.
@@ -1765,8 +1768,14 @@ mod tests {
         let administrators = |sid: &str| matches!(sid, "S-1-5-18" | "S-1-5-32-544");
         let error = format!("{:#}", own.save(&recorded()).unwrap_err());
         if administrators(&owner) {
-            let other = writers.iter().find(|sid| !administrators(sid.as_str())).unwrap();
-            assert!(error.contains(&format!("can be written by {other}")), "{error}");
+            let other = writers
+                .iter()
+                .find(|sid| !administrators(sid.as_str()))
+                .unwrap();
+            assert!(
+                error.contains(&format!("can be written by {other}")),
+                "{error}"
+            );
         } else {
             assert!(error.contains(&format!("is owned by {owner}")), "{error}");
         }
@@ -1797,7 +1806,10 @@ mod tests {
             ..record.clone()
         };
         let error = format!("{:#}", stuck.save(&recorded()).unwrap_err());
-        assert!(error.contains("creating") && error.contains(".tmp"), "{error}");
+        assert!(
+            error.contains("creating") && error.contains(".tmp"),
+            "{error}"
+        );
         assert_eq!(record.load().unwrap(), Some(recorded()));
         // One that can't be removed (held open, sharing nothing) is a failure that says so.
         let held = {

@@ -258,6 +258,9 @@ pub struct Settings {
     /// offered up to 300 %.
     #[serde(deserialize_with = "render_scale")]
     pub virtual_display_scale: u32,
+    /// "PC display scaling": the Windows scale (text and interface size) of the virtual
+    /// display, in percent (`rlDisplayScale`); 0 keeps the PC's own setting.
+    pub virtual_display_dpi: u32,
     pub host_display: HostDisplay,
     /// The video FEC asked for at launch from a PC that lets the client choose it.
     pub error_correction: ErrorCorrection,
@@ -514,6 +517,7 @@ impl Default for Settings {
             auto_reconnect_default_on: true,
             virtual_display: false,
             virtual_display_scale: 100,
+            virtual_display_dpi: 0,
             host_display: HostDisplay::HostDefault,
             error_correction: ErrorCorrection::Host,
             link_probe: false,

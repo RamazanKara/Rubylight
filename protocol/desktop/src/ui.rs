@@ -2343,6 +2343,15 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution.", |ui, s| {
                 ui.add(egui::Slider::new(&mut s.virtual_display_scale, crate::config::RENDER_SCALE).step_by(5.0).suffix("%"))
             });
+            setting_row(ui, s, &mut rows, &["virtual_display_dpi"], "PC display scaling", "Text and interface size on the virtual display, on Rubylight PCs.", |ui, s| {
+                egui::ComboBox::from_id_salt("virtual-display-dpi")
+                    .selected_text(display_scale_name(s.virtual_display_dpi))
+                    .show_ui(ui, |ui| {
+                        for percent in DISPLAY_SCALES {
+                            ui.selectable_value(&mut s.virtual_display_dpi, percent, display_scale_name(percent));
+                        }
+                    }).response
+            });
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
                     .selected_text(match s.window_mode {
@@ -3636,6 +3645,13 @@ fn remote_report(ui: &mut Ui, report: &crate::host_page::Report) {
             .font(regular(text::CAPTION))
             .color(OUTLINE),
     );
+}
+
+/// The Windows scales "PC display scaling" offers; 0 keeps the PC's own (`rlDisplayScale`).
+const DISPLAY_SCALES: [u32; 13] = [0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
+
+fn display_scale_name(percent: u32) -> String {
+    if percent == 0 { tr("PC's own").into() } else { format!("{percent}%") }
 }
 
 fn host_display_name(mode: HostDisplay) -> &'static str {

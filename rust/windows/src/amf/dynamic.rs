@@ -154,24 +154,31 @@ fn unmeasured(wanted: Wanted, stream: &str, why: &str, warnings: &Warnings) {
 /// by the statistics pass behind its conversion (`stats`; `None` for an
 /// input that has none). Without the pass, HDR10+ is off and Dolby Vision
 /// goes on with the static metadata; the log and the session's warnings say
-/// why. `packed` 4:4:4 never carries Dolby Vision
-/// (`stream_policy::packed_drops_dolby_vision`).
+/// why. `packed` 4:4:4 carries neither and runs no statistics pass: its
+/// bitstream says SDR, and the device unpacks the picture in its own shader
+/// and takes the static HDR10 metadata from the control channel, so no
+/// decoder would read them (`stream_policy::packed_drops_dolby_vision`).
 pub(super) fn start(
-    mut wanted: Wanted,
+    wanted: Wanted,
     packed: bool,
     stats: Option<&mut (impl Stats + ?Sized)>,
     warnings: &Warnings,
 ) -> Option<Box<Dynamic>> {
-    if packed && wanted.dolby_vision {
-        off(
-            warnings,
-            "hdr_dolby_vision",
-            "Dolby Vision is off for this stream: packed 4:4:4 streams carry HDR10 and HDR10+ only. Report this with the host log, the negotiation should have dropped it".to_owned(),
-        );
-        wanted.dolby_vision = false;
-        if !wanted.t35 {
-            return None;
+    if packed {
+        if wanted.dolby_vision {
+            off(
+                warnings,
+                "hdr_dolby_vision",
+                "Dolby Vision is off for this stream: packed 4:4:4 streams carry static HDR10 only. Report this with the host log, the negotiation should have dropped it".to_owned(),
+            );
         }
+        if wanted.t35 {
+            tracing::info!(
+                codec = ?wanted.codec,
+                "HDR10+ and HDR Vivid are off for this packed 4:4:4 stream: the device unpacks the picture itself and takes the static HDR10 metadata from the control channel, so no decoder would read them"
+            );
+        }
+        return None;
     }
     let why = match stats.map(|stats| stats.enable()) {
         Some(Ok(())) => {
@@ -778,9 +785,9 @@ mod tests {
 
     #[test]
     fn a_stream_without_the_statistics_pass_says_why_it_carries_static_hdr10_only() {
-        let shown = |packed, stats: Option<&mut FakeStats>| {
+        let shown = |stats: Option<&mut FakeStats>| {
             let warnings = Warnings::default();
-            let dynamic = start(Wanted::t35(Codec::Hevc), packed, stats, &warnings);
+            let dynamic = start(Wanted::t35(Codec::Hevc), false, stats, &warnings);
             assert!(dynamic.is_none());
             let shown = warnings.snapshot();
             assert_eq!(shown.len(), 1);
@@ -797,23 +804,20 @@ mod tests {
             );
             shown[0].message.clone()
         };
-        for packed in [false, true] {
-            assert!(shown(packed, None::<&mut FakeStats>).contains("no GPU statistics pass"));
-            let mut failing = FakeStats {
-                enable_fails: true,
-                ..Default::default()
-            };
-            assert!(
-                shown(packed, Some(&mut failing))
-                    .contains("statistics pass did not start (root signature rejected)")
-            );
-        }
-        // With the pass, dynamic metadata is on and nothing is shown: packed
-        // 4:4:4 too, whose statistics come from the picture before packing.
+        assert!(shown(None::<&mut FakeStats>).contains("no GPU statistics pass"));
+        let mut failing = FakeStats {
+            enable_fails: true,
+            ..Default::default()
+        };
+        assert!(
+            shown(Some(&mut failing))
+                .contains("statistics pass did not start (root signature rejected)")
+        );
+        // With the pass, dynamic metadata is on and nothing is shown.
         let mut stats = FakeStats::default();
-        for (codec, packed) in [(Codec::Av1, false), (Codec::Hevc, true)] {
+        for codec in [Codec::Av1, Codec::Hevc] {
             let warnings = Warnings::default();
-            let dynamic = start(Wanted::t35(codec), packed, Some(&mut stats), &warnings);
+            let dynamic = start(Wanted::t35(codec), false, Some(&mut stats), &warnings);
             assert!(dynamic.is_some_and(|dynamic| dynamic.measuring));
             assert!(warnings.snapshot().is_empty());
         }
@@ -821,25 +825,34 @@ mod tests {
     }
 
     #[test]
-    fn packed_444_hdr10_plus_is_spliced_like_420() {
+    fn packed_444_runs_no_statistics_pass_for_dynamic_metadata() {
+        // Its bitstream says SDR and the device unpacks it in its own
+        // shader, with the control channel's HDR10 metadata: no decoder
+        // would read HDR10+ or HDR Vivid, so the GPU never measures for it.
         let warnings = Warnings::default();
-        let mut stats = FakeStats {
-            readout: Some(readout(4, 120, 640)),
+        let mut stats = FakeStats::default();
+        for codec in [Codec::Hevc, Codec::Av1] {
+            assert!(start(Wanted::t35(codec), true, Some(&mut stats), &warnings).is_none());
+        }
+        assert_eq!(stats.enables, 0);
+        assert!(warnings.snapshot().is_empty());
+    }
+
+    #[test]
+    fn packed_444_streams_ask_with_their_own_config_not_the_coded_one() {
+        // amf.rs codes a packed stream as SDR; `wanted` gets the stream's
+        // config, so an HDR packed stream reaches `start` and says why it
+        // carries no dynamic metadata.
+        let mut config = butterpollo_core::rtsp::Negotiated {
+            codec: 1,
+            hdr: true,
+            chroma_packing: 1,
             ..Default::default()
         };
-        let mut slot = start(Wanted::t35(Codec::Hevc), true, Some(&mut stats), &warnings);
-        sample(&mut slot, Some(&mut stats), &warnings);
-        let dynamic = slot.as_deref_mut().unwrap();
-        let units = frame_units(Codec::Hevc, &readout(4, 120, 640).frame_stats().unwrap()).unwrap();
-        let frame = keyframe();
-        let at = insert_offset(Codec::Hevc, &frame).unwrap();
-        assert_eq!(
-            output(Some(dynamic), Unit::Whole, &frame, Some(5000), true),
-            (
-                Some([&frame[..at], &units, &frame[at..]].concat()),
-                Some(5000 + units.len() as u64)
-            )
-        );
+        let on = butterpollo_core::config::Config::default();
+        assert_eq!(wanted(&config, &on), Some(Wanted::t35(Codec::Hevc)));
+        config.hdr = false;
+        assert_eq!(wanted(&config, &on), None);
     }
 
     fn dolby_vision(t35: bool) -> Wanted {
@@ -1084,15 +1097,13 @@ mod tests {
         for t35 in [false, true] {
             let warnings = Warnings::default();
             let slot = start(dolby_vision(t35), true, Some(&mut stats), &warnings);
-            assert_eq!(
-                slot.map(|dynamic| (dynamic.dovi.is_some(), dynamic.wanted)),
-                t35.then_some((false, Wanted::t35(Codec::Hevc)))
-            );
+            assert!(slot.is_none());
             let shown = warnings.snapshot();
             assert_eq!(shown.len(), 1);
             assert_eq!(shown[0].code, "hdr_dolby_vision");
             assert!(shown[0].message.contains("packed 4:4:4"));
         }
+        assert_eq!(stats.enables, 0);
     }
 
     /// What the sender gets for one frame AMF returned as `units`

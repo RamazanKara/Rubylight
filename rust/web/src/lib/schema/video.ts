@@ -237,7 +237,7 @@ const video: Setting[] = [
     description:
       'Adds HDR10+ brightness statistics to HDR video so compatible displays can tone-map scene by scene. Devices without HDR10+ ignore them.',
     details:
-      'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics. Moonlight drops them from HEVC before the decoder; Nightjar keeps them. In AV1 they reach any client whose decoder reads them. Turn this off if a display handles brightness worse with it.',
+      'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics. Moonlight drops them from HEVC before the decoder; Nightjar keeps them. In AV1 they reach any client whose decoder reads them. Packed 4:4:4 streams carry static HDR10 only: the device unpacks the picture itself, so no decoder would read them. Turn this off if a display handles brightness worse with it.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },
@@ -249,7 +249,7 @@ const video: Setting[] = [
     description:
       'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, to devices that ask for it on HEVC HDR streams. Experimental.',
     details:
-      'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10 (8.1) or HLG (8.4). Packed 4:4:4 streams carry HDR10 and HDR10+ instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
+      'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10 (8.1) or HLG (8.4). Packed 4:4:4 streams carry static HDR10 instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },

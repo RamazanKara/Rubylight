@@ -2375,7 +2375,7 @@ fn a_packed_stream_drops_dolby_vision_loudly_and_streams_hdr10() {
             .message
             .contains("unpacks the packed picture itself")
     );
-    assert!(shown[0].message.contains("HDR10 and HDR10+ instead"));
+    assert!(shown[0].message.contains("static HDR10 instead"));
     // A 4:2:0 stream keeps its pick, and the next stream clears the warning.
     let mut plain = request(false, hdr::DV_81);
     assert!(!packed_drops_dolby_vision(&mut plain, &warnings));
@@ -2419,7 +2419,7 @@ fn a_packed_stream_drops_hlg_loudly_and_streams_hdr10() {
         let shown = warnings.snapshot();
         assert_eq!(shown.len(), 1);
         assert_eq!(shown[0].code, "hdr_hlg");
-        assert!(shown[0].message.contains("HDR10 and HDR10+ instead"));
+        assert!(shown[0].message.contains("static HDR10 instead"));
         // A 4:2:0 stream keeps HLG, and clears the warning.
         let mut plain = request("", codec);
         assert!(!packed_drops_hlg(&mut plain, &warnings));

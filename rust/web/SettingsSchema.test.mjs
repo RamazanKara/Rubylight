@@ -49,7 +49,7 @@ test('Dolby Vision is a live Experimental setting that says why packed 4:4:4 str
   assert.equal(setting.category, 'video');
   assert.match(setting.label, /\(Experimental\)$/);
   assert.match(setting.description, /Experimental\.$/);
-  assert.match(setting.details, /Packed 4:4:4 streams carry HDR10 and HDR10\+ instead: the device unpacks the packed picture itself/);
+  assert.match(setting.details, /Packed 4:4:4 streams carry static HDR10 instead: the device unpacks the packed picture itself/);
   assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /Foundation|dovi_tool|quietvoid/);
   assert.equal(pending.some(candidate => candidate.key === 'hdr_dolby_vision'), false);
   assert.equal(differsFromDefault(setting, {}, { hdr_dolby_vision: false }), true);

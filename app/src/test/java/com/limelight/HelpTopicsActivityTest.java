@@ -50,6 +50,23 @@ public class HelpTopicsActivityTest {
     }
 
     @Test
+    public void onAPhoneTheLinksLineUpWithTheirParagraph() {
+        try (ActivityController<HelpTopicsActivity> controller = Robolectric.buildActivity(HelpTopicsActivity.class).setup()) {
+            assertEquals(0, controller.get().findViewById(R.id.help_pairing_link).getPaddingStart());
+        }
+    }
+
+    /** TV previews: the focus ring on a link was drawn through the first letter of its label. */
+    @Test @Config(qualifiers = "television")
+    public void onATvTheLinksKeepRoomInsideTheirRing() {
+        try (ActivityController<HelpTopicsActivity> controller = Robolectric.buildActivity(HelpTopicsActivity.class).setup()) {
+            View link = controller.get().findViewById(R.id.help_pairing_link);
+            assertTrue("the label clears the ring's rounded end",
+                    link.getPaddingStart() >= 8 * link.getResources().getDisplayMetrics().density);
+        }
+    }
+
+    @Test
     public void helpLeftThePcsToolbarAndStillOpensTheBundledPage() {
         Application application = RuntimeEnvironment.getApplication();
         GlPreferences gl = GlPreferences.readPreferences(application);

@@ -306,6 +306,52 @@ mod tests {
         assert!(references.plan(22, false).after_invalidation);
     }
     #[test]
+    fn a_keyframe_re_encoding_an_accepted_frame_drops_every_older_reference() {
+        // AMF encodes an oversize scene cut again as a keyframe at the same
+        // wire frame: the inter frame never reaches the client, and nothing
+        // may repair from a reference only it or the frames before it kept.
+        let mut references = References::new(4, Counter::Explicit);
+        for frame in 1..=24 {
+            let plan = references.plan(frame, frame == 1);
+            references.accepted(frame, &plan);
+        }
+        assert_eq!(references.slots, [Some(1), Some(16), Some(20), Some(24)]);
+        references.accepted(24, &references.plan(24, true));
+        assert_eq!(references.slots, [Some(24), None, None, None]);
+        // Losses before it are covered by the keyframe, and a later one is
+        // repaired from it, not from frame 16 or 20.
+        assert!(references.invalidate(22, 23));
+        assert!(!references.invalidation_pending());
+        for frame in 25..=30 {
+            references.accepted(frame, &references.plan(frame, false));
+        }
+        assert!(references.invalidate(27, 30));
+        let repair = references.plan(31, false);
+        assert_eq!(repair.reference, Some(0));
+        assert_eq!(references.slots[0], Some(24));
+
+        // The re-encoded frame was itself a repair: the keyframe ends it.
+        let mut references = References::new(4, Counter::Explicit);
+        for frame in 1..=20 {
+            let plan = references.plan(frame, frame == 1);
+            references.accepted(frame, &plan);
+        }
+        assert!(references.invalidate(17, 18));
+        let repair = references.plan(21, false);
+        assert_eq!(repair.reference, Some(1));
+        references.accepted(21, &repair);
+        let keyframe = references.plan(21, true);
+        assert_eq!((keyframe.reference, keyframe.skipped), (None, 0));
+        references.accepted(21, &keyframe);
+        assert_eq!(references.slots, [Some(21), None, None, None]);
+        assert!(!references.invalidation_pending());
+        let next = references.plan(22, false);
+        assert!(!next.after_invalidation);
+        assert_eq!((next.reference, next.skipped), (None, 0));
+        assert!(references.invalidate(17, 20));
+        assert!(!references.invalidation_pending());
+    }
+    #[test]
     fn ltr_repair_preserves_previous_idr_coverage() {
         let mut references = References::new(4, Counter::Explicit);
         for frame in 1..=20 {

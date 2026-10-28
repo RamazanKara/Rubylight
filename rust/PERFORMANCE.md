@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Scene cuts AMF encodes past the full-FEC bound, encoded again as keyframes: lost cuts, freezes, keyframe requests, end-to-end picture age, encode time (ABBA) | [October 28, oversize scene cuts encoded again as keyframes](#october-28-oversize-scene-cuts-encoded-again-as-keyframes) |
 | LTR recovery on H.264 and HEVC with header rewrites: repair against keyframe bytes per gap (1 to 130) and codec, scrolling and static, decodes, the size estimate's choices, rewrite cost in a 60 s stream (ABBA) | [October 28, LTR recovery with header rewrites](#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default) |
 | Scene cuts on a clean route with 0.3% random loss: the automatic frame cap held within full four-block FEC (fixed, automatic and no FEC), oversize-only pacing (not kept), freezes, recovery keyframes, end-to-end picture age | [October 28, lost scene cuts and recovery keyframes past four FEC blocks](#october-28-lost-scene-cuts-and-recovery-keyframes-past-four-fec-blocks) |
 | Audio passthrough: AC3 and E-AC3 encode time per packet against Opus, codec delay, and what the 32 ms frames cost end to end | [October 27, audio passthrough encode cost](#october-27-audio-passthrough-encode-cost) |
@@ -53,6 +54,19 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 28: oversize scene cuts encoded again as keyframes
+
+The cuts the frame cap above could not save: AMF picks each frame's QP from the frames before and never encodes again, so after steady 385 KB frames a cut comes out as an inter frame of about 2.4 MB, past the 1.17 MB that keeps full parity in four blocks, and is lost. A keyframe of the same picture lands at the cap (855 KB). Now an inter frame larger than the stream's full-FEC bound (the same bound the cap is held to: `network_pacing::fec_whole_frame_limit`, at least two nominal frames) is not sent: its converted input goes back to AMF once as a keyframe at the same wire frame, and that keyframe is sent. There is no lookahead and no added frame of delay; the second encode happens only on such frames. Same fixture as the section below (HEVC 1440p60, 250 Mbps, 0.3% random loss, a cut every 2 s, `--fresh-rows 256`, 45 s), C = the cap within full FEC with LTR repair on (the merged branch), R = C plus the re-encode; two pairs, C then R and R then C, one binary each.
+
+| Arm | Lost cuts | Re-encoded | Freezes (over 100 ms) | Whole | Keyframe requests | Reference invalidations | End to end p50 / p95 / p99, ms | Encode mean / p99, ms | Cut keyframe picture age p50 / max, ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
+| C, run 1 | 16 | 0 | 15 (0) | 99.81% | 15 | 19 | 20.09 / 36.67 / 71.85 | 4.04 / 4.76 | 44.5 / 115.0 (recovery) |
+| R, run 1 | 0 | 14 | 0 (0) | 100.38% | 1 | 0 | 19.19 / 23.91 / 34.09 | 4.00 / 4.63 | 37.2 / 89.0 |
+| R, run 2 | 0 | 14 | 0 (0) | 100.07% | 1 | 0 | 18.33 / 20.69 / 29.37 | 4.02 / 4.77 | 35.4 / 51.6 |
+| C, run 2 | 15 | 0 | 15 (0) | 99.93% | 16 | 17 | 17.98 / 20.92 / 30.06 | 3.96 / 4.74 | 41.7 / 68.6 (recovery) |
+
+"Lost cuts" are the client's unrecoverable frames; "whole" is the harness's frames received over frames sent, as it reports them. Encode is the mean of the 5 s `stream timings` windows. Of about 22 cuts a run, 14 came out past the bound and were encoded again; the rest (inter frames up to 950 KB) kept full parity and went as they were. Every freeze is gone with them, and with them the keyframe requests (15–16 to 1, the startup one) and the reference invalidations. The overall encode time did not move: the second encode falls on 14 of about 2,700 frames. The host does not time a re-encoded frame on its own, so the encode time on cut frames is not measured; the cut keyframe arrives 5–7 ms sooner (picture age p50) than C's recovery keyframe, and 2.4 MB at 800 Mbps would take about 24 ms to send against about 9 ms for the 855 KB keyframe. No re-encode failed. End to end p99 was 34.1 against 71.9 ms and 29.4 against 30.1 ms. A re-encode happens only when nothing submitted later references the inter frame, never while an input waits on a full AMF queue, and never with slice delivery (the frame's first slices may have left). The keyframe resets the long-term references, so a later LTR repair names only the keyframe or frames after it (`ltr::tests::a_keyframe_re_encoding_an_accepted_frame_drops_every_older_reference`); `amf::tests::native_an_oversize_scene_cut_goes_out_once_as_a_keyframe_at_its_own_index` checks H.264, HEVC and AV1 on the GPU (one output a frame, keyframes at 1 and the cut, one re-encode, a repair after it). Explicit `amd_max_frame_size` values keep AMF's output as it is. Kept.
 
 ## October 28: lost scene cuts and recovery keyframes past four FEC blocks
 

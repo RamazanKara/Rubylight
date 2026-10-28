@@ -293,8 +293,15 @@ pub fn recovery_frame_cap(
 /// clean route costs it, and losing it again latches the slow pace. The cap
 /// stays at least two nominal frames, `recovery_frame_cap`'s floor.
 pub fn fec_whole_frame_cap(cap: u64, fec_whole: usize, bitrate_kbps: u32, period: Duration) -> u64 {
+    cap.min(fec_whole_frame_limit(fec_whole, bitrate_kbps, period))
+}
+
+/// The bound [`fec_whole_frame_cap`] holds a cap to: `fec_whole`, but at least
+/// two nominal frames. An encoded frame above it loses parity, so the encoder
+/// re-encodes an inter frame that large as a keyframe.
+pub fn fec_whole_frame_limit(fec_whole: usize, bitrate_kbps: u32, period: Duration) -> u64 {
     let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
-    cap.min((fec_whole as u64).max(minimum))
+    (fec_whole as u64).max(minimum)
 }
 
 /// Time spent in the send call or waking late that still counts toward the

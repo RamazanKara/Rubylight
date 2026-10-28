@@ -40,6 +40,11 @@ impl FrameCap {
         self.effective
     }
 
+    /// The host sets the cap from the route (not an explicit setting).
+    pub(super) fn automatic(&self) -> bool {
+        self.automatic
+    }
+
     pub(super) fn update(
         &mut self,
         codec: u8,

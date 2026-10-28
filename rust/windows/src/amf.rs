@@ -220,8 +220,15 @@ struct Submission {
     after_invalidation: bool,
     frame_cap_bytes: Option<u64>,
     skipped: u64,
+    /// The largest inter frame sent as AMF made it ([`reencodes_cut`]).
+    cut_limit: Option<u64>,
+    /// This is the keyframe re-encode of an inter frame past `cut_limit`.
+    reencoded: bool,
     _capture: Option<GpuImage>,
     _converted: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D>>,
+    /// The compute conversion's output, kept like `_converted` so the frame
+    /// can be encoded again.
+    _converted12: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D12::ID3D12Resource>>,
 }
 /// How long AMF may hold an accepted frame before it counts as lost.
 const UNRETURNED_AFTER: Duration = Duration::from_secs(2);
@@ -254,6 +261,17 @@ fn output_is_idr(picture_type: Option<i64>, requested_idr: bool) -> bool {
     // frames ahead, or continue an earlier encoder's frame numbering.
     picture_type.map_or(requested_idr, |kind| kind == 0)
 }
+/// Whether AMF's output goes back to it as a keyframe instead of to the
+/// client. AMF picks a frame's QP from the frames before and never encodes
+/// again, so after steady frames a scene cut comes out as an inter frame of
+/// about 2.4 MB (HEVC 1440p60 at 250 Mbps) that leaves without parity and is
+/// lost, while a keyframe of the same picture lands at the frame cap. Only an
+/// inter frame past the stream's full-FEC bound, once per frame (`keyframe`
+/// covers a requested or re-encoded one), and only while nothing submitted
+/// after it can reference it (`alone`).
+fn reencodes_cut(keyframe: bool, bytes: u64, limit: Option<u64>, alone: bool) -> bool {
+    !keyframe && alone && limit.is_some_and(|limit| bytes > limit)
+}
 pub struct Encoder {
     pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     component: *mut AMFComponent,
@@ -274,6 +292,15 @@ pub struct Encoder {
     pub(crate) probe: bool,
     rate_control: rate_control::State,
     frame_cap: rate_control::FrameCap,
+    /// The full-FEC bound the stream sets with an automatic frame cap: AMF
+    /// does not hold a scene cut's inter frame to the cap, so one past this
+    /// is encoded again as a keyframe.
+    cut_limit: Option<u64>,
+    reencoded_cuts: u64,
+    reencode_failures: u64,
+    /// An input is prepared and not yet accepted: no re-encode may change the
+    /// references its plan names.
+    preparing: bool,
     references: butterpollo_core::ltr::References,
     /// AMF's H.264 and HEVC headers as a client that dropped frames until a
     /// long-term reference repair needs them: only on a stream with LTR.
@@ -620,6 +647,10 @@ impl Encoder {
                 probe: false,
                 rate_control: rate_control::State::new(config.bitrate_kbps, scale_frame_cap),
                 frame_cap: rate_control::FrameCap::new(automatic_frame_cap),
+                cut_limit: None,
+                reencoded_cuts: 0,
+                reencode_failures: 0,
+                preparing: false,
                 references: Default::default(),
                 repair_headers: None,
                 repair_dropping: false,
@@ -1601,9 +1632,19 @@ impl Encoder {
     fn prepare_surface(
         &mut self,
         surface: *mut AMFSurface,
+        idr: bool,
+    ) -> Result<(butterpollo_core::ltr::Plan, bool)> {
+        self.prepare_surface_at(surface, self.index as u64 + 1, idr)
+    }
+    /// [`Self::prepare_surface`] for wire frame `frame`: a re-encode prepares
+    /// the frame already submitted again.
+    fn prepare_surface_at(
+        &mut self,
+        surface: *mut AMFSurface,
+        frame: u64,
         mut idr: bool,
     ) -> Result<(butterpollo_core::ltr::Plan, bool)> {
-        let mut plan = self.references.plan(self.index as u64 + 1, idr);
+        let mut plan = self.references.plan(frame, idr);
         let [_, _, mark, reference] = self.ltr_properties();
         let apply = |name: &str, value: AMFVariantStruct| -> Result<()> {
             // SAFETY: Both callers own surface throughout preparation. These local
@@ -1630,7 +1671,7 @@ impl Encoder {
             tracing::warn!(%error,"AMF LTR surface rejected; requesting a larger IDR recovery frame. Disable amd_ltr_frames if this repeats");
             self.references.disable();
             idr = true;
-            plan = self.references.plan(self.index as u64 + 1, true);
+            plan = self.references.plan(frame, true);
         }
         if idr {
             apply(
@@ -1749,9 +1790,11 @@ impl Encoder {
                     skipped: s.skipped,
                 }
             });
-            if let Some(position) = position.filter(|_| last) {
-                self.in_flight.remove(position);
-            }
+            let finished = position
+                .filter(|_| last)
+                .and_then(|position| self.in_flight.remove(position));
+            // Nothing submitted after it references the frame yet.
+            let newest = finished.is_some() && position == Some(self.in_flight.len());
             let latency = submission.as_ref().map(|s| s.started.elapsed());
             let presentation = submission.as_ref().map(|s| s.presentation);
             let timing = submission
@@ -1786,6 +1829,28 @@ impl Encoder {
                 // A keyframe the encoder chose (a pre-analysis scene change
                 // or the GOP) settles the rate control as a requested one.
                 self.focus.keyframe_out();
+            }
+            if let Some(cut) = finished.as_ref().filter(|cut| {
+                reencodes_cut(
+                    idr || cut.idr || cut.reencoded,
+                    size as u64,
+                    cut.cut_limit,
+                    newest && !self.preparing && self.slice_blocks == 0,
+                )
+            }) {
+                match self.reencode_as_idr(cut) {
+                    Ok(()) => {
+                        (v.Release.unwrap())(buffer);
+                        // poll() asks again at once, for the keyframe.
+                        self.unit_held = true;
+                        return Ok(output);
+                    }
+                    Err(error) => {
+                        self.reencode_failures += 1;
+                        tracing::error!(error = %format!("{error:#}"), pts, bytes = size, failures = self.reencode_failures, "AMF could not encode an oversize scene cut again as a keyframe; sending the inter frame, which loses its FEC. Report this with the host log.");
+                        self.warnings.event("encoder_reencode", format!("AMF could not encode an oversize scene cut again as a keyframe ({error:#}); the frame goes without full FEC and may freeze the picture briefly. Report this with the host log."), butterpollo_core::session::EVENT_PERIOD);
+                    }
+                }
             }
             let Some(sent) = self.repaired(
                 std::slice::from_raw_parts(raw, size as usize),
@@ -2112,6 +2177,14 @@ impl Encoder {
     pub fn frame_cap(&self) -> Option<u64> {
         self.frame_cap.effective()
     }
+    /// The largest inter frame sent as encoded ([`reencodes_cut`]), with an
+    /// automatic frame cap only: an explicit `amd_max_frame_size` is kept.
+    pub fn set_cut_limit(&mut self, bytes: u64) {
+        self.cut_limit = (self.frame_cap.automatic() && bytes > 0).then_some(bytes);
+    }
+    pub fn reencoded_cuts(&self) -> u64 {
+        self.reencoded_cuts
+    }
     fn set_bitrate(&mut self, bitrate: u32) -> Result<()> {
         let changed = bitrate != self.rate_control.requested();
         let component = self.component;
@@ -2209,6 +2282,68 @@ impl Encoder {
         }
         Ok(output)
     }
+    /// Submit `cut`'s converted input again as a keyframe, in place of the
+    /// inter frame AMF made of it ([`reencodes_cut`]). The keyframe takes the
+    /// frame's index and resets the long-term references, so a later repair
+    /// names only the keyframe. SubmitInput is the last step that can fail:
+    /// before it, nothing has changed.
+    fn reencode_as_idr(&mut self, cut: &Submission) -> Result<()> {
+        let surface = match (&cut._converted, &cut._converted12, self.compute.as_ref()) {
+            (Some(texture), _, _) => gpu::wrap(self.context, texture, &mut self.ownership)?.0,
+            (None, Some(texture), Some(input)) => {
+                input.context.wrap(texture, &mut self.ownership)?
+            }
+            _ => bail!("the frame's converted input was not kept"),
+        };
+        let frame = cut.pts as u64 + 1;
+        // SAFETY: As in `encode_gpu`: the fresh surface wraps the converted
+        // texture the submission kept, which no later conversion has reused.
+        unsafe {
+            let v = &*(*surface.0).pVtbl;
+            check((v.SetCrop.unwrap())(
+                surface.0,
+                0,
+                0,
+                self.config.coded_size().0 as i32,
+                self.config.coded_size().1 as i32,
+            ))
+            .context("AMF native surface crop")?;
+            (v.SetPts.unwrap())(surface.0, cut.pts);
+            (v.SetDuration.unwrap())(
+                surface.0,
+                10_000_000_000 / i64::from(self.config.fps_millihz()),
+            );
+            let (plan, _) = self.prepare_surface_at(surface.0, frame, true)?;
+            let result = timed("AMF SubmitInput", || {
+                ((*(*self.component).pVtbl).SubmitInput.unwrap())(self.component, surface.0.cast())
+            });
+            self.last_submit = Some(result);
+            check(result).context("AMF SubmitInput of the keyframe")?;
+            acknowledge_keyframe(true, result, &mut self.recover, &mut self.hdr_metadata);
+            let accepted = Instant::now();
+            self.last_accepted = Some(accepted);
+            self.in_flight.push_back(Submission {
+                pts: cut.pts,
+                // From the first submission: the frame's encode time counts both.
+                started: cut.started,
+                accepted,
+                presentation: cut.presentation,
+                idr: true,
+                after_invalidation: false,
+                frame_cap_bytes: cut.frame_cap_bytes,
+                skipped: plan.skipped,
+                cut_limit: cut.cut_limit,
+                reencoded: true,
+                _capture: cut._capture.clone(),
+                _converted: cut._converted.clone(),
+                _converted12: None,
+            });
+            self.references.accepted(frame, &plan);
+            self.focus.keyframe_out();
+            self.reencoded_cuts += 1;
+            Ok(())
+        }
+    }
     pub fn encode_gpu(
         &mut self,
         image: &GpuImage,
@@ -2251,7 +2386,9 @@ impl Encoder {
             let surface = timed("AMF surface wrap", || {
                 input.context.wrap(&converted.texture, &mut self.ownership)
             })?;
-            (surface, None, Some(converted.conversion))
+            // Kept while the frame may need encoding again (`reencodes_cut`).
+            let kept = self.cut_limit.map(|_| converted.texture.clone());
+            (surface, (None, kept), Some(converted.conversion))
         } else {
             if self
                 .gpu_convert
@@ -2273,8 +2410,9 @@ impl Encoder {
             if let Some(stats) = self.graphics_stats.as_deref_mut() {
                 stats.queue(image, &self.gpu_convert.as_ref().unwrap().color);
             }
-            (surface, Some(texture), None)
+            (surface, (Some(texture), None), None)
         };
+        let (converted, converted12) = converted;
         self.set_bitrate(bitrate)?;
         // SAFETY: surface owns a live AMF interface backed by this encoder's device;
         // conversion has synchronized the GPU writes and the boxed ownership observer
@@ -2312,7 +2450,12 @@ impl Encoder {
                     break;
                 }
                 self.input_full += 1;
-                output.extend(self.poll()?);
+                // This input's references are planned: a re-encode now would
+                // drop the ones it may name.
+                self.preparing = true;
+                let polled = self.poll();
+                self.preparing = false;
+                output.extend(polled?);
                 if Instant::now() >= deadline {
                     bail!("AMF GPU input queue failed to drain");
                 }
@@ -2331,8 +2474,11 @@ impl Encoder {
                 after_invalidation: plan.after_invalidation,
                 frame_cap_bytes: self.frame_cap.effective(),
                 skipped: plan.skipped,
+                cut_limit: self.cut_limit,
+                reencoded: false,
                 _capture: self.compute.is_none().then(|| image.clone()),
                 _converted: converted,
+                _converted12: converted12,
             });
             self.backlog.submitted();
             self.references.accepted(self.index as u64 + 1, &plan);

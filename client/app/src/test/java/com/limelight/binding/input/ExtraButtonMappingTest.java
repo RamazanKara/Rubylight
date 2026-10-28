@@ -181,6 +181,40 @@ public class ExtraButtonMappingTest {
     }
 
     @Test
+    public void aTouchpadMappingTurnsOffTheSelectLbClickpadCombo() {
+        ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+        Connection connection = new Connection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        context.hasSelect = true;
+        try {
+            // Without a touchpad mapping a pad faked as PlayStation clicks the touchpad with Select+LB.
+            assertTrue(ControllerHandler.needsClickpadEmulation(context.buttonMap));
+            context.needsClickpadEmulation = true;
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_SELECT, 1000)));
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_L1, 1010)));
+            assertEquals(ControllerPacket.TOUCHPAD_FLAG, connection.last());
+            assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_L1, 1100)));
+            assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_SELECT, 1110)));
+            assertEquals(0, connection.last());
+
+            ControllerButtonMap map = new ControllerButtonMap();
+            map.put(KeyEvent.KEYCODE_BUTTON_C, ControllerButtonMap.TARGET_TOUCHPAD);
+            context.buttonMap = map;
+            assertFalse(ControllerHandler.needsClickpadEmulation(map));
+            context.needsClickpadEmulation = ControllerHandler.needsClickpadEmulation(map);
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_SELECT, 2000)));
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_L1, 2010)));
+            assertEquals(ControllerPacket.BACK_FLAG | ControllerPacket.LB_FLAG, connection.last());
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_C, 2020)));
+            assertEquals(ControllerPacket.BACK_FLAG | ControllerPacket.LB_FLAG | ControllerPacket.TOUCHPAD_FLAG, connection.last());
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
     public void usbShareKeepsItsFlagUnlessMapped() {
         ControllerButtonMap none = new ControllerButtonMap();
         assertEquals(ControllerPacket.MISC_FLAG, none.mapButtonFlags(ControllerPacket.MISC_FLAG, false));

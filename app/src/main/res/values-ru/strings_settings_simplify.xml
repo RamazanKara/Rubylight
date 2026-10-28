@@ -13,5 +13,6 @@
     <string name="overlay_off">Выкл.</string>
     <string name="title_theme">Тема</string>
     <string name="theme_system">Системная</string>
+    <string name="theme_system_tv">Системная (тёмная на телевизоре)</string>
     <string name="theme_dark">Тёмная</string>
 </resources>

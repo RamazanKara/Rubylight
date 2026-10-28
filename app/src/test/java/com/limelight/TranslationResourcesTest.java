@@ -164,6 +164,53 @@ public class TranslationResourcesTest {
         assertTrue(String.join("\n", problems), problems.isEmpty());
     }
 
+    private static boolean onlyReferences(Element array) {
+        NodeList items = array.getElementsByTagName("item");
+        for (int i = 0; i < items.getLength(); i++) {
+            if (!items.item(i).getTextContent().trim().startsWith("@")) return false;
+        }
+        return true;
+    }
+
+    /** Default string names lint's MissingTranslation (an error in lint.xml) wants in every locale. */
+    private static Set<String> needTranslation(File dir) throws Exception {
+        Set<String> names = new java.util.TreeSet<>();
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".xml"));
+        assertNotNull(files);
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        for (File file : files) {
+            Element root = factory.newDocumentBuilder().parse(file).getDocumentElement();
+            if (root.getAttribute("tools:ignore").contains("MissingTranslation")) continue;
+            NodeList nodes = root.getChildNodes();
+            for (int i = 0; i < nodes.getLength(); i++) {
+                if (nodes.item(i).getNodeType() != Node.ELEMENT_NODE) continue;
+                Element element = (Element) nodes.item(i);
+                String type = element.getTagName();
+                if (!type.equals("string") && !type.equals("plurals") && !type.equals("string-array")) continue;
+                if ("false".equals(element.getAttribute("translatable"))) continue;
+                if (element.getAttribute("tools:ignore").contains("MissingTranslation")) continue;
+                if (!type.equals("string") && onlyReferences(element)) continue; // lint skips these too
+                names.add(element.getAttribute("name"));
+            }
+        }
+        return names;
+    }
+
+    @Test
+    public void everyLocaleHasEveryTranslatableString() throws Exception {
+        Set<String> defaults = needTranslation(new File("src/main/res/values"));
+        List<String> problems = new ArrayList<>();
+        File[] dirs = translatedDirs();
+        assertTrue(dirs.length > 0);
+        for (File dir : dirs) {
+            Set<String> translated = load(dir).keySet();
+            for (String name : defaults) {
+                if (!translated.contains(name)) problems.add(dir.getName() + "/" + name + ": missing");
+            }
+        }
+        assertTrue(String.join("\n", problems), problems.isEmpty());
+    }
+
     @Test
     public void tightLabelsExistInTheDefaultStrings() throws Exception {
         Map<String, Entry> defaults = load(new File("src/main/res/values"));

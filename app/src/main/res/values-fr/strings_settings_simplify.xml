@@ -13,5 +13,6 @@
     <string name="overlay_off">Désactivée</string>
     <string name="title_theme">Thème</string>
     <string name="theme_system">Système</string>
+    <string name="theme_system_tv">Système (sombre sur une TV)</string>
     <string name="theme_dark">Sombre</string>
 </resources>

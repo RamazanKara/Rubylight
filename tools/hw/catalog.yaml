@@ -448,6 +448,15 @@ cases:
     status: pending
     note: needs Nightjar Android's folder browser (rl-clip) on main
 
+  - id: nucleus-generic-background
+    device: desktop
+    title: Background stream of a one-player game without a hub handler, through Rubylight's own Nucleus Co-op handler
+    command: '& {{repo}}\tools\hw\nucleus-generic.ps1 -Out {{out}} -Game D:\games\RetroBat\RetroBat.exe; exit $LASTEXITCODE'
+    preconditions: [idle, gpu-lock]
+    pass: exit 0; session.log has the Rubylight-retrobat-*.js handler, "running after", a WGC "player 1 capture window:" line with a size, "pad reports" with the slot's pad, "stopped in" and "compatibility settings as before"
+    output: '{{out}}\session.log'
+    note: runs the ignored test nucleus::session::tests::a_session_on_this_pc as SYSTEM through a one-shot scheduled task; Nucleus Co-op installed (console, Set up co-op) and not running, no host session. For a Steam game run nucleus-generic.ps1 -SteamApp 394360 (Hearts of Iron IV) instead of -Game. Covers the session, not a client; the stream itself is in the rc pass
+
   - id: child-session-cleanup-this-pc
     device: desktop
     title: The upgraded host restores what the removed child-session setup changed on this PC

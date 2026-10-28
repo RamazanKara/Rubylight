@@ -1586,7 +1586,11 @@ mod tests {
     /// handler `RUBYLIGHT_NUCLEUS_HANDLER` started for
     /// `RUBYLIGHT_NUCLEUS_PLAYERS`, held `RUBYLIGHT_NUCLEUS_HOLD` seconds and
     /// stopped; `RUBYLIGHT_NUCLEUS_STEAM_APP` is the Steam app a game was
-    /// found from. Run as SYSTEM, like the service.
+    /// found from. Without a handler file, Rubylight's own one-player handler
+    /// is written for `RUBYLIGHT_NUCLEUS_GAME` (an .exe) or the Steam app's
+    /// .exe, as a background stream without a hub handler does. The user's
+    /// compatibility settings must be as before afterwards. Run as SYSTEM,
+    /// like the service.
     #[test]
     #[ignore = "requires Nucleus Co-op, a handler with its game, the virtual gamepad driver and SYSTEM"]
     fn a_session_on_this_pc() -> Result<()> {
@@ -1601,13 +1605,43 @@ mod tests {
             Err(_) => super::super::install::installed(&data, &configured)?
                 .context("Nucleus Co-op is not installed: set RUBYLIGHT_NUCLEUS_ZIP")?,
         };
-        let file =
-            std::env::var("RUBYLIGHT_NUCLEUS_HANDLER").context("set RUBYLIGHT_NUCLEUS_HANDLER")?;
-        let path = folder.join("handlers").join(&file);
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let handler =
-            butterpollo_core::nucleus::handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
+        let steam_app: Option<u32> = std::env::var("RUBYLIGHT_NUCLEUS_STEAM_APP")
+            .ok()
+            .map(|app| app.parse().context("RUBYLIGHT_NUCLEUS_STEAM_APP"))
+            .transpose()?;
+        let handler = match std::env::var("RUBYLIGHT_NUCLEUS_HANDLER") {
+            Ok(file) => {
+                let path = folder.join("handlers").join(&file);
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                butterpollo_core::nucleus::handler::parse(&file, &text)
+                    .map_err(anyhow::Error::msg)?
+            }
+            Err(_) => {
+                use butterpollo_core::nucleus::generic::Setup;
+                let setup = match (std::env::var("RUBYLIGHT_NUCLEUS_GAME"), steam_app) {
+                    (Ok(game), _) => Setup::new(&game, "Rubylight hardware case", None),
+                    (Err(_), Some(app)) => {
+                        let (exe, install) =
+                            butterpollo_core::steam::game_executable(app, &crate::steam::roots())
+                                .map_err(anyhow::Error::msg)?;
+                        Setup::new(
+                            &exe.to_string_lossy(),
+                            "Rubylight hardware case",
+                            Some((app, &install.to_string_lossy())),
+                        )
+                    }
+                    _ => bail!(
+                        "set RUBYLIGHT_NUCLEUS_HANDLER, RUBYLIGHT_NUCLEUS_GAME or RUBYLIGHT_NUCLEUS_STEAM_APP"
+                    ),
+                };
+                let appdata = crate::user_folder::roaming_app_data()
+                    .map_err(|error| anyhow::anyhow!("{error}"))?;
+                files::write_own(&folder, &appdata, &setup)?
+            }
+        };
+        println!("handler {} for {}", handler.file, handler.executable);
+        let layers_before = layers::UserHive::signed_in()?.values()?;
         let players = env("RUBYLIGHT_NUCLEUS_PLAYERS", 1usize)?;
         let hold = Duration::from_secs(env("RUBYLIGHT_NUCLEUS_HOLD", 20u64)?);
         let since = crate::process::now();
@@ -1617,10 +1651,7 @@ mod tests {
             kind: kind(players),
             folder: &folder,
             handler: &handler,
-            steam_app: std::env::var("RUBYLIGHT_NUCLEUS_STEAM_APP")
-                .ok()
-                .map(|app| app.parse().context("RUBYLIGHT_NUCLEUS_STEAM_APP"))
-                .transpose()?,
+            steam_app,
             title: &handler.name,
             players,
             owner: ("hw-queue", "hw-queue"),
@@ -1683,6 +1714,14 @@ mod tests {
                 Err(error) => println!("player {} audio: {error:#}", slot + 1),
             }
         }
+        // The first player's pad: A held, then released, through its slot.
+        for buttons in [0x1000, 0] {
+            running
+                .input("hw-queue", state(0, 1, buttons))
+                .map_err(|dropped| anyhow::anyhow!("the pad input was dropped: {dropped:?}"))?;
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        println!("pad reports {:?}", running.pads.reports());
         std::thread::sleep(hold);
         let phase = running.with_session(|s| s.phase.clone());
         ensure!(phase == Phase::Running, "after {hold:?}: {phase:?}");
@@ -1703,6 +1742,12 @@ mod tests {
             .map(|p| format!("{} {}", p.name, p.pid))
             .collect();
         ensure!(left.is_empty(), "still running after the stop: {left:?}");
+        let layers_after = layers::UserHive::signed_in()?.values()?;
+        ensure!(
+            layers_after == layers_before,
+            "the compatibility settings changed: {layers_before:?} before, {layers_after:?} after"
+        );
+        println!("compatibility settings as before");
         Ok(())
     }
 }

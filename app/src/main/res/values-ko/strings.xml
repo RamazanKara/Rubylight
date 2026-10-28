@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">호스트의 설정 또는 웹 UI에서 권한을 변경하세요.</string>
     <string name="stream_input_denied">PC가 이 기기의 입력을 차단합니다. 호스트의 설정 또는 웹 UI에서 허용하세요.</string>
     <string name="stream_bitrate">비트레이트</string>
-    <string name="stream_bitrate_help">이 세션의 Mbps를 설정합니다.\n자동 비트레이트가 꺼집니다.</string>
+    <string name="stream_bitrate_help">이 세션의 Mbps를 설정합니다.\n\'기기가 비트레이트 제어\'가 꺼집니다.</string>
     <string name="stream_bitrate_invalid">0.5~2000 Mbps 사이의 비트레이트를 입력하세요</string>
     <string name="stream_bitrate_applied">호스트가 %1$.1f Mbps를 적용했습니다</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps는 %3$d×%4$d, %5$d FPS에서 PyroWave 최솟값 %2$d Mbps보다 낮습니다. 화면이 깨집니다.</string>

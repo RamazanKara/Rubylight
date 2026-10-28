@@ -386,8 +386,10 @@ pub(crate) mod tests {
 
     /// Helpers that translate their text arguments themselves, and how many of the arguments
     /// after the prefix are text: call sites pass the English literal.
-    const HELPERS: [(&str, usize); 8] = [
+    const HELPERS: [(&str, usize); 10] = [
         ("quiet_button(ui, ", 1),
+        ("rows.section(ui, ", 1),
+        ("rows.group(ui, ", 1),
         ("primary_button(ui, ", 1),
         ("text_button(ui, ", 1),
         ("chip(ui, ", 1),
@@ -535,18 +537,15 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn our_own_features_no_device_here_proved_say_experimental_in_both_languages() {
+    fn no_text_on_screen_says_experimental_in_either_language() {
+        let texts = marked().into_iter().map(|m| m.text).chain(de::TABLE.iter().flat_map(|(e, g)| [e.to_string(), g.to_string()]));
+        let labelled: Vec<String> = texts.filter(|t| {
+            let t = t.to_lowercase();
+            t.contains("experimental") || t.contains("experimentell")
+        }).collect();
+        assert!(labelled.is_empty(), "UI text with an Experimental label:\n{}", labelled.join("\n"));
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
-        for (file, text) in [
-            ("ui.rs", "Shared folders (Experimental)"),
-            ("main.rs", "Send image to PC (Experimental)"),
-            ("main.rs", "Copy PC image here (Experimental)"),
-        ] {
-            assert!(shown(file, text), "{file} shows {text:?}");
-            assert!(translate(Lang::De, text).ends_with(" (Experimentell)"), "{text:?}");
-        }
-        // The text clipboard is established: no label.
-        assert!(shown("main.rs", "Send clipboard to PC") && shown("main.rs", "Copy PC clipboard here"));
+        assert!(shown("ui.rs", "Shared folders") && shown("main.rs", "Send image to PC") && shown("main.rs", "Copy PC image here"));
     }
 
     #[test]

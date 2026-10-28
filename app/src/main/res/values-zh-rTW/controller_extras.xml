@@ -52,7 +52,7 @@
     <string name="controller_test_needs_android_12">需要 Android 12 以上版本。</string>
 
     <!-- USB Switch Pro driver -->
-    <string name="title_usb_switch_pro">USB Switch Pro 驅動程式</string>
+    <string name="title_usb_switch_pro">USB Switch Pro 驅動程式（實驗性）</string>
     <string name="summary_usb_switch_pro">實驗性功能。直接讀取有線連接的 Nintendo Switch Pro Controller，支援體感、震動、Home 和 Capture 鍵。</string>
     <string name="usb_switch_pro_denied">沒有 USB 存取權；Switch Pro Controller 繼續使用 Android 輸入。\n請重新連接傳輸線以重試。</string>
 </resources>

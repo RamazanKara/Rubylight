@@ -51,5 +51,4 @@
     <string name="folders_save_lost">The file to save was lost while the save dialog was open. Nothing was saved.</string>
     <string name="folders_partial_left">%1$s A partial file is left at %2$s.</string>
     <string name="folders_bad_path">Not a path Nightjar can open: %1$s</string>
-    <string name="host_menu_folders_note">Experimental</string>
 </resources>

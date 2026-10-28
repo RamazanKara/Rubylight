@@ -608,7 +608,7 @@ pub fn refusal(availability: Availability) -> Option<&'static str> {
 
 /// The stream controls' USB section when the setting is on but the PC offers nothing: why.
 pub fn show_refusal(ui: &mut egui::Ui, why: &str) {
-    ui.label(tr("USB devices (Experimental)"));
+    ui.label(tr("USB devices"));
     ui.colored_label(crate::theme::ERROR, tr(why));
 }
 
@@ -617,7 +617,7 @@ pub fn show_refusal(ui: &mut egui::Ui, why: &str) {
 /// ones that ended.
 pub fn show(ui: &mut egui::Ui, panel: &mut Panel) {
     ui.horizontal(|ui| {
-        ui.label(tr("USB devices (Experimental)"));
+        ui.label(tr("USB devices"));
         if ui.button(tr("Refresh")).clicked() {
             panel.error = None;
             panel.refresh();

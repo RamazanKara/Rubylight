@@ -21,10 +21,11 @@
     <string name="stream_rate_change_reason_encoder_failed">Der Encoder des Hosts lief damit nicht, daher blieb der Stream, wie er war.</string>
     <string name="stream_rate_change_reason_superseded">Eine neuere Änderung hat sie ersetzt.</string>
     <string name="stream_rate_change_reason_other">Der Host konnte sie nicht anwenden.</string>
-    <string name="stream_rate_change_auto_stopped">Automatische Bitrate für diesen Stream beendet: Der Host hat eine Änderung abgelehnt. %1$s</string>
-    <string name="stream_rate_change_auto_not_sent">Automatische Bitrate für diesen Stream beendet: Eine Änderung konnte nicht an den Host gesendet werden.</string>
+    <string name="stream_rate_change_auto_stopped">Verlustbasierte Bitrate für diesen Stream beendet: Der Host hat eine Änderung abgelehnt. %1$s</string>
+    <string name="stream_rate_change_auto_not_sent">Verlustbasierte Bitrate für diesen Stream beendet: Eine Änderung konnte nicht an den Host gesendet werden.</string>
     <string name="stream_rate_change_no_answer">Der Host hat auf die Änderung nicht geantwortet.</string>
-    <string name="stream_rate_change_auto_no_answer">Automatische Bitrate für diesen Stream beendet: Der Host hat auf eine Änderung nicht geantwortet.</string>
-    <string name="title_rate_change_bitrate">Automatische Bitrate auf diesem Gerät</string>
-    <string name="summary_rate_change_bitrate">Nightjar beobachtet Bildverluste und Netzwerkverzögerung und bittet den Host um eine niedrigere oder höhere Bitrate, anstelle der automatischen Bitrate. Braucht die Rust-Engine und einen Host, der Bitrate-Änderungen anbietet; andere Streams behalten die automatische Bitrate.</string>
+    <string name="stream_rate_change_auto_no_answer">Verlustbasierte Bitrate für diesen Stream beendet: Der Host hat auf eine Änderung nicht geantwortet.</string>
+    <string name="title_rate_change_bitrate">Verlustbasierte Bitrate (Rust-Engine)</string>
+    <string name="summary_short_rate_change_bitrate">Aus: nutzt „Gerät steuert die Bitrate“. An: Dieses Gerät passt sie nach Bildverlust und Netzwerkverzögerung an.</string>
+    <string name="summary_rate_change_bitrate">Nightjar beobachtet Bildverluste und Netzwerkverzögerung und bittet den Host um eine niedrigere oder höhere Bitrate, anstelle von „Gerät steuert die Bitrate“. Braucht die Rust-Engine und einen Host, der Bitrate-Änderungen anbietet; andere Streams nutzen „Gerät steuert die Bitrate“.</string>
 </resources>

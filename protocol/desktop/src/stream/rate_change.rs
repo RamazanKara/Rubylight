@@ -161,7 +161,7 @@ impl RateChange {
                 Origin::Menu => tr("The PC did not answer the rate change.").to_owned(),
                 Origin::Hint => {
                     if let Some(hint) = &mut self.hint { hint.refused(); }
-                    trf("Client-hint bitrate stopped: {}", &[&tr("the PC did not answer")])
+                    trf("Loss-based bitrate stopped: {}", &[&tr("the PC did not answer")])
                 }
             });
         }
@@ -173,7 +173,7 @@ impl RateChange {
         let origin = self.take(request.serial);
         if origin == Some(Origin::Hint) {
             if let Some(hint) = &mut self.hint { hint.refused(); }
-            return trf("Client-hint bitrate stopped: {}", &[error]);
+            return trf("Loss-based bitrate stopped: {}", &[error]);
         }
         trf("Could not change the stream: {}", &[error])
     }
@@ -223,7 +223,7 @@ impl RateChange {
                     hint.overridden(self.bitrate_kbps, now_ms);
                 } else {
                     hint.refused();
-                    answer.toast = Some(trf("Client-hint bitrate stopped: {}", &[&reason_text(result.bitrate.reason)]));
+                    answer.toast = Some(trf("Loss-based bitrate stopped: {}", &[&reason_text(result.bitrate.reason)]));
                 }
             }
         }
@@ -410,7 +410,7 @@ mod tests {
 
         // A refusal stops it, loudly.
         let answer = rates.result(&result(&request, 30_000, 60_000, Outcome::refused(Reason::Codec), Outcome::UNCHANGED), 10_000);
-        assert_eq!(answer.toast.as_deref(), Some("Client-hint bitrate stopped: this stream's codec keeps its rates"));
+        assert_eq!(answer.toast.as_deref(), Some("Loss-based bitrate stopped: this stream's codec keeps its rates"));
         assert!(!rates.hint_active() && !rates.hint_has_room());
         assert!((11..60).all(|s| rates.tick(&stats(s, 10.0)).is_none()));
     }
@@ -462,7 +462,7 @@ mod tests {
     fn a_request_that_cannot_be_sent_is_loud_and_stops_the_controller() {
         let mut rates = RateChange::new(20_000, 60_000, true, 0, 0);
         let request = rates.tick(&stats(3, 10.0)).unwrap();
-        assert_eq!(rates.send_failed(&request, &"closed"), "Client-hint bitrate stopped: closed");
+        assert_eq!(rates.send_failed(&request, &"closed"), "Loss-based bitrate stopped: closed");
         assert!(!rates.hint_active());
         rates.menu_kbps = 30_000;
         let request = rates.menu_request(0).unwrap();
@@ -481,7 +481,7 @@ mod tests {
         assert_eq!(rates.result(&result(&manual, 30_000, 60_000, Outcome::APPLIED, Outcome::UNCHANGED), 7000), Answer::default(), "too late");
         let request = rates.tick(&stats(8, 10.0)).unwrap();
         assert_eq!(rates.expire(12_999), None);
-        assert_eq!(rates.expire(13_000).as_deref(), Some("Client-hint bitrate stopped: the PC did not answer"));
+        assert_eq!(rates.expire(13_000).as_deref(), Some("Loss-based bitrate stopped: the PC did not answer"));
         assert!(!rates.hint_active());
         assert_eq!(rates.result(&result(&request, 14_000, 60_000, Outcome::APPLIED, Outcome::UNCHANGED), 13_100), Answer::default());
     }

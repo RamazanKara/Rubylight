@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- High contrast row: a 4dp ring over a 2dp resting outline, with no zoom. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <set android:ordering="together">
+            <objectAnimator android:propertyName="strokeWidth" android:valueTo="4dp" android:valueType="intType" android:duration="80" />
+        </set>
+    </item>
+    <item android:state_focused="true" android:state_enabled="true">
+        <set android:ordering="together">
+            <objectAnimator android:propertyName="strokeWidth" android:valueTo="4dp" android:valueType="intType" android:duration="160" />
+        </set>
+    </item>
+    <item android:state_selected="true" android:state_enabled="true">
+        <set android:ordering="together">
+            <objectAnimator android:propertyName="strokeWidth" android:valueTo="4dp" android:valueType="intType" android:duration="160" />
+        </set>
+    </item>
+    <item android:state_hovered="true" android:state_enabled="true">
+        <set android:ordering="together">
+            <objectAnimator android:propertyName="strokeWidth" android:valueTo="4dp" android:valueType="intType" android:duration="160" />
+        </set>
+    </item>
+    <item>
+        <set android:ordering="together">
+            <objectAnimator android:propertyName="strokeWidth" android:valueTo="2dp" android:valueType="intType" android:duration="160" />
+        </set>
+    </item>
+</selector>

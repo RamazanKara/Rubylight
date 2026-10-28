@@ -57,10 +57,25 @@ public final class Motion {
      * the zoom), and the still one when the stream's theme, which has no overlays, is asked under Reduce motion.
      */
     public static StateListAnimator controlFocus(Context context) {
+        return AnimatorInflater.loadStateListAnimator(context, controlFocusId(context));
+    }
+
+    /**
+     * The focus animator of a full-width row, such as a menu's actions: the control's ring without its zoom, which
+     * pushed a row's edges past the rows above and below it. Reduced motion's still rings already have no zoom.
+     */
+    public static StateListAnimator rowFocus(Context context) {
+        int id = controlFocusId(context);
+        if (id == R.animator.tv_control_focus) id = R.animator.tv_row_focus;
+        else if (id == R.animator.tv_control_focus_hc) id = R.animator.tv_row_focus_hc;
+        return AnimatorInflater.loadStateListAnimator(context, id);
+    }
+
+    private static int controlFocusId(Context context) {
         TypedValue value = new TypedValue();
         int id = context.getTheme().resolveAttribute(R.attr.nightjarControlFocusAnimator, value, true) &&
                 value.resourceId != 0 ? value.resourceId : R.animator.tv_control_focus;
         if (id == R.animator.tv_control_focus && reduced(context)) id = R.animator.tv_control_focus_static;
-        return AnimatorInflater.loadStateListAnimator(context, id);
+        return id;
     }
 }

@@ -13,18 +13,25 @@ usage: bottleneck.py --package DIR --work DIR --client EXE --codec CODEC [--mode
                      [--seconds 20] [--bitrate 40000] [--rate-kbps 100000] [--queue-kib 64]
                      [--rfi] [--config KEY=VALUE]... [--label NAME] [--noise-height PIXELS]
                      [--cut-ms MS [--fresh-rows ROWS]] [--hw-decoder TYPE] [--loss-percent PERCENT]
+                     [--idr-probe N:MS] [--send-outage EVERY_MS:LENGTH_MS[:air|:stall]]
 Writes WORK/bottleneck-LABEL/result.json: the frames the host sent, the
 frames the receiver got whole (Moonlight hands the decoder complete frames
 only, and none while it waits for a keyframe), keyframe requests and the
 shaper's counters. With --cut-ms the whole desktop is noise that changes every
 MS milliseconds (a scene cut), and the result adds stalls, picture age with and
 without the frames around each cut, and whether the host armed oversize pacing
-or the full Wi-Fi latch. It reports; it does not judge. At the first sign of an
+or the full Wi-Fi latch. --idr-probe makes the receiver ask N times for each
+keyframe, MS apart, as a decoder that re-requests does; --send-outage sets the
+host's test send outage (:stall fills the socket at a large frame, as #59's
+adapter did). Every result has the slow-pace guard's latches by kind, its
+lifts and ignored evidence, held frames, the recovery keyframes against their
+cap and the loss records the profile kept. It reports; it does not judge. At the first sign of an
 AMD video-engine hang (gpu_hang.py) it stops and exits with EXIT_GPU_HANG.
 """
 import argparse, csv, json, os, pathlib, re, shutil, subprocess, sys, time
 import requests
-from bottleneck_metrics import cut_metrics, latch_flags, nominal_frame_bytes
+from bottleneck_metrics import (cut_metrics, host_environment, idr_probe_environment, latch_flags,
+                                nominal_frame_bytes, pacing_events, route_kinds, timing_values)
 from e2e_host import installed_idle, prepare, receiver_environment
 from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
 
@@ -51,6 +58,10 @@ parser.add_argument('--fresh-rows', type=int, default=0, metavar='ROWS',
 parser.add_argument('--hw-decoder', metavar='TYPE', help='the receiver decodes on the GPU, e.g. d3d11va')
 parser.add_argument('--loss-percent', type=float, default=0., metavar='PERCENT',
                     help='random loss of video datagrams, with or without --rate-kbps: a lossy path with no bottleneck')
+parser.add_argument('--idr-probe', metavar='N:MS',
+                    help="the receiver asks for N keyframes MS milliseconds apart once it decodes, as Moonlight's decoder asks again")
+parser.add_argument('--send-outage', metavar='SPEC',
+                    help="the host's BUTTERPOLLO_TEST_SEND_OUTAGE: every_ms:length_ms[:air|:stall]")
 args = parser.parse_args()
 assert not (args.cut_ms and args.noise_height), '--cut-ms and --noise-height are separate scenes'
 port = 48523
@@ -66,6 +77,7 @@ assert case.resolve().parent == args.work.resolve(), 'test output must stay insi
 if case.exists():
     shutil.rmtree(case)
 env, display, sink = prepare(args, case, port=port)
+env.update(host_environment(args.send_outage))
 profile = case / 'config'
 log = profile / 'logs' / 'butterpollo.log'
 width, height, fps = args.mode.split('x')
@@ -116,6 +128,7 @@ try:
                       BUTTERPOLLO_TEST_RFI='1' if args.rfi else '0')
     if args.hw_decoder:
         client_env['BUTTERPOLLO_TEST_HW_DECODER'] = args.hw_decoder
+    client_env.update(idr_probe_environment(args.idr_probe))
     (case / 'receiver').mkdir()
     receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'],
                      'client.log', env=client_env)
@@ -185,5 +198,16 @@ if frames:
     encoder_kbps = result['host_encoder_bitrate_kbps'] or int(args.bitrate)
     result.update(cut_metrics(case / 'frames.csv', frames, nominal_frame_bytes(encoder_kbps, int(fps))))
 result.update(latch_flags(host_log))
+result.update(pacing_events(host_log))
+# Counters the host keeps for the stream (or the encoder): the last line has them all.
+timings = timing_values(host_log, ('reencoded_cuts', 'keyframes_over_cap', 'keyframes_past_fec', 'keyframe_cap_scale'))
+last = lambda name: timings[name][-1] if timings[name] else None
+scales = timings['keyframe_cap_scale']
+result.update(reencoded_cuts=last('reencoded_cuts'), keyframes_over_cap=last('keyframes_over_cap'),
+              keyframes_past_fec=last('keyframes_past_fec'),
+              keyframe_cap_scale_min=min(scales) if scales else None, keyframe_cap_scale_last=last('keyframe_cap_scale'),
+              host_frames_lost_on_send=session.get('frames_lost_on_send'),
+              idr_probe=args.idr_probe, send_outage=args.send_outage,
+              route_kinds=route_kinds(profile / 'sunshine_state.json'))
 (case / 'result.json').write_text(json.dumps(result, indent=2))
 print(json.dumps(result))

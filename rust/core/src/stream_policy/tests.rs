@@ -1952,9 +1952,43 @@ fn test_send_outage_follows_its_schedule_and_rejects_bad_values() {
         "1500:80:1",
         "1500:80:air:1",
         "80:80:air",
+        "3000:20:stall:1",
+        "20:20:stall",
     ] {
         assert_eq!(SendOutage::parse(bad), None, "{bad}");
     }
+    assert!(outage.stall().is_none() && air.stall().is_none());
+}
+
+#[test]
+fn an_adapter_stall_starts_at_a_large_frame_and_fills_the_socket_buffer() {
+    let outage = SendOutage::parse("3000:20:stall").unwrap();
+    let start = Instant::now();
+    let at = |ms: u64| start + Duration::from_millis(ms);
+    // No schedule: the outage itself refuses nothing.
+    assert!(!outage.active(start, at(3000)));
+    assert!(!outage.in_air());
+    let mut stall = outage.stall().unwrap();
+    // Nothing before a frame starts it, and an ordinary frame does not.
+    assert_eq!(stall.full_until(64 * 1024, at(0)), None);
+    assert!(!stall.frame(VIDEO_SOCKET_BUFFER, at(0)));
+    // A 1.46 MB frame (#59 frame 1001) does.
+    assert!(stall.frame(1_462_208, at(100)));
+    // Its first 1 MiB fits the socket buffer; the next batch meets a full
+    // socket until the stall ends.
+    for i in 0..16 {
+        assert_eq!(stall.full_until(64 * 1024, at(101)), None, "batch {i}");
+    }
+    assert_eq!(stall.full_until(64 * 1024, at(105)), Some(at(120)));
+    assert_eq!(stall.full_until(64 * 1024, at(119)), Some(at(120)));
+    assert_eq!(stall.full_until(64 * 1024, at(120)), None);
+    // At most once every three seconds.
+    assert!(!stall.frame(1_462_208, at(3099)));
+    assert!(stall.frame(1_462_208, at(3100)));
+    assert_eq!(
+        stall.full_until(VIDEO_SOCKET_BUFFER + 1, at(3100)),
+        Some(at(3120))
+    );
 }
 
 #[test]

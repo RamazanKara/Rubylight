@@ -16,6 +16,7 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 mod clipboard_sync_tests;
+mod control_fuzz_tests;
 mod extension_tests;
 mod interop_tests;
 mod rate_change_tests;

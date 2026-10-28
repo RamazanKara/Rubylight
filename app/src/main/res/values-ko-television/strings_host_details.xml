@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="host_details_not_paired">PC를 선택하여 페어링하세요.</string>
+</resources>

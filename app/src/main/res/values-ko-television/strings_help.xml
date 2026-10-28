@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="help_connect_body">Nightjar는 PC에서 실행 중인 모든 Moonlight 호환 호스트에서 스트리밍합니다. 호스트를 실행하고 두 기기를 같은 네트워크에 두면 PC가 목록에 표시됩니다. 표시되지 않으면 PC 추가를 선택하고 PC의 IP 주소를 입력하세요. 그래도 연결되지 않으면 PC 방화벽에서 호스트를 허용하세요.</string>
+    <string name="help_pairing_body">PC를 선택하고 PIN을 화면에 띄워 두세요. 그 PIN을 PC에 있는 호스트의 설정 또는 웹 페이지에 입력하세요. 호스트에 기기별 권한이 있다면 이 기기가 앱 목록을 보고 앱을 실행할 수 있도록 허용하세요.</string>
+</resources>

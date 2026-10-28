@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="help_connect_body">O Nightjar transmite de qualquer host compatível com Moonlight em execução no seu PC. Inicie o host e mantenha os dois dispositivos na mesma rede, e o PC aparecerá na sua lista. Se não aparecer, selecione Adicionar PC e insira o endereço IP do PC. Se ainda assim não conectar, libere o host no firewall do PC.</string>
+    <string name="help_pairing_body">Selecione o PC e mantenha o PIN na tela. Insira esse PIN nas configurações ou na página web do host no PC. Se o host tiver permissões por dispositivo, permita que este dispositivo liste e inicie apps.</string>
+</resources>

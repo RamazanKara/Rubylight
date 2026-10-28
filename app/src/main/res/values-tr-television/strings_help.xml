@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="help_connect_body">Nightjar, bilgisayarınızda çalışan Moonlight uyumlu herhangi bir ana bilgisayar yazılımından yayın alır. Ana bilgisayar yazılımını başlatın ve iki cihazı da aynı ağda tutun; bilgisayar listenizde görünür. Görünmezse Bilgisayar ekle’yi seçip bilgisayarın IP adresini girin. Yine de bağlanamıyorsa ana bilgisayar yazılımına bilgisayarın güvenlik duvarından izin verin.</string>
+    <string name="help_pairing_body">Bilgisayarı seçin ve PIN’i ekranda tutun. Bu PIN’i bilgisayardaki ana bilgisayar yazılımının ayarlarına veya web sayfasına girin. Ana bilgisayarda cihaz başına izinler varsa bu cihazın uygulamaları listelemesine ve başlatmasına izin verin.</string>
+</resources>

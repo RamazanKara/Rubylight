@@ -284,6 +284,11 @@ impl Session {
         Some(seat.device)
     }
 
+    /// The devices removed from this session, which cannot rejoin it.
+    pub fn kicked(&self) -> impl Iterator<Item = &str> {
+        self.kicked.iter().map(String::as_str)
+    }
+
     /// Nucleus started the instances; `windows` in slot order.
     pub fn running(&mut self, windows: &[Option<u64>]) {
         if self.ended() {
@@ -597,6 +602,7 @@ mod tests {
         s.join("laptop", "Laptop", true).unwrap();
         assert_eq!(s.kick(1), Some("laptop".into()));
         assert_eq!(s.kick(1), None);
+        assert_eq!(s.kicked().collect::<Vec<_>>(), ["laptop"]);
         assert_eq!(s.route("laptop"), None);
         assert!(matches!(
             s.join("laptop", "Laptop", true),

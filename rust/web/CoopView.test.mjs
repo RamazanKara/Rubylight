@@ -272,6 +272,24 @@ test('the invite list leaves out seated, turned-off and watch-only devices, and 
   assert.match(card(running, null, { clientsError: 'timed out' }), /Can’t list the paired devices: timed out/);
 });
 
+test('after a Remove the removed device is not offered again: the host refuses its return', () => {
+  // Living room TV was removed: its slot is free, and the host lists it as kicked.
+  const removed = coopSession([seat(0, 'fold', 'Fold7'), seat(1, null, null), seat(2, null, null), seat(3, null, null)], { kicked: ['tv'] });
+  assert.deepEqual(
+    home.invitees(removed, paired).map((d) => [d.name, d.canJoin]),
+    [
+      ['Retroid', true],
+      ['Steam Deck', false],
+    ],
+  );
+  const out = card(removed);
+  assert.doesNotMatch(out, /Living room TV/);
+  assert.match(out, /Retroid/);
+  // An older host lists no kicked devices: the list stays as before.
+  const older = coopSession([seat(0, 'fold', 'Fold7'), seat(1, null, null)]);
+  assert.deepEqual(home.invitees(older, paired).map((d) => d.name), ['Living room TV', 'Retroid', 'Steam Deck']);
+});
+
 test('Remove and End co-op confirm first, with the brief’s words', () => {
   const tv = home.seats(running)[1];
   assert.deepEqual(home.removeConfirmation(tv), {

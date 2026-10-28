@@ -204,14 +204,21 @@ export interface Invitee {
 
 /**
  * Paired devices that could take a free slot: on, allowed to launch apps (a watch-only device can't
- * start the co-op entry), and not seated in this game (an away device keeps its slot and comes back
- * by itself). Empty while the game has no free slot.
+ * start the co-op entry), not seated in this game (an away device keeps its slot and comes back
+ * by itself) and not removed from it (the host refuses its return). Empty while the game has no free slot.
  */
 export function invitees(session: CoopSession, clients: Client[]): Invitee[] {
   if (!session.players.some((player) => !player.device)) return [];
   const seated = new Set(session.players.flatMap((player) => (player.device ? [player.device] : [])));
+  const removed = new Set(session.kicked ?? []);
   return clients
-    .filter((client) => client.enabled !== false && ((client.perm ?? 0) & PERM.LAUNCH_APPS) !== 0 && !seated.has(client.uuid))
+    .filter(
+      (client) =>
+        client.enabled !== false &&
+        ((client.perm ?? 0) & PERM.LAUNCH_APPS) !== 0 &&
+        !seated.has(client.uuid) &&
+        !removed.has(client.uuid),
+    )
     .map((client) => ({ uuid: client.uuid, name: client.name, canJoin: joinsCoop(client.perm ?? 0, client.coop_join) }));
 }
 

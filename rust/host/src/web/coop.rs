@@ -233,6 +233,8 @@ fn status(h: &Shared) -> Value {
                 "phase": phase,
                 "end": end,
                 "players": players,
+                // Removed devices: they can't rejoin, so the console invites none of them.
+                "kicked": session.kicked().collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -388,6 +390,7 @@ mod tests {
         assert_eq!(session["game"], fake::GUID);
         assert_eq!(session["phase"], "starting");
         assert_eq!(session["end"], Value::Null);
+        assert_eq!(session["kicked"], json!([]));
         assert_eq!(
             session["players"],
             json!([
@@ -447,6 +450,13 @@ mod tests {
         let listed = h.nucleus.sessions();
         assert_eq!(listed[0].held, [true, false]);
         assert_eq!(listed[0].session.players()[1].device, None);
+        // The panel names the removed device, so the console never invites it back.
+        let status = value(
+            request(&c.f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(status["sessions"][0]["kicked"], json!(["second-device"]));
         // The slot is empty now; the player streaming slot 0 is kicked next.
         for (session, slot) in [(c.session, 1), (c.session + 1, 0)] {
             value(

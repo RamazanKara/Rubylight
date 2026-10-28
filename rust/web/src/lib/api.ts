@@ -617,6 +617,8 @@ export interface CoopSession {
   phase: CoopPhase;
   end: CoopEnd | null;
   players: CoopPlayer[];
+  /** Devices removed from this session: they can't rejoin it (older hosts leave it out). */
+  kicked?: string[];
 }
 /**
  * One app's co-op on the host: `unknown` before Nucleus Co-op is set up (or while its handlers don't load),

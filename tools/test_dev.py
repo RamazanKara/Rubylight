@@ -44,9 +44,10 @@ class Plan(unittest.TestCase):
         self.assertTrue({'rubylight-protocol', 'nightjar-core', 'nightjar-desktop'} <= client, client)
         self.assertIn('interop', planned)
 
-    def test_leaf_client_crate_checks_only_itself(self):
+    def test_leaf_client_crate_checks_only_itself_and_its_users(self):
+        # nightjar-desktop takes nightjar-policy by path, so it is checked too.
         planned, _ = checks('client/protocol/policy/src/lib.rs')
-        self.assertEqual(planned['client-protocol'].items, ['nightjar-policy'])
+        self.assertEqual(planned['client-protocol'].items, ['nightjar-desktop', 'nightjar-policy'])
         self.assertNotIn('host', planned)
         planned, _ = checks('client/protocol/desktop/src/main.rs')
         self.assertEqual(planned['client-protocol'].items, ['nightjar-desktop'])

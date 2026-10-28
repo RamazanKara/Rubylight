@@ -313,6 +313,34 @@ pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router
         .layer(Extension(console))
         .with_state(h)
 }
+/// A state-changing request with Basic credentials needs no CSRF token
+/// (docs/api.md), and a browser that cached those credentials attaches them
+/// to a cross-site form too, with no Origin if the browser or an extension
+/// drops it. A form's content type, or the browser's own word that the
+/// request is cross-site, gives that away. Scripts send JSON or no body and
+/// no `Sec-Fetch-Site`.
+fn basic_auth_cross_site(headers: &HeaderMap) -> bool {
+    let basic = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("Basic "));
+    let cross_site = headers
+        .get("sec-fetch-site")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|site| !matches!(site, "same-origin" | "none"));
+    let form = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .map(|kind| kind.trim().to_ascii_lowercase())
+        .is_some_and(|kind| {
+            matches!(
+                kind.as_str(),
+                "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain"
+            )
+        });
+    basic && (cross_site || form)
+}
 /// Whether `origin` is the console's own (`https://` and the request's Host) or one of
 /// `csrf_allowed_origins`.
 fn origin_allowed(h: &Shared, headers: &HeaderMap, origin: &str) -> bool {
@@ -624,6 +652,18 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
             && !origin_allowed(&h, request.headers(), origin)
         {
             return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+        }
+        if !request.headers().contains_key(header::ORIGIN)
+            && !public
+            && !console_form
+            && !api_token
+            && access(request.headers()).is_none()
+            && basic_auth_cross_site(request.headers())
+        {
+            return error(
+                StatusCode::FORBIDDEN,
+                "a browser form or cross-site request can't use Basic credentials; send JSON",
+            );
         }
         if path == "/api/auth/login"
             || fresh_password
@@ -1145,11 +1185,11 @@ pub(crate) async fn api(
                     anyhow::bail!("password confirmation does not match");
                 }
                 let c = Credentials::new(text("newUsername").into(), password)?;
-                // Invalidate durable sessions before changing the password. A
-                // failed credential write may require another login; it cannot
-                // resurrect sessions authenticated by the previous password.
+                // Invalidate durable sessions and API tokens before changing
+                // the password. A failed credential write may require another
+                // login; it cannot resurrect what the previous password let in.
                 let mut sessions = h.web_sessions.lock().unwrap();
-                h.save_web_sessions(&Default::default())?;
+                h.revoke_sign_ins()?;
                 sessions.clear();
                 h.save_credentials(&c)?;
                 *h.credentials.write().unwrap() = Some(c);
@@ -1235,6 +1275,82 @@ mod tests {
     }
     use super::*;
 
+    #[tokio::test]
+    async fn a_new_console_password_revokes_the_api_tokens() {
+        use axum::{Extension, body::Body, http::Request};
+        use tower::ServiceExt;
+        let f = crate::state::test_support::Fixture::new();
+        f.host.aliases.lock().unwrap()["root"]["api_tokens"] = json!([{"hash": "leaked"}]);
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/password")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({"newUsername": "user", "newPassword": "new-pass", "confirmNewPassword": "new-pass"})
+                    .to_string(),
+            ))
+            .unwrap();
+        let response = router(f.host.clone())
+            .layer(Extension(f.connection(true)))
+            .oneshot(request)
+            .await
+            .unwrap();
+        parity_tests::value(response, StatusCode::OK).await;
+        assert!(f.host.credentials.read().unwrap().is_some());
+        assert_eq!(
+            f.host.aliases.lock().unwrap()["root"]["api_tokens"],
+            json!([])
+        );
+    }
+    #[tokio::test]
+    async fn basic_credentials_do_not_carry_a_cross_site_form() {
+        use axum::{Extension, body::Body, http::Request};
+        use tower::ServiceExt;
+        let f = crate::state::test_support::Fixture::new();
+        let credentials = Credentials::new("user".into(), "password1").unwrap();
+        f.host.save_credentials(&credentials).unwrap();
+        *f.host.credentials.write().unwrap() = Some(credentials);
+        let send = |headers: &[(&str, &str)]| {
+            let mut builder = Request::builder()
+                .method("POST")
+                .uri("/api/apps/close")
+                .header(header::AUTHORIZATION, "Basic dXNlcjpwYXNzd29yZDE=");
+            for (name, value) in headers {
+                builder = builder.header(*name, *value);
+            }
+            router(f.host.clone())
+                .layer(Extension(f.connection(true)))
+                .oneshot(builder.body(Body::from("{}")).unwrap())
+        };
+        for refused in [
+            &[("Content-Type", "text/plain")][..],
+            &[(
+                "Content-Type",
+                "application/x-www-form-urlencoded; charset=utf-8",
+            )],
+            &[("Content-Type", "Multipart/Form-Data; boundary=x")],
+            &[
+                ("Content-Type", "application/json"),
+                ("Sec-Fetch-Site", "cross-site"),
+            ],
+        ] {
+            let response = send(refused).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{refused:?}");
+        }
+        // A script, and the console's own page, still get through.
+        for allowed in [
+            &[("Content-Type", "application/json")][..],
+            &[],
+            &[
+                ("Content-Type", "application/json"),
+                ("Sec-Fetch-Site", "same-origin"),
+            ],
+        ] {
+            let response = send(allowed).await.unwrap();
+            assert_ne!(response.status(), StatusCode::FORBIDDEN, "{allowed:?}");
+        }
+        assert!(!basic_auth_cross_site(&HeaderMap::new()));
+    }
     #[test]
     fn web_app_files_stay_in_their_folder() {
         let base = std::env::temp_dir().join(format!("butterpollo-web-{}", uuid::Uuid::new_v4()));

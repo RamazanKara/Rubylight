@@ -50,6 +50,8 @@ public class PreferenceConfiguration {
     // Set only when the user picks a bitrate; defaults keep following resolution and frame rate.
     static final String BITRATE_USER_SET_PREF_STRING = "bitrate_user_set";
     static final String MOBILE_BITRATE_PREF_STRING = "list_mobile_bitrate_kbps";
+    // Client-hint automatic bitrate over 0x553C rate changes, for a host that offers them.
+    static final String RATE_CHANGE_BITRATE_PREF_STRING = "checkbox_rate_change_bitrate";
     // Removed settings: the slider is the ceiling and the built-in floor is the minimum.
     static final String[] REMOVED_AUTO_BITRATE_LIMIT_PREFS = {"list_auto_bitrate_min_kbps", "list_auto_bitrate_max_kbps"};
     static final String PREFS_VERSION_PREF_STRING = "prefs_version";
@@ -306,6 +308,8 @@ public class PreferenceConfiguration {
      * {@link AutoBitrateChoice#isOn}, which also honours a PC's own choice.
      */
     public boolean autoBitrate;
+    /** Automatic bitrate decided on this device and sent as 0x553C rate changes, in place of the one above. */
+    public boolean rateChangeBitrate;
     public volatile boolean enablePerfOverlay;
     /** The corner the performance overlay prefers: top_left, top_right, bottom_left or bottom_right. */
     public volatile String overlayPosition = "top_left";
@@ -1303,6 +1307,7 @@ public class PreferenceConfiguration {
         config.qualityMinFps = "45".equals(qualityFps) ? 45 : "60".equals(qualityFps) ? 60 : 30;
         dropAutoBitrateLimits(prefs);
         config.autoBitrate = prefs.getBoolean(AutoBitrateChoice.SETTINGS_KEY, false);
+        config.rateChangeBitrate = prefs.getBoolean(RATE_CHANGE_BITRATE_PREF_STRING, false);
         config.enablePerfOverlay = prefs.getBoolean(ENABLE_PERF_OVERLAY_STRING, DEFAULT_ENABLE_PERF_OVERLAY);
         config.overlayPosition = com.limelight.ui.OverlayPlacement.Corner.parse(
                 prefs.getString(OVERLAY_POSITION_PREF_STRING, null)).key;

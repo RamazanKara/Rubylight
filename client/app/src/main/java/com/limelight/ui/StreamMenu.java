@@ -30,7 +30,7 @@ public final class StreamMenu {
         KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE,
         TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
-        BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
+        BITRATE, RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
         USB_DEVICES, FILES, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
@@ -77,6 +77,10 @@ public final class StreamMenu {
         /** The host can change resolution and frame rate in place, which automatic quality needs. */
         public boolean automaticQuality;
         public boolean automaticBitrateOn;
+        /** The host offered 0x553C rate changes to this Rust stream: bitrate and frame rate change in one dialog. */
+        public boolean rateChange;
+        /** Automatic bitrate on this device can run here, so the automatic bitrate toggle drives it. */
+        public boolean rateChangeBitrate;
         /** The host's web UI address is known for this stream. */
         public boolean webUiAddress;
         /** A native API host lets this device close the game (the host control permission); without it Quit app does. */
@@ -198,17 +202,21 @@ public final class StreamMenu {
             }
 
             // Bitrate and automatic quality change the host's encoder: they need its runtime bitrate
-            // control and permission to view and launch.
-            if (caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
-                    host.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
+            // control and permission to view and launch. A host that offered this stream 0x553C
+            // changes the bitrate and the frame rate in one dialog instead.
+            boolean runtimeBitrate = caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
+                    host.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH);
+            if (o.rateChange && o.role == NvApp.Role.STREAM) {
+                entries.add(action(Section.QUALITY, Item.RATE_CHANGE, R.string.stream_rate_change, R.drawable.ic_speed));
+            } else if (runtimeBitrate) {
                 entries.add(action(Section.QUALITY, Item.BITRATE, R.string.stream_bitrate_manual, R.drawable.ic_speed));
-                if (o.automaticQuality && o.role == NvApp.Role.STREAM) {
-                    entries.add(action(Section.QUALITY, Item.AUTOMATIC_QUALITY, R.string.title_adaptive_quality, R.drawable.ic_tune));
-                }
-                if (host.encoderBitrateSupported) {
-                    entries.add(action(Section.QUALITY, Item.AUTOMATIC_BITRATE, o.automaticBitrateOn ?
-                            R.string.stream_auto_bitrate_disable : R.string.stream_auto_bitrate_enable, R.drawable.ic_network));
-                }
+            }
+            if (runtimeBitrate && o.automaticQuality && o.role == NvApp.Role.STREAM) {
+                entries.add(action(Section.QUALITY, Item.AUTOMATIC_QUALITY, R.string.title_adaptive_quality, R.drawable.ic_tune));
+            }
+            if ((runtimeBitrate && host.encoderBitrateSupported) || o.rateChangeBitrate) {
+                entries.add(action(Section.QUALITY, Item.AUTOMATIC_BITRATE, o.automaticBitrateOn ?
+                        R.string.stream_auto_bitrate_disable : R.string.stream_auto_bitrate_enable, R.drawable.ic_network));
             }
         }
 

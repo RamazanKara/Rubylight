@@ -45,6 +45,12 @@
             seekbar:presets="@array/bitrate_presets_kbps"
             android:text="@string/suffix_seekbar_bitrate_mbps"
             android:title="@string/title_seekbar_bitrate" />
+        <!-- Client-hint bitrate over 0x553C (StreamRateChanges); a stream without it keeps Automatic bitrate below. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_rate_change_bitrate"
+            android:title="@string/title_rate_change_bitrate"
+            android:dialogMessage="@string/summary_rate_change_bitrate"
+            android:defaultValue="false" />
         <!-- The default for every PC; the stream menu's toggle saves a choice for one PC (AutoBitrateChoice). -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_auto_bitrate"

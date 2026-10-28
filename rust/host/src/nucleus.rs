@@ -119,6 +119,9 @@ pub trait Pc: Send + Sync {
     /// `folder` and add its game for the signed-in user; refused while
     /// Nucleus Co-op runs.
     fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler>;
+    /// Remove Rubylight's handler `own`, which a hub handler superseded,
+    /// and its game; refused while Nucleus Co-op runs.
+    fn remove_own(&self, folder: &Path, own: &Handler) -> Result<()>;
     /// What a session's start needs that doesn't need Nucleus Co-op closed
     /// (administrator rights, the signed-in user, `own`'s handler file being
     /// Rubylight's): checked before the console's window closes for it.
@@ -279,6 +282,15 @@ impl Pc for OnPc {
             anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
         })?;
         files::write_own(folder, &appdata, setup)
+    }
+    fn remove_own(&self, folder: &Path, own: &Handler) -> Result<()> {
+        if let Some(pid) = self.running()? {
+            anyhow::bail!(butterpollo_windows::nucleus::session::already_running(pid));
+        }
+        let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
+            anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
+        })?;
+        files::remove_own(folder, &appdata, own)
     }
     fn ready(&self, folder: &Path, own: Option<&Setup>) -> Result<()> {
         butterpollo_windows::nucleus::session::ready()?;
@@ -1229,6 +1241,14 @@ impl Registry {
                 // Last, so a launch refused for another reason leaves the
                 // user's window open.
                 self.close_for_session(&app.name)?;
+                // Ours for a game the user has since added with a hub
+                // handler goes while Nucleus is closed. A failure leaves a
+                // handler that is never chosen: no reason to refuse.
+                for own in catalog.superseded() {
+                    if let Err(error) = pc.remove_own(&folder, own) {
+                        tracing::warn!(file = own.file, error = %format!("{error:#}"), "Nucleus Co-op: Rubylight's superseded handler was not removed");
+                    }
+                }
                 let (handler, steam_app) = match found {
                     Chosen::Hub(handler) => (handler, None),
                     Chosen::Own(setup) => (
@@ -1818,6 +1838,8 @@ pub(crate) mod fake {
         pub write_error: Mutex<Option<String>>,
         /// What [`super::Pc::ready`] fails with.
         pub ready_error: Mutex<Option<String>>,
+        /// Rubylight's superseded handler files removed, in order.
+        pub removed: Mutex<Vec<String>>,
     }
     impl Pc {
         pub(crate) fn unavailable() -> Self {
@@ -1867,6 +1889,7 @@ pub(crate) mod fake {
                 own: Mutex::new(Vec::new()),
                 write_error: Mutex::new(None),
                 ready_error: Mutex::new(None),
+                removed: Mutex::new(Vec::new()),
             }
         }
         /// The session started last.
@@ -1963,6 +1986,10 @@ pub(crate) mod fake {
             self.own.lock().unwrap().push(setup.clone());
             butterpollo_core::nucleus::handler::parse(&setup.file(), &setup.handler())
                 .map_err(anyhow::Error::msg)
+        }
+        fn remove_own(&self, _folder: &Path, own: &Handler) -> Result<()> {
+            self.removed.lock().unwrap().push(own.file.clone());
+            Ok(())
         }
         fn ready(&self, _folder: &Path, _own: Option<&Setup>) -> Result<()> {
             match self.ready_error.lock().unwrap().clone() {
@@ -2986,6 +3013,39 @@ mod tests {
             "{refused}"
         );
         assert!(pc.own.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ours_goes_once_the_user_added_the_game_with_a_hub_handler() {
+        let (registry, pc, apps) = setup();
+        let owner = client("A", false);
+        let config = Config::default();
+        // Ours from before the hub's handler came, for the same .exe.
+        let ours = Setup::new(fake::EXE, "Portal 2", None);
+        {
+            let mut catalog = pc.catalog.lock().unwrap();
+            let hub = catalog.handlers[0].clone();
+            catalog.handlers.push(Handler {
+                file: ours.file(),
+                guid: ours.guid(),
+                own: true,
+                ..hub
+            });
+            catalog
+                .games
+                .push(butterpollo_core::nucleus::handler::Game {
+                    guid: ours.guid(),
+                    exe_path: fake::EXE.into(),
+                });
+        }
+        // A refused launch removes nothing: Nucleus' window stays open.
+        *pc.free.lock().unwrap() = 0;
+        background(&registry, &apps[1], "a", &owner, &config).unwrap_err();
+        assert!(pc.removed.lock().unwrap().is_empty());
+        *pc.free.lock().unwrap() = 4;
+        background(&registry, &apps[1], "a", &owner, &config).unwrap();
+        assert_eq!(registry.sessions()[0].session.game, fake::GUID);
+        assert_eq!(*pc.removed.lock().unwrap(), [ours.file()]);
     }
 
     #[test]

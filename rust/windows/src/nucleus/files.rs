@@ -131,14 +131,62 @@ fn add_game(path: &Path, setup: &Setup) -> Result<()> {
     };
     let parent = path.parent().context("the game list has no folder")?;
     std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    let temporary = path.with_extension("json.rubylight");
-    std::fs::write(&temporary, new).with_context(|| format!("writing {}", temporary.display()))?;
-    std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))?;
+    replace(path, &new)?;
     tracing::info!(
         guid = setup.guid(),
         "Nucleus Co-op: game added to the user's game list"
     );
     Ok(())
+}
+
+/// Replace the game list at `path` whole, so Nucleus never reads half of it.
+fn replace(path: &Path, text: &str) -> Result<()> {
+    let temporary = path.with_extension("json.rubylight");
+    std::fs::write(&temporary, text).with_context(|| format!("writing {}", temporary.display()))?;
+    std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+}
+
+/// Remove Rubylight's own handler `own`, one [`Catalog::superseded`] names,
+/// and its game from the signed-in user's game list in `appdata`, as the
+/// user. Like [`write_own`], only while Nucleus Co-op is not running. Only
+/// a handler Rubylight wrote, and only its game, ever go.
+pub fn remove_own(folder: &Path, appdata: &Path, own: &Handler) -> Result<()> {
+    ensure!(
+        own.own && own.guid.starts_with(generic::PREFIX),
+        "{} is not Rubylight's handler",
+        own.file
+    );
+    // The game first: a game left without its handler is never found again.
+    let list = appdata.join("Nucleus Coop").join("userprofile.json");
+    crate::user_folder::as_session_user(|| remove_game(&list, &own.guid))
+        .context("acting as the signed-in user")??;
+    let path = folder.join("handlers").join(&own.file);
+    if let Some(text) = read_existing(&path)? {
+        ensure!(
+            generic::owns(&text),
+            "{} is not Rubylight's handler, so Rubylight leaves it as it is",
+            path.display()
+        );
+        std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+    }
+    tracing::info!(
+        file = own.file,
+        "Nucleus Co-op: Rubylight's handler removed, the user added its game with a hub handler"
+    );
+    Ok(())
+}
+
+fn remove_game(path: &Path, guid: &str) -> Result<()> {
+    let Some(old) = read_existing(path)? else {
+        return Ok(());
+    };
+    match generic::remove_game(&old, guid)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| path.display().to_string())?
+    {
+        Some(new) => replace(path, &new),
+        None => Ok(()),
+    }
 }
 
 /// Set what the host's profile needs in Nucleus' `Settings.ini` (read from
@@ -391,6 +439,48 @@ Game.MaxPlayers = 4;
         )
         .unwrap();
         assert_eq!(games[0].guid, setup.guid());
+    }
+
+    #[test]
+    fn ours_goes_once_the_user_adds_the_game_with_a_hub_handler() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let appdata = tempfile::tempdir().unwrap();
+        let handlers = nucleus.path().join("handlers");
+        let setup = Setup::new(r"D:\BL2\Borderlands2.exe", "Borderlands 2", None);
+        write_own(nucleus.path(), appdata.path(), &setup).unwrap();
+        // The hub's handler comes, and the user adds the game with it.
+        std::fs::write(handlers.join("Borderlands 2.js"), HANDLER).unwrap();
+        let list = appdata.path().join("Nucleus Coop").join("userprofile.json");
+        let ours = std::fs::read_to_string(&list).unwrap();
+        std::fs::write(
+            &list,
+            generic::add_game(Some(&ours), "Borderlands 2", &setup.exe_path)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        let before = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        let superseded = before.superseded();
+        assert_eq!(superseded.len(), 1);
+        remove_own(nucleus.path(), appdata.path(), superseded[0]).unwrap();
+        assert!(!handlers.join(setup.file()).exists());
+        let after = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        assert!(after.handlers.iter().all(|h| !h.own));
+        assert_eq!(
+            after
+                .games
+                .iter()
+                .map(|g| g.guid.as_str())
+                .collect::<Vec<_>>(),
+            ["Borderlands 2"]
+        );
+        // A hub handler is never removed as ours.
+        let error = remove_own(nucleus.path(), appdata.path(), &after.handlers[0]).unwrap_err();
+        assert!(
+            error.to_string().contains("is not Rubylight's handler"),
+            "{error}"
+        );
+        assert!(handlers.join("Borderlands 2.js").exists());
     }
 
     #[test]

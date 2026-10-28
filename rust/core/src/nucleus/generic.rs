@@ -390,6 +390,78 @@ pub fn add_game(json: Option<&str>, guid: &str, exe_path: &str) -> Result<Option
     }
 }
 
+/// `json` (Nucleus' `userprofile.json`) without the games of `guid`, which
+/// only Rubylight's own handler uses. Every other byte stays. None when
+/// there is none.
+pub fn remove_game(json: &str, guid: &str) -> Result<Option<String>, String> {
+    let Some((open, close)) = games_array(json) else {
+        return Ok(None);
+    };
+    // Each game: the byte offsets of its `{` and `}`.
+    let bytes = json.as_bytes();
+    let mut games = Vec::new();
+    let (mut depth, mut start, mut at) = (0, 0, open + 1);
+    while at < close {
+        match bytes[at] {
+            b'"' => {
+                at += 1;
+                while at < close && bytes[at] != b'"' {
+                    at += if bytes[at] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'{' | b'[' => {
+                if depth == 0 {
+                    start = at;
+                }
+                depth += 1;
+            }
+            b'}' | b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    games.push((start, at + 1));
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    let ours = |&(start, end): &(usize, usize)| {
+        serde_json::from_str::<serde_json::Value>(&json[start..end])
+            .map_err(|e| format!("Nucleus Co-op's userprofile.json is not readable: {e}"))
+            .map(|game| game.get("GameGuid").and_then(|g| g.as_str()) == Some(guid))
+    };
+    let mut kept = Vec::new();
+    for game in &games {
+        if !ours(game)? {
+            kept.push(*game);
+        }
+    }
+    if kept.len() == games.len() {
+        return Ok(None);
+    }
+    let inside = match (games.first(), games.last(), kept.is_empty()) {
+        (Some(&(first, _)), Some(&(_, last)), false) => {
+            let separator = match games.get(..2) {
+                Some([(_, end), (next, _)]) => &json[*end..*next],
+                _ => ",",
+            };
+            let kept: Vec<&str> = kept.iter().map(|&(s, e)| &json[s..e]).collect();
+            format!(
+                "{}{}{}",
+                &json[open + 1..first],
+                kept.join(separator),
+                &json[last..close]
+            )
+        }
+        _ => String::new(),
+    };
+    Ok(Some(format!(
+        "{}{inside}{}",
+        &json[..=open],
+        &json[close..]
+    )))
+}
+
 /// The byte offsets of the `[` and `]` of a JSON object's top-level
 /// `"Games"` array.
 fn games_array(text: &str) -> Option<(usize, usize)> {
@@ -750,5 +822,35 @@ mod tests {
         );
         // A handler someone else wrote is never ours, even with our name.
         assert!(!owns("// Rubylight's handler\nGame.GUID = 'Rubylight-x';"));
+    }
+
+    #[test]
+    fn our_game_leaves_the_list_and_every_other_byte_stays() {
+        let json = "{\r\n  \"Games\": [\r\n    {\r\n      \"GameGuid\": \"Portal 2\",\r\n      \"ExePath\": \"C:\\\\Games\\\\Portal 2\\\\portal2.exe\"\r\n    },\r\n    {\r\n      \"GameGuid\": \"Rubylight-ice\",\r\n      \"ExePath\": \"C:\\\\Ice\\\\Ice.exe\"\r\n    },\r\n    {\r\n      \"GameGuid\": \"Racer\",\r\n      \"ExePath\": \"D:\\\\Racer.exe\"\r\n    }\r\n  ],\r\n  \"Theme\": \"[x]\"\r\n}";
+        let removed = remove_game(json, "Rubylight-ice").unwrap().unwrap();
+        assert_eq!(
+            removed,
+            json.replace(
+                "    {\r\n      \"GameGuid\": \"Rubylight-ice\",\r\n      \"ExePath\": \"C:\\\\Ice\\\\Ice.exe\"\r\n    },\r\n",
+                ""
+            )
+        );
+        let games = user_games(&removed).unwrap();
+        assert_eq!(
+            games.iter().map(|g| g.guid.as_str()).collect::<Vec<_>>(),
+            ["Portal 2", "Racer"]
+        );
+        // Last in the list, or alone in it.
+        let last = remove_game(&removed, "Racer").unwrap().unwrap();
+        assert_eq!(user_games(&last).unwrap().len(), 1);
+        let alone = remove_game(&last, "Portal 2").unwrap().unwrap();
+        assert!(user_games(&alone).unwrap().is_empty());
+        assert!(
+            alone.ends_with("\"Games\": [],\r\n  \"Theme\": \"[x]\"\r\n}"),
+            "{alone}"
+        );
+        // Not there: nothing to write.
+        assert_eq!(remove_game(json, "Rubylight-other").unwrap(), None);
+        assert_eq!(remove_game("{}", "Rubylight-ice").unwrap(), None);
     }
 }

@@ -389,6 +389,21 @@ impl Catalog {
             })
     }
 
+    /// Rubylight's own handlers whose game the user has since added at the
+    /// same path with a hub or user handler: ours is never chosen again, so
+    /// it and its game entry go.
+    pub fn superseded(&self) -> Vec<&Handler> {
+        self.handlers
+            .iter()
+            .filter(|own| own.own)
+            .filter(|own| {
+                self.games
+                    .iter()
+                    .any(|game| game.guid == own.guid && self.added(&game.exe_path).is_some())
+            })
+            .collect()
+    }
+
     /// Every added game that has a handler, for the co-op library entries.
     pub fn playable(&self) -> Vec<Match> {
         let mut out: Vec<Match> = self
@@ -586,6 +601,26 @@ Game.SupportsKeyboard = true; // { not a block
         assert_eq!(c.added("E:\\Copy\\Racer.exe"), None);
         // An added game whose handler was deleted has none.
         assert_eq!(c.added("C:\\Old\\Old.exe"), None);
+    }
+
+    #[test]
+    fn ours_is_superseded_once_the_user_adds_the_game_with_a_hub_handler() {
+        let mut c = catalog();
+        let mut own = c.handlers[0].clone();
+        own.own = true;
+        own.guid = "Rubylight-racer".into();
+        own.file = "Rubylight-racer.js".into();
+        c.handlers.push(own);
+        c.games.push(Game {
+            guid: "Rubylight-racer".into(),
+            exe_path: "d:/games/racer/racer.exe".into(),
+        });
+        let superseded = c.superseded();
+        assert_eq!(superseded.len(), 1);
+        assert_eq!(superseded[0].file, "Rubylight-racer.js");
+        // Another copy of the game, not added with the hub's: ours stays.
+        c.games.last_mut().unwrap().exe_path = "E:\\Copy\\Racer.exe".into();
+        assert!(c.superseded().is_empty());
     }
 
     #[test]

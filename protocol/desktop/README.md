@@ -24,16 +24,20 @@ Every release carries these files; the installer and the packages hold the same 
 
 The .deb and the .rpm put the program in `/opt/nightjar`, `nightjar` in `/usr/bin`, the desktop entry
 `io.github.ramazankara.nightjar.desktop`, the icon in the hicolor sizes and the AppStream data in `/usr/share`. They
-need glibc 2.39 or newer, libopus, libva and libudev (pulled in as dependencies) and recommend the libraries SDL3 and
-PyroWave open at run time (X11 or Wayland, PulseAudio, PipeWire or ALSA, Vulkan, the VA-API driver). The AppImage
-carries libopus too; libva and its drivers stay the system's.
+need glibc 2.39 or newer, libopus, libva, libudev, and the ALSA, libX11 and libXext libraries SDL3 cannot start
+without (pulled in as dependencies), and recommend the other libraries SDL3 and PyroWave open at run time (Wayland,
+PulseAudio, PipeWire, Vulkan, the VA-API driver). The AppImage carries libopus too; libva and its drivers stay the
+system's, and so do ALSA and X11, which every desktop has.
 
-Your settings, paired PCs, saved libraries, logs and screenshots live in `%APPDATA%\Nightjar` (Windows) or
-`~/.config/nightjar` (Linux), outside every install folder: no update touches them, and no uninstall removes them,
-except that the Windows uninstaller offers a "Remove my settings and paired PCs too" box (off unless you tick it;
-`unins000.exe /VERYSILENT /REMOVESETTINGS` does the same silently). On Linux, delete `~/.config/nightjar` yourself.
+Your settings, paired PCs, controller layouts, app lists, cover art, logs, screenshots and saved statistics live in
+`%APPDATA%\Nightjar\config` (Windows) or `~/.config/nightjar` (Linux), outside every install folder: no update
+touches them, and no uninstall removes them, except that the Windows uninstaller offers a "Remove them too" box (off
+unless you tick it; `unins000.exe /VERYSILENT /REMOVESETTINGS` does the same silently). It removes everything there
+but the `screenshots` and `statistics` folders, which are your own files. On Linux, delete `~/.config/nightjar`
+yourself.
 
-`nightjar --version` prints the version and exits without opening a window.
+`nightjar --version` prints the version and exits without opening a window (on Windows into the Command Prompt or
+PowerShell window it was started from).
 
 ## Building
 
@@ -99,10 +103,13 @@ Both are made from the finished archives, so they carry exactly their files (`pa
   upgrades by a fixed AppId come built in, and the script stays short. NSIS needs all of that written by hand, and a
   Rust self-installer like the host's `butterpollo-setup` would mean maintaining an installer, an uninstaller and
   their registry entries ourselves. `-Smoke` installs it silently, compares every file with the zip, checks the
-  shortcuts and the uninstall entry, runs `nightjar.exe --version`, uninstalls it and fails on anything left
-  behind; on a PC without `%APPDATA%\Nightjar` it also checks that an uninstall keeps the settings and that
-  `/REMOVESETTINGS` removes them. Code signing: there is no certificate yet. `-SignCommand` is the hook (see the
-  script's header); nothing is signed until it is given.
+  shortcuts and the uninstall entry, runs `nightjar.exe --version`, upgrades it in place with a second run (a
+  planted stale DLL must go, the settings must stay), uninstalls it and fails on anything left behind. Then it
+  checks that a plain uninstall keeps the settings and that `/REMOVESETTINGS` removes them but keeps the screenshots
+  and statistics. On GitHub Actions that runs against the runner's `%APPDATA%\Nightjar`; anywhere else the real
+  folder is never touched, and a test build of the installer (`/DTestDataDir`) uses a temporary folder instead. It
+  refuses to run where Nightjar or its shortcuts are installed already. Code signing: there is no certificate yet.
+  `-SignCommand` is the hook (see the script's header); nothing is signed until it is given.
 - `packaging/linux/build-packages.sh -n <nfpm> -a <appimagetool> -r <AppImage runtime> <the tar.gz>` makes the .deb
   and .rpm with nfpm (one description for both, no rpmbuild needed on the Ubuntu build machine) and the AppImage with
   appimagetool and a pinned type 2 runtime. The dependencies are read off the binaries: the .deb names the packages
@@ -114,7 +121,8 @@ Both are made from the finished archives, so they carry exactly their files (`pa
   store icon.
 
 The release workflow pins nfpm, appimagetool, the AppImage runtime and Inno Setup by version and SHA-256, installs
-the .deb on its Ubuntu runner and the .rpm and the AppImage in a clean Fedora container, and runs the installer's
+the .deb on its Ubuntu 24.04 runner, the .rpm in a clean Fedora container and the AppImage in another one with only
+libva added, and runs the installer's
 `-Smoke` on its Windows runner.
 
 ### Linux

@@ -18,7 +18,8 @@ import android.view.Display;
  * Never Dolby Vision when the client draws the picture itself (DrawnSurface): a Dolby Vision decoder
  * would map a picture that is not the one shown, and no API takes Dolby Vision with drawn buffers.
  * HLG on the Vulkan renderer, whose surface takes it, and on PyroWave from a host that offers it
- * there (PYROWAVE_HLG) on Android 14 and later; packed full chroma draws BT.2020/PQ only.
+ * there (PYROWAVE_HLG) where this display's window takes the HLG dataspace (HlgWindow); packed
+ * full chroma draws BT.2020/PQ only.
  */
 public final class HdrFormatPolicy {
     private HdrFormatPolicy() {}
@@ -29,15 +30,41 @@ public final class HdrFormatPolicy {
         NONE,
         /**
          * The client draws it on a BT.2020/PQ surface: packed full chroma, and PyroWave from a host
-         * without PYROWAVE_HLG or below Android 14 (PYROWAVE_HLG_MIN_SDK).
+         * without PYROWAVE_HLG or on a window that refused HLG.
          */
         PQ_ONLY,
         /**
          * The Vulkan renderer, where its instance has VK_EXT_swapchain_colorspace
-         * (VulkanRendererBridge.drawsHlg), and PyroWave from a host with PYROWAVE_HLG on Android 14+: BT.2020 PQ or
+         * (VulkanRendererBridge.drawsHlg), and PyroWave from a host with PYROWAVE_HLG: BT.2020 PQ or
          * HLG, through the HDR colour spaces or the window dataspace.
          */
         PQ_HLG
+    }
+
+    /**
+     * How this display's stream window took the BT2020_HLG dataspace (WindowDataspace.probeHlg),
+     * asked of each device at run time: the public call's list differs between Android builds.
+     */
+    public enum HlgWindow {
+        /** ANativeWindow_setBuffersDataSpace took it. */
+        PUBLIC,
+        /** ANativeWindow_setBuffersDataSpace refused it and ANativeWindow::perform took it. */
+        PERFORM,
+        /** Neither took it: this display gets HDR10 on PyroWave. */
+        REFUSED;
+
+        public boolean accepted() {
+            return this != REFUSED;
+        }
+
+        /** The answer of WindowDataspace.Probe.call. */
+        public static HlgWindow of(int call) {
+            switch (call) {
+                case WindowDataspace.CALL_PUBLIC: return PUBLIC;
+                case WindowDataspace.CALL_PERFORM: return PERFORM;
+                default: return REFUSED;
+            }
+        }
     }
 
     /** What the screen would show with the decoder's own output and the Vulkan renderer leaves out. */
@@ -103,21 +130,40 @@ public final class HdrFormatPolicy {
         return DrawnLimit.NONE;
     }
 
-    /**
-     * The first Android release whose PyroWave surface takes HLG. Android 13's
-     * ANativeWindow_setBuffersDataSpace takes BT2020_PQ but refuses BT2020_HLG with -EINVAL
-     * (isDataSpaceValid, seen on the Retroid Pocket 6); 14 takes any dataspace and 15 lists the
-     * native HDR10_HLG colour space.
-     */
-    public static final int PYROWAVE_HLG_MIN_SDK = 34;
+    /** What PyroWave draws on: PQ and HLG from a host that offers HLG on PyroWave, else PQ only. */
+    public static DrawnSurface pyroWaveSurface(int hostFormats) {
+        return (hostFormats & PYROWAVE_HLG) != 0 && (hostFormats & HLG) != 0 ? DrawnSurface.PQ_HLG :
+                DrawnSurface.PQ_ONLY;
+    }
+
+    /** What PyroWave draws on this display's window: pyroWaveSurface, PQ only where it refused HLG. */
+    public static DrawnSurface pyroWaveSurface(int hostFormats, HlgWindow window) {
+        return window.accepted() ? pyroWaveSurface(hostFormats) : DrawnSurface.PQ_ONLY;
+    }
 
     /**
-     * What PyroWave draws on: PQ and HLG from a host that offers HLG on PyroWave, on Android 14
-     * and later; else PQ only.
+     * PyroWave would ask this host for HLG, so the window is asked whether it takes it first:
+     * the host offers HLG on PyroWave and the screen shows HDR only as HLG.
      */
-    public static DrawnSurface pyroWaveSurface(int hostFormats, int sdk) {
-        return sdk >= PYROWAVE_HLG_MIN_SDK && (hostFormats & PYROWAVE_HLG) != 0 && (hostFormats & HLG) != 0 ?
-                DrawnSurface.PQ_HLG : DrawnSurface.PQ_ONLY;
+    public static boolean pyroWaveNeedsHlgProbe(int hostFormats, int[] displayTypes) {
+        return pick(hostFormats, displayTypes, false, pyroWaveSurface(hostFormats)) == HLG;
+    }
+
+    /** That screen gets HDR10 on PyroWave because its window refused the HLG dataspace. */
+    public static boolean pyroWaveHlgRefusedByDisplay(int hostFormats, int[] displayTypes, HlgWindow window) {
+        return window == HlgWindow.REFUSED && pyroWaveNeedsHlgProbe(hostFormats, displayTypes);
+    }
+
+    /**
+     * An HLG PyroWave stream, asked for because the window took HLG, that is not shown as HLG: the
+     * window no longer holds the dataspace after the first frame, or the decoder stopped producing
+     * frames. Said loudly; never an SDR or PQ picture without a word.
+     * @param window        this stream's probe, null when there was none
+     * @param windowKeptHlg the renderer read BT2020_HLG back from the window (or has not shown a frame yet)
+     */
+    public static boolean pyroWaveHlgLost(int announcedFormat, HlgWindow window, boolean windowKeptHlg,
+            boolean framesStopped) {
+        return announcedFormat == HLG && window != null && window.accepted() && (!windowKeptHlg || framesStopped);
     }
 
     /**
@@ -140,11 +186,10 @@ public final class HdrFormatPolicy {
 
     /**
      * A screen that shows HDR only as HLG gets HDR10 on PyroWave because the host offers HLG but not
-     * on PyroWave: updating the host would give it HLG. Not below PYROWAVE_HLG_MIN_SDK, where no
-     * host update helps.
+     * on PyroWave: updating the host would give it HLG.
      */
-    public static boolean pyroWaveHlgNeedsHostUpdate(int hostFormats, int[] displayTypes, int sdk) {
-        return sdk >= PYROWAVE_HLG_MIN_SDK && (hostFormats & PYROWAVE_HLG) == 0 && !HdrPolicy.hasHdr10(displayTypes) &&
+    public static boolean pyroWaveHlgNeedsHostUpdate(int hostFormats, int[] displayTypes) {
+        return (hostFormats & PYROWAVE_HLG) == 0 && !HdrPolicy.hasHdr10(displayTypes) &&
                 hlgInstead(hostFormats, displayTypes);
     }
 

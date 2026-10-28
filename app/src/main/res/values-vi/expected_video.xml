@@ -21,4 +21,6 @@
     <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision cần HEVC, nên PyroWave truyền ở %1$s.</string>
     <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ cần HEVC hoặc AV1, nên PyroWave truyền HDR10 không có HDR10+.</string>
     <string name="stream_hdr_pq_on_hlg_screen_host_update">Màn hình này chỉ hiển thị HDR dưới dạng HLG, nhưng PC gửi HDR10 qua PyroWave, nên độ sáng và màu có thể trông sai. Cập nhật host trên PC sẽ thêm HLG cho PyroWave.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">Màn hình này chỉ hiển thị HDR dưới dạng HLG, nhưng đã từ chối HLG từ PyroWave, nên PC gửi HDR10 và độ sáng và màu có thể trông sai.</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">Màn hình này đã nhận HLG từ PyroWave trước khi phát, nhưng sau đó không hiển thị luồng phát dưới dạng HLG.</string>
 </resources>

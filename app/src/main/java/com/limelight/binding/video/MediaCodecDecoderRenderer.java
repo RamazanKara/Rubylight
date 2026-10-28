@@ -70,6 +70,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // The same for PyroWave, and whether an HLG-only screen gets HDR10 there for want of a host update.
     private volatile HdrFormatPolicy.DrawnLimit pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
     private volatile boolean pyroWaveHlgNeedsHostUpdate;
+    // How outputDisplay's stream window took BT2020_HLG, asked once per session (this renderer has
+    // one display); this stream's answer when its HLG was decided by it, else null; whether an
+    // HLG-only screen gets HDR10 because its window refused HLG; and whether an HLG stream the window
+    // took stopped producing frames.
+    private HdrFormatPolicy.HlgWindow displayHlgWindow;
+    private volatile HdrFormatPolicy.HlgWindow pyroWaveHlgWindow;
+    private volatile boolean pyroWaveHlgRefused;
+    private volatile boolean pyroWaveHlgFramesStopped;
+    private final AtomicBoolean pyroWaveHlgLostSaid = new AtomicBoolean();
     private volatile boolean dolbyVisionFailed;
     private volatile boolean dolbyVisionActive;
 
@@ -1740,10 +1749,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
         pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
         pyroWaveHlgNeedsHostUpdate = false;
+        pyroWaveHlgWindow = null;
+        pyroWaveHlgRefused = false;
+        pyroWaveHlgFramesStopped = false;
+        pyroWaveHlgLostSaid.set(false);
         if (hostHdrFormats == 0) return 0;
         int[] displayTypes = HdrPolicy.displayHdrTypes(outputDisplay);
         // Packed full chroma draws a BT.2020/PQ surface, the Vulkan renderer PQ or HLG, PyroWave PQ
-        // or HLG where the host offers HLG on it and Android is 14 or later (HdrFormatPolicy).
+        // or HLG where the host offers HLG on it and this display's window takes it (HdrFormatPolicy).
         String drawer = null;
         HdrFormatPolicy.DrawnSurface surface = HdrFormatPolicy.DrawnSurface.NONE;
         boolean vulkan = false;
@@ -1753,7 +1766,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             surface = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
         } else if ((videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             drawer = "PyroWave";
-            surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats, Build.VERSION.SDK_INT);
+            surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats);
+            if (HdrFormatPolicy.pyroWaveNeedsHlgProbe(hostHdrFormats, displayTypes)) {
+                pyroWaveHlgWindow = displayHlgWindow();
+                surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats, pyroWaveHlgWindow);
+                pyroWaveHlgRefused = HdrFormatPolicy.pyroWaveHlgRefusedByDisplay(hostHdrFormats, displayTypes,
+                        pyroWaveHlgWindow);
+            }
             pyroWave = true;
         } else if (vulkanPresents(prefs)) {
             drawer = "the Vulkan renderer";
@@ -1768,8 +1787,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         } else if (pyroWave) {
             pyroWaveHdrLimit = HdrFormatPolicy.pyroWaveLimit(hostHdrFormats, displayTypes, dolbyVisionDecoder != null,
                     format);
-            pyroWaveHlgNeedsHostUpdate = HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(hostHdrFormats, displayTypes,
-                    Build.VERSION.SDK_INT);
+            pyroWaveHlgNeedsHostUpdate = HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(hostHdrFormats, displayTypes);
         }
         HdrFormatPolicy.DrawnLimit limit = vulkan ? vulkanHdrLimit : pyroWaveHdrLimit;
         LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +
@@ -1782,9 +1800,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // Game names it on the status line (HdrPolicy.Status.PQ_ON_HLG_SCREEN).
             LimeLog.warning("The screen reports HLG and no HDR10, but " + drawer +
                     " draws PQ only" + (pyroWaveHlgNeedsHostUpdate ? " from this PC (HLG on PyroWave needs a host update)" :
-                    "") + ": this stream is HDR10");
+                    pyroWaveHlgRefused ? " here (this display's window refused HLG)" : "") + ": this stream is HDR10");
         }
         return format;
+    }
+
+    // outputDisplay's answer, asked of renderTarget the first time a stream would ask for HLG.
+    private synchronized HdrFormatPolicy.HlgWindow displayHlgWindow() {
+        if (displayHlgWindow != null) return displayHlgWindow;
+        WindowDataspace.Probe probe = WindowDataspace.probeHlg(renderTarget);
+        displayHlgWindow = HdrFormatPolicy.HlgWindow.of(probe.call);
+        String text = "HLG window probe on display " + (outputDisplay != null ? outputDisplay.getDisplayId() : -1) +
+                ": " + probe.describe();
+        if (probe.accepted()) LimeLog.info(text);
+        else LimeLog.warning(text);
+        return displayHlgWindow;
     }
 
     @Override
@@ -1852,6 +1882,28 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /** A PyroWave stream is HDR10 on an HLG-only screen because the host offers no HLG on PyroWave. */
     public boolean isPyroWaveHlgNeedingHostUpdate() {
         return pyroWaveHlgNeedsHostUpdate && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+    }
+
+    /** A PyroWave stream is HDR10 on an HLG-only screen because this display's window refused HLG. */
+    public boolean isPyroWaveHlgRefusedByDisplay() {
+        return pyroWaveHlgRefused && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+    }
+
+    /**
+     * The PyroWave stream is HLG because this display's window took it, but it is not shown as HLG
+     * (HdrFormatPolicy.pyroWaveHlgLost); logged once per stream.
+     */
+    public boolean isPyroWaveHlgLost() {
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) return false;
+        boolean lost = HdrFormatPolicy.pyroWaveHlgLost(announcedHdrFormat, pyroWaveHlgWindow,
+                !PyroWaveDecoderRenderer.hlgWindowLost(), pyroWaveHlgFramesStopped);
+        if (lost && !pyroWaveHlgLostSaid.getAndSet(true)) {
+            LimeLog.severe("PyroWave HLG: this display's window took BT2020_HLG through " + pyroWaveHlgWindow +
+                    " before the stream, but the stream is not shown as HLG (" +
+                    (pyroWaveHlgFramesStopped ? "the decoder stopped producing frames" :
+                            "the window no longer holds it") + ")");
+        }
+        return lost;
     }
 
     /**
@@ -3888,6 +3940,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             PyroWaveDecoderRenderer.streamHdrFailure() : 0;
                     LimeLog.severe("PyroWave decoder stopped producing frames" +
                             (hdrFailure != 0 ? ": " + context.getString(hdrFailure) : ""));
+                    pyroWaveHlgFramesStopped = true;
+                    // Game's end-of-stream text names HLG when the window took it (isPyroWaveHlgLost).
+                    isPyroWaveHlgLost();
                     stopping = true;
                     MoonBridge.bridgeClConnectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_FRAME);
                 }

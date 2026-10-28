@@ -39,6 +39,8 @@ rubylight-native-api = { path = "native-api" }
 embed-resource = "3.0.12"
 
 [dev-dependencies]
+# Property tests over the decoders of peer input (src/fuzz.rs).
+proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3.23"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 

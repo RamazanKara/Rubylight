@@ -104,6 +104,39 @@ pub fn shows_error_box(launch: Option<&Launch>) -> bool {
 /// Whether this build has a console for the usage text: a Windows release build has none.
 pub const HAS_CONSOLE: bool = !cfg!(all(windows, not(debug_assertions)));
 
+/// Lets a build without a console print into the console it was started from (cmd, PowerShell),
+/// for `--version`. Output redirected into a file or a pipe keeps going there.
+pub fn use_parent_console() {
+    #[cfg(windows)]
+    if !HAS_CONSOLE {
+        use windows::core::w;
+        use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, GetFileType, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_DISK, FILE_TYPE_PIPE, OPEN_EXISTING,
+        };
+        use windows::Win32::System::Console::{AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_OUTPUT_HANDLE};
+        // SAFETY: plain console and file calls on handles of this process; a failure leaves stdout
+        // as it was, and printing then shows nothing, as before.
+        unsafe {
+            if let Ok(handle) = GetStdHandle(STD_OUTPUT_HANDLE) {
+                if !handle.is_invalid() && !handle.0.is_null() {
+                    let kind = GetFileType(handle);
+                    if kind == FILE_TYPE_DISK || kind == FILE_TYPE_PIPE {
+                        return;
+                    }
+                }
+            }
+            // A console parent hands a window program its own console's handles, which are no use
+            // to it until it attaches; then CONOUT$ is that console's screen.
+            if AttachConsole(ATTACH_PARENT_PROCESS).is_ok() {
+                if let Ok(out) = CreateFileW(w!("CONOUT$"), (GENERIC_READ | GENERIC_WRITE).0, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES(0), None) {
+                    let _ = SetStdHandle(STD_OUTPUT_HANDLE, out);
+                }
+            }
+        }
+    }
+}
+
 /// Whether the usage text (`--help`, or a wrong command line) is shown in a box too: only by a
 /// build without a console, where printing it shows nothing, and never for a command line that
 /// names a PC: that is a frontend's start, where a box could open behind it and keep Nightjar

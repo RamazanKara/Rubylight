@@ -343,7 +343,24 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 messages.alert(R.string.stream_rate_change_auto_not_sent, Toast.LENGTH_LONG);
                 return;
             }
+            scheduleRateChangeExpiry();
             bitrateHandler.postDelayed(this, 1000);
+        }
+    };
+    // Gives up on 0x553C requests the host left unanswered for StreamRateChanges.ANSWER_MS, loudly.
+    private final Runnable expireRateChanges = new Runnable() {
+        @Override public void run() {
+            if (!connected || rateChanges == null) return;
+            java.util.EnumSet<StreamRateChanges.Answer> expired = rateChanges.expire(SystemClock.uptimeMillis());
+            if (expired.contains(StreamRateChanges.Answer.AUTOMATIC_NO_ANSWER)) {
+                bitrateHandler.removeCallbacks(updateRateChangeBitrate);
+                LimeLog.warning("Automatic bitrate: the host did not answer a rate change; off for this stream");
+                messages.alert(R.string.stream_rate_change_auto_no_answer, Toast.LENGTH_LONG);
+            }
+            if (expired.contains(StreamRateChanges.Answer.MANUAL_NO_ANSWER)) {
+                messages.alert(R.string.stream_rate_change_no_answer, Toast.LENGTH_LONG);
+            }
+            scheduleRateChangeExpiry();
         }
     };
     private final Runnable sampleStreamHealth = new Runnable() {
@@ -4681,11 +4698,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 return;
             }
             dialog.dismiss();
-            if (!stream.sendManual(kbps, millihz)) {
+            if (!stream.sendManual(kbps, millihz, SystemClock.uptimeMillis())) {
                 LimeLog.warning("Rate change: request not sent");
                 messages.alert(R.string.stream_rate_change_not_sent, Toast.LENGTH_LONG);
                 return;
             }
+            scheduleRateChangeExpiry();
             LimeLog.info("Rate change: asking for " + kbps + " kbps, " + millihz + " mHz");
             if (kbps != 0) {
                 // As with the bitrate dialog, a bitrate set by hand stops the host-side automatic
@@ -4729,13 +4747,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // The host's answer to a 0x553C request, on the UI thread.
     private void onRateChange(RateChangeResult result) {
         if (rateChanges == null || !connected || isFinishing()) return;
-        StreamRateChanges.Answer answer = rateChanges.onResult(result, SystemClock.uptimeMillis());
+        StreamRateChanges.Outcome outcome = rateChanges.onResult(result, SystemClock.uptimeMillis());
+        StreamRateChanges.Answer answer = outcome.answer;
         if (answer == StreamRateChanges.Answer.UNKNOWN) {
             LimeLog.warning("Rate change: a result for no request of this stream, " + result);
             return;
         }
-        LimeLog.info("Rate change: " + result + " (" + answer + ")");
-        if (result.bitrateKbps > 0) currentBitrate = result.bitrateKbps;
+        LimeLog.info("Rate change: " + result + " (" + answer + (outcome.takesBitrate ? ")" : ", older bitrate)"));
+        // An answer that came after a later request's keeps that one's bitrate.
+        if (outcome.takesBitrate) currentBitrate = result.bitrateKbps;
         if (result.fpsChanged() && result.fpsMillihz > 0 && result.fpsMillihz != reconfigureRequester.fpsMillihz()) {
             reconfigureRequester.rateChanged(result.fpsMillihz);
             setStreamFrameRate(result.fpsMillihz);
@@ -4749,7 +4769,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             boolean refused = result.bitrateStatus == RateChangeResult.STATUS_REFUSED ||
                     result.fpsStatus == RateChangeResult.STATUS_REFUSED;
             // A bitrate below PyroWave's floor says so instead, unless something was refused.
-            if (refused || !result.bitrateChanged() || !warnIfBelowPyroWaveFloor(result.bitrateKbps)) {
+            if (refused || !result.bitrateChanged() || !outcome.takesBitrate ||
+                    !warnIfBelowPyroWaveFloor(result.bitrateKbps)) {
                 messages.alert(rateChangeText(this, result), Toast.LENGTH_LONG);
             }
         }
@@ -4818,6 +4839,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean offersRateChange() {
         return connected && app != null && app.getRole() == NvApp.Role.STREAM && MoonBridge.isRustStream() &&
                 MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RATE_CHANGE);
+    }
+
+    // The next check for an unanswered 0x553C request, when one is outstanding.
+    private void scheduleRateChangeExpiry() {
+        bitrateHandler.removeCallbacks(expireRateChanges);
+        long at = rateChanges == null ? 0 : rateChanges.nextExpiryMs();
+        if (at > 0) bitrateHandler.postAtTime(expireRateChanges, at);
     }
 
     private boolean isRateChangeBitrateOn() {
@@ -6745,6 +6773,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         getWindow().getDecorView().removeCallbacks(runWindowFocusActions);
         bitrateHandler.removeCallbacks(updateBitrate);
         bitrateHandler.removeCallbacks(updateRateChangeBitrate);
+        bitrateHandler.removeCallbacks(expireRateChanges);
         rateChanges = null;
         bitrateHandler.removeCallbacks(checkReconfigure);
         bitrateHandler.removeCallbacks(updateQuality);

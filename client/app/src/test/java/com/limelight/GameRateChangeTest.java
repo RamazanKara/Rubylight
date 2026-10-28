@@ -220,6 +220,68 @@ public class GameRateChangeTest {
     }
 
     @Test
+    public void anAnswerThatComesAfterALaterRequestsKeepsThatOnesBitrate() {
+        startStream(recording());
+        AlertDialog dialog = openDialog();
+        List<EditText> fields = fields(dialog);
+        fields.get(0).setText("30");
+        fields.get(1).setText("120");
+        send(dialog);
+        dialog = openDialog();
+        fields(dialog).get(0).setText("40");
+        send(dialog);
+        assertEquals(2, sent.size());
+
+        // The host answers the bitrate-only request at once and the first once its switch ended,
+        // here back at 60 fps, with the bitrate it set when that request came.
+        game.rateChange(new RateChangeResult(sent.get(1)[0], 40_000, 60_000, STATUS_APPLIED, REASON_NONE,
+                STATUS_UNCHANGED, REASON_NONE));
+        ShadowLooper.idleMainLooper();
+        assertEquals(40_000, (int) ReflectionHelpers.getField(game, "currentBitrate"));
+        game.rateChange(new RateChangeResult(sent.get(0)[0], 30_000, 60_000, STATUS_APPLIED, REASON_NONE,
+                STATUS_REFUSED, REASON_ENCODER_FAILED));
+        ShadowLooper.idleMainLooper();
+        assertEquals("Bitrate: 30.0 Mbps\nFrame rate not changed, still 60 fps. " +
+                        game.getString(R.string.stream_rate_change_reason_encoder_failed),
+                ShadowToast.getTextOfLatestToast());
+        assertEquals("the later request's bitrate stays", 40_000,
+                (int) ReflectionHelpers.getField(game, "currentBitrate"));
+    }
+
+    @Test
+    public void aChangeTheHostNeverAnswersIsGivenUpOnLoudly() {
+        startStream(recording());
+        AlertDialog dialog = openDialog();
+        fields(dialog).get(0).setText("30");
+        send(dialog);
+        runFor(4);
+        assertNotEquals(game.getString(R.string.stream_rate_change_no_answer), ShadowToast.getTextOfLatestToast());
+        runFor(1);
+        assertEquals(game.getString(R.string.stream_rate_change_no_answer), ShadowToast.getTextOfLatestToast());
+
+        // An answer after that is for no request any more.
+        int toasts = ShadowToast.shownToastCount();
+        game.rateChange(new RateChangeResult(sent.get(0)[0], 30_000, 60_000, STATUS_APPLIED, REASON_NONE,
+                STATUS_UNCHANGED, REASON_NONE));
+        ShadowLooper.idleMainLooper();
+        assertEquals(toasts, ShadowToast.shownToastCount());
+        assertEquals(50_000, (int) ReflectionHelpers.getField(game, "currentBitrate"));
+    }
+
+    @Test
+    public void automaticBitrateStopsWhenTheHostNeverAnswersItsRequest() {
+        prefs.rateChangeBitrate = true;
+        startStream(recording());
+        runUntilAutomaticAsks();
+        assertEquals(1, sent.size());
+        runFor((int) (StreamRateChanges.ANSWER_MS / 1000));
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game, "isRateChangeBitrateOn"));
+        assertEquals(game.getString(R.string.stream_rate_change_auto_no_answer), ShadowToast.getTextOfLatestToast());
+        runFor(20);
+        assertEquals("nothing more goes out", 1, sent.size());
+    }
+
+    @Test
     public void clampedValuesSayWhatLimitsThem() {
         RateChangeResult result = new RateChangeResult(1, 80_000, 90_000, STATUS_CLAMPED, REASON_ENCODER_LIMIT,
                 STATUS_CLAMPED, REASON_HOST_LIMIT);

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV: the remote setup speaks of this device, not a phone. -->
+<resources>
+    <string name="remote_prepare">Przygotowanie w domu\n\nSparuj to urządzenie z komputerem w sieci domowej i sprawdź, czy zwykły strumień działa. Nie pozwól komputerowi przejść w uśpienie i nie zamykaj hosta.\n\nZdalne Wake-on-LAN wymaga zgodnego routera lub stale włączonego urządzenia w domu; to urządzenie samo nie wybudzi nieosiągalnego komputera.</string>
+    <string name="remote_vpn">Połącz urządzenia\n\nPrywatny VPN, np. Tailscale, może połączyć to urządzenie z komputerem bez wystawiania interfejsu WWW hosta do internetu. Zainstaluj go na obu urządzeniach, zaloguj się na własne konto i włącz połączenie między nimi. Można też użyć istniejącej konfiguracji VPN.\n\nLink otwiera oficjalny przewodnik pobierania. Ta aplikacja nie instaluje oprogramowania, nie tworzy kont, nie zmienia ustawień routera ani nie włącza przekierowania portów.</string>
+</resources>

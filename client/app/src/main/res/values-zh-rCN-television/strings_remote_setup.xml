@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV: the remote setup speaks of this device, not a phone. -->
+<resources>
+    <string name="remote_prepare">在家中准备\n\n在家庭网络中将此设备与你的电脑配对，并确认可以正常串流。让电脑保持唤醒状态并让主机保持运行。\n\n远程 Wake-on-LAN 需要兼容的路由器或家中一台始终开启的设备；此设备无法独自唤醒无法访问的电脑。</string>
+    <string name="remote_vpn">连接你的设备\n\nTailscale 等私人 VPN 可以连接此设备和你的电脑，而不会将主机的网页界面暴露在互联网上。请在两台设备上安装它，登录你自己的帐号并启用两者的连接。也可以使用现有的 VPN 设置。\n\n该链接会打开官方下载指南。此应用不会安装软件、创建帐号、更改路由器设置或启用端口转发。</string>
+</resources>

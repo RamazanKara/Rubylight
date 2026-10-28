@@ -33,6 +33,41 @@ public class RemoteSetupActivityTest {
         candidate.uuid = "another-pc";
         assertEquals(R.string.remote_failed, RemoteSetupActivity.verificationProblem(expected, candidate));
     }
+    /** The text of {@code id} for {@code locale} on a phone or on a TV. */
+    private static String text(int id, String locale, boolean television) {
+        android.content.res.Configuration config = new android.content.res.Configuration(
+                org.robolectric.RuntimeEnvironment.getApplication().getResources().getConfiguration());
+        config.setLocale(java.util.Locale.forLanguageTag(locale));
+        config.uiMode = (config.uiMode & ~android.content.res.Configuration.UI_MODE_TYPE_MASK) |
+                (television ? android.content.res.Configuration.UI_MODE_TYPE_TELEVISION : android.content.res.Configuration.UI_MODE_TYPE_NORMAL);
+        return org.robolectric.RuntimeEnvironment.getApplication().createConfigurationContext(config).getString(id);
+    }
+
+    /**
+     * TV run on a TCL C6K (German): step 1 said "Das Telefon allein…". On a TV, Prepare and Connect speak of this
+     * device in every language the guide has, and phones keep their text.
+     */
+    @Test public void onATvTheGuideSpeaksOfThisDeviceNotAPhone() {
+        java.io.File[] dirs = new java.io.File("src/main/res").listFiles((dir, name) ->
+                name.matches("values(-[a-z]{2}(-r[A-Z]{2})?)?") && new java.io.File(dir, name + "/strings_remote_setup.xml").exists());
+        assertNotNull(dirs);
+        assertEquals("the guide's languages", 15, dirs.length);
+        for (java.io.File dir : dirs) {
+            String qualifier = dir.getName().equals("values") ? "" : dir.getName().substring("values-".length());
+            assertTrue(qualifier + " has a TV override",
+                    new java.io.File(dir.getParentFile(), dir.getName() + "-television/strings_remote_setup.xml").exists());
+            String locale = qualifier.isEmpty() ? "en" : qualifier.replace("-r", "-");
+            for (int id : new int[] {R.string.remote_prepare, R.string.remote_vpn}) {
+                assertNotEquals(locale + " TV text differs from the phone's", text(id, locale, false), text(id, locale, true));
+            }
+        }
+        assertFalse(text(R.string.remote_prepare, "en", true).toLowerCase(java.util.Locale.ROOT).contains("phone"));
+        assertFalse(text(R.string.remote_vpn, "en", true).toLowerCase(java.util.Locale.ROOT).contains("phone"));
+        assertFalse(text(R.string.remote_prepare, "de", true).contains("Telefon"));
+        assertFalse(text(R.string.remote_vpn, "de", true).contains("Telefon"));
+        assertTrue("phones keep their text", text(R.string.remote_prepare, "de", false).contains("Das Telefon allein"));
+    }
+
     public static class OfflineActivity extends RemoteSetupActivity {
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) { return false; }
     }

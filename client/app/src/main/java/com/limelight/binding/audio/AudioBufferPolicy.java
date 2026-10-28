@@ -9,7 +9,7 @@ final class AudioBufferPolicy {
     static final int LATE_BOUND_MS = 40;
     // The most a reserve grows for network jitter. A longer stall, such as the TCL C6K's Wi-Fi going quiet
     // for up to 130 ms every 1.2 s, is concealed (aaudio_output.c) rather than buffered for.
-    static final int MAX_RESERVE_MS = 60;
+    static final int MAX_RESERVE_MS = 40;
 
     private final int burst;
     private final int minimum;

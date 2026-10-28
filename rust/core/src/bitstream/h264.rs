@@ -273,6 +273,159 @@ mod tests {
         );
     }
 
+    /// A P slice with frame_num `number` whose header names pictures by
+    /// difference: list 0 modified by abs_diff_pic_num_minus1 (`subtract`,
+    /// then `add`), and MMCO 1 and 3 by difference_of_pic_nums_minus1
+    /// (`unused`, `long_term`), laid out as for a CAVLC PPS without weighted
+    /// prediction, then slice data.
+    fn naming_slice(number: u32, [subtract, add, unused, long_term]: [u32; 4]) -> Vec<u8> {
+        let mut header = Writer::default();
+        header.ue(0);
+        header.ue(5);
+        header.ue(0);
+        header.bits(4, number);
+        // Two references, list 0 modified.
+        header.flag(true);
+        header.ue(1);
+        header.flag(true);
+        for (idc, difference) in [(0, subtract), (1, add)] {
+            header.ue(idc);
+            header.ue(difference);
+        }
+        header.ue(3);
+        // Adaptive marking: MMCO 1, MMCO 3 to long-term index 0, end.
+        header.flag(true);
+        header.ue(1);
+        header.ue(unused);
+        header.ue(3);
+        header.ue(long_term);
+        header.ue(0);
+        header.ue(0);
+        // slice_qp_delta 0, then slice data with zero bytes to escape.
+        header.ue(0);
+        let mut rbsp = header.finish();
+        rbsp.extend_from_slice(&[0x9a, 0, 0, 1, 0x5c, 0, 0, 0, 0x81]);
+        let mut nal = vec![0, 0, 0, 1, 0x41];
+        escape(&rbsp, &mut nal);
+        nal
+    }
+
+    /// frame_num and the four differences of a [`naming_slice`].
+    fn named_by(nal: &[u8]) -> (u32, [u32; 4]) {
+        let (rbsp, _) = unescape(&nal[1..], usize::MAX);
+        let mut reader = Reader::new(&rbsp);
+        for _ in 0..3 {
+            reader.ue().unwrap();
+        }
+        let number = reader.bits(4).unwrap();
+        assert!(reader.flag().unwrap());
+        reader.ue().unwrap();
+        assert!(reader.flag().unwrap());
+        let mut differences = [0; 4];
+        for (index, idc) in [0, 1].into_iter().enumerate() {
+            assert_eq!(reader.ue().unwrap(), idc);
+            differences[index] = reader.ue().unwrap();
+        }
+        assert_eq!(reader.ue().unwrap(), 3);
+        assert!(reader.flag().unwrap());
+        assert_eq!(reader.ue().unwrap(), 1);
+        differences[2] = reader.ue().unwrap();
+        assert_eq!(reader.ue().unwrap(), 3);
+        differences[3] = reader.ue().unwrap();
+        assert_eq!((reader.ue().unwrap(), reader.ue().unwrap()), (0, 0));
+        (number, differences)
+    }
+
+    /// The pictures a slice with frame_num `current` names by `differences`
+    /// (list 0's two entries, MMCO 1's and MMCO 3's) among the reference
+    /// frames `held` (picture, frame_num), as H.264 8.2.4.1, 8.2.4.3.1 and
+    /// 8.2.5.4 derive them with four frame_num bits.
+    fn named(
+        current: u32,
+        held: &[(usize, u32)],
+        [subtract, add, unused, long_term]: [u32; 4],
+    ) -> [usize; 4] {
+        let (current, max) = (i64::from(current), 16i64);
+        let picture = |pic_num: i64| {
+            let matching: Vec<usize> = held
+                .iter()
+                .filter(|(_, number)| {
+                    let number = i64::from(*number);
+                    (if number > current {
+                        number - max
+                    } else {
+                        number
+                    }) == pic_num
+                })
+                .map(|(picture, _)| *picture)
+                .collect();
+            assert_eq!(matching.len(), 1, "PicNum {pic_num} among {held:?}");
+            matching[0]
+        };
+        let wrap = |no_wrap: i64| {
+            if no_wrap > current {
+                no_wrap - max
+            } else {
+                no_wrap
+            }
+        };
+        let first = (current - (i64::from(subtract) + 1)).rem_euclid(max);
+        let second = (first + i64::from(add) + 1).rem_euclid(max);
+        [
+            picture(wrap(first)),
+            picture(wrap(second)),
+            picture(current - (i64::from(unused) + 1)),
+            picture(current - (i64::from(long_term) + 1)),
+        ]
+    }
+
+    #[test]
+    fn differences_after_a_renumbered_gap_name_the_same_pictures() {
+        // The client decoded pictures 1 to 9, dropped 10 to 14 and decoded
+        // the repair, 15, and what followed. Picture 22 names 16 and 20 in
+        // list 0 and marks 21 unused and 18 long-term, all by difference
+        // from its own frame_num: 6 from AMF, 1 renumbered, so the client's
+        // differences cross frame_num's wrap where AMF's do not.
+        let skipped = |picture: usize| if picture < 15 { 0 } else { 5 };
+        let pictures: Vec<usize> = (1..=9).chain(15..=22).collect();
+        let units = units(STREAM);
+        let mut numbers = FrameNumbers::default();
+        assert_eq!(numbers.rewrite(&STREAM[..units[2].0 - 4], 0), Ok(None));
+        let differences = [5, 3, 0, 3];
+        let mut amf = Vec::new();
+        let mut client = Vec::new();
+        for &picture in &pictures {
+            let slice = naming_slice(picture as u32 % 16, differences);
+            let sent = numbers
+                .rewrite(&slice, skipped(picture) as u64)
+                .unwrap()
+                .unwrap_or_else(|| slice.clone());
+            let sent_units = super::units(&sent);
+            let (number, named_in) = named_by(&sent[sent_units[0].0..sent_units[0].1]);
+            // Only frame_num moved: the differences and the data come back.
+            assert_eq!(named_in, differences, "picture {picture}");
+            assert_eq!(number as usize, (picture - skipped(picture)) % 16);
+            let back = numbers
+                .rewrite(&sent, 16 - skipped(picture) as u64 % 16)
+                .unwrap();
+            assert_eq!(back.unwrap_or(sent), slice, "picture {picture}");
+            amf.push((picture, picture as u32 % 16));
+            client.push((picture, number));
+        }
+        // The eight reference frames before 22 each decoder holds: AMF's
+        // include 14, the client's 9.
+        let amf_held: Vec<_> = (14..=21)
+            .map(|picture| (picture, picture as u32 % 16))
+            .collect();
+        let client_held: Vec<_> = client[client.len() - 9..client.len() - 1].to_vec();
+        assert_eq!(client_held[0], (9, 9));
+        let expected = [16, 20, 21, 18];
+        assert_eq!(named(6, &amf_held, differences), expected);
+        assert_eq!(client.last(), Some(&(22, 1)));
+        assert_eq!(named(1, &client_held, differences), expected);
+        assert_eq!(amf.last(), Some(&(22, 6)));
+    }
+
     #[test]
     fn malformed_h264_is_an_error_and_never_a_panic() {
         let units = units(STREAM);

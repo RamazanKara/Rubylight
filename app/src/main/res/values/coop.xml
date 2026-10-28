@@ -6,7 +6,7 @@
     <string name="host_menu_coop_note">Take a free player slot</string>
     <string name="coop_title">Co-op on %1$s</string>
     <string name="coop_loading">Asking %1$s for its co-op sessions…</string>
-    <string name="coop_none">No co-op session is running. Start a game’s “Co-op (Nucleus)” entry from the library, and other devices can join it here.</string>
+    <string name="coop_none">No co-op session is running. Start “&lt;game&gt; (Co-op)” from the library, and other devices can join it here.</string>
     <string name="coop_status">Status</string>
     <string name="coop_phase_starting">Starting</string>
     <string name="coop_phase_running">Running</string>

@@ -25,7 +25,7 @@ public class NativeCoopTest {
 
     /** One session in slot order: Retroid is this device, slot 2 is free, and the host can take more. */
     public static final String LISTING = "{\"available\":true,\"reason\":null,\"games\":[{\"app_id\":2147483647,"
-            + "\"title\":\"Co-op (Nucleus): Portal 2\",\"game\":\"Portal 2\",\"max_players\":4}],"
+            + "\"title\":\"Portal 2 (Co-op)\",\"game\":\"Portal 2\",\"max_players\":4}],"
             + "\"sessions\":[{\"id\":3000000000,\"app_id\":2147483647,\"title\":\"Portal 2\",\"game\":\"Portal 2\","
             + "\"phase\":\"running\",\"end\":null,\"players\":[{\"slot\":0,\"name\":\"Laptop\",\"you\":false,"
             + "\"away\":false},{\"slot\":1,\"name\":\"Retroid\",\"you\":true,\"away\":true},{\"slot\":2,"
@@ -67,7 +67,7 @@ public class NativeCoopTest {
         assertEquals(1, session.freeSlots);
         assertTrue(session.joinable);
         assertNull(session.refusal);
-        assertEquals("Co-op (Nucleus): Portal 2", coop.entryTitle(Integer.MAX_VALUE));
+        assertEquals("Portal 2 (Co-op)", coop.entryTitle(Integer.MAX_VALUE));
         assertNull(coop.entryTitle(1));
         assertEquals(Arrays.asList("pc|coop"), transport.calls);
     }

@@ -409,7 +409,7 @@ pub(crate) mod tests {
                 reason: None,
                 games: vec![CoopGame {
                     app_id: 1234567,
-                    title: "Co-op (Nucleus): Portal 2".into(),
+                    title: "Portal 2 (Co-op)".into(),
                     game: "g".into(),
                     max_players: 2,
                 }],

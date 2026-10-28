@@ -1732,7 +1732,7 @@ impl Launcher {
         use crate::coop_page::{join_label, phase_text, slot_text};
         section(ui, "Co-op");
         let Some(open) = self.coop.state_for(id) else {
-            let button = row(ui, "Co-op sessions", "Play a game together with other devices, each in its own copy of the game on this PC, through Nucleus Co-op. Join a running session here, or start one from its Co-op (Nucleus) entry in the library.", |ui| {
+            let button = row(ui, "Co-op sessions", "Play a game together with other devices, each in its own copy of the game on this PC, through Nucleus Co-op. Join a running session here, or start one with “<game> (Co-op)” in the library.", |ui| {
                 quiet_button(ui, "Show sessions")
             });
             self.focus_item(&button, "coop", false);
@@ -1769,7 +1769,7 @@ impl Launcher {
                 ui.label(RichText::new(trf("The PC cannot run co-op sessions right now: {}", &[&why])).color(ERROR));
             }
             if coop.available && coop.sessions.is_empty() {
-                ui.label(RichText::new(tr("No co-op session is running. Start one from its Co-op (Nucleus) entry in the library.")).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(tr("No co-op session is running. Start one with “<game> (Co-op)” in the library.")).color(ON_SURFACE_VARIANT));
             }
             for session in &coop.sessions {
                 let line = folder_line(ui, &session.title, &phase_text(session), |ui| {
@@ -5240,7 +5240,7 @@ mod tests {
         };
         let mut commands = listed(&mut f);
         assert!(shows(&f, "Portal 2") && shows(&f, "Free slots: 1") && shows(&f, "Player 1: Fold7") && shows(&f, "Player 2: Free"), "{:?}", f.drawn);
-        assert!(shows(&f, "Co-op (Nucleus): Portal 2") && shows(&f, "Up to 2 players"));
+        assert!(shows(&f, "Portal 2 (Co-op)") && shows(&f, "Up to 2 players"));
         commands.extend(click_text(&mut f, "Join"));
         commands.extend(listed(&mut f));
         let launches: Vec<_> = commands.iter().filter_map(|c| match c {

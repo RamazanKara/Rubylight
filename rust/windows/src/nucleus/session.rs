@@ -78,11 +78,12 @@ impl Launcher for Elevated {
 
 /// Open Nucleus Co-op's own window on the PC's screen, as the signed-in user
 /// and elevated as a session starts it, for the user to add a handler or a
-/// game. It is not the host's to end: it runs outside the host's job.
-pub fn open(folder: &Path) -> Result<()> {
+/// game. It runs outside the host's job, so the host ending does not close
+/// it; the [`Opened`] it returns closes it before a session starts.
+pub fn open(folder: &Path) -> Result<Opened> {
     let program = folder.join(EXECUTABLE);
     let line = crate::process::quote(program.as_os_str())?;
-    crate::process::Process::spawn_command(
+    let process = crate::process::Process::spawn_command(
         &program,
         &line,
         Some(folder),
@@ -92,8 +93,53 @@ pub fn open(folder: &Path) -> Result<()> {
         true,
     )
     .with_context(|| format!("starting {} elevated", program.display()))?;
-    tracing::info!(folder = %folder.display(), "Nucleus Co-op opened for the user");
-    Ok(())
+    tracing::info!(pid = process.pid, folder = %folder.display(), "Nucleus Co-op opened for the user");
+    Ok(Opened(process))
+}
+
+/// The Nucleus Co-op [`open`] started: the only one the host closes. It is
+/// every NucleusCoop.exe in the job [`open`] made, so one that restarted
+/// itself (elevating, updating) is still this one; the job's members keep
+/// their ids from naming other processes.
+pub struct Opened(crate::process::Process);
+impl Opened {
+    /// The process [`open`] started.
+    pub fn pid(&self) -> u32 {
+        self.0.pid
+    }
+    /// Whether a NucleusCoop.exe of it still runs. What it started (a
+    /// browser from a hub link, a game) is the user's, and doesn't count.
+    pub fn running(&self) -> Result<bool> {
+        self.0.running_image(EXECUTABLE)
+    }
+    /// Ask its NucleusCoop.exe windows to close and wait up to `timeout`.
+    /// Nothing is ended, and what it started is left alone: one still open (a
+    /// question it asks the user) is an error.
+    pub fn close(&self, timeout: Duration) -> Result<()> {
+        ensure!(
+            self.0.close_image(EXECUTABLE, timeout)?,
+            "Nucleus Co-op (process {}) did not close within {} s: close it on the PC",
+            self.0.pid,
+            timeout.as_secs()
+        );
+        tracing::info!(pid = self.0.pid, "Nucleus Co-op closed");
+        Ok(())
+    }
+}
+
+/// A Nucleus Co-op process running on the PC, whoever started it.
+pub fn running() -> Result<Option<u32>> {
+    Ok(crate::process::processes()?
+        .into_iter()
+        .find(|p| p.name.eq_ignore_ascii_case(EXECUTABLE))
+        .map(|p| p.pid))
+}
+
+/// Why a session does not start while Nucleus Co-op process `pid` runs.
+pub fn already_running(pid: u32) -> String {
+    format!(
+        "Nucleus Co-op is already running on the PC (process {pid}): close it, then start the stream again"
+    )
 }
 
 /// Nucleus started by [`Elevated`]. Its job ends what it started when this
@@ -407,10 +453,7 @@ pub fn start(
         .iter()
         .find(|p| p.name.eq_ignore_ascii_case(EXECUTABLE))
     {
-        bail!(
-            "Nucleus Co-op is already running on the PC (process {}): close it, then start the stream again",
-            process.pid
-        );
+        bail!(already_running(process.pid));
     }
     let free = pads::free(xinput)?;
     ensure!(

@@ -617,13 +617,16 @@ export interface CoopSession {
   phase: CoopPhase;
   end: CoopEnd | null;
   players: CoopPlayer[];
+  /** Devices removed from this session: they can't rejoin it (older hosts leave it out). */
+  kicked?: string[];
 }
 /**
  * One app's co-op on the host: `unknown` before Nucleus Co-op is set up (or while its handlers don't load),
  * `ready` with a handler and the added game, `launcher` for an app a launcher's link starts (no handler can
- * match it), otherwise why not, in the host's words (`reason`).
+ * match it), `taken` when another app already lists under its co-op entry's name, otherwise why not, in the
+ * host's words (`reason`).
  */
-export type CoopGameStatus = 'unknown' | 'ready' | 'no_handler' | 'not_added' | 'no_executable' | 'launcher';
+export type CoopGameStatus = 'unknown' | 'ready' | 'no_handler' | 'not_added' | 'no_executable' | 'launcher' | 'taken';
 export interface CoopGame {
   /** The app's uuid. */
   app: string;
@@ -659,6 +662,8 @@ export interface CoopStatus {
   available: boolean;
   /** Why this host runs no Nucleus Co-op sessions; null when it does. */
   reason: string | null;
+  /** The Nucleus Co-op window the console opened is still open (older hosts leave it out). */
+  opened?: boolean;
   /** Every app that starts an .exe (older hosts leave it out). */
   games?: CoopGame[];
   /** Why Nucleus Co-op's handlers and games did not load. */
@@ -1003,6 +1008,8 @@ export const api = {
     install: () => post<{ state: 'installing' | 'installed' }>('/api/coop/install', {}),
     /** Opens Nucleus Co-op's window on the PC's screen, for adding a handler. */
     open: () => post<Record<string, never>>('/api/coop/open', {}, ACTION_TIMEOUT_MS),
+    /** Closes the window `open` opened; `closed` is false when it was already gone. Never another Nucleus Co-op. */
+    close: () => post<{ closed: boolean }>('/api/coop/close', {}, ACTION_TIMEOUT_MS),
     /** Frees the slot; the device's stream ends. */
     kick: (session: number, slot: number) => post<{ device: string }>('/api/coop/kick', { session, slot }, ACTION_TIMEOUT_MS),
     /** Stops Nucleus Co-op and every instance, and ends each player's stream. */

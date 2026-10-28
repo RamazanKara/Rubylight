@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { createTestServer } from './test-server.mjs';
 
 globalThis.location = new URL('http://localhost/');
@@ -13,7 +14,10 @@ const home = await server.ssrLoadModule('/src/lib/coop-view.ts');
 const CoopCard = (await server.ssrLoadModule('/src/components/overview/CoopCard.svelte')).default;
 const DeviceEditor = (await server.ssrLoadModule('/src/components/devices/DeviceEditor.svelte')).default;
 const { api, PERM } = await server.ssrLoadModule('/src/lib/api.ts');
-const { ACCESS_PERM } = await server.ssrLoadModule('/src/components/devices/access.ts');
+const { cardActions } = await server.ssrLoadModule('/src/components/overview/card-actions.ts');
+const { dialog } = await server.ssrLoadModule('/src/lib/feedback.svelte.ts');
+const access = await server.ssrLoadModule('/src/components/devices/access.ts');
+const { ACCESS_PERM } = access;
 
 const SIZE = 97_396_862;
 /** `GET /api/coop` as the host answers it: Nucleus Co-op available, set up, Portal 2 ready. */
@@ -53,6 +57,12 @@ const fixtures = {
   added: status({}, { status: 'not_added', handler: null, players: null }),
   ready: status(),
   launcher: status({ install: install({ state: 'missing' }) }, { name: 'Counter-Strike 2', status: 'launcher', handler: null, players: null }),
+  taken: status({}, {
+    status: 'taken',
+    reason: 'Another app already lists as "Portal 2 (Co-op)", so the library can\'t show this one: rename one of them',
+    handler: null,
+    players: null,
+  }),
 };
 const expected = {
   hidden: 'hidden',
@@ -66,6 +76,7 @@ const expected = {
   added: 'handler',
   ready: 'ready',
   launcher: 'launcher',
+  taken: 'taken',
 };
 const html = (value, app = 'portal') => render(PlayTogether, { props: { uuid: app, draft: new AppDraft({ name: 'Portal 2', uuid: app }), initial: value } }).body;
 
@@ -118,6 +129,20 @@ test('no handler: what is missing, the button that opens Nucleus Co-op on the PC
   assert.match(added.steps, /add Portal 2 once/);
 });
 
+test('the window the console opened can be closed from the panel, and Open waits for it', () => {
+  // Closed (or an older host): Open only.
+  assert.doesNotMatch(html(fixtures.handler), /Close Nucleus Co-op/);
+  assert.doesNotMatch(html(fixtures.ready), /Close Nucleus Co-op/);
+  const open = html({ ...fixtures.handler, opened: true });
+  assert.match(open, /Close Nucleus Co-op/);
+  // A second Open would be refused while it runs.
+  assert.match(open, /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open Nucleus Co-op on this PC/);
+  // Once the handler is in, the window may still be open: say so, and offer Close there too.
+  const ready = html({ ...fixtures.ready, opened: true });
+  assert.match(ready, /Close Nucleus Co-op/);
+  assert.ok(ready.includes(home.OPEN_ON_PC));
+});
+
 test('ready: the players, how to start it, the library switch on by default, and the limits', () => {
   const view = playTogether(fixtures.ready, 'portal');
   assert.equal(view.players, 'Up to 2 players.');
@@ -135,6 +160,21 @@ test('ready: the players, how to start it, the library switch on by default, and
   assert.equal(draft.record()['coop-entry'], false);
   draft.setFlag('coop-entry', true);
   assert.equal('coop-entry' in draft.record(), false);
+  // The switch reads a stored value as the host lists the entry (nucleus::entry_shown's test has the same table).
+  for (const hidden of [false, 'false', '0', 'off', 'TRUE']) {
+    assert.equal(new AppDraft({ name: 'Portal 2', 'coop-entry': hidden }).flag('coop-entry'), false, String(hidden));
+  }
+  for (const shown of [true, 'true', '1', 'yes', 0, null]) {
+    assert.equal(new AppDraft({ name: 'Portal 2', 'coop-entry': shown }).flag('coop-entry'), true, String(shown));
+  }
+});
+
+test('a second app of the same name is not shown as ready: the library lists only the first one’s entry', () => {
+  const view = playTogether(fixtures.taken, 'portal');
+  assert.equal(view.reason, 'Another app already lists as "Portal 2 (Co-op)", so the library can\'t show this one: rename one of them.');
+  const out = html(fixtures.taken);
+  assert.match(out, /Co-op isn’t in the library/);
+  assert.doesNotMatch(out, /Up to 2 players|Show “Portal 2 \(Co-op\)” in the library/);
 });
 
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {
@@ -201,10 +241,46 @@ const paired = [
 const card = (session = running, clients = paired, extra = {}) =>
   render(CoopCard, { props: { session, clients, at: Date.now(), ...extra } }).body;
 
-test('Home shows one card per running co-op game, never for a background stream or an ended game', () => {
-  const live = home.liveCoop(status({ sessions: [running, coopSession([], { id: 8, kind: 'background' }), coopSession([], { id: 9, phase: 'ended' })] }));
-  assert.deepEqual(live.map((session) => session.id), [7]);
+test('Home shows a card per running co-op game and background stream, never for an ended one', () => {
+  const sessions = [running, coopSession([], { id: 8, kind: 'background' }), coopSession([], { id: 9, phase: 'ended' })];
+  assert.deepEqual(home.homeSessions(status({ sessions })).map((session) => session.id), [7, 8]);
+  // Only co-op games invite players.
+  assert.deepEqual(home.liveCoop(status({ sessions })).map((session) => session.id), [7]);
+  assert.deepEqual(home.homeSessions(null), []);
   assert.deepEqual(home.liveCoop(null), []);
+});
+
+test('a background stream’s card offers End only: no Remove, no invites', async () => {
+  const background = coopSession([seat(0, 'fold', 'Fold7')], { id: 8, kind: 'background' });
+  const out = card(background);
+  assert.match(out, /Background stream · Fold7/);
+  assert.match(out, /End stream/);
+  assert.doesNotMatch(out, />Remove</);
+  assert.doesNotMatch(out, /Invite a player|End co-op/);
+  assert.deepEqual(home.endConfirmation(background), {
+    title: 'End the background stream of Portal 2?',
+    message: 'Ends Fold7’s stream and closes Portal 2 on this PC.',
+    confirm: 'End stream',
+    danger: true,
+  });
+});
+
+test('Home says why the last session ended, while the host still lists it', () => {
+  const ended = (id, end, extra = {}) => coopSession([seat(0, null, null)], { id, phase: 'ended', end, ...extra });
+  const crashed = ended(9, { reason: 'crashed', detail: 'portal2.exe exited' });
+  const sessions = [ended(4, { reason: 'empty', detail: null }), crashed, running];
+  assert.equal(home.lastEnded(status({ sessions })).id, 9);
+  assert.equal(home.lastEnded(status({ sessions: [running] })), null);
+  assert.equal(home.lastEnded(null), null);
+  assert.equal(home.endedTitle(crashed), 'Co-op in Portal 2 ended');
+  assert.equal(home.endedTitle(ended(5, { reason: 'failed', detail: null }, { kind: 'background' })), 'The background stream of Portal 2 ended');
+  assert.equal(home.endText(crashed.end), 'A game instance or Nucleus Co-op exited: portal2.exe exited.');
+  assert.equal(home.endText({ reason: 'empty', detail: null }), 'Every player left and none came back in time.');
+  assert.equal(home.endText({ reason: 'ended', detail: null }), 'It was ended from this console or by the host.');
+  assert.equal(home.endText({ reason: 'newer', detail: null }), 'It ended (newer).');
+  assert.equal(home.endedTone(crashed.end), 'danger');
+  assert.equal(home.endedTone({ reason: 'failed', detail: 'x' }), 'danger');
+  assert.equal(home.endedTone({ reason: 'empty', detail: null }), 'info');
 });
 
 test('the card shows the game, each player with their slot, who is away and the free slots', () => {
@@ -258,6 +334,24 @@ test('the invite list leaves out seated, turned-off and watch-only devices, and 
   assert.match(card(running, null, { clientsError: 'timed out' }), /Can’t list the paired devices: timed out/);
 });
 
+test('after a Remove the removed device is not offered again: the host refuses its return', () => {
+  // Living room TV was removed: its slot is free, and the host lists it as kicked.
+  const removed = coopSession([seat(0, 'fold', 'Fold7'), seat(1, null, null), seat(2, null, null), seat(3, null, null)], { kicked: ['tv'] });
+  assert.deepEqual(
+    home.invitees(removed, paired).map((d) => [d.name, d.canJoin]),
+    [
+      ['Retroid', true],
+      ['Steam Deck', false],
+    ],
+  );
+  const out = card(removed);
+  assert.doesNotMatch(out, /Living room TV/);
+  assert.match(out, /Retroid/);
+  // An older host lists no kicked devices: the list stays as before.
+  const older = coopSession([seat(0, 'fold', 'Fold7'), seat(1, null, null)]);
+  assert.deepEqual(home.invitees(older, paired).map((d) => d.name), ['Living room TV', 'Retroid', 'Steam Deck']);
+});
+
 test('Remove and End co-op confirm first, with the brief’s words', () => {
   const tv = home.seats(running)[1];
   assert.deepEqual(home.removeConfirmation(tv), {
@@ -296,6 +390,50 @@ test('Remove, End co-op and Let join post the right bodies', async () => {
   ]);
 });
 
+test('the card’s Remove and End post nothing when the question is cancelled, and post once confirmed', async () => {
+  const posted = [];
+  globalThis.fetch = async (path, init) => {
+    if (path === '/api/csrf-token') return new Response('{"csrf_token":"t"}', { status: 200 });
+    posted.push({ path, body: JSON.parse(init.body) });
+    return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const ran = [];
+  const run = async (action, task) => {
+    ran.push(action);
+    await task();
+  };
+  const answer = async (pending, yes) => {
+    const before = posted.length;
+    // The question is up before anything is sent.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(dialog.current, 'asks first');
+    assert.equal(posted.length, before);
+    dialog.current.resolve(yes);
+    await pending;
+  };
+  try {
+    const actions = cardActions(() => running, run);
+    const tv = home.seats(running)[1];
+    await answer(actions.remove(tv), false);
+    await answer(actions.end(), false);
+    assert.deepEqual(posted, [], 'a cancelled question posts nothing');
+    assert.deepEqual(ran, []);
+    await answer(actions.remove(tv), true);
+    await answer(actions.end(), true);
+    // Let join asks nothing: it only allows the device.
+    await actions.letJoin({ uuid: 'deck', name: 'Steam Deck', canJoin: false });
+    assert.equal(dialog.current, null);
+  } finally {
+    delete globalThis.fetch;
+  }
+  assert.deepEqual(ran, ['remove:1', 'end', 'join:deck']);
+  assert.deepEqual(posted, [
+    { path: '/api/coop/kick', body: { session: 7, slot: 1 } },
+    { path: '/api/coop/end', body: { session: 7 } },
+    { path: '/api/clients/update', body: { uuid: 'deck', coop_join: true } },
+  ]);
+});
+
 test('“Can join co-op games” follows Launch apps until set, as the host decides', () => {
   assert.equal(home.joinsCoop(PLAY, undefined), true);
   assert.equal(home.joinsCoop(PLAY, null), true);
@@ -326,6 +464,43 @@ test('a device’s page shows “Can join co-op games”, on for Play games and 
   assert.match(toggle, /disabled/);
   assert.doesNotMatch(toggle, /checked/);
   assert.match(watching, /Needs Launch apps, which Play games and Everything include\./);
+});
+
+test('a preset change keeps a device turned off for co-op off while the preset still launches apps', () => {
+  const { coopJoinAfterAccess } = access;
+  // Turned off, then Everything or Play games: still off, as the host would read it.
+  assert.equal(coopJoinAfterAccess(false, ACCESS_PERM.all), false);
+  assert.equal(coopJoinAfterAccess(false, ACCESS_PERM.play), false);
+  assert.equal(home.joinsCoop(ACCESS_PERM.all, coopJoinAfterAccess(false, ACCESS_PERM.all)), false);
+  // Watch only can't join anyway: the preset decides again.
+  assert.equal(coopJoinAfterAccess(false, ACCESS_PERM.view), null);
+  // Never set or on: the preset decides.
+  assert.equal(coopJoinAfterAccess(null, ACCESS_PERM.play), null);
+  assert.equal(coopJoinAfterAccess(true, ACCESS_PERM.view), null);
+  assert.equal(home.joinsCoop(ACCESS_PERM.play, coopJoinAfterAccess(true, ACCESS_PERM.play)), true);
+});
+
+test('the co-op switch lands back on the stored value, follows Launch apps when on and is false when off', () => {
+  const { coopJoinAfterSwitch } = access;
+  // Never set: off is an explicit false, back on follows Launch apps again.
+  assert.equal(coopJoinAfterSwitch(false, null), false);
+  assert.equal(coopJoinAfterSwitch(true, null), null);
+  // Stored off: on follows Launch apps, off again keeps the stored false.
+  assert.equal(coopJoinAfterSwitch(true, false), null);
+  assert.equal(coopJoinAfterSwitch(false, false), false);
+  // Stored on: back on keeps it, off is false.
+  assert.equal(coopJoinAfterSwitch(true, true), true);
+  assert.equal(coopJoinAfterSwitch(false, true), false);
+});
+
+test('the device editor’s preset and switch go through those transitions', () => {
+  // The editor's handlers can't be clicked in SSR: pin that they apply the tested rules.
+  const editor = readFileSync(new URL('./src/components/devices/DeviceEditor.svelte', import.meta.url), 'utf8');
+  const chooseAccess = editor.slice(editor.indexOf('function chooseAccess('), editor.indexOf('const launches'));
+  assert.match(chooseAccess, /draft\.coop_join = coopJoinAfterAccess\(draft\.coop_join, draft\.perm\);/);
+  assert.equal(chooseAccess.match(/draft\.coop_join =/g).length, 1);
+  const setJoins = editor.slice(editor.indexOf('function setJoins('));
+  assert.match(setJoins, /^function setJoins\(next: boolean\) \{\s+draft\.coop_join = coopJoinAfterSwitch\(next, saved\.coop_join\);\s+\}/);
 });
 
 test('every co-op text names the permission the way the device page does', () => {

@@ -1,15 +1,16 @@
 <script lang="ts">
   // The game page's co-op: set Nucleus Co-op up, get the game's handler, then play together.
   // States come from lib/coop-view.ts; this file only draws them and runs the two actions.
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Banner from '../Banner.svelte';
   import Button from '../Button.svelte';
   import LoadState from '../LoadState.svelte';
   import Panel from '../Panel.svelte';
   import Toggle from '../Toggle.svelte';
   import { api, type CoopStatus } from '../../lib/api';
-  import { AWAY_FROM_PC, COOP_LIMITS, playTogether, pollsView } from '../../lib/coop-view';
+  import { AWAY_FROM_PC, COOP_LIMITS, OPEN_ON_PC, playTogether, pollsView } from '../../lib/coop-view';
   import { failed, notify } from '../../lib/feedback.svelte';
+  import { poll } from '../../lib/format';
   import { statusLoader } from '../maintenance/status-loader';
   import { reason } from '../maintenance/util';
   import type { AppDraft } from './draft.svelte';
@@ -29,9 +30,8 @@
 
   let status = $state<CoopStatus | null>(untrack(() => initial));
   let loadError = $state('');
-  /** 'install' or 'open' while its request is out. */
+  /** 'install', 'open' or 'close' while its request is out. */
   let busy = $state('');
-  let timer: ReturnType<typeof setInterval> | undefined;
 
   const view = $derived(status ? playTogether(status, uuid) : null);
 
@@ -69,16 +69,34 @@
     } finally {
       busy = '';
     }
+    await load();
+  }
+
+  async function close() {
+    busy = 'close';
+    try {
+      const { closed } = await api.coop.close();
+      notify(closed ? 'Nucleus Co-op closed on the PC.' : 'Nucleus Co-op was already closed.', 'ok');
+    } catch (error) {
+      failed('Closing Nucleus Co-op failed', error);
+    } finally {
+      busy = '';
+    }
+    await load();
   }
 
   onMount(() => {
     if (!status) load();
-    timer = setInterval(() => {
-      if (view && pollsView(view) && !busy) loader.tick();
+    // Marked as a poll and paused while the tab is hidden, so a page left open lets the PC sleep.
+    return poll(() => {
+      if (view && pollsView(view) && !busy) return loader.tick();
     }, 3000);
   });
-  onDestroy(() => clearInterval(timer));
 </script>
+
+{#snippet closeAction()}
+  <Button busy={busy === 'close'} disabled={busy !== '' && busy !== 'close'} onclick={close}>Close Nucleus Co-op</Button>
+{/snippet}
 
 {#if loadError && !status}
   <Panel title="Play together">
@@ -119,12 +137,15 @@
         </Banner>
       {:else if view.kind === 'broken'}
         <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{view.error}</Banner>
+      {:else if view.kind === 'taken'}
+        <Banner tone="warn" title="Co-op isn’t in the library">{view.reason}</Banner>
       {:else if view.kind === 'checking'}
         <p class="muted" role="status">Checking Nucleus Co-op’s handlers…</p>
       {:else if view.kind === 'handler'}
         <p class="lead">{view.text}</p>
         <div class="action">
-          <Button variant="primary" busy={busy === 'open'} onclick={open}>Open Nucleus Co-op on this PC</Button>
+          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true} onclick={open}>Open Nucleus Co-op on this PC</Button>
+          {#if status?.opened}{@render closeAction()}{/if}
         </div>
         <p class="muted note">{view.steps}</p>
         <details class="away">
@@ -139,6 +160,12 @@
           bind:checked={() => draft.flag('coop-entry'), (value) => draft.setFlag('coop-entry', value)}
         />
         <p class="muted note">{COOP_LIMITS}</p>
+        {#if status?.opened}
+          <div class="action">
+            <span class="muted note">{OPEN_ON_PC}</span>
+            {@render closeAction()}
+          </div>
+        {/if}
       {/if}
     </div>
   </Panel>

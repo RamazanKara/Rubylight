@@ -4,18 +4,10 @@
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
   import Panel from '../Panel.svelte';
-  import { api, type Client, type CoopSession } from '../../lib/api';
-  import {
-    endConfirmation,
-    headcount,
-    invitees,
-    joinSteps,
-    removeConfirmation,
-    seats,
-    type Invitee,
-    type Seat,
-  } from '../../lib/coop-view';
-  import { confirm, failed, notify } from '../../lib/feedback.svelte';
+  import type { Client, CoopSession } from '../../lib/api';
+  import { headcount, invitees, joinSteps, seats } from '../../lib/coop-view';
+  import { failed, notify } from '../../lib/feedback.svelte';
+  import { cardActions } from './card-actions';
   import { link } from '../../lib/router.svelte';
 
   let {
@@ -47,9 +39,11 @@
   });
   onDestroy(() => clearInterval(timer));
 
+  // A background stream is one device's own game: End only, no seats to free or invite to.
+  const background = $derived(session.kind === 'background');
   const list = $derived(seats(session, Math.max(0, (now - at) / 1000)));
   const invite = $derived(clients ? invitees(session, clients) : []);
-  const hasFree = $derived(session.players.some((player) => !player.device));
+  const hasFree = $derived(!background && session.players.some((player) => !player.device));
 
   async function run(action: string, task: () => Promise<unknown>, done: string, failure: string) {
     running = action;
@@ -64,38 +58,20 @@
     await onchange?.();
   }
 
-  async function remove(seat: Seat) {
-    if (!(await confirm(removeConfirmation(seat)))) return;
-    await run(
-      `remove:${seat.slot}`,
-      () => api.coop.kick(session.id, seat.slot),
-      `${seat.name ?? seat.label} left ${session.title}.`,
-      'Removing the player failed',
-    );
-  }
-
-  async function letJoin(device: Invitee) {
-    await run(
-      `join:${device.uuid}`,
-      () => api.clients.update({ uuid: device.uuid, coop_join: true }),
-      `${device.name} can join. ${joinSteps(session)}`,
-      `Letting ${device.name} join failed`,
-    );
-  }
-
-  async function end() {
-    if (!(await confirm(endConfirmation(session)))) return;
-    await run('end', () => api.coop.end(session.id), `Co-op in ${session.title} is ending.`, 'Ending co-op failed');
-  }
+  const { remove, letJoin, end } = cardActions(() => session, run);
 </script>
 
 {#snippet endAction()}
   <Button variant="danger" size="sm" icon="stop" busy={running === 'end'} disabled={running !== null && running !== 'end'} onclick={end}>
-    End co-op
+    {background ? 'End stream' : 'End co-op'}
   </Button>
 {/snippet}
 
-<Panel title={session.title} description="Co-op · {headcount(session)}" actions={endAction}>
+<Panel
+  title={session.title}
+  description={background ? `Background stream · ${list.find((seat) => seat.name)?.name ?? 'no device'}` : `Co-op · ${headcount(session)}`}
+  actions={endAction}
+>
   <div class="card">
     <ul class="seats" aria-label="Players">
       {#each list as seat (seat.slot)}
@@ -110,13 +86,15 @@
                 <Badge tone="live">Playing</Badge>
               {/if}
             </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              busy={running === `remove:${seat.slot}`}
-              disabled={running !== null && running !== `remove:${seat.slot}`}
-              onclick={() => remove(seat)}>Remove</Button
-            >
+            {#if !background}
+              <Button
+                size="sm"
+                variant="ghost"
+                busy={running === `remove:${seat.slot}`}
+                disabled={running !== null && running !== `remove:${seat.slot}`}
+                onclick={() => remove(seat)}>Remove</Button
+              >
+            {/if}
           {:else}
             <span class="who muted">Free slot</span>
           {/if}

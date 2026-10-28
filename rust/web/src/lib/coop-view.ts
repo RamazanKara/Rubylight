@@ -1,4 +1,4 @@
-import { PERM, type Client, type CoopGame, type CoopSession, type CoopStatus } from './api';
+import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type CoopStatus } from './api';
 
 /**
  * What the game page's Play together panel shows for one app, from `GET /api/coop`. Pure, so every
@@ -8,7 +8,8 @@ import { PERM, type Client, type CoopGame, type CoopSession, type CoopStatus } f
  * the game not added in Nucleus Co-op yet) and `ready`. Around them: `hidden` (the app starts nothing,
  * or the host is older), `unavailable` (this PC can't run co-op: setting it up would download for
  * nothing), `launcher` (a launcher's link starts the app, so no handler can match it), `installing`
- * and `failed` (the download), and `broken` (the handlers didn't load).
+ * and `failed` (the download), `broken` (the handlers didn't load) and `taken` (another app of the same
+ * name already lists the co-op entry, so the library shows this one's nowhere).
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -20,6 +21,7 @@ export type PlayTogetherView =
   | { kind: 'broken'; error: string }
   | { kind: 'checking' }
   | { kind: 'handler'; added: boolean; text: string; steps: string }
+  | { kind: 'taken'; reason: string }
   | { kind: 'ready'; players: string; entry: string; start: string };
 
 /** Megabytes as the release page counts them, kept on one line. */
@@ -92,6 +94,8 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
         start: `Start “${game.entry}” from Nightjar or Moonlight. Each device that starts it next joins as the next player.`,
       };
     }
+    case 'taken':
+      return { kind: 'taken', reason: sentence(game.reason ?? `Another app already lists as “${game.entry}”: rename one of them`) };
     case 'no_handler':
       return {
         kind: 'handler',
@@ -141,9 +145,46 @@ export function entryName(title: string): string {
   return `${title} (Co-op)`;
 }
 
-/** The co-op games running now, one Home card each. A background stream shows as a stream, not here. */
+/** The co-op games running now: the ones Home invites players to. */
 export function liveCoop(status: CoopStatus | null): CoopSession[] {
   return (status?.sessions ?? []).filter((session) => session.kind === 'coop' && session.phase !== 'ended');
+}
+
+/**
+ * Home's cards: each running co-op game, and each background stream (one device's own game while
+ * someone uses the PC), which only offers End.
+ */
+export function homeSessions(status: CoopStatus | null): CoopSession[] {
+  return (status?.sessions ?? []).filter((session) => session.phase !== 'ended');
+}
+
+/** The session that ended last, while the host still lists it (a minute): Home says why it ended. */
+export function lastEnded(status: CoopStatus | null): CoopSession | null {
+  const ended = (status?.sessions ?? []).filter((session) => session.phase === 'ended' && session.end);
+  return ended.reduce<CoopSession | null>((last, session) => (!last || session.id > last.id ? session : last), null);
+}
+
+const endings: Record<CoopEnd['reason'], string> = {
+  ended: 'It was ended from this console or by the host.',
+  empty: 'Every player left and none came back in time.',
+  crashed: 'A game instance or Nucleus Co-op exited',
+  failed: 'Nucleus Co-op did not start the game',
+};
+
+/** Why a session ended, with what stopped when the host says. A newer reason still shows. */
+export function endText(end: CoopEnd): string {
+  const why = endings[end.reason] ?? `It ended (${end.reason}).`;
+  return end.detail ? sentence(`${why.replace(/\.$/, '')}: ${end.detail}`) : sentence(why);
+}
+
+/** The ended banner's title: "Co-op in Portal 2 ended" or "The background stream of Portal 2 ended". */
+export function endedTitle(session: CoopSession): string {
+  return session.kind === 'background' ? `The background stream of ${session.title} ended` : `Co-op in ${session.title} ended`;
+}
+
+/** The ended banner's tone: a crash or a failed start is a problem, the rest is news. */
+export function endedTone(end: CoopEnd | null): 'danger' | 'info' {
+  return end?.reason === 'crashed' || end?.reason === 'failed' ? 'danger' : 'info';
 }
 
 /** Minutes and seconds, as a countdown reads: 1:05, 0:09. */
@@ -204,14 +245,21 @@ export interface Invitee {
 
 /**
  * Paired devices that could take a free slot: on, allowed to launch apps (a watch-only device can't
- * start the co-op entry), and not seated in this game (an away device keeps its slot and comes back
- * by itself). Empty while the game has no free slot.
+ * start the co-op entry), not seated in this game (an away device keeps its slot and comes back
+ * by itself) and not removed from it (the host refuses its return). Empty while the game has no free slot.
  */
 export function invitees(session: CoopSession, clients: Client[]): Invitee[] {
   if (!session.players.some((player) => !player.device)) return [];
   const seated = new Set(session.players.flatMap((player) => (player.device ? [player.device] : [])));
+  const removed = new Set(session.kicked ?? []);
   return clients
-    .filter((client) => client.enabled !== false && ((client.perm ?? 0) & PERM.LAUNCH_APPS) !== 0 && !seated.has(client.uuid))
+    .filter(
+      (client) =>
+        client.enabled !== false &&
+        ((client.perm ?? 0) & PERM.LAUNCH_APPS) !== 0 &&
+        !seated.has(client.uuid) &&
+        !removed.has(client.uuid),
+    )
     .map((client) => ({ uuid: client.uuid, name: client.name, canJoin: joinsCoop(client.perm ?? 0, client.coop_join) }));
 }
 
@@ -233,6 +281,15 @@ export function removeConfirmation(seat: Seat): Confirmation {
 }
 
 export function endConfirmation(session: CoopSession): Confirmation {
+  if (session.kind === 'background') {
+    const who = session.players.find((player) => player.device)?.name ?? 'The device';
+    return {
+      title: `End the background stream of ${session.title}?`,
+      message: `Ends ${who}’s stream and closes ${session.title} on this PC.`,
+      confirm: 'End stream',
+      danger: true,
+    };
+  }
   return {
     title: `End co-op in ${session.title}?`,
     message: `Ends every player’s stream and closes ${session.title} on this PC.`,
@@ -240,6 +297,9 @@ export function endConfirmation(session: CoopSession): Confirmation {
     danger: true,
   };
 }
+
+/** Beside Close Nucleus Co-op once the game is ready: the window the console opened is still on the PC's screen. */
+export const OPEN_ON_PC = 'Nucleus Co-op is still open on the PC’s screen. Co-op closes it when a game starts.';
 
 /** For a console opened away from the PC: what happens where. */
 export const AWAY_FROM_PC = 'Nucleus Co-op opens on the PC’s own screen, not on this device. Do the steps at the PC; this page shows the game as ready once the handler is in.';

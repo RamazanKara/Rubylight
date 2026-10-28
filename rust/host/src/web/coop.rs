@@ -3,7 +3,8 @@
 //! Co-op's install with its download progress, each app's co-op status and
 //! every session the host has. `POST /api/coop/install` sets Nucleus Co-op
 //! up (the pinned, checked release) and `POST /api/coop/open` opens its
-//! window on the PC for adding a handler. `POST /api/coop/kick` removes a
+//! window on the PC for adding a handler; `POST /api/coop/close` closes that
+//! window again, and a session closes it first. `POST /api/coop/kick` removes a
 //! player and `POST /api/coop/end` ends a session, and each ends the streams
 //! they held. Console-only: API tokens cannot reach them.
 
@@ -39,15 +40,21 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
         ("GET", "/api/coop") => blocking(move || Ok(status(&h))).await,
         ("POST", "/api/coop/install") => {
             let configured = configured(&h);
-            let set_up = {
-                let (h, configured) = (h.clone(), configured.clone());
-                tokio::task::spawn_blocking(move || h.nucleus.set_up(&configured)).await
-            };
-            match set_up {
+            // One blocking task claims the install and runs it, so a dropped
+            // request can't leave it claimed with nothing running it.
+            let (answer, set_up) = tokio::sync::oneshot::channel();
+            tokio::task::spawn_blocking(move || {
+                let started = h.nucleus.set_up(&configured);
+                let run = matches!(started, Ok(SetUp::Started));
+                let _ = answer.send(started);
+                if run {
+                    h.nucleus.install_now(&configured);
+                }
+            });
+            match set_up.await {
                 Ok(Ok(SetUp::Started)) => {
                     // The download runs on; `GET /api/coop` shows its progress
                     // and, loudly, a refusal.
-                    tokio::task::spawn_blocking(move || h.nucleus.install_now(&configured));
                     (StatusCode::ACCEPTED, Json(json!({"state": "installing"}))).into_response()
                 }
                 Ok(Ok(SetUp::Installing)) => {
@@ -62,6 +69,13 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
             let configured = configured(&h);
             match tokio::task::spawn_blocking(move || h.nucleus.open(&configured)).await {
                 Ok(Ok(())) => Json(json!({})).into_response(),
+                Ok(Err(refusal)) => refused(&refusal),
+                Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+            }
+        }
+        ("POST", "/api/coop/close") => {
+            match tokio::task::spawn_blocking(move || h.nucleus.close()).await {
+                Ok(Ok(closed)) => Json(json!({"closed": closed})).into_response(),
                 Ok(Err(refusal)) => refused(&refusal),
                 Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
             }
@@ -171,6 +185,14 @@ fn status(h: &Shared) -> Value {
                     };
                     (status, Some(missing.to_string()), None, None)
                 }
+                Some(GameStatus::Taken { entry }) => (
+                    "taken",
+                    Some(format!(
+                        "Another app already lists as \"{entry}\", so the library can't show this one: rename one of them"
+                    )),
+                    None,
+                    None,
+                ),
             };
             Some(json!({
                 "app": uuid,
@@ -225,6 +247,8 @@ fn status(h: &Shared) -> Value {
                 "phase": phase,
                 "end": end,
                 "players": players,
+                // Removed devices: they can't rejoin, so the console invites none of them.
+                "kicked": session.kicked().collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -248,6 +272,8 @@ fn status(h: &Shared) -> Value {
         "catalog_error": catalog_error,
         "available": unavailable.is_none(),
         "reason": unavailable,
+        // The Nucleus Co-op window the console opened is still open.
+        "opened": h.nucleus.opened(),
         "sessions": sessions,
     })
 }
@@ -378,6 +404,7 @@ mod tests {
         assert_eq!(session["game"], fake::GUID);
         assert_eq!(session["phase"], "starting");
         assert_eq!(session["end"], Value::Null);
+        assert_eq!(session["kicked"], json!([]));
         assert_eq!(
             session["players"],
             json!([
@@ -437,6 +464,13 @@ mod tests {
         let listed = h.nucleus.sessions();
         assert_eq!(listed[0].held, [true, false]);
         assert_eq!(listed[0].session.players()[1].device, None);
+        // The panel names the removed device, so the console never invites it back.
+        let status = value(
+            request(&c.f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(status["sessions"][0]["kicked"], json!(["second-device"]));
         // The slot is empty now; the player streaming slot 0 is kicked next.
         for (session, slot) in [(c.session, 1), (c.session + 1, 0)] {
             value(
@@ -590,6 +624,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_set_up_request_dropped_after_its_first_poll_still_installs() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        *pc.installed.lock().unwrap() = None;
+        f.host.nucleus.use_pc(pc.clone());
+        // The client hangs up at once: the request is polled once and dropped.
+        let dropped = tokio::time::timeout(
+            std::time::Duration::ZERO,
+            request(&f, "POST", "/api/coop/install", json!({})),
+        )
+        .await;
+        assert!(
+            dropped.is_err(),
+            "the request was answered before it was dropped"
+        );
+        // The install it claimed still runs, rather than staying "installing".
+        let mut state = Value::Null;
+        for _ in 0..500 {
+            state = settled(&f).await["install"]["state"].clone();
+            if state == "installed" || state == "failed" {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(state, "installed");
+        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn set_up_and_open_answer_503_when_the_install_folder_is_refused() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        let why = r"C:\Nucleus is not owned by Administrators or SYSTEM";
+        *pc.installed_error.lock().unwrap() = Some(why.into());
+        f.host.nucleus.use_pc(pc.clone());
+        for path in ["/api/coop/open", "/api/coop/install"] {
+            let body = value(
+                request(&f, "POST", path, json!({})).await,
+                StatusCode::SERVICE_UNAVAILABLE,
+            )
+            .await;
+            assert_eq!(
+                body["error"],
+                format!("Nucleus Co-op is not ready: {why}"),
+                "{path}"
+            );
+        }
+        // Nothing opened, nothing downloaded over the refused folder.
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 0);
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["install"]["state"], "failed");
+    }
+
+    #[tokio::test]
     async fn set_up_and_open_are_refused_without_the_service() {
         let f = Fixture::new();
         let pc = Arc::new(fake::Pc::installed());
@@ -614,6 +707,31 @@ mod tests {
         )
         .await;
         assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["opened"], true);
+        // Opening it again is refused; Close closes the one the console opened.
+        value(
+            request(&f, "POST", "/api/coop/open", json!({})).await,
+            StatusCode::CONFLICT,
+        )
+        .await;
+        let body = value(
+            request(&f, "POST", "/api/coop/close", json!({})).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body, json!({"closed": true}));
+        assert!(!pc.window().open.load(std::sync::atomic::Ordering::Relaxed));
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["opened"], false);
     }
 
     #[tokio::test]
@@ -667,6 +785,36 @@ mod tests {
         .await;
         assert_eq!(body["games"][0]["status"], "unknown");
         assert_eq!(body["games"][1]["status"], "unknown");
+    }
+
+    #[tokio::test]
+    async fn a_second_app_of_the_same_name_is_not_ready_as_the_library_lists_one_entry() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        f.host.nucleus.use_pc(pc.clone());
+        let app = |uuid: &str| App {
+            name: "Portal 2".into(),
+            cmd: format!("\"{}\"", fake::EXE),
+            working_dir: String::new(),
+            prep: Vec::new(),
+            computed_id: None,
+            aliases: Vec::new(),
+            extra: [("uuid".to_string(), json!(uuid))].into_iter().collect(),
+        };
+        let apps = vec![app("first"), app("second")];
+        *f.host.apps.write().unwrap() = apps.clone();
+        assert_eq!(f.host.nucleus.entries(&apps, "").len(), 1);
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["games"][0]["status"], "ready");
+        assert_eq!(body["games"][1]["status"], "taken");
+        assert_eq!(
+            body["games"][1]["reason"],
+            "Another app already lists as \"Portal 2 (Co-op)\", so the library can't show this one: rename one of them"
+        );
     }
 
     #[test]

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createTestServer } from './test-server.mjs';
 
 const server = await createTestServer();
@@ -35,4 +38,23 @@ test('polled requests say so, so a page left open does not keep the PC awake', a
     delete globalThis.fetch;
     delete globalThis.document;
   }
+});
+
+test('no page polls the host from a bare timer: requests go through poll() or marked()', () => {
+  const sources = (dir) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return sources(path);
+      return /\.(svelte|ts)$/.test(entry.name) ? [path] : [];
+    });
+  for (const path of sources(fileURLToPath(new URL('./src', import.meta.url)))) {
+    const text = readFileSync(path, 'utf8');
+    // A bare timer only ticks a clock; anything it fetched would keep the PC awake and run in a hidden tab.
+    for (const match of text.matchAll(/setInterval\(/g)) {
+      assert.match(text.slice(match.index), /^setInterval\(\(\) => \(now = Date\.now\(\)\), 1000\)/, path);
+    }
+  }
+  // The co-op card's device list is fetched after the status's await, past the poll's own mark.
+  const overview = readFileSync(new URL('./src/pages/Overview.svelte', import.meta.url), 'utf8');
+  assert.match(overview, /await marked\(\(\) => api\.clients\.list\(\)\)/);
 });

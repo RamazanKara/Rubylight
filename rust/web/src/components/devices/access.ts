@@ -36,6 +36,24 @@ export function withAccess(perm: number, access: Access): number {
   return access === 'view' ? ACCESS_PERM.view : ACCESS_PERM[access] | (perm & FILES);
 }
 
+/**
+ * "Can join co-op games" (`coop_join`) once a preset is chosen: the preset decides (null follows Launch
+ * apps), but a device turned off stays off while the preset still launches apps. Only a preset
+ * without Launch apps, which can't join anyway, clears it.
+ */
+export function coopJoinAfterAccess(coopJoin: boolean | null, perm: number): boolean | null {
+  return coopJoin === false && (perm & PERM.LAUNCH_APPS) !== 0 ? false : null;
+}
+
+/**
+ * `coop_join` once the switch is flipped to `next`: landing back on the saved value keeps it as stored,
+ * on follows Launch apps (null) so a later preset carries it along, and off is an explicit false.
+ */
+export function coopJoinAfterSwitch(next: boolean, saved: boolean | null): boolean | null {
+  if (next === (saved ?? true)) return saved;
+  return next ? null : false;
+}
+
 /** "Play games", "Watch only", "Everything", "No access" or "Custom". */
 export function accessLabel(perm: number): string {
   const access = accessOf(perm);

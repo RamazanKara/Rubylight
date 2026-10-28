@@ -1780,13 +1780,58 @@ impl Process {
         Ok(())
     }
     pub fn stop_graceful(&self, timeout: Duration) -> Result<()> {
+        if timeout.is_zero() || self.active_processes()? == 0 {
+            return self.stop();
+        }
+        if self.close_windows(self.process_ids()?.into_iter().collect())? {
+            let deadline = std::time::Instant::now() + timeout;
+            while self.active_processes()? != 0 && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        self.stop()
+    }
+    /// The job's processes whose image is `image`: the one it started, or
+    /// one that restarted itself.
+    fn image_ids(&self, image: &str) -> Result<std::collections::BTreeSet<u32>> {
+        let job: std::collections::BTreeSet<u32> = self.process_ids()?.into_iter().collect();
+        Ok(processes()?
+            .into_iter()
+            .filter(|p| job.contains(&p.pid) && p.name.eq_ignore_ascii_case(image))
+            .map(|p| p.pid)
+            .collect())
+    }
+    /// Whether a process of the job whose image is `image` still runs.
+    pub fn running_image(&self, image: &str) -> Result<bool> {
+        Ok(!self.image_ids(image)?.is_empty())
+    }
+    /// Ask the windows of the job's `image` processes to close and wait up to
+    /// `timeout` for them to exit. Nothing is ended, and the job's other
+    /// processes (a browser or a game they started) are left alone: whether
+    /// they all exited.
+    pub fn close_image(&self, image: &str, timeout: Duration) -> Result<bool> {
+        let ids = self.image_ids(image)?;
+        if ids.is_empty() {
+            return Ok(true);
+        }
+        if self.close_windows(ids)? {
+            let deadline = std::time::Instant::now() + timeout;
+            while self.running_image(image)? && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        Ok(!self.running_image(image)?)
+    }
+    /// Post WM_CLOSE to each top-level window of the processes `ids`: whether
+    /// one was sent.
+    fn close_windows(&self, ids: std::collections::BTreeSet<u32>) -> Result<bool> {
         use windows::Win32::UI::WindowsAndMessaging::*;
         struct Closing {
             ids: std::collections::BTreeSet<u32>,
             sent: bool,
         }
         unsafe extern "system" fn close_window(window: HWND, data: LPARAM) -> BOOL {
-            // SAFETY: EnumWindows passes the `&mut Closing` from stop_graceful as `data`, which
+            // SAFETY: EnumWindows passes the `&mut Closing` from close_windows as `data`, which
             // outlives the enumeration and is not otherwise used during it.
             unsafe {
                 let closing = &mut *(data.0 as *mut Closing);
@@ -1800,42 +1845,16 @@ impl Process {
                 BOOL(1)
             }
         }
-        if timeout.is_zero() || self.active_processes()? == 0 {
-            return self.stop();
-        }
-        let mut words = vec![0usize; 4098];
-        let list = words.as_mut_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>();
-        // SAFETY: `words` is usize-aligned with its byte size passed, `count` is checked before the
-        // slice, and `closing` outlives the synchronous EnumWindows call.
+        let mut closing = Closing { ids, sent: false };
+        // SAFETY: `closing` outlives the synchronous EnumWindows call that reads it through
+        // `close_window`.
         unsafe {
-            QueryInformationJobObject(
-                Some(raw(&self.job)),
-                JobObjectBasicProcessIdList,
-                list.cast(),
-                (words.len() * size_of::<usize>()) as u32,
-                None,
-            )?;
-            let count = (*list).NumberOfProcessIdsInList as usize;
-            if count > 4096 {
-                bail!("application process group exceeds its limit");
-            }
-            let ids = std::slice::from_raw_parts((*list).ProcessIdList.as_ptr(), count)
-                .iter()
-                .filter_map(|id| u32::try_from(*id).ok())
-                .collect();
-            let mut closing = Closing { ids, sent: false };
             EnumWindows(
                 Some(close_window),
                 LPARAM((&mut closing as *mut Closing) as isize),
             )?;
-            if closing.sent {
-                let deadline = std::time::Instant::now() + timeout;
-                while self.active_processes()? != 0 && std::time::Instant::now() < deadline {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            }
         }
-        self.stop()
+        Ok(closing.sent)
     }
     pub fn shutdown_host(&self) -> Result<HostShutdown> {
         if let Some(code) = self.exit_code()? {
@@ -2510,6 +2529,99 @@ mod tests {
             .read_to_string(&mut rest)
             .unwrap();
         assert!(long.process.wait(Duration::from_secs(10)).is_ok());
+    }
+    #[test]
+    fn close_image_asks_only_that_image_s_windows_and_follows_a_restarted_one() {
+        use super::*;
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        // Whether `pid` owns a top-level window, shown or not.
+        fn has_window(pid: u32) -> bool {
+            unsafe extern "system" fn find(window: HWND, data: LPARAM) -> BOOL {
+                // SAFETY: `data` is the `&mut (u32, bool)` below, alive for the enumeration.
+                unsafe {
+                    let found = &mut *(data.0 as *mut (u32, bool));
+                    let mut owner = 0;
+                    GetWindowThreadProcessId(window, Some(&mut owner));
+                    found.1 |= owner == found.0;
+                    BOOL(1)
+                }
+            }
+            let mut found = (pid, false);
+            // SAFETY: `found` outlives the synchronous enumeration that reads it through `find`.
+            unsafe {
+                let _ = EnumWindows(
+                    Some(find),
+                    LPARAM((&mut found as *mut (u32, bool)) as isize),
+                );
+            }
+            found.1
+        }
+        let image_pid = |process: &Process, image: &str| {
+            let job = process.process_ids().unwrap();
+            processes()
+                .unwrap()
+                .into_iter()
+                .find(|p| job.contains(&p.pid) && p.name.eq_ignore_ascii_case(image))
+                .map(|p| p.pid)
+        };
+        let cmd =
+            std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap()).join("System32\\cmd.exe");
+        // cmd, which has no window, starts PowerShell holding a hidden form
+        // that closes on WM_CLOSE, then keeps running itself. PowerShell
+        // stands in for a Nucleus Co-op that restarted itself (not the job's
+        // first process), cmd for a browser or game the job also holds.
+        let form = "Add-Type -AssemblyName System.Windows.Forms; \
+                    $f = New-Object System.Windows.Forms.Form; \
+                    $f.add_FormClosed({ [System.Windows.Forms.Application]::ExitThread() }); \
+                    $null = $f.Handle; [System.Windows.Forms.Application]::Run()";
+        let line = format!(
+            "{} /d /c start \"\" /b powershell.exe -NoProfile -NonInteractive -Command \"{form}\" & ping -n 60 127.0.0.1 >nul",
+            quote(cmd.as_os_str()).unwrap()
+        );
+        // Runs where the elevated test runs: as this user, elevated or not.
+        let elevated = is_system() || token_elevated(&token().unwrap()).unwrap();
+        let process = Process::spawn_command(
+            &cmd,
+            &line,
+            None,
+            Target::User { elevated },
+            &BTreeMap::new(),
+            true,
+            false,
+        )
+        .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let shell = loop {
+            if let Some(pid) = image_pid(&process, "powershell.exe").filter(|pid| has_window(*pid))
+            {
+                break pid;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "PowerShell's form never showed up"
+            );
+            std::thread::sleep(Duration::from_millis(200));
+        };
+        assert!(process.running_image("powershell.exe").unwrap());
+        // Closing cmd sends PowerShell nothing: cmd has no window and stays,
+        // and PowerShell keeps its form.
+        assert!(
+            !process
+                .close_image("cmd.exe", Duration::from_millis(500))
+                .unwrap()
+        );
+        assert!(has_window(shell), "PowerShell got a WM_CLOSE meant for cmd");
+        assert_eq!(image_pid(&process, "powershell.exe"), Some(shell));
+        // Closing PowerShell finds it though the job started cmd, and leaves
+        // cmd running.
+        assert!(
+            process
+                .close_image("powershell.exe", Duration::from_secs(20))
+                .unwrap()
+        );
+        assert!(!process.running_image("powershell.exe").unwrap());
+        assert!(process.running_image("cmd.exe").unwrap());
+        process.terminate().unwrap();
     }
     #[test]
     fn console_reattachment_refuses_other_users_and_transitional_sessions() {

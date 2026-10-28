@@ -266,9 +266,9 @@ public final class HostActions {
                     }
                     pairingRequest = request;
                 }
-                if (request.getPairState() == PairState.PAIRED) {
+                if (alreadyPaired(request.getPairState(), link, computer.serverCert)) {
                     // Already paired, with the certificate pinned then: a link naming another one is refused.
-                    if (link != null && computer.serverCert != null && !link.matches(computer.serverCert)) {
+                    if (link != null && !link.matches(computer.serverCert)) {
                         message = activity.getString(R.string.pair_qr_cert_mismatch);
                     } else {
                         success = true;
@@ -304,6 +304,15 @@ public final class HostActions {
             activity.runOnUiThread(() -> showPairingResult(generation, paired, failure, computer, oneTimePin, link != null));
         }, "Pairing");
         pairingThread.start();
+    }
+
+    /**
+     * True when the host already knows this device and nothing is to be paired. A link pairs again while no
+     * certificate is pinned, so its fingerprint is checked and the certificate pinned.
+     */
+    @VisibleForTesting
+    static boolean alreadyPaired(PairState state, PairingLink link, java.security.cert.X509Certificate pinned) {
+        return state == PairState.PAIRED && (link == null || pinned != null);
     }
 
     @VisibleForTesting

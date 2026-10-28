@@ -220,4 +220,50 @@ mod tests {
             assert!(arrivals(bad).is_err(), "{bad}");
         }
     }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+        use std::collections::BTreeMap;
+
+        proptest! {
+            /// What a client announces before launch arrives as written, once per controller.
+            #[test]
+            fn announced_controllers_round_trip(
+                pads in proptest::collection::btree_map(0u8..16, (1u8..=4, any::<u16>(), any::<u32>()), 0..16)
+            ) {
+                let value = pads
+                    .iter()
+                    .map(|(id, (kind, caps, buttons))| format!("{id}:{kind}:{caps}:{buttons}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let arrived: BTreeMap<_, _> = arrivals(&value)
+                    .unwrap()
+                    .into_iter()
+                    .map(|event| match event {
+                        Input::Arrival { id, kind, capabilities, buttons } => (id, (kind, capabilities, buttons)),
+                        other => panic!("{other:?}"),
+                    })
+                    .collect();
+                prop_assert_eq!(arrived, pads);
+                if !value.is_empty() {
+                    prop_assert!(arrivals(&format!("{value},{value}")).is_err(), "a controller twice");
+                }
+            }
+
+            /// Anything else is refused or a valid list.
+            #[test]
+            fn any_preparation_is_valid_or_refused(value in r"([0-9:,+-]|\PC){0,40}") {
+                if let Ok(events) = arrivals(&value) {
+                    let mut seen = 0u32;
+                    for event in events {
+                        let Input::Arrival { id, kind, .. } = event else { panic!("{event:?}") };
+                        prop_assert!(id < 16 && (1..=4).contains(&kind));
+                        prop_assert!(seen & (1 << id) == 0);
+                        seen |= 1 << id;
+                    }
+                }
+            }
+        }
+    }
 }

@@ -295,4 +295,27 @@ mod tests {
                 .contains("a.b")
         );
     }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// The rate is the mode's third field, rounded, when it is a number of at least one.
+            #[test]
+            fn the_stream_rate_is_the_third_field(
+                width in "[0-9]{0,5}", height in "[0-9]{0,5}",
+                rate in prop_oneof![any::<f64>().prop_map(|r| r.to_string()), "[0-9.e+-]{0,8}", r"\PC{0,8}"],
+                extra in proptest::option::of("[0-9x]{0,4}"),
+            ) {
+                let mode = format!("{width}x{height}x{rate}{}", extra.as_ref().map_or(String::new(), |e| format!("x{e}")));
+                let expected = if extra.is_some() || rate.contains('x') {
+                    None
+                } else {
+                    rate.trim().parse::<f64>().ok().filter(|r| r.is_finite() && *r >= 1.).map(|r| r.round() as u32)
+                };
+                prop_assert_eq!(stream_fps(&mode), expected);
+            }
+        }
+    }
 }

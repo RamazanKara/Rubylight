@@ -195,7 +195,7 @@ public class MediaCodecDecoderRendererTest {
     }
 
     @Test
-    public void hdrMetadataAloneNeverRestartsTheDecoder() {
+    public void hdrMetadataAloneIsAParameterOnlyForDecodersThatTakeIt() {
         // The PC's first HDR report on the TCL C6K: HDR was assumed on, and the mastering metadata
         // arrives. A stop() and configure() then left its decoder without input buffers.
         byte[] first = new byte[24];
@@ -204,30 +204,117 @@ public class MediaCodecDecoderRendererTest {
         next[23] = 2;
         int q = android.os.Build.VERSION_CODES.Q;
         assertEquals(MediaCodecDecoderRenderer.HdrChange.PARAMETERS,
-                MediaCodecDecoderRenderer.hdrChange(true, true, null, first, q));
+                MediaCodecDecoderRenderer.hdrChange(true, true, null, first, q, true));
         assertEquals(MediaCodecDecoderRenderer.HdrChange.PARAMETERS,
-                MediaCodecDecoderRenderer.hdrChange(true, true, first, next, q + 5));
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
-                MediaCodecDecoderRenderer.hdrChange(true, true, first, first.clone(), q));
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
-                MediaCodecDecoderRenderer.hdrChange(false, false, null, null, q));
+                MediaCodecDecoderRenderer.hdrChange(true, true, first, next, q + 5, true));
+        // Every other decoder restarts, as before: an OMX decoder may take the parameter and ignore it.
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
+                MediaCodecDecoderRenderer.hdrChange(true, true, null, first, q, false));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
+                MediaCodecDecoderRenderer.hdrChange(true, true, first, next, q + 5, false));
+        for (boolean asParameter : new boolean[] {true, false}) {
+            assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
+                    MediaCodecDecoderRenderer.hdrChange(true, true, first, first.clone(), q, asParameter));
+            assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
+                    MediaCodecDecoderRenderer.hdrChange(false, false, null, null, q, asParameter));
+        }
     }
 
     @Test
-    public void hdrOnOrOffAndMetadataSetParametersCannotCarryRecreateTheDecoder() {
+    public void hdrOnOrOffAndMetadataSetParametersCannotCarryRestartTheDecoder() {
         byte[] metadata = new byte[24];
         int q = android.os.Build.VERSION_CODES.Q;
         // The colour keys change with the mode.
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
-                MediaCodecDecoderRenderer.hdrChange(false, true, null, metadata, q));
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
-                MediaCodecDecoderRenderer.hdrChange(false, true, null, null, q));
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
-                MediaCodecDecoderRenderer.hdrChange(true, false, metadata, null, q));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
+                MediaCodecDecoderRenderer.hdrChange(false, true, null, metadata, q, true));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
+                MediaCodecDecoderRenderer.hdrChange(false, true, null, null, q, true));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
+                MediaCodecDecoderRenderer.hdrChange(true, false, metadata, null, q, true));
         // Before Android 10 setParameters does not take it, and it can't remove it.
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
-                MediaCodecDecoderRenderer.hdrChange(true, true, null, metadata, q - 1));
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.RECREATE,
-                MediaCodecDecoderRenderer.hdrChange(true, true, metadata, null, q));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
+                MediaCodecDecoderRenderer.hdrChange(true, true, null, metadata, q - 1, true));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
+                MediaCodecDecoderRenderer.hdrChange(true, true, metadata, null, q, true));
+    }
+
+    @Test
+    public void onlyMediaTekCodec2DecodersTakeHdrMetadataAsAParameter() {
+        assertTrue(MediaCodecDecoderRenderer.takesHdrStaticInfoParameter("c2.mtk.dvhe.st.decoder"));
+        assertTrue(MediaCodecDecoderRenderer.takesHdrStaticInfoParameter("c2.mtk.av1.decoder"));
+        assertTrue(MediaCodecDecoderRenderer.takesHdrStaticInfoParameter("C2.MTK.hevc.decoder"));
+        for (String other : new String[] {"OMX.Nvidia.h265.decode", "OMX.MTK.VIDEO.DECODER.HEVC",
+                "c2.qti.hevc.decoder", "c2.exynos.hevc.decoder", "OMX.amlogic.hevc.decoder.awesome2",
+                "c2.android.hevc.decoder"}) {
+            assertFalse(other, MediaCodecDecoderRenderer.takesHdrStaticInfoParameter(other));
+        }
+    }
+
+    @Test
+    public void mediaTekWithItsVendorLowLatencyModeRestartsAsANewCodec() {
+        java.util.List<String> vendor = java.util.Arrays.asList("low-latency=1",
+                "vendor.mtk.vdec.low-latency.mode=1", "vendor.mtk.vdec.low-latency.mode.value=1");
+        java.util.List<String> standard = java.util.Arrays.asList("low-latency=1", "priority=0");
+        assertTrue(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.dvhe.st.decoder", vendor));
+        assertTrue(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.av1.decoder", vendor));
+        // Run b4lll: without the vendor mode stop() and configure() did not hang.
+        assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.av1.decoder", standard));
+        assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.av1.decoder",
+                java.util.Collections.singletonList("vendor.mtk.vdec.low-latency.mode=0")));
+        assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.av1.decoder",
+                java.util.Collections.<String>emptyList()));
+        // Other decoders keep stop() and configure().
+        assertFalse(MediaCodecDecoderRenderer.restartRecreates("OMX.MTK.VIDEO.DECODER.HEVC", vendor));
+        assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.qti.hevc.decoder",
+                java.util.Arrays.asList("low-latency=1", "vendor.qti-ext-dec-low-latency.enable=1")));
+    }
+
+    /** The output format's hdr-static-info c2.mtk.dvhe.st.decoder showed in run b1fix. */
+    private static final int[] B1FIX_OUTPUT = {0x00, 0x48, 0x8a, 0x08, 0x39, 0x34, 0x21, 0xaa, 0x9b, 0x96, 0x19,
+            0xfc, 0x08, 0x13, 0x3d, 0x42, 0x40, 0x90, 0x01, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    private static byte[] bytes(int[] values) {
+        byte[] out = new byte[values.length];
+        for (int i = 0; i < values.length; i++) out[i] = (byte) values[i];
+        return out;
+    }
+
+    @Test
+    public void theOutputFormatCarriesTheMetadataToWithinCodec2Rounding() {
+        byte[] wire = java.util.Arrays.copyOfRange(bytes(B1FIX_OUTPUT), 1, 25);
+        byte[] expected = MediaCodecDecoderRenderer.createHdrStaticInfo(wire).array();
+        assertTrue(MediaCodecDecoderRenderer.carriesHdrStaticInfo(ByteBuffer.wrap(bytes(B1FIX_OUTPUT)), expected));
+        // Read from the buffer's position, which is left where it was.
+        ByteBuffer offset = ByteBuffer.allocate(30);
+        offset.position(3);
+        offset.put(bytes(B1FIX_OUTPUT));
+        offset.position(3);
+        assertTrue(MediaCodecDecoderRenderer.carriesHdrStaticInfo(offset, expected));
+        assertEquals(3, offset.position());
+        // red.x 35400 back from the float as 35399, and white.y 16450 as 16451.
+        byte[] rounded = bytes(B1FIX_OUTPUT);
+        rounded[1] = 0x47;
+        rounded[15] = 0x43;
+        assertTrue(MediaCodecDecoderRenderer.carriesHdrStaticInfo(ByteBuffer.wrap(rounded), expected));
+    }
+
+    @Test
+    public void anOutputFormatWithoutTheMetadataDoesNotCarryIt() {
+        byte[] expected = MediaCodecDecoderRenderer.createHdrStaticInfo(
+                java.util.Arrays.copyOfRange(bytes(B1FIX_OUTPUT), 1, 25)).array();
+        assertFalse(MediaCodecDecoderRenderer.carriesHdrStaticInfo(null, expected));
+        // c2.mtk.dvhe.st.decoder's output format before the parameter: all zeros.
+        assertFalse(MediaCodecDecoderRenderer.carriesHdrStaticInfo(ByteBuffer.allocate(25), expected));
+        // An empty or a short buffer.
+        assertFalse(MediaCodecDecoderRenderer.carriesHdrStaticInfo(ByteBuffer.allocate(0), expected));
+        assertFalse(MediaCodecDecoderRenderer.carriesHdrStaticInfo(
+                ByteBuffer.wrap(java.util.Arrays.copyOf(bytes(B1FIX_OUTPUT), 24)), expected));
+        // Off by two in max luminance (400 nits), or another descriptor.
+        byte[] luminance = bytes(B1FIX_OUTPUT);
+        luminance[17] = (byte) 0x92;
+        assertFalse(MediaCodecDecoderRenderer.carriesHdrStaticInfo(ByteBuffer.wrap(luminance), expected));
+        byte[] descriptor = bytes(B1FIX_OUTPUT);
+        descriptor[0] = 1;
+        assertFalse(MediaCodecDecoderRenderer.carriesHdrStaticInfo(ByteBuffer.wrap(descriptor), expected));
     }
 }

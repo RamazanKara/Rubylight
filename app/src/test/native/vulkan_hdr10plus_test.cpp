@@ -2,8 +2,10 @@
 #include <cerrno>
 #include <cstdarg>
 #include <cstring>
+#include <type_traits>
 #include <vector>
 #include "../../main/jni/vulkan/hdr10plus_window.h"
+#include "../../main/jni/window-dataspace/window_dataspace.h"
 
 using namespace vkr;
 
@@ -44,6 +46,9 @@ const uint8_t kBlob[] = {0xB5, 0x00, 0x3C, 0x00, 0x01, 0x04, 0x01, 0x40};
 static void theMagicIsAndroidsWindowMagic() {
     assert(kNativeWindowMagic == 0x5f776e64);
 }
+
+// HDR10+ and the window dataspace call perform on the one ANativeWindow mirror (native_window_mirror.h)
+static_assert(std::is_same<NativeWindowMirror, nwds::NativeWindowMirror>::value, "one ANativeWindow mirror");
 
 static void performGetsOperation34WithThePayload() {
     calls = {};

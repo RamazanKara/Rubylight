@@ -7,52 +7,19 @@
 // helper does. Every buffer queued after the call carries the blob, so it is set again only when the
 // metadata changes.
 //
-// The struct below mirrors struct ANativeWindow from the platform's system/window.h
-// (android14-release libs/nativewindow/include/system/window.h 343-470, unchanged in main), which
-// the NDK does not ship. Its first two fields are a magic number and the struct's own size, which
-// the platform sets in ANativeWindow's constructor: perform is only called when both match this
-// mirror. Kept free of Android headers so the host tests can run it.
+// The ANativeWindow it calls perform on is native_window_mirror.h's. Kept free of Android headers
+// so the host tests can run it.
 
 #include <cstddef>
 #include <cstdint>
 
+#include "../window-dataspace/native_window_mirror.h"
+
 namespace vkr {
 
-// android_native_base_t
-struct NativeBaseMirror {
-    int magic;
-    int version;
-    void* reserved[4];
-    void (*incRef)(NativeBaseMirror* base);
-    void (*decRef)(NativeBaseMirror* base);
-};
+using nwds::NativeWindowMirror;
+using nwds::kNativeWindowMagic;
 
-// struct ANativeWindow, to its last member
-struct NativeWindowMirror {
-    NativeBaseMirror common;
-    uint32_t flags;
-    int minSwapInterval;
-    int maxSwapInterval;
-    float xdpi;
-    float ydpi;
-    intptr_t oem[4];
-    int (*setSwapInterval)(NativeWindowMirror* window, int interval);
-    int (*dequeueBuffer_DEPRECATED)(NativeWindowMirror* window, void** buffer);
-    int (*lockBuffer_DEPRECATED)(NativeWindowMirror* window, void* buffer);
-    int (*queueBuffer_DEPRECATED)(NativeWindowMirror* window, void* buffer);
-    int (*query)(const NativeWindowMirror* window, int what, int* value);
-    int (*perform)(NativeWindowMirror* window, int operation, ...);
-    int (*cancelBuffer_DEPRECATED)(NativeWindowMirror* window, void* buffer);
-    int (*dequeueBuffer)(NativeWindowMirror* window, void** buffer, int* fenceFd);
-    int (*queueBuffer)(NativeWindowMirror* window, void* buffer, int fenceFd);
-    int (*cancelBuffer)(NativeWindowMirror* window, void* buffer, int fenceFd);
-};
-
-// The platform's sizes on its 64-bit and 32-bit ABIs
-static_assert(sizeof(NativeWindowMirror) == (sizeof(void*) == 8 ? 192 : 108), "ANativeWindow mirror");
-
-// ANDROID_NATIVE_MAKE_CONSTANT('_','w','n','d')
-constexpr int kNativeWindowMagic = ('_' << 24) | ('w' << 16) | ('n' << 8) | 'd';
 constexpr int kNativeWindowSetBuffersHdr10PlusMetadata = 34;
 
 enum class Hdr10PlusResult {
@@ -80,8 +47,7 @@ public:
         auto* window = static_cast<NativeWindowMirror*>(window_);
         magic_ = window->common.magic;
         version_ = window->common.version;
-        if (magic_ != kNativeWindowMagic || version_ != static_cast<int>(sizeof(NativeWindowMirror)) ||
-            !window->perform) {
+        if (!nwds::isMirrored(window)) {
             refused_ = true;
             return Hdr10PlusResult::kUnsupported;
         }

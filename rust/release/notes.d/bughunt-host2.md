@@ -8,3 +8,4 @@
 - Turning USB forwarding off in the web UI detaches every forwarded device right away, not only when its stream ends.
 - Image clipboard requests take turns, so several at once can no longer add up to gigabytes of memory; a device's second one while its first still runs gets 429.
 - With clipboard sync, a device that copies faster than the PC's clipboard takes the copies no longer piles them up in memory: only its newest copy waits.
+- A client whose virtual display fell back to WGC capture after two failed frame-ring starts gets the frame ring again once its display is recreated or the driver restarts, instead of only after a host restart.

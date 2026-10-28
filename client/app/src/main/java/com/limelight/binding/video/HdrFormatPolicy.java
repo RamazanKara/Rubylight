@@ -147,6 +147,23 @@ public final class HdrFormatPolicy {
     }
 
     /**
+     * The Vulkan renderer would ask this host for HLG, so the window is asked whether it takes it
+     * first: the renderer draws HLG (surface PQ_HLG) and the screen shows HDR only as HLG.
+     */
+    public static boolean vulkanNeedsHlgProbe(int hostFormats, int[] displayTypes, DrawnSurface surface) {
+        return surface == DrawnSurface.PQ_HLG && pick(hostFormats, displayTypes, 0, 0, surface) == HLG;
+    }
+
+    /**
+     * What the Vulkan renderer draws on this display's window: surface, PQ only where the window
+     * refused HLG. For the HDR10_HLG colour space (Android 15+) the loader sets the same dataspace
+     * through ANativeWindow::perform, so the probe answers for both of the renderer's HDR paths.
+     */
+    public static DrawnSurface vulkanSurface(DrawnSurface surface, HlgWindow window) {
+        return surface == DrawnSurface.PQ_HLG && !window.accepted() ? DrawnSurface.PQ_ONLY : surface;
+    }
+
+    /**
      * Whether the Vulkan renderer takes the HDR10+ metadata out of each frame and hands it to its
      * output window: only for a screen that reports HDR10+ and a PQ stream (HDR10+ describes PQ
      * pictures only, and HLG streams carry none). Any host's HDR10+ SEI or metadata OBU counts.

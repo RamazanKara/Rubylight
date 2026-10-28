@@ -289,6 +289,34 @@ public class HdrFormatPolicyTest {
     }
 
     @Test
+    public void theVulkanRendererAsksTheWindowBeforeItAsksForHlg() {
+        // Any host with HLG: the Vulkan renderer needs no offer flag.
+        assertTrue(HdrFormatPolicy.vulkanNeedsHlgProbe(HdrFormatPolicy.ALL, HLG_ONLY, VULKAN));
+        assertFalse(HdrFormatPolicy.vulkanNeedsHlgProbe(HdrFormatPolicy.ALL, TV, VULKAN));
+        assertFalse(HdrFormatPolicy.vulkanNeedsHlgProbe(HdrFormatPolicy.PQ, HLG_ONLY, VULKAN));
+        assertFalse(HdrFormatPolicy.vulkanNeedsHlgProbe(HdrFormatPolicy.ALL, null, VULKAN));
+        // Without VK_EXT_swapchain_colorspace it draws PQ only and never asks for HLG.
+        assertFalse(HdrFormatPolicy.vulkanNeedsHlgProbe(HdrFormatPolicy.ALL, HLG_ONLY, DRAWN_PQ));
+    }
+
+    @Test
+    public void theVulkanRendererAsksForHlgOnlyWhereTheWindowTookIt() {
+        for (HdrFormatPolicy.HlgWindow window : new HdrFormatPolicy.HlgWindow[] {
+                HdrFormatPolicy.HlgWindow.PUBLIC, HdrFormatPolicy.HlgWindow.PERFORM}) {
+            assertEquals(VULKAN, HdrFormatPolicy.vulkanSurface(VULKAN, window));
+            assertEquals(HdrFormatPolicy.HLG, HdrFormatPolicy.pick(HdrFormatPolicy.ALL, HLG_ONLY, TV_DECODERS,
+                    TV_FORMATS, HdrFormatPolicy.vulkanSurface(VULKAN, window)));
+        }
+        // A window that refused HLG gets HDR10 (stock PQ), which the status line names.
+        HdrFormatPolicy.HlgWindow refused = HdrFormatPolicy.HlgWindow.REFUSED;
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.vulkanSurface(VULKAN, refused));
+        assertEquals(0, HdrFormatPolicy.pick(HdrFormatPolicy.ALL, HLG_ONLY, TV_DECODERS, TV_FORMATS,
+                HdrFormatPolicy.vulkanSurface(VULKAN, refused)));
+        // A PQ-only renderer stays PQ only.
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.vulkanSurface(DRAWN_PQ, HdrFormatPolicy.HlgWindow.PUBLIC));
+    }
+
+    @Test
     public void anAcceptedWindowThatDoesNotShowHlgFailsLoudly() {
         for (HdrFormatPolicy.HlgWindow window : new HdrFormatPolicy.HlgWindow[] {
                 HdrFormatPolicy.HlgWindow.PUBLIC, HdrFormatPolicy.HlgWindow.PERFORM}) {

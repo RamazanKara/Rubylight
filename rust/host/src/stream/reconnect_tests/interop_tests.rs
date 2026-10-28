@@ -993,19 +993,6 @@ fn download(client: &HostClient, name: &str) -> Result<Vec<u8>, FileError> {
     assert_eq!(length, bytes.len() as u64);
     Ok(bytes)
 }
-/// The names in `folder`, sorted.
-fn names(folder: &std::path::Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(folder)
-        .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    names.sort();
-    names
-}
 /// Zeros, until `left` bytes were read; then it cancels `stop` and reads on, as a user who
 /// cancels while the file is sent.
 struct CancelAfter<'a> {
@@ -1090,7 +1077,7 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
         )),
         (404, "not_found")
     );
-    assert_eq!(names(&here.0), ["notes.txt"]);
+    assert_eq!(names(&here.0)?, ["notes.txt"]);
     // Cancelled part way: no problem to show, and the host drops what arrived.
     let stop = TransferCancel::new();
     let mut reader = CancelAfter {
@@ -1109,7 +1096,7 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
         "{cancelled:?}"
     );
     until("the cancelled upload's part file gone", LOADED, || {
-        names(&folder.0) == ["notes (1).txt", "notes.txt"]
+        names(&folder.0).is_ok_and(|names| names == ["notes (1).txt", "notes.txt"])
     })
     .await;
 

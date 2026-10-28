@@ -407,14 +407,18 @@ pub fn mix_matrix(
             // each at -3 dB, as stereo does, rather than not at all.
             for (height, below) in [(0x1000, 0), (0x4000, 1), (0x8000, 4), (0x20000, 5)] {
                 if let Some(i) = index(height) {
-                    let row = &mut matrix[below];
-                    row[i] += 0.70710677;
-                    let sum: f32 = row.iter().sum();
-                    if sum > 1. {
-                        for v in row.iter_mut() {
-                            *v /= sum;
-                        }
-                    }
+                    matrix[below][i] += 0.70710677;
+                }
+            }
+            // One factor for every row, so nothing clips and the bed keeps
+            // its balance: the center stays as loud as the fronts.
+            let peak = matrix
+                .iter()
+                .map(|row| row.iter().sum::<f32>())
+                .fold(0., f32::max);
+            if peak > 1. {
+                for v in matrix.iter_mut().flatten() {
+                    *v /= peak;
                 }
             }
         }
@@ -549,20 +553,19 @@ mod tests {
         assert_eq!((matrix[0][0], matrix[1][1]), (1., 1.));
         assert!(matrix[2..].iter().flatten().all(|v| *v == 0.));
         // 7.1 clients of a 7.1.4 endpoint keep their bed and hear each height
-        // from the speaker below it at -3 dB, scaled so nothing clips.
+        // from the speaker below it at -3 dB, scaled so nothing clips. One
+        // factor scales the whole bed, so the center and the side pair stay as
+        // loud as the fronts.
         let matrix = mix_matrix(12, mask, 8).unwrap();
         let bed = 1. / (1. + 0.70710677);
         for (output, row) in matrix.iter().enumerate() {
             let below = [0, 1, 4, 5].iter().position(|&o| o == output);
-            match below {
-                Some(height) => {
-                    assert!((row[output] - bed).abs() < 1e-6, "{output}");
-                    assert!(
-                        (row[8 + height] - 0.70710677 * bed).abs() < 1e-6,
-                        "{output}"
-                    );
-                }
-                None => assert_eq!(row[output], 1.),
+            assert!((row[output] - bed).abs() < 1e-6, "{output}");
+            if let Some(height) = below {
+                assert!(
+                    (row[8 + height] - 0.70710677 * bed).abs() < 1e-6,
+                    "{output}"
+                );
             }
             assert!(row.iter().sum::<f32>() <= 1. + 1e-6);
             assert_eq!(
@@ -573,6 +576,13 @@ mod tests {
         // 5.1 and stereo clients keep the heights too, front ones in front.
         let matrix = mix_matrix(12, mask, 6).unwrap();
         assert!(matrix[0][8] > 0. && matrix[1][9] > 0. && matrix[4][10] > 0. && matrix[5][11] > 0.);
+        let level = |row: &[f32]| row.iter().sum::<f32>();
+        for row in &matrix {
+            assert!(level(row) <= 1. + 1e-6);
+        }
+        // The fronts and the center keep their relative level.
+        assert!((matrix[0][0] - matrix[2][2]).abs() < 1e-6);
+        assert!((level(&matrix[0]) - level(&matrix[4])).abs() < 1e-6);
         let matrix = mix_matrix(12, mask, 2).unwrap();
         assert!(matrix[0][8] > 0. && matrix[0][10] > 0. && matrix[0][9] == 0.);
         assert!(matrix[1][9] > 0. && matrix[1][11] > 0. && matrix[1][8] == 0.);

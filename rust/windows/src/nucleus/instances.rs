@@ -399,6 +399,13 @@ pub(crate) mod tests {
         }
     }
 
+    pub(crate) fn fake(processes: Vec<Process>, windows: Vec<Window>) -> Fake {
+        Fake {
+            processes,
+            windows,
+            ..Default::default()
+        }
+    }
     pub(crate) fn process(pid: u32, parent: u32, started: u64, name: &str) -> Process {
         Process {
             pid,
@@ -447,28 +454,30 @@ pub(crate) mod tests {
     #[test]
     fn instances_take_their_folders_slot_and_keep_their_children() {
         let mut keeper = keeper(2);
-        let mut desktop = Fake::default();
         // Nucleus (10) started instance 1 first, then instance 0; each game
         // started a helper of the same name (a crash reporter), and the PC
         // user's own copy of the game (5, older than Nucleus) runs too.
-        desktop.processes = vec![
-            process(5, 1, 50, "Game.exe"),
-            process(10, 1, 100, "NucleusCoop.exe"),
-            process(20, 10, 110, "Game.exe"),
-            process(21, 20, 111, "Game.exe"),
-            process(30, 10, 120, "game.exe"),
-        ];
-        desktop.paths = BTreeMap::from([
-            (5, r"D:\Games\Game.exe".into()),
-            (20, r"C:\Nucleus\content\G\Instance1\Game.exe".into()),
-            (21, r"C:\Nucleus\content\G\Instance1\Game.exe".into()),
-            (30, r"C:\Nucleus\content\G\Instance0\Game.exe".into()),
-        ]);
-        desktop.windows = vec![
-            window(1, 5, ON_SCREEN),
-            window(2, 21, ON_SCREEN),
-            window(3, 30, ON_SCREEN),
-        ];
+        let mut desktop = Fake {
+            processes: vec![
+                process(5, 1, 50, "Game.exe"),
+                process(10, 1, 100, "NucleusCoop.exe"),
+                process(20, 10, 110, "Game.exe"),
+                process(21, 20, 111, "Game.exe"),
+                process(30, 10, 120, "game.exe"),
+            ],
+            paths: BTreeMap::from([
+                (5, r"D:\Games\Game.exe".into()),
+                (20, r"C:\Nucleus\content\G\Instance1\Game.exe".into()),
+                (21, r"C:\Nucleus\content\G\Instance1\Game.exe".into()),
+                (30, r"C:\Nucleus\content\G\Instance0\Game.exe".into()),
+            ]),
+            windows: vec![
+                window(1, 5, ON_SCREEN),
+                window(2, 21, ON_SCREEN),
+                window(3, 30, ON_SCREEN),
+            ],
+            ..Default::default()
+        };
         let job = BTreeSet::from([10, 20, 21, 30]);
         let pass = keeper.pass(&mut desktop, &job, &SIZES).unwrap();
         assert_eq!(pass.windows, [Some(3), Some(2)]);
@@ -516,13 +525,14 @@ pub(crate) mod tests {
     #[test]
     fn without_instance_folders_instances_fill_slots_in_start_order() {
         let mut keeper = keeper(2);
-        let mut desktop = Fake::default();
-        desktop.processes = vec![
-            process(10, 1, 100, "NucleusCoop.exe"),
-            process(31, 10, 130, "Game.exe"),
-            process(30, 10, 120, "Game.exe"),
-        ];
-        desktop.windows = vec![window(4, 31, ON_SCREEN), window(3, 30, ON_SCREEN)];
+        let mut desktop = fake(
+            vec![
+                process(10, 1, 100, "NucleusCoop.exe"),
+                process(31, 10, 130, "Game.exe"),
+                process(30, 10, 120, "Game.exe"),
+            ],
+            vec![window(4, 31, ON_SCREEN), window(3, 30, ON_SCREEN)],
+        );
         let job = BTreeSet::from([10, 30, 31]);
         let pass = keeper.pass(&mut desktop, &job, &SIZES).unwrap();
         assert_eq!(pass.windows, [Some(3), Some(4)]);
@@ -539,10 +549,11 @@ pub(crate) mod tests {
         let mut keeper = keeper(1);
         let mut desktop = Fake {
             obey: true,
-            ..Default::default()
+            ..fake(
+                vec![process(20, 10, 110, "Game.exe")],
+                vec![window(2, 20, ON_SCREEN)],
+            )
         };
-        desktop.processes = vec![process(20, 10, 110, "Game.exe")];
-        desktop.windows = vec![window(2, 20, ON_SCREEN)];
         let job = BTreeSet::from([20]);
         assert_eq!(
             keeper.pass(&mut desktop, &job, &SIZES).unwrap().windows,
@@ -581,12 +592,13 @@ pub(crate) mod tests {
             r"C:\N\content",
             100,
         );
-        let mut desktop = Fake::default();
-        desktop.processes = vec![
-            process(20, 10, 110, "Launcher.exe"),
-            process(21, 20, 111, "Game.exe"),
-        ];
-        desktop.windows = vec![window(2, 21, ON_SCREEN)];
+        let mut desktop = fake(
+            vec![
+                process(20, 10, 110, "Launcher.exe"),
+                process(21, 20, 111, "Game.exe"),
+            ],
+            vec![window(2, 21, ON_SCREEN)],
+        );
         let job = BTreeSet::from([20, 21]);
         let pass = keeper.pass(&mut desktop, &job, &SIZES).unwrap();
         assert_eq!(
@@ -612,8 +624,7 @@ pub(crate) mod tests {
     #[test]
     fn a_reused_pid_is_not_the_instance() {
         let mut keeper = keeper(1);
-        let mut desktop = Fake::default();
-        desktop.processes = vec![process(20, 10, 110, "Game.exe")];
+        let mut desktop = fake(vec![process(20, 10, 110, "Game.exe")], Vec::new());
         let job = BTreeSet::from([20]);
         keeper.pass(&mut desktop, &job, &SIZES).unwrap();
         // The instance exited and Windows gave its pid to an unrelated process.
@@ -624,9 +635,10 @@ pub(crate) mod tests {
     #[test]
     fn a_window_that_keeps_returning_is_left_alone_after_a_while() {
         let mut keeper = keeper(1);
-        let mut desktop = Fake::default();
-        desktop.processes = vec![process(20, 10, 110, "Game.exe")];
-        desktop.windows = vec![window(2, 20, ON_SCREEN)];
+        let mut desktop = fake(
+            vec![process(20, 10, 110, "Game.exe")],
+            vec![window(2, 20, ON_SCREEN)],
+        );
         let job = BTreeSet::from([20]);
         let mut stuck = Vec::new();
         for _ in 0..TRIES + 5 {
@@ -634,7 +646,7 @@ pub(crate) mod tests {
         }
         assert_eq!(stuck, [0]);
         assert_eq!(desktop.placed.len(), TRIES as usize);
-        // Once it stays parked the count starts again.
+        // A window that stays where it was parked is moved once.
         let mut keeper = self::keeper(1);
         desktop.obey = true;
         desktop.placed.clear();
@@ -647,9 +659,10 @@ pub(crate) mod tests {
     #[test]
     fn a_stream_too_large_to_park_is_an_error() {
         let mut keeper = keeper(1);
-        let mut desktop = Fake::default();
-        desktop.processes = vec![process(20, 10, 110, "Game.exe")];
-        desktop.windows = vec![window(2, 20, ON_SCREEN)];
+        let mut desktop = fake(
+            vec![process(20, 10, 110, "Game.exe")],
+            vec![window(2, 20, ON_SCREEN)],
+        );
         let error = keeper
             .pass(&mut desktop, &BTreeSet::from([20]), &[(40000, 1080)])
             .unwrap_err()

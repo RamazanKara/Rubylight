@@ -25,7 +25,7 @@ use nightjar_core::{
     http::{
         Availability, ClientIdentity, EntryKind, Family, Feature, FileError, FolderAccess,
         HostClient, LaunchRequest, PairResult, PowerError, Reason, Refusal, ServerInfo,
-        TransferCancel,
+        TransferCancel, transfers::Problem,
     },
     roaming::RoamEvent,
     sdp::{StreamConfig, VIDEO_FORMAT_H264},
@@ -820,6 +820,36 @@ fn download(client: &HostClient, name: &str) -> Result<Vec<u8>, FileError> {
     assert_eq!(length, bytes.len() as u64);
     Ok(bytes)
 }
+/// The names in `folder`, sorted.
+fn names(folder: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(folder)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+/// Zeros, until `left` bytes were read; then it cancels `stop` and reads on, as a user who
+/// cancels while the file is sent.
+struct CancelAfter<'a> {
+    left: usize,
+    stop: &'a TransferCancel,
+}
+impl std::io::Read for CancelAfter<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            self.stop.cancel();
+        }
+        let n = buf.len().min(self.left.max(1));
+        self.left = self.left.saturating_sub(n);
+        buf[..n].fill(0);
+        Ok(n)
+    }
+}
 /// The status and error code of a refusal, as the host sent them.
 fn refusal<T: std::fmt::Debug>(result: Result<T, FileError>) -> (u16, &'static str) {
     match result {
@@ -859,6 +889,56 @@ async fn nightjar_transfers_files_and_reads_each_refusal() -> Result<()> {
         .collect();
     assert_eq!(listed, [("notes.txt", 13)]);
     assert_eq!(download(&client, "notes.txt")?, b"from Nightjar");
+
+    // Sent again: the host keeps both and answers with the name it gave (Nightjar's "Sent as").
+    let again = client.upload_file(
+        "notes.txt",
+        &mut &b"again"[..],
+        5,
+        &mut |_, _| {},
+        &TransferCancel::new(),
+    )?;
+    assert_eq!(again.name, "notes (1).txt");
+    // Into a file here, as Nightjar for Windows downloads: whole under its name, and nothing
+    // left behind by a refused one.
+    let here = Folder::new()?;
+    let dest = here.0.join("notes.txt");
+    let saved =
+        client.download_to_path("notes.txt", &dest, &mut |_, _| {}, &TransferCancel::new())?;
+    assert_eq!(saved, 13);
+    assert_eq!(std::fs::read(&dest)?, b"from Nightjar");
+    let missing = here.0.join("missing.txt");
+    assert_eq!(
+        refusal(client.download_to_path(
+            "missing.txt",
+            &missing,
+            &mut |_, _| {},
+            &TransferCancel::new()
+        )),
+        (404, "not_found")
+    );
+    assert_eq!(names(&here.0), ["notes.txt"]);
+    // Cancelled part way: no problem to show, and the host drops what arrived.
+    let stop = TransferCancel::new();
+    let mut reader = CancelAfter {
+        left: 64 << 10,
+        stop: &stop,
+    };
+    let cancelled = client.upload_file(
+        "cancelled.bin",
+        &mut reader,
+        512 << 10,
+        &mut |_, _| {},
+        &stop,
+    );
+    assert!(
+        matches!(&cancelled, Err(e) if Problem::of(e).is_none()),
+        "{cancelled:?}"
+    );
+    until("the cancelled upload's part file gone", LOADED, || {
+        names(&folder.0) == ["notes (1).txt", "notes.txt"]
+    })
+    .await;
 
     assert_eq!(
         refusal(download(&client, "missing.txt")),

@@ -20,6 +20,12 @@ public class PyroWaveHdrFailureTest {
     }
 
     @Test
+    public void refusedHlgDataspaceNamesHlg() {
+        assertEquals(R.string.pyrowave_hlg_display_refused, PyroWaveDecoderRenderer.surfaceFailureSummary(3, 33));
+        assertEquals(R.string.pyrowave_hlg_display_refused, PyroWaveDecoderRenderer.surfaceFailureSummary(3, 35));
+    }
+
+    @Test
     public void otherFailuresKeepTheGenericVulkanMessage() {
         assertEquals(R.string.pyrowave_missing_swapchain, PyroWaveDecoderRenderer.surfaceFailureSummary(0, 33));
         assertEquals(R.string.pyrowave_missing_swapchain, PyroWaveDecoderRenderer.surfaceFailureSummary(1, 35));

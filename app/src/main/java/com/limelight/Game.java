@@ -369,13 +369,35 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         @Override public void run() {
             if (!connected || decoderRenderer == null || app.getRole() == NvApp.Role.INPUT_ONLY) return;
             if (foreground && !hostActionInProgress) {
-                long rtt = MoonBridge.getEstimatedRttInfo();
-                streamHealth.add(decoderRenderer.healthSample(SystemClock.uptimeMillis(), streamFps,
-                        rtt == -1 ? -1 : (float) (rtt & 0xffffffffL)));
+                // A hanging decoder holds the locks this sample reads for seconds: never on the main thread.
+                MediaCodecDecoderRenderer renderer = decoderRenderer;
+                int fps = streamFps;
+                if (!streamHealthSampler().sample(() -> {
+                    long rtt = MoonBridge.getEstimatedRttInfo();
+                    return renderer.healthSample(SystemClock.uptimeMillis(), fps,
+                            rtt == -1 ? -1 : (float) (rtt & 0xffffffffL));
+                }, streamHealth::add)) {
+                    LimeLog.info("Stream health: the last sample is still running; this one is skipped");
+                }
             }
             bitrateHandler.postDelayed(this, 1000);
         }
     };
+    private java.util.concurrent.ExecutorService streamHealthThread;
+    private com.limelight.utils.StreamHealthSampler streamHealthSampler;
+
+    private com.limelight.utils.StreamHealthSampler streamHealthSampler() {
+        if (streamHealthSampler == null) {
+            streamHealthThread = java.util.concurrent.Executors.newSingleThreadExecutor(task -> {
+                Thread thread = new Thread(task, "Stream health");
+                thread.setDaemon(true);
+                return thread;
+            });
+            streamHealthSampler = new com.limelight.utils.StreamHealthSampler(streamHealthThread, bitrateHandler::post);
+        }
+        return streamHealthSampler;
+    }
+
     private final Runnable updateQuality = new Runnable() {
         @Override public void run() {
             if (!connected || adaptiveQuality == null || isFinishing()) return;
@@ -2732,6 +2754,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onDestroy() {
         if (nativeMenuThread != null) nativeMenuThread.shutdownNow();
+        if (streamHealthThread != null) streamHealthThread.shutdownNow();
         // A staged exit still waiting on the display ends here with the activity.
         exitHandler.removeCallbacksAndMessages(null);
         exitFinished = true;

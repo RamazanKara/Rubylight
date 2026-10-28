@@ -24,6 +24,40 @@ fn pointer_rect(rect: RECT, origin: POINT) -> RECT {
         bottom: rect.bottom - origin.y,
     }
 }
+/// The contact area around `center`, kept inside `rect`. The client's
+/// `major` and `minor` are fractions of the stream; any other value, such
+/// as 1e30 or NaN, is clamped so the rectangle math cannot overflow.
+fn contact_rect(
+    center: POINT,
+    rect: RECT,
+    (major, minor): (f32, f32),
+    angle: f32,
+    (scale_x, scale_y): (f32, f32),
+) -> RECT {
+    let fraction = |value: f32| {
+        if value.is_nan() {
+            0.
+        } else {
+            value.clamp(0., 1.)
+        }
+    };
+    let (major, minor) = (fraction(major), fraction(minor));
+    let width = ((angle.cos().abs() * major + angle.sin().abs() * minor)
+        * scale_x
+        * (rect.right - rect.left) as f32)
+        .max(1.);
+    let height = ((angle.sin().abs() * major + angle.cos().abs() * minor)
+        * scale_y
+        * (rect.bottom - rect.top) as f32)
+        .max(1.);
+    let (half_width, half_height) = ((width / 2.).ceil() as i32, (height / 2.).ceil() as i32);
+    RECT {
+        left: center.x.saturating_sub(half_width).max(rect.left),
+        right: center.x.saturating_add(half_width).min(rect.right),
+        top: center.y.saturating_sub(half_height).max(rect.top),
+        bottom: center.y.saturating_add(half_height).min(rect.bottom),
+    }
+}
 fn touch_info(touch: POINTER_TOUCH_INFO) -> POINTER_TYPE_INFO {
     POINTER_TYPE_INFO {
         r#type: PT_TOUCH,
@@ -254,21 +288,13 @@ impl Injector {
                                 stream.1 as f32 / p.3.max(1) as f32,
                             )
                         });
-                        let width = ((angle.cos().abs() * major + angle.sin().abs() * minor)
-                            * scale_x
-                            * (rect.right - rect.left) as f32)
-                            .max(1.);
-                        let height = ((angle.sin().abs() * major + angle.cos().abs() * minor)
-                            * scale_y
-                            * (rect.bottom - rect.top) as f32)
-                            .max(1.);
-                        let center = p.pointerInfo.ptPixelLocation;
-                        p.rcContact = RECT {
-                            left: (center.x - (width / 2.).ceil() as i32).max(rect.left),
-                            right: (center.x + (width / 2.).ceil() as i32).min(rect.right),
-                            top: (center.y - (height / 2.).ceil() as i32).max(rect.top),
-                            bottom: (center.y + (height / 2.).ceil() as i32).min(rect.bottom),
-                        };
+                        p.rcContact = contact_rect(
+                            p.pointerInfo.ptPixelLocation,
+                            rect,
+                            (major, minor),
+                            angle,
+                            (scale_x, scale_y),
+                        );
                         p.touchMask |= TOUCH_MASK_CONTACTAREA;
                     }
                 }
@@ -718,6 +744,31 @@ mod tests {
                 }
             );
         }
+    }
+    #[test]
+    fn an_out_of_range_contact_size_stays_inside_the_display() {
+        let rect = RECT {
+            left: -1920,
+            top: 0,
+            right: 0,
+            bottom: 1080,
+        };
+        let center = POINT { x: -960, y: 540 };
+        let angle = 45.0f32.to_radians();
+        for size in [1e30, f32::INFINITY, f32::MAX] {
+            assert_eq!(
+                contact_rect(center, rect, (size, size), angle, (1., 1.)),
+                rect
+            );
+        }
+        let point = contact_rect(center, rect, (f32::NAN, f32::NAN), angle, (1., 1.));
+        assert_eq!((point.left, point.right), (-961, -959));
+        assert_eq!((point.top, point.bottom), (539, 541));
+        let edge = contact_rect(POINT { x: 0, y: 1080 }, rect, (1e30, 0.), 0., (1., 1.));
+        assert_eq!((edge.right, edge.bottom), (0, 1080));
+        let normal = contact_rect(center, rect, (0.25, 0.25), 0., (1., 1.));
+        assert_eq!((normal.left, normal.right), (-1200, -720));
+        assert_eq!((normal.top, normal.bottom), (405, 675));
     }
     #[test]
     fn a_held_touch_is_repeated_while_pen_events_keep_coming() {

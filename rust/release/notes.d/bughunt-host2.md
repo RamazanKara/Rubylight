@@ -13,3 +13,4 @@
 - Two clients streaming with Steam Deck controllers at once get Decks with different USB serials, so Windows and Steam Input no longer mix them up.
 - When the gamepad driver refuses to plug a controller, the warning and log give the driver's error instead of "no free virtual controller slots".
 - A Nintendo controller on a gamepad driver without the Switch Pro profile plays as a DualSense, which keeps its gyro, instead of an Xbox pad, and the session warns that setup should be run again to update the driver.
+- A touch whose reported contact size is out of range, such as infinite, no longer crashes or misplaces touch input; the contact area stays inside the display.

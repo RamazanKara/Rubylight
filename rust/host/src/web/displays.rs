@@ -20,13 +20,7 @@ pub(super) fn handle(
         ("POST", "/api/display/export_golden") => crate::maintenance::capture_golden(h)?,
         ("POST", "/api/display/restore_golden") => crate::maintenance::restore_golden(h)?,
         ("POST", "/api/reset-display-device-persistence") => {
-            if !h.sessions.lock().unwrap().active.is_empty()
-                || !h.monitors.lock().unwrap().is_empty()
-            {
-                anyhow::bail!("disconnect active sessions before resetting display persistence");
-            }
-            butterpollo_windows::display_recovery::reset()?;
-            json!({"status":true})
+            reset_persistence(h, butterpollo_windows::display_recovery::reset)?
         }
         ("DELETE", "/api/display/golden") => {
             let path = h.directory.join("display-baseline-rust.json");
@@ -97,4 +91,58 @@ pub(super) fn handle(
         }
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+/// Recovery puts the physical layout back and switches virtual displays off,
+/// so it runs only while nothing streams, launches or tears down, with the
+/// launch gate held so no launch starts meanwhile.
+fn reset_persistence(
+    h: &Shared,
+    reset: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<Value> {
+    let Some(_gate) = crate::power_action::idle(h) else {
+        anyhow::bail!("disconnect active sessions before resetting display persistence");
+    };
+    reset()?;
+    Ok(json!({"status":true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::test_support::Fixture;
+    use std::time::Instant;
+
+    #[test]
+    fn display_persistence_resets_only_while_no_stream_starts_or_ends() {
+        let f = Fixture::new();
+        let resets = std::cell::Cell::new(0);
+        let reset = || {
+            resets.set(resets.get() + 1);
+            Ok(())
+        };
+        // A launch holds the gate while its display is prepared.
+        let launching = f.host.launch_transition.lock().unwrap();
+        assert!(reset_persistence(&f.host, reset).is_err());
+        drop(launching);
+        f.host
+            .sessions
+            .lock()
+            .unwrap()
+            .teardown
+            .insert("x".into(), Instant::now());
+        assert!(reset_persistence(&f.host, reset).is_err());
+        f.host.sessions.lock().unwrap().teardown.clear();
+        f.host.monitors.lock().unwrap().insert(
+            "x".into(),
+            std::sync::Arc::new(butterpollo_windows::display::Retained::inert("x")),
+        );
+        assert!(reset_persistence(&f.host, reset).is_err());
+        f.host.monitors.lock().unwrap().clear();
+        assert_eq!(resets.get(), 0);
+        assert_eq!(reset_persistence(&f.host, reset).unwrap()["status"], true);
+        assert_eq!(resets.get(), 1);
+        // The launch gate is free again afterwards.
+        assert!(f.host.launch_transition.try_lock().is_ok());
+    }
 }

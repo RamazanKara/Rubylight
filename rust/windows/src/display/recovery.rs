@@ -182,12 +182,14 @@ impl Snapshot {
         active.peek().is_some()
             && active.all(|n| available.iter().any(|m| m.device_id == n.device_id))
     }
-    pub fn restore_excluding(&self, excluded: &[String]) -> Result<()> {
-        if self.version != 1 {
-            bail!("unsupported Rust display snapshot version");
-        }
-        let current = Topology::query()?;
-        let available = Topology::query_all()?.monitors();
+    /// The displays a restore turns on: the saved active ones still
+    /// connected, and the excluded ones active now.
+    fn active_ids(
+        &self,
+        current: &[Monitor],
+        available: &[Monitor],
+        excluded: &[String],
+    ) -> Vec<String> {
         let preserve = |id: &str| excluded.iter().any(|e| id.eq_ignore_ascii_case(e));
         let mut ids = self
             .nodes
@@ -201,11 +203,26 @@ impl Snapshot {
             .collect::<Vec<_>>();
         ids.extend(
             current
-                .monitors()
                 .iter()
                 .filter(|m| preserve(&m.device_id))
                 .map(|m| m.device_id.clone()),
         );
+        ids
+    }
+    pub fn restore_excluding(&self, excluded: &[String]) -> Result<()> {
+        if self.version != 1 {
+            bail!("unsupported Rust display snapshot version");
+        }
+        let current = Topology::query()?;
+        let available = Topology::query_all()?.monitors();
+        let preserve = |id: &str| excluded.iter().any(|e| id.eq_ignore_ascii_case(e));
+        let ids = self.active_ids(&current.monitors(), &available, excluded);
+        if ids.is_empty() {
+            // A headless host whose only display was the virtual one, now
+            // gone: there is nothing left to turn on, so retrying cannot help.
+            tracing::warn!("no display of the saved layout is connected; nothing to restore");
+            return Ok(());
+        }
         Topology::set_active(&ids).context("cannot activate the saved displays")?;
         // A display that cannot take back its old setting must not leave the
         // rest of the layout unrestored; report every such failure at the end.
@@ -1316,6 +1333,33 @@ mod tests {
         assert!(snapshot.displays_present(&[monitor("a", 1, false)]));
         snapshot.nodes[0].active = false;
         assert!(!snapshot.displays_present(&[monitor("a", 1, false)]));
+    }
+    #[test]
+    fn a_layout_with_no_connected_display_left_has_nothing_to_turn_on() {
+        // A headless host: its only display was the virtual one, gone after a crash.
+        let document = serde_json::json!({"topology":[["virtual"]],"primary":"virtual",
+            "modes":{"virtual":{"w":1920,"h":1080,"num":60,"den":1}}});
+        let snapshot = Snapshot::decode(&document).unwrap();
+        assert!(snapshot.active_ids(&[], &[], &[]).is_empty());
+        assert!(
+            snapshot
+                .active_ids(&[], &[monitor("physical", 1, false)], &[])
+                .is_empty()
+        );
+        // While it lives, the saved display or an excluded active one is turned on.
+        let virtual_display = monitor("virtual", 1, false);
+        assert_eq!(
+            snapshot.active_ids(&[], std::slice::from_ref(&virtual_display), &[]),
+            ["virtual"]
+        );
+        assert_eq!(
+            snapshot.active_ids(
+                std::slice::from_ref(&virtual_display),
+                std::slice::from_ref(&virtual_display),
+                &["VIRTUAL".into()]
+            ),
+            ["virtual"]
+        );
     }
     #[test]
     fn only_a_displays_sole_stream_changes_its_mode_or_hdr() {

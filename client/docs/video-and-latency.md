@@ -26,6 +26,23 @@ HDR10 needs an HDR10 display, Android 7+ and a compatible HEVC Main10 or AV1 10-
 
 Nightjar handles BT.2020/PQ and static mastering metadata. Debug stats show the negotiated format, so you can confirm HDR is active.
 
+### HDR formats
+
+A [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 PC lists the HDR formats it can send, and Nightjar picks the best one this device's screen and decoder show. Other hosts send HDR10. The overlay names the format in use, and a format that fell back says why.
+
+| Format | What it needs here | Notes |
+| --- | --- | --- |
+| HDR10 | An HDR10 screen and a Main10 HEVC or 10-bit AV1 decoder | Any host with HDR. The PC's HDR metadata reaches the running decoder instead of restarting it (Android 10 and later); a decoder whose output still lacks it 60 frames later restarts with it. |
+| HDR10+ | A screen with HDR10+, HEVC or AV1 | The host's scene statistics travel in the stream. With **Render through Vulkan**, Nightjar passes them on where Android has the call for it; elsewhere the stream stays HDR10 and a message says so. |
+| HLG | A screen that shows HDR only as HLG | Also with **Render through Vulkan** and on PyroWave, after Nightjar has asked the screen whether it takes HLG; a screen that refuses gets HDR10, and the status line says so. With an older Rubylight 3.0 PC, PyroWave stays HDR10. Never on packed full chroma. |
+| Dolby Vision | A Dolby Vision screen and the device's own Dolby Vision decoder | Profile 10.1 over AV1 where the device has a Dolby Vision AV1 decoder (such as TCL's MediaTek TVs) and the PC offers it, otherwise 8.1 or 8.4 over HEVC. With the automatic codec and a PC that offers only profile 8, the stream uses HEVC. If the decoder fails, the same stream goes on as HDR10 or HLG and the overlay says so. Needs **Render through Vulkan** off and a codec other than PyroWave; Nightjar says so once per PC otherwise. |
+
+On MediaTek TVs, frames reach the decoder without the trailing padding and the HDR Vivid metadata those decoders reject, so Dolby Vision shows as Dolby Vision and HDR10+ as HDR10+.
+
+**Render through Vulkan** shows HDR10 on Android 10 to 14 too, and HLG where the screen's window takes it. If the screen refuses HDR from it, the overlay says the picture is shown as SDR. On MediaTek TVs it runs their decoders without the vendor low-latency settings, which froze it after the first frames; direct output keeps them. When it can't keep up on a display (under 80% of the received frames, or of the display's refreshes when the stream runs faster, for 5 seconds), a message says so once per PC and suggests turning it off.
+
+Nightjar for Windows shows HDR10. On Linux it asks the compositor for an HDR swap chain.
+
 **10-bit color (SDR)** is for screens without HDR, or with HDR off, where gradients show banding. It streams SDR in 10-bit HEVC or AV1 and needs a Main10 decoder on this device. The PC must offer 10-bit; if it does not, the stream is 8-bit and a message says so once per PC. The PC's display has to be in SDR, because a PC whose display is in HDR sends HDR whatever you chose here, and the status line says so. It is not used with PyroWave, and when HDR is on, HDR wins. The overlay's stream line reads "10-bit SDR" while it is active.
 
 **Prefer YUV 4:4:4** can improve colored text. It applies when the host and decoder both support it, with 4:2:0 used otherwise. HDR takes priority over a conflicting chroma preference. **Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
@@ -117,6 +134,14 @@ Packages need a root-level `meta.json` with schema version 1, a compatible `minA
 
 If loading, capability checks or initialization fail, Nightjar tries the system driver and reports the fallback. A failed custom selection remains available to retry or remove. If the app exits while a custom driver is active, the next launch returns that selection to the system driver. Loaded driver libraries and capability results remain in the process until it exits; switching drivers affects a new stream without unloading libraries from an active one. To retry a failed load of the same installed package, fully close and reopen the app, then select it again. The Debug overlay includes the driver used by that stream. Performance and stability need testing on the actual phone; custom drivers are optional, not a guaranteed speed improvement.
 
+## Sound
+
+Nightjar plays stereo, 5.1 and 7.1 Opus, with low-latency AAudio for stereo on Android 8.1 and later. A lost or late audio packet is filled in from the sound before it instead of a gap of silence, and the audio that arrives late after a network stall is skipped, so audio latency stays where it was.
+
+**Audio passthrough** (**Settings → Audio**, off by default) is for a receiver, soundbar or TV that decodes Dolby Digital or Dolby Digital Plus, or takes multichannel PCM as is. Nightjar asks a Rubylight PC for a format the audio output reports it plays and keeps Opus otherwise, with a message. On Android it needs Android 10 or later and the New streaming engine. Nightjar for Windows and Linux asks for PCM. Dolby audio comes in frames of 32 ms where Opus uses 5 ms, so a sound reaches the network up to 27 ms later; with the codec delay that is about 30 ms at worst before the client, plus the receiver's own buffering ([measured 2026-10-27](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-27-audio-passthrough-encode-cost)). Opus stays the default for that reason.
+
+The microphone and its effects are under [controls](controls.md#microphone).
+
 ## Performance overlay
 
 Show or hide the overlay with **Overlay** in the stream menu's top row or **Ctrl+Alt+Shift+S**, and choose **Compact**, **Statistics** or **Debug** under **stream menu → Display → Overlay and diagnostics**. The saved default is under **Settings → Streaming → Performance overlay**, a picker with Off, Compact, Statistics and Debug, all always available. **Copy stats** copies the full Debug text regardless of visible mode. The overlay hides in picture in picture.
@@ -140,9 +165,10 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 | CPU submission time (PyroWave) | CPU wall time around the native submission call, divided by all received frames, including skipped frames. Fractional milliseconds carry across frames and reporting windows; the displayed average combines the last two one-second windows. The stream-end average includes closed reporting windows only. This measures preparation and submission, not GPU completion or display wait. |
 | Completed decode (PyroWave) | Input submission to observed GPU completion. Its mean, p95 and p99 use the same completed-frame samples. Device controls bitrate, stream-health indicators and the frame-timing CSV continue to use completed decode timings. |
 | Display wait | Decoder output to the render timestamp supplied by the presentation callback. For direct MediaCodec output this is Android's `OnFrameRenderedListener.nanoTime`, rather than the time Nightjar receives the callback. It is a platform-reported surface timing, not a physical input-to-screen or panel-scanout measurement. |
+| Frame pacing | Average interval between shown frames, jitter, judder, how many vsyncs each frame took, and a timeline of the last frames. |
 | Client latency | The client pipeline interval reported by the renderer. |
 | avg / p95 / p99 | Mean and percentile timings over valid samples; the conventional Decode time average is the one described above. Stage statistics retain up to 600 frames; each stage has its own valid sample count. PyroWave CPU submission is shown separately from completed-decode percentiles. |
-| Host processing | The video frame header's per-frame processing time, the value Artemis and Moonlight show; avg/p95/p99 here, and the statistics overlay's line is the average over the last two seconds. Hosts that send timing reports add a separate row, Host to network, from the report's present to last packet sent; the report never changes Host processing. Compare host load separately from Android decode work. |
+| Host processing | The video frame header's per-frame processing time, the value Moonlight shows; avg/p95/p99 here, and the statistics overlay's line is the average over the last two seconds. Hosts that send timing reports add a separate row, Host to network, from the report's present to last packet sent; the report never changes Host processing. Compare host load separately from Android decode work. |
 | Low-latency support / accepted settings | Advertised decoder capabilities and echoed input-format keys. Compare decode time to see their effect. |
 | Upscaling mode / added time / fallback | Active GPU path or reason for direct output. MediaCodec reports an added-time estimate including texture handoff, GPU completion and swap wait; PyroWave reports the path without a separate upscaling-time estimate. |
 | PyroWave queue / completed decode | Queued work and completed frame decode are reported separately from CPU submission. The library's per-pass GPU execution timings remain available in diagnostic logs. |
@@ -172,13 +198,21 @@ The host has its own timeout for a silent client, usually also 10 seconds, and i
 
 If the network does not come back in time, the stream ends with an error that says the drop tolerance ran out (or that the host may have ended the session first). With [**Recover interrupted streams**](recovery-and-quality.md#recovering-a-connection) also on, Nightjar then reconnects to the same running game within its usual one-minute budget.
 
-The setting covers the network path staying the same, which is the case for roaming within one Wi-Fi network and for a VPN that keeps its address. A change of the device's address that the host can see, such as leaving Wi-Fi for mobile data without a VPN, needs the host to accept the client from its new address, which Nightjar cannot do alone. The [roaming protocol](protocol/client-roaming.md) for this is Experimental and in progress in hosts and in Nightjar.
+The setting covers the network path staying the same, which is the case for roaming within one Wi-Fi network and for a VPN that keeps its address. A change of the device's address that the host can see, such as leaving Wi-Fi for mobile data without a VPN, needs the host to accept the client from its new address, which Nightjar cannot do alone. The [roaming protocol](protocol/client-roaming.md) for this is in progress in hosts and in Nightjar.
 
 ## Device controls bitrate and diagnostics
 
 For bounded reconnects and opt-in resolution/FPS adaptation, see [stream recovery and automatic quality](recovery-and-quality.md).
 
 Turn on **Device controls bitrate** under Settings → Video, directly below Video bitrate, or in the stream menu's **Quality** section, on a host that supports it (currently Rubylight). It is off by default. The Settings switch is the default for every PC and the bitrate setting is the most it uses; the stream menu saves a choice for one PC, separately for conventional codecs and PyroWave. Changing the Settings switch makes every PC follow it again. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. After trouble, the bitrate steps back toward the last rate that ran without poor samples in big steps once the link is healthy, and probes above it slowly. Jitter or queueing that does not drop after two cuts is not cut further (loss still is). See [stream recovery and automatic quality](recovery-and-quality.md#device-controls-bitrate). Manual session bitrate changes turn it off.
+
+### Bitrate, frame rate and error correction with a Rubylight PC
+
+- **Change bitrate / frame rate.** On a Rubylight PC that takes rate changes during a stream, the stream menu's **Quality** section has this one control in place of Set bitrate. The PC's answer, a limit it applied or a refusal shows as a message.
+- **Loss-based bitrate (Rust engine)**, under **Settings → Advanced** (off by default): this device lowers the bitrate when frames are lost and raises it again after clean seconds, without a keyframe, in place of Device controls bitrate. It needs the New streaming engine and a PC that offers bitrate changes; other streams use Device controls bitrate. The desktop calls it **Client-hint bitrate**.
+- **Error correction**, under **Settings → Streaming** (Android and desktop): **PC's setting** (the default) leaves the share of recovery data to the PC; **Automatic** asks it to follow the losses this device reports; **10 %** to **50 %** fixes the share. Only Rubylight PCs take it. Every streaming engine tells a Rubylight PC once a second how much video was lost, which is what Automatic follows. On shaped Wi-Fi-like links on 2026-10-27, Automatic lost less and froze less often than the PC's own adaptive share ([measurement](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)); the PC's setting stays the default until a run on a phone over real Wi-Fi.
+- **Link test before the first bitrate**, under **Settings → Advanced → Diagnostics** (off by default): a new stream at the automatic bitrate first times a short download from a Rubylight PC and starts at no more than 80 % of the result, never below 2 Mbit/s. It stays off because it started streams lower, with more loss, in our measurement on 2026-10-27 ([client error correction and the link test](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)).
+- **Tell the PC when on Wi-Fi** and **Tell the PC the link speed**, under **Settings → Advanced → Diagnostics**: a Rubylight PC paces the stream for this device's connection from the first frame.
 
 Use **Settings → Advanced → Export latency CSV** to save the latest local frame timings. `queue_wait_ms`, `input_to_output_ms` and `output_to_render_ms` correspond to the stages above; The appended FPS sample separates received/released/shown FPS and estimated presentation drops.
 

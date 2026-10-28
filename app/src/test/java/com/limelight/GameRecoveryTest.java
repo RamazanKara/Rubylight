@@ -822,6 +822,21 @@ public class GameRecoveryTest {
         }
     }
 
+    @Test public void aFailureReportedAsTheUserLeavesIsNoUserTrip() {
+        Game game = establishedGame();
+        try {
+            game.onPause();
+            // connectionTerminated marked the stream on its own thread; its UI half has not run yet.
+            ReflectionHelpers.setField(game, "streamTerminated", true);
+            game.onStop();
+            Intent resume = ReflectionHelpers.getField(game, "stoppedStreamResumeIntent");
+            assertNotNull(resume);
+            assertFalse(resume.hasExtra("rubylight.tripBudget"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void aConnectionLostWhileAwaySpendsTheFailureBudget() {

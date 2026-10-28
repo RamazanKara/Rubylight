@@ -4260,7 +4260,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         connectedAt = -1;
         stoppedStreamResumeIntent = createStreamHandoffIntent(LaunchSource.RETURN)
                 .putExtra(EXTRA_APP_ID, recoveryAppId).putExtra(EXTRA_APP_UUID, recoveryAppUuid);
-        if (userTrip) {
+        // A failure already reported as the user left is a failure: its resume spends the budget.
+        if (userTrip && !streamTerminated) {
             stoppedStreamResumeIntent.putExtra(EXTRA_TRIP_BUDGET,
                     new long[] {recoveryPolicy.attempts(), recoveryPolicy.startedAt(), now, connectedFor});
         }

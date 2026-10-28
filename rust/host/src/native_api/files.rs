@@ -455,9 +455,12 @@ pub(super) fn decode(value: &str) -> Option<String> {
         rest = tail;
         bytes.push(match byte {
             b'%' => {
-                let hex = std::str::from_utf8(rest.get(..2)?).ok()?;
+                // Two hex digits: `from_str_radix` alone would take a sign, `%+A` as a newline.
+                let hex = rest
+                    .get(..2)
+                    .filter(|h| h.iter().all(u8::is_ascii_hexdigit))?;
                 rest = &rest[2..];
-                u8::from_str_radix(hex, 16).ok()?
+                u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?
             }
             byte => byte,
         });
@@ -1211,10 +1214,63 @@ mod tests {
             Some(""),
             Some("name=%FF"),
             Some("name=%2"),
+            Some("name=%+A"),
             Some("name=a&name=b"),
         ] {
             let failure = name_of(query).unwrap_err();
             assert_eq!(failure.code, ErrorCode::InvalidName, "{query:?}");
+        }
+    }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// RFC 3986 percent-decoding: `%` and exactly two hex digits.
+        fn reference(value: &str) -> Option<String> {
+            let mut bytes = vec![];
+            let mut rest = value.as_bytes();
+            while let Some((&byte, tail)) = rest.split_first() {
+                rest = tail;
+                if byte != b'%' {
+                    bytes.push(byte);
+                    continue;
+                }
+                let digit = |at: usize| (*rest.get(at)? as char).to_digit(16);
+                bytes.push((digit(0)? * 16 + digit(1)?) as u8);
+                rest = &rest[2..];
+            }
+            String::from_utf8(bytes).ok()
+        }
+        fn encode(value: &str) -> String {
+            value
+                .bytes()
+                .map(|b| match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                        char::from(b).to_string()
+                    }
+                    b => format!("%{b:02X}"),
+                })
+                .collect()
+        }
+
+        proptest! {
+            /// Any query value decodes as RFC 3986 has it; a sign after `%` is not a digit.
+            #[test]
+            fn values_decode_as_rfc_3986_has_it(value in r"([%+a-fA-F0-9 .\-]|%[+-]?[0-9a-fA-F]{0,2}|\PC){0,24}") {
+                prop_assert_eq!(decode(&value), reference(&value));
+            }
+
+            #[test]
+            fn encoded_names_round_trip(name in r"\PC{0,40}", before in "[a-z=&]{0,8}") {
+                let query = format!("{before}&name={}", encode(&name));
+                let decoded = name_of(Some(&query));
+                if before.split('&').any(|pair| pair.split_once('=').map_or(pair, |(k, _)| k) == "name") {
+                    prop_assert!(decoded.is_err(), "two names");
+                } else {
+                    prop_assert_eq!(decoded.ok(), Some(name));
+                }
+            }
         }
     }
 }

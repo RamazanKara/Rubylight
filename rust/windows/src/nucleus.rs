@@ -9,5 +9,6 @@ pub mod desktop;
 pub mod files;
 pub mod install;
 pub mod instances;
+pub mod layers;
 pub mod pads;
 pub mod session;

@@ -6,6 +6,7 @@
 use super::desktop::Win32;
 use super::files;
 use super::instances::{Desktop, Keeper};
+use super::layers::{self, Guard, Layers};
 use super::pads::{self, Dropped, Pads, XInput};
 use crate::input::PadReport;
 use anyhow::{Context, Result, bail, ensure};
@@ -260,6 +261,9 @@ struct Runner {
     deadline: Instant,
     exited: bool,
     failed: u32,
+    /// The game's compatibility settings from before Nucleus started; last,
+    /// so it drops after Nucleus. None for a runner tested alone.
+    layers: Option<Guard>,
 }
 
 impl Runner {
@@ -433,6 +437,10 @@ impl Runner {
         }
         let instances = self.keeper.processes();
         self.nucleus.stop(&instances);
+        // Nucleus sets them as it starts each instance: back once all stopped.
+        if let Some(layers) = &mut self.layers {
+            layers.restore();
+        }
     }
 }
 
@@ -490,7 +498,7 @@ pub struct Running {
 }
 
 /// Start a session on the PC: virtual Xbox pads, XInput, the user's desktop
-/// and Nucleus Co-op elevated.
+/// and compatibility settings, and Nucleus Co-op elevated.
 pub fn start_on_pc(
     start: &Start,
     policy: butterpollo_core::input_policy::Policy,
@@ -503,17 +511,20 @@ pub fn start_on_pc(
         Box::new(pads),
         &mut xinput,
         Box::new(Win32::default()),
+        Box::new(layers::UserHive::signed_in()?),
         &mut Elevated,
     )
 }
 
 /// Start a session: refused while Nucleus Co-op already runs, then one pad
-/// per player, the profile, and Nucleus.
+/// per player, the profile, the game's compatibility settings kept
+/// ([`layers`]), and Nucleus.
 pub fn start(
     start: &Start,
     pads: Box<dyn Pads>,
     xinput: &mut dyn XInput,
     mut desktop: Box<dyn Desktop>,
+    layers: Box<dyn Layers>,
     launcher: &mut dyn Launcher,
 ) -> Result<Running> {
     // Its profile list would show the user's state, and its instances could
@@ -562,6 +573,9 @@ pub fn start(
         players = start.players,
         "Nucleus Co-op profile {TITLE} written"
     );
+    // Restored when the session ends, or here should Nucleus not start.
+    let layers = Guard::take(layers, start.folder, &start.handler.executable)
+        .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
     let nucleus = launcher.launch(
         start.folder,
         &start.handler.guid,
@@ -593,6 +607,7 @@ pub fn start(
         deadline: Instant::now() + START_TIMEOUT,
         exited: false,
         failed: 0,
+        layers: Some(layers),
     };
     let (stop, stopped) = mpsc::channel();
     // Should the thread not start, dropping the runner ends Nucleus' job.
@@ -787,6 +802,10 @@ mod tests {
         stopped: Arc<Mutex<Option<BTreeMap<u32, u64>>>>,
         launched: Arc<Mutex<Vec<String>>>,
         environments: Arc<Mutex<Vec<BTreeMap<String, String>>>>,
+        /// The user's compatibility settings.
+        layers: super::super::layers::tests::Map,
+        /// Why Nucleus does not start, when it does not.
+        refused: Arc<Mutex<Option<String>>>,
     }
     struct FakeNucleus {
         probe: Probe,
@@ -821,6 +840,9 @@ mod tests {
             guid: &str,
             environment: &BTreeMap<String, String>,
         ) -> Result<Box<dyn Nucleus>> {
+            if let Some(why) = self.0.refused.lock().unwrap().clone() {
+                bail!(why);
+            }
             self.0.launched.lock().unwrap().push(guid.into());
             self.0
                 .environments
@@ -894,6 +916,7 @@ mod tests {
             deadline: t0 + START_TIMEOUT,
             exited: false,
             failed: 0,
+            layers: None,
         }
     }
 
@@ -1243,6 +1266,7 @@ mod tests {
             Box::new(Recorded(recorder.clone())),
             &mut xinput,
             Box::new(screen.clone()),
+            Box::new(probe.layers.clone()),
             &mut (probe.clone(), screen.clone()),
         );
         (running, recorder)
@@ -1358,6 +1382,46 @@ mod tests {
             ])]
         );
         assert_eq!(steam_environment(None), BTreeMap::new());
+    }
+
+    #[test]
+    fn the_games_compatibility_settings_are_back_after_a_session_or_a_failed_start() {
+        use super::super::layers::tests::text;
+        let folder = tempfile::tempdir().unwrap();
+        let (screen, probe) = (screen(), Probe::default());
+        let game = r"D:\Games\Game\Game.exe";
+        let set = |value: &str| {
+            probe
+                .layers
+                .values
+                .lock()
+                .unwrap()
+                .insert(game.into(), text(value))
+        };
+        set("~ RUNASADMIN");
+        let (running, _) = start_with(folder.path(), 1, [false; 4], &screen, &probe);
+        let running = running.unwrap();
+        // Nucleus sets the instance's DPI mode as it starts it.
+        set("~ HIGHDPIAWARE");
+        running.stop();
+        assert_eq!(
+            *probe.layers.values.lock().unwrap(),
+            BTreeMap::from([(game.to_string(), text("~ RUNASADMIN"))])
+        );
+        // Nucleus did not start: nothing left behind either.
+        *probe.refused.lock().unwrap() = Some("access denied".into());
+        let (running, _) = start_with(folder.path(), 1, [false; 4], &self::screen(), &probe);
+        assert_eq!(running.err().unwrap().to_string(), "access denied");
+        assert_eq!(
+            *probe.layers.values.lock().unwrap(),
+            BTreeMap::from([(game.to_string(), text("~ RUNASADMIN"))])
+        );
+        let mut files: Vec<_> = std::fs::read_dir(folder.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        assert_eq!(files, ["Settings.ini", "game profiles"]);
     }
 
     #[test]

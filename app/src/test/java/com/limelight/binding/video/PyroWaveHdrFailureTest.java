@@ -23,6 +23,8 @@ public class PyroWaveHdrFailureTest {
     public void refusedHlgDataspaceNamesHlg() {
         assertEquals(R.string.pyrowave_hlg_display_refused, PyroWaveDecoderRenderer.surfaceFailureSummary(3, 33));
         assertEquals(R.string.pyrowave_hlg_display_refused, PyroWaveDecoderRenderer.surfaceFailureSummary(3, 35));
+        // The window took HLG, then no longer held it after the first frame.
+        assertEquals(R.string.pyrowave_hlg_display_refused, PyroWaveDecoderRenderer.surfaceFailureSummary(4, 33));
     }
 
     @Test

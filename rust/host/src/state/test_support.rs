@@ -90,6 +90,7 @@ impl Fixture {
             roaming_offered: Default::default(),
             claimed_until: None,
             nucleus: None,
+            held: None,
             warnings: Default::default(),
         }
     }

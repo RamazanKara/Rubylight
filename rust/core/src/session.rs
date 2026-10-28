@@ -1998,8 +1998,22 @@ mod tests {
             roaming_offered: Default::default(),
             claimed_until: None,
             nucleus: None,
+            held: None,
             warnings: Default::default(),
         }
+    }
+    #[test]
+    fn what_a_launch_holds_goes_with_its_last_copy_and_never_with_an_rtsp_snapshot() {
+        let held: Arc<dyn std::any::Any + Send + Sync> = Arc::new(());
+        let given_back = Arc::downgrade(&held);
+        let mut first = launch("held", Role::Stream);
+        first.held = Some(held);
+        let copy = first.clone();
+        assert!(first.rtsp_snapshot().held.is_none());
+        drop(first);
+        assert!(given_back.upgrade().is_some());
+        drop(copy);
+        assert!(given_back.upgrade().is_none());
     }
     #[test]
     fn a_ten_bit_format_is_sdr_only_when_the_query_says_hdr_mode_zero() {
@@ -2773,6 +2787,11 @@ pub struct Launch<P = (), A = ()> {
     /// The Nucleus Co-op session and slot this launch streams, fixed when the
     /// host admits it; `None` for every other launch.
     pub nucleus: Option<Seat>,
+    /// What the launch holds for the host (a co-op launch's slot), given back
+    /// when its last copy is dropped: an expired, replaced or failed launch
+    /// at once, a started one with its stream's session. RTSP's snapshots
+    /// never keep it.
+    pub held: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 /// One player's place in a Nucleus Co-op session (see `crate::nucleus::coop`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2810,6 +2829,7 @@ impl<P, A> Clone for Launch<P, A> {
             roaming_offered: self.roaming_offered.clone(),
             claimed_until: self.claimed_until,
             nucleus: self.nucleus,
+            held: self.held.clone(),
         }
     }
 }
@@ -2828,6 +2848,7 @@ impl<P, A> Launch<P, A> {
         let mut snapshot = self.clone();
         snapshot.preparation = Default::default();
         snapshot.audio_preparation = Default::default();
+        snapshot.held = None;
         snapshot
     }
     /// Still waiting for its client: being prepared, or able to take its

@@ -17,6 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 mod extension_tests;
 mod interop_tests;
+mod rate_change_tests;
 mod roaming_tests;
 mod webrtc_tests;
 
@@ -688,6 +689,17 @@ impl Harness {
         resume: bool,
         hdr_mode: Option<&str>,
     ) -> Result<String> {
+        self.launch_response_with(client, resume, hdr_mode, &[])
+            .await
+    }
+    /// A launch or resume with the given `hdrMode` and the `extra` query parameters.
+    async fn launch_response_with(
+        &self,
+        client: usize,
+        resume: bool,
+        hdr_mode: Option<&str>,
+        extra: &[(&'static str, &str)],
+    ) -> Result<String> {
         let endpoint = if resume { "resume" } else { "launch" };
         let key = hex::encode(crypto::random::<16>());
         let app = self.h.apps.read().unwrap()[0].id();
@@ -699,6 +711,7 @@ impl Harness {
             ("mode", "640x480x60".into()),
         ];
         query.extend(hdr_mode.map(|mode| ("hdrMode", mode.to_string())));
+        query.extend(extra.iter().map(|(name, value)| (*name, value.to_string())));
         Ok(self.clients[client]
             .get(format!("https://127.0.0.1:{}/{endpoint}", self.ports.https))
             .query(&query)
@@ -717,7 +730,18 @@ impl Harness {
         resume: bool,
         hdr_mode: Option<&str>,
     ) -> Result<Launch> {
-        let response = self.launch_response_hdr(client, resume, hdr_mode).await?;
+        self.launch_with(client, resume, hdr_mode, &[]).await
+    }
+    async fn launch_with(
+        &self,
+        client: usize,
+        resume: bool,
+        hdr_mode: Option<&str>,
+        extra: &[(&'static str, &str)],
+    ) -> Result<Launch> {
+        let response = self
+            .launch_response_with(client, resume, hdr_mode, extra)
+            .await?;
         assert!(
             response.contains("status_code=\"200\""),
             "resume={resume}: {response}"
@@ -1090,6 +1114,8 @@ struct Client {
     hdr_modes: Notices,
     /// Text input notices (0x553B) the host sent.
     text_notices: Notices,
+    /// Rate change answers (0x553C) the host sent.
+    rate_answers: Notices,
     /// Plain control messages for the worker to send, reliable.
     outbox: Arc<Mutex<Vec<Vec<u8>>>>,
     /// Sockets ENet and the video pings move to (`move_to`).
@@ -1121,6 +1147,7 @@ impl Client {
         let notices = Arc::new(Mutex::new(Vec::new()));
         let hdr_modes = Notices::default();
         let text_notices = Notices::default();
+        let rate_answers = Notices::default();
         let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let control_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
@@ -1156,6 +1183,7 @@ impl Client {
         let (worker_notices, worker_outbox) = (notices.clone(), outbox.clone());
         let worker_hdr_modes = hdr_modes.clone();
         let worker_text_notices = text_notices.clone();
+        let worker_rate_answers = rate_answers.clone();
         let worker_rounds = rounds.clone();
         let worker_keyframe_heartbeat = keyframe_heartbeat.clone();
         let worker = thread::spawn(move || -> Result<()> {
@@ -1189,6 +1217,12 @@ impl Client {
                         }
                         if kind == butterpollo_core::text_input::TEXT_INPUT_MESSAGE_TYPE {
                             worker_text_notices
+                                .lock()
+                                .unwrap()
+                                .push((Instant::now(), payload.clone()));
+                        }
+                        if kind == butterpollo_core::rate_change::RATE_CHANGE_MESSAGE_TYPE {
+                            worker_rate_answers
                                 .lock()
                                 .unwrap()
                                 .push((Instant::now(), payload.clone()));
@@ -1266,6 +1300,7 @@ impl Client {
             notices,
             hdr_modes,
             text_notices,
+            rate_answers,
             outbox,
             control_move,
             video_move,

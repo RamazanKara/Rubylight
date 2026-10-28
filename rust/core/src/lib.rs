@@ -93,6 +93,7 @@ pub mod present_timing;
 pub mod pyrowave;
 pub mod pyrowave_probe;
 pub mod radeon_profile;
+pub mod rate_change;
 pub mod reconfigure;
 pub mod remote;
 pub mod roaming;

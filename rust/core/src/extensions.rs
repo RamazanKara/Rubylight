@@ -11,7 +11,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
 use rubylight_protocol::{
-    audio_ext, cursor_shape, fec_report, hdr, keyboard_layout, pen, pipeline_rates, text_input, usb,
+    audio_ext, cursor_shape, fec_report, hdr, keyboard_layout, pen, pipeline_rates, rate_change,
+    text_input, usb,
 };
 
 pub use rubylight_protocol::fec_report::FecChoice;
@@ -75,6 +76,9 @@ pub struct Offered {
     pub cursor_shape: bool,
     /// `PipelineRatesVersion` and pipeline rate requests (0x553D).
     pub pipeline_rates: bool,
+    /// Rate changes (0x553C), in the DESCRIBE of a stream whose client launched with
+    /// `rlRateChange=1`; no serverinfo element.
+    pub rate_change: bool,
 }
 
 impl Offered {
@@ -91,6 +95,7 @@ impl Offered {
         pen_barrel_roll: false,
         cursor_shape: false,
         pipeline_rates: false,
+        rate_change: false,
     };
 
     /// The serverinfo elements of what is offered, in a fixed order; none for
@@ -175,6 +180,7 @@ impl Offered {
             (self.client_fec, fec_report::FEC_REPORT_MESSAGE_TYPE),
             (self.usb, usb::USB_MESSAGE_TYPE),
             (self.text_input, text_input::TEXT_INPUT_MESSAGE_TYPE),
+            (self.rate_change, rate_change::RATE_CHANGE_MESSAGE_TYPE),
             (
                 self.pipeline_rates,
                 pipeline_rates::PIPELINE_RATES_MESSAGE_TYPE,
@@ -276,6 +282,7 @@ mod tests {
         pen_barrel_roll: true,
         cursor_shape: true,
         pipeline_rates: true,
+        rate_change: true,
     };
 
     #[test]
@@ -319,11 +326,42 @@ mod tests {
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
-             a=x-rl-control:0x5539,0x553a,0x553b,0x553d,0x553e,0x5540\r\n"
+             a=x-rl-control:0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540\r\n"
         );
         assert_eq!(
             ALL_ON.control_ids(),
-            [0x5539, 0x553A, 0x553B, 0x553D, 0x553E, 0x5540]
+            [0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540]
+        );
+    }
+
+    #[test]
+    fn rate_changes_are_a_describe_id_only() {
+        let offered = Offered {
+            rate_change: true,
+            ..Offered::NONE
+        };
+        assert!(offered.serverinfo_fields().is_empty());
+        assert_eq!(offered.describe_lines(), "a=x-rl-control:0x553c\r\n");
+        let defaults = Offered {
+            client_fec: true,
+            pipeline_rates: true,
+            ..Offered::NONE
+        };
+        assert_eq!(
+            Offered {
+                rate_change: true,
+                ..defaults
+            }
+            .describe_lines(),
+            "a=x-rl-control:0x5539,0x553c,0x553d\r\n"
+        );
+        assert_eq!(
+            Offered {
+                rate_change: true,
+                ..defaults
+            }
+            .serverinfo_fields(),
+            defaults.serverinfo_fields()
         );
     }
 

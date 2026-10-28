@@ -503,6 +503,18 @@ fn device_layer(config: &mut Config, client: &butterpollo_core::state::Client) -
     Ok(peak_chosen)
 }
 
+/// A switch the session loop refused or could not make: the stream keeps `from`, and a rate
+/// change the switch carried is answered with `reason`.
+fn refuse_switch(
+    s: &Session,
+    from: butterpollo_core::reconfigure::Mode,
+    reason: butterpollo_core::rate_change::Reason,
+) {
+    let mut reconfigure = s.reconfigure.lock().unwrap();
+    reconfigure.refused(from);
+    s.rate_changes.lock().unwrap().switched(from, Some(reason));
+}
+
 pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     let mut config = h.config.read().unwrap().clone();
     let mut peak_chosen = device_layer(&mut config, &launch.client)?;
@@ -2557,12 +2569,20 @@ impl Media {
                             // stream turned and the device's display follows it
                             // (dd_rotation_option = auto): the heartbeat reshapes or
                             // turns it then, off this loop.
-                            let requested = s.reconfigure.lock().unwrap().take_due(Instant::now());
+                            let requested = {
+                                let mut reconfigure = s.reconfigure.lock().unwrap();
+                                let requested = reconfigure.take_due(Instant::now());
+                                if let Some(to) = requested {
+                                    s.rate_changes.lock().unwrap().taken(to);
+                                }
+                                requested
+                            };
                             if let Some(to) = requested {
                                 let from = butterpollo_core::reconfigure::Mode::of(&stream);
-                                match butterpollo_core::reconfigure::refusal(&stream, runtime_config.boolean("stream_reconfigure", true)) {
+                                let enabled = runtime_config.boolean("stream_reconfigure", true);
+                                match butterpollo_core::reconfigure::refusal(&stream, enabled) {
                                     Some(reason) => {
-                                        s.reconfigure.lock().unwrap().refused(from);
+                                        refuse_switch(&s, from, butterpollo_core::rate_change::refusal_reason(enabled));
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, reason, "reconfigure refused");
                                     }
                                     None => {
@@ -2857,7 +2877,7 @@ impl Media {
                                         if let Some((from, _)) = switching.take() {
                                             let to = butterpollo_core::reconfigure::Mode::of(&stream);
                                             from.apply_to(&mut stream);
-                                            s.reconfigure.lock().unwrap().refused(from);
+                                            refuse_switch(&s, from, butterpollo_core::rate_change::Reason::EncoderFailed);
                                             tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder cannot make this mode; keeping the previous one");
                                             continue;
                                         }
@@ -3101,7 +3121,7 @@ impl Media {
                                         let to = butterpollo_core::reconfigure::Mode::of(&stream);
                                         from.apply_to(&mut stream);
                                         s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
-                                        s.reconfigure.lock().unwrap().refused(from);
+                                        refuse_switch(&s, from, butterpollo_core::rate_change::Reason::EncoderFailed);
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder failed at this mode; keeping the previous one");
                                         rebuild_encoder = true;
                                         continue;
@@ -3120,6 +3140,7 @@ impl Media {
                                 }
                             };
                             if rebuilt && let Some((from, started)) = switching.take() {
+                                s.rate_changes.lock().unwrap().switched(butterpollo_core::reconfigure::Mode::of(&stream), None);
                                 tracing::info!(
                                     client = %s.launch.client.name,
                                     from = %from,
@@ -4117,15 +4138,97 @@ impl Media {
                             }
                             // The session loop applies it once the client stops sending.
                             butterpollo_core::reconfigure::RECONFIGURE_MESSAGE_TYPE => {
-                                let outcome = s
-                                    .reconfigure
-                                    .lock()
-                                    .unwrap()
-                                    .on_payload(Instant::now(), &payload);
+                                let outcome = {
+                                    let mut reconfigure = s.reconfigure.lock().unwrap();
+                                    let outcome = reconfigure.on_payload(Instant::now(), &payload);
+                                    s.rate_changes.lock().unwrap().on_reconfigure(outcome);
+                                    outcome
+                                };
                                 tracing::debug!(
                                     ?outcome,
                                     len = payload.len(),
                                     "reconfigure request"
+                                );
+                            }
+                            // A bitrate applies now, without a keyframe; a rate switches
+                            // like a 0x5532 request and is answered once it runs.
+                            butterpollo_core::rate_change::RATE_CHANGE_MESSAGE_TYPE => {
+                                use butterpollo_core::rate_change;
+                                if !matches!(
+                                    rate_change::launch_choice(&s.launch.options),
+                                    Ok(true)
+                                ) {
+                                    tracing::debug!("rate change not offered");
+                                    continue;
+                                }
+                                let Some(request) =
+                                    rate_change::RateChangeRequest::decode(&payload)
+                                else {
+                                    tracing::warn!(
+                                        len = payload.len(),
+                                        "invalid rate change request"
+                                    );
+                                    continue;
+                                };
+                                let config = match effective_config(&h, &s.launch) {
+                                    Ok(config) => config,
+                                    Err(e) => {
+                                        tracing::warn!(error = %format!("{e:#}"), "rate change not decided");
+                                        continue;
+                                    }
+                                };
+                                let enabled = config.boolean("stream_reconfigure", true);
+                                let mut reconfigure = s.reconfigure.lock().unwrap();
+                                let requested = reconfigure.requested();
+                                let current = reconfigure.current().fps_millihz;
+                                let mb_rate = h
+                                    .encoder_mb_rates
+                                    .get(usize::from(s.config.codec))
+                                    .map_or(0, |rate| rate.load(Ordering::Acquire));
+                                let stream = rate_change::Stream {
+                                    bitrate_kbps: s.bitrate.load(Ordering::Acquire),
+                                    fps_millihz: current,
+                                    requested,
+                                    fps_ceiling_millihz: rate_change::fps_ceiling_millihz(
+                                        mb_rate,
+                                        requested.width,
+                                        requested.height,
+                                        current,
+                                        s.config.fps_millihz(),
+                                    ),
+                                    fps_refusal: butterpollo_core::reconfigure::refusal(
+                                        &s.config, enabled,
+                                    )
+                                    .map(|_| rate_change::refusal_reason(enabled)),
+                                };
+                                let decision = rate_change::decide(&request, &stream, &config);
+                                s.rate_changes.lock().unwrap().record(
+                                    &decision,
+                                    &mut reconfigure,
+                                    Instant::now(),
+                                );
+                                drop(reconfigure);
+                                // Set before the answer goes out, later in this loop.
+                                if let Some(applied) = decision.bitrate_kbps {
+                                    butterpollo_core::stream_policy::report_bitrate(
+                                        &s.launch.warnings,
+                                        request.bitrate_kbps,
+                                        applied,
+                                        "max_bitrate and the 500 Mbps runtime cap",
+                                    );
+                                    s.set_client_bitrate(applied);
+                                }
+                                let result = decision.result;
+                                tracing::info!(
+                                    client = %s.launch.client.name,
+                                    serial = request.serial,
+                                    bitrate_kbps = request.bitrate_kbps,
+                                    fps_millihz = request.fps_millihz,
+                                    applied_kbps = result.bitrate_kbps,
+                                    switch_to = ?decision.switch_to.map(|mode| mode.to_string()),
+                                    bitrate = ?result.bitrate,
+                                    fps = ?result.fps,
+                                    "rate change"
                                 );
                             }
                             0x0109 => {
@@ -4385,6 +4488,29 @@ impl Media {
                             }
                             Err(e) => {
                                 tracing::warn!(error = %format!("{e:#}"), "link notice not encrypted");
+                            }
+                        }
+                    }
+                    // Rate change answers (0x553C), reliable and in order.
+                    loop {
+                        let Some(result) = s.rate_changes.lock().unwrap().take() else {
+                            break;
+                        };
+                        match p.encrypt(
+                            &s,
+                            butterpollo_core::rate_change::RATE_CHANGE_MESSAGE_TYPE,
+                            &result.encode(),
+                        ) {
+                            Ok(message) => {
+                                if let Err(e) = host
+                                    .peer_mut(*peer_id)
+                                    .send(0, &Packet::new(message, PacketKind::Reliable))
+                                {
+                                    tracing::warn!(error = %e, serial = result.serial, "rate change answer not sent");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %format!("{e:#}"), serial = result.serial, "rate change answer not encrypted");
                             }
                         }
                     }

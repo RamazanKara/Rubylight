@@ -286,7 +286,7 @@ async fn connection(
                         }
                     }
                     body.extend_from_slice(
-                        crate::extensions::stream_offered(&h, &config, dolby)
+                        crate::extensions::stream_offered(&h, &config, dolby, &launch.options)
                             .describe_lines()
                             .as_bytes(),
                     );
@@ -328,7 +328,7 @@ async fn connection(
                     }
                     let config = crate::stream::effective_config(&h, &launch)?;
                     // The client's own picks, before host policy turns HDR off.
-                    crate::extensions::stream_offered(&h, &config, dolby)
+                    crate::extensions::stream_offered(&h, &config, dolby, &launch.options)
                         .check_announce(&negotiated)?;
                     audio_check
                         .take()

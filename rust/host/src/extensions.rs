@@ -41,10 +41,19 @@ pub async fn probe_serverinfo_audio(config: &Config) -> anyhow::Result<()> {
 }
 
 /// The offer for a stream's DESCRIBE and ANNOUNCE, `config` being its
-/// effective configuration and `dolby` the AC3 and E-AC3 bits FFmpeg opens
-/// for the launch's channels (`audio_encoder::dolby_codecs`).
-pub fn stream_offered(h: &Shared, config: &Config, dolby: u8) -> Offered {
-    offer(h, config, dolby)
+/// effective configuration, `dolby` the AC3 and E-AC3 bits FFmpeg opens
+/// for the launch's channels (`audio_encoder::dolby_codecs`) and `options` the
+/// launch's parameters.
+pub fn stream_offered(
+    h: &Shared,
+    config: &Config,
+    dolby: u8,
+    options: &std::collections::BTreeMap<String, String>,
+) -> Offered {
+    Offered {
+        rate_change: rate_change(options),
+        ..offer(h, config, dolby)
+    }
 }
 
 fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
@@ -60,6 +69,7 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         pen_barrel_roll: pen_barrel_roll(config),
         cursor_shape: cursor_shape(config),
         pipeline_rates: pipeline_rates(h, config),
+        rate_change: false,
     }
 }
 
@@ -155,6 +165,16 @@ fn cursor_shape(config: &Config) -> bool {
 /// hot path, and reports only to a client that asks.
 fn pipeline_rates(_h: &Shared, _config: &Config) -> bool {
     true
+}
+
+/// Network (B): mid-stream bitrate and rate changes (0x553C), for a stream whose client
+/// asked with `rlRateChange=1`, which /launch and /resume checked. Serverinfo has no
+/// element: a stock client's serverinfo and DESCRIBE stay as they were.
+fn rate_change(options: &std::collections::BTreeMap<String, String>) -> bool {
+    matches!(
+        butterpollo_core::rate_change::launch_choice(options),
+        Ok(true)
+    )
 }
 
 /// The native API features of the 3.0 extensions, appended to

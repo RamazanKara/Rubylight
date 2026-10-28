@@ -195,12 +195,13 @@ Read every `a=x-rl-control:` line and merge them. The second line appears only w
 | `0x5539` | FEC report | `fec_report::FecReport` | client to host | `FecControlVersion` |
 | `0x553A` | USB forwarding | `usb::UsbMessage` | both | none (native API feature `usb`) |
 | `0x553B` | Text input | `text_input::TextInputRequest`, `text_input::TextInputNotice` | both | `TextInputVersion` |
+| `0x553C` | Rate change | `rate_change::RateChangeRequest`, `rate_change::RateChangeResult` | both | none (launch parameter `rlRateChange=1`) |
 | `0x553D` | Pipeline rates | `pipeline_rates::PipelineRatesRequest`, `pipeline_rates::PipelineRatesReport` | both | `PipelineRatesVersion` |
 | `0x553E` | Keyboard layout | `keyboard_layout::KeyboardLayout` | client to host | `KeyboardLayoutVersion` |
 | `0x5540` | Cursor shape request | `cursor_shape::CursorShapeRequest` | client to host | `CursorShapeVersion` |
 | `0x5541` | Cursor shape | `cursor_shape::CursorShape` | host to client | `CursorShapeVersion` |
 
-`0x553C` and `0x5542` are reserved. Rubylight defines nothing in `0x5506`-`0x5510`, which other clients use.
+`0x5542` is reserved. Rubylight defines nothing in `0x5506`-`0x5510`, which other clients use.
 
 The layouts below are little-endian; byte 0 is the version, `1`.
 
@@ -255,6 +256,16 @@ The notice (host to client, 16 bytes and the text):
 Committed text still travels as Moonlight's UTF-8 text input.
 
 The host watches the focus (UI Automation) only while a client asked and the device has the Keyboard permission; otherwise it answers nothing and watches nothing. It sends the text around the cursor only over encrypted control. A notice goes out at most every 50 ms with the newest focus winning, and a lower only once no text field has had the focus for 150 ms, so moving between two fields does not flash the keyboard. Every request starts afresh: a client that asks while a field has the focus hears a raise at once. A client that never asks, such as stock Moonlight, hears nothing.
+
+### 0x553C rate change
+
+A client that wants to change its bitrate or frame rate mid-stream sends `rlRateChange=1` with `/launch` or `/resume` (`0` or nothing is off; any other value fails the launch). Only then does that stream's `DESCRIBE` list `0x553c`; serverinfo has no element, so a stock client's serverinfo and `DESCRIBE` stay the same.
+
+The request (client to host, 16 bytes): `0 version`, `1 reserved u8`, `2 reserved u16`, `4 serial u32` (the client's, echoed in the answer), `8 bitrate_kbps u32` and `12 fps_millihz u32` (10000-500000), where 0 keeps a value. A request with both at 0 is invalid.
+
+The result (host to client, 20 bytes): `0 version`, `1` 3 reserved bytes, `4 serial u32`, `8 bitrate_kbps u32` and `12 fps_millihz u32`, the values the stream runs at, then `16 bitrate_status`, `17 bitrate_reason`, `18 fps_status` and `19 fps_reason`, each a u8. Status: 0 unchanged, 1 applied, 2 clamped, 3 refused. Reason: 0 none, 1 invalid, 2 disabled (`stream_reconfigure` is off), 3 codec (PyroWave or packed 4:4:4 keep their rate), 4 host limit (`max_bitrate` and the 500 Mbps runtime cap), 5 encoder limit (the encoder's measured throughput at the stream's size), 6 encoder failed (the stream went back to its rate), 7 superseded (a later request replaced it), 255 other; read an unknown reason as other.
+
+The host sets a bitrate at once; AMF takes it on the next frame, without a keyframe. A new rate switches like a `0x5532` request, keeping the size the stream runs at or was last asked for, and is answered once the encoder runs at it: about 200 ms after the request, or later when the last switch was under a second ago. Every request is answered once, reliably and in order. Clients send a new request only for a new value, and `0x5532` stays the way to change the size.
 
 ### 0x553D pipeline rates
 

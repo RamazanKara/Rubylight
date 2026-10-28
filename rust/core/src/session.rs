@@ -2907,6 +2907,9 @@ pub struct Session<P = (), A = ()> {
     pub phase_sync: std::sync::Mutex<crate::phase_sync::PhaseSync>,
     /// The stream's current mode and the client's 0x5532 requests to change it.
     pub reconfigure: std::sync::Mutex<crate::reconfigure::Reconfiguration>,
+    /// Bitrate and rate changes for a client that launched with `rlRateChange=1` (0x553C):
+    /// their switches and answers, sent by the control loop. Take after `reconfigure`.
+    pub rate_changes: std::sync::Mutex<crate::rate_change::RateChanges>,
     pub stats: Stats,
     pub started: Instant,
     pub output: std::sync::RwLock<String>,
@@ -3028,6 +3031,7 @@ impl<P, A> Session<P, A> {
             fec_split: AtomicU32::new(0),
             phase_sync: Default::default(),
             reconfigure: std::sync::Mutex::new(crate::reconfigure::Reconfiguration::new(mode)),
+            rate_changes: Default::default(),
             stats: Stats::default(),
             started,
             output: std::sync::RwLock::new(String::new()),

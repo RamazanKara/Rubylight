@@ -114,6 +114,10 @@ impl Reconfiguration {
     pub fn current(&self) -> Mode {
         self.current
     }
+    /// The mode the stream switches to next: the pending request's, else the current one.
+    pub fn requested(&self) -> Mode {
+        self.pending.map_or(self.current, |pending| pending.mode)
+    }
     /// Records a 0x5532 payload.
     pub fn on_payload(&mut self, now: Instant, payload: &[u8]) -> Outcome {
         match Request::decode(payload) {

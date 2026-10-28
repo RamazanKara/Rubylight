@@ -179,7 +179,7 @@ fn release_clip(target: Rect) -> bool {
 
 /// Windows 11 throttles processes it considers in the background (EcoQoS,
 /// coarse timers); a background stream's game is in the background by design.
-fn unthrottle(pid: u32) -> Option<(OwnedHandle, PROCESS_POWER_THROTTLING_STATE)> {
+pub(crate) fn unthrottle(pid: u32) -> Option<(OwnedHandle, PROCESS_POWER_THROTTLING_STATE)> {
     // SAFETY: the newly opened handle has one owner; both structures are
     // live locals of the sizes passed to Windows.
     unsafe {
@@ -221,7 +221,7 @@ fn unthrottle(pid: u32) -> Option<(OwnedHandle, PROCESS_POWER_THROTTLING_STATE)>
     }
 }
 
-fn restore_throttle(process: &OwnedHandle, previous: &PROCESS_POWER_THROTTLING_STATE) {
+pub(crate) fn restore_throttle(process: &OwnedHandle, previous: &PROCESS_POWER_THROTTLING_STATE) {
     let mask =
         PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
     // SAFETY: the held process handle prevents PID reuse; both state

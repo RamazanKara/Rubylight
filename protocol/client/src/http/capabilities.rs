@@ -54,7 +54,7 @@ pub enum Feature {
     /// List and download the host's files. Known only after [`HostCapabilities::with_native`];
     /// gate it like `FileUpload`.
     FileDownload,
-    /// Dolby Vision profile 8.1 or 8.4 (`HdrFormats`, `rubylight_protocol::hdr`).
+    /// Dolby Vision profile 8.1, 8.4 or 10.1 (`HdrFormats`, `rubylight_protocol::hdr`).
     DolbyVision,
     /// HLG HDR (`HdrFormats`).
     Hlg,
@@ -1018,7 +1018,7 @@ mod tests {
             (
                 "HdrFormats",
                 Feature::DolbyVision,
-                &[("4", true), ("8", true), ("3", false), ("x", false)][..],
+                &[("4", true), ("8", true), ("16", true), ("3", false), ("x", false)][..],
             ),
             ("HdrFormats", Feature::Hlg, &[("2", true), ("13", false), ("256", false)]),
             (

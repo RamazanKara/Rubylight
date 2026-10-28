@@ -226,9 +226,10 @@ fn a_profile_10_1_rpu_is_the_8_1_rpu_in_an_av1_metadata_obu() {
     for (index, &byte) in rpu[1..].iter().enumerate() {
         assert_eq!(bits_at(emdf, 36 + index * 8, 8), u64::from(byte), "{index}");
     }
-    // The end of the payloads, the protection bits, then one bits to a byte.
+    // The end of the payloads (payload id 0, 5 bits), the protection lengths 01 and 00 and eight
+    // zero protection bits, then one bits to a byte.
     let end = 36 + payload * 8;
-    assert_eq!(bits_at(emdf, end, 17), 0b00000_01_00_0000_0000);
+    assert_eq!(bits_at(emdf, end, 17), 0b01 << 10);
     assert_eq!(emdf.len() * 8, (end + 17).div_ceil(8) * 8);
     for at in end + 17..emdf.len() * 8 {
         assert_eq!(bit(emdf, at), 1, "padding bit {at}");
@@ -258,13 +259,13 @@ fn emdf_variable_bits_add_one_per_group() {
         (bits_at(&bits.bytes[1..], 0, used), used)
     };
     // The payload id 256 as 31 plus 225: 6, more, 1, end.
-    assert_eq!(written(5, 225), (0b00110_1_00001_0, 12));
+    assert_eq!(written(5, 225), ((6 << 7) | (1 << 6) | (1 << 1), 12));
     assert_eq!(written(8, 0), (0, 9));
     assert_eq!(written(8, 255), (0xFF << 1, 9));
     // 256 and up: FFmpeg's (size >> 8) - 1, more, size & 0xFF, end.
-    assert_eq!(written(8, 256), (0b0000_0000_1_0000_0000_0, 18));
-    assert_eq!(written(8, 300), (0b0000_0000_1_0010_1100_0, 18));
-    assert_eq!(written(8, 600), (0b0000_0001_1_0101_1000_0, 18));
+    assert_eq!(written(8, 256), (1 << 9, 18));
+    assert_eq!(written(8, 300), ((1 << 9) | (0x2C << 1), 18));
+    assert_eq!(written(8, 600), ((1 << 10) | (1 << 9) | (0x58 << 1), 18));
     assert_eq!(
         written(8, 65_791),
         ((0xFF << 10) | (1 << 9) | (0xFF << 1), 18)

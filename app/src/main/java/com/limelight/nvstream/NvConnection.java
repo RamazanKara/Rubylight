@@ -1080,6 +1080,16 @@ public class NvConnection {
             throw new LocalLaunchFailure(409, R.string.stream_recovery_session_changed,
                     "Recovery can only resume the previous session.");
         }
+        try {
+            return launchConfirming(http, context, verb);
+        } finally {
+            // Only the retry right after the user's answer closes the running game.
+            context.confirmReplace = false;
+        }
+    }
+
+    private static boolean launchConfirming(NvHTTP http, ConnectionContext context, String verb)
+            throws IOException, XmlPullParserException {
         NvApp app = context.streamConfig.getApp();
         boolean retried = false;
         while (true) {
@@ -1117,6 +1127,7 @@ public class NvConnection {
                 } finally {
                     context.connListener.launchConfirmationFinished();
                 }
+                context.confirmReplace = !confirmation.isTerminate();
                 retried = true;
             }
         }

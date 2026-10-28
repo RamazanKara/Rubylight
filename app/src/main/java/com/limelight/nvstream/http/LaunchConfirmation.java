@@ -3,6 +3,12 @@ package com.limelight.nvstream.http;
 public final class LaunchConfirmation {
     public enum State { WAITING, CONFIRMED, CANCELLED, TIMED_OUT }
 
+    /**
+     * Rubylight's launch parameter: 1 on the launch that answers a confirmed replace prompt, 0 on
+     * every other, so a remembered launch or a retry never closes the running game by itself.
+     */
+    public static final String REPLACE_PARAMETER = "rlConfirmReplace";
+
     private static final String REPLACE = "An app is already running. Launch this app again within 60 seconds to confirm that you want to close it.";
     private static final String TERMINATE = "This will close the active stream but leave Remote Monitor and Remote Input connected. Launch Terminate again within 60 seconds to confirm this was intentional.";
     private final long deadline;

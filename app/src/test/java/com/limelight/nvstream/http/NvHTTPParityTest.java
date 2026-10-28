@@ -651,6 +651,27 @@ public class NvHTTPParityTest {
         assertFalse(new StreamConfiguration.Builder().build().getRateChange());
     }
 
+    @Test
+    public void onlyARubylightHostHearsWhetherTheLaunchConfirmsTheReplace() throws Exception {
+        for (String server : new String[] {"butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml"}) {
+            ConnectionContext context = context(server);
+            assertEquals(server, HostCapabilities.Family.RUBYLIGHT, context.hostCaps.family());
+            assertEquals(server, "0", query(context, false).queryParameter(LaunchConfirmation.REPLACE_PARAMETER));
+            context.confirmReplace = true;
+            assertEquals(server, "1", query(context, false).queryParameter(LaunchConfirmation.REPLACE_PARAMETER));
+        }
+        // Vibepollo and the rest keep their 60-second relaunch rule and get the query they got before.
+        for (String server : new String[] {"vibepollo-serverinfo.xml", "apollo-serverinfo.xml",
+                "sunshine-serverinfo.xml", "gamestream-serverinfo.xml"}) {
+            ConnectionContext context = context(server);
+            assertNotEquals(server, HostCapabilities.Family.RUBYLIGHT, context.hostCaps.family());
+            String plain = NvHTTP.getLaunchQuery(context, 42, false);
+            context.confirmReplace = true;
+            assertEquals(server, plain, NvHTTP.getLaunchQuery(context, 42, false));
+            assertFalse(server, plain.contains(LaunchConfirmation.REPLACE_PARAMETER));
+        }
+    }
+
     // The Error correction setting stores the wire value; anything else leaves it to the PC.
     @Test
     public void theFecSettingReadsBackAsItsChoice() {

@@ -1785,6 +1785,7 @@ impl Streaming {
                         Ok((ceiling, current)) => {
                             self.facts.bitrate_kbps = current as i32;
                             self.bitrate_kbps = current;
+                            if let Some(rates) = &mut self.rate_change { rates.bitrate_set(current, self.started.elapsed().as_millis() as u64); }
                             self.bitrate_policy = Some(bitrate::Bitrate::new(self.facts.format, ceiling, current, self.facts.fps.max(1) as u32,
                                 (u32::from(self.requested_mode.width), u32::from(self.requested_mode.height)),
                                 self.started.elapsed().as_millis() as u64));
@@ -1823,9 +1824,10 @@ impl Streaming {
                     if let Some(kbps) = kbps.filter(|kbps| *kbps > 0) {
                         self.facts.bitrate_kbps = kbps as i32;
                         self.bitrate_kbps = kbps;
+                        if let Some(rates) = &mut self.rate_change { rates.bitrate_set(kbps, self.started.elapsed().as_millis() as u64); }
                     }
                     // Automatic bitrate or quality started meanwhile: it owns the bitrate from here on.
-                    if self.adaptive_bitrate || self.quality_mode != QualityMode::Off { self.doctor.trial.clear(); }
+                    if self.automatic_bitrate() { self.doctor.trial.clear(); }
                     self.show_toast(toast);
                 }
                 Notice::HardwareMetrics { generation, result } => {
@@ -2127,6 +2129,11 @@ impl Streaming {
         self.rate_change.as_ref().is_some_and(|rates| rates.hint_active())
     }
 
+    /// Automatic bitrate, automatic quality or the client-hint controller owns the bitrate.
+    fn automatic_bitrate(&self) -> bool {
+        bitrate_automatic(self.adaptive_bitrate, self.quality_mode, self.rate_change.as_ref())
+    }
+
     pub fn enable_adaptive_bitrate(&mut self, enabled: bool) {
         if self.bitrate_busy { return; }
         if enabled && self.client_hint_active() {
@@ -2156,7 +2163,7 @@ impl Streaming {
     /// The trial the doctor offers with this report: none while automatic bitrate or quality owns
     /// the bitrate, the host cannot change it mid-stream or another bitrate request runs.
     fn trial_offer(&self, report: &nightjar_policy::health::Report) -> TrialOffer {
-        let automatic = self.adaptive_bitrate || self.quality_mode != QualityMode::Off;
+        let automatic = self.automatic_bitrate();
         self.doctor.trial.offer(report.can_suggest_bitrate(), self.facts.bitrate_kbps.max(0) as u32, self.facts.runtime_bitrate, automatic, self.bitrate_busy)
     }
 
@@ -3376,9 +3383,28 @@ fn key_input(scancode: SDL_Scancode, held: SDL_Keymod, system_keys: bool, right_
     Some(KeyInput { code, modifiers, flags })
 }
 
+/// Whether something automatic owns the bitrate, so the doctor's trial stays out of its way:
+/// the PC's adaptive bitrate, automatic quality, or the client-hint controller over 0x553C.
+fn bitrate_automatic(adaptive_bitrate: bool, quality_mode: QualityMode, rate_change: Option<&rate_change::RateChange>) -> bool {
+    adaptive_bitrate || quality_mode != QualityMode::Off || rate_change.is_some_and(|rates| rates.hint_active())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_doctor_offers_no_trial_while_the_client_hint_steers_the_bitrate() {
+        let trial = nightjar_policy::health::BitrateTrial::default();
+        let offer = |automatic| trial.offer(true, 20_000, true, automatic, false);
+        let hint = rate_change::RateChange::new(20_000, 60_000, true, 0, 0);
+        let manual = rate_change::RateChange::new(20_000, 60_000, false, 0, 0);
+        assert_eq!(offer(bitrate_automatic(false, QualityMode::Off, Some(&hint))), TrialOffer::None);
+        assert_eq!(offer(bitrate_automatic(false, QualityMode::Off, Some(&manual))), TrialOffer::Try);
+        assert_eq!(offer(bitrate_automatic(false, QualityMode::Off, None)), TrialOffer::Try);
+        assert_eq!(offer(bitrate_automatic(true, QualityMode::Off, None)), TrialOffer::None);
+        assert_eq!(offer(bitrate_automatic(false, QualityMode::Motion, None)), TrialOffer::None);
+    }
 
     #[test]
     fn each_image_clipboard_refusal_says_its_own_reason() {

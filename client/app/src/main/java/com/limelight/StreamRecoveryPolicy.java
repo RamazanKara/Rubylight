@@ -5,6 +5,8 @@ final class StreamRecoveryPolicy {
     static final int MAX_ATTEMPTS = 5;
     static final long WINDOW_MS = 60000;
     static final long STABLE_MS = 30000;
+    /** The resume after the user's own trip: the first retry's delay, never counted as an attempt. */
+    static final long TRIP_RESUME_DELAY_MS = 1000;
     private static final long[] DELAYS_MS = {1000, 2000, 4000, 8000, 12000};
 
     private int attempts;

@@ -212,6 +212,8 @@ struct ModeReportState {
     requested: RequestedMode,
     stream_rate: u32,
     last: Option<std::result::Result<AppliedMode, String>>,
+    /// Why the display could not follow the stream's last turn, until a turn follows.
+    unfollowed: Option<String>,
 }
 impl ModeReportState {
     fn report(&self) {
@@ -228,6 +230,10 @@ impl ModeReportState {
             Some(Err(error)) => self.warnings.set("display_verify", format!("Could not verify the applied display mode ({error}); refresh and HDR may differ from the request. Check Windows display settings and reconnect.")),
             None => {}
         }
+        match &self.unfollowed {
+            Some(error) => self.warnings.set("display_follow", format!("The display could not turn with the stream ({error}); the picture is scaled to fit instead. Check Windows display settings or turn the device back.")),
+            None => self.warnings.clear("display_follow"),
+        }
     }
 }
 impl ModeReport {
@@ -237,6 +243,7 @@ impl ModeReport {
             requested,
             stream_rate,
             last: None,
+            unfollowed: None,
         })))
     }
     fn publish(&self, actual: Result<AppliedMode>) {
@@ -255,6 +262,12 @@ impl ModeReport {
         let mut state = self.0.lock().unwrap();
         state.requested = requested;
         state.stream_rate = stream_rate;
+    }
+    /// Whether the display followed the stream's last turn.
+    fn followed(&self, result: &Result<()>) {
+        let mut state = self.0.lock().unwrap();
+        state.unfollowed = result.as_ref().err().map(|error| format!("{error:#}"));
+        state.report();
     }
     /// The display now runs at a resolution the user chose, which the stream keeps.
     fn adopt(&self, resolution: (u32, u32)) {
@@ -402,10 +415,10 @@ impl Ready {
                     let active = worker_active.load(Ordering::Acquire) != 0;
                     let result = prepared.feed(active);
                     let taken = worker_turned.lock().unwrap().take();
-                    if let Some(to) = taken
-                        && let Err(error) = prepared.follow_shape(to)
-                    {
-                        tracing::warn!(error = %format!("{error:#}"), "the stream's display could not follow the turned stream; its picture is scaled instead");
+                    if let Some(to) = taken {
+                        // The card says so; the colour conversion scales the picture meanwhile.
+                        let followed = prepared.follow_shape(to);
+                        prepared.mode_report.followed(&followed);
                     }
                     let tick = if active || result.is_err() || prepared.recovery.pending {
                         Duration::from_millis(100)
@@ -3617,6 +3630,24 @@ pub(crate) mod tests {
         let third = Arc::new(Warnings::default());
         fresh.attach(third.clone());
         assert!(codes(&third).is_empty());
+    }
+
+    #[test]
+    fn a_display_that_cannot_follow_a_turned_stream_says_so_on_the_card() {
+        let first = Arc::new(Warnings::default());
+        let report = ModeReport::new(first.clone(), (None, None, None), 60_000);
+        report.followed(&Err(anyhow::anyhow!("rotation refused")));
+        assert_eq!(codes(&first), ["display_follow"]);
+        assert!(first.snapshot()[0].message.contains("rotation refused"));
+        // A later mode finding keeps it; a resumed launch sees it on its own card.
+        report.publish(Ok((1920, 1080, 60_000, false)));
+        assert_eq!(codes(&first), ["display_follow"]);
+        let second = Arc::new(Warnings::default());
+        report.attach(second.clone());
+        assert_eq!(codes(&second), ["display_follow"]);
+        // The next turn follows: the warning goes.
+        report.followed(&Ok(()));
+        assert!(codes(&second).is_empty());
     }
 
     #[test]

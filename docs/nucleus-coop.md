@@ -45,7 +45,9 @@ downloads Nucleus Co-op 2.4.2 (`NucleusApp.zip`, 97 MB, from its GitHub
 release) and the panel shows the progress. It
 checks the archive's size and SHA-256 and refuses one that doesn't match, then
 unpacks it into `C:\ProgramData\Butterpollo\nucleus\2.4.2`, which only SYSTEM
-and Administrators can change. To use your own copy instead, set
+and Administrators can change. Nucleus Co-op's handler hub view is a WebView2
+browser, which runs without administrator rights, so its data lives in the
+signed-in user's `AppData\Local\Butterpollo\nucleus-webview` instead. To use your own copy instead, set
 `nucleus_path` to the folder that holds `NucleusCoop.exe`. Nucleus Co-op runs
 elevated, so that folder, the exe and the folder's parent must be ones only
 SYSTEM and Administrators can change (under `C:\Program Files`, for example);

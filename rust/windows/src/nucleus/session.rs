@@ -68,7 +68,7 @@ impl Launcher for Elevated {
             &[guid.into()],
             Some(folder),
             crate::process::Target::User { elevated: true },
-            &BTreeMap::new(),
+            &environment()?,
             false,
         )
         .with_context(|| format!("starting {} elevated", program.display()))?;
@@ -90,13 +90,32 @@ pub fn open(folder: &Path) -> Result<Opened> {
         &line,
         Some(folder),
         crate::process::Target::User { elevated: true },
-        &BTreeMap::new(),
+        &environment()?,
         false,
         true,
     )
     .with_context(|| format!("starting {} elevated", program.display()))?;
     tracing::info!(pid = process.pid, folder = %folder.display(), "Nucleus Co-op opened for the user");
     Ok(Opened(process))
+}
+
+/// WebView2 starts its browser without administrator rights even for an
+/// elevated Nucleus Co-op, so that browser could not write the hub view's
+/// data folder (`webview\cache` in Nucleus' Administrators-only folder) and
+/// Nucleus stayed on its loading screen with "Microsoft Edge can't read and
+/// write to its data directory" (#59). `WEBVIEW2_USER_DATA_FOLDER` replaces
+/// the folder Nucleus passes: one in the signed-in user's own AppData\Local.
+fn environment() -> Result<BTreeMap<String, String>> {
+    let local = crate::child_session::console_local_app_data()?
+        .context("Nucleus Co-op needs a Windows account signed in at this PC's screen")?;
+    Ok(webview_environment(&local))
+}
+fn webview_environment(local_app_data: &Path) -> BTreeMap<String, String> {
+    let folder = local_app_data.join("Butterpollo").join("nucleus-webview");
+    BTreeMap::from([(
+        "WEBVIEW2_USER_DATA_FOLDER".to_string(),
+        folder.to_string_lossy().into_owned(),
+    )])
 }
 
 /// Without an elevated token for the signed-in user (a standard account, or
@@ -662,6 +681,19 @@ mod tests {
     use super::*;
     use butterpollo_core::nucleus::window::{Rect, Window};
     use butterpollo_core::steam::Process;
+
+    #[test]
+    fn webview2_keeps_its_data_in_the_users_own_folder() {
+        // WebView2's browser runs without administrator rights and could not
+        // write Nucleus' Administrators-only webview\cache (#59).
+        let local = Path::new(r"C:\Users\Player\AppData\Local");
+        let environment = webview_environment(local);
+        assert_eq!(environment.len(), 1);
+        assert_eq!(
+            environment["WEBVIEW2_USER_DATA_FOLDER"],
+            r"C:\Users\Player\AppData\Local\Butterpollo\nucleus-webview"
+        );
+    }
 
     #[test]
     fn an_account_without_administrator_rights_is_refused_before_nucleus_starts() {

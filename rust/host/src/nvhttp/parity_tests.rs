@@ -529,6 +529,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <AudioLayouts>15</AudioLayouts>\
              <TextInputVersion>1</TextInputVersion>\
              <KeyboardLayoutVersion>1</KeyboardLayoutVersion>\
+             <PenBarrelRollVersion>1</PenBarrelRollVersion>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),
@@ -586,6 +587,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <AudioLayouts>15</AudioLayouts>\
              <TextInputVersion>1</TextInputVersion>\
              <KeyboardLayoutVersion>1</KeyboardLayoutVersion>\
+             <PenBarrelRollVersion>1</PenBarrelRollVersion>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),

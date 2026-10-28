@@ -32,6 +32,7 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
+             a=x-ss-general.penBarrelRoll:1\r\n\
              a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
@@ -83,6 +84,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
+             a=x-ss-general.penBarrelRoll:1\r\n\
              a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\

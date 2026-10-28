@@ -125,10 +125,7 @@ async fn the_library_lists_the_co_op_entries_after_the_apps() {
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     let library: Library = serde_json::from_slice(&reply.body).unwrap();
     let last = library.games.last().unwrap();
-    assert_eq!(
-        (last.app_id, last.title.as_str()),
-        (id, "Co-op (Nucleus): Portal 2")
-    );
+    assert_eq!((last.app_id, last.title.as_str()), (id, "Portal 2 (Co-op)"));
     assert_eq!(library.games[library.games.len() - 2].title, "Portal 2");
 }
 
@@ -141,7 +138,7 @@ async fn coop_lists_the_games_and_the_sessions_as_the_device_sees_them() {
     assert_eq!(empty.games.len(), 1);
     assert_eq!(
         (empty.games[0].app_id, empty.games[0].title.as_str()),
-        (id, "Co-op (Nucleus): Portal 2")
+        (id, "Portal 2 (Co-op)")
     );
     assert_eq!(
         (empty.games[0].game.as_str(), empty.games[0].max_players),

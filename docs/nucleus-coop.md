@@ -41,22 +41,27 @@ password that build saved; if that fails, **Maintenance** says why and offers
 
 ## Installing Nucleus Co-op
 
-You don't install anything up front. At the first Nucleus launch the host
-downloads Nucleus Co-op 2.4.2 (`NucleusApp.zip` from its GitHub release). It
+Set it up from a game's page in the console: **Games** › the game ›
+**Play together** › **Set up co-op**. That, or else the first Nucleus launch,
+downloads Nucleus Co-op 2.4.2 (`NucleusApp.zip`, 97 MB, from its GitHub
+release) and the panel shows the progress. It
 checks the archive's size and SHA-256 and refuses one that doesn't match, then
 unpacks it into `C:\ProgramData\Butterpollo\nucleus\2.4.2`, which only SYSTEM
 and Administrators can change. To use your own copy instead, set
 `nucleus_path` to the folder that holds `NucleusCoop.exe`. Nucleus Co-op runs
 elevated, so that folder, the exe and the folder's parent must be ones only
 SYSTEM and Administrators can change (under `C:\Program Files`, for example);
-a copy in a folder you can change without elevation is refused. Maintenance shows
-the install state and any download or check error. While Nucleus Co-op cannot
-be installed, launches answer 503 with the reason.
+a copy in a folder you can change without elevation is refused. The game page
+and Maintenance show the install state and any download or check error. While
+Nucleus Co-op cannot be installed, launches answer 503 with the reason.
 
 Nucleus Co-op launches a game through its **handler** for that game. Handlers
 come from Nucleus Co-op's handler hub and are your own content: Rubylight
-ships none. Open Nucleus Co-op, download the handler for each game you want to
-play this way, and play it once there. A game without a handler is refused
+ships none. When a game has none, its Play together panel says so: **Open
+Nucleus Co-op on this PC** opens Nucleus Co-op on the PC's screen, where you
+search its handler hub for the game, download the handler and add the game.
+The panel moves on by itself once the handler is there. A game without a
+handler is refused
 with "No Nucleus Co-op handler for <exe>: add one in Nucleus Co-op's handler
 hub".
 
@@ -70,8 +75,10 @@ these launches and says why.
 
 ## Playing co-op
 
-Each app whose game has a handler gets a second library entry, **Co-op
-(Nucleus): <app>**. The first device that launches it starts a session with
+Each app whose game has a handler gets a second library entry, **<app>
+(Co-op)**, which sorts next to the game. The game's Play together panel says
+how many players it seats and can hide the entry (**Show "<app> (Co-op)" in
+the library**, the app setting `coop-entry`). The first device that launches it starts a session with
 one slot per player: the handler's maximum, capped at 4 and at
 `nucleus_coop_players` (1 to 4, 4 by default). Every other device that
 launches the same entry joins the running session in a free slot. Any

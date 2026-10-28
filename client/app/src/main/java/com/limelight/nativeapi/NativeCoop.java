@@ -38,7 +38,7 @@ public final class NativeCoop {
     /** A co-op library entry: an app whose exe has a Nucleus Co-op handler. */
     public static final class Game {
         public final int appId;
-        /** {@code Co-op (Nucleus): <app name>}, as the library lists it. */
+        /** {@code <app name> (Co-op)}, as the library lists it. */
         public final String title;
         public final int maxPlayers;
 

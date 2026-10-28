@@ -232,7 +232,7 @@ public class CoopSheetTest {
         assertEquals(Arrays.asList("coop", "coop.join 3000000000"), calls);
         assertEquals(Arrays.asList("start"), ui.events);
         assertEquals(Integer.MAX_VALUE, ui.started.getAppId());
-        assertEquals("Co-op (Nucleus): Portal 2", ui.started.getAppName());
+        assertEquals("Portal 2 (Co-op)", ui.started.getAppName());
         assertFalse(sheet.sheet().isShowing());
     }
 

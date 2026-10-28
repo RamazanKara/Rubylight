@@ -8,7 +8,7 @@ pub struct Game {
     /// The entry's id in `/applist` and `/library`; `/launch` it to start a
     /// session or join the running one.
     pub app_id: u32,
-    /// `Co-op (Nucleus): <app name>`.
+    /// `<app name> (Co-op)`.
     pub title: String,
     /// The handler's GUID.
     pub game: String,
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn a_listing_reads_back_and_tolerates_newer_values() {
         let json = r#"{"available":true,"reason":null,
-            "games":[{"app_id":7,"title":"Co-op (Nucleus): Portal 2","game":"g","max_players":2}],
+            "games":[{"app_id":7,"title":"Portal 2 (Co-op)","game":"g","max_players":2}],
             "sessions":[{"id":3,"app_id":7,"title":"Portal 2","game":"g","phase":"paused",
               "end":{"reason":"melted","detail":null},
               "players":[{"slot":0,"name":"Fold7","you":true,"away":false,"extra":1}],

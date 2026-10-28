@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 pub struct CoopGame {
     /// The entry's id in the app list; launching it starts a session or joins the running one.
     pub app_id: u32,
-    /// `Co-op (Nucleus): <app name>`.
+    /// `<app name> (Co-op)`.
     pub title: String,
     /// The handler's GUID.
     pub game: String,
@@ -176,7 +176,7 @@ mod tests {
     use crate::http::native_api::error::ApiError;
 
     const LISTING: &str = r#"{"available":true,"reason":null,
-        "games":[{"app_id":7,"title":"Co-op (Nucleus): Portal 2","game":"g","max_players":2}],
+        "games":[{"app_id":7,"title":"Portal 2 (Co-op)","game":"g","max_players":2}],
         "sessions":[{"id":3,"app_id":7,"title":"Portal 2","game":"g","phase":"paused",
           "end":{"reason":"melted","detail":null},
           "players":[{"slot":0,"name":"Fold7","you":true,"away":false,"extra":1},

@@ -441,7 +441,7 @@ mod tests {
         fn coop(&self) -> Result<Coop, Error> {
             self.note("coop");
             Ok(serde_json::from_str(
-                r#"{"available":true,"reason":null,"games":[{"app_id":7,"title":"Co-op (Nucleus): Portal 2","game":"g","max_players":2}],"sessions":[{"id":3,"app_id":7,"title":"Portal 2","game":"g","phase":"running","end":null,"players":[{"slot":0,"name":"Fold7","you":false,"away":false},{"slot":1,"name":null,"you":false,"away":false}],"free_slots":1,"joinable":false,"refusal":"This device may not join co-op sessions"}]}"#,
+                r#"{"available":true,"reason":null,"games":[{"app_id":7,"title":"Portal 2 (Co-op)","game":"g","max_players":2}],"sessions":[{"id":3,"app_id":7,"title":"Portal 2","game":"g","phase":"running","end":null,"players":[{"slot":0,"name":"Fold7","you":false,"away":false},{"slot":1,"name":null,"you":false,"away":false}],"free_slots":1,"joinable":false,"refusal":"This device may not join co-op sessions"}]}"#,
             )
             .unwrap())
         }

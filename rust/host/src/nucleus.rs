@@ -31,8 +31,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, Weak};
 use std::time::{Duration, Instant};
 
-/// A co-op library entry's name: this, then the app's name.
-pub const ENTRY_PREFIX: &str = "Co-op (Nucleus): ";
+/// A co-op library entry's name: the app's name, then this, so the entry
+/// sorts next to its game and names no tool.
+pub const ENTRY_SUFFIX: &str = " (Co-op)";
+/// The app setting that hides a game's co-op entry from the library when it
+/// is false; the entry shows by default.
+pub const ENTRY_KEY: &str = "coop-entry";
 /// How long one read of the handlers and games serves the library:
 /// Moonlight asks for `/applist` every few seconds.
 const CATALOG_TTL: Duration = Duration::from_secs(10);
@@ -92,8 +96,12 @@ pub trait Pc: Send + Sync {
     fn unavailable(&self) -> Option<String>;
     /// The Nucleus folder once it is there; `configured` is `nucleus_path`.
     fn installed(&self, configured: &str) -> Result<Option<PathBuf>>;
-    /// The Nucleus folder, installing the pinned release first.
-    fn ensure(&self, configured: &str) -> Result<PathBuf>;
+    /// The Nucleus folder, installing the pinned release first; `progress`
+    /// hears the bytes downloaded so far.
+    fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf>;
+    /// Open Nucleus Co-op's own window at `folder` on the PC's screen, as the
+    /// signed-in user, so they can add a handler or a game.
+    fn open(&self, folder: &Path) -> Result<()>;
     /// The handlers and the signed-in user's games of the Nucleus at `folder`.
     fn catalog(&self, folder: &Path) -> Result<Catalog>;
     /// The XInput slots the PC's own controllers leave free.
@@ -153,16 +161,20 @@ impl Pc for OnPc {
     fn installed(&self, configured: &str) -> Result<Option<PathBuf>> {
         install::installed(&butterpollo_core::paths::data_root(), configured)
     }
-    fn ensure(&self, configured: &str) -> Result<PathBuf> {
+    fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf> {
         let mut download = Download(
             tokio::runtime::Handle::try_current()
                 .context("downloading Nucleus Co-op needs the host's runtime")?,
+            progress,
         );
         install::ensure(
             &butterpollo_core::paths::data_root(),
             configured,
             &mut download,
         )
+    }
+    fn open(&self, folder: &Path) -> Result<()> {
+        butterpollo_windows::nucleus::session::open(folder)
     }
     fn catalog(&self, folder: &Path) -> Result<Catalog> {
         let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
@@ -225,8 +237,8 @@ fn ended(session: &coop::Session) -> Option<&End> {
 /// Downloads with the updater's HTTPS client, which follows redirects to
 /// GitHub's asset hosts only. Blocks, so never on the async runtime.
 #[cfg_attr(test, allow(dead_code, reason = "tests never reach the real PC"))]
-struct Download(tokio::runtime::Handle);
-impl install::Fetch for Download {
+struct Download<'a>(tokio::runtime::Handle, &'a (dyn Fn(u64) + Sync));
+impl install::Fetch for Download<'_> {
     fn fetch(&mut self, url: &str, limit: u64) -> Result<Vec<u8>> {
         self.0.block_on(async {
             let mut response = crate::updater::client(Duration::from_secs(600))?
@@ -237,6 +249,7 @@ impl install::Fetch for Download {
             let mut body = Vec::new();
             while let Some(part) = response.chunk().await? {
                 chunk(&mut body, &part, limit)?;
+                (self.1)(body.len() as u64);
             }
             Ok(body)
         })
@@ -277,11 +290,30 @@ fn executable(app: &App) -> Option<&str> {
         .find(|target| !target.is_empty())
 }
 
+/// The co-op entry's name for the app `name`.
+pub fn entry_name(name: &str) -> String {
+    format!("{name}{ENTRY_SUFFIX}")
+}
+
+/// Whether the app lists its co-op entry: only an explicit false
+/// ([`ENTRY_KEY`]) hides it.
+fn entry_shown(app: &App) -> bool {
+    match app.extra.get(ENTRY_KEY) {
+        Some(Value::Bool(shown)) => *shown,
+        Some(Value::String(text)) => !matches!(
+            text.trim().to_ascii_lowercase().as_str(),
+            "false" | "0" | "no" | "off"
+        ),
+        Some(Value::Number(n)) => n.as_i64() != Some(0),
+        _ => true,
+    }
+}
+
 /// A co-op library entry: an app whose program Nucleus Co-op has a handler
 /// and an added game for.
 #[derive(Clone, Debug)]
 pub struct CoopApp {
-    /// The entry the library lists: [`ENTRY_PREFIX`] and the app's name,
+    /// The entry the library lists: the app's name and [`ENTRY_SUFFIX`],
     /// with the id of that name. It runs nothing itself.
     pub entry: App,
     /// The app whose game it starts.
@@ -295,17 +327,19 @@ impl CoopApp {
 }
 
 /// The co-op entries of `apps`, in their order. An entry whose id an app
-/// or an earlier entry already has is left out.
+/// or an earlier entry already has is left out, and so is one its app hides
+/// ([`ENTRY_KEY`]).
 fn entries_of(catalog: &Catalog, apps: &[App]) -> Vec<CoopApp> {
     let mut taken: BTreeSet<u32> = apps
         .iter()
         .flat_map(|app| std::iter::once(app.id()).chain(app.aliases.iter().copied()))
         .collect();
     apps.iter()
+        .filter(|app| entry_shown(app))
         .filter_map(|app| {
             let found = catalog.find(&app.name, executable(app)).ok()?;
             let entry = App {
-                name: format!("{ENTRY_PREFIX}{}", app.name),
+                name: entry_name(&app.name),
                 cmd: String::new(),
                 working_dir: String::new(),
                 prep: Vec::new(),
@@ -329,8 +363,53 @@ pub enum Install {
     Installed(PathBuf),
     /// `nucleus_path`, the user's own copy.
     Configured(PathBuf),
-    Installing,
+    /// Downloading, with the bytes received so far; all of them while the
+    /// archive is checked and unpacked.
+    Installing(u64),
     Failed(String),
+}
+
+/// What the console's Set up co-op found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetUp {
+    Installed,
+    /// Another call downloads it.
+    Installing,
+    /// This call marked it as installing: run [`Registry::install_now`].
+    Started,
+}
+
+/// Whether the console's game page offers co-op for `app`: Nucleus Co-op
+/// starts games by their .exe, so an app without one (the Desktop, a game
+/// Playnite starts) has no co-op.
+pub fn names_executable(app: &App) -> bool {
+    executable(app).is_some()
+}
+
+/// Whether `app` starts a game's .exe itself, which Nucleus Co-op can find a
+/// handler and an added game for; a launcher's link (`steam://`, or
+/// `cmd /c start` with one) never matches.
+pub fn starts_exe(app: &App) -> bool {
+    executable(app).is_some_and(|target| {
+        target
+            .rsplit(['\\', '/'])
+            .next()
+            .is_some_and(|name| name.to_ascii_lowercase().ends_with(".exe"))
+    })
+}
+
+/// Where one app stands for co-op, for the console's game page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GameStatus {
+    /// Nucleus Co-op has a handler and the added game: the entry can list.
+    Ready {
+        handler: String,
+        /// The most players a session of it seats (the handler's, capped by
+        /// `nucleus_coop_players`).
+        players: usize,
+    },
+    /// Why not: the host's text, as a launch would answer it.
+    Missing(Missing),
 }
 
 /// What a launch asks Nucleus Co-op to run.
@@ -413,7 +492,8 @@ struct Entry {
 struct State {
     sessions: BTreeMap<u32, Entry>,
     next: u32,
-    installing: bool,
+    /// The bytes downloaded while an install runs.
+    installing: Option<u64>,
     install_error: Option<String>,
 }
 
@@ -536,12 +616,12 @@ impl Registry {
     pub fn install(&self, configured: &str) -> Install {
         let installed = self.pc().installed(configured);
         let state = self.lock();
-        match installed {
-            Ok(Some(folder)) if !configured.trim().is_empty() => Install::Configured(folder),
-            Ok(Some(folder)) => Install::Installed(folder),
-            _ if state.installing => Install::Installing,
-            Err(error) => Install::Failed(format!("{error:#}")),
-            Ok(None) => state
+        match (installed, state.installing) {
+            (Ok(Some(folder)), _) if !configured.trim().is_empty() => Install::Configured(folder),
+            (Ok(Some(folder)), _) => Install::Installed(folder),
+            (_, Some(received)) => Install::Installing(received),
+            (Err(error), None) => Install::Failed(format!("{error:#}")),
+            (Ok(None), None) => state
                 .install_error
                 .clone()
                 .map_or(Install::Missing, Install::Failed),
@@ -553,10 +633,12 @@ impl Registry {
         if let Ok(Some(folder)) = pc.installed(configured) {
             return Ok(folder);
         }
-        self.lock().installing = true;
-        let result = pc.ensure(configured);
+        self.lock().installing = Some(0);
+        let result = pc.ensure(configured, &|received| {
+            self.lock().installing = Some(received);
+        });
         let mut state = self.lock();
-        state.installing = false;
+        state.installing = None;
         match result {
             Ok(folder) => {
                 state.install_error = None;
@@ -568,6 +650,111 @@ impl Registry {
                 Err(Refusal::unavailable(message))
             }
         }
+    }
+
+    /// The console's Set up co-op: whether Nucleus Co-op is there, already
+    /// downloading, or now marked as installing, which the caller then runs
+    /// with [`Self::install_now`] off the async runtime. Refused where
+    /// Nucleus Co-op can't run, so nothing downloads that could never start.
+    pub fn set_up(&self, configured: &str) -> Result<SetUp, Refusal> {
+        let pc = self.pc();
+        if let Some(why) = pc.unavailable() {
+            return Err(Refusal::unavailable(why));
+        }
+        let installed = pc.installed(configured);
+        let mut state = self.lock();
+        if let Ok(Some(_)) = installed {
+            return Ok(SetUp::Installed);
+        }
+        if state.installing.is_some() {
+            return Ok(SetUp::Installing);
+        }
+        state.installing = Some(0);
+        state.install_error = None;
+        Ok(SetUp::Started)
+    }
+
+    /// Run the install [`Self::set_up`] started; a failure shows in
+    /// [`Self::install`], as a launch's does.
+    pub fn install_now(&self, configured: &str) {
+        let pc = self.pc();
+        let result = self.ensure(pc.as_ref(), configured);
+        // `ensure` found it installed after all: nothing downloads.
+        self.lock().installing = None;
+        match result {
+            Ok(folder) => {
+                tracing::info!(folder = %folder.display(), "Nucleus Co-op: set up from the console")
+            }
+            Err(refusal) => {
+                tracing::warn!(error = %refusal, "Nucleus Co-op: setting up from the console failed")
+            }
+        }
+    }
+
+    /// Open Nucleus Co-op's window on the PC, where the user adds a handler
+    /// or a game. Refused where it can't run, before it is set up, and while
+    /// a session runs, which holds it.
+    pub fn open(&self, configured: &str) -> Result<(), Refusal> {
+        let pc = self.pc();
+        if let Some(why) = pc.unavailable() {
+            return Err(Refusal::unavailable(why));
+        }
+        let folder = match pc.installed(configured) {
+            Ok(Some(folder)) => folder,
+            Ok(None) => {
+                return Err(Refusal::busy(
+                    "Nucleus Co-op is not set up yet: set up co-op first",
+                ));
+            }
+            Err(error) => {
+                return Err(Refusal::unavailable(format!(
+                    "Nucleus Co-op is not ready: {error:#}"
+                )));
+            }
+        };
+        let running = self.lock().sessions.values().find_map(|entry| {
+            entry
+                .instance
+                .session(|s| (!s.ended()).then(|| s.title.clone()))
+        });
+        if let Some(title) = running {
+            return Err(Refusal::busy(format!(
+                "Nucleus Co-op is running {title}: end that session first"
+            )));
+        }
+        pc.open(&folder).map_err(|error| {
+            Refusal::unavailable(format!("Nucleus Co-op did not open: {error:#}"))
+        })?;
+        tracing::info!(folder = %folder.display(), "Nucleus Co-op: opened on the PC from the console");
+        Ok(())
+    }
+
+    /// Each app's co-op status, in the order of `apps`; None while Nucleus
+    /// Co-op is not installed, and the error while its handlers and games
+    /// don't load. The handlers are read as the library reads them, so a
+    /// handler added in Nucleus Co-op shows within [`CATALOG_TTL`].
+    pub fn games(&self, apps: &[App], config: &Config) -> Option<Result<Vec<GameStatus>, String>> {
+        let folder = self.pc().installed(&configured(config)).ok().flatten()?;
+        let catalog = match self.catalog(&folder, false) {
+            Ok(catalog) => catalog,
+            Err(error) => return Some(Err(error)),
+        };
+        let statuses = apps
+            .iter()
+            .map(|app| match catalog.find(&app.name, executable(app)) {
+                Ok(found) => GameStatus::Ready {
+                    players: coop::players(
+                        found.handler.max_players,
+                        config.nucleus_coop_players(),
+                        coop::MAX_PLAYERS,
+                    )
+                    .unwrap_or(1),
+                    handler: found.handler.name,
+                },
+                Err(missing) => GameStatus::Missing(missing),
+            })
+            .collect();
+        Some(Ok(statuses))
     }
 
     /// Admit a launch: start a session of its game, or seat the device in
@@ -1203,6 +1390,11 @@ pub(crate) mod fake {
         pub installed: Mutex<Option<PathBuf>>,
         /// What an install fails with.
         pub install_error: Mutex<Option<String>>,
+        /// What an install downloads, checked as the pinned release is;
+        /// None installs without a download.
+        pub archive: Mutex<Option<Vec<u8>>>,
+        /// How often Nucleus Co-op's window was opened.
+        pub opened: AtomicUsize,
         pub catalog: Mutex<Catalog>,
         pub free: Mutex<usize>,
         pub start_error: Mutex<Option<String>>,
@@ -1223,6 +1415,8 @@ pub(crate) mod fake {
                 unavailable: Mutex::new(None),
                 installed: Mutex::new(Some(PathBuf::from(r"C:\Nucleus"))),
                 install_error: Mutex::new(None),
+                archive: Mutex::new(None),
+                opened: AtomicUsize::new(0),
                 catalog: Mutex::new(Catalog {
                     handlers: vec![Handler {
                         file: "Portal 2.js".into(),
@@ -1257,7 +1451,7 @@ pub(crate) mod fake {
         fn installed(&self, _configured: &str) -> Result<Option<PathBuf>> {
             Ok(self.installed.lock().unwrap().clone())
         }
-        fn ensure(&self, configured: &str) -> Result<PathBuf> {
+        fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf> {
             if let Some(folder) = self.installed(configured)? {
                 return Ok(folder);
             }
@@ -1265,9 +1459,17 @@ pub(crate) mod fake {
             if let Some(error) = self.install_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
             }
+            if let Some(archive) = self.archive.lock().unwrap().as_deref() {
+                progress(archive.len() as u64);
+                butterpollo_core::nucleus::install::verify(archive).map_err(anyhow::Error::msg)?;
+            }
             let folder = PathBuf::from(r"C:\Nucleus");
             *self.installed.lock().unwrap() = Some(folder.clone());
             Ok(folder)
+        }
+        fn open(&self, _folder: &Path) -> Result<()> {
+            self.opened.fetch_add(1, Ordering::Relaxed);
+            Ok(())
         }
         fn catalog(&self, _folder: &Path) -> Result<Catalog> {
             self.reads.fetch_add(1, Ordering::Relaxed);
@@ -1386,6 +1588,7 @@ pub(crate) mod fake {
 mod tests {
     use super::*;
     use butterpollo_core::nucleus::coop::{Phase, Refused};
+    use serde_json::json;
 
     fn app(name: &str, cmd: &str) -> App {
         App {
@@ -1449,9 +1652,12 @@ mod tests {
         let entries = registry.entries(&apps, "");
         assert_eq!(entries.len(), 1);
         let coop = &entries[0];
-        assert_eq!(coop.entry.name, "Co-op (Nucleus): Portal 2");
+        assert_eq!(coop.entry.name, "Portal 2 (Co-op)");
         assert_eq!(coop.app.name, "Portal 2");
-        assert_eq!(coop.id(), app("Co-op (Nucleus): Portal 2", "").id());
+        assert_eq!(coop.id(), app("Portal 2 (Co-op)", "").id());
+        // The id follows from the name (its CRC-32), as for every app
+        // without its own: the rename changed it, before any release.
+        assert_eq!(coop.id(), 242_170_942);
         assert!(coop.entry.cmd.is_empty());
         assert_eq!(
             registry.resolve(&apps, "", coop.id()).unwrap().app.name,
@@ -1466,7 +1672,7 @@ mod tests {
         );
         assert_eq!(registry.entries(&[detached], "").len(), 1);
         // A name an app already has is not listed twice.
-        let taken = app("Co-op (Nucleus): Portal 2", "");
+        let taken = app("Portal 2 (Co-op)", "");
         assert!(entries_of(&pc.catalog.lock().unwrap(), &[apps[1].clone(), taken]).is_empty());
         // Not added in Nucleus: no entry.
         pc.catalog.lock().unwrap().games.clear();
@@ -1487,6 +1693,134 @@ mod tests {
             registry.unavailable().as_deref(),
             Some("not on this test PC")
         );
+    }
+
+    #[test]
+    fn an_app_can_hide_its_coop_entry_and_its_status_stays() {
+        let (registry, _pc, mut apps) = setup();
+        for hidden in [json!(false), json!("false"), json!(0)] {
+            apps[1].extra.insert(ENTRY_KEY.into(), hidden);
+            assert!(registry.entries(&apps, "").is_empty());
+        }
+        for shown in [json!(true), json!("1")] {
+            apps[1].extra.insert(ENTRY_KEY.into(), shown);
+            assert_eq!(registry.entries(&apps, "").len(), 1);
+        }
+        apps[1].extra.insert(ENTRY_KEY.into(), json!(false));
+        let games = registry.games(&apps, &Config::default()).unwrap().unwrap();
+        assert_eq!(
+            games[1],
+            GameStatus::Ready {
+                handler: "Portal 2".into(),
+                players: 2
+            }
+        );
+        assert!(matches!(
+            games[0],
+            GameStatus::Missing(Missing::NoExecutable { .. })
+        ));
+        assert!(matches!(
+            &games[2],
+            GameStatus::Missing(Missing::NoHandler { .. })
+        ));
+        assert!(!names_executable(&apps[0]) && names_executable(&apps[1]));
+        // A launcher's link names no game .exe: no handler can match it.
+        let steam = app(
+            "Counter-Strike 2",
+            "cmd /c start \"\" steam://rungameid/730",
+        );
+        assert!(names_executable(&steam) && !starts_exe(&steam));
+        assert!(!starts_exe(&apps[2]) && starts_exe(&apps[1]));
+        assert!(starts_exe(&app("Puzzle", r"D:\Games\PUZZLE.EXE")));
+    }
+
+    #[test]
+    fn game_statuses_need_an_install_and_follow_the_player_cap() {
+        let (registry, pc, apps) = setup();
+        let mut config = Config::default();
+        config
+            .values
+            .insert("nucleus_coop_players".into(), "1".into());
+        assert_eq!(
+            registry.games(&apps, &config).unwrap().unwrap()[1],
+            GameStatus::Ready {
+                handler: "Portal 2".into(),
+                players: 1
+            }
+        );
+        // Not added in Nucleus Co-op yet.
+        pc.catalog.lock().unwrap().games.clear();
+        registry.use_pc(pc.clone());
+        assert!(matches!(
+            &registry.games(&apps, &config).unwrap().unwrap()[1],
+            GameStatus::Missing(Missing::NotAdded { .. })
+        ));
+        *pc.installed.lock().unwrap() = None;
+        assert!(registry.games(&apps, &config).is_none());
+    }
+
+    #[test]
+    fn set_up_installs_once_and_reports_its_progress() {
+        let (registry, pc, _apps) = setup();
+        assert_eq!(registry.set_up("").unwrap(), SetUp::Installed);
+        *pc.installed.lock().unwrap() = None;
+        assert_eq!(registry.set_up("").unwrap(), SetUp::Started);
+        assert_eq!(registry.install(""), Install::Installing(0));
+        assert_eq!(registry.set_up("").unwrap(), SetUp::Installing);
+        registry.install_now("");
+        assert_eq!(
+            registry.install(""),
+            Install::Installed(PathBuf::from(r"C:\Nucleus"))
+        );
+        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn set_up_and_open_are_refused_where_nucleus_cannot_run() {
+        let (registry, _pc, _apps) = setup();
+        let unavailable = Arc::new(fake::Pc::unavailable());
+        *unavailable.installed.lock().unwrap() = None;
+        registry.use_pc(unavailable.clone());
+        let refused = registry.set_up("").unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (503, "not on this test PC")
+        );
+        assert_eq!(registry.install(""), Install::Missing);
+        let refused = registry.open("").unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (503, "not on this test PC")
+        );
+        assert_eq!(
+            unavailable
+                .opened
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[test]
+    fn open_needs_the_install_and_no_running_session() {
+        let (registry, pc, apps) = setup();
+        *pc.installed.lock().unwrap() = None;
+        let refused = registry.open("").unwrap_err();
+        assert_eq!(refused.status, 409);
+        assert!(refused.message.contains("set up co-op first"), "{refused}");
+        *pc.installed.lock().unwrap() = Some(PathBuf::from(r"C:\Nucleus"));
+        registry.open("").unwrap();
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let coop = registry.entries(&apps, "").remove(0);
+        admit(&registry, &coop, "a", &client("A", false)).unwrap();
+        let refused = registry.open("").unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (
+                409,
+                "Nucleus Co-op is running Portal 2: end that session first"
+            )
+        );
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 
     #[test]

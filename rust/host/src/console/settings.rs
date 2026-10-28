@@ -227,6 +227,7 @@ pub const APP: &[Setting] = settings! {
         "allow-client-commands", "Allow per-device connection commands", Bool;
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
         "background-stream", "Stream in the background (Nucleus Co-op, controllers only)", Bool;
+        "coop-entry", "Show the game's co-op entry in the library", Bool;
         "state-cmd", "App resume and pause commands", Json;
         "output", "App log path (null discards output)", Text;
         "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","vhf_switch"]);

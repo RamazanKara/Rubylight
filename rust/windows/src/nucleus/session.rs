@@ -76,6 +76,26 @@ impl Launcher for Elevated {
     }
 }
 
+/// Open Nucleus Co-op's own window on the PC's screen, as the signed-in user
+/// and elevated as a session starts it, for the user to add a handler or a
+/// game. It is not the host's to end: it runs outside the host's job.
+pub fn open(folder: &Path) -> Result<()> {
+    let program = folder.join(EXECUTABLE);
+    let line = crate::process::quote(program.as_os_str())?;
+    crate::process::Process::spawn_command(
+        &program,
+        &line,
+        Some(folder),
+        crate::process::Target::User { elevated: true },
+        &BTreeMap::new(),
+        false,
+        true,
+    )
+    .with_context(|| format!("starting {} elevated", program.display()))?;
+    tracing::info!(folder = %folder.display(), "Nucleus Co-op opened for the user");
+    Ok(())
+}
+
 /// Nucleus started by [`Elevated`]. Its job ends what it started when this
 /// is dropped.
 struct Started {

@@ -1,11 +1,17 @@
-//! The console's Nucleus Co-op panel. `GET /api/coop` shows the background
-//! mode and why, Nucleus Co-op's install and every session the host has;
-//! `POST /api/coop/kick` removes a player and `POST /api/coop/end` ends a
-//! session, and each ends the streams they held. Console-only: API tokens
-//! cannot reach them.
+//! The console's co-op: the game page's Play together panel and the Nucleus
+//! Co-op panel. `GET /api/coop` shows the background mode and why, Nucleus
+//! Co-op's install with its download progress, each app's co-op status and
+//! every session the host has. `POST /api/coop/install` sets Nucleus Co-op
+//! up (the pinned, checked release) and `POST /api/coop/open` opens its
+//! window on the PC for adding a handler. `POST /api/coop/kick` removes a
+//! player and `POST /api/coop/end` ends a session, and each ends the streams
+//! they held. Console-only: API tokens cannot reach them.
 
 use super::error;
-use crate::{nucleus::Install, state::Shared};
+use crate::{
+    nucleus::{GameStatus, Install, Refusal, SetUp},
+    state::Shared,
+};
 use axum::{
     Json,
     http::{Method, StatusCode},
@@ -15,7 +21,8 @@ use butterpollo_core::{
     native_api::coop as wire,
     nucleus::{
         coop::Phase,
-        install::VERSION,
+        handler::Missing,
+        install::{SIZE, VERSION},
         mode::{Decision, KEY},
     },
 };
@@ -30,6 +37,35 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
         .and_then(|id| u32::try_from(id).ok());
     match (method.as_str(), path) {
         ("GET", "/api/coop") => blocking(move || Ok(status(&h))).await,
+        ("POST", "/api/coop/install") => {
+            let configured = configured(&h);
+            let set_up = {
+                let (h, configured) = (h.clone(), configured.clone());
+                tokio::task::spawn_blocking(move || h.nucleus.set_up(&configured)).await
+            };
+            match set_up {
+                Ok(Ok(SetUp::Started)) => {
+                    // The download runs on; `GET /api/coop` shows its progress
+                    // and, loudly, a refusal.
+                    tokio::task::spawn_blocking(move || h.nucleus.install_now(&configured));
+                    (StatusCode::ACCEPTED, Json(json!({"state": "installing"}))).into_response()
+                }
+                Ok(Ok(SetUp::Installing)) => {
+                    (StatusCode::ACCEPTED, Json(json!({"state": "installing"}))).into_response()
+                }
+                Ok(Ok(SetUp::Installed)) => Json(json!({"state": "installed"})).into_response(),
+                Ok(Err(refusal)) => refused(&refusal),
+                Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+            }
+        }
+        ("POST", "/api/coop/open") => {
+            let configured = configured(&h);
+            match tokio::task::spawn_blocking(move || h.nucleus.open(&configured)).await {
+                Ok(Ok(())) => Json(json!({})).into_response(),
+                Ok(Err(refusal)) => refused(&refusal),
+                Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+            }
+        }
         ("POST", "/api/coop/kick") => {
             let slot = data
                 .get("slot")
@@ -72,7 +108,21 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
     }
 }
 
-/// The panel: the background mode, the install and the sessions.
+/// `nucleus_path` as the host's settings have it now.
+fn configured(h: &Shared) -> String {
+    crate::nucleus::configured(&h.config.read().unwrap_or_else(PoisonError::into_inner))
+}
+
+/// A refused co-op action: its status and the host's text.
+fn refused(refusal: &Refusal) -> Response {
+    error(
+        StatusCode::from_u16(refusal.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
+        &refusal.message,
+    )
+}
+
+/// The panels: the background mode, the install, each app's co-op status
+/// and the sessions.
 fn status(h: &Shared) -> Value {
     let config = h
         .config
@@ -81,15 +131,58 @@ fn status(h: &Shared) -> Value {
         .clone();
     let setting = config.get(KEY, "");
     let decision = Decision::nucleus();
-    let (state, path, version, install_error) =
+    let (state, path, version, install_error, received) =
         match h.nucleus.install(&crate::nucleus::configured(&config)) {
-            Install::Missing => ("missing", None, None, None),
-            Install::Installed(path) => ("installed", Some(path), Some(VERSION), None),
+            Install::Missing => ("missing", None, None, None, None),
+            Install::Installed(path) => ("installed", Some(path), Some(VERSION), None, None),
             // The user's own copy: its version is theirs.
-            Install::Configured(path) => ("configured", Some(path), None, None),
-            Install::Installing => ("installing", None, None, None),
-            Install::Failed(why) => ("failed", None, None, Some(why)),
+            Install::Configured(path) => ("configured", Some(path), None, None, None),
+            Install::Installing(received) => ("installing", None, None, None, Some(received)),
+            Install::Failed(why) => ("failed", None, None, Some(why), None),
         };
+    let apps = h
+        .apps
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let (games, catalog_error) = match h.nucleus.games(&apps, &config) {
+        Some(Ok(statuses)) => (statuses.into_iter().map(Some).collect(), None),
+        Some(Err(error)) => (vec![None; apps.len()], Some(error)),
+        None => (vec![None; apps.len()], None),
+    };
+    let games: Vec<Value> = apps
+        .iter()
+        .zip(games)
+        .filter(|(app, _)| crate::nucleus::names_executable(app))
+        .filter_map(|(app, status)| {
+            let uuid = app.extra.get("uuid")?.as_str()?;
+            let (status, reason, handler, players) = match status {
+                // Started through a launcher: no handler can match it.
+                _ if !crate::nucleus::starts_exe(app) => ("launcher", None, None, None),
+                None => ("unknown", None, None, None),
+                Some(GameStatus::Ready { handler, players }) => {
+                    ("ready", None, Some(handler), Some(players))
+                }
+                Some(GameStatus::Missing(missing)) => {
+                    let status = match missing {
+                        Missing::NoExecutable { .. } => "no_executable",
+                        Missing::NoHandler { .. } => "no_handler",
+                        Missing::NotAdded { .. } => "not_added",
+                    };
+                    (status, Some(missing.to_string()), None, None)
+                }
+            };
+            Some(json!({
+                "app": uuid,
+                "name": app.name,
+                "status": status,
+                "reason": reason,
+                "handler": handler,
+                "players": players,
+                "entry": crate::nucleus::entry_name(&app.name),
+            }))
+        })
+        .collect();
     let unavailable = h.nucleus.unavailable();
     let sessions: Vec<Value> = h
         .nucleus
@@ -141,7 +234,12 @@ fn status(h: &Shared) -> Value {
             "path": path,
             "version": version,
             "error": install_error,
+            // What Set up co-op downloads, and how much of it has arrived.
+            "release": {"version": VERSION, "size": SIZE},
+            "received": received,
         },
+        "games": games,
+        "catalog_error": catalog_error,
         "available": unavailable.is_none(),
         "reason": unavailable,
         "sessions": sessions,
@@ -257,7 +355,9 @@ mod tests {
         }
         assert_eq!(
             body["install"],
-            json!({"state": "installed", "path": r"C:\Nucleus", "version": butterpollo_core::nucleus::install::VERSION, "error": null})
+            json!({"state": "installed", "path": r"C:\Nucleus", "version": butterpollo_core::nucleus::install::VERSION, "error": null,
+                   "release": {"version": butterpollo_core::nucleus::install::VERSION, "size": butterpollo_core::nucleus::install::SIZE},
+                   "received": null})
         );
         assert_eq!(
             (&body["available"], &body["reason"]),
@@ -390,6 +490,155 @@ mod tests {
             )
             .await;
         }
+    }
+
+    /// `GET /api/coop` until the install is no longer downloading.
+    async fn settled(f: &Fixture) -> Value {
+        for _ in 0..500 {
+            let body = value(
+                request(f, "GET", "/api/coop", Value::Null).await,
+                StatusCode::OK,
+            )
+            .await;
+            if body["install"]["state"] != "installing" {
+                return body;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the install never finished");
+    }
+
+    #[tokio::test]
+    async fn set_up_refuses_a_download_with_another_hash_loudly() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        *pc.installed.lock().unwrap() = None;
+        // The pinned size, another SHA-256.
+        let size = butterpollo_core::nucleus::install::SIZE;
+        *pc.archive.lock().unwrap() = Some(vec![0; size as usize]);
+        f.host.nucleus.use_pc(pc.clone());
+        let before = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(before["install"]["state"], "missing");
+        assert_eq!(
+            before["install"]["release"],
+            json!({"version": butterpollo_core::nucleus::install::VERSION, "size": size})
+        );
+        let started = value(
+            request(&f, "POST", "/api/coop/install", json!({})).await,
+            StatusCode::ACCEPTED,
+        )
+        .await;
+        assert_eq!(started, json!({"state": "installing"}));
+        let body = settled(&f).await;
+        assert_eq!(body["install"]["state"], "failed");
+        let error = body["install"]["error"].as_str().unwrap();
+        assert!(
+            error.starts_with(
+                "Nucleus Co-op is not ready: The Nucleus Co-op download's SHA-256 is "
+            ),
+            "{error}"
+        );
+        assert!(error.ends_with("it was deleted."), "{error}");
+        assert_eq!(*pc.installed.lock().unwrap(), None);
+        // A good download next time installs it, once.
+        *pc.archive.lock().unwrap() = None;
+        value(
+            request(&f, "POST", "/api/coop/install", json!({})).await,
+            StatusCode::ACCEPTED,
+        )
+        .await;
+        assert_eq!(settled(&f).await["install"]["state"], "installed");
+        let again = value(
+            request(&f, "POST", "/api/coop/install", json!({})).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(again, json!({"state": "installed"}));
+        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn set_up_and_open_are_refused_without_the_service() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        let why = "Nucleus Co-op sessions need the host to run as the Rubylight Windows service, which starts Nucleus Co-op as the signed-in user";
+        *pc.unavailable.lock().unwrap() = Some(why.into());
+        f.host.nucleus.use_pc(pc.clone());
+        for path in ["/api/coop/open", "/api/coop/install"] {
+            let body = value(
+                request(&f, "POST", path, json!({})).await,
+                StatusCode::SERVICE_UNAVAILABLE,
+            )
+            .await;
+            assert_eq!(body["error"], why, "{path}");
+        }
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 0);
+        // With the service it opens.
+        *pc.unavailable.lock().unwrap() = None;
+        value(
+            request(&f, "POST", "/api/coop/open", json!({})).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn each_game_with_an_exe_shows_its_coop_status() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        f.host.nucleus.use_pc(pc.clone());
+        let app = |name: &str, cmd: &str, uuid: &str| App {
+            name: name.into(),
+            cmd: cmd.into(),
+            working_dir: String::new(),
+            prep: Vec::new(),
+            computed_id: None,
+            aliases: Vec::new(),
+            extra: [("uuid".to_string(), json!(uuid))].into_iter().collect(),
+        };
+        *f.host.apps.write().unwrap() = vec![
+            app("Desktop", "", "desktop"),
+            app("Portal 2", &format!("\"{}\"", fake::EXE), "portal"),
+            app("Puzzle", r"C:\Games\Puzzle.exe", "puzzle"),
+            app(
+                "Counter-Strike 2",
+                "cmd /c start \"\" steam://rungameid/730",
+                "cs2",
+            ),
+        ];
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(
+            body["games"],
+            json!([
+                {"app": "portal", "name": "Portal 2", "status": "ready", "reason": null,
+                 "handler": "Portal 2", "players": 2, "entry": "Portal 2 (Co-op)"},
+                {"app": "puzzle", "name": "Puzzle", "status": "no_handler",
+                 "reason": "No Nucleus Co-op handler for Puzzle.exe: add one in Nucleus Co-op's handler hub",
+                 "handler": null, "players": null, "entry": "Puzzle (Co-op)"},
+                {"app": "cs2", "name": "Counter-Strike 2", "status": "launcher", "reason": null,
+                 "handler": null, "players": null, "entry": "Counter-Strike 2 (Co-op)"},
+            ])
+        );
+        assert_eq!(body["catalog_error"], Value::Null);
+        // Before the install nothing is known yet.
+        *pc.installed.lock().unwrap() = None;
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["games"][0]["status"], "unknown");
+        assert_eq!(body["games"][1]["status"], "unknown");
     }
 
     #[test]

@@ -1200,12 +1200,10 @@ async fn applist_lists_co_op_entries_after_the_apps() {
         assert_eq!(field(entries[index], "IDX"), index.to_string());
     }
     let coop = entries[apps.len()];
-    assert_eq!(field(coop, "AppTitle"), "Co-op (Nucleus): Portal 2");
+    assert_eq!(field(coop, "AppTitle"), "Portal 2 (Co-op)");
     assert_eq!(
         field(coop, "ID"),
-        app("Co-op (Nucleus): Portal 2", String::new())
-            .id()
-            .to_string()
+        app("Portal 2 (Co-op)", String::new()).id().to_string()
     );
     assert_eq!(field(coop, "IDX"), apps.len().to_string());
     assert_eq!(field(coop, "UUID"), "");

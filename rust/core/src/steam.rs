@@ -1228,7 +1228,10 @@ mod tests {
     #[test]
     fn every_installed_game_is_the_default_and_an_explicit_false_keeps_recent() {
         assert!(Settings::from_config(&Config::default()).sync_all_installed);
-        assert_eq!(Settings::from_config(&Config::default()).source(), "installed");
+        assert_eq!(
+            Settings::from_config(&Config::default()).source(),
+            "installed"
+        );
         let recent =
             Settings::from_config(&Config::parse("steam_sync_all_installed = false").unwrap());
         assert!(!recent.sync_all_installed);

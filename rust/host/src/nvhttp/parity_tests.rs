@@ -989,7 +989,15 @@ async fn a_wrong_one_time_pin_counts_against_each_live_slot_and_expiry_closes_on
     do_pair(f.host.clone(), &expired, peer).await.unwrap();
     assert!(f.host.otp.lock().unwrap().qr.is_none());
     assert_eq!(
-        f.host.otp.lock().unwrap().typed.as_ref().unwrap().misses.count(peer),
+        f.host
+            .otp
+            .lock()
+            .unwrap()
+            .typed
+            .as_ref()
+            .unwrap()
+            .misses
+            .count(peer),
         1
     );
     assert!(finish_pairing(&f, &client, "device", "5678").await.is_err());
@@ -1006,7 +1014,17 @@ async fn a_wrong_one_time_pin_counts_against_each_live_slot_and_expiry_closes_on
         assert_eq!(otp.qr.as_ref().unwrap().misses.count(peer), 4);
     }
     do_pair(f.host.clone(), &wrong, peer).await.unwrap();
-    assert!(f.host.otp.lock().unwrap().qr.as_ref().unwrap().misses.refuses(peer));
+    assert!(
+        f.host
+            .otp
+            .lock()
+            .unwrap()
+            .qr
+            .as_ref()
+            .unwrap()
+            .misses
+            .refuses(peer)
+    );
     let refused = do_pair(f.host.clone(), &wrong, peer).await.unwrap_err();
     assert!(refused.to_string().contains("this address"), "{refused}");
     assert!(f.host.paired.read().unwrap().clients.is_empty());

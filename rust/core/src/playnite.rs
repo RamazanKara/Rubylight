@@ -870,16 +870,31 @@ mod tests {
         let mut apps = vec![
             json!({"name":"Dota 2","cmd":"steam://rungameid/570","steam-id":"570","steam-managed":"auto","synced-by":"steam"}),
         ];
-        reconcile(&mut apps, &[dota, game("bb", "Kart", None)], &settings, 0, &Artwork::new(), true, &[]);
+        reconcile(
+            &mut apps,
+            &[dota, game("bb", "Kart", None)],
+            &settings,
+            0,
+            &Artwork::new(),
+            true,
+            &[],
+        );
         let names: Vec<_> = apps.iter().map(|a| field(a, "name")).collect();
-        assert_eq!(names, ["Dota 2", "Kart"], "every installed game, Dota 2 once");
+        assert_eq!(
+            names,
+            ["Dota 2", "Kart"],
+            "every installed game, Dota 2 once"
+        );
         assert_eq!(apps[0]["synced-by"], "steam");
     }
     #[test]
     fn sync_selects_recent_games_and_keeps_user_apps() {
         let now = 100 * 86400;
         let mut settings = Settings::from_config(&Config::default());
-        assert!(settings.sync_all_installed, "every installed game, as for Steam");
+        assert!(
+            settings.sync_all_installed,
+            "every installed game, as for Steam"
+        );
         settings.sync_all_installed = false;
         settings.recent_games = 2;
         let games = vec![
@@ -1048,7 +1063,10 @@ mod tests {
         apps.push(json!({"name":"Playnite (Fullscreen)","cmd":"C:/Mine/start.bat"}));
         apps.push(json!({"name":"Big screen","cmd":"playnite-launcher.exe --fullscreen"}));
         assert!(!fullscreen_entry(&mut apps, false));
-        assert!(!fullscreen_entry(&mut apps, true), "a user's entry counts as present");
+        assert!(
+            !fullscreen_entry(&mut apps, true),
+            "a user's entry counts as present"
+        );
         assert_eq!(apps.len(), 3);
         apps.truncate(1);
         assert_eq!(purge(&mut apps), 1);

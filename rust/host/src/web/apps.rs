@@ -533,7 +533,10 @@ mod tests {
         gone["name"] = json!("Gone (renamed)");
         handle(&f.host, "POST", "/api/apps", &gone).unwrap();
         let stored = f.host.apps.read().unwrap();
-        let renamed = stored.iter().find(|app| app.name == "Gone (renamed)").unwrap();
+        let renamed = stored
+            .iter()
+            .find(|app| app.name == "Gone (renamed)")
+            .unwrap();
         assert!(!renamed.extra.contains_key("not-installed"));
     }
 

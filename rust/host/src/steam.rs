@@ -467,7 +467,11 @@ mod tests {
         assert!(!aside.changed);
         assert_eq!((aside.games, aside.importable), (1, 1));
         assert_eq!(f.host.apps.read().unwrap().len(), before);
-        assert!(sync_beside(&f.host, &settings, &games, false).unwrap().changed);
+        assert!(
+            sync_beside(&f.host, &settings, &games, false)
+                .unwrap()
+                .changed
+        );
         assert_eq!(f.host.apps.read().unwrap().len(), before + 1);
     }
     #[test]

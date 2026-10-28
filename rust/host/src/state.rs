@@ -139,6 +139,7 @@ impl OtpMisses {
         self.total < Self::TOTAL
     }
     /// Wrong answers from `peer` so far.
+    #[cfg(test)]
     pub fn count(&self, peer: std::net::IpAddr) -> u8 {
         self.by_peer.get(&peer).copied().unwrap_or(0)
     }

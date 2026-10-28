@@ -218,6 +218,10 @@ pub struct VirtualDisplay {
     pub(super) last_feed: Instant,
     last_renew: Instant,
     mode: (u32, u32, u32),
+    /// The mode the display was created with. `mode` follows the rate,
+    /// rotation and size changes made in place, so a second stream that asks
+    /// for the first one's launch mode still joins ([`joins`]).
+    created: (u32, u32, u32),
     /// Windows showed `mode`'s resolution after it was last set, at that or a
     /// slower refresh it accepted.
     size_applied: std::sync::atomic::AtomicBool,
@@ -245,7 +249,11 @@ pub(super) fn display_lease(
     let mut displays = DISPLAYS.lock().unwrap();
     displays.retain(|_, lease| lease.strong_count() != 0);
     if let Some(display) = displays.get(id).and_then(std::sync::Weak::upgrade) {
-        if display.lock().unwrap().mode != (width, height, fps) {
+        let joined = {
+            let shared = display.lock().unwrap();
+            joins(shared.created, shared.mode, (width, height, fps))
+        };
+        if !joined {
             bail!("shared virtual display already uses a different mode");
         }
         return Ok(display);
@@ -259,6 +267,13 @@ pub(super) fn display_lease(
     )?));
     displays.insert(id.into(), std::sync::Arc::downgrade(&display));
     Ok(display)
+}
+/// A stream joins a shared virtual display that was created with the mode it
+/// asks for, or that shows that mode now: a rate raised, a turn or a size the
+/// user picked in Windows moves `current`, and the encoder scales as it does
+/// on a shared physical display.
+fn joins(created: (u32, u32, u32), current: (u32, u32, u32), requested: (u32, u32, u32)) -> bool {
+    requested == created || requested == current
 }
 fn lease_exists(result: Result<()>) -> Result<bool> {
     match result {
@@ -493,6 +508,7 @@ impl VirtualDisplay {
             last_feed: Instant::now(),
             last_renew: Instant::now(),
             mode: (width, height, fps),
+            created: (width, height, fps),
             size_applied: std::sync::atomic::AtomicBool::new(false),
             options,
             generation: 0,
@@ -969,6 +985,20 @@ impl Drop for VirtualDisplay {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_second_stream_joins_a_shared_display_whose_mode_changed_in_place() {
+        let launched = (1920, 1080, 60);
+        // The first stream raised the rate, turned, or Windows took a size
+        // the user picked: the launch mode and the shown one both join.
+        for current in [(1920, 1080, 120), (1080, 1920, 60), (2560, 1440, 60)] {
+            assert!(super::joins(launched, current, launched));
+            assert!(super::joins(launched, current, current));
+            assert!(!super::joins(launched, current, (1280, 720, 60)));
+        }
+        assert!(super::joins(launched, launched, launched));
+        assert!(!super::joins(launched, launched, (1920, 1080, 120)));
+    }
+
     #[test]
     fn the_console_names_why_setup_did_not_install_the_driver() {
         use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;

@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Troubleshooting](troubleshooting.md)
 
-Rubylight is a Windows x64 streaming host written in Rust, for AMD Radeon GPUs. The current release is 3.0.0-beta.1. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
+Rubylight is a Windows x64 streaming host written in Rust, for AMD Radeon GPUs. The current preview is 3.0.0-rc.4. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
 
 **On this page:** [Before you start](#before-you-start) · [Install](#install-or-run-portable) · [Open the console](#open-the-console) · [Pair Moonlight](#pair-moonlight-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading)
 
@@ -54,7 +54,7 @@ To set a new sign-in, open PowerShell as administrator on the host PC and run th
 
 Use a password of at least 8 characters, then sign in with the new name and password. Signed-in browsers sign in again. An installation upgraded from Butterpollo keeps its original install folder.
 
-On **Home**, check **Host readiness** for the video encoder, virtual display, audio and screen capture. An available encoder and an active physical display are enough for the first desktop stream. A virtual display showing **Off** is expected when you are streaming a physical monitor.
+**Home** walks you through three steps: pair a device, see your games, play. Its readiness check covers the video encoder, virtual display, audio and screen capture. An available encoder and an active physical display are enough for the first desktop stream. A virtual display showing **Off** is expected when you are streaming a physical monitor.
 
 A fresh configuration selects a virtual display for each device. For a portable first run with a monitor, select **Settings → Display → Virtual display: Off, stream a monitor**. If you use the installed virtual display, the default **Exclusive** layout turns the other monitors off during the stream; choose **Extended** to keep them active.
 
@@ -63,7 +63,7 @@ For a fresh configuration, leave **Settings → Video → Capture method** on **
 ## Pair Moonlight and start Desktop
 
 1. Open Moonlight on a device on the same local network. Select the host, or add the PC by its local IP address if discovery does not find it.
-2. Moonlight displays a four-digit PIN. In Rubylight's **Devices** page, enter that PIN for the pending device and select **Pair**.
+2. Moonlight displays a four-digit PIN. In Rubylight's **Devices** page, enter that PIN for the pending device, choose what it may do (**Play games** is the default) and select **Pair**. With [Nightjar](https://github.com/RamazanKara/nightjar), scan the QR code on Home or Devices instead; Nightjar on Windows and Linux pastes its link. A code works once, for three minutes.
 3. Wait for pairing to finish on the client. The device then appears under **Paired devices**.
 4. Set Moonlight to **1920×1080 at 60 FPS**, with HDR off for this first check. Use H.264, or HEVC if the client supports hardware decoding.
 5. Launch **Desktop**. Check moving windows, sound and input before increasing resolution, frame rate or bitrate.
@@ -75,6 +75,8 @@ If the host is missing, start with [discovery and pairing](troubleshooting.md#mo
 With [Nightjar](https://github.com/RamazanKara/nightjar) 0.8.0 or newer on Android, your phone opens on a console Home with your library, favourites and a game page for each title. To let it also close games or change Radeon settings from the couch, turn on **Host control** for that device. It is off after pairing. See [host control](configuration.md#host-control-for-a-device).
 
 If pairing succeeds but launching is denied, check the device's enabled state and **List apps**, **View streams** and **Launch apps** permissions in **Devices → Edit**.
+
+The clipboard, file transfer, shared folders and USB devices each need a permission you give the device on **Devices**; pairing never grants them. [Clipboard, files and USB](configuration.md#clipboard-files-and-usb) has the switches and [Privacy](privacy.md#your-own-devices) what each one shares.
 
 ## Choose your stream format
 
@@ -92,6 +94,8 @@ PyroWave's recommended rates, from desktop and game test scenes on AMD, are **27
 Moonlight's **YUV 4:4:4** option needs an encoder that produces 4:4:4. AMD Radeon GPUs encode H.264, HEVC and AV1 in 4:2:0 only, so with an AMD host Moonlight streams 4:2:0; Moonlight warns that the host doesn't support YUV 4:4:4. PyroWave is the way to get full-resolution chroma, in SDR and in 10-bit HDR.
 
 For HDR, enable HDR in the client and confirm that the **streamed display** supports and enables HDR in Windows. In **Settings → HDR**, **Display HDR: Match the stream** and **HDR request: Follow the device** are the normal starting choices. A forced display HDR setting does not change an SDR stream into an HDR stream. Enable the game's own HDR mode when available.
+
+Devices that ask for them also get Dolby Vision (HEVC and AV1), HDR10+ scene data or HLG over the same HDR stream; other devices get HDR10 as before. See [Capture and video](configuration.md#capture-and-video).
 
 The Home stream card shows the negotiated codec and an **HDR** badge. Check the picture on the actual client display as well. The published native HDR tests verify captured and decoded pixels; they do not calibrate a TV or establish every client's HDR rendering. See [HDR troubleshooting](troubleshooting.md#hdr-looks-washed-out-too-bright-or-different-between-clients).
 

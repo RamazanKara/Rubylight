@@ -4,6 +4,8 @@
 
 Configure the host in the Rubylight console, normally at **https://localhost:47990**. Open **Settings**, which groups its controls into General, Streaming, Display & HDR, Audio & controls, Games & automation, and Network & access, and search by a setting's name or configuration key. Resolution, stream frame rate, bitrate and codec are normally chosen in the client.
 
+The **Settings** home shows the ten settings most people change: the host name, **Allow pairing**, the stream preset, the virtual display and its layout, **Stream audio**, the device microphone, controllers, closing the app when the last device disconnects, and automatic updates. Every other setting is one click away in its category, and [All settings](#all-settings) lists each one with its key and default.
+
 Start with the defaults below. Settings imported from an older installation keep their saved values; upgrading does not reset them to these defaults.
 
 ## Find and review settings
@@ -12,42 +14,86 @@ Search includes settings hidden by another choice, advanced options and configur
 
 Use **Review changes** to see pending edits across all categories, including settings hidden after another edit. If saving is blocked by an invalid value, **Review errors** opens the fields to correct. Switching categories or clearing search keeps your edits. **Reset to default** removes the saved override when you save; **Undo** restores the value from before the edit.
 
-## Defaults worth knowing
+## Defaults in 3.0.0
 
-| Setting / key | Default | What it means |
+<a id="defaults-worth-knowing"></a>
+
+Each default below is what a fresh 3.0.0 install uses, checked against the host code. The stream preset **Balanced** is exactly this set; nothing in the table needs changing for a normal setup.
+
+| Setting — key | Default | Why |
 | --- | --- | --- |
-| Capture method — `capture` | `auto` | On a virtual display Rubylight created, takes each frame straight from Rubylight's display driver. Elsewhere prefers Windows Graphics Capture (WGC), with Desktop Duplication (DDX) as fallback. |
-| Compute conversion — `gpu_compute_conversion` | `true` | Uses a separate compute queue for supported AMD capture and colour conversion paths. |
-| Encode from GPU memory — `wgc_direct_encoder_input` | `true` | Keeps captured frames on the GPU instead of copying them through system memory. |
-| Encoder — `encoder` | `auto` | AMD AMF for H.264, HEVC and AV1, and PyroWave's own encoder for PyroWave. There is no other encoder and no fallback. |
-| AMD usage — `amd_usage` | `ultralowlatency` | AMD's lowest-latency preset. The driver also turns on its internal low-latency mode, and the lowest latency for AV1. |
-| Stream preset — `stream_preset` | `balanced` | Balanced is every default in this table; nothing is changed. See [Stream presets](#stream-presets). |
-| AMD quality — `amd_quality` | `speed` | Favours low encoding latency. |
-| Frame pacing — `frame_pacing` | `arrival` | Encodes arriving frames, limited to the requested stream rate. |
-| Use the launch frame rate — `limit_framerate` | `false` | Off, the stream runs at the rate the stream request asks for, as in Vibepollo; a virtual display's refresh and the frame limiter follow it. On, the launch request's rate is encoded, as before. Artemis's Warp frame pacing launches at 60 and asks for 120 or 240. The client's bitrate is the budget either way. |
-| Video packet pacing — `pacing_max_bitrate_kbps` | `0` | Route-based: fast wired pacing; confirmed host Wi-Fi uses twice the encoder bitrate with FEC headroom. Positive values set a fixed limit. PyroWave keeps its separate policy. |
-| Adaptive packet pacing — `host_adaptive_pacing` | `false` | Experimental opt-in: slower startup, tentative rate increases and loss-based rollback. Does not change picture bitrate or FPS. |
-| Adaptive packet pacing for Wi-Fi clients — `wireless_adaptive_pacing` | `true` | Clients that report a Wi-Fi or cellular route (`x-rl-video[0].clientWireless:1`, Nightjar) get the adaptive packet pacing controller on H.264, HEVC and AV1: it starts at twice the encoder bitrate and probes up while the link stays clean. PyroWave is not affected. A manual pacing limit or host bitrate adaptation turns it off. |
-| Slow down after video loss — `keyframe_loss_pacing` | `true` | After a keyframe the client could not rebuild, a repeated request for the keyframe it was just sent, or three distinct unrecoverable frames within two seconds (frames the host could not send whole count too), paces video like Wi-Fi. Only loss that lasted is remembered for that device, address and network interface for 24 hours; a lost first keyframe alone is lifted after 10 clean seconds and forgotten. Encoder bitrate is unchanged. Off with a manual pacing limit, either adaptive option, or a stream that adaptive pacing for Wi-Fi clients paces automatically. |
-| Lower bitrate when the link cannot carry it — `link_rate_adaptation` | `true` | Cuts the encoder bitrate once, to 85% of what the link delivered, when the client reports loss FEC cannot repair, then probes back up. A healthy link never changes. Off for PyroWave, when the client sets the bitrate, and with `host_adaptive_bitrate`. [Details](#lower-bitrate-when-the-link-cannot-carry-it). |
-| Host bitrate adaptation — `host_adaptive_bitrate` | `false` | Experimental loss adaptation for H.264, HEVC and AV1. Requires client feedback and yields to client bitrate control. [Details](#host-bitrate-adaptation). |
-| Audio to stream — `audio_capture_mode` | `system` | Captures the selected playback device. Optional [Game only](#game-only-audio) captures a verified game's process tree. |
-| HEVC / AV1 support — `hevc_mode`, `av1_mode` | `0` | Automatic capability detection; only working profiles are offered. |
-| PyroWave — `pyrowave` | `true` | Offers PyroWave to clients that support it. |
-| Virtual display — `virtual_display_mode` | `per_client` on Windows 11 23H2 or later, `disabled` on earlier Windows | A display for each device. Requires the virtual display driver when enabled. |
-| Virtual display layout — `virtual_display_layout` | `exclusive` | Turns other displays off while the virtual display is used. A Remote Monitor follows it while it streams: exclusive turns the other displays off and makes it primary, the primary layouts make it primary, and it keeps the place the remote monitor layout gives it. Choose Extended to use a remote monitor beside your own. A layout you pick for a device under Devices overrides this and the host never replaces it. A device without one of its own keeps the layout you leave a stream's display in, such as Windows' "Show only on 2", and uses it from the next stream; set it back to the host setting to forget that. A layout changed through the clients update API (`/api/clients/update`) counts as set by you; send `virtual_display_layout_set_by_user: true` to mark one without changing it. |
-| Physical display preparation — `dd_configuration_option` | `verify_only` | Requires the selected monitor to be active; resolution, refresh and HDR policies are separate. |
-| Display HDR — `dd_hdr_option` | `auto` | Matches the streamed display's HDR state to the stream. |
-| Windows HDR Calibration on virtual displays (Experimental) — `virtual_display_hdr_calibration` | `false` | An HDR stream's new virtual display gets the profile the Windows HDR Calibration app made for your HDR monitor (the primary one first), and gets its own profile back after the stream. Off by default because the profile describes that monitor, not the device you stream to. A profile chosen for the device (`hdr_profile`) comes first; with none found, the host log says so and the stream stays uncalibrated. |
-| Limit every stream — `frame_limiter_enable` | `false` | Manual limiting is off; virtual-display automatic limiting can still apply. |
-| Limiter — `frame_limiter_provider` | `auto` | Uses RTSS when installed. |
-| Virtual display refresh — `frame_limiter_auto_virtual_framegen` | `legacy` | Runs the virtual display at twice the stream rate and enables automatic frame limiting. |
-| Host control for a device — `host_control` | off | Per device, in **Devices → device → Custom permissions → Other**. Lets that device change Radeon settings and close the running game through the native API. [Details](#host-control-for-a-device). Only the console grants it, as `true`; pairing, imported Vibepollo or Apollo state and a full permission value never do. Turning it off takes effect on the next request and doesn't end the stream. |
-| Sleep PC for a device — `allow_sleep` | off | Experimental. Per device, in **Devices → device → Custom permissions → Other**. Lets that device put this PC to sleep through Vibepollo's `/power-actions/v1` requests while nothing is streaming or running: a single-use token valid for 30 s, then the suspend once the answer is sent and the connection closed. Needs a PC with S1, S2 or S3 sleep, as most desktops have. On a PC with only Modern Standby, Sleep PC is unavailable: Windows has no call to enter Modern Standby, and on such a laptop with hibernate on the request hibernated the PC instead. There the host advertises no Sleep PC, refuses the request, and the console shows why instead of the setting; the host log says so at startup and names the sleep states the PC reports. The console grants it as `true`; a device imported from Vibepollo with `allow_sleep: true` keeps it. |
-| Client roaming (Experimental) — `client_roaming` | `true` | A device whose address changes, such as a phone moving from Wi-Fi to mobile data, keeps its stream. The device proves the new address with the stream key first; the host then sends there and drops what arrives from the old address. Only devices that support it (Nightjar) use it; other Moonlight clients stream as before. Off, the host neither offers it nor answers roaming datagrams. Turning it off applies at once; turning it on applies from the next stream. |
-| Update checks — `update_check_interval` | `86400` seconds | Checks once a day. |
-| Automatic installation — `auto_update` | `false` | Announces available updates; installation is opt-in. |
-| Include pre-releases — `notify_pre_releases` | `false` | Release candidates are offered only when enabled. |
+| **Capture and encoding** | | |
+| Capture method — `capture` | `auto` | On a virtual display Rubylight created, each frame comes straight from Rubylight's display driver, with no capture copy. Elsewhere Windows Graphics Capture (WGC), with Desktop Duplication (DDX) when WGC is unavailable. |
+| Copy and convert on a compute queue — `gpu_compute_conversion` | `true` | Copy and colour conversion run on a compute queue beside the game instead of waiting behind its graphics work ([October 4](../rust/PERFORMANCE.md#october-4-capture-copies-and-conversion-beside-a-game)). |
+| Encode from GPU memory — `wgc_direct_encoder_input` | `true` | Captured frames stay on the GPU; nothing goes through system memory. |
+| Encoder — `encoder` | `auto` | AMD AMF for H.264, HEVC and AV1, and PyroWave's own encoder for PyroWave. There is no other encoder and no fallback, so a failure is reported instead of hidden. |
+| Stream preset — `stream_preset` | `balanced` | Balanced is every default in this table. See [Stream presets](#stream-presets). |
+| Usage — `amd_usage` | `ultralowlatency` | AMD's lowest-latency profile; the driver also turns on its internal low-latency mode, and the lowest latency for AV1. The other profiles queue frames. |
+| Quality preset — `amd_quality` | `speed` | The lowest encode time. With these two defaults the 3.0.0-rc.2 host encoded 1080p AV1 in 5.89 ms ([October 26](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)). |
+| Long-term reference frames — `amd_ltr_frames` | `4` | A device that lost frames recovers from a reference it still has, on H.264, HEVC and AV1, and the host sends a keyframe only where that would be smaller. Over the measured gaps that sent 0.86 to 0.92 of the keyframe bytes ([October 28](../rust/PERFORMANCE.md#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default)). |
+| Maximum frame size — `amd_max_frame_size` | `auto` | Keeps every frame inside what error correction can still protect, and encodes a scene cut that comes out too large again as a keyframe. Lost scene cuts went from 16 and 15 to 0 and 0, and freezes from 15 to 0 ([October 28](../rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes)). |
+| Encoder focus — `encoder_focus` | `off` | Favouring still areas makes scene cuts larger, so it is a choice for text-heavy desktops, not a default. See [Encoder focus](#encoder-focus). |
+| HEVC / AV1 support — `hevc_mode`, `av1_mode` | `0` (Automatic) | Profiles the encoder fails at host start are never offered. |
+| PyroWave — `pyrowave` | `true` | Offered only to devices that ask for it; others never see it. |
+| **Frame rate and pacing** | | |
+| Frame pacing — `frame_pacing` | `arrival` | Each new frame is encoded as soon as it is captured, limited to the requested stream rate. |
+| Use the launch frame rate — `limit_framerate` | `false` | The stream runs at the rate the stream request asks for, as in Vibepollo, which is what Artemis's Warp frame pacing expects. |
+| Pacing rate — `pacing_max_bitrate_kbps` | `0` (automatic) | Fast wired pacing, twice the encoder bitrate on a host Wi-Fi route, and a device's reported link speed caps it. |
+| Adaptive packet pacing — `host_adaptive_pacing` | `false` | Starts slower and probes; useful only on a link with burst loss that a fixed rate cannot fix. |
+| Adaptive packet pacing for Wi-Fi clients — `wireless_adaptive_pacing` | `true` | A device that says it is on Wi-Fi or cellular gets that controller from the first frame. On a real laptop over Wi-Fi this cut unrecoverable frames from 61 to 15.7 ([October 25](../rust/PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop)). |
+| Slow down after video loss — `keyframe_loss_pacing` | `true` | Only loss that lasts slows packet delivery; the bitrate stays. |
+| Lower the bitrate when the link cannot carry it — `link_rate_adaptation` | `true` | Always on. Acts only on loss error correction cannot repair, so a healthy link never changes. See [Lower bitrate when the link cannot carry it](#lower-bitrate-when-the-link-cannot-carry-it). |
+| Adapt bitrate on the host — `host_adaptive_bitrate` | `false` | Devices that control their own bitrate do it better from their side; this is for clients that do not. |
+| Most error correction a device may ask for — `fec_max_percentage` | `50` % | A device that chooses its own error correction may go up to half the video packets. In the October 27 runs this cut Wi-Fi loss and freezes against the host's own share ([October 27](../rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)). |
+| Bandwidth test — `bandwidth_probe` | `true` | Lets a paired device time a short download before it picks a bitrate. The device decides whether to run it. |
+| Virtual display refresh — `frame_limiter_auto_virtual_framegen` | `legacy` | The virtual display runs at twice the stream rate, so each game frame is captured sooner after it is drawn, and automatic frame limiting applies. |
+| Limit every stream — `frame_limiter_enable` | `false` | Physical monitors keep the game's own frame rate; virtual displays are limited automatically. |
+| Limiter — `frame_limiter_provider` | `auto` | RTSS when it is installed. |
+| **Displays and HDR** | | |
+| Virtual display — `virtual_display_mode` | `per_client` on Windows 11 23H2 or later, `disabled` on earlier Windows | Each device gets a display at its own resolution and refresh. Earlier Windows lacks the driver interface the virtual display needs. |
+| Virtual display layout — `virtual_display_layout` | `exclusive` | The other monitors turn off while you stream, so games open on the streamed display. See [Displays and RTSS](#displays-and-rtss). |
+| Monitor setup — `dd_configuration_option` | `verify_only` | A physical monitor is only checked to be on; its mode is left alone. |
+| Display HDR — `dd_hdr_option` | `auto` | The streamed display's HDR follows the stream. |
+| Rotate the display — `dd_rotation_option` | `disabled` | The display keeps its orientation unless you ask it to follow the device. |
+| HDR dynamic metadata — `hdr_dynamic_metadata` | `true` | HDR10+ and HDR Vivid let a capable display tone-map scene by scene; others ignore it. |
+| HLG — `hdr_hlg` | `true` | Offered only to devices that ask for it. |
+| Dolby Vision — `hdr_dolby_vision` | `true` | Offered only to devices that ask for it; others get the HDR10 or HLG stream underneath. |
+| Windows HDR Calibration on virtual displays — `virtual_display_hdr_calibration` | `false` | That profile describes your monitor, not the device you stream to. |
+| **Sound and input** | | |
+| Stream audio — `stream_audio` | `true` | The host's sound goes to the device. |
+| Audio to stream — `audio_capture_mode` | `system` | The selected playback device. [Game only](#game-only-audio) is a choice. |
+| PCM and Dolby Digital audio — `audio_passthrough` | `true` | Offered only to devices that ask for it, for TVs and receivers that decode it themselves. |
+| 7.1.4 surround — `audio_surround_714` | `true` | Offered only to devices that ask for it. |
+| Use the device microphone — `stream_mic` | `true` | A device sends its microphone only when you turn it on there. |
+| Controllers — `controller` | `true` | Devices can use game controllers on the host. |
+| Haptics from game audio — `audio_haptics` | `false` | A matter of taste, so you turn it on. |
+| Keyboard follows text fields — `keyboard_follows_focus` | `true` | The device's keyboard opens when a text field on the PC gets the focus. |
+| Keyboard layout — `keyboard_layout` | `client` | Keys map with the layout the device reports. |
+| Touch — `touch_mode` | `client` | Touches arrive as the device sends them. |
+| Device-drawn cursor — `client_cursor` | `true` | A device that can draw the cursor itself moves it without waiting for video. |
+| **Network, pairing and access** | | |
+| Allow pairing — `enable_pairing` | `true` | New devices can pair. Turn it off once yours are paired. |
+| Pair with a QR code — `qr_pairing` | `true` | Always on. Nightjar scans the code on Home or Devices instead of typing a PIN. |
+| Local network encryption — `lan_encryption_mode` | `0` (Off) | Encryption costs performance on slower devices; the local network is yours. |
+| Internet encryption — `wan_encryption_mode` | `1` (When the device supports it) | Streams leaving your network are encrypted whenever the device can. |
+| Client roaming — `client_roaming` | `true` | A phone moving from Wi-Fi to mobile data keeps its stream. See [Roaming](#roaming). |
+| Console access — `origin_web_ui_allowed` | `lan` | The console and its API answer only on your local network. |
+| **Permissions and sharing** | | |
+| USB forwarding — `usb_forwarding` | `false` | A USB device on the PC is a real device; you choose to allow it, and each device needs its own permission. See [Clipboard, files and USB](#clipboard-files-and-usb). |
+| File transfer — `file_transfer` | `false` | Off until you turn it on; each device also needs its own permission. |
+| Shared folders — `shared_folders` | none | Nothing is shared until you add a folder and give it to a device. |
+| Copy images — `clipboard_image` | `true` | Devices you allow to use the clipboard get images as well as text. |
+| Host control, Sleep PC, USB devices, files and clipboard, per device | off | Granted per device under **Devices**; pairing never grants them. |
+| Can join co-op games, per device — `coop_join` | follows **Launch apps** | Joining a co-op game launches it, so a device that may launch apps may join until you take it away. |
+| WebRTC server — `webrtc_server` | `false` | Only TVs and browsers that speak the Moonlight WebRTC protocol need it. |
+| **Games, power and updates** | | |
+| Close the app when the last device disconnects — `terminate_on_pause` | `false` | The game keeps running so you can reconnect. |
+| Steam library — `steam_enabled` | `true` | Steam games appear with their covers. Every other launcher you install adds its games the same way. |
+| Co-op players — `nucleus_coop_players` | `4` | The game's handler and the free controller slots can allow fewer. |
+| Sleep after idle — `sleep_after_idle_minutes` | `0` (off) | The PC sleeps only when you ask it to. |
+| Update check interval — `update_check_interval` | `86400` seconds | Once a day. |
+| Install updates automatically — `auto_update` | `false` | You are told about an update and install it when you choose. |
+| Include pre-releases — `notify_pre_releases` | `false` | Release candidates are offered only when you ask for them. |
 
 These are defaults for **unset** keys, not a list of values you must copy into a configuration file.
 
@@ -105,7 +151,7 @@ Adaptive error correction keeps the configured protection for 30 seconds after l
 
 The original keyframe guard was measured through a 100 Mbps loopback bottleneck with a 16 or 64 KiB queue: 1440p60 AV1 and HEVC streams at 40 and 60 Mbps went from no frame received whole in 20 seconds to all but the first few. Those historical measurements do not measure the newer repeated-frame trigger or remembered routes. [Measurements](../rust/PERFORMANCE.md#october-14-keyframe-loss-on-a-slow-port).
 
-**Adaptive packet pacing is experimental and off by default** (`host_adaptive_pacing = false`). It is an option for connections with burst-related loss when manual pacing is inconvenient. Enabling it starts each conventional stream at twice the encoder bitrate or 1.25 times wire demand, whichever is higher, within the route ceiling. A suitable fixed limit is simpler when the constrained path is known. Neither policy establishes the cause of an Onn client's reported problem; that device has not been validated.
+**Adaptive packet pacing is off by default** (`host_adaptive_pacing = false`). It is an option for connections with burst-related loss when manual pacing is inconvenient. Enabling it starts each conventional stream at twice the encoder bitrate or 1.25 times wire demand, whichever is higher, within the route ceiling. A suitable fixed limit is simpler when the constrained path is known. Neither policy establishes the cause of an Onn client's reported problem; that device has not been validated.
 
 **Wi-Fi clients get it automatically** (`wireless_adaptive_pacing = true`). The host sees only its own link, so a wired host cannot tell that the client sits behind an access point. A client that reports a Wi-Fi or cellular route to the host with the optional SDP attribute `x-rl-video[0].clientWireless:1` (Nightjar does; absent or `0` means unknown and changes nothing) gets the adaptive controller below on H.264, HEVC and AV1, even though `host_adaptive_pacing` is off. The controller starts at twice the encoder bitrate (at least 1.25 times wire demand), so the first keyframe is no longer sent at up to 800 Mbps. It then probes up in steps of at most 12.5% while the link stays clean, up to the host route's ceiling, and backs off on loss, exactly as for `host_adaptive_pacing`. Keyframe-loss slowdown and its remembered routes are off for such a stream, because the controller owns pacing, and the encoder's keyframe size cap follows the controller's rate as it does for `host_adaptive_pacing`. Where the controller does not own an H.264, HEVC or AV1 stream (`wireless_adaptive_pacing = false` or host adaptive bitrate), the hint instead applies the Wi-Fi route policy from the first frame (twice the encoder bitrate, at least 1.25 times wire demand, no probing), which also gives the smaller keyframe cap of a Wi-Fi host. A manual pacing limit always wins; the hint changes nothing there. For PyroWave the hint only stops the client's wired-link hint from setting the starting rate, so it starts from the demand-based rate instead, and a pace the client calibrated still wins.
 
@@ -117,7 +163,7 @@ Recovery needs recent standard client pings, active video traffic, stable RTT an
 
 Conventional video batches contain at most about one millisecond of traffic at the selected rate, or one datagram if it takes longer. `video_max_batch_size_kb` remains an additional payload limit (16, 32 or 64 KiB; default 64). With `video_send_thread` enabled (the default), adaptive packet pacing reserves the dedicated video sender from the start so pacing waits do not block capture. Large keyframes can still take multiple frame periods. Startup and steady-state timing are reported separately in the measurement record.
 
-`video_slice_delivery` (`off`, `2` or `4`; default `off`) sends an H.264 or HEVC P-frame in that many FEC blocks, each as soon as the encoder's slices for it have left AMF, instead of after the whole frame. It is experimental and AMD-only, and not in the console. Keyframes, recovery frames and AV1 always go out whole, and a stock Moonlight or Nightjar client reassembles the frames unchanged. Turning it on asks AMF for slice output with at least one slice per block and turns intra refresh off. A stream with its own send thread (current or adaptive pacing) streams the same way: the packetizer thread builds each block as the units arrive and the paced sender sends it. If a frame ever passes the byte cap its blocks were planned for, the host logs a warning, counts it in `slice_delivery_overflows`, requests a recovery frame and sends whole frames for the rest of the stream. `BUTTERPOLLO_TEST_SEND_LOSS=percent:seed[:air]` drops video datagrams at random for tests; unset it otherwise.
+`video_slice_delivery` (`off`, `2` or `4`; default `off`) sends an H.264 or HEVC P-frame in that many FEC blocks, each as soon as the encoder's slices for it have left AMF, instead of after the whole frame. It is set in the configuration file only, not in the console. Keyframes, recovery frames and AV1 always go out whole, and a stock Moonlight or Nightjar client reassembles the frames unchanged. Turning it on asks AMF for slice output with at least one slice per block and turns intra refresh off. A stream with its own send thread (current or adaptive pacing) streams the same way: the packetizer thread builds each block as the units arrive and the paced sender sends it. If a frame ever passes the byte cap its blocks were planned for, the host logs a warning, counts it in `slice_delivery_overflows`, requests a recovery frame and sends whole frames for the rest of the stream. `BUTTERPOLLO_TEST_SEND_LOSS=percent:seed[:air]` drops video datagrams at random for tests; unset it otherwise.
 
 Set `pacing_max_bitrate_kbps` to a positive value in **kbps** to override automatic burst control, including for PyroWave. For example, `120000` paces at 120 Mbps. Conventional video retains its floor of 110% of the stream bitrate and ceiling of 80% of a known Ethernet link. PyroWave treats the setting, the client's calibrated pace and 95% of either endpoint's reported link as hard ceilings: stream demand cannot raise them. The host warns if the wire budget exceeds the resulting rate. Reconnect after saving. [Measurements and pacing math](../rust/PERFORMANCE.md#october-14-conventional-video-pacing).
 
@@ -131,7 +177,7 @@ The [current default-quality results](../rust/PERFORMANCE_WORK.md#current-amf-de
 
 **Leave split-frame encoding on Automatic.** AMF can split one HEVC or AV1 frame across a Radeon's two encoder engines (`amd_split_frame`), and the driver decides whether it does. Automatic asks for it only when the GPU has two engines and the driver has it off; On asks whenever there are two engines, and Off disables the property. In the [October 12, 2026 Rubylight 2.2.9 sweep](../rust/PERFORMANCE.md#retained-amf-property-sweeps-october-12), RX 7900 XT readbacks were 1 for Automatic/On and 0 for Off. Identical-input synthetic throughput was similar: for example, two-run means for 4K HEVC were 197.32 / 197.37 / 197.36 FPS respectively. This does not mean every frame had identical timing or prove how the driver used its engines. The sweep completed 708/720 calls; twelve pre-analysis cases failed and remain documented. It did not assess decoded quality. H.264 has no split-frame property; single-engine GPUs get no property write. [Historical October 7 measurements](../rust/PERFORMANCE.md#october-7-amf-split-frame-encoding) remain separate.
 
-**Encoder focus (`encoder_focus`) is Experimental and off unless you choose it.** `static` (Still areas) attaches an AMF ROI map that gives blocks which stayed still for a few frames, such as text and HUDs, more bits than moving ones; `centre` (Still areas and centre) also favors the middle of the screen and the cursor. The stream stays a normal H.264, HEVC or AV1 stream for every client. It runs only on codecs the startup encoder check verified on this GPU (the host log's `encoder focus check:` line); otherwise the stream shows the `encoder_focus` warning and focus stays off. There is no automatic value. App and device overrides work as for the other encoder keys. Design and measurement plan: [docs/encoder-focus-design.md](encoder-focus-design.md).
+<a id="encoder-focus"></a>**Encoder focus (`encoder_focus`) is off unless you choose it.** A scene cut on a frame with a focus map comes out about twice the size of the same cut without one, which is why it is a choice and not a default. `static` (Still areas) attaches an AMF ROI map that gives blocks which stayed still for a few frames, such as text and HUDs, more bits than moving ones; `centre` (Still areas and centre) also favors the middle of the screen and the cursor. The stream stays a normal H.264, HEVC or AV1 stream for every client. It runs only on codecs the startup encoder check verified on this GPU (the host log's `encoder focus check:` line); otherwise the stream shows the `encoder_focus` warning and focus stays off. There is no automatic value. App and device overrides work as for the other encoder keys. Design and measurement plan: [docs/encoder-focus-design.md](encoder-focus-design.md).
 
 **AMF automatically sizes recovery frames to packet pacing.** In **Settings → Encoders → AMD AMF**, the advanced controls below use the stream's encoder bitrate and frame rate. Peak bitrate and VBV remain at driver defaults; maximum frame size defaults to `auto` when unset. Existing explicit settings, including `0` and the previous `2` default when saved explicitly, are preserved. Reconnect after saving. Initial values appear in the `AMF encoder settings` log line; each recovery picture reports its submitted cap after runtime adjustments.
 
@@ -167,7 +213,7 @@ Frame-size limits are best-effort: encoded frames can exceed them. If the driver
 
 Available in Rubylight 2.2.16 and later.
 
-**Settings → Video → Adapt bitrate on the host (experimental)** enables
+**Settings → Video → Adapt bitrate on the host** enables
 `host_adaptive_bitrate = true` for the next connection. It is off by default.
 For H.264, HEVC, AV1 and PyroWave, the host reduces the video budget when a Moonlight
 client reports loss, or when sustained traffic shows a rising control RTT.
@@ -197,10 +243,20 @@ adaptive pacing cap. Clients starting their own controller should send their
 current bitrate once to claim ownership immediately.
 
 Session API reports include `adaptive_bitrate` with the owner, reason, observed
-feedback and wire budget. This is an experimental controller validated with
+feedback and wire budget. The controller is validated with
 simulated loss, traffic, stale feedback and ownership tests. Device/network
 performance still needs live measurements; it does not promise lower latency
 on every connection.
+
+## Error correction chosen by the device
+
+A device that supports it (Nightjar) chooses its own share of error-correction packets for each stream, a fixed percentage or automatic (`rlFecPercentage`), and reports its loss to the host. **Most error correction a device may ask for** (`fec_max_percentage`, default `50` %) is the most it may choose. Devices that choose nothing get the host's own adaptive error correction, as Moonlight clients always have. The automatic frame cap follows the share chosen for each frame, so a scene cut stays inside what that share can protect. On shaped Wi-Fi links the device's automatic share cut median loss from 2.37 to 0.26 % and freezes from 21 to 1 against the host's adaptive share ([October 27](../rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)).
+
+**Bandwidth test** (`bandwidth_probe`, default `true`) lets a paired device time a short download from the host (`GET /bandwidth-probe`) before it picks a bitrate. The device decides whether to run it; with the setting off the host refuses the download.
+
+## Roaming
+
+**Client roaming** (`client_roaming`, default `true`) lets a device whose address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream. The device proves the new address with the stream key first; the host then sends there and drops what arrives from the old address. Only devices that support it (Nightjar) use it; other Moonlight clients stream as before. Off, the host neither offers it nor answers roaming datagrams. Turning it off applies at once; turning it on applies from the next stream.
 
 ## Game-only audio
 
@@ -261,6 +317,19 @@ later than Opus. A client that asks for a format or layout this PC cannot encode
 such as Dolby Digital Plus 7.1, is refused with the reason when the stream
 starts, and never gets other audio than it picked.
 
+## Surround, night mode and headphone surround
+
+**7.1.4 surround** (`audio_surround_714`, default `true`) offers 7.1.4 sound to devices that ask for it. The four height channels stay silent unless the captured playback device has them.
+
+Two sound options work on the host's audio before it is encoded, and change nothing while they are off:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `audio_night_mode` | `false` | Evens out loud and quiet passages, so explosions stay bearable and voices stay clear at low volume. |
+| `audio_headphone_surround` | `false` | For a stereo device, captures the PC's surround channels and renders them for headphones, so sound keeps its direction. |
+
+Both can be set per device or app in their overrides, and switched during a stream from the couch menu or a native client. They are not in the console's settings.
+
 ## Background streaming
 
 Background streaming lets a device play while someone keeps using the PC, for
@@ -271,7 +340,7 @@ device (`background_stream`), or **Library → (app) → Behavior → Stream in 
 background** for one app (`background-stream`). Either one is enough; it applies
 from the next launch.
 
-Nucleus Co-op runs every background stream (Experimental): the game runs as a
+Nucleus Co-op runs every background stream: the game runs as a
 [Nucleus Co-op](nucleus-coop.md) instance whose window is captured on its own,
 away from the PC's monitors. There is no mode to choose; a `background_mode`
 line an earlier build wrote reads as Nucleus Co-op. A background launch
@@ -292,7 +361,13 @@ A background stream:
 
 Nucleus Co-op needs a handler for the game from its handler hub, and the host
 running as the Windows service; [Nucleus Co-op](nucleus-coop.md) has the
-install, the limits, and co-op for several devices at once.
+install, the limits, and co-op for several devices at once. Two settings under
+**Settings → General → Background streaming** shape it:
+**Nucleus Co-op folder** (`nucleus_path`, empty: the host's own copy, which it
+downloads on first use) and **Co-op players** (`nucleus_coop_players`, default
+`4`; the game's handler and the free controller slots can allow fewer). Which
+devices may join a co-op game is the per-device **Can join co-op games**
+(`coop_join`); a device that may launch apps may join until you take it away.
 
 ### Background streaming from a Hyper-V VM
 
@@ -329,7 +404,11 @@ Games with anti-cheat that refuses virtual machines will not start in the VM.
 
 ## Displays and RTSS
 
-Under **Settings → Display**, select a physical display or choose a virtual display per device/shared by all devices. **Exclusive** switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.
+Under **Settings → Display**, select a physical display or choose a virtual display per device/shared by all devices. **Exclusive** (`virtual_display_layout`, the default) switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.
+
+A Remote Monitor follows the layout while it streams: exclusive turns the other displays off and makes it primary, the primary layouts make it primary, and it keeps the place the remote monitor layout gives it. Choose Extended to use a remote monitor beside your own. A layout you pick for a device under Devices overrides the host setting, and the host never replaces it. A device without one of its own keeps the layout you leave a stream's display in, such as Windows' "Show only on 2", and uses it from the next stream; set it back to the host setting to forget that. A layout changed through the clients update API (`/api/clients/update`) counts as set by you; send `virtual_display_layout_set_by_user: true` to mark one without changing it.
+
+**Windows HDR Calibration on virtual displays** (`virtual_display_hdr_calibration`, default `false`) gives an HDR stream's new virtual display the profile the Windows HDR Calibration app made for your HDR monitor (the primary one first), and gives the display its own profile back after the stream. It is off by default because the profile describes that monitor, not the device you stream to. A profile chosen for the device (`hdr_profile`) comes first; with none found, the host log says so and the stream stays uncalibrated.
 
 Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_refresh_rate_option`). Virtual refresh follows the frame-limiting policy unless a manual or device display mode overrides it. To leave a **physical** monitor's resolution, refresh and HDR unchanged, select Disabled for `dd_configuration_option`.
 
@@ -362,6 +441,15 @@ When launching a Playnite game or fullscreen menu, Rubylight can bring its windo
 
 If launch keeps interrupting a window you are using on the host, enable **Stop after the first focus confirmation** (`playnite_focus_exit_on_first`, default `false`) or set either numeric limit to `0` to disable focus management. Stopping early lets a launcher or splash screen take focus back; increase the timeout when a slow launch otherwise leaves the game behind another window. Save and launch again to apply these settings.
 
+## Keyboard, touch, pen and cursor
+
+Under **Settings → Input**:
+
+- **Keyboard follows text fields** (`keyboard_follows_focus`, default `true`) opens the device's keyboard when a text field on the PC gets the focus and hides it after, on devices that support it. **Send the text around the cursor** (`text_input_surrounding_text`, default `false`) gives the device's keyboard the text around the cursor for its suggestions; it never sends text from password fields.
+- **Keyboard layout** (`keyboard_layout`, default `client`) turns the device's keys into scan codes with the layout the device reports; `us` uses US English, or enter a Windows layout id.
+- **Native pen and touch** (`native_pen_touch`, default `true`) passes pen and touch to Windows as pen and touch. **Touch** (`touch_mode`, default `client`) takes touches as the device sends them, as a mouse, or as a trackpad, with **Touch sensitivity** (`touch_sensitivity`, `100` %) and **Touch gestures** (`touch_gestures`, two-finger scroll and right-click, default `true`). **Pen barrel roll** (`pen_barrel_roll`, default `true`) passes on how far a stylus is turned, for pens that report it.
+- **Device-drawn cursor** (`client_cursor`, default `true`) lets a device draw the mouse cursor itself, so it moves without waiting for the video. It needs Desktop Duplication capture; with other capture the cursor stays in the video.
+
 ## Controllers
 
 **Settings → Input → Controller type** controls which virtual controller games see. Standard profiles use the VHF gamepad driver included in the installer. Composite DualSense waveform haptics and native Steam Deck controllers use the optional usbip-win2 driver, bundled in the installer as **Steam Deck and DualSense USB audio and haptics**.
@@ -376,7 +464,7 @@ Earlier releases also offered Xbox 360 (`x360`) and DualShock 4 (`ds4`) through 
 
 With a waveform-capable client and usbip-win2 installed on the host, Automatic can expose a DualSense with its matching USB audio endpoint. **DualSense with waveform haptics (USB/IP)** (`gamepad = usbip_ds5`) explicitly requires this mode. Games can then send their native actuator waveforms alongside ordinary rumble and adaptive triggers. See [setup and current limitations](dualsense-haptics.md). Available in Rubylight 2.2.15 and later.
 
-**Haptics from game audio** (`audio_haptics`, off by default) feeds such a client's DualSense waveform haptics made from the game's bass and impacts while the game sends it none, with `audio_haptics_strength` (0 to 200 %), `audio_haptics_curve` (`linear`, `soft`, `punchy`) and `audio_haptics_gate` (-80 to -10 dBFS). It needs no USB/IP and stops as soon as the game vibrates the controller itself. See [haptics from game audio](dualsense-haptics.md#haptics-from-game-audio-experimental).
+**Haptics from game audio** (`audio_haptics`, off by default) feeds such a client's DualSense waveform haptics made from the game's bass and impacts while the game sends it none, with `audio_haptics_strength` (0 to 200 %), `audio_haptics_curve` (`linear`, `soft`, `punchy`) and `audio_haptics_gate` (-80 to -10 dBFS). It needs no USB/IP and stops as soon as the game vibrates the controller itself. See [haptics from game audio](dualsense-haptics.md#haptics-from-game-audio).
 
 ### Steam Deck
 
@@ -422,9 +510,11 @@ For **host-side Steam Input with the Deck's own controls**, follow the [Steam De
 
 If controls do nothing, check the paired device's **Controllers** permission under **Devices** and the console's stream warnings. Keyboard and mouse mappings also need their respective device permissions. See [input troubleshooting](troubleshooting.md#a-controller-or-other-input-does-nothing) for permissions and the VHF gamepad driver.
 
-## Couch menu (Experimental)
+## Couch menu
 
-The couch menu is a host menu drawn into the stream, so any Moonlight client can reach it ([design](couch-menu-design.md)). These settings choose how it opens:
+<a id="couch-menu-experimental"></a>
+
+The couch menu is a host menu drawn into the stream, so any Moonlight client can reach it ([design](couch-menu-design.md)). It opens by holding L3+R3 on a controller, pressing Ctrl+Alt+Backspace, or holding the top-left corner. These settings, set in the configuration file or a device's or app's overrides, choose how it opens:
 
 | Setting | Default | Values |
 | --- | --- | --- |
@@ -523,6 +613,12 @@ These are new in 3.0. A paired client such as [Nightjar](https://github.com/Rama
 - Turning it off applies on the device's next request. It does not end a running stream.
 - A device also needs the **List apps**, **View streams** and **Launch apps** permissions for what it does. Reading the Radeon state needs View or Launch only.
 
+### Sleep PC and sleep after idle
+
+**Sleep PC** (`allow_sleep`, off for every device) is set in **Devices → device → Custom permissions → Other**. It lets that device put this PC to sleep through Vibepollo's `/power-actions/v1` requests while nothing is streaming or running: a single-use token valid for 30 s, then the suspend once the answer is sent and the connection closed. It needs a PC with S1, S2 or S3 sleep, as most desktops have. Windows has no call to enter Modern Standby, so on a PC with only Modern Standby the host advertises no Sleep PC, refuses the request, and the console shows why instead of the setting; the host log says so at startup and names the sleep states the PC reports. The console grants it as `true`; a device imported from Vibepollo with `allow_sleep: true` keeps it.
+
+**Sleep after idle** (`sleep_after_idle_minutes`, under **Settings → General → Power**, default `0`, off) puts the PC to sleep when nobody has streamed or used it for that many minutes, 5 to 1440. **Sleep with a suspended stream** (`sleep_while_suspended`, default `false`) also lets it sleep while a stream is suspended or an app launched from a device still runs. A paired device can wake the PC again with Wake-on-LAN; [Privacy](privacy.md#your-own-devices) lists what it reads for that.
+
 ### Session actions
 
 A session has a state the host keeps: idle, preparing, launching, streaming, suspended or stopping. A client with the right permissions can end it in three ways:
@@ -571,7 +667,9 @@ For file-based configuration, the file is still named `sunshine.conf` for compat
 
 The format is `key = value`, one setting per line. Stop the host before editing files directly, then start it again to load them. Prefer the console for ordinary changes; old or unknown keys can be preserved without being implemented by the Rust host.
 
-## WebRTC server (Experimental)
+## WebRTC server
+
+<a id="webrtc-server-experimental"></a>
 
 Off by default. With **WebRTC server** (`webrtc_server`) on, Rubylight listens for TVs and browsers that speak the Moonlight WebRTC protocol (version 2). They can find the PC, pair, sign in, list its apps and stream. [WebRTC server](webrtc.md) has the setup, what streams and the protocol extensions for client authors.
 
@@ -587,7 +685,19 @@ Off by default. With **WebRTC server** (`webrtc_server`) on, Rubylight listens f
 - If another program holds the port, the console shows a `webrtc_server` warning, the log has the error and the server does not run. The port never moves on its own.
 - `--bind` applies to both the WebSocket and the discovery socket. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so TCP 8000, UDP 8000 and UDP 8001 (or the ports you chose) need no extra rule.
 
-## File transfer (Experimental)
+## Clipboard, files and USB
+
+Each of these needs a permission you give a device on **Devices**; pairing never grants them, and **Full control** leaves the file, folder and USB ones as they are.
+
+- **Clipboard.** A device with the clipboard permissions copies text to and from this PC, and images too while **Copy images** (`clipboard_image`, default `true`) is on, up to **Largest image** (`clipboard_image_max_mb`, `16` MiB as PNG) in each direction. Background streams have no clipboard.
+- **Files and shared folders.** See [File transfer](#file-transfer) and [Shared folders](#shared-folders) below.
+- **USB devices.** **USB forwarding** (`usb_forwarding`, default `false`, under **Settings → General → USB devices**) lets devices with **USB devices** attach the USB devices plugged into them to this PC during a stream, up to **USB devices at once** (`usb_max_devices`, default `4`). It needs usbip-win2 on the host; [USB forwarding](usb-forwarding.md) has the setup.
+
+[Privacy](privacy.md#your-own-devices) describes what each permission lets a device read or change.
+
+## File transfer
+
+<a id="file-transfer-experimental"></a>
 
 Off by default. With **File transfer** (`file_transfer`) on, paired devices can send files to this PC and download them again over the streaming HTTPS port ([Native API, Files](native-api.md#files)). Each device also needs **Upload files** or **Download files** under its permissions on **Devices**; no device has them until you tick them, and **Full control** leaves them as they are. Files are written as the Windows user who is signed in; with nobody signed in, transfers are refused.
 
@@ -598,7 +708,9 @@ Off by default. With **File transfer** (`file_transfer`) on, paired devices can 
 | `file_transfer_max_mb` | `4096` | The largest upload in MiB, refused before it starts. |
 | `file_transfer_stream_mbps` | `50` | While a stream runs or starts, all uploads and downloads together move at this many Mbit/s. `0` lets them run at full speed. Applies to running transfers within a second. |
 
-## Shared folders (Experimental)
+## Shared folders
+
+<a id="shared-folders-experimental"></a>
 
 None by default. **Shared folders** (`shared_folders`, under **Settings, Network**) lists folders of this PC that paired devices may browse, download from and upload to over the streaming HTTPS port ([Native API, Shared folders](native-api.md#shared-folders)). **Add folder** adds a row with a name, which devices show, and a path, typed or picked with **Browse**. The path must be a folder on a drive of this PC, such as `D:\Games`: a network share, a relative path, `.` or `..` is refused. The console shows what is wrong beside the field (no name, two folders with one name, a path the host refuses) and saves nothing until it is fixed.
 
@@ -628,6 +740,323 @@ Automatic **checking** is enabled; automatic **installation** is not. Use **Help
 If you opt into **Install updates automatically**, the installed Windows service waits for one minute without active streams, pending connections, remote-monitor sessions or running host apps. The updater validates the selected installer against the release's size and SHA-256. Portable installations use the release download page instead.
 
 Set `update_check_interval = 0` to disable scheduled checks; manual checks remain available.
+
+## Settings outside the console
+
+These keys are read from the configuration file (`sunshine.conf` in the profile folder) and from device and app overrides, but have no field in the console:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `audio_night_mode`, `audio_headphone_surround` | `false` | See [Surround, night mode and headphone surround](#surround-night-mode-and-headphone-surround). |
+| `couch_menu` and the `couch_menu_*` keys | `true`, and the values under [Couch menu](#couch-menu) | How the couch menu opens. |
+| `video_slice_delivery` | `off` | Sends H.264 and HEVC P-frames in 2 or 4 FEC blocks as their slices leave the encoder. See [Capture and video](#capture-and-video). |
+| `webrtc_pacing`, `webrtc_rtx` | `true` | Send pacing and retransmission for the WebRTC server. |
+| `webrtc_loss_permille` | `0` | Drops WebRTC video packets on purpose, in thousandths, for tests. Leave it at 0. |
+
+Webhooks have their own console page; see [Webhooks](webhooks.md).
+
+## All settings
+
+Every setting in the console, by the console's own groups, with its key and the default an unset key uses. Settings on the **Settings** home are in bold. Search the console for a key to find its field.
+
+### General
+
+#### General
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| **Host: Host name** | `sunshine_name` | empty | The name Moonlight shows for this host. Leave it empty to use the PC's name; local network discovery picks up a change after a restart. |
+| Host: Fallback console language | `locale` | `en` (English) | Language used by the fallback console and reported to connected tools. This console is currently available in English only. |
+| **Host: Allow pairing** | `enable_pairing` | `true` | Let new devices pair with this host. Turn it off once your devices are paired; devices already paired keep working. |
+| Tray: Tray icon | `system_tray` | `true` | Show a Rubylight icon in the Windows notification area, with a shortcut to this console. |
+| Tray: Hide tray controls | `hide_tray_controls` | `false` | Remove the disconnect, restart and quit actions from the tray icon's menu, so people at the PC cannot stop the host from there. |
+| Updates: Update check interval | `update_check_interval` | `86400` s | How often the host looks for a new Rubylight release. Set it to 0 to turn off automatic checks. |
+| **Updates: Install updates automatically** | `auto_update` | `false` | Download and install new releases on their own while nothing is streaming. |
+| Updates: Include pre-releases | `notify_pre_releases` | `false` | Also offer pre-release versions when checking for updates. They get fixes sooner but may have more bugs. |
+| Power: Sleep after idle | `sleep_after_idle_minutes` | `0` min | Put this PC to sleep when nobody has streamed or used it for this many minutes. 0 turns it off. |
+| Power: Sleep with a suspended stream | `sleep_while_suspended` | `false` | Let the PC sleep after idle while a stream is suspended or an app launched from a device is still running. |
+| Logging: Log level | `min_log_level` | `info` (Information) | How much detail the host writes to its log; changes apply right away. Use Debug when you are preparing a problem report. |
+| Hardware metrics: Send hardware metrics to client | `hardware_metrics` | `false` | Share supported CPU and GPU readings when a compatible client requests them during a stream. Off by default; unavailable readings are omitted. |
+| Hardware metrics: Hardware metrics interval | `hardware_metrics_interval` | `1000` ms | Minimum time between samples requested by a streaming client, from 500 to 10000 milliseconds. |
+| Hardware metrics: Hardware metrics selection | `hardware_metrics_selection` | none | Which readings to send. Leave it empty to send every supported reading. |
+| Logging: Log file | `log_path` | `logs/butterpollo.log` | Where the host writes its log. A relative path is inside the host's configuration folder. |
+| Compatibility: App order for older devices | `legacy_ordering` | `false` | Add invisible characters to app names so older versions of Moonlight list apps in your order. This can break scripts and tools that match app names exactly. |
+| Compatibility: Whole-number frame rate for commands | `envvar_compatibility_mode` | `false` | Give commands SUNSHINE_CLIENT_FPS as a whole number, such as 60 instead of 59.940. Turn it on if a script cannot read fractional frame rates. |
+| USB devices: USB forwarding | `usb_forwarding` | `false` | Let the devices you allow attach their USB devices to this PC during a stream. Each device also needs Allow USB devices. |
+| USB devices: USB devices at once | `usb_max_devices` | `4` | How many USB devices this PC takes from devices at the same time. |
+| Clipboard: Copy images | `clipboard_image` | `true` | Let devices with clipboard permission copy images to and from this PC, besides text. |
+| Clipboard: Largest image | `clipboard_image_max_mb` | `16` MiB | Images larger than this, as PNG, are refused in both directions. |
+| Background streaming: Nucleus Co-op folder | `nucleus_path` | empty | The folder of your own Nucleus Co-op copy. Empty: the host's own copy, which it downloads on first use. |
+| Background streaming: Co-op players | `nucleus_coop_players` | `4` | The most players a Nucleus co-op session gets. The game's handler and the free controller slots can allow fewer. |
+
+#### Advanced
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Debug switches: Lower the bitrate when the link cannot carry it | `link_rate_adaptation` | `true` | Always on; listed under Debug switches for troubleshooting only. Cuts the picture bitrate when the network loses more than error correction can repair, then probes back up. Does nothing on a healthy link. Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then the host probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. Off for PyroWave. Adapt bitrate on the host wins when both are on, and a device that sets its own bitrate takes over bitrate control. |
+| Displays: Default stream mode | `fallback_mode` | `1920x1080x60` | The resolution and frame rate used when a launch request names none, as WIDTHxHEIGHTxFPS. Devices normally send their own. |
+| Debug switches: Pair with a QR code | `qr_pairing` | `true` | Always on; listed under Debug switches for troubleshooting only. Shows a QR code on Home and the Devices page that Nightjar scans to pair, instead of typing a PIN. The code holds a one-time PIN and passphrase that work once and expire after 3 minutes, and the fingerprint of the host certificate, which Nightjar checks before pairing. |
+
+### Streaming
+
+#### Video
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| **Preset: Stream preset** | `stream_preset` | `balanced` (Balanced) | Fills in the AMD encoder settings you have not set yourself. Settings you change below always win. |
+| Capture: Capture method | `capture` | `auto` (Automatic) | Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays. |
+| Capture troubleshooting: Capture poll interval | `capture_poll_interval_us` | `500` µs | How long screen capture waits before checking again when no new frame is ready. Shorter waits notice new frames sooner and use more CPU time. |
+| Capture troubleshooting: GPU fence transport | `idd_push_fence_ring` | `true` | On by default. Turn it off to use the keyed-mutex ring for frames from the Rubylight display driver. |
+| Capture troubleshooting: Predictive polling | `capture_predictive_poll` | `false` | With Desktop Duplication, checks for frames more often when the next one is due. Can catch frames sooner in games with a steady frame rate. |
+| Capture troubleshooting: Align capture with encoding | `wgc_slot_aligned_publish` | `false` | Holds a new frame until just before the next encode if a newer one could arrive first. Helps when the display refreshes much faster than the stream. |
+| Capture troubleshooting: Encode from GPU memory | `wgc_direct_encoder_input` | `true` | Hands captured frames straight to the encoder on the GPU. Turn off only to troubleshoot an encoder. |
+| Capture troubleshooting: Copy and convert on a compute queue | `gpu_compute_conversion` | `true` | On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot. |
+| Codecs: Full chroma | `experimental_packed_444` | `false` | Allow compatible Nightjar clients to request full-resolution color through HEVC or AV1 on AMD. Requires the client option and a host restart. |
+| Codecs: HEVC support | `hevc_mode` | `0` (Automatic) | Which HEVC profiles devices may request. A profile the encoder fails when the host starts is never offered. |
+| Codecs: AV1 support | `av1_mode` | `0` (Automatic) | Which AV1 profiles devices may request. A profile the encoder fails when the host starts is never offered. |
+| Codecs: PyroWave | `pyrowave` | `true` | Lets compatible devices request PyroWave, a very low-latency GPU codec. It needs hundreds of Mbps and a fast wired network. |
+| Codecs: Prefer 10-bit SDR | `prefer_sdr_10bit` | `false` | When a device asks for HDR, keeps the display in standard dynamic range (SDR) and sends 10-bit SDR video. Reduces banding without switching to HDR. |
+| Codecs: HDR dynamic metadata | `hdr_dynamic_metadata` | `true` | Adds HDR10+ brightness statistics to HDR video so compatible displays can tone-map scene by scene. Devices without HDR10+ ignore them. |
+| Codecs: Dolby Vision | `hdr_dolby_vision` | `true` | Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, on HEVC HDR streams and profile 10.1 on AV1 HDR streams, to devices that ask for it. |
+| Codecs: HLG | `hdr_hlg` | `true` | Offers HLG HDR to devices that ask for it on HEVC and AV1 HDR streams. |
+| Frame pacing: Frame pacing | `frame_pacing` | `arrival` (On arrival) | On arrival encodes each new frame as soon as it is captured. Fixed grid encodes the newest frame at fixed intervals. |
+| Frame pacing: Steady grid timing | `wgc_pacing_smoothing` | `true` | Keeps the fixed grid on a steady schedule. When off, each interval starts from the previous encode, so one late frame delays the ones after it. |
+| Frame pacing: Still-picture resend rate | `minimum_fps_target` | `20` fps | How often an unchanged picture is sent again. Lower values save bandwidth on a still desktop; it does not limit a game’s frame rate. |
+| Frame pacing: Use the launch frame rate | `limit_framerate` | `false` | Encodes at the frame rate the device asked for when it launched the app instead of the faster rate its stream request may ask for. |
+| Frame pacing: Follow client size and frame rate changes | `stream_reconfigure` | `true` | Lets a Rubylight client change the stream resolution and frame rate without reconnecting, for example when a foldable phone opens its inner screen. |
+| Bitrate and network: Maximum bitrate | `max_bitrate` | `0` Kbps | Caps the bitrate a device can request. 0 uses the device's bitrate. |
+| Bitrate and network: Error correction | `fec_percentage` | `20` % | Recovery packets sent with each video frame. Higher values survive more packet loss but leave less of the bitrate for the picture. |
+| Bitrate and network: Adapt bitrate on the host | `host_adaptive_bitrate` | `false` | Lowers the bitrate when a Moonlight device reports video loss, then slowly raises it again while traffic is sustained and latency is stable. |
+| Bitrate and network: Adapt error correction | `adaptive_fec` | `true` | Uses less error correction while the device reports a clean link, and returns to the percentage above as soon as it reports loss. |
+| Bitrate and network: Most error correction a device may ask for | `fec_max_percentage` | `50` % | The largest share of recovery packets a device may choose, as a percentage of the video packets. |
+| Bitrate and network: PyroWave error correction | `pyrowave_critical_fec_percentage` | `20` % | Recovery packets that protect PyroWave pictures against packet loss. |
+| Bitrate and network: Send batch size | `video_max_batch_size_kb` | `64` (64 KiB) | Largest burst of video packets sent at once. Smaller batches can help devices that drop bursts. |
+| Bitrate and network: Pacing rate | `pacing_max_bitrate_kbps` | `0` Kbps | Spaces out video packets without changing the picture bitrate. 0 paces automatically; reconnect after saving. |
+| Bitrate and network: Adaptive packet pacing | `host_adaptive_pacing` | `false` | Starts with slower packet delivery, then tries faster rates and backs off when the device reports loss. |
+| Bitrate and network: Adaptive packet pacing for Wi-Fi clients | `wireless_adaptive_pacing` | `true` | When a client says its connection is Wi-Fi or cellular, paces its video adaptively from the first frame instead of after the first lost frames. |
+| Bitrate and network: Slow down after video loss | `keyframe_loss_pacing` | `true` | After a lost keyframe or repeated unrecoverable frames, spaces video packets more evenly for the rest of the stream without changing picture bitrate. |
+
+#### Encoders
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Encoder: Encoder | `encoder` | `auto` (Automatic) | Automatic encodes H.264, HEVC and AV1 with AMD AMF, and PyroWave streams with PyroWave's own encoder. |
+| Encoder: Graphics card | `adapter_name` | empty | The graphics processing unit (GPU) that captures and compresses the video. Automatic uses the card connected to the streamed display. |
+| Encoder: Graphics card device ID | `adapter_pnp_id` | empty | Chooses the GPU by its Windows device instance ID instead of its name, for systems with two identical GPUs. When set, it takes precedence over the GPU name. |
+| AMD AMF: Usage | `amd_usage` | `ultralowlatency` (Ultra low latency) | The base encoding profile; the settings below override parts of it. Profiles other than the low-latency ones add delay. |
+| AMD AMF: Quality preset | `amd_quality` | `speed` (Speed) | Trades encoding speed for picture quality. Driver default lets the usage profile decide. |
+| AMD AMF: Rate control | `amd_rc` | `vbr_latency` (Latency-constrained VBR) | How the encoder keeps to the stream bitrate. Constant QP ignores the bitrate. |
+| AMD AMF: Peak bitrate | `amd_peak_bitrate_ratio` | `0` (Driver default) | Peak bitrate as a multiple of the requested stream bitrate. 0 keeps the driver default. |
+| AMD AMF: Rate-control buffer | `amd_vbv_buffer_frames` | `0` (Driver default) | Rate-control buffer budget, in frames. Smaller budgets can reduce bursts at the cost of picture quality. |
+| AMD AMF: Maximum frame size | `amd_max_frame_size` | `auto` (Automatic — follow network pace) | Requests a size limit for every frame, including recovery keyframes. Tight limits can reduce picture quality. |
+| AMD AMF: Quality VBR level | `amd_qvbr_quality_level` | `0` | Target quality for quality VBR, from 1 (lowest) to 51 (highest). 0 keeps the driver default. |
+| AMD AMF: Pre-analysis | `amd_preanalysis` | `false` | Analyzes each frame before encoding to improve rate control, at the cost of extra latency. Not used for HDR streams. |
+| AMD AMF: Variance-based adaptive quantization | `amd_vbaq` | empty (Default (H.264 off; HEVC/AV1 on)) | Gives more bits to smooth areas, where artifacts are easiest to see, and fewer to busy textures. |
+| AMD AMF: Enforce decoder buffer limits | `amd_enforce_hrd` | `false` | Holds rate control to the decoder buffer model, which greatly reduces bitrate spikes. Can cause artifacts or lower quality on some GPUs. |
+| AMD AMF: H.264 entropy coding | `amd_coder` | `auto` (Driver default) | CABAC gives better quality per bit; CAVLC is simpler to decode. H.264 only. |
+| AMD AMF: Input queue size | `amd_input_queue_size` | `0` frames | How many frames may wait for the encoder. 0 uses the driver default, VRR streams included. |
+| AMD AMF: Long-term reference frames | `amd_ltr_frames` | `4` frames | Frames the encoder keeps as long-term references, so a client that lost packets recovers with a small frame instead of a full keyframe. H.264, HEVC and AV1. |
+| AMD AMF: Low-latency mode | `amd_lowlatency_mode` | `auto` (Driver default) | Turns the encoder's internal low-latency mode on or off for H.264 and HEVC. |
+| AMD AMF: High-motion quality boost | `amd_high_motion_quality_boost` | `auto` (Driver default) | Improves quality in fast motion on drivers that support it. |
+| AMD AMF: SmartAccess Video | `amd_smart_access_video` | `auto` (Driver default) | Lets the driver share encoding between AMD integrated and discrete graphics on systems that support SmartAccess Video. |
+| AMD AMF: Split-frame encoding | `amd_split_frame` | `auto` (Automatic) | Lets the driver split HEVC or AV1 frames across two encoder engines. Leave Automatic unless comparing your own GPU. |
+| AMD AMF: Encoder focus | `encoder_focus` | `off` (Off) | Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. |
+| AMD AMF: AV1 latency mode | `amd_av1_latency_mode` | `auto` (Driver default) | How quickly each AV1 frame is finished. Lower latency uses more power. |
+| AMD AMF: AV1 screen content tools | `amd_av1_screen_content` | `auto` (Driver default) | AV1 coding tools for desktop content, which can make text and interface edges clearer. AV1 only. |
+| AMD AMF: AV1 tiles | `amd_av1_tiles` | `0` (Automatic) | Tiles per AV1 frame. Automatic follows the device's slice request, up to 4. |
+
+#### Frame limiting
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Frame limiter: Limit every stream | `frame_limiter_enable` | `false` | Caps the game’s frame rate on every stream, not only on virtual displays. Virtual-display streams are already limited unless Virtual display refresh is off. |
+| Frame limiter: Limiter | `frame_limiter_provider` | `auto` (Automatic) | What enforces the limit. Automatic and RTSS use RivaTuner Statistics Server (RTSS), which must be installed; None turns off all limiting. |
+| Frame limiter: Frame limit | `frame_limiter_fps_limit` | `0` fps | The frame rate games are capped at; 0 uses the stream’s frame rate. RTSS keeps decimals such as 59.94. |
+| Frame limiter: Virtual display refresh | `frame_limiter_auto_virtual_framegen` | `legacy` (Twice the stream rate) | How fast a virtual display refreshes. A faster display captures each game frame sooner after it is drawn. |
+| RTSS: RTSS folder | `rtss_install_path` | empty | Where RivaTuner Statistics Server is installed. Empty looks for it in Program Files. |
+| RTSS: RTSS limit mode | `rtss_frame_limit_type` | `async` (Asynchronous) | How RTSS paces frames. Some streams use front edge sync instead. |
+| RTSS: Use this mode on virtual displays | `rtss_allow_virtual_display_override` | `false` | Applies the RTSS limit mode to virtual-display streams instead of front edge sync. |
+
+### Display & HDR
+
+#### Display
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Streamed display: Display | `output_name` | empty | The monitor to stream when no virtual display is used. Empty streams the primary display; a device or app can choose its own. |
+| **Streamed display: Virtual display** | `virtual_display_mode` | empty (Default (by Windows version)) | Whether streams use a virtual display sized for the device instead of a monitor. A device’s or app’s own choice wins. |
+| **Streamed display: Virtual display layout** | `virtual_display_layout` | `exclusive` (Exclusive) | How the virtual display fits with your other monitors while streaming. Exclusive turns the other monitors off. |
+| Streamed display: Virtual display scale | `dd_virtual_display_scale` | `0` (Keep) | The Windows scale set on a virtual display. Recommended picks one from the resolution, such as 125% at 1080p; Keep leaves the scale Windows remembers for that display. |
+| Streamed display: Activate a virtual display | `dd_activate_virtual_display` | `false` | Streams use a virtual display even when Virtual display is off, unless the device asks for none. It also overrides a device’s or app’s own Off. |
+| Streamed display: Monitor setup | `dd_configuration_option` | `verify_only` (Only check that it’s on) | What happens to the streamed monitor when the stream does not use a virtual display. Leaving the monitors alone also skips resolution, refresh rate and HDR changes on it. |
+| Resolution and refresh rate: Resolution | `dd_resolution_option` | `auto` (Match the device) | The resolution set on the streamed display. Keeping the current one applies to monitors only; a virtual display matches the device unless a fixed resolution is set. |
+| Resolution and refresh rate: Fixed resolution | `dd_manual_resolution` | empty | WIDTHxHEIGHT, for example 2560x1440. The width can be 320 to 7680 and the height 200 to 4320. |
+| Resolution and refresh rate: Refresh rate | `dd_refresh_rate_option` | `auto` (Match the stream) | The refresh rate set on the streamed display. |
+| Resolution and refresh rate: Fixed refresh rate | `dd_manual_refresh_rate` | empty | In hertz, with up to three decimals such as 59.94 or 119.88. On a virtual display it replaces the faster automatic refresh. |
+| Resolution and refresh rate: Mode substitutions | `dd_mode_remapping` | `{"mixed": [], "resolution_only": [], "refresh_rate_only": []}` | Changes a requested mode before it is applied. Each entry matches requested_resolution and requested_fps and sets final_resolution and final_refresh_rate. |
+| After a stream: Restore displays on disconnect | `dd_config_revert_on_disconnect` | `true` | Restore the displays after a device disconnects, even when its app keeps running. |
+| After a stream: Restore delay | `dd_config_revert_delay` | `3000` ms | How long to wait after a device disconnects before restoring the displays. |
+| After a stream: Keep a disconnected display for | `dd_paused_virtual_display_timeout_secs` | `7200` s | How long a disconnected device’s non-exclusive display is kept while its app runs. 0 keeps it until the app closes. |
+| After a stream: Keep monitors off while paused | `dd_hold_layout_while_paused` | `false` | With an exclusive layout, keep switching the monitors back off while a device is disconnected, until it returns or the restore delay ends. |
+| After a stream: Restore the saved layout | `dd_always_restore_from_golden` | `false` | After a stream, return the displays to the layout saved under Maintenance instead of the layout from before the stream. |
+| After a stream: Displays the saved layout skips | `dd_snapshot_exclude_devices` | none | A list of display device IDs in JSON format (text enclosed in square brackets) that restoring the saved layout leaves as they are, such as a dummy plug. |
+| After a stream: Restore hotkey | `dd_snapshot_restore_hotkey` | empty | A key on this PC that ends every stream and restores the display layout, for when a stream leaves the screens unusable. F1 to F24, a letter or a digit. |
+| After a stream: Restore hotkey modifiers | `dd_snapshot_restore_hotkey_modifiers` | `ctrl+alt+shift` | Keys held with the restore hotkey: ctrl, alt, shift and win, joined with +. |
+| Remote monitors: Mute remote monitors | `remote_monitor_mute_audio` | `false` | Sends picture and input, but no audio, to a device used as a remote monitor. |
+| Remote monitors: Remove when its stream ends | `remote_monitor_disconnect_on_stream_end` | `false` | Removes a device’s remote monitor when its stream ends. When off, the monitor stays so the device can resume. |
+| Remote monitors: Remove when the device disconnects | `remote_monitor_disconnect_on_client_disconnect` | `false` | Removes the remote monitor as soon as the device’s connection drops, even if it was kept for resuming. |
+| Remote monitors: Quit the game on the first request | `remote_monitor_terminate_on_first_request` | `false` | Lets another device quit the running game with its first request. When off, it must ask again within 60 seconds; the device that started the game is never asked twice. |
+| Remote monitors: Confirm before replacing a running app | `remote_monitor_confirm_app_replacement` | `true` | Makes a device ask twice before replacing a running app with a different one, so Moonlight can warn first. |
+| Streamed display: Rotate the display | `dd_rotation_option` | `disabled` (Leave as it is) | Whether the streamed display takes the device's portrait or landscape shape, and follows it when the device turns. |
+| Streamed display: Rotation | `dd_manual_rotation` | `0` (0°) | The angle the streamed display turns to, clockwise; a virtual display is made in that shape. |
+
+#### HDR
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Display: Display HDR | `dd_hdr_option` | `auto` (Match the stream) | Turns HDR on the streamed display on or off to match the stream. |
+| Display: HDR request | `dd_hdr_request_override` | `auto` (Follow the device) | Overrides the device’s HDR request for the display, for devices or games that report it wrongly. The stream itself still follows the device. |
+| Display: Vulkan HDR on virtual displays | `vulkan_hdr_layer` | `true` | Registers a Vulkan layer so Vulkan games can use HDR on a virtual display. Turn it off if Vulkan games crash. |
+| Display: Windows HDR Calibration on virtual displays | `virtual_display_hdr_calibration` | `false` | Gives an HDR virtual display the profile Windows HDR Calibration made for your HDR monitor, and gives the display back its own profile after the stream. |
+| Display: Peak brightness | `hdr_peak_brightness` | `1000` nits | The brightest the device’s screen can show, which a virtual display reports as its peak. |
+
+### Audio & controls
+
+#### Audio
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| **Sound: Stream audio** | `stream_audio` | `true` | Send the host's sound to the device. Turn it off when a stream is only used as an extra monitor and should stay silent. |
+| Sound: Audio to stream | `audio_capture_mode` | `system` (System audio (selected playback device)) | Choose Game only to stream just the game, keeping browsers and notifications out. Reconnect to apply. |
+| Sound: PCM and Dolby Digital audio | `audio_passthrough` | `true` | Offers uncompressed PCM, Dolby Digital and Dolby Digital Plus audio to devices that ask for it, for TVs and receivers that decode it themselves. Other devices keep Opus. |
+| Devices: Audio device | `audio_sink` | empty | The audio output captured when the streaming device keeps sound playing on the host, or when no virtual speakers exist. Leave it empty to use the Windows default output. |
+| Devices: Virtual speakers | `virtual_sink` | empty | The audio output made the Windows default during a stream, so sound goes to the streaming device instead of the PC's speakers. |
+| Devices: Capture without switching | `audio_sink_capture_only` | `false` | Capture the audio device without changing the Windows default output. You then send the apps you want to hear to that device yourself. |
+| Devices: Follow the default device | `auto_capture_sink` | `true` | Capture whichever device is the Windows default, even if it changes during a stream. Turn it off to stay on the device chosen when the stream started. |
+| Virtual speakers: Keep virtual speakers as default | `keep_sink_default` | `true` | If another device becomes the Windows default during a stream, switch back to the virtual speakers. The device you picked is still restored when the stream ends. |
+| Virtual speakers: Install Steam audio drivers | `install_steam_audio_drivers` | `true` | When Steam is installed, install its streaming speakers and microphone when a stream needs them. |
+| **Microphone: Use the device microphone** | `stream_mic` | `true` | Let a streaming device that sends its microphone talk through the PC. Only clients with microphone support send one. |
+| 7.1.4 surround | `audio_surround_714` | `true` | Offers 7.1.4 surround sound to devices that ask for it. Height channels stay silent unless the captured playback device has them. |
+
+#### Input
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Devices: Keyboard | `keyboard` | `true` | Let devices type on the host. |
+| Devices: Mouse | `mouse` | `true` | Let devices use the mouse on the host. Pen and touch input need this too. |
+| **Devices: Controllers** | `controller` | `true` | Let devices use game controllers on the host. |
+| Devices: Remote input entry | `enable_input_only_mode` | `false` | Add a Remote Input entry to every device's app list. It sends keyboard, mouse and controller input to the host without video, for example from a second device. |
+| Keyboard: Send scan codes | `always_send_scancodes` | `true` | Send keys as scan codes, which some games need to see keyboard input at all. They follow Keyboard layout. |
+| Keyboard: Right Alt as Windows key | `key_rightalt_to_key_win` | `false` | Treat the right Alt key as the Windows key, for devices that cannot send the Windows key. |
+| Keyboard: Key repeat delay | `key_repeat_delay` | `500` ms | How long a held key waits before it starts repeating. 0 turns key repeat off on the host. |
+| Keyboard: Key repeat rate | `key_repeat_frequency` | `24.9` Hz | How many times per second a held key repeats. Decimals are allowed; 0 uses the default. |
+| Keyboard: Key remapping | `keybindings` | none | Make a key from the device press a different key on the host, as pairs of Windows virtual-key codes such as ["0x10", "0xA0"]. |
+| Keyboard: Keyboard follows text fields | `keyboard_follows_focus` | `true` | Show the device's keyboard when a text field on the host gets the focus, and hide it after. |
+| Keyboard: Send the text around the cursor | `text_input_surrounding_text` | `false` | Send the text around the cursor to the device's keyboard for its suggestions, never from password fields. |
+| Keyboard: Keyboard layout | `keyboard_layout` | `client` | The layout that turns the device's keys into scan codes: client for the one the device reports, us for US English, or a Windows layout id. |
+| Mouse, pen and touch: High-resolution scrolling | `high_resolution_scrolling` | `true` | Pass fine scroll steps from the device. Turn it off for older apps that scroll too far, so scrolling moves in whole notches. |
+| Mouse, pen and touch: Native pen and touch | `native_pen_touch` | `true` | Pass pen and touch from devices to Windows as pen and touch. Turn it off for apps that handle them badly; devices then send touch as mouse input. |
+| Controllers: Controller type | `gamepad` | `auto` (Automatic) | The virtual controller the host uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers. |
+| Controllers: PlayStation controller for motion controls | `motion_as_ds4` | `true` | With Automatic, motion sensors select DualSense. Turn it off to ignore motion sensors when choosing. |
+| Controllers: PlayStation controller for touchpads | `touchpad_as_ds4` | `true` | With Automatic, a touchpad selects DualSense. Turn it off to ignore the touchpad when choosing. |
+| Controllers: Vibration | `forward_rumble` | `true` | Send vibration from games back to the device's controller. |
+| Controllers: Haptics from game audio | `audio_haptics` | `false` | A DualSense on the device feels the game's bass and impacts when the game sends it no vibration of its own. Changes apply during a stream. |
+| Controllers: Audio haptics strength | `audio_haptics_strength` | `100` % | How strongly the bass drives the actuators. 0 is off; above 100 % quiet scenes are felt more but loud ones clip. |
+| Controllers: Audio haptics response | `audio_haptics_curve` | `linear` (Linear) | Soft lifts quiet bass, Punchy keeps only the big hits, Linear follows the sound. |
+| Controllers: Audio haptics noise gate | `audio_haptics_gate` | `-50` dBFS | Bass quieter than this is not felt, so music and ambience under it stay still. Raise it if the controller hums. |
+| Controllers: Hold Back for Guide | `back_button_timeout` | `-1` ms | Holding Back (Select) this long presses the Guide (Home) button instead, for controllers without one. -1 turns this off. |
+| Steam Deck and back grips: Steam Deck controller | `steam_deck_controller` | `auto` (Automatic) | How a Steam Deck's controls reach the host. Steam Deck lets Steam on the host see a real Steam Deck and apply its Steam Input layout. |
+| Steam Deck and back grips: Back grip L4 | `back_grip_l4` | `none` (Nothing) | What the upper left back button presses: a Steam Deck's L4, or the matching paddle on an Xbox Elite or DualSense Edge. |
+| Steam Deck and back grips: Back grip R4 | `back_grip_r4` | `none` (Nothing) | What the upper right back button presses: a Steam Deck's R4, or the matching paddle on an Xbox Elite or DualSense Edge. |
+| Steam Deck and back grips: Back grip L5 | `back_grip_l5` | `none` (Nothing) | What the lower left back button presses: a Steam Deck's L5, or the matching paddle on an Xbox Elite or DualSense Edge. |
+| Steam Deck and back grips: Back grip R5 | `back_grip_r5` | `none` (Nothing) | What the lower right back button presses: a Steam Deck's R5, or the matching paddle on an Xbox Elite or DualSense Edge. |
+| Mouse, pen and touch: Pen barrel roll | `pen_barrel_roll` | `true` | Passes on how far a stylus is turned around its own axis, for pens and devices that report it. |
+| Mouse, pen and touch: Touch | `touch_mode` | `client` (As the device sends them) | How this PC takes touches: as the device sends them, as a mouse or as a trackpad. Needs native pen and touch. |
+| Touch sensitivity | `touch_sensitivity` | `100` % | How far the pointer moves for a swipe as a trackpad, and how far two fingers scroll. |
+| Touch gestures | `touch_gestures` | `true` | As a mouse or trackpad, two fingers scroll and a two-finger tap clicks right. |
+| Device-drawn cursor | `client_cursor` | `true` | Lets a device draw the mouse cursor itself, so the cursor moves without waiting for the video. Needs Desktop Duplication capture; with other capture the cursor stays in the video. |
+
+### Games & automation
+
+#### Library
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| **App behavior: Close the app when the last device disconnects** | `terminate_on_pause` | `false` | Closes the running app when its last streaming device disconnects. Off keeps it running for reconnection. |
+| Steam options: Steam library | `steam_enabled` | `true` | Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits. In Library, select Sync now beside Steam to add them now. |
+| Steam options: Sync automatically | `steam_auto_sync` | `true` | Checks Steam every 30 seconds and updates the Steam apps when games are installed, removed or played. |
+| Steam options: Every installed game | `steam_sync_all_installed` | `true` | Adds every installed game, as every launcher does. When off, only the games played most recently are added. |
+| Steam options: Recent games | `steam_recent_games` | `10` | How many of the most recently played games to add. |
+| Steam options: Played within | `steam_recent_max_age_days` | `30` days | Leaves out games not played for this many days. 0 adds them however long ago they were played. |
+| Steam options: Remove uninstalled games | `steam_autosync_remove_uninstalled` | `true` | Removes a Steam app when its game is uninstalled. With recent games only, apps that fall out of the list are always removed. |
+| Steam options: Include tools | `steam_include_tools` | `false` | Also adds tools, runtimes, redistributables and DLC that Steam lists as installed. |
+| Steam options: Games to leave out | `steam_exclude_games` | none | A JSON list of games the sync never adds, by Steam app ID or name: ["570", {"name": "Dota 2"}]. Their Steam apps are removed. |
+| Playnite: Playnite | `playnite_enabled` | `true` | Starts apps linked to a Playnite game through Playnite and ends the stream when the game closes. Needs the Rubylight plugin in Playnite. |
+| Playnite: Add games automatically | `playnite_auto_sync` | `true` | While Playnite runs, adds the games chosen below as apps and removes them when they no longer qualify. When off, only apps already linked to a game are updated. |
+| Playnite: Every installed game | `playnite_sync_all_installed` | `true` | Adds every installed game, as every launcher does. When off, the recently played games and the categories and plugins below are added. |
+| Playnite: Recent games | `playnite_recent_games` | `10` | How many of the most recently played games to add. 0 adds none. |
+| Playnite: Played within | `playnite_recent_max_age_days` | `30` days | Recent games must have been played within this many days. 0 counts any game, played or not. |
+| Playnite: Categories to add | `playnite_sync_categories` | none | A JSON list of Playnite category names whose installed games are added: ["Couch", "Racing"]. |
+| Playnite: Libraries to add | `playnite_sync_plugins` | none | A JSON list of Playnite library plugin IDs whose installed games are added. |
+| Playnite: Games to leave out | `playnite_exclude_games` | none | A JSON list of Playnite game IDs the sync never adds. |
+| Playnite: Categories to leave out | `playnite_exclude_categories` | none | A JSON list of category names whose games the sync never adds. |
+| Playnite: Libraries to leave out | `playnite_exclude_plugins` | none | A JSON list of library plugin IDs whose games the sync never adds. |
+| Playnite: Remove uninstalled games | `playnite_autosync_remove_uninstalled` | `true` | Removes an added app when its game is uninstalled. |
+| Playnite: Remove unplayed after | `playnite_autosync_delete_after_days` | `14` days | Removes an added app not played within this many days of being added. 0 keeps it. |
+| Playnite: Replace older recent games | `playnite_autosync_require_replacement` | `true` | When more recent games are played, removes as many older added games as are newly added, keeping the count. |
+| Playnite: Playnite fullscreen app | `playnite_fullscreen_entry_enabled` | `false` | Adds a “Playnite (Fullscreen)” app that opens Playnite’s fullscreen mode, for choosing a game on the device. |
+| Playnite launch focus: Confirm game focus | `playnite_focus_attempts` | `3` | How many times the game or Playnite fullscreen menu must be confirmed in front after launch. Lower it if Rubylight keeps interrupting another window. |
+| Playnite launch focus: Stop focusing after | `playnite_focus_timeout_secs` | `15` s | Maximum time spent bringing a launched game or Playnite fullscreen menu to the front. 0 leaves focus alone, even when Confirm game focus is above 0. |
+| Playnite launch focus: Stop after the first focus confirmation | `playnite_focus_exit_on_first` | `false` | Stop as soon as the game or Playnite menu is confirmed in front. Prevents later focus changes, but a launcher or splash screen may then take focus back. |
+| Launchers: Epic Games | `library_epic_enabled` | `true` | Adds the games installed with the Epic Games Launcher to the library, with their covers, and ends a stream when the game exits. |
+| Launchers: Battle.net | `library_battlenet_enabled` | `true` | Adds the games installed with Battle.net to the library, with their covers, and ends a stream when the game exits. |
+| Launchers: EA app | `library_ea_enabled` | `true` | Adds the games installed with the EA app to the library, with their covers, and ends a stream when the game exits. |
+| Launchers: Ubisoft Connect | `library_ubisoft_enabled` | `true` | Adds the games installed with Ubisoft Connect to the library, with their covers, and ends a stream when the game exits. |
+| Launchers: GOG | `library_gog_enabled` | `true` | Adds the games installed with GOG Galaxy or the GOG installer to the library, with their covers, and ends a stream when the game exits. |
+| Launchers: Xbox and Microsoft Store | `library_microsoft_enabled` | `true` | Adds the games installed with the Xbox app or the Microsoft Store to the library, with their covers, and ends a stream when the game exits. |
+| Launchers: Sync automatically | `library_auto_sync` | `true` | Keeps every installed game of the launchers above in the library, like the Steam sync. Games you delete from the library stay deleted. |
+| Launchers: Remove uninstalled games | `library_autosync_remove_uninstalled` | `true` | Removes a synced game once its launcher no longer lists it. Games you added by hand stay. |
+| Game folders: Game folders | `library_local_folders` | none | Folders that hold one game per subfolder, such as D:\Games. Add games then lists each subfolder with the program that starts it. |
+| Game folders: Folders to leave out | `library_local_exclude` | none | Game folders Add games never lists, by name (Tools) or full path (D:\Games\Tools). |
+| Lossless Scaling: Lossless Scaling program | `lossless_scaling_path` | empty | LosslessScaling.exe or its folder, for apps that use Lossless Scaling. Empty finds it in Steam libraries and the usual folders. |
+| Lossless Scaling: Let Lossless Scaling start by itself | `lossless_scaling_legacy_auto_detect` | `false` | Uses Lossless Scaling’s auto scale for the game instead of pressing its hotkey, and leaves its window open. An app can choose otherwise. |
+
+#### Commands
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Around every app: Preparation commands | `global_prep_cmd` | none | Commands run before every app starts (do) and after it closes (undo). If a do command fails, the app does not start; apps can opt out in their settings. |
+| Around every app: Pause and resume commands | `global_state_cmd` | none | Commands run when any app's stream resumes (do) and when it pauses (undo), before the app's own state commands. Apps can opt out in their settings. |
+| From devices: Host commands | `server_cmd` | none | Commands a device can run on the host from its stream menu, in streaming apps that support it. Only devices with the Host commands permission see them. |
+
+### Network & access
+
+#### Network
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Ports and addresses: Base port | `port` | `47989` | Moonlight connects on this port, and the host's other ports are counted from it. Change it only if another program needs these ports. |
+| Ports and addresses: IP versions | `address_family` | `ipv4` (IPv4 only) | Whether the host also accepts connections over IPv6. Ignored when a listen address is set. |
+| Ports and addresses: Listen address | `bind_address` | empty | Listen on one of this PC's IP addresses instead of all of them; local network discovery then uses only that address. Leave it empty to listen on every address. |
+| Discovery and internet: Local network discovery | `enable_discovery` | `true` | Announce this host on the local network so Moonlight finds it without typing an address. |
+| Discovery and internet: UPnP port forwarding | `upnp` | `false` | Ask the router to forward the streaming ports so devices can connect over the internet. The router must have Universal Plug and Play (UPnP) turned on. |
+| WebRTC: WebRTC server | `webrtc_server` | `false` | Let TVs and browsers that speak the Moonlight WebRTC protocol pair and stream. |
+| WebRTC: WebRTC signalling port | `webrtc_port` | `8000` | The TCP port TVs connect their WebSocket to. Discovery always listens on UDP 8000, where TVs send their broadcast. |
+| WebRTC: WebRTC media port | `webrtc_media_port` | `8001` | The UDP port for WebRTC video, audio and input. |
+| File transfer: File transfer | `file_transfer` | `false` | Let paired devices send files to this PC and download them again. Each device also needs Upload files or Download files. |
+| File transfer: File transfer folder | `file_transfer_dir` | empty | Where uploads go and downloads come from. Leave it empty for Downloads\Rubylight of the signed-in user. |
+| File transfer: Largest file | `file_transfer_max_mb` | `4096` MiB | Uploads larger than this are refused before they start. |
+| File transfer: Transfer speed while streaming | `file_transfer_stream_mbps` | `50` Mbit/s | Uploads and downloads together slow to this rate while a stream runs. 0 lets them run at full speed. |
+| Shared folders: Shared folders | `shared_folders` | none | Folders of this PC that devices may browse. Each device sees only the folders you share with it on Devices. |
+| Streams: Local network encryption | `lan_encryption_mode` | `0` (Off) | Whether streams to devices on the local network, including Tailscale, are encrypted. Encryption costs some performance on slower devices. |
+| Streams: Internet encryption | `wan_encryption_mode` | `1` (When the device supports it) | Whether streams to devices outside the local network are encrypted. Required turns away devices that cannot encrypt. |
+| Streams: Device timeout | `ping_timeout` | `10000` ms | How long the host waits without hearing from a device before it ends the stream. Raise it if streams drop on an unreliable network. |
+| Streams: Client roaming | `client_roaming` | `true` | Let a device whose network address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream instead of reconnecting. |
+| Streams: Bandwidth test | `bandwidth_probe` | `true` | Lets paired devices time a short download to measure the network before they pick a bitrate. |
+| Console: Console access | `origin_web_ui_allowed` | `lan` (Local network) | Which addresses may open this console and use its API. |
+| Console: Trusted origins | `csrf_allowed_origins` | none | Other web addresses allowed to make changes through this console. Add one only when you reach the console through a reverse proxy. |
+| Console: Sign-in token lifetime | `session_token_ttl_seconds` | `7200` s | How long a console sign-in lasts before the browser must renew it. |
+| Console: Remembered sign-in lifetime | `remember_me_refresh_token_ttl_seconds` | `604800` s | How long a browser signed in with "Keep me signed in" stays signed in, up to 366 days. Lower it on shared computers. |
 
 ## Further reference
 

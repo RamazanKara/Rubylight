@@ -26,9 +26,26 @@ SITE = ROOT / "site"
 OUT = ROOT / "_site"
 REPO = "https://github.com/RamazanKara/Rubylight"
 
+# Internal planning and design notes: in the repository, not on the site.
+# Links to them from published pages go to GitHub.
+INTERNAL = {
+    "docs/foundation-gap-survey.md",
+    "docs/rubylight-3.0-plan.md",
+    "docs/couch-menu-design.md",
+    "docs/encoder-focus-design.md",
+    "docs/bug-hunt-2026-10-28.md",
+    "docs/stability-audit-2026-10-18.md",
+    "docs/pyrowave-d3d12-audit-2026-10-18.md",
+    "docs/webrtc-design.md",
+    "docs/wake-and-audio-design.md",
+}
 # Markdown rendered as pages, repository paths.
 PAGES = sorted(
-    [p.relative_to(ROOT).as_posix() for p in (ROOT / "docs").glob("*.md")]
+    [
+        src
+        for src in (p.relative_to(ROOT).as_posix() for p in (ROOT / "docs").glob("*.md"))
+        if src not in INTERNAL
+    ]
     + [
         "rust/PERFORMANCE.md",
         "rust/PERFORMANCE_WORK.md",

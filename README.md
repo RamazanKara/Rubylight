@@ -1,4 +1,4 @@
-<h1 align="center"><a href="https://github.com/RamazanKara/Rubylight/issues/59"><b>Rubylight 3.0 is coming: see what's new</b></a></h1>
+<h1 align="center"><a href="docs/features.md#everything-it-does-in-30"><b>Rubylight 3.0: see what's new</b></a></h1>
 
 <p align="center">
   <img src="docs/media/banner.svg" width="900" alt="Rubylight: Written in Rust. Built for Radeon. Made for Moonlight.">
@@ -9,6 +9,12 @@
 <p align="center">
   Play your PC games on your TV, laptop, phone, handheld, Steam Deck or Xbox.<br>
   HDR, full-colour 4:4:4 and up to 240 fps, straight from your AMD GPU. Free and open source.
+</p>
+
+<p align="center">
+  Rubylight is a Moonlight host written in Rust and built around AMD's encoder, compute queues and its own display driver.<br>
+  On an RX 7900 XT a frame takes a median <b>5.89 ms</b> from capture to the client's screen (AV1 1080p60, loopback, October 26),<br>
+  and in our lossy-link test scene cuts went from <b>15 freezes to none</b> (HEVC 1440p60, October 28).
 </p>
 
 <p align="center">
@@ -44,33 +50,15 @@
 
 ## A console you'll enjoy
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/media/console-dark.png">
-    <img src="docs/media/console-light.png" width="800" alt="Rubylight's Home page: ready to play, a live stream card and a shelf of games with covers.">
-  </picture>
-</p>
+<!-- showcase -->
 
-<table>
-  <tr>
-    <td width="33%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/console-library-dark.png"><img src="docs/media/console-library-light.png" alt="Games & apps: the full library with cover art."></picture></td>
-    <td width="33%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/console-add-games-dark.png"><img src="docs/media/console-add-games-light.png" alt="Add games: one scan across every launcher on the PC."></picture></td>
-    <td width="33%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/console-radeon-dark.png"><img src="docs/media/console-radeon-light.png" alt="A game's Radeon profile: Competitive, Smoothness, Quality or Custom."></picture></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Your library</b>, with covers</td>
-    <td align="center"><b>Add games</b> from every launcher</td>
-    <td align="center"><b>A Radeon profile</b> for each game</td>
-  </tr>
-</table>
-
-**Home** shows that the PC is ready, the live stream and your game shelf. **Games & apps** holds your library, **Devices** handles pairing and permissions, and **Settings** groups everything into General, Streaming, Display & HDR, Audio & controls, Games & automation, and Network & access, with search for every advanced control.
+**Home** walks you through three steps, pair, see your games, play, and then shows the live stream, running co-op games and your game shelf. **Games** lists every launcher in one place, **Devices** handles pairing and permissions, and **Settings** shows the ten settings most people change, with search for every other one. **Help** reads the host log and explains what went wrong.
 
 ## Install. Pair. Play.
 
 1. **Install.** Run **`rubylight-setup-3.0.0-rc.4.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.4). It sets up the service, the virtual display driver and controller support in one pass, ready to stream right away. A portable ZIP is there too.
 2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
-3. **Pair and play.** Open Moonlight or any compatible client on your device, select your PC and enter its PIN on the console's **Devices** page. Then pick **Desktop** or a game and play.
+3. **Pair and play.** In [Nightjar](https://github.com/RamazanKara/nightjar), scan the QR code on the console's Home page. In Moonlight or any other compatible client, select your PC and enter its PIN on the console's **Devices** page. Then pick **Desktop** or a game and play.
 
 **Coming from Apollo or Vibepollo?** Rubylight brings over your settings, paired devices, app library and covers, so every client keeps working on day one. Updates keep everything too, on the schedule you choose.
 
@@ -98,7 +86,9 @@ Recorded on an RX 7900 XT. Each row links to its method, build and raw results i
 | **42 ms against 96 ms** | mean picture age under game-like GPU load, Rubylight 2.0.0-rc.2 against Vibepollo 2.0, HEVC 10-bit HDR 1080p60 at 20 Mbps, Desktop Duplication, a 120 Hz virtual display, three runs each, same PC and settings ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
 | **0.25 ms** | median age of the picture at the encoder with VRR, against 4.68 ms without VRR-aware capture, for a 120 Hz game in a 60 fps stream, p95 2.34 ms since 3.0.0-rc.3 ([VRR](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [p95](rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures), [method](rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr)) |
 | **4× cleaner Wi-Fi** | unrecoverable frames per run from 61 to 15.7 on 2.4 GHz with Wi-Fi pacing, HEVC 1080p60 at 47 Mbit/s, and the same 4.7 ms median on 5 GHz ([Wi-Fi pacing](rust/PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop)) |
-| **Over 98 %** | of frames delivered after start-up when 75 Mbps is asked of a 50 Mbit/s link, from 93.3 % ([link adaptation](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
+| **1.17 % and 1.08 %** | of frames lost in two runs when 75 Mbps is asked of a 50 Mbit/s link, against 6.7 % before link adaptation's 3.0 fixes ([link adaptation](rust/PERFORMANCE.md#october-24-a-lossless-standing-queue-link-fix-delay-signal), [before](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
+| **15 freezes to 0** | after scene cuts in 45 s, HEVC 1440p60 at 250 Mbps with 0.3 % random loss, with oversize scene cuts encoded again as keyframes; lost cuts 16 and 15 to 0 and 0 ([scene cuts](rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes)) |
+| **0.86 to 0.92** | of the keyframe bytes sent for recovery on H.264, HEVC and AV1 with long-term references, over gaps of 1 to 130 lost frames ([recovery](rust/PERFORMANCE.md#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default)) |
 | **17 ms** | median glass to glass in a browser over WebRTC, AV1 1080p60, with 4K120 in HEVC and AV1 ([WebRTC](rust/PERFORMANCE.md#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b)) |
 
 <p align="center">
@@ -108,6 +98,22 @@ Recorded on an RX 7900 XT. Each row links to its method, build and raw results i
 The [performance guide](docs/performance.md) explains each metric and links every run.
 
 ## Everything it does
+
+**New in 3.0**
+
+| Feature | What it does |
+| --- | --- |
+| **Dolby Vision, HDR10+ and HLG** | HDR streams carry per-scene brightness data, so a TV follows each scene. Dolby Vision on HEVC (8.1, 8.4) and AV1 (10.1), and HLG for screens that show only HLG, for devices that ask for them. [More](docs/configuration.md#capture-and-video) |
+| **No freeze after a scene cut** | A scene cut too large to protect is encoded again as a keyframe that fits, and recovery keyframes keep their full error correction. |
+| **Faster recovery on every codec** | A short loss on H.264, HEVC or AV1 is repaired from a picture the device still has, for every client. |
+| **Error correction the device chooses** | Nightjar picks its own share of recovery packets and can test the link before its first bitrate. Bitrate and frame rate change mid-stream. [More](docs/configuration.md#error-correction-chosen-by-the-device) |
+| **Roaming** | A phone moving from Wi-Fi to mobile data keeps its stream. [More](docs/configuration.md#roaming) |
+| **Split-screen co-op** | A game Nucleus Co-op supports gets a "(Co-op)" entry: each player streams their own copy with their own picture, sound and controller. [More](docs/nucleus-coop.md) |
+| **Sound for your receiver** | PCM up to 7.1.4, Dolby Digital and Dolby Digital Plus, plus 7.1.4 surround, night mode, headphone surround and haptics from game audio. [More](docs/configuration.md#pcm-and-dolby-digital-audio) |
+| **Clipboard, folders, files and USB** | Text and images copied on either side, shared folders, file transfer, and USB devices from the client attached to the PC, each for the devices you allow. [More](docs/configuration.md#clipboard-files-and-usb) |
+| **The couch menu** | Hold L3+R3, press Ctrl+Alt+Backspace or hold the top-left corner for Back to game, Disconnect, End session and Close game, in any Moonlight client. [More](docs/configuration.md#couch-menu) |
+| **Keyboard and touch** | The device's keyboard opens when a text field on the PC gets the focus; device layouts, a device-drawn cursor, touch as a mouse or trackpad, and display rotation. [More](docs/configuration.md#keyboard-touch-pen-and-cursor) |
+| **A simpler console** | Home, Games and ten settings up front, QR pairing, Help that explains the host log, and frame rates for every stage of the pipeline. |
 
 **Speed**
 
@@ -144,9 +150,9 @@ The [performance guide](docs/performance.md) explains each metric and links ever
 | **Native API** | Clients browse your library with covers, follow the session and drive the Radeon controls. [Contract](docs/native-api.md) |
 | **Live GPU readings** | Clients can show the PC's CPU load and the Radeon's usage, temperatures, power, clocks and VRAM in their overlay. [Protocol](docs/hardware-metrics.md) |
 | **WebRTC server** | Pair a Samsung Tizen TV or a browser with a PIN and stream H.264, HEVC or AV1, with HDR, surround, gamepads, keyboard and mouse. [More](docs/webrtc.md) |
-| **Stream in the console** | Play a game in a browser tab from the console's Stream page, signed in instead of paired: H.264 1080p60, stereo, keyboard and mouse. [More](docs/webrtc.md#stream-in-the-console-experimental) |
+| **Stream in the console** | Play a game in a browser tab from the console's Stream page, signed in instead of paired: H.264 1080p60, stereo, keyboard and mouse. [More](docs/webrtc.md#stream-in-the-console) |
 | **Sleep PC** | A device you allow puts the PC to sleep while nothing is streaming, with the same requests as Vibepollo, on a PC with S1, S2 or S3 sleep. |
-| **File transfer** | Devices you allow send files to the PC and fetch them back, into your Downloads\Rubylight or a folder you choose, paced while a stream runs. [More](docs/configuration.md#file-transfer-experimental) |
+| **File transfer** | Devices you allow send files to the PC and fetch them back, into your Downloads\Rubylight or a folder you choose, paced while a stream runs. [More](docs/configuration.md#file-transfer) |
 
 **Controllers and audio**
 

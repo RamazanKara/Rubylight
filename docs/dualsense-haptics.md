@@ -25,7 +25,9 @@ The host acknowledges controller microphone support only after its USB audio end
 
 With [Game-only audio](configuration.md#game-only-audio), dedicated USB speaker PCM is suppressed because the virtual endpoint cannot identify which application wrote it. Normal process-captured game sound still reaches a connected controller headset. Actuator haptics and microphone permissions remain independent. Disabled stream audio and muted Remote Monitor sessions also suppress this separate speaker path.
 
-## Haptics from game audio (Experimental)
+## Haptics from game audio
+
+<a id="haptics-from-game-audio-experimental"></a>
 
 Most games send a DualSense rumble at best and often nothing. With **Settings → Input → Controllers → Haptics from game audio** (`audio_haptics`, off by default) the host makes waveform haptics from the stream's own sound for each client DualSense that has waveform haptics but gets none from the game:
 

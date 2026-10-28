@@ -1,4 +1,4 @@
-# Nucleus Co-op: background streaming and co-op (Experimental)
+# Nucleus Co-op: background streaming and co-op
 
 Rubylight can run a game through [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus),
 the split-screen launcher. Nucleus starts its own instance of the game for
@@ -10,8 +10,6 @@ That gives two things:
   stay with the PC user.
 - **Co-op.** Several devices play the same game together, each in its own
   instance of it, with up to 4 players per session.
-
-Both are **Experimental**.
 
 ## Background streams
 
@@ -140,5 +138,5 @@ Covered by unit tests with fakes: install and hash checks, handlers and
 profiles, the co-op session (slots, join, leave, the held slot, kick, crash,
 end), controller routing, and Nightjar's list and join. The hardware runs (the
 install, a background stream while the PC is in use, and a two-client co-op
-session) are queued, and until they pass the feature stays Experimental. See
-the [hardware matrix](hardware-matrix.md).
+session) are part of the release pass; the [hardware matrix](hardware-matrix.md)
+shows their results.

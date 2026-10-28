@@ -228,6 +228,10 @@ pub struct Settings {
     /// USB forwarding (Experimental): attach USB devices plugged in here to the PC from the
     /// stream controls (src/usb.rs). Off by default.
     pub usb_forwarding: bool,
+    /// Clipboard sync: what is copied here goes on the PC's clipboard and the PC's copies come
+    /// here, as text, with a Rubylight PC that allows this device its clipboard (0x5508,
+    /// stream/clipboard_sync.rs). Off by default.
+    pub clipboard_sync: bool,
     /// Tell a Rubylight PC when the route to it is Wi-Fi or cellular, so it paces for a wireless
     /// link from the first frame (`x-rl-video[0].clientWireless`). On by default.
     pub tell_host_wireless: bool,
@@ -475,6 +479,7 @@ impl Default for Settings {
             client_roaming: true,
             roaming_metered: false,
             usb_forwarding: false,
+            clipboard_sync: false,
             tell_host_wireless: true,
             tell_host_link_speed: true,
             unbatched_input: true,
@@ -1473,6 +1478,13 @@ mod tests {
         assert!(old.client_roaming && !old.roaming_metered);
         let set: Settings = serde_json::from_str(r#"{"client_roaming":false,"roaming_metered":true}"#).unwrap();
         assert!(!set.client_roaming && set.roaming_metered);
+    }
+
+    #[test]
+    fn clipboard_sync_is_off_by_default_and_in_old_files() {
+        assert!(!Settings::default().clipboard_sync);
+        assert!(!serde_json::from_str::<Settings>("{}").unwrap().clipboard_sync);
+        assert!(serde_json::from_str::<Settings>(r#"{"clipboard_sync":true}"#).unwrap().clipboard_sync);
     }
 
     #[test]

@@ -932,4 +932,13 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Copy report", "Bericht kopieren"),
     ("Report copied.", "Bericht kopiert."),
     ("Could not copy the report.", "Der Bericht konnte nicht kopiert werden."),
+    ("Clipboard sync", "Zwischenablage synchronisieren"),
+    ("Text copied here goes on the PC's clipboard, and text copied on the PC comes here. The PC must allow this device to read and write its clipboard.", "Hier kopierter Text kommt in die Zwischenablage des PCs, und auf dem PC kopierter Text kommt hierher. Der PC muss diesem Gerät erlauben, seine Zwischenablage zu lesen und zu schreiben."),
+    ("Clipboard sync could not read this device's clipboard.", "Die Synchronisierung konnte die Zwischenablage dieses Geräts nicht lesen."),
+    ("This copy is too large for clipboard sync. Send it with Send clipboard to PC.", "Diese Kopie ist zu groß für die Synchronisierung. Sende sie mit Zwischenablage an PC senden."),
+    ("Clipboard sync could not put the PC's copy on this device's clipboard.", "Die Synchronisierung konnte die Kopie des PCs nicht in die Zwischenablage dieses Geräts legen."),
+    ("The PC copied an image. Clipboard sync carries text; use Copy PC image here (Experimental).", "Der PC hat ein Bild kopiert. Die Synchronisierung überträgt Text; nutze PC-Bild hierher kopieren (Experimentell)."),
+    ("Clipboard sync could not use a copy from the PC.", "Die Synchronisierung konnte eine Kopie vom PC nicht verwenden."),
+    ("Clipboard sync is off: the PC did not offer it. It must allow this device to read and write its clipboard.", "Die Synchronisierung der Zwischenablage ist aus: Der PC hat sie nicht angeboten. Er muss diesem Gerät erlauben, seine Zwischenablage zu lesen und zu schreiben."),
+    ("Clipboard sync could not start: {}", "Die Synchronisierung der Zwischenablage konnte nicht starten: {}"),
 ];

@@ -23,6 +23,7 @@ mod touch;
 mod upscale;
 mod phase;
 mod text_field;
+mod clipboard_sync;
 pub mod scanline;
 pub mod race;
 pub mod race_probe;
@@ -135,6 +136,8 @@ pub struct Facts {
     /// The host takes this device's keyboard layout (0x553E).
     pub keyboard_layout: bool,
     pub clipboard: bool,
+    /// The PC offered clipboard sync (0x5508) to a launch that asked.
+    pub clipboard_sync: bool,
     /// The PC takes and gives PNG images on its clipboard (Experimental).
     pub image_clipboard: bool,
     pub server_commands: Vec<String>,
@@ -908,6 +911,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         small_stream_input_only: plan.small_stream_input_only,
         // The host lists 0x553C in DESCRIBE only when asked.
         rate_change: rate_change::asked_at_launch(role),
+        clipboard_sync: settings.clipboard_sync && role != AppRole::RemoteMonitor,
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -1103,6 +1107,9 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             && outcome.host_control_messages.contains(&rubylight_protocol::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE)
             && role != AppRole::RemoteMonitor,
         clipboard: plan.info.capabilities.has(Feature::Clipboard) && role != AppRole::RemoteMonitor,
+        clipboard_sync: settings.clipboard_sync
+            && outcome.host_control_messages.contains(&rubylight_protocol::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE)
+            && role != AppRole::RemoteMonitor,
         image_clipboard: plan.info.capabilities.has(Feature::ImageClipboard) && role != AppRole::RemoteMonitor,
         server_commands: if plan.info.capabilities.has(Feature::ServerCommands) && role != AppRole::RemoteMonitor {
             plan.info.server_commands.iter().take(256).cloned().collect()
@@ -1348,6 +1355,8 @@ pub struct Streaming {
     /// The keyboard layout last reported to the host.
     keyboard_layout: Option<rubylight_protocol::keyboard_layout::KeyboardLayout>,
     clipboard_busy: bool,
+    /// Clipboard sync, while the PC offered it.
+    clipboard_sync: Option<clipboard_sync::Sync<clipboard_sync::Sdl>>,
     command_busy: bool,
     last_command: Option<Instant>,
     audio_status: ([u8; 16], Instant),
@@ -1518,6 +1527,7 @@ impl Streaming {
             text_field: text_field::TextField::default(),
             keyboard_layout: None,
             clipboard_busy: false,
+            clipboard_sync: None,
             command_busy: false,
             last_command: None,
             audio_status: ([0; 16], Instant::now() - Duration::from_secs(1)),
@@ -1570,6 +1580,7 @@ impl Streaming {
             timings: VecDeque::new(),
         };
         streaming.report_keyboard_layout();
+        streaming.start_clipboard_sync();
         if quality_failed {
             streaming.show_toast(tr("Automatic quality stopped: the stream reported no size or frame rate."));
         }
@@ -1596,6 +1607,42 @@ impl Streaming {
                 self.keyboard_layout = Some(layout);
             }
             Err(error) => eprintln!("nightjar: could not report the keyboard layout {}: {error}", layout.tag),
+        }
+    }
+
+    /// Starts clipboard sync with a PC that offered it, and says so when a Rubylight PC did not.
+    fn start_clipboard_sync(&mut self) {
+        if !self.settings.clipboard_sync || self.facts.role == AppRole::RemoteMonitor {
+            return;
+        }
+        if !self.facts.clipboard_sync {
+            eprintln!("nightjar: clipboard sync: the PC did not offer it");
+            if self.plan.info.capabilities.family() == nightjar_core::http::Family::Rubylight {
+                self.show_toast(tr("Clipboard sync is off: the PC did not offer it. It must allow this device to read and write its clipboard."));
+            }
+            return;
+        }
+        let (sync, hello) = clipboard_sync::Sync::start(clipboard_sync::Sdl);
+        match self.session.send(hello) {
+            Ok(()) => {
+                eprintln!("nightjar: clipboard sync on");
+                self.clipboard_sync = Some(sync);
+            }
+            Err(error) => {
+                eprintln!("nightjar: clipboard sync: could not start: {error}");
+                self.show_toast(trf("Clipboard sync could not start: {}", &[&error]));
+            }
+        }
+    }
+
+    fn clipboard_sync_step(&mut self, step: clipboard_sync::Step) {
+        if let Some(message) = step.send {
+            if let Err(error) = self.session.send(message) {
+                eprintln!("nightjar: clipboard sync: could not send a copy: {error}");
+            }
+        }
+        if let Some(toast) = step.toast {
+            self.show_toast(toast);
         }
     }
 
@@ -2057,6 +2104,16 @@ impl Streaming {
             }
             ControlEvent::Roam(event) => eprintln!("nightjar: {event}"),
             ControlEvent::TextInput(notice) => self.text_field.notice(&notice),
+            ControlEvent::ClipboardSync(frame) => {
+                if let Some(step) = self.clipboard_sync.as_mut().map(|sync| sync.received(frame, Instant::now())) {
+                    self.clipboard_sync_step(step);
+                }
+            }
+            ControlEvent::ClipboardSyncRejected(bytes) => {
+                if let Some(step) = self.clipboard_sync.as_mut().map(|sync| sync.rejected(bytes)) {
+                    self.clipboard_sync_step(step);
+                }
+            }
             ControlEvent::Usb(message) => match &self.usb {
                 Some(usb) => usb.on_message(message),
                 None => eprintln!("nightjar: USB: ignored {message:?}: USB forwarding is off here"),
@@ -3131,6 +3188,12 @@ impl Streaming {
                     self.text(&text);
                 }
                 SDL_EVENT_KEYMAP_CHANGED => self.report_keyboard_layout(),
+                // What this app put there came from the PC or its own controls.
+                SDL_EVENT_CLIPBOARD_UPDATE if !event.clipboard.owner => {
+                    if let Some(step) = self.clipboard_sync.as_mut().map(|sync| sync.changed(Instant::now())) {
+                        self.clipboard_sync_step(step);
+                    }
+                }
                 SDL_EVENT_WINDOW_FOCUS_LOST => {
                     self.focused = false;
                     self.raise_all_keys();

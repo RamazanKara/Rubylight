@@ -2403,6 +2403,9 @@ impl Launcher {
                     toggle(ui, &mut s.roaming_metered)
                 });
             }
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["clipboard_sync"], "Clipboard sync", "Text copied here goes on the PC's clipboard, and text copied on the PC comes here. The PC must allow this device to read and write its clipboard.", |ui, s| {
+                toggle(ui, &mut s.clipboard_sync)
+            });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["usb_forwarding"], "USB forwarding (Experimental)", "Attach USB devices plugged into this computer to the PC from the stream controls. The PC must allow USB devices for this client. On Windows a device needs the WinUSB driver.", |ui, s| {
                 toggle(ui, &mut s.usb_forwarding)
             });

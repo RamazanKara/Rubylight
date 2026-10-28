@@ -161,7 +161,7 @@ fn placeholders(template: &str) -> Vec<(usize, bool)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Runs `f` with the language set for this test only.
@@ -206,6 +206,7 @@ mod tests {
     /// The UI sources, up to their test modules.
     const SOURCES: [(&str, &str); 13] = [
         ("ui.rs", include_str!("ui.rs")),
+        ("ui/files.rs", include_str!("ui/files.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
         ("folders_page.rs", include_str!("folders_page.rs")),
         ("session_ui.rs", include_str!("session_ui.rs")),

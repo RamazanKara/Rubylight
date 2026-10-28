@@ -532,7 +532,7 @@ impl App {
     fn launcher_frame(&mut self) {
         // Wait for input or a worker; animate the spinner while something runs.
         let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
-            || self.launcher.remote.running()
+            || self.launcher.remote.running() || self.launcher.files.busy()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some() || self.autostream.is_some();
         let timeout = if busy { 16 } else { 250 };
@@ -978,6 +978,15 @@ impl App {
             Command::FolderUpload(host) => {
                 let window = self.window;
                 start_folder_pick(&mut self.folder_pick, &mut self.launcher.folders, host, |at| FolderPick::Upload { host, at }, || sdl::choose_path(window, false));
+            }
+            Command::OpenFiles(id) => {
+                if let Some(host) = self.hosts.get(id) {
+                    ui::files::open(&mut self.launcher, self.hosts.identity(), host, self.waker.clone());
+                }
+            }
+            Command::ChooseFiles => {
+                let window = self.window;
+                self.launcher.files.choose(|done| sdl::choose_files(window, done));
             }
             Command::OpenWebUi(url) => {
                 if let Some((title, body)) = host_page::open_web_ui(&url, sdl::open_url) {

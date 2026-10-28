@@ -692,19 +692,20 @@ pub fn reconcile(
     *apps != before
 }
 /// The "Playnite (Fullscreen)" app: present while `wanted`, removed
-/// otherwise. Returns whether anything changed.
+/// otherwise. An app the user made with that name or Playnite's fullscreen
+/// command counts as present but is never removed: only the one marked
+/// `playnite-fullscreen` is. Returns whether anything changed.
 pub fn fullscreen_entry(apps: &mut Vec<Value>, wanted: bool) -> bool {
+    let made_here = |app: &Value| match app.get("playnite-fullscreen") {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64() == Some(1),
+        Some(Value::String(s)) => matches!(s.to_ascii_lowercase().as_str(), "true" | "1" | "yes"),
+        _ => false,
+    };
     let is_entry = |app: &Value| {
-        let flag = match app.get("playnite-fullscreen") {
-            Some(Value::Bool(b)) => *b,
-            Some(Value::Number(n)) => n.as_i64() == Some(1),
-            Some(Value::String(s)) => {
-                matches!(s.to_ascii_lowercase().as_str(), "true" | "1" | "yes")
-            }
-            _ => false,
-        };
         let cmd = field(app, "cmd").to_ascii_lowercase();
-        flag || (cmd.contains("playnite-launcher") && cmd.contains("--fullscreen"))
+        made_here(app)
+            || (cmd.contains("playnite-launcher") && cmd.contains("--fullscreen"))
             || field(app, "name") == "Playnite (Fullscreen)"
     };
     let present = apps.iter().any(is_entry);
@@ -719,8 +720,8 @@ pub fn fullscreen_entry(apps: &mut Vec<Value>, wanted: bool) -> bool {
         }));
         return true;
     }
-    if !wanted && present {
-        apps.retain(|app| !is_entry(app));
+    if !wanted && apps.iter().any(made_here) {
+        apps.retain(|app| !made_here(app));
         return true;
     }
     false
@@ -1027,6 +1028,13 @@ mod tests {
         assert!(!fullscreen_entry(&mut apps, true));
         assert!(fullscreen_entry(&mut apps, false));
         assert_eq!(apps.len(), 1);
+        // The user's own apps of that name or command are not the host's to remove.
+        apps.push(json!({"name":"Playnite (Fullscreen)","cmd":"C:/Mine/start.bat"}));
+        apps.push(json!({"name":"Big screen","cmd":"playnite-launcher.exe --fullscreen"}));
+        assert!(!fullscreen_entry(&mut apps, false));
+        assert!(!fullscreen_entry(&mut apps, true), "a user's entry counts as present");
+        assert_eq!(apps.len(), 3);
+        apps.truncate(1);
         assert_eq!(purge(&mut apps), 1);
     }
 

@@ -66,13 +66,27 @@ public class FileTransferScreenTest {
         }
         String own = "com.butterpollo.client";
         assertTrue(FileTransferActivity.sendable(Uri.parse("content://media/external/1"), own, "com.android.providers.media"));
-        // Served by nobody: it is let through and fails to open as a local problem.
-        assertTrue(FileTransferActivity.sendable(Uri.parse("content://gone/1"), own, null));
         assertFalse(FileTransferActivity.sendable(Uri.parse("content://com.butterpollo.client.reports/r/log.txt"), own, own));
         assertFalse(FileTransferActivity.sendable(
                 Uri.parse("file:///data/data/com.butterpollo.client/shared_prefs/settings.xml"), own, null));
         assertFalse(FileTransferActivity.sendable(Uri.parse("android.resource://com.butterpollo.client/1"), own, null));
         assertFalse(FileTransferActivity.sendable(Uri.parse("content:///no-authority"), own, null));
+    }
+
+    @Test
+    public void aShareWithAUserPrefixedAuthorityIsRefused() {
+        // 0@<package>.reports resolves to no provider, but the resolver strips the prefix and opens Nightjar's own.
+        String own = "com.butterpollo.client";
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content://0@com.butterpollo.client.reports/r/log.txt"),
+                own, null));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content://10@media/external/1"), own,
+                "com.android.providers.media"));
+    }
+
+    @Test
+    public void aShareNoProviderServesIsRefused() {
+        String own = "com.butterpollo.client";
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content://gone/1"), own, null));
     }
 
     @Test

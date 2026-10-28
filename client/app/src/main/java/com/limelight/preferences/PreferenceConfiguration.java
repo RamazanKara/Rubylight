@@ -103,7 +103,6 @@ public class PreferenceConfiguration {
     static final String FEC_CHOICE_PREF_STRING = "list_fec_choice";
     static final String LINK_PROBE_PREF_STRING = "checkbox_link_probe";
     private static final String QUICK_RESUME_PREF_STRING = "checkbox_quick_resume";
-    private static final String AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING = "auto_reconnect_default_off";
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
@@ -208,6 +207,7 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_ENABLE_HDR = false;
     private static final boolean DEFAULT_ENABLE_SDR10 = false;
     private static final boolean DEFAULT_ENABLE_PIP = false;
+    private static final boolean DEFAULT_AUTO_RECONNECT = true;
     private static final boolean DEFAULT_ENABLE_PERF_OVERLAY = false;
     private static final boolean DEFAULT_BIND_ALL_USB = false;
     private static final boolean DEFAULT_MOUSE_EMULATION = true;
@@ -1007,20 +1007,24 @@ public class PreferenceConfiguration {
         editor.apply();
     }
 
-    // Stream recovery used to start on, and first launch stored that default like a choice. It now
-    // starts off; a stored "on" is switched off once because it cannot be told apart from the old
-    // default. Turning it back on afterwards is kept.
+    // Set once stream recovery became on by default, so a later choice of off is kept.
+    static final String AUTO_RECONNECT_DEFAULT_ON_PREF_STRING = "auto_reconnect_default_on";
+
+    // Stream recovery started off, and first launch stored that default like a choice (an earlier
+    // migration, marked by auto_reconnect_default_off, also switched a stored "on" off). It now starts
+    // on; a stored "off" is switched on once because it cannot be told apart from the old default.
+    // Turning it off afterwards is kept.
     static boolean migrateAutoReconnectDefault(SharedPreferences prefs) {
-        if (prefs.getBoolean(AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING, false)) {
+        if (prefs.getBoolean(AUTO_RECONNECT_DEFAULT_ON_PREF_STRING, false)) {
             return false;
         }
-        boolean wasOn = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
-        SharedPreferences.Editor editor = prefs.edit().putBoolean(AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING, true);
-        if (wasOn) {
-            editor.putBoolean(AUTO_RECONNECT_PREF_STRING, false);
+        boolean wasOff = !prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, DEFAULT_AUTO_RECONNECT);
+        SharedPreferences.Editor editor = prefs.edit().putBoolean(AUTO_RECONNECT_DEFAULT_ON_PREF_STRING, true);
+        if (wasOff) {
+            editor.putBoolean(AUTO_RECONNECT_PREF_STRING, true);
         }
         editor.apply();
-        return wasOn;
+        return wasOff;
     }
 
     // Set once the new streaming engine became the default, so a later choice of the classic engine is kept.
@@ -1114,7 +1118,7 @@ public class PreferenceConfiguration {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         migrateToNativeDefaults(context);
         if (migrateAutoReconnectDefault(prefs)) {
-            com.limelight.LimeLog.info("Stream recovery switched to its new default: off");
+            com.limelight.LimeLog.info("Stream recovery switched to its new default: on");
         }
         PreferenceConfiguration config = new PreferenceConfiguration();
         String savedResolution = null;
@@ -1293,7 +1297,7 @@ public class PreferenceConfiguration {
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR) && !isShieldAtvFirmwareWithBrokenHdr();
         config.enableSdr10Bit = prefs.getBoolean(ENABLE_SDR10_PREF_STRING, DEFAULT_ENABLE_SDR10);
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);
-        config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
+        config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, DEFAULT_AUTO_RECONNECT);
         config.networkGraceSeconds = com.limelight.utils.NetworkGrace.parseSeconds(
                 prefs.getString(NETWORK_GRACE_PREF_STRING, "0"));
         config.tellHostWireless = prefs.getBoolean(TELL_HOST_WIRELESS_PREF_STRING, true);

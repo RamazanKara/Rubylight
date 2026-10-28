@@ -63,19 +63,19 @@ pub const GLOBAL: &[Setting] = settings! {
         "dd_hdr_request_override", "Device HDR request", Choice(&["auto","force_on","force_off"]);
         "hdr_peak_brightness", "Peak brightness a virtual display reports (nits)", Number;
         "hdr_dynamic_metadata", "HDR10+ and HDR Vivid dynamic metadata", Bool;
-        "hdr_dolby_vision", "Dolby Vision 8.1 and 8.4 for devices that ask (Experimental)", Bool;
+        "hdr_dolby_vision", "Dolby Vision 8.1 and 8.4 for devices that ask", Bool;
         "hdr_hlg", "HLG for devices that ask", Bool;
         "dd_config_revert_on_disconnect", "Restore displays when the stream disconnects", Bool;
         "dd_config_revert_delay", "Display restore delay (milliseconds)", Number;
         "dd_paused_virtual_display_timeout_secs", "Paused display timeout (seconds; 0 keeps it)", Number;
-        "dd_hold_layout_while_paused", "Keep monitors off while paused (Experimental)", Bool;
+        "dd_hold_layout_while_paused", "Keep monitors off while paused", Bool;
         "dd_always_restore_from_golden", "Always restore the saved display layout", Bool;
         "dd_activate_virtual_display", "Activate virtual display", Bool;
         "dd_virtual_display_scale", "Virtual display scale (%)", Number;
         "dd_snapshot_exclude_devices", "Devices excluded from saved layout restore", Json;
         "dd_mode_remapping", "Resolution and refresh remapping", Json;
         "vulkan_hdr_layer", "Vulkan virtual HDR support", Bool;
-        "virtual_display_hdr_calibration", "Windows HDR Calibration on virtual displays (Experimental)", Bool;
+        "virtual_display_hdr_calibration", "Windows HDR Calibration on virtual displays", Bool;
         "fallback_mode", "Default launch mode (WIDTHxHEIGHTxFPS)", Text;
     ]
     "Frame generation and limiting" => [
@@ -93,7 +93,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "adapter_pnp_id", "Encoding adapter device ID", Text;
         "hevc_mode", "HEVC support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "av1_mode", "AV1 support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
-        "experimental_packed_444", "Experimental full chroma for Nightjar (restart required)", Bool;
+        "experimental_packed_444", "Full chroma for Nightjar (restart required)", Bool;
         "max_bitrate", "Maximum bitrate (kbps; 0 has no configured limit)", Number;
         "limit_framerate", "Use the launch frame rate for encoding (off by default: the stream runs at the rate its request asks for)", Bool;
         "minimum_fps_target", "Still-picture resend rate (how often an unchanged desktop is sent again)", Number;
@@ -110,7 +110,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "pyrowave_critical_fec_percentage", "PyroWave protection for required image data (%)", Number;
         "video_max_batch_size_kb", "Video send batch limit (KiB)", Number;
         "pacing_max_bitrate_kbps", "Network pacing limit (kbps; 0 uses the route policy: up to 800 Mbps wired, twice the bitrate with FEC headroom on Wi-Fi; positive values set a fixed limit)", Number;
-        "host_adaptive_pacing", "Adaptive packet pacing (experimental; off by default, including PyroWave; slower startup and loss-sensitive probes without changing picture bitrate or FPS; disabled by a manual pacing limit or host bitrate adaptation; reconnect after saving)", Bool;
+        "host_adaptive_pacing", "Adaptive packet pacing (off by default, including PyroWave; slower startup and loss-sensitive probes without changing picture bitrate or FPS; disabled by a manual pacing limit or host bitrate adaptation; reconnect after saving)", Bool;
         "wireless_adaptive_pacing", "Adaptive packet pacing for Wi-Fi clients (on by default; a client that reports a Wi-Fi or cellular route, such as Nightjar, gets adaptive packet pacing on H.264, HEVC and AV1: it starts at twice the encoder bitrate, speeds up in small steps while the link stays clean, up to the route limit, and backs off on loss; PyroWave keeps its own pacing; disabled by a manual pacing limit (which sets the rate) or host bitrate adaptation, and then H.264, HEVC and AV1 for such a client use the Wi-Fi route pacing policy from the first frame; reconnect after saving)", Bool;
         "keyframe_loss_pacing", "Slow down after video loss (on by default; after a lost keyframe or three distinct unrecoverable frames within two seconds, video is paced at twice the bitrate, with room for error correction, for the rest of the stream (a lost first keyframe alone is lifted after 10 clean seconds); disabled by a manual pacing limit or the adaptive options)", Bool;
         "link_rate_adaptation", "Lower the bitrate when the link cannot carry it (on by default; cuts the picture bitrate on loss that error correction cannot repair, then probes back up; off while Host adaptive bitrate is on or the client sets the bitrate)", Bool;
@@ -127,7 +127,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "amd_lowlatency_mode", "Low-latency mode (H.264 and HEVC)", Bool;
         "amd_av1_latency_mode", "AV1 latency mode", Choice(&["none","power_saving","realtime","lowest"]);
         "amd_split_frame", "Split-frame encoding (HEVC and AV1)", Choice(&["auto","enabled","disabled"]);
-        "encoder_focus", "Encoder focus (experimental; more bits for still areas such as text and HUDs)", Choice(&["off","static","centre"]);
+        "encoder_focus", "Encoder focus (more bits for still areas such as text and HUDs)", Choice(&["off","static","centre"]);
         "amd_input_queue_size", "AMF input queue size", Number;
         "amd_ltr_frames", "Long-term reference frames", Number;
     ]
@@ -144,7 +144,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "key_repeat_frequency", "Keyboard repeat frequency (Hz)", Number;
         "high_resolution_scrolling", "High resolution scrolling", Bool;
         "forward_rumble", "Controller vibration", Bool;
-        "audio_haptics", "Haptics from game audio (Experimental)", Bool;
+        "audio_haptics", "Haptics from game audio", Bool;
         "audio_haptics_strength", "Audio haptics strength (percent, 0-200)", Number;
         "audio_haptics_curve", "Audio haptics response", Choice(&["linear", "soft", "punchy"]);
         "audio_haptics_gate", "Audio haptics noise gate (dBFS, -80 to -10)", Number;
@@ -158,7 +158,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "back_grip_r5", "Back grip R5 (lower right) presses", Choice(GRIPS);
         "enable_input_only_mode", "Allow input-only connections", Bool;
     ]
-    "Couch menu (Experimental)" => [
+    "Couch menu" => [
         "couch_menu", "Host menu drawn into the stream", Bool;
         "couch_menu_open_with", "Ways to open it (comma-separated: controller, keyboard, touch; empty turns all off)", Text;
         "couch_menu_controller_chord", "Controller chord (buttons joined with +, default l3+r3)", Text;
@@ -186,15 +186,15 @@ pub const GLOBAL: &[Setting] = settings! {
         "enable_discovery", "Moonlight discovery on the local network", Bool;
         "enable_pairing", "Allow new device pairings", Bool;
         "upnp", "UPnP router port forwarding", Bool;
-        "webrtc_server", "WebRTC server (Experimental; unencrypted ws:// on the local network)", Bool;
+        "webrtc_server", "WebRTC server (unencrypted ws:// on the local network)", Bool;
         "webrtc_port", "WebRTC signalling port (TCP; discovery stays on UDP 8000)", Number;
         "webrtc_media_port", "WebRTC media port (UDP)", Number;
-        "file_transfer", "File transfer from paired devices (Experimental)", Bool;
+        "file_transfer", "File transfer from paired devices", Bool;
         "file_transfer_dir", "File transfer folder (leave empty for Downloads\\Rubylight)", Text;
         "file_transfer_max_mb", "Largest file to receive (MiB; default 4096)", Number;
         "file_transfer_stream_mbps", "Transfer speed while streaming (Mbit/s; 0 for full speed; default 50)", Number;
-        "shared_folders", "Shared folders (Experimental; JSON list of id, name and path)", Text;
-        "clipboard_image", "Copy images with clipboard permission (Experimental)", Bool;
+        "shared_folders", "Shared folders (JSON list of id, name and path)", Text;
+        "clipboard_image", "Copy images with clipboard permission", Bool;
         "clipboard_image_max_mb", "Largest clipboard image (MiB, 1 to 64; default 16)", Number;
         "lan_encryption_mode", "Local network encryption (0 never, 1 optional, 2 required)", Number;
         "wan_encryption_mode", "Internet encryption (0 never, 1 optional, 2 required)", Number;
@@ -226,7 +226,7 @@ pub const APP: &[Setting] = settings! {
         "terminate-on-pause", "Close the app when the last device disconnects", Bool;
         "allow-client-commands", "Allow per-device connection commands", Bool;
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
-        "background-stream", "Stream in the background (Experimental: Nucleus Co-op, controllers only)", Bool;
+        "background-stream", "Stream in the background (Nucleus Co-op, controllers only)", Bool;
         "state-cmd", "App resume and pause commands", Json;
         "output", "App log path (null discards output)", Text;
         "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","vhf_switch"]);
@@ -253,7 +253,7 @@ pub const CLIENT: &[Setting] = settings! {
         "output_name_override", "Display override", Text;
         "always_use_virtual_display", "Always use a virtual display", Bool;
         "remember_display_mode", "Remember the virtual display resolution and scale chosen in Windows", Bool;
-        "background_stream", "Stream in the background (Experimental: Nucleus Co-op, controllers only)", Bool;
+        "background_stream", "Stream in the background (Nucleus Co-op, controllers only)", Bool;
         "virtual_display_mode", "Virtual display mode", Choice(&["disabled","per_client","shared"]);
         "virtual_display_layout", "Virtual display layout", Choice(&["exclusive","extended","extended_primary","extended_isolated","extended_primary_isolated"]);
         "prefer_10bit_sdr", "Prefer 10-bit SDR", Bool;
@@ -262,7 +262,7 @@ pub const CLIENT: &[Setting] = settings! {
         "do", "Connection commands", Json;
         "undo", "Disconnect commands", Json;
     ]
-    "Couch menu (Experimental)" => [
+    "Couch menu" => [
         "couch_menu_open_with", "Ways to open it (comma-separated: controller, keyboard, touch; empty turns all off)", Text;
         "couch_menu_controller_chord", "Controller chord (buttons joined with +, default l3+r3)", Text;
         "couch_menu_hold_ms", "Controller chord hold (300–3000 milliseconds; default 1000)", Number;
@@ -444,6 +444,17 @@ pub fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn no_label_or_group_says_experimental() {
+        let labelled: Vec<&str> = [GLOBAL, APP, CLIENT]
+            .into_iter()
+            .flatten()
+            .flat_map(|setting| [setting.label, setting.group])
+            .chain(super::super::PERMISSIONS.iter().map(|(_, label)| *label))
+            .filter(|text| text.to_lowercase().contains("experiment"))
+            .collect();
+        assert!(labelled.is_empty(), "{labelled:?}");
+    }
     #[test]
     fn hardware_metrics_settings_keep_their_typed_values() {
         let mut fields = Fields::new();

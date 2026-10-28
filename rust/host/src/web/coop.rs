@@ -16,7 +16,7 @@ use butterpollo_core::{
     nucleus::{
         coop::Phase,
         install::VERSION,
-        mode::{self, KEY},
+        mode::{Decision, KEY},
     },
 };
 use serde_json::{Value, json};
@@ -80,7 +80,7 @@ fn status(h: &Shared) -> Value {
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     let setting = config.get(KEY, "");
-    let decision = mode::decide(setting);
+    let decision = Decision::nucleus();
     let (state, path, version, install_error) =
         match h.nucleus.install(&crate::nucleus::configured(&config)) {
             Install::Missing => ("missing", None, None, None),
@@ -135,7 +135,6 @@ fn status(h: &Shared) -> Value {
             "mode": decision.mode,
             "label": decision.label,
             "reason": decision.reason,
-            "legacy": mode::legacy(setting).is_some(),
         },
         "install": {
             "state": state,
@@ -253,7 +252,7 @@ mod tests {
             StatusCode::OK,
         )
         .await;
-        for key in ["setting", "mode", "label", "reason", "legacy"] {
+        for key in ["setting", "mode", "label", "reason"] {
             assert!(body["mode"].get(key).is_some(), "{key}: {body}");
         }
         assert_eq!(

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Wyślij obraz ze schowka do hosta (eksperymentalne)</string>
-    <string name="stream_clipboard_image_receive">Kopiuj obraz ze schowka hosta (eksperymentalne)</string>
+    <string name="stream_clipboard_image_send">Wyślij obraz ze schowka do hosta</string>
+    <string name="stream_clipboard_image_receive">Kopiuj obraz ze schowka hosta</string>
     <string name="stream_clipboard_image_empty">Schowek nie zawiera obrazu</string>
     <string name="stream_clipboard_image_sent">Obraz ze schowka wysłany do hosta</string>
     <string name="stream_clipboard_image_none">Schowek hosta nie zawiera obrazu</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">Plik do zapisania został utracony, gdy okno zapisu było otwarte. Nic nie zapisano.</string>
     <string name="folders_partial_left">%1$s Niepełny plik pozostał w %2$s.</string>
     <string name="folders_bad_path">Nightjar nie może otworzyć tej ścieżki: %1$s</string>
-    <string name="host_menu_folders_note">Eksperymentalne</string>
 </resources>

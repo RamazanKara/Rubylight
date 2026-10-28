@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">클립보드 이미지를 호스트로 보내기(실험적)</string>
-    <string name="stream_clipboard_image_receive">호스트 클립보드 이미지 복사(실험적)</string>
+    <string name="stream_clipboard_image_send">클립보드 이미지를 호스트로 보내기</string>
+    <string name="stream_clipboard_image_receive">호스트 클립보드 이미지 복사</string>
     <string name="stream_clipboard_image_empty">클립보드에 이미지가 없습니다</string>
     <string name="stream_clipboard_image_sent">클립보드 이미지를 호스트로 보냈습니다</string>
     <string name="stream_clipboard_image_none">호스트 클립보드에 이미지가 없습니다</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">저장 대화상자가 열려 있는 동안 저장할 파일 정보가 사라졌습니다. 아무것도 저장되지 않았습니다.</string>
     <string name="folders_partial_left">%1$s 일부만 받은 파일이 %2$s에 남아 있습니다.</string>
     <string name="folders_bad_path">Nightjar가 열 수 없는 경로입니다: %1$s</string>
-    <string name="host_menu_folders_note">실험적</string>
 </resources>

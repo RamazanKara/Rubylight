@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Join co-op (Experimental): the PC menu entry and its sheet (computers/CoopSheet). English and German;
+<!-- Join co-op: the PC menu entry and its sheet (computers/CoopSheet). English and German;
      the other languages show English until they are translated. -->
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <string name="host_menu_coop">Join co-op</string>
-    <string name="host_menu_coop_note">Experimental</string>
+    <string name="host_menu_coop_note">Take a free player slot</string>
     <string name="coop_title">Co-op on %1$s</string>
     <string name="coop_loading">Asking %1$s for its co-op sessions…</string>
     <string name="coop_none">No co-op session is running. Start a game’s “Co-op (Nucleus)” entry from the library, and other devices can join it here.</string>

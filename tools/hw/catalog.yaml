@@ -448,12 +448,11 @@ cases:
     status: pending
     note: needs Nightjar Android's folder browser (rl-clip) on main
 
-  - id: child-session-retroid
-    device: user
-    title: Background streaming in a Windows child session (Experimental), Retroid while the PC is in use
-    command: 'the user runs the steps in C:\src\butterpollo-release\unified\user-tests.md (child-session-retroid); agents never type or ask for the Windows password'
-    preconditions: [idle]
-    pass: the child session streams to the Retroid while the user works on the main desktop; input stays separate, Windows shortcuts stay on the main desktop; Restore turns RDP and its firewall rules back to what they were
-    output: the host log (C:\ProgramData\Butterpollo\config\logs\butterpollo.log), the child host's log under config\child-session\logs, and the user's notes
+  - id: child-session-cleanup-this-pc
+    device: desktop
+    title: The upgraded host restores what the removed child-session setup changed on this PC
+    command: 'package the nochild build and install it over the service through the ButterpolloReleaseElevated task (rust/release/elevated.ps1 -SkipSelfTest); C:\src\butterpollo-release\unified\child-session-signin.md, "Hardware check on this PC"'
+    preconditions: [idle, system]
+    pass: fDenyTSConnections 1; no DWMFRAMEINTERVAL or RemoteDesktop_SuppressWhenMinimized; no "Rubylight child session*" rule; no Remote Desktop rule on; nothing listens on 3389; no windows-settings\child_session_setup.json; no child-session-password.bin or .tmp under C:\Users\ramaz\AppData\Local\Rubylight; no config\child-session; the log has the restore line and no error; Maintenance shows no banner; a second service start logs nothing about child sessions
+    output: the host log (C:\ProgramData\Butterpollo\config\logs\butterpollo.log), the reg and Get-NetFirewallRule output, one Maintenance screenshot
     status: pending
-    note: rl-child branch until it is on main; background_mode = child_session; Windows Pro and higher only

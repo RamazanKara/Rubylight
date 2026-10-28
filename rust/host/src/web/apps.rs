@@ -16,7 +16,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
     Ok(match (method, path) {
         ("GET", "/api/apps") => {
             let mut d = h.app_document.read().unwrap().clone();
-            d["apps"] = serde_json::to_value(&*h.apps.read().unwrap())?;
+            d["apps"] = apps_with_install_state(h)?;
             d["status"] = json!(true);
             d
         }
@@ -38,6 +38,19 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let uuid = app.extra["uuid"].clone();
             let mut apps = h.apps.write().unwrap();
             let mut next = apps.clone();
+            // Only a sync stamps an app. A synced app saved here becomes the user's, so no sync
+            // renames or removes it again.
+            app.extra.remove(butterpollo_core::library::SYNCED_BY);
+            app.extra.remove(butterpollo_core::native::NOT_INSTALLED);
+            if let Some(sync) = next
+                .iter()
+                .find(|a| a.extra.get("uuid") == Some(&uuid))
+                .and_then(|a| a.extra.get(butterpollo_core::library::SYNCED_BY)?.as_str())
+            {
+                let mut value = serde_json::to_value(&app)?;
+                butterpollo_core::library::hand_over(&mut value, sync);
+                app = serde_json::from_value(value)?;
+            }
             if let Some(i) = next.iter().position(|a| a.extra.get("uuid") == Some(&uuid)) {
                 next[i] = app;
             } else {
@@ -402,14 +415,24 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();
     let before = next.len();
+    let mut deleted = vec![];
     next.retain(|a| {
-        a.extra.get("uuid").and_then(Value::as_str) != Some(id) && a.id().to_string() != id
+        let keep =
+            a.extra.get("uuid").and_then(Value::as_str) != Some(id) && a.id().to_string() != id;
+        if !keep {
+            deleted.push(serde_json::to_value(a));
+        }
+        keep
     });
     if next.len() == before {
         anyhow::bail!("application not found");
     }
     h.assign_apps(&mut next)?;
     let mut doc = h.app_document.read().unwrap().clone();
+    // A deleted game stays deleted: no sync adds it again until an import brings it back.
+    for app in deleted {
+        crate::library::dismiss(&mut doc, &app?);
+    }
     doc["apps"] = serde_json::to_value(&next)?;
     state::write_json(&h.apps_path, &doc)?;
     *apps = next;
@@ -425,6 +448,7 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
         ("GET", "discovery") => {
             tokio::task::spawn_blocking(move || crate::library::discovery(&h)).await
         }
+        ("POST", "sync") => tokio::task::spawn_blocking(move || crate::library::sync(&h)).await,
         ("POST", "import") => {
             let selected: Vec<butterpollo_core::library::Selection> =
                 match serde_json::from_value(data["games"].clone()) {
@@ -447,11 +471,74 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
     }
 }
 
+/// The apps, each whose launcher game the last scan read and did not find marked
+/// `not-installed`, so the console can offer to remove it.
+fn apps_with_install_state(h: &Shared) -> anyhow::Result<Value> {
+    let scan = crate::library::installed(h);
+    let apps = h.apps.read().unwrap();
+    let mut values = Vec::with_capacity(apps.len());
+    for app in apps.iter() {
+        let mut value = serde_json::to_value(app)?;
+        if scan
+            .as_ref()
+            .and_then(|scan| butterpollo_core::native::installed(app, scan))
+            == Some(false)
+        {
+            value[butterpollo_core::native::NOT_INSTALLED] = json!(true);
+        }
+        values.push(value);
+    }
+    Ok(Value::Array(values))
+}
+
 #[cfg(test)]
 mod tests {
     use super::handle;
     use crate::state::test_support::Fixture;
     use serde_json::json;
+
+    #[test]
+    fn apps_list_marks_only_known_uninstalled_launcher_games_and_never_stores_it() {
+        let f = Fixture::new();
+        for app in [
+            json!({"name": "Dota 2", "uuid": "dota", "steam-id": "570"}),
+            json!({"name": "Gone", "uuid": "gone", "steam-id": "999"}),
+            json!({"name": "Fortnite", "uuid": "fn", "launcher-source": "epic", "launcher-id": "x"}),
+            json!({"name": "Tool", "uuid": "tool", "steam-id": "1007"}),
+        ] {
+            handle(&f.host, "POST", "/api/apps", &app).unwrap();
+        }
+        crate::library::seed(
+            &f.host,
+            butterpollo_core::native::Scan::new(["steam:570".into()])
+                .adding(["steam:1007".into()])
+                .skipping([butterpollo_core::library::Source::Epic]),
+        );
+        let list = handle(&f.host, "GET", "/api/apps", &json!({})).unwrap();
+        let flagged: Vec<&str> = list["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|app| app["not-installed"] == json!(true))
+            .map(|app| app["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(flagged, ["Gone"]);
+        let mut gone = list["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|app| app["name"] == "Gone")
+            .unwrap()
+            .clone();
+        gone["name"] = json!("Gone (renamed)");
+        handle(&f.host, "POST", "/api/apps", &gone).unwrap();
+        let stored = f.host.apps.read().unwrap();
+        let renamed = stored
+            .iter()
+            .find(|app| app.name == "Gone (renamed)")
+            .unwrap();
+        assert!(!renamed.extra.contains_key("not-installed"));
+    }
 
     #[test]
     fn an_app_cannot_save_a_preset_the_host_does_not_know() {
@@ -544,5 +631,109 @@ mod tests {
         // An app with none saves as before.
         save(json!({})).unwrap();
         assert_eq!(stored(), Some((None, None)));
+    }
+
+    fn stored(f: &Fixture, uuid: &str) -> Option<serde_json::Value> {
+        f.host
+            .apps
+            .read()
+            .unwrap()
+            .iter()
+            .find(|app| app.extra.get("uuid").and_then(|u| u.as_str()) == Some(uuid))
+            .map(|app| serde_json::to_value(app).unwrap())
+    }
+
+    #[test]
+    fn a_synced_app_saved_in_the_console_becomes_the_users_and_survives_uninstall() {
+        use butterpollo_core::steam;
+        let f = Fixture::new();
+        let uuid = steam::canonical_uuid(620);
+        crate::steam::update_apps(&f.host, |apps| {
+            apps.push(json!({"name": "Portal 2", "uuid": uuid, "steam-id": "620",
+                "steam-managed": "auto", "synced-by": "steam", "cmd": steam::launch_command(620)}));
+            true
+        })
+        .unwrap();
+        // The editor sends the app back with the user's name, without the stamp.
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "My Portal", "uuid": uuid, "steam-id": "620",
+                "steam-managed": "auto", "cmd": steam::launch_command(620)}),
+        )
+        .unwrap();
+        let app = stored(&f, &uuid).unwrap();
+        assert_eq!(app["name"], "My Portal");
+        assert_eq!(app["steam-managed"], "manual");
+        assert_eq!(app.get("synced-by"), None);
+        // Uninstalled, with a sync that removes missing games: it stays as saved.
+        let settings = steam::Settings::from_config(
+            &butterpollo_core::config::Config::parse(
+                "steam_sync_all_installed=true\nsteam_autosync_remove_uninstalled=true",
+            )
+            .unwrap(),
+        );
+        let changed = crate::steam::update_apps(&f.host, |apps| {
+            steam::reconcile(apps, &[], &settings, &Default::default(), &[])
+        })
+        .unwrap();
+        assert!(!changed);
+        assert_eq!(stored(&f, &uuid).unwrap(), app);
+        // Only a sync stamps an app: a stamp sent with one is dropped.
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "Forged", "uuid": "forged", "synced-by": "steam",
+                "steam-id": "440", "steam-managed": "auto"}),
+        )
+        .unwrap();
+        let forged = stored(&f, "forged").unwrap();
+        assert_eq!(forged.get("synced-by"), None);
+        assert_eq!(forged["steam-managed"], "auto");
+    }
+
+    #[test]
+    fn deleting_any_app_that_starts_a_steam_game_dismisses_the_game() {
+        let f = Fixture::new();
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "Mine", "uuid": "mine", "cmd": "cmd /c start steam://rungameid/620"}),
+        )
+        .unwrap();
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps/delete",
+            &json!({"uuid": "mine"}),
+        )
+        .unwrap();
+        assert!(stored(&f, "mine").is_none());
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["steam:620"])
+        );
+        // An app without a launcher game dismisses nothing.
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "Tool", "uuid": "tool"}),
+        )
+        .unwrap();
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps/delete",
+            &json!({"uuid": "tool"}),
+        )
+        .unwrap();
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["steam:620"])
+        );
     }
 }

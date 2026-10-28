@@ -76,6 +76,19 @@ impl Scan {
     pub fn contains(&self, game_id: &str) -> bool {
         self.installed.contains(game_id)
     }
+    /// Also installed: games the launcher scan leaves out, such as Steam tools.
+    pub fn adding(mut self, game_ids: impl IntoIterator<Item = String>) -> Self {
+        self.installed.extend(game_ids);
+        self
+    }
+}
+
+/// The read-time app field the console shows as "Not installed". Never stored.
+pub const NOT_INSTALLED: &str = "not-installed";
+/// Whether the app's launcher game is installed: `None` for an app without a launcher
+/// id, or one whose source or folder the scan did not read.
+pub fn installed(app: &App, scan: &Scan) -> Option<bool> {
+    store_of(app).and_then(|(_, game_id)| scan.installed(&game_id))
 }
 
 /// The store an app belongs to and its `<source>:<id>` key, from
@@ -455,6 +468,22 @@ mod tests {
         assert_eq!(library.games[1].store.as_ref().unwrap().name, "Epic Games");
         let none = super::library(&[dota()], None, None);
         assert_eq!(none.games[0].installed, None);
+    }
+
+    #[test]
+    fn not_installed_is_only_for_a_known_launcher_id_the_scan_did_not_find() {
+        let steam = |name: &str, id: u32| app(json!({"name": name, "uuid": name, "steam-id": id}));
+        let epic = app(
+            json!({"name": "Fortnite", "uuid": "f", "launcher-source": "epic", "launcher-id": "x"}),
+        );
+        let manual = app(json!({"name": "Desktop", "uuid": "d"}));
+        let scan = Scan::new(["steam:570".into()]).skipping([Source::Epic]);
+        assert_eq!(super::installed(&steam("Dota 2", 570), &scan), Some(true));
+        assert_eq!(super::installed(&steam("Gone", 999), &scan), Some(false));
+        assert_eq!(super::installed(&epic, &scan), None, "Epic was not read");
+        assert_eq!(super::installed(&manual, &scan), None, "no launcher id");
+        let tools = Scan::new([]).adding(["steam:1007".into()]);
+        assert_eq!(super::installed(&steam("SDK", 1007), &tools), Some(true));
     }
 
     #[test]

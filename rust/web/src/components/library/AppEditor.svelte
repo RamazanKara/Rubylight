@@ -57,6 +57,9 @@
   const savedName = $derived(draft.saved.name.trim());
   const running = $derived(runningName(status));
   const isRunning = $derived(!isNew && running !== '' && running === draft.saved.name);
+  /** The sync that added this app and still owns it: saving makes the app the user's. */
+  const syncNames: Record<string, string> = { steam: 'Steam', launcher: 'launcher', playnite: 'Playnite' };
+  const syncName = $derived(syncNames[String(app?.['synced-by'] ?? '')] ?? '');
 
   // Follow a reload of the library while this form has no edits of its own.
   $effect(() => {
@@ -200,15 +203,14 @@
     {/snippet}
   </PageHeader>
 
-  {#if app?.['steam-managed'] === 'auto'}
+  {#if syncName}
     <p class="notice">
-      Automatic syncing keeps this app up to date with Steam and replaces its name, command and cover at each sync; other
-      settings stay. To keep your own name or command, add the game as a new app: the sync leaves apps you add alone.
+      Saving keeps this game in your list for good: the {syncName} sync will no longer rename or remove it.
     </p>
-  {:else if typeof app?.['playnite-id'] === 'string' && app['playnite-id'] !== ''}
+  {/if}
+  {#if typeof app?.['playnite-id'] === 'string' && app['playnite-id'] !== ''}
     <p class="notice">
-      Playnite starts this game{app['playnite-managed'] === 'auto' ? ', and the Playnite sync updates its name and cover' : ''}.
-      Leave the command empty; a command here replaces the Playnite launch.
+      Playnite starts this game. Leave the command empty; a command here replaces the Playnite launch.
     </p>
   {/if}
 
@@ -308,7 +310,7 @@
         )}
         {@render flag(
           'background-stream',
-          'Stream in the background (Experimental)',
+          'Stream in the background',
           'Runs in Nucleus Co-op while someone uses the PC: the game’s own window, game sound only, controllers only. The game needs a Nucleus Co-op handler. Devices can turn this on for every app under Devices.',
         )}
       </div>

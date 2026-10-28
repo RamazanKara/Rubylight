@@ -580,14 +580,11 @@ impl Registry {
             return self.admit_game(request);
         }
         log_background_mapping();
-        let mode = mode::decide(request.config.get(mode::KEY, ""));
-        let admitted = if mode.mode == mode::Mode::Unavailable {
-            Err(Refusal::unavailable(format!(
-                "{}: {}",
-                mode.label, mode.reason
-            )))
-        } else {
-            self.admit_game(request)
+        // A value earlier builds wrote is Nucleus Co-op too, until the next save replaces it.
+        let setting = request.config.get(mode::KEY, "");
+        let admitted = match mode::parse(setting) {
+            Err(reason) if !mode::retired_background(setting) => Err(Refusal::unavailable(reason)),
+            _ => self.admit_game(request),
         };
         admitted.map_err(|refusal| Refusal {
             message: format!(

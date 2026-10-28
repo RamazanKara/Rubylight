@@ -1,7 +1,8 @@
-//! The lock child-session setup, restore and the viewer's start take across
+//! The lock the restore of the removed child-session setup takes across
 //! processes: every Rubylight host (the service, one started by hand) and the
 //! uninstaller's `butterpollo.exe --child-session-restore` change the same
-//! Windows settings, one at a time. A `Global\` named mutex, so it holds
+//! Windows settings, one at a time. Hosts that still had child sessions took
+//! it for setup too, so its name stays. A `Global\` named mutex, so it holds
 //! across sessions too, that SYSTEM, elevated administrators and its creator
 //! open. A mutex of that name another program made first (any user can make
 //! `Global\` ones) is refused by its owner, never waited for: in an elevated
@@ -140,8 +141,9 @@ impl Drop for NamedLock {
 }
 
 /// [`SETUP_LOCK`], for up to `timeout` ([`SETUP_LOCK_TIMEOUT`] outside
-/// tests): setup, restore (the console's and the uninstaller's), the firewall
-/// checks and the viewer's start in any Rubylight process wait for each other.
+/// tests): restores (the console's, the host start's and the uninstaller's)
+/// and the unrecorded check in any Rubylight process wait for each other, and
+/// for an older host's setup.
 /// Err when the wait runs out, saying so.
 pub fn setup_lock(timeout: Duration) -> Result<NamedLock> {
     NamedLock::acquire(SETUP_LOCK, timeout)?.with_context(|| {

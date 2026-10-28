@@ -86,7 +86,7 @@ impl Feature {
                 "Windows Graphics Capture cannot capture a whole display; use Desktop Duplication"
             }
             Self::WgcWindow => {
-                "Windows Graphics Capture cannot capture a single game window, so Nucleus Co-op streams cannot start; use a child session"
+                "Windows Graphics Capture cannot capture a single game window, so Nucleus Co-op streams cannot start"
             }
             Self::WgcCursorSwitch => {
                 "the cursor is always part of the captured picture and cannot be switched"

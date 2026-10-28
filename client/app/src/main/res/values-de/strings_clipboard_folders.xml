@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Bild an PC senden (experimentell)</string>
-    <string name="stream_clipboard_image_receive">Bild vom PC kopieren (experimentell)</string>
+    <string name="stream_clipboard_image_send">Bild an PC senden</string>
+    <string name="stream_clipboard_image_receive">Bild vom PC kopieren</string>
     <string name="stream_clipboard_image_empty">Die Zwischenablage enthält kein Bild</string>
     <string name="stream_clipboard_image_sent">Bild an PC gesendet</string>
     <string name="stream_clipboard_image_none">Die Zwischenablage des PCs enthält kein Bild</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">Die zu speichernde Datei ging verloren, während der Speichern-Dialog offen war. Nichts wurde gespeichert.</string>
     <string name="folders_partial_left">%1$s Eine unvollständige Datei liegt noch unter %2$s.</string>
     <string name="folders_bad_path">Diesen Pfad kann Nightjar nicht öffnen: %1$s</string>
-    <string name="host_menu_folders_note">Experimentell</string>
 </resources>

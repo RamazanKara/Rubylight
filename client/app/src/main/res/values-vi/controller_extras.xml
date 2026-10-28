@@ -53,6 +53,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Driver Switch Pro qua USB</string>
-    <string name="summary_usb_switch_pro">Thử nghiệm. Đọc trực tiếp Nintendo Switch Pro Controller nối dây, có cảm biến chuyển động, rung, Home và Capture.</string>
+    <string name="summary_usb_switch_pro">Đọc trực tiếp Nintendo Switch Pro Controller nối dây, có cảm biến chuyển động, rung, Home và Capture.</string>
     <string name="usb_switch_pro_denied">Không có quyền truy cập USB; Switch Pro Controller vẫn dùng đầu vào của Android.\nHãy cắm lại cáp để thử lại.</string>
 </resources>

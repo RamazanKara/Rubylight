@@ -15,11 +15,11 @@ function on(values: Values, key: string, fallback: boolean): boolean {
   return fallback;
 }
 
-const steam = (values: Values) => on(values, 'steam_enabled', false);
-const recent = (values: Values) => steam(values) && !on(values, 'steam_sync_all_installed', false);
+const steam = (values: Values) => on(values, 'steam_enabled', true);
+const recent = (values: Values) => steam(values) && !on(values, 'steam_sync_all_installed', true);
 const playnite = (values: Values) => on(values, 'playnite_enabled', true);
 const playniteSync = (values: Values) => playnite(values) && on(values, 'playnite_auto_sync', true);
-const playniteRecent = (values: Values) => playniteSync(values) && !on(values, 'playnite_sync_all_installed', false);
+const playniteRecent = (values: Values) => playniteSync(values) && !on(values, 'playnite_sync_all_installed', true);
 
 const playniteSettings: Setting[] = [
   {
@@ -49,11 +49,11 @@ const playniteSettings: Setting[] = [
   {
     key: 'playnite_sync_all_installed',
     label: 'Every installed game',
-    description: 'Adds every installed game. When off, the recently played games and the categories and plugins below are added.',
+    description: 'Adds every installed game, as every launcher does. When off, the recently played games and the categories and plugins below are added.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     inactiveHint: "Turn on Playnite and Add games automatically to use this setting.",
     visibleWhen: playniteSync,
   },
@@ -243,29 +243,29 @@ export const settings: Setting[] = [
     description:
       'Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits. In Library, select Sync now beside Steam to add them now.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
   },
   {
     key: 'steam_auto_sync',
     label: 'Sync automatically',
     description: 'Checks Steam every 30 seconds and updates the Steam apps when games are installed, removed or played.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
     visibleWhen: steam,
   },
   {
     key: 'steam_sync_all_installed',
     label: 'Every installed game',
-    description: 'Adds every installed game. When off, only the games played most recently are added.',
+    description: 'Adds every installed game, as every launcher does. When off, only the games played most recently are added.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
     visibleWhen: steam,
   },
@@ -274,7 +274,7 @@ export const settings: Setting[] = [
     label: 'Recent games',
     description: 'How many of the most recently played games to add.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'number', min: 0, max: 100, step: 1 },
     default: 10,
     inactiveHint: "Turn on Steam library and turn off Every installed game to configure the recent-games list.",
@@ -285,7 +285,7 @@ export const settings: Setting[] = [
     label: 'Played within',
     description: 'Leaves out games not played for this many days. 0 adds them however long ago they were played.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'number', min: 0, max: 3650, step: 1, unit: 'days' },
     default: 30,
     inactiveHint: "Turn on Steam library and turn off Every installed game to configure the recent-games list.",
@@ -297,7 +297,7 @@ export const settings: Setting[] = [
     description:
       'Removes a Steam app when its game is uninstalled. With recent games only, apps that fall out of the list are always removed.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
     default: true,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
@@ -308,7 +308,7 @@ export const settings: Setting[] = [
     label: 'Include tools',
     description: 'Also adds tools, runtimes, redistributables and DLC that Steam lists as installed.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
     default: false,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
@@ -321,7 +321,7 @@ export const settings: Setting[] = [
     description:
       'A JSON list of games the sync never adds, by Steam app ID or name: ["570", {"name": "Dota 2"}]. Their Steam apps are removed.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'json' },
     default: [],
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
@@ -331,20 +331,76 @@ export const settings: Setting[] = [
   {
     key: 'library_epic_enabled',
     label: 'Epic Games',
-    description: 'Lists games installed with the Epic Games Launcher in Library › Add games. They start through the launcher.',
+    description: 'Adds the games installed with the Epic Games Launcher to the library, with their covers, and ends a stream when the game exits.',
     category: 'library',
-    group: 'Other launchers',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_battlenet_enabled',
+    label: 'Battle.net',
+    description: 'Adds the games installed with Battle.net to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_ea_enabled',
+    label: 'EA app',
+    description: 'Adds the games installed with the EA app to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_ubisoft_enabled',
+    label: 'Ubisoft Connect',
+    description: 'Adds the games installed with Ubisoft Connect to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
     control: { kind: 'toggle' },
     default: true,
   },
   {
     key: 'library_gog_enabled',
     label: 'GOG',
-    description: 'Lists GOG games in Library › Add games, including installs without GOG Galaxy. They start through Galaxy when it is installed.',
+    description: 'Adds the games installed with GOG Galaxy or the GOG installer to the library, with their covers, and ends a stream when the game exits.',
     category: 'library',
-    group: 'Other launchers',
+    group: 'Launchers',
     control: { kind: 'toggle' },
     default: true,
+  },
+  {
+    key: 'library_microsoft_enabled',
+    label: 'Xbox and Microsoft Store',
+    description: 'Adds the games installed with the Xbox app or the Microsoft Store to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_auto_sync',
+    label: 'Sync automatically',
+    description: 'Keeps every installed game of the launchers above in the library, like the Steam sync. Games you delete from the library stay deleted.',
+    details: 'Checked every five minutes and when these settings change. While Playnite syncs your library, Playnite adds these games instead.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_autosync_remove_uninstalled',
+    label: 'Remove uninstalled games',
+    description: 'Removes a synced game once its launcher no longer lists it. Games you added by hand stay.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+    visibleWhen: (values) => on(values, 'library_auto_sync', true),
   },
   {
     key: 'library_local_folders',

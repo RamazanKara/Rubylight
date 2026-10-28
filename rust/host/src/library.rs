@@ -46,7 +46,15 @@ fn settings(h: &Shared) -> library::Settings {
 #[cfg(not(test))]
 fn scan_installed(settings: library::Settings) -> Scan {
     let discovery = butterpollo_windows::library::discover(&settings);
+    // The launcher scan leaves Steam's tools out; an app for one is still installed.
+    let steam = butterpollo_core::steam::discover(&butterpollo_windows::steam::roots());
     Scan::from_games(&discovery.games)
+        .adding(
+            steam
+                .iter()
+                .filter(|game| game.installed)
+                .map(|game| format!("steam:{}", game.appid)),
+        )
         .skipping(discovery.skipped())
         .reading(settings)
 }
@@ -142,6 +150,172 @@ pub fn discovery(h: &Shared) -> Result<Value> {
     Ok(json!({ "status": true, "sources": catalog.sources, "games": games }))
 }
 
+/// The games deleted from the library that no sync may bring back.
+pub fn dismissed(document: &Value) -> Vec<String> {
+    document[library::DISMISSED]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Remembers a deleted app's games so no sync brings them back: its Steam, launcher and
+/// Playnite game, whoever added the app. `app` is the deleted app as JSON.
+pub fn dismiss(document: &mut Value, app: &Value) {
+    let mut list = dismissed(document);
+    let before = list.len();
+    for key in library::dismissal_keys(app) {
+        if !list.contains(&key) {
+            list.push(key);
+        }
+    }
+    if list.len() != before {
+        document[library::DISMISSED] = json!(list);
+    }
+}
+
+/// The one-time ownership stamp at host start, before any sync runs (see
+/// `library::stamp_synced`). Steam's apps are the sync's only when `sunshine.conf` itself turns
+/// `steam_enabled` on: that user chose the opt-in sync of earlier versions. A library that can't
+/// be saved stays unstamped, which leaves every app to the user, and is tried again next start.
+pub fn stamp_synced(h: &Shared) -> Result<()> {
+    let steam_opted_in = {
+        let config = h.config.read().unwrap();
+        config.values.contains_key("steam_enabled") && config.boolean("steam_enabled", false)
+    };
+    let mut stamped = None;
+    crate::steam::update_library(h, |apps, document| {
+        document["apps"] = Value::Array(std::mem::take(apps));
+        stamped = library::stamp_synced(document, steam_opted_in);
+        if let Value::Array(list) = document["apps"].take() {
+            *apps = list;
+        }
+        stamped.is_some()
+    })?;
+    if let Some(stamped) = stamped {
+        tracing::info!(
+            steam = stamped.steam,
+            launcher = stamped.launcher,
+            playnite = stamped.playnite,
+            steam_opted_in,
+            "synced apps stamped with their sync"
+        );
+    }
+    Ok(())
+}
+
+/// A launcher's PNG cover in the profile's covers folder, converted once.
+fn launcher_cover(h: &Shared, game: &mut library::Game) {
+    let Some(source) = game.cover.take() else {
+        return;
+    };
+    let destination = h
+        .directory
+        .join("covers")
+        .join(format!("launcher_{}.png", game.uuid()));
+    if destination.is_file() {
+        game.cover = Some(destination);
+        return;
+    }
+    match butterpollo_windows::image::to_png(&source, &destination) {
+        Ok(_) => game.cover = Some(destination),
+        Err(error) => {
+            tracing::debug!(%error, source = %source.display(), "Launcher cover unavailable")
+        }
+    }
+}
+
+/// `POST /api/library/sync` and the automatic sync: every installed game of the launchers that
+/// are on joins the library, as Steam's sync does (see `library::reconcile`). While Playnite
+/// syncs the library, it is Playnite's job and nothing changes here.
+pub fn sync(h: &Shared) -> Result<Value> {
+    let settings = settings(h);
+    if crate::playnite::syncs_launchers(h) {
+        return Ok(json!({ "status": true, "added": 0, "removed": 0, "playnite": true }));
+    }
+    let discovery = butterpollo_windows::library::discover(&settings);
+    let read: Vec<library::Source> = discovery
+        .sources
+        .iter()
+        .filter(|status| !matches!(status.state, "error" | "disabled"))
+        .map(|status| status.source)
+        .collect();
+    let change = sync_games(h, &settings, discovery.games, &read)?;
+    Ok(
+        json!({ "status": true, "added": change.added, "removed": change.removed, "playnite": false }),
+    )
+}
+
+fn sync_games(
+    h: &Shared,
+    settings: &library::Settings,
+    mut games: Vec<library::Game>,
+    read: &[library::Source],
+) -> Result<library::SyncChange> {
+    if !settings.auto_sync {
+        return Ok(library::SyncChange::default());
+    }
+    {
+        let apps: Vec<Value> = h
+            .apps
+            .read()
+            .unwrap()
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<_, _>>()?;
+        for game in &mut games {
+            if !apps.iter().any(|app| game.matches(app)) {
+                launcher_cover(h, game);
+            }
+        }
+    }
+    let mut change = library::SyncChange::default();
+    crate::steam::update_library(h, |apps, document| {
+        change = library::reconcile(apps, &games, settings, read, &dismissed(document));
+        change.changed()
+    })?;
+    if change.changed() {
+        tracing::info!(
+            added = change.added,
+            removed = change.removed,
+            "launcher library synced"
+        );
+        invalidate(h);
+    }
+    Ok(change)
+}
+
+/// The last automatic launcher sync by profile directory, with the settings it ran with.
+static SYNCED: LazyLock<Mutex<HashMap<PathBuf, (Instant, String)>>> =
+    LazyLock::new(Default::default);
+
+/// The automatic launcher sync, from the 30-second housekeeping tick: at once when the
+/// launcher settings change, else every five minutes like the cached scan.
+pub fn watch(h: &Shared) {
+    let settings = settings(h);
+    if !settings.auto_sync {
+        return;
+    }
+    let key = format!("{settings:?}");
+    {
+        let mut synced = SYNCED.lock().unwrap_or_else(PoisonError::into_inner);
+        let due = synced
+            .get(&h.directory)
+            .is_none_or(|(at, last)| *last != key || at.elapsed() >= SCAN_EVERY);
+        if !due {
+            return;
+        }
+        synced.insert(h.directory.clone(), (Instant::now(), key));
+    }
+    if let Err(error) = sync(h) {
+        tracing::warn!(error = %format!("{error:#}"), "the launcher library sync failed");
+    }
+}
+
 pub fn import(h: &Shared, selected: &[Selection]) -> Result<Value> {
     ensure!(!selected.is_empty(), "Select at least one installed game.");
     let result = import_games(
@@ -153,7 +327,7 @@ pub fn import(h: &Shared, selected: &[Selection]) -> Result<Value> {
     result
 }
 
-fn import_games(
+pub(crate) fn import_games(
     h: &Shared,
     mut games: Vec<library::Game>,
     selected: &[Selection],
@@ -175,23 +349,27 @@ fn import_games(
         {
             continue;
         }
-        if let Some(source) = game.cover.take() {
-            let destination = h
-                .directory
-                .join("covers")
-                .join(format!("launcher_{}.png", game.uuid()));
-            match butterpollo_windows::image::to_png(&source, &destination) {
-                Ok(_) => game.cover = Some(destination),
-                Err(error) => {
-                    tracing::debug!(%error, source = %source.display(), "Launcher cover unavailable")
-                }
-            }
-        }
+        launcher_cover(h, game);
     }
     let mut results = vec![];
-    crate::steam::update_apps(h, |apps| {
+    crate::steam::update_library(h, |apps, document| {
         results = library::import(apps, &games, selected);
-        results.iter().any(|result| result.result == "added")
+        // A game imported again was wanted after all: the sync may keep it in step.
+        let before = dismissed(document);
+        let kept: Vec<&String> = before
+            .iter()
+            .filter(|key| {
+                !results.iter().any(|result| {
+                    result.result == "added"
+                        && **key == library::dismissed_key(result.source, &result.id)
+                })
+            })
+            .collect();
+        let undismissed = kept.len() != before.len();
+        if undismissed {
+            document[library::DISMISSED] = json!(kept);
+        }
+        undismissed || results.iter().any(|result| result.result == "added")
     })?;
     Ok(json!({ "status": true, "results": results }))
 }
@@ -270,6 +448,120 @@ mod tests {
         assert!(refresh(&directory, failing_scan).is_some());
         wait_for(|| !lock_caches()[&directory].running);
         assert!(refresh(&directory, failing_scan).is_some());
+    }
+
+    #[test]
+    fn the_launcher_sync_adds_games_keeps_deleted_ones_out_and_an_import_brings_one_back() {
+        let f = Fixture::new();
+        let settings = library::Settings::default();
+        let game = library::ubisoft("13504", Path::new("F:/Games/Mirage"), "Mirage").unwrap();
+        let all = library::Source::ALL;
+        let change = sync_games(&f.host, &settings, vec![game.clone()], &all).unwrap();
+        assert_eq!(change.added, 1);
+        let synced = |h: &Shared| {
+            h.apps
+                .read()
+                .unwrap()
+                .iter()
+                .map(|app| serde_json::to_value(app).unwrap())
+                .find(|app| game.matches(app))
+        };
+        let app = synced(&f.host).unwrap();
+        assert_eq!(app["launcher-managed"], "auto");
+        // Deleted from the library (as the console's delete does): the sync leaves it out.
+        crate::steam::update_library(&f.host, |apps, document| {
+            apps.retain(|app| !game.matches(app));
+            dismiss(document, &app);
+            true
+        })
+        .unwrap();
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["ubisoft:13504"])
+        );
+        let again = sync_games(&f.host, &settings, vec![game.clone()], &all).unwrap();
+        assert!(!again.changed() && synced(&f.host).is_none());
+        // Persisted with the apps.
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(&f.host.apps_path).unwrap()).unwrap();
+        assert_eq!(saved["launcher-dismissed"], json!(["ubisoft:13504"]));
+        // Added again by hand: back, and off the list.
+        let selection = Selection {
+            source: game.source,
+            id: game.id.clone(),
+        };
+        import_games(&f.host, vec![game.clone()], &[selection]).unwrap();
+        assert!(synced(&f.host).is_some());
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!([])
+        );
+        // Off: nothing is synced.
+        let off = library::Settings {
+            auto_sync: false,
+            ..settings
+        };
+        let other = library::ubisoft("1", Path::new("F:/Games/Other"), "Other").unwrap();
+        assert!(
+            !sync_games(&f.host, &off, vec![other], &all)
+                .unwrap()
+                .changed()
+        );
+    }
+
+    #[test]
+    fn the_start_stamps_synced_apps_once_and_steam_apps_only_after_the_old_opt_in() {
+        for (conf, steam) in [
+            ("", Value::Null),
+            ("steam_enabled = false\n", Value::Null),
+            ("steam_enabled = true\n", json!("steam")),
+        ] {
+            let directory = Fixture::profile();
+            std::fs::write(directory.join("sunshine.conf"), conf).unwrap();
+            let apps = json!({"apps": [
+                {"name": "Portal", "uuid": "p", "steam-id": "620", "steam-managed": "auto"},
+                {"name": "Mirage", "uuid": "m", "launcher-source": "ubisoft",
+                 "launcher-id": "13504", "launcher-managed": "auto"},
+                {"name": "Kart", "uuid": "k", "playnite-id": "aa", "playnite-managed": "auto"},
+                {"name": "Mine", "uuid": "x", "cmd": "C:/mine.exe"},
+            ]});
+            std::fs::write(directory.join("apps.json"), apps.to_string()).unwrap();
+            let f = Fixture::load(directory.clone());
+            stamp_synced(&f.host).unwrap();
+            let saved = butterpollo_core::state::load_json(&f.host.apps_path, json!({})).unwrap();
+            assert_eq!(saved[library::SYNC_OWNER_VERSION], 1, "{conf}");
+            let stamps: Vec<Value> = saved["apps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|app| app[library::SYNCED_BY].clone())
+                .collect();
+            assert_eq!(
+                stamps,
+                [
+                    steam.clone(),
+                    json!("launcher"),
+                    json!("playnite"),
+                    Value::Null
+                ],
+                "{conf:?}"
+            );
+            // Once: an app handed over since keeps no stamp at the next start.
+            let mut later = saved.clone();
+            later["apps"][1]
+                .as_object_mut()
+                .unwrap()
+                .remove(library::SYNCED_BY);
+            let directory = Fixture::profile();
+            std::fs::write(directory.join("sunshine.conf"), conf).unwrap();
+            std::fs::write(directory.join("apps.json"), later.to_string()).unwrap();
+            let f = Fixture::load(directory);
+            stamp_synced(&f.host).unwrap();
+            assert_eq!(
+                butterpollo_core::state::load_json(&f.host.apps_path, json!({})).unwrap(),
+                later
+            );
+        }
     }
 
     #[test]

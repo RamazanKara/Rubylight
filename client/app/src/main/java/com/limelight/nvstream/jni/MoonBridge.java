@@ -538,7 +538,7 @@ public class MoonBridge {
     }
 
     /**
-     * Call before startConnection(): "Client roaming (Experimental)" and "Continue on mobile
+     * Call before startConnection(): "Client roaming" and "Continue on mobile
      * data" for the next stream. Only the Rust engine roams.
      */
     public static void requestRoaming(boolean enabled, boolean metered) {
@@ -604,7 +604,7 @@ public class MoonBridge {
         int packedModes = 0;
         if (packed444Requested && !rustEngineRequested) {
             StreamEngine.record(false, false, null);
-            bridgeClDisplayMessage("Experimental full chroma requires the New streaming engine setting.");
+            bridgeClDisplayMessage("Full chroma requires the New streaming engine setting.");
             return -1;
         }
         String reason = null;
@@ -618,7 +618,7 @@ public class MoonBridge {
         StreamEngine.record(rustEngineRequested, rust, reason);
         if (rustEngineRequested && !rust && packed444Requested) {
             LimeLog.warning("Streaming engine: " + StreamEngine.summary());
-            bridgeClDisplayMessage("Experimental full chroma is unavailable: " + reason);
+            bridgeClDisplayMessage("Full chroma is unavailable: " + reason);
             return -1;
         }
         // Warnings stay in the redacted problem report whatever its level filter; a fallback
@@ -638,7 +638,7 @@ public class MoonBridge {
                 packedModes = videoRenderer == null ? 0 :
                         videoRenderer.preparePacked444Modes(supportedVideoFormats, width, height, fps);
                 if (packedModes == 0) {
-                    bridgeClDisplayMessage("Experimental full chroma requires a hardware decoder for the coded size/rate and verified raw 8/10-bit GL_EXT_YUV_target sampling.");
+                    bridgeClDisplayMessage("Full chroma requires a hardware decoder for the coded size/rate and verified raw 8/10-bit GL_EXT_YUV_target sampling.");
                     return -1;
                 }
             }

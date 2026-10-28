@@ -12,7 +12,8 @@
   import PairPanel from '../components/devices/PairPanel.svelte';
   import UsbDevices from '../components/devices/UsbDevices.svelte';
   import { showUsb } from '../components/devices/usb';
-  import { grantedLabels, permissionSummary } from '../components/devices/device';
+  import { grantedLabels } from '../components/devices/device';
+  import { accessLabel, accessOf } from '../components/devices/access';
   import { api, type Client, type UsbAttachment } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
@@ -246,9 +247,9 @@
                 {#if !client.enabled}<Badge>Disabled</Badge>{/if}
               </div>
               <div class="meta muted">
-                <span title={grantedLabels(client.perm) || 'No permissions'}>{permissionSummary(client.perm)}</span>
+                <span title={grantedLabels(client.perm) || 'No permissions'}>Access: {accessLabel(client.perm)}</span>
               </div>
-              {#if permissionSummary(client.perm) === 'View only'}<p class="network-memory muted">Can watch streams, but cannot start games or use controls.</p>{/if}
+              {#if accessOf(client.perm) === 'view'}<p class="network-memory muted">Can watch streams, but cannot start games or use controls.</p>{/if}
               {#if client.network_loss_routes?.length}
                 <p class="network-memory muted">
                   Recent video loss: future streams at {[...new Set(client.network_loss_routes.map((route) => route.address))].join(', ')} start with smaller packet bursts.
@@ -258,8 +259,8 @@
               <ClientAgent {client} />
             </div>
             <div class="actions">
-              <Button size="sm" disabled={acting} icon={open ? 'x' : permissionSummary(client.perm) === 'View only' ? 'key' : 'settings'} onclick={() => toggleEditor(client.uuid)}>
-                {open ? 'Close' : permissionSummary(client.perm) === 'View only' ? 'Change access' : 'Settings'}<span class="visually-hidden"> {client.name}</span>
+              <Button size="sm" disabled={acting} icon={open ? 'x' : accessOf(client.perm) === 'view' ? 'key' : 'settings'} onclick={() => toggleEditor(client.uuid)}>
+                {open ? 'Close' : accessOf(client.perm) === 'view' ? 'Change access' : 'Settings'}<span class="visually-hidden"> {client.name}</span>
               </Button>
               <details class="more"><summary>More<span class="visually-hidden"> for {client.name}</span></summary><div class="more-actions">
               {#if client.network_loss_routes?.length}

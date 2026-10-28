@@ -265,7 +265,8 @@ fn manually_imported_steam_games_survive_automatic_removal_and_keep_existing_met
         &mut apps,
         &[],
         &settings,
-        &Default::default()
+        &Default::default(),
+        &[]
     ));
     assert_eq!(apps.len(), 1);
     apps[0]["steam-source"] = json!("custom metadata");
@@ -797,4 +798,227 @@ fn a_game_folder_import_starts_its_program_from_its_folder() {
     assert_eq!(app["launcher-id"], r"d:\games\hades");
     assert_eq!(app["working-dir"], r"D:\Games\Hades");
     assert!(hades.matches(app));
+}
+
+fn sync_settings(extra: &str) -> Settings {
+    Settings::from_config(&crate::config::Config::parse(extra).unwrap())
+}
+fn mirage() -> Game {
+    ubisoft("13504", Path::new("F:/Games/Mirage"), "Mirage").unwrap()
+}
+
+#[test]
+fn every_launcher_is_on_and_synced_by_default_like_steam() {
+    let defaults = Settings::default();
+    for source in [
+        Source::Epic,
+        Source::Battlenet,
+        Source::Ea,
+        Source::Ubisoft,
+        Source::Gog,
+        Source::Microsoft,
+    ] {
+        assert!(defaults.enabled(source), "{source:?}");
+    }
+    assert!(defaults.auto_sync && defaults.remove_uninstalled);
+    let off = sync_settings(
+        "library_battlenet_enabled = false\nlibrary_ea_enabled = false\nlibrary_ubisoft_enabled = false\nlibrary_microsoft_enabled = false\nlibrary_auto_sync = false\n",
+    );
+    for source in [
+        Source::Battlenet,
+        Source::Ea,
+        Source::Ubisoft,
+        Source::Microsoft,
+    ] {
+        assert!(!off.enabled(source), "{source:?}");
+    }
+    assert!(!off.auto_sync && off.enabled(Source::Epic));
+}
+
+#[test]
+fn the_launcher_sync_adds_installed_games_once_and_leaves_steam_imports_and_dismissed_games() {
+    let settings = Settings::default();
+    let epic = epic_game();
+    let mut broken = mirage();
+    broken.id = "999".into();
+    broken.name = "Broken".into();
+    broken.unavailable_reason = Some("Install or repair Ubisoft Connect.".into());
+    let mut dismissed = mirage();
+    dismissed.id = "777".into();
+    dismissed.name = "Deleted by the user".into();
+    let steam = Game::new(
+        Source::Steam,
+        "570".into(),
+        "Dota 2".into(),
+        Path::new("C:/Steam/dota"),
+        Some(Launch::Uri {
+            uri: "steam://rungameid/570".into(),
+        }),
+    );
+    let games = vec![epic.clone(), mirage(), broken, dismissed, steam];
+    let mut apps = vec![json!({"name": "Desktop", "uuid": "d"})];
+    let change = reconcile(
+        &mut apps,
+        &games,
+        &settings,
+        &Source::ALL,
+        &["ubisoft:777".into()],
+    );
+    assert_eq!(
+        change,
+        SyncChange {
+            added: 2,
+            removed: 0
+        }
+    );
+    let synced: Vec<&str> = apps
+        .iter()
+        .filter_map(|app| managed_key(app).map(|_| app["name"].as_str().unwrap()))
+        .collect();
+    assert_eq!(synced, [epic.name.as_str(), "Mirage"]);
+    assert!(apps.iter().all(|app| app["launcher-source"] != "steam"));
+    // Idempotent.
+    assert_eq!(
+        reconcile(
+            &mut apps,
+            &games,
+            &settings,
+            &Source::ALL,
+            &["ubisoft:777".into()]
+        ),
+        SyncChange::default()
+    );
+    // A game imported by hand is not synced twice.
+    let mut manual = vec![];
+    import(&mut manual, &games, &[selected(&epic)]);
+    assert_eq!(
+        reconcile(&mut manual, &games[..1], &settings, &Source::ALL, &[]),
+        SyncChange::default()
+    );
+    // Off: nothing changes.
+    let off = sync_settings("library_auto_sync = false\n");
+    let mut none = vec![];
+    assert!(!reconcile(&mut none, &games, &off, &Source::ALL, &[]).changed() && none.is_empty());
+    // A launcher that is off syncs nothing.
+    let no_ubisoft = sync_settings("library_ubisoft_enabled = false\n");
+    let mut epic_only = vec![];
+    reconcile(&mut epic_only, &games, &no_ubisoft, &Source::ALL, &[]);
+    assert_eq!(epic_only.len(), 1);
+}
+
+#[test]
+fn an_uninstalled_synced_game_leaves_only_after_a_clean_read_and_manual_apps_stay() {
+    let settings = Settings::default();
+    let games = vec![epic_game(), mirage()];
+    let mut apps = vec![];
+    reconcile(&mut apps, &games, &settings, &Source::ALL, &[]);
+    let mut kept = mirage();
+    kept.id = "1".into();
+    kept.name = "Imported by hand".into();
+    import(&mut apps, &[kept.clone()], &[selected(&kept)]);
+    assert_eq!(apps.len(), 3);
+    // Ubisoft's read failed: its games stay although the scan has none.
+    let read: Vec<Source> = Source::ALL
+        .into_iter()
+        .filter(|s| *s != Source::Ubisoft)
+        .collect();
+    assert_eq!(
+        reconcile(&mut apps, &games[..1], &settings, &read, &[]).removed,
+        0
+    );
+    // A clean read without Mirage removes the synced copy, never the import.
+    let change = reconcile(&mut apps, &games[..1], &settings, &Source::ALL, &[]);
+    assert_eq!(
+        change,
+        SyncChange {
+            added: 0,
+            removed: 1
+        }
+    );
+    assert!(apps.iter().any(|app| app["name"] == "Imported by hand"));
+    assert!(!apps.iter().any(|app| app["name"] == "Mirage"));
+    // Without remove-uninstalled the synced copy stays.
+    let keep = sync_settings("library_autosync_remove_uninstalled = false\n");
+    let mut apps = vec![];
+    reconcile(&mut apps, &games, &keep, &Source::ALL, &[]);
+    assert_eq!(
+        reconcile(&mut apps, &[], &keep, &Source::ALL, &[]).removed,
+        0
+    );
+    assert_eq!(apps.len(), 2);
+}
+
+#[test]
+fn the_ownership_stamp_runs_once_and_takes_steam_apps_only_after_the_old_opt_in() {
+    let document = || {
+        json!({"apps": [
+            {"name": "Vibepollo's Portal", "steam-id": "620", "steam-managed": "auto"},
+            {"name": "Mirage", "launcher-source": "ubisoft", "launcher-id": "13504", "launcher-managed": "auto"},
+            {"name": "Kart", "playnite-id": "aa", "playnite-managed": "auto"},
+            {"name": "Imported", "steam-id": "570", "steam-managed": "manual"},
+            {"name": "Desktop"},
+        ]})
+    };
+    let mut without = document();
+    assert_eq!(
+        stamp_synced(&mut without, false),
+        Some(Stamped {
+            steam: 0,
+            launcher: 1,
+            playnite: 1
+        })
+    );
+    let stamps: Vec<&Value> = without["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|app| &app[SYNCED_BY])
+        .collect();
+    assert_eq!(
+        stamps,
+        [
+            &Value::Null,
+            &json!("launcher"),
+            &json!("playnite"),
+            &Value::Null,
+            &Value::Null
+        ]
+    );
+    assert_eq!(without[SYNC_OWNER_VERSION], 1);
+    // Once: a later start stamps nothing, even an app that lost its stamp.
+    let ran = without.clone();
+    assert_eq!(stamp_synced(&mut without, true), None);
+    assert_eq!(without, ran);
+    let mut opted_in = document();
+    assert_eq!(stamp_synced(&mut opted_in, true).unwrap().steam, 1);
+    assert_eq!(opted_in["apps"][0][SYNCED_BY], "steam");
+    assert_eq!(opted_in["apps"][3].get(SYNCED_BY), None);
+}
+
+#[test]
+fn a_handed_over_app_loses_its_stamp_and_the_launcher_sync_leaves_it() {
+    let settings = Settings::default();
+    let games = vec![mirage()];
+    let mut apps = vec![];
+    reconcile(&mut apps, &games, &settings, &Source::ALL, &[]);
+    assert_eq!(apps[0][SYNCED_BY], "launcher");
+    hand_over(&mut apps[0], "launcher");
+    assert_eq!(apps[0].get(SYNCED_BY), None);
+    assert_eq!(apps[0][MANAGED], "manual");
+    // Uninstalled: the user's app stays, and the game is not added a second time.
+    assert_eq!(
+        reconcile(&mut apps, &[], &settings, &Source::ALL, &[]),
+        SyncChange::default()
+    );
+    assert_eq!(
+        reconcile(&mut apps, &games, &settings, &Source::ALL, &[]),
+        SyncChange::default()
+    );
+    assert_eq!(apps.len(), 1);
+    // An unstamped `launcher-managed: auto` app is the user's as well.
+    let mut theirs = vec![json!({"name": "Mirage", "launcher-source": "ubisoft",
+        "launcher-id": "13504", "launcher-managed": "auto"})];
+    assert!(!reconcile(&mut theirs, &[], &settings, &Source::ALL, &[]).changed());
+    assert_eq!(theirs.len(), 1);
+    assert_eq!(dismissal_keys(&theirs[0]), ["ubisoft:13504"]);
 }

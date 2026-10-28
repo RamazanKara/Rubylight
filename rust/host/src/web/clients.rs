@@ -227,7 +227,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if passphrase.chars().count() < 4 {
                 anyhow::bail!("passphrase must have at least four characters");
             }
-            let pin = one_time_pin(h, passphrase, text("deviceName"));
+            let permission = butterpollo_core::state::pairing_access(text("access"))?;
+            let pin = typed_one_time_pin(h, passphrase, text("deviceName"), permission);
             let config = h.config.read().unwrap().clone();
             json!({
                 "status": true,
@@ -257,6 +258,11 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("no pending pairing request"))?
             };
+            let permission = butterpollo_core::state::pairing_access(text("access"))?;
+            // A WebRTC device keeps its own default.
+            if permission.is_some() && pins.get(&key).is_some_and(|p| p.certificate.is_empty()) {
+                anyhow::bail!("access applies only to Moonlight pairing requests");
+            }
             let p = pins
                 .remove(&key)
                 .ok_or_else(|| anyhow::anyhow!("pairing request no longer exists"))?;
@@ -266,42 +272,66 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 text("name").to_owned()
             };
             p.sender
-                .send((pin.into(), name))
+                .send((pin.into(), name, permission))
                 .map_err(|_| anyhow::anyhow!("pairing request expired"))?;
             json!({"status":true})
         }
         ("POST", "/api/pairing/qr") => pairing_qr(
             h,
             text("address"),
+            butterpollo_core::state::pairing_access(text("access"))?,
             butterpollo_windows::net::lan_addresses()?,
         )?,
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
 }
 
-/// Replaces the one-time PIN (valid 180 s, used once) and returns it.
-fn one_time_pin(h: &Shared, passphrase: &str, device_name: &str) -> String {
-    let pin = format!(
-        "{:04}",
-        rand::Rng::gen_range(&mut rand::thread_rng(), 0..10_000u16)
-    );
-    *h.otp.lock().unwrap() = Some(crate::state::OneTimePin {
-        pin: pin.clone(),
+fn new_one_time_pin(
+    passphrase: &str,
+    device_name: &str,
+    permission: Option<u32>,
+) -> crate::state::OneTimePin {
+    crate::state::OneTimePin {
+        pin: format!(
+            "{:04}",
+            rand::Rng::gen_range(&mut rand::thread_rng(), 0..10_000u16)
+        ),
         passphrase: passphrase.to_owned(),
         device_name: device_name.to_owned(),
         created: Instant::now(),
         misses: Default::default(),
-    });
+        permission,
+    }
+}
+
+/// Replaces the typed (Artemis) one-time PIN, valid 180 s and used once, and
+/// returns it. The QR code's PIN stays.
+fn typed_one_time_pin(
+    h: &Shared,
+    passphrase: &str,
+    device_name: &str,
+    permission: Option<u32>,
+) -> String {
+    let otp = new_one_time_pin(passphrase, device_name, permission);
+    let pin = otp.pin.clone();
+    h.otp.lock().unwrap().typed = Some(otp);
     pin
 }
 
+/// A QR code's PIN is shown again while it has this long left, so two
+/// console tabs show the same code instead of replacing each other's.
+const QR_REUSE_LEFT: Duration = Duration::from_secs(60);
+
 /// A pairing QR code per LAN address (`rubylight://pair?...`, see
-/// `butterpollo_core::pairing_uri`), all for one new one-time PIN with a
-/// passphrase the host picks. Refused while `qr_pairing` is off; `address`
-/// puts that address first.
+/// `butterpollo_core::pairing_uri`), all for one one-time PIN with a
+/// passphrase the host picks: the live one while it has [`QR_REUSE_LEFT`],
+/// else a new one. `permission` is the access the device gets, also for a
+/// code shown again. Refused while `qr_pairing` is off; `address` puts that
+/// address first.
 pub(crate) fn pairing_qr(
     h: &Shared,
     address: &str,
+    permission: Option<u32>,
     mut addresses: Vec<String>,
 ) -> anyhow::Result<Value> {
     use sha2::Digest;
@@ -320,8 +350,20 @@ pub(crate) fn pairing_qr(
     if addresses.is_empty() {
         anyhow::bail!("this PC has no network address a device could reach");
     }
-    let passphrase = hex::encode(butterpollo_core::crypto::random::<8>());
-    let pin = one_time_pin(h, &passphrase, "");
+    let (pin, passphrase, left) = {
+        let mut otp = h.otp.lock().unwrap();
+        let reuse = otp.qr.as_ref().is_some_and(|qr| {
+            qr.created.elapsed() + QR_REUSE_LEFT <= crate::state::ONE_TIME_PIN_LIFETIME
+        });
+        if !reuse {
+            let passphrase = hex::encode(butterpollo_core::crypto::random::<8>());
+            otp.qr = Some(new_one_time_pin(&passphrase, "", permission));
+        }
+        let qr = otp.qr.as_mut().unwrap();
+        qr.permission = permission;
+        let left = crate::state::ONE_TIME_PIN_LIFETIME.saturating_sub(qr.created.elapsed());
+        (qr.pin.clone(), qr.passphrase.clone(), left)
+    };
     let mut invitation = butterpollo_core::pairing_uri::PairingUri {
         host: String::new(),
         port: config.port()?,
@@ -341,7 +383,7 @@ pub(crate) fn pairing_qr(
         "status": true,
         "codes": codes,
         "name": invitation.name,
-        "expires_in_seconds": 180,
+        "expires_in_seconds": left.as_millis().div_ceil(1000),
     }))
 }
 
@@ -411,6 +453,7 @@ mod tests {
     use crate::state::test_support::Fixture;
     use butterpollo_core::power_action::SleepStates;
     use serde_json::json;
+    use std::time::Duration;
 
     /// What the console grants an ordinary device.
     const PERM: u32 = 0x071f1f00;
@@ -712,11 +755,17 @@ mod tests {
     }
 
     #[test]
-    fn the_pairing_qr_code_is_off_until_turned_on() {
+    fn the_pairing_qr_code_is_refused_while_turned_off() {
         let f = Fixture::new();
-        let error = super::pairing_qr(&f.host, "", vec!["192.168.1.5".into()]).unwrap_err();
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("qr_pairing".into(), "false".into());
+        let error = super::pairing_qr(&f.host, "", None, vec!["192.168.1.5".into()]).unwrap_err();
         assert!(error.to_string().contains("off"), "{error}");
-        assert!(f.host.otp.lock().unwrap().is_none());
+        assert!(f.host.otp.lock().unwrap().qr.is_none());
     }
 
     #[test]
@@ -730,7 +779,7 @@ mod tests {
             .values
             .insert("qr_pairing".into(), "true".into());
         let addresses = vec!["192.168.1.5".to_owned(), "10.0.0.2".to_owned()];
-        let answer = super::pairing_qr(&f.host, "10.0.0.2", addresses.clone()).unwrap();
+        let answer = super::pairing_qr(&f.host, "10.0.0.2", None, addresses.clone()).unwrap();
         let codes = answer["codes"].as_array().unwrap();
         // The chosen address comes first.
         assert_eq!(codes[0]["address"], "10.0.0.2");
@@ -738,7 +787,7 @@ mod tests {
         assert_eq!(answer["expires_in_seconds"], 180);
         let (pin, passphrase, device_name) = {
             let otp = f.host.otp.lock().unwrap();
-            let otp = otp.as_ref().unwrap();
+            let otp = otp.qr.as_ref().unwrap();
             (
                 otp.pin.clone(),
                 otp.passphrase.clone(),
@@ -760,26 +809,145 @@ mod tests {
             assert_eq!(parsed.unique_id, f.host.paired.read().unwrap().unique_id);
             assert!(code["svg"].as_str().unwrap().starts_with("<svg"));
         }
-        // The client names itself, and a new code replaces the PIN.
+        // The client names itself; the QR code never takes the typed PIN's slot.
         assert_eq!(device_name, "");
-        super::pairing_qr(&f.host, "", addresses).unwrap();
-        let next = f
-            .host
-            .otp
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .passphrase
-            .clone();
-        assert_ne!(next, passphrase);
+        assert!(f.host.otp.lock().unwrap().typed.is_none());
 
-        let error = super::pairing_qr(&f.host, "172.16.0.1", vec!["10.0.0.2".into()]).unwrap_err();
+        let error =
+            super::pairing_qr(&f.host, "172.16.0.1", None, vec!["10.0.0.2".into()]).unwrap_err();
         assert!(
             error.to_string().contains("not an address of this PC"),
             "{error}"
         );
-        assert!(super::pairing_qr(&f.host, "", Vec::new()).is_err());
+        assert!(super::pairing_qr(&f.host, "", None, Vec::new()).is_err());
+    }
+
+    fn qr_passphrase(f: &Fixture) -> String {
+        f.host
+            .otp
+            .lock()
+            .unwrap()
+            .qr
+            .as_ref()
+            .unwrap()
+            .passphrase
+            .clone()
+    }
+
+    #[test]
+    fn a_second_tab_shows_the_live_qr_code_until_its_last_minute() {
+        let f = Fixture::new();
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("qr_pairing".into(), "true".into());
+        let addresses = vec!["192.168.1.5".to_owned()];
+        let first = super::pairing_qr(&f.host, "", None, addresses.clone()).unwrap();
+        let passphrase = qr_passphrase(&f);
+        // Another tab, with 61 s left: the same code and its time left. The
+        // latest access choice applies to it.
+        f.host.otp.lock().unwrap().qr.as_mut().unwrap().created -= Duration::from_secs(119);
+        let play = Some(butterpollo_core::state::PLAY_DEVICE_PERMISSION);
+        let again = super::pairing_qr(&f.host, "", play, addresses.clone()).unwrap();
+        assert_eq!(again["codes"][0]["uri"], first["codes"][0]["uri"]);
+        assert_eq!(again["expires_in_seconds"], 61);
+        assert_eq!(qr_passphrase(&f), passphrase);
+        assert_eq!(
+            f.host.otp.lock().unwrap().qr.as_ref().unwrap().permission,
+            play
+        );
+        // Under a minute left: a new code, for three minutes.
+        f.host.otp.lock().unwrap().qr.as_mut().unwrap().created -= Duration::from_secs(2);
+        let next = super::pairing_qr(&f.host, "", None, addresses).unwrap();
+        assert_ne!(next["codes"][0]["uri"], first["codes"][0]["uri"]);
+        assert_eq!(next["expires_in_seconds"], 180);
+        assert_ne!(qr_passphrase(&f), passphrase);
+        assert_eq!(
+            f.host.otp.lock().unwrap().qr.as_ref().unwrap().permission,
+            None
+        );
+    }
+
+    #[test]
+    fn the_typed_one_time_pin_leaves_the_qr_code_alone() {
+        let f = Fixture::new();
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("qr_pairing".into(), "true".into());
+        super::pairing_qr(&f.host, "", None, vec!["192.168.1.5".into()]).unwrap();
+        let passphrase = qr_passphrase(&f);
+        let answer = handle(
+            &f.host,
+            "POST",
+            "/api/otp",
+            &json!({"passphrase": "typed phrase", "access": "play"}),
+        )
+        .unwrap();
+        let otp = f.host.otp.lock().unwrap();
+        let typed = otp.typed.as_ref().unwrap();
+        assert_eq!(typed.pin, answer["otp"].as_str().unwrap());
+        assert_eq!(typed.passphrase, "typed phrase");
+        assert_eq!(
+            typed.permission,
+            Some(butterpollo_core::state::PLAY_DEVICE_PERMISSION)
+        );
+        assert_eq!(otp.qr.as_ref().unwrap().passphrase, passphrase);
+        drop(otp);
+        let error = handle(
+            &f.host,
+            "POST",
+            "/api/otp",
+            &json!({"passphrase": "typed phrase", "access": "admin"}),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("access"), "{error}");
+    }
+
+    #[test]
+    fn the_console_pin_carries_the_chosen_access_to_moonlight_requests_only() {
+        let f = Fixture::new();
+        let mut receivers = Vec::new();
+        for (id, certificate) in [("moonlight", "certificate"), ("tv", "")] {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            f.host.pins.lock().unwrap().insert(
+                id.into(),
+                crate::state::PendingPin {
+                    name: id.into(),
+                    certificate: certificate.into(),
+                    created: std::time::Instant::now(),
+                    sender,
+                },
+            );
+            receivers.push(receiver);
+        }
+        let pin = |id: &str, access: &str| {
+            handle(
+                &f.host,
+                "POST",
+                "/api/pin",
+                &json!({"pin": "1234", "uniqueid": id, "access": access}),
+            )
+        };
+        let error = pin("tv", "play").unwrap_err();
+        assert!(error.to_string().contains("Moonlight"), "{error}");
+        assert!(f.host.pins.lock().unwrap().contains_key("tv"));
+        assert!(pin("moonlight", "everything").is_err());
+        pin("moonlight", "play").unwrap();
+        assert_eq!(
+            receivers[0].try_recv().unwrap(),
+            (
+                "1234".to_owned(),
+                "moonlight".to_owned(),
+                Some(butterpollo_core::state::PLAY_DEVICE_PERMISSION)
+            )
+        );
+        pin("tv", "").unwrap();
+        assert_eq!(receivers[1].try_recv().unwrap().2, None);
     }
 
     #[test]

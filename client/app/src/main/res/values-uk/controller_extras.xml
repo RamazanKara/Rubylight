@@ -53,6 +53,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Драйвер Switch Pro через USB</string>
-    <string name="summary_usb_switch_pro">Експериментально. Зчитує дротовий Nintendo Switch Pro Controller напряму: датчики руху, вібрація, Home і Capture.</string>
+    <string name="summary_usb_switch_pro">Зчитує дротовий Nintendo Switch Pro Controller напряму: датчики руху, вібрація, Home і Capture.</string>
     <string name="usb_switch_pro_denied">Немає доступу до USB; Switch Pro Controller працює через введення Android.\nПерепідключіть кабель, щоб повторити.</string>
 </resources>

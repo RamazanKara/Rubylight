@@ -2,9 +2,10 @@
 //!
 //! Only local files are read: `libraryfolders.vdf`, `appmanifest_*.acf`,
 //! `userdata/*/config/localconfig.vdf`, `appcache/appinfo.vdf` and the
-//! library cache artwork. Apps the sync owns carry `steam-managed: "auto"`
-//! and a UUID derived from the Steam app ID.
-use crate::config::Config;
+//! library cache artwork. Apps the sync adds carry `steam-managed: "auto"`,
+//! a UUID derived from the Steam app ID and `synced-by: steam`; only the
+//! stamp makes an app the sync's own, since Vibepollo writes the rest too.
+use crate::{config::Config, library};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
@@ -545,9 +546,9 @@ impl Settings {
     pub fn from_config(config: &Config) -> Self {
         let count = |key: &str, default: i64| config.integer(key, default).max(0) as u64;
         Self {
-            enabled: config.boolean("steam_enabled", false),
-            auto_sync: config.boolean("steam_auto_sync", false),
-            sync_all_installed: config.boolean("steam_sync_all_installed", false),
+            enabled: config.boolean("steam_enabled", true),
+            auto_sync: config.boolean("steam_auto_sync", true),
+            sync_all_installed: config.boolean("steam_sync_all_installed", true),
             recent_games: count("steam_recent_games", 10) as usize,
             recent_max_age_days: count("steam_recent_max_age_days", 30),
             remove_uninstalled: config.boolean("steam_autosync_remove_uninstalled", true),
@@ -680,6 +681,28 @@ pub fn app_id_of(app: &Value) -> Option<u32> {
         .filter(|hex| hex.len() == 12)
         .and_then(|hex| u32::from_str_radix(hex, 16).ok())
 }
+/// The Steam game an app starts, by any of its marks: [`app_id_of`], an "Add games" import's
+/// launcher id, or a `steam://rungameid/` or `steam://run/` command.
+pub fn game_of(app: &Value) -> Option<u32> {
+    app_id_of(app)
+        .or_else(|| {
+            (app.get("launcher-source").and_then(Value::as_str) == Some("steam"))
+                .then(|| app.get("launcher-id")?.as_str()?.parse().ok())
+                .flatten()
+        })
+        .or_else(|| command_app_id(app.get("cmd")?.as_str()?))
+}
+/// The app ID in a `steam://rungameid/<id>` or `steam://run/<id>` command.
+fn command_app_id(command: &str) -> Option<u32> {
+    let lower = command.to_ascii_lowercase();
+    let rest = ["steam://rungameid/", "steam://run/"]
+        .iter()
+        .find_map(|prefix| lower.find(prefix).map(|at| &lower[at + prefix.len()..]))?;
+    let digits = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..digits].parse().ok()
+}
 fn id_of(app: &Value) -> String {
     app_id_of(app).map_or_else(
         || {
@@ -726,6 +749,7 @@ fn update(app: &mut Value, game: &Game, source: &str, cover: Option<&Path>) {
     fields.insert("uuid".into(), json!(canonical_uuid(game.appid)));
     fields.insert("steam-id".into(), json!(game.appid.to_string()));
     fields.insert("steam-managed".into(), json!("auto"));
+    fields.insert(library::SYNCED_BY.into(), json!("steam"));
     fields.insert("steam-source".into(), json!(source));
     set_or_remove(fields, "steam-app-type", Some(game.app_type.clone()));
     fields.insert("cmd".into(), json!(launch_command(game.appid)));
@@ -788,21 +812,37 @@ fn update(app: &mut Value, game: &Game, source: &str, cover: Option<&Path>) {
         }
     }
 }
-/// Bring the managed Steam apps in `apps` in line with `selected`. Apps the
-/// user added keep their settings; only a missing Steam cover is filled in.
-/// Returns whether anything changed.
+/// Bring the Steam apps this sync owns ([`library::SYNCED_BY`]) in `apps` in line with
+/// `selected`. Every other app belongs to the user, whatever its marker or UUID: it is never
+/// renamed, changed or removed, no second app is added for its game, and only a missing
+/// Steam cover is filled in. Games in `dismissed` (`steam:<appid>`, deleted from the library)
+/// are not added. Returns whether anything changed.
 pub fn reconcile(
     apps: &mut Vec<Value>,
     selected: &[&Game],
     settings: &Settings,
     covers: &HashMap<u32, PathBuf>,
+    dismissed: &[String],
 ) -> bool {
     let games: Vec<&Game> = selected
         .iter()
         .copied()
-        .filter(|g| importable(g, settings.include_tools) && !is_excluded(g, &settings.exclusions))
+        .filter(|g| {
+            importable(g, settings.include_tools)
+                && !is_excluded(g, &settings.exclusions)
+                && !dismissed.contains(&library::dismissed_key(
+                    library::Source::Steam,
+                    &g.appid.to_string(),
+                ))
+        })
         .collect();
     let by_id: HashMap<String, &Game> = games.iter().map(|g| (g.appid.to_string(), *g)).collect();
+    // The games the user's own apps already have.
+    let users: BTreeSet<u32> = apps
+        .iter()
+        .filter(|app| !library::synced_by(app, "steam"))
+        .filter_map(game_of)
+        .collect();
     let source = settings.source();
     let remove_missing = settings.removes_missing();
     let mut changed = false;
@@ -812,16 +852,8 @@ pub fn reconcile(
         let app = &mut apps[index];
         let steam_id = id_of(app);
         let parsed = app_id_of(app);
-        let managed = app.get("steam-managed").and_then(Value::as_str) == Some("auto");
-        // Early imports carry the Steam UUID but predate the marker.
-        let legacy = app.get("steam-managed").is_none()
-            && parsed.is_some_and(|id| {
-                app.get("uuid")
-                    .and_then(Value::as_str)
-                    .is_some_and(|uuid| uuid.eq_ignore_ascii_case(&canonical_uuid(id)))
-            });
-        if steam_id.is_empty() || (!managed && !legacy) {
-            if let Some(game) = by_id.get(&steam_id)
+        if steam_id.is_empty() || !library::synced_by(app, "steam") {
+            if let Some(game) = game_of(app).and_then(|id| by_id.get(&id.to_string()))
                 && let Some(cover) = covers.get(&game.appid)
             {
                 let image = app.get("image-path").and_then(Value::as_str).unwrap_or("");
@@ -849,7 +881,10 @@ pub fn reconcile(
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_owned();
-        if excluded(&steam_id, &name, &settings.exclusions) || seen.contains(&steam_id) {
+        if excluded(&steam_id, &name, &settings.exclusions)
+            || seen.contains(&steam_id)
+            || parsed.is_some_and(|id| users.contains(&id))
+        {
             apps.remove(index);
             changed = true;
             continue;
@@ -880,7 +915,10 @@ pub fn reconcile(
     }
     for game in games {
         let key = game.appid.to_string();
-        if seen.contains(&key) || apps.iter().any(|app| id_of(app) == key) {
+        if seen.contains(&key)
+            || users.contains(&game.appid)
+            || apps.iter().any(|app| id_of(app) == key)
+        {
             continue;
         }
         let mut app = json!({});
@@ -1188,6 +1226,18 @@ mod tests {
         }
     }
     #[test]
+    fn every_installed_game_is_the_default_and_an_explicit_false_keeps_recent() {
+        assert!(Settings::from_config(&Config::default()).sync_all_installed);
+        assert_eq!(
+            Settings::from_config(&Config::default()).source(),
+            "installed"
+        );
+        let recent =
+            Settings::from_config(&Config::parse("steam_sync_all_installed = false").unwrap());
+        assert!(!recent.sync_all_installed);
+        assert_eq!(recent.source(), "recent");
+    }
+    #[test]
     fn selection_and_identity_follow_vibepollo() {
         assert_eq!(canonical_uuid(570), "53544541-4d00-5000-8000-00000000023a");
         assert_eq!(app_id_of(&json!({"uuid": canonical_uuid(570)})), Some(570));
@@ -1203,6 +1253,7 @@ mod tests {
             },
         ];
         let mut settings = Settings::from_config(&Config::default());
+        settings.sync_all_installed = false;
         settings.recent_max_age_days = 0;
         let ids = |s: &Settings| {
             select(&games, s, 1000)
@@ -1233,11 +1284,11 @@ mod tests {
             json!({"name":"Desktop"}),
             // Added by hand: only its missing cover is filled in.
             json!({"name":"My CS","steam-id":"730","cmd":"custom","image-path":""}),
-            // Managed but no longer installed.
-            json!({"name":"Gone","uuid":canonical_uuid(440),"steam-id":"440","steam-managed":"auto"}),
+            // Synced but no longer installed.
+            json!({"name":"Gone","uuid":canonical_uuid(440),"steam-id":"440","steam-managed":"auto","synced-by":"steam"}),
         ];
         let covers = HashMap::from([(730, PathBuf::from("C:\\covers\\steam_730.png"))]);
-        assert!(reconcile(&mut apps, &[&dota, &cs], &settings, &covers));
+        assert!(reconcile(&mut apps, &[&dota, &cs], &settings, &covers, &[]));
         let names: Vec<_> = apps.iter().map(|a| a["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["Desktop", "My CS", "Dota 2"]);
         assert_eq!(apps[1]["cmd"], "custom");
@@ -1250,11 +1301,158 @@ mod tests {
             "C:/Steam/steamapps/common/Dota 2"
         );
         // A second pass changes nothing.
-        assert!(!reconcile(&mut apps, &[&dota, &cs], &settings, &covers));
+        assert!(!reconcile(
+            &mut apps,
+            &[&dota, &cs],
+            &settings,
+            &covers,
+            &[]
+        ));
         // A cover the user picked stays.
         apps[2]["image-path"] = json!("C:/mine.png");
-        assert!(!reconcile(&mut apps, &[&dota, &cs], &settings, &covers));
+        assert!(!reconcile(
+            &mut apps,
+            &[&dota, &cs],
+            &settings,
+            &covers,
+            &[]
+        ));
         assert_eq!(apps[2]["image-path"], "C:/mine.png");
+    }
+    /// Every sync that could rename, remove or duplicate `apps`: the game installed and
+    /// selected, excluded, uninstalled, and outside the recent window. Each leaves them as they are.
+    fn untouched_by_every_sync(apps: Vec<Value>, appid: u32) {
+        let portal = game(appid, "Portal 2", 1000);
+        let mut installed = Settings::from_config(&Config::default());
+        installed.sync_all_installed = true;
+        installed.remove_uninstalled = true;
+        let mut excluded = installed.clone();
+        excluded.exclusions = id_names(&appid.to_string());
+        let mut recent = Settings::from_config(&Config::default());
+        recent.sync_all_installed = false;
+        recent.recent_games = 1;
+        for (case, settings, selected) in [
+            ("installed", &installed, vec![&portal]),
+            ("excluded", &excluded, vec![&portal]),
+            ("uninstalled", &installed, vec![]),
+            ("outside the recent window", &recent, vec![]),
+        ] {
+            let mut synced = apps.clone();
+            assert!(
+                !reconcile(&mut synced, &selected, settings, &HashMap::new(), &[]),
+                "{case}"
+            );
+            assert_eq!(synced, apps, "{case}");
+        }
+    }
+    #[test]
+    fn a_legacy_steam_uuid_app_keeps_its_name_command_and_detach_through_every_sync() {
+        let mine = json!({"name":"My Portal","uuid":canonical_uuid(620),"cmd":"C:/portal.bat",
+            "auto-detach":false,"image-path":"C:/portal.png"});
+        // A second copy, as another host left it: both are the user's.
+        let copy = json!({"name":"Portal (couch)","uuid":canonical_uuid(620),"cmd":"C:/couch.bat",
+            "image-path":"C:/couch.png"});
+        untouched_by_every_sync(vec![mine, copy], 620);
+    }
+    #[test]
+    fn an_unstamped_vibepollo_synced_app_is_the_users() {
+        let vibepollo = json!({"name":"Portal 2 (mine)","uuid":canonical_uuid(620),"steam-id":"620",
+            "steam-managed":"auto","steam-source":"recent","cmd":"C:/portal.bat","auto-detach":false,
+            "image-path":"C:/portal.png"});
+        untouched_by_every_sync(vec![vibepollo.clone(), vibepollo], 620);
+    }
+    #[test]
+    fn no_second_app_joins_a_users_app_for_the_same_game() {
+        let mut settings = Settings::from_config(&Config::default());
+        settings.sync_all_installed = true;
+        let games = [
+            game(570, "Dota 2", 10),
+            game(620, "Portal 2", 10),
+            game(730, "Counter-Strike 2", 10),
+            game(440, "Team Fortress 2", 10),
+        ];
+        let selected: Vec<&Game> = games.iter().collect();
+        let mut apps = vec![
+            json!({"name":"Dota","steam-id":"570"}),
+            // An "Add games" import and a hand-made app that starts the game through Steam.
+            json!({"name":"Portal","launcher-source":"steam","launcher-id":"620","cmd":"C:/portal.bat"}),
+            json!({"name":"CS","cmd":"cmd /c start steam://rungameid/730"}),
+            // The sync's own copy of a game the user also has: the user's stays, alone.
+            json!({"name":"Dota 2","uuid":canonical_uuid(570),"steam-id":"570","steam-managed":"auto","synced-by":"steam"}),
+        ];
+        assert!(reconcile(
+            &mut apps,
+            &selected,
+            &settings,
+            &HashMap::new(),
+            &[]
+        ));
+        let names: Vec<_> = apps.iter().map(|a| a["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["Dota", "Portal", "CS", "Team Fortress 2"]);
+        assert_eq!(game_of(&apps[2]), Some(730));
+    }
+    #[test]
+    fn the_sync_updates_and_removes_only_the_apps_it_stamped() {
+        let mut settings = Settings::from_config(&Config::default());
+        settings.sync_all_installed = true;
+        settings.remove_uninstalled = true;
+        let dota = game(570, "Dota 2", 10);
+        let mut apps = vec![
+            json!({"name":"Old name","uuid":canonical_uuid(570),"steam-id":"570",
+            "steam-managed":"auto","synced-by":"steam","cmd":"old","auto-detach":false}),
+        ];
+        assert!(reconcile(
+            &mut apps,
+            &[&dota],
+            &settings,
+            &HashMap::new(),
+            &[]
+        ));
+        assert_eq!(apps[0]["name"], "Dota 2");
+        assert_eq!(apps[0]["cmd"], launch_command(570));
+        assert_eq!(apps[0]["auto-detach"], true);
+        assert_eq!(apps[0]["synced-by"], "steam");
+        assert!(reconcile(&mut apps, &[], &settings, &HashMap::new(), &[]));
+        assert!(apps.is_empty(), "uninstalled");
+        // In recent mode a game that left the window takes only the stamped app with it.
+        let mut recent = Settings::from_config(&Config::default());
+        recent.sync_all_installed = false;
+        recent.recent_games = 1;
+        let stamped = json!({"name":"Dota 2","uuid":canonical_uuid(570),"steam-id":"570",
+            "steam-managed":"auto","synced-by":"steam"});
+        let unstamped = json!({"name":"Portal 2","uuid":canonical_uuid(620),"steam-id":"620",
+            "steam-managed":"auto"});
+        let mut apps = vec![stamped, unstamped.clone()];
+        assert!(reconcile(&mut apps, &[], &recent, &HashMap::new(), &[]));
+        assert_eq!(apps, [unstamped]);
+    }
+    #[test]
+    fn a_steam_game_deleted_from_the_library_is_not_added_again() {
+        let mut settings = Settings::from_config(&Config::default());
+        settings.sync_all_installed = true;
+        let (dota, cs) = (game(570, "Dota 2", 10), game(730, "Counter-Strike 2", 10));
+        let mut apps = vec![];
+        assert!(reconcile(
+            &mut apps,
+            &[&dota, &cs],
+            &settings,
+            &HashMap::new(),
+            &["steam:570".into()]
+        ));
+        let names: Vec<_> = apps.iter().map(|a| a["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["Counter-Strike 2"]);
+        // Any app that starts a Steam game dismisses it when deleted, whoever made it.
+        assert_eq!(library::dismissal_keys(&apps[0]), ["steam:730"]);
+        assert_eq!(
+            library::dismissal_keys(&json!({"name":"Mine","cmd":"steam://rungameid/620"})),
+            ["steam:620"]
+        );
+        assert_eq!(
+            library::dismissal_keys(
+                &json!({"launcher-source":"steam","launcher-id":"440","steam-id":"440"})
+            ),
+            ["steam:440"]
+        );
     }
     #[test]
     fn tracker_follows_the_game_and_its_children() {

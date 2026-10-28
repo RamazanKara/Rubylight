@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_audio_passthrough">Ses geçişi (Deneysel)</string>
+    <string name="title_checkbox_audio_passthrough">Ses geçişi</string>
     <string name="summary_checkbox_audio_passthrough">Rubylight PC\'den sesi, ses çıkışınızın olduğu gibi çaldığı bir biçimde ister: sıkıştırılmamış PCM ya da onu çözen bir alıcı, soundbar veya TV için Dolby Digital (AC3) veya Dolby Digital Plus (E-AC3). Android 10 veya üstü ve Yeni yayın motoru gerekir. Dolby ses 32 ms\'lik bloklarla gelir, bu yüzden Opus\'tan daha geç ulaşır. Diğer PC\'ler ve çıkışlar Opus\'ta kalır.</string>
 </resources>

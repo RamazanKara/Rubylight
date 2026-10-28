@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
@@ -31,8 +32,8 @@ test('readiness follows the adapter devices are sent, and says what to do', () =
   assert.deepEqual([needs.status, needs.tone], ['warning', 'warn']);
   assert.match(needs.text, /Apply the changes below/);
   const onlyWifi = readiness(status({ wake: { primary: wifi.mac, targets: [{ ...wifi, connected: true }] } }));
-  assert.equal(onlyWifi.label, 'Experimental');
-  assert.match(onlyWifi.text, /Experimental/);
+  assert.equal(onlyWifi.label, 'Depends on Wi-Fi');
+  assert.doesNotMatch(onlyWifi.text, /Experimental/);
   assert.equal(readiness(status({ wake: { primary: null } })).label, 'Not connected');
   assert.equal(readiness(status({ wake: { targets: [], primary: null } })).tone, 'danger');
   // A state from a newer host is not shown as ready.
@@ -78,4 +79,11 @@ test('an incomplete power status is an error, not an empty page', () => {
   for (const reply of [{ status: true, available: false, enabled: false }, null, [], { ...status(), fix: null }, { ...status(), idle_sleep: {} }]) {
     assert.throws(() => checkPowerStatus(reply), /incomplete power status/);
   }
+});
+
+test("an adapter check's badge keeps its width, so it stays inside the card on a phone", () => {
+  const panel = readFileSync(new URL('./src/components/maintenance/PowerPanel.svelte', import.meta.url), 'utf8');
+  const rule = panel.match(/\.checks \{([^}]*)\}/);
+  assert.ok(rule);
+  assert.match(rule[1], /grid-template-columns: fit-content\(16em\) minmax\(max-content, 1fr\)/);
 });

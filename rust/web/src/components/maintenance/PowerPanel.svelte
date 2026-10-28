@@ -189,10 +189,10 @@
           <Button variant="primary" busy={applying || pending} disabled={checking || pending || (!changes.length && !fastStartupOff)} onclick={apply}>Apply changes</Button>
         {/if}
         <Button icon="refresh" busy={checking} disabled={applying || pending} onclick={check}>Check again</Button>
-        <a class="small" href="/settings/general" use:link>Change sleep after idle</a>
+        <a class="small" href="/settings/general?setting=sleep_after_idle_minutes" use:link>Change sleep after idle</a>
       </div>
     </div>
-  {:else}<LoadState error={loadError} what="the wake status" onretry={() => load(true)} />{/if}
+  {:else}<LoadState error={loadError} what="the wake status" slow="The first check reads every network adapter and can take half a minute." onretry={() => load(true)} />{/if}
 </Panel>
 
 <style>
@@ -228,6 +228,8 @@
     gap: var(--space-2);
   }
   .checks {
+    /* The result badge keeps its width; on a phone the check's name wraps instead. */
+    grid-template-columns: fit-content(16em) minmax(max-content, 1fr);
     font-size: var(--text-sm);
   }
   .fix {

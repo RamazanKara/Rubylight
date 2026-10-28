@@ -214,9 +214,6 @@
 
 <div class="page">
   <PageHeader title="Stream" subtitle="Play a game from this PC in this browser tab: H.264 at {STREAM.width}×{STREAM.height} and {STREAM.fps} fps, stereo sound, keyboard and mouse.">
-    {#snippet actions()}
-      <Badge tone="accent">Experimental</Badge>
-    {/snippet}
   </PageHeader>
 
   {#if anyNetwork}

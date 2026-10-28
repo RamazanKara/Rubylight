@@ -22,9 +22,9 @@ ADVICE = {
     "stream_profiles": "Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings).",
     "list_mobile_bitrate_kbps": "Choose a cap for streams that start on mobile data or on Wi-Fi that Android marks as metered, such as a phone's hotspot. It caps the bitrate from every layer, including profiles, PC and game values; Off uses the same bitrate on every network. Read once at stream start. See [named profiles](#named-profiles-and-game-settings).",
     "checkbox_auto_bitrate": "Off by default. Lowers the bitrate when the connection, decoder or device heat can't keep up and raises it again when things recover, never above Video bitrate and never below a built-in floor (2 Mbps, or more for large streams). The host's own adjustment stands down while it runs. This is the default for every PC; the stream menu's Automatic bitrate saves a choice for one PC, and changing this switch makes every PC follow it again. Needs a host that supports runtime bitrate changes (currently Rubylight).",
-    "checkbox_vulkan_render": "Experimental. Presents H.264, HEVC and AV1 through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. It adds a render pass, so some latency, and needs Android 10 and a GPU with Vulkan 1.1. If it cannot be used (PyroWave, Android 9 or older, no Vulkan support, 4:4:4 video, or it fails to start) the stream uses direct output and a message says why. While it is on, client-side upscaling is off. If it stops working during a stream, the stream ends with a message that names it; turn this switch off to go back. Leave it off unless you need such an overlay.",
+    "checkbox_vulkan_render": "Presents H.264, HEVC and AV1 through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. It adds a render pass, so some latency, and needs Android 10 and a GPU with Vulkan 1.1. If it cannot be used (PyroWave, Android 9 or older, no Vulkan support, 4:4:4 video, or it fails to start) the stream uses direct output and a message says why. While it is on, client-side upscaling is off. If it stops working during a stream, the stream ends with a message that names it; turn this switch off to go back. Leave it off unless you need such an overlay.",
     "seekbar_bitrate_kbps": "Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments.",
-    "checkbox_rate_change_bitrate": "Turn on to let this device lower or raise the bitrate from its own frame loss and network delay readings, in place of Automatic bitrate. Needs the Rust engine and a host that offers bitrate changes; other streams keep Automatic bitrate.",
+    "checkbox_rate_change_bitrate": "Off by default, under Advanced: turn on to let this device lower or raise the bitrate from its own frame loss and network delay readings, in place of Device controls bitrate. Needs the Rust engine and a host that offers bitrate changes; other streams use Device controls bitrate.",
     "video_format": "Start with Automatic. Choose a specific codec to compare decoder performance; Prefer AV1 and Prefer HEVC fall back when the PC or device lacks them. PyroWave requires a host that supports it (Rubylight, or Vibepollo with PyroWave available) and Vulkan capabilities; on a PC whose host has none, that PC uses the setting for all PCs or Automatic instead.",
     "adaptive_quality_mode": "Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Lowers resolution or frame rate when the network, slow decoding or heat keep the stream from running well; not available with PyroWave. The stream menu can override the mode per PC.",
     "adaptive_quality_min_resolution": "Sets the smallest short edge for automatic quality, with the aspect ratio preserved. The selected starting resolution is the ceiling; a minimum above that ceiling is clamped down. Shown while Lower resolution or frame rate when needed is not Off.",
@@ -103,10 +103,10 @@ ADVICE = {
     "checkbox_audio_passthrough": "Enable for a receiver, soundbar or TV that decodes Dolby Digital or Dolby Digital Plus, or takes multichannel PCM as is. Asks a Rubylight PC for a format the audio output reports it plays, and keeps Opus otherwise. Dolby comes in 32 ms frames, so sound arrives later than Opus. Android 10 and later with the New streaming engine; hidden elsewhere.",
     "checkbox_enable_post_stream_toast": "Enable to see the average decode time after a session ends; it is not end-to-end latency.",
     "checkbox_enable_pip": "Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support.",
-    "checkbox_auto_reconnect": "Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game.",
+    "checkbox_auto_reconnect": "On by default. Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. Installs that stored the old default (off) were switched on once; turning it off again is kept.",
     "performance_overlay_position": "Choose the corner the performance overlay starts in. It moves to a free corner when on-screen controls would cover it, and always stays inside the camera cutout. Right-hand corners align the text to the right. Can also be changed in the stream menu → Display → Overlay and diagnostics → Position, which takes effect at once.",
     "list_network_grace": "Off by default: the stream ends after 10 seconds without contact, as before. 20, 30 or 60 seconds keeps it open through a Wi-Fi roam, a short dropout or a VPN moving between Wi-Fi and mobile data; the picture freezes until the network returns. Longer waits only help if the host waits too, so raise its own client timeout. When the wait runs out the stream ends with a message saying so, and Recover interrupted streams, if on, then reconnects. See [network drops](video-and-latency.md#network-drops).",
-    "checkbox_client_roaming": "On by default. Experimental: when this device changes networks, the stream moves to the new address instead of waiting for the old one. Only with the Rust engine and a Rubylight PC that offers client roaming; other PCs keep the network grace period.",
+    "checkbox_client_roaming": "On by default. When this device changes networks, the stream moves to the new address instead of waiting for the old one. Only with the Rust engine and a Rubylight PC that offers client roaming; other PCs keep the network grace period.",
     "checkbox_roaming_metered": "Off by default. Lets client roaming move the stream onto mobile data or another metered network. Leave off unless you want streams to keep running on mobile data; streaming uses a lot of data.",
     "list_languages": "Choose the interface language. Android 13+ uses the system per-app language setting.",
     "checkbox_small_icon_mode": "Enable to fit more games in the library grid.",
@@ -125,7 +125,7 @@ ADVICE = {
     "list_hevc_low_latency_mode": "Auto by default: every HEVC decoder gets the Android and vendor low-latency flags except Amlogic's, which stall the display with them. On gives them to Amlogic decoders too, with a warning in the log. Off omits them on any device and disables HEVC reference-frame invalidation; turn it on if HEVC video stutters or freezes. H.264, AV1 and decoder performance hints keep their own settings. Off is stored in the older switch's key `checkbox_disable_hevc_low_latency` as true, so older saved values and profiles keep their meaning; this key only tells Auto from On. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results.",
     "checkbox_codec_performance": "Leave on for decoder priority/rate hints on Android 6+. Disable to compare heat or battery use.",
     "checkbox_phone_performance_hints": "Enable for a measured comparison on Android 12+; compare decode time with it on and off.",
-    "checkbox_experimental_chipset_tuning": "Off by default. Experimental: sends `vdec-lowlatency` to MediaTek Dimensity (`c2.mtk`) decoders and, with decoder performance hints on, asks Samsung Exynos decoders for the operating rate they declare next to the realtime priority hint. Needs vendor low-latency options on and HEVC low-latency flags not disabled. Only the first configure try carries them, so a decoder that rejects them falls back to the normal options. If video stops or stutters, turn it off.",
+    "checkbox_experimental_chipset_tuning": "Off by default. Sends `vdec-lowlatency` to MediaTek Dimensity (`c2.mtk`) decoders and, with decoder performance hints on, asks Samsung Exynos decoders for the operating rate they declare next to the realtime priority hint. Needs vendor low-latency options on and HEVC low-latency flags not disabled. Only the first configure try carries them, so a decoder that rejects them falls back to the normal options. If video stops or stutters, turn it off.",
     "checkbox_gpu_max_clocks": "Off by default. Optionally request higher Adreno GPU clocks during PyroWave streaming to reduce decode time; this can increase power use and heat. Thermal protection remains active. Installs that already stored a choice keep it. Shown on Adreno devices only.",
     "checkbox_drop_late_frames": "Enable with Balanced pacing to discard older queued outputs. Favors response over smoothness. Shown beside Frame pacing only while it is Balanced.",
     "checkbox_unbatched_input": "Enable to bypass display-rate input batching. High-rate input can increase CPU and network load.",
@@ -136,20 +136,27 @@ ADVICE = {
     "checkbox_usb_driver": "Leave on for built-in Xbox USB support. Android requests USB access when needed.",
     "checkbox_usb_dualsense": "Enable for direct USB DualSense/Edge input, feedback and adaptive triggers. Accept the explanation and Android USB permission during a stream; Bluetooth retains Android's input path.",
     "checkbox_usb_dualsense_haptics": "Enable alongside the USB DualSense driver for native waveform feedback. Hosts that support it (currently Rubylight) also forward controller speaker, headset and microphone audio. Microphone streaming needs its separate setting and Android permission; the controller mute button follows the stream mute. Reconnect after changing this option. USB only.",
-    "checkbox_usb_switch_pro": "Experimental. Enable to read a wired Nintendo Switch Pro Controller directly: calibrated sticks, Home and Capture, motion, rumble, player lights and battery. Accept Android's USB permission during a stream; Bluetooth and Joy-Con keep Android's input path. See [Switch Pro over USB](controls.md#switch-pro-over-usb).",
-    "checkbox_usb_forwarding": "Off by default. Experimental: adds USB devices to the stream menu, which hands a device plugged into this one (a drawing tablet, a security key) to the PC until you detach or unplug it or the stream ends. Only with the Rust engine and a PC whose native API offers USB forwarding; hubs and controllers the drivers above take are not listed.",
+    "checkbox_usb_switch_pro": "Enable to read a wired Nintendo Switch Pro Controller directly: calibrated sticks, Home and Capture, motion, rumble, player lights and battery. Accept Android's USB permission during a stream; Bluetooth and Joy-Con keep Android's input path. See [Switch Pro over USB](controls.md#switch-pro-over-usb).",
+    "checkbox_usb_forwarding": "Off by default. Adds USB devices to the stream menu, which hands a device plugged into this one (a drawing tablet, a security key) to the PC until you detach or unplug it or the stream ends. Only with the Rust engine and a PC whose native API offers USB forwarding; hubs and controllers the drivers above take are not listed.",
     "checkbox_usb_bind_all": "Enable to prefer the app's built-in Xbox USB driver even when Android already recognizes the controller.",
     "checkbox_enable_sops": "Leave on. Tells the PC whether it may optimize a game's settings for this stream. Rubylight only passes the choice on to commands you run on the PC, as SUNSHINE_CLIENT_ENABLE_SOPS; other hosts may change the game's settings themselves.",
     "checkbox_disable_warnings": "Enable to hide stream connection warnings once your connection is tuned.",
     "checkbox_rust_engine": "On by default. Streams with Nightjar's new engine (written in Rust), including PyroWave and remote monitor sessions. Turn it off to use the classic engine (moonlight-common-c) if a stream fails to start or misbehaves, and report the problem. Hosts older than GFE 3.22, and hosts that report no codec support, use the classic engine automatically. Installs that stored the old default were switched on once; turning it off again is kept. Applies from the next stream.",
-    "experimental_packed_444": "Off by default. Requires the new streaming engine, HEVC or AV1, and Rubylight's experimental packed 4:4:4 option. Android must pass the raw YUV sampling probe; HDR also needs a compatible 10-bit output. Unsupported requests fail with a reason instead of falling back. Physical HDR output and full end-to-end performance remain unverified.",
+    "experimental_packed_444": "Off by default. Requires the new streaming engine, HEVC or AV1, and the PC's Full chroma option. Android must pass the raw YUV sampling probe; HDR also needs a compatible 10-bit output. Unsupported requests fail with a reason instead of falling back. Physical HDR output and full end-to-end performance remain unverified.",
     "export_latency_csv": "Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings.",
     "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. The individual switches are behind Customize; the row says when one is off.",
+    "more_video": "Shows or hides the Video rows that are not main, such as automatic quality and 10-bit SDR. Settings search and links find them while it is closed.",
+    "more_display": "Shows or hides the Display & image rows that are not main: refresh, image and PC display settings. Settings search and links find them while it is closed.",
+    "more_input": "Shows or hides the Controls rows that are not main, such as dead zones, mouse emulation, USB controllers, trackpad and keyboard settings. Settings search and links find them while it is closed.",
+    "more_audio": "Shows or hides the Audio rows that are not main: microphone processing, audio effects and passthrough. Settings search and links find them while it is closed.",
+    "more_streaming": "Shows or hides the Streaming rows that are not main, such as picture-in-picture, network grace, client roaming and FEC. Settings search and links find them while it is closed.",
+    "more_app": "Shows or hides the App rows that are not main, such as small icons, automatic update checks, about, reset and accessibility. Settings search and links find them while it is closed.",
+    "more_advanced": "Shows or hides the Advanced rows that are not main: compatibility, input and network, More options and Diagnostics. Settings search and links find them while it is closed.",
     "low_latency_customize": "Opens or closes the individual switches under Low-latency decoding: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Decoder performance hints and HEVC low-latency flags. Settings search finds them while it is closed.",
     "checkbox_tell_host_wireless": "On by default. Tells a Rubylight PC when this device streams over Wi-Fi, so it paces the stream for Wi-Fi from the start. Other PCs are not told.",
     "checkbox_tell_host_link_speed": "On by default. Tells a Rubylight PC this device's wired port speed, so it never sends faster than the port can take. Other PCs are not told.",
     "list_fec_choice": "PC's setting by default: a Rubylight PC adds the recovery data its own settings call for. Automatic asks it to follow the losses this device reports; 10, 20, 30 or 50 % fixes the share. Other PCs use their own setting either way.",
-    "checkbox_link_probe": "Experimental, off by default. A new stream at the automatic bitrate first times a short download from a Rubylight PC that offers it and starts at no more than 80 % of the result (never below 2 Mbit/s). Resumes, a bitrate you set and PyroWave are not tested. Off because it started streams lower, with more loss and freezes, in our measurement.",
+    "checkbox_link_probe": "Off by default. A new stream at the automatic bitrate first times a short download from a Rubylight PC that offers it and starts at no more than 80 % of the result (never below 2 Mbit/s). Resumes, a bitrate you set and PyroWave are not tested. Off because it started streams lower, with more loss and freezes, in our measurement.",
     "pin_lock": "Off until a PIN is set. Asks for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar's app data in Android's settings, which also removes paired PCs.",
 }
 
@@ -174,6 +181,13 @@ def generate():
     if set(nodes) != set(ADVICE):
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes)}")
     categories = {category.get(ANDROID + "key"): category for category in preferences}
+    tiers = ET.parse(RES / "values/settings_tiers.xml").getroot()
+    main = {item.text for tier in tiers for item in tier}
+    for tier in tiers:
+        section = tier.get("name").removeprefix("settings_tier_")
+        keys = [item.text for item in tier]
+        if len(keys) > 8 or set(keys) - set(nodes):
+            raise ValueError(f"Review the main rows of {section}: at most 8, all in preferences.xml")
     # Sections: the overview rows (preferences_root.xml) and the groups each one shows (StreamSettings.SECTIONS).
     overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
     section_titles = {node.get(ANDROID + "key"): resolve(node.get(ANDROID + "title"))
@@ -262,7 +276,7 @@ def generate():
         elif key == "checkbox_enable_perf_overlay":
             default = array("@array/overlay_choice_names")[0]
             choices = "; ".join(array("@array/overlay_choice_names"))
-        elif key == "low_latency_customize":
+        elif key == "low_latency_customize" or key.startswith("more_"):
             default = "Closed"
         else:
             default = display_value(key, default) if default is not None else "No stored default"
@@ -276,18 +290,27 @@ def generate():
                 advice += f" Unavailable while {title} is On."
             else:
                 advice += f" Requires {title} On."
-        return "| " + " | ".join(map(cell, [resolve(node.get(ANDROID + "title")) + f"<br>`{key}`", default, choices, advice])) + " |"
+        tier = "Main" if key in main or key.startswith("more_") else "More"
+        return "| " + " | ".join(map(cell, [resolve(node.get(ANDROID + "title")) + f"<br>`{key}`", tier, default, choices, advice])) + " |"
 
     lines = ["## Global settings", "",
-             "These tables include every preference, including actions, grouped as the Settings screens show them. On/Off choices have no units; action rows have no stored default. Device capability checks can hide or disable a row.", ""]
+             "These tables include every preference, including actions, grouped as the Settings screens show them. On/Off choices have no units; action rows have no stored default. Device capability checks can hide or disable a row.",
+             "",
+             "Tier: Main rows show when a section opens; More rows fold behind the section's last row, More … settings, and search still finds them (`res/values/settings_tiers.xml`).", ""]
     for section, members in sections.items():
         lines += ["### " + section_titles[section], ""]
-        for member in members:
+        for index, member in enumerate(members):
             category = categories[member]
             if category.get(ANDROID + "title"):
                 lines += ["#### " + resolve(category.get(ANDROID + "title")), ""]
-            lines += ["| Setting / preference key | Default | Choices and units | When to change or use |",
-                      "| --- | --- | --- | --- |"]
+            elif index:
+                # A group without a title (the More row's) continues the table above it.
+                lines.pop()
+                lines += [row(node) for node in category]
+                lines.append("")
+                continue
+            lines += ["| Setting / preference key | Tier | Default | Choices and units | When to change or use |",
+                      "| --- | --- | --- | --- | --- |"]
             lines += [row(node) for node in category]
             lines.append("")
 

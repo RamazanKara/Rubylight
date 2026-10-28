@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">Redirigir dispositivos USB (experimental)</string>
+    <string name="title_usb_forwarding">Redirigir dispositivos USB</string>
     <string name="summary_usb_forwarding">Añade los dispositivos USB al menú del stream: un dispositivo conectado a este, como una tableta de dibujo o una llave de seguridad, funciona entonces en el PC. Requiere un PC que ofrezca redirección USB.</string>
     <string name="stream_usb_devices">Dispositivos USB</string>
     <string name="usb_forwarding_pick_title">Redirigir un dispositivo USB</string>

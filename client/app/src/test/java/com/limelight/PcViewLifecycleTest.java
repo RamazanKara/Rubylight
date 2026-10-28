@@ -218,7 +218,7 @@ public class PcViewLifecycleTest {
             java.util.List<String> sleep = labels(screen, R.string.library_open, R.string.host_menu_sleep,
                     R.string.pc_menu_settings, R.string.host_menu_rename, R.string.pcview_menu_unpair_pc,
                     R.string.pcview_menu_delete_pc);
-            sleep.set(1, screen.getString(R.string.host_menu_sleep) + "\n" + screen.getString(R.string.host_menu_sleep_note));
+            // Allowed, Sleep PC is a plain row: it shipped in 3.0.0-rc.3 and carries no Experimental note.
             assertEquals(sleep, sheetFor(screen, "Office"));
             sleep.set(1, screen.getString(R.string.host_menu_sleep) + "\n"
                     + screen.getString(R.string.host_feature_reason_sleep_permission) + " (dimmed)");

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">USB aygıtlarını yönlendir (Deneysel)</string>
+    <string name="title_usb_forwarding">USB aygıtlarını yönlendir</string>
     <string name="summary_usb_forwarding">Yayın menüsüne USB aygıtlarını ekler: bu cihaza takılı bir çizim tableti veya güvenlik anahtarı gibi bir aygıt bilgisayarda çalışır. USB yönlendirme sunan bir bilgisayar gerekir.</string>
     <string name="stream_usb_devices">USB aygıtları</string>
     <string name="usb_forwarding_pick_title">Bir USB aygıtını yönlendir</string>

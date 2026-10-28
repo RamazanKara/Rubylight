@@ -42,7 +42,22 @@ pub fn catalog(settings: &Settings) -> Result<(Vec<PathBuf>, Vec<Game>)> {
 pub fn sync(h: &Shared) -> Result<Outcome> {
     let settings = Settings::from_config(&h.config.read().unwrap());
     let (_, games) = catalog(&settings)?;
-    sync_catalog(h, &settings, &games)
+    sync_beside(h, &settings, &games, crate::playnite::syncs_launchers(h))
+}
+/// While Playnite syncs the library its export brings the Steam games too, so the Steam
+/// sync stands aside as the other launchers' does and no game is added twice.
+fn sync_beside(h: &Shared, settings: &Settings, games: &[Game], playnite: bool) -> Result<Outcome> {
+    if playnite {
+        return Ok(Outcome {
+            changed: false,
+            games: games.len(),
+            importable: games
+                .iter()
+                .filter(|g| steam::importable(g, settings.include_tools))
+                .count(),
+        });
+    }
+    sync_catalog(h, settings, games)
 }
 fn sync_catalog(h: &Shared, settings: &Settings, games: &[Game]) -> Result<Outcome> {
     let selected = steam::select(games, settings, now());
@@ -50,8 +65,9 @@ fn sync_catalog(h: &Shared, settings: &Settings, games: &[Game]) -> Result<Outco
         .iter()
         .filter_map(|game| cover(h, game).map(|path| (game.appid, path)))
         .collect();
-    let changed = update_apps(h, |apps| {
-        steam::reconcile(apps, &selected, settings, &covers)
+    let changed = update_library(h, |apps, document| {
+        let dismissed = crate::library::dismissed(document);
+        steam::reconcile(apps, &selected, settings, &covers, &dismissed)
     })?;
     if changed {
         tracing::info!(selected = selected.len(), "Steam library synced");
@@ -67,17 +83,25 @@ fn sync_catalog(h: &Shared, settings: &Settings, games: &[Game]) -> Result<Outco
 }
 /// Change the app library as JSON and save it when `change` reports a change.
 pub fn update_apps(h: &Shared, change: impl FnOnce(&mut Vec<Value>) -> bool) -> Result<bool> {
+    update_library(h, |apps, _| change(apps))
+}
+/// [`update_apps`] that may also change the app document's other fields, such as the launcher
+/// sync's list of deleted games. Its `apps` field is replaced by the changed list.
+pub fn update_library(
+    h: &Shared,
+    change: impl FnOnce(&mut Vec<Value>, &mut Value) -> bool,
+) -> Result<bool> {
     let mut apps = h.apps.write().unwrap();
+    let mut document = h.app_document.read().unwrap().clone();
     let mut values = match serde_json::to_value(&*apps)? {
         Value::Array(values) => values,
         _ => vec![],
     };
-    if !change(&mut values) {
+    if !change(&mut values, &mut document) {
         return Ok(false);
     }
     let mut next: Vec<App> = serde_json::from_value(Value::Array(values))?;
     h.assign_apps(&mut next)?;
-    let mut document = h.app_document.read().unwrap().clone();
     document["apps"] = serde_json::to_value(&next)?;
     butterpollo_core::state::write_json(&h.apps_path, &document)?;
     *apps = next;
@@ -408,9 +432,8 @@ mod tests {
     use crate::state::test_support::Fixture;
     use butterpollo_core::config::Config;
 
-    #[test]
-    fn steam_sync_converts_local_covers_persists_apps_and_is_idempotent() {
-        let f = Fixture::new();
+    /// A 600x900 portrait in the profile, so a sync needs no store download.
+    fn portrait(f: &Fixture) -> PathBuf {
         let cover = f.host.directory.join("portrait.bmp");
         // An uncompressed 600x900 BGR bitmap avoids both codec/GPU dependencies and store downloads.
         let mut bmp = vec![0u8; 54 + 600 * 900 * 3];
@@ -424,6 +447,37 @@ mod tests {
         bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
         bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
         std::fs::write(&cover, bmp).unwrap();
+        cover
+    }
+
+    #[test]
+    fn steam_sync_stands_aside_while_playnite_syncs_the_library() {
+        let f = Fixture::new();
+        let games = [Game {
+            appid: 570,
+            name: "Dota 2".into(),
+            app_type: "Game".into(),
+            installed: true,
+            portrait_path: Some(portrait(&f)),
+            ..Default::default()
+        }];
+        let settings = Settings::from_config(&Config::parse("steam_enabled=true").unwrap());
+        let before = f.host.apps.read().unwrap().len();
+        let aside = sync_beside(&f.host, &settings, &games, true).unwrap();
+        assert!(!aside.changed);
+        assert_eq!((aside.games, aside.importable), (1, 1));
+        assert_eq!(f.host.apps.read().unwrap().len(), before);
+        assert!(
+            sync_beside(&f.host, &settings, &games, false)
+                .unwrap()
+                .changed
+        );
+        assert_eq!(f.host.apps.read().unwrap().len(), before + 1);
+    }
+    #[test]
+    fn steam_sync_converts_local_covers_persists_apps_and_is_idempotent() {
+        let f = Fixture::new();
+        let cover = portrait(&f);
         let games = [Game {
             appid: 570,
             name: "Fixture game".into(),
@@ -464,6 +518,88 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_steam_game_stays_out_of_the_sync_until_add_games_brings_it_back() {
+        use butterpollo_core::library::{self, Launch, Selection, Source};
+        let f = Fixture::new();
+        let games = [Game {
+            appid: 570,
+            name: "Dota 2".into(),
+            app_type: "Game".into(),
+            installed: true,
+            portrait_path: Some(portrait(&f)),
+            ..Default::default()
+        }];
+        let settings =
+            Settings::from_config(&Config::parse("steam_sync_all_installed=true").unwrap());
+        assert!(sync_catalog(&f.host, &settings, &games).unwrap().changed);
+        let dota = |h: &Shared| {
+            h.apps
+                .read()
+                .unwrap()
+                .iter()
+                .map(|app| serde_json::to_value(app).unwrap())
+                .find(|app| steam::game_of(app) == Some(570))
+        };
+        let app = dota(&f.host).unwrap();
+        assert_eq!(app["synced-by"], "steam");
+        // Deleted from the library, as the console's delete does.
+        update_library(&f.host, |apps, document| {
+            apps.retain(|app| steam::game_of(app) != Some(570));
+            crate::library::dismiss(document, &app);
+            true
+        })
+        .unwrap();
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["steam:570"])
+        );
+        assert!(!sync_catalog(&f.host, &settings, &games).unwrap().changed);
+        assert!(dota(&f.host).is_none());
+        // "Add games" brings it back as the user's app and lifts the deletion.
+        let game = library::Game::new(
+            Source::Steam,
+            "570".into(),
+            "Dota 2".into(),
+            Path::new("C:/Steam/steamapps/common/dota 2 beta"),
+            Some(Launch::Uri {
+                uri: "steam://rungameid/570".into(),
+            }),
+        );
+        let selection = Selection {
+            source: Source::Steam,
+            id: "570".into(),
+        };
+        crate::library::import_games(&f.host, vec![game], &[selection]).unwrap();
+        let app = dota(&f.host).unwrap();
+        assert_eq!(app["steam-managed"], "manual");
+        assert_eq!(app.get("synced-by"), None);
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!([])
+        );
+        // The sync keeps the game once, as the user's: it only fills in the missing cover.
+        assert!(sync_catalog(&f.host, &settings, &games).unwrap().changed);
+        let app = dota(&f.host).unwrap();
+        assert!(
+            app["image-path"]
+                .as_str()
+                .unwrap()
+                .ends_with("steam_570.png")
+        );
+        assert_eq!(app.get("synced-by"), None);
+        let copies = f
+            .host
+            .apps
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|app| steam::game_of(&serde_json::to_value(app).unwrap()) == Some(570))
+            .count();
+        assert_eq!(copies, 1);
+        assert!(!sync_catalog(&f.host, &settings, &games).unwrap().changed);
+    }
+
+    #[test]
     fn steam_watch_fingerprint_detects_manifest_and_settings_changes_without_waiting() {
         let f = Fixture::new();
         let library = f.host.directory.join("steamapps");
@@ -477,7 +613,7 @@ mod tests {
         std::fs::write(&manifest, "changed size").unwrap();
         let changed = fingerprint(&settings, &roots);
         assert_ne!(changed, first);
-        settings.sync_all_installed = true;
+        settings.sync_all_installed = !settings.sync_all_installed;
         assert_ne!(fingerprint(&settings, &roots), changed);
     }
 }

@@ -53,6 +53,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Driver Switch Pro USB</string>
-    <string name="summary_usb_switch_pro">Sperimentale. Legge direttamente un Nintendo Switch Pro Controller collegato via cavo, con sensori di movimento, vibrazione, Home e Capture.</string>
+    <string name="summary_usb_switch_pro">Legge direttamente un Nintendo Switch Pro Controller collegato via cavo, con sensori di movimento, vibrazione, Home e Capture.</string>
     <string name="usb_switch_pro_denied">Nessun accesso USB; lo Switch Pro Controller resta sull’input di Android.\nRicollega il cavo per riprovare.</string>
 </resources>

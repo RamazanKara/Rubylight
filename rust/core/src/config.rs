@@ -61,6 +61,12 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         current: "none",
         reason: "driver frame generation needs an NVIDIA GPU",
     },
+    RetiredSetting {
+        key: crate::nucleus::mode::KEY,
+        retired: crate::nucleus::mode::retired_background,
+        current: "nucleus",
+        reason: "Windows child sessions were removed: Windows signs a Microsoft account that uses only Windows Hello into one only with a password; Nucleus Co-op is the background mode",
+    },
 ];
 /// A retired value the host replaced while reading the configuration.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,6 +135,11 @@ pub const REMOVED_KEYS: &[&str] = &[
     "min_threads",
     "crf",
     "qp",
+    // The removed background child session.
+    "child_session_resolution",
+    "child_session_scale",
+    "child_session_port",
+    "child_session_host",
 ];
 /// The settings of the removed NVENC, Quick Sync and software encoders.
 pub const REMOVED_PREFIXES: &[&str] = &["nvenc_", "qsv_", "sw_"];
@@ -770,13 +781,6 @@ impl Config {
         if changed(crate::nucleus::mode::KEY) {
             crate::nucleus::mode::parse(&next.values[crate::nucleus::mode::KEY])
                 .map_err(anyhow::Error::msg)?;
-        }
-        if changed(crate::child_session::RESOLUTION_KEY) || changed(crate::child_session::SCALE_KEY)
-        {
-            crate::child_session::DisplaySettings::parse(
-                next.get(crate::child_session::RESOLUTION_KEY, ""),
-                next.get(crate::child_session::SCALE_KEY, ""),
-            )?;
         }
         if changed("hardware_metrics_interval")
             && next.values.contains_key("hardware_metrics_interval")
@@ -2042,25 +2046,83 @@ webrtc_media_port = 99999
         assert_eq!(loaded.get("stream_preset", ""), "fastest");
     }
     #[test]
-    fn background_mode_and_child_session_display_save_only_valid_values() {
+    fn background_mode_saves_only_nucleus_and_earlier_modes_become_it() {
         let mut config = super::Config::default();
-        for value in ["auto", "child_session", "virtual_display", "nucleus"] {
+        // A client or an old console sending an earlier mode saves nucleus.
+        for value in ["auto", "child_session", "virtual_display", "nucleus", ""] {
             change(&mut config, "background_mode", value).unwrap();
-            assert_eq!(config.get("background_mode", ""), value);
+            let saved = if value.is_empty() { "" } else { "nucleus" };
+            assert_eq!(config.get("background_mode", ""), saved, "{value}");
         }
-        assert!(change(&mut config, "background_mode", "rdp").is_err());
-        assert_eq!(config.get("background_mode", ""), "nucleus");
-        change(&mut config, "child_session_resolution", "2560x1440").unwrap();
-        change(&mut config, "child_session_scale", "150").unwrap();
-        for (key, value) in [
-            ("child_session_resolution", "wide"),
-            ("child_session_resolution", "100x100"),
-            ("child_session_scale", "50"),
+        let error = format!(
+            "{:#}",
+            change(&mut config, "background_mode", "rdp").unwrap_err()
+        );
+        assert!(
+            error.contains(
+                "background_mode = rdp is not a mode: Nucleus Co-op is the only background mode (nucleus)"
+            ),
+            "{error}"
+        );
+        assert_eq!(config.get("background_mode", ""), "");
+    }
+    #[test]
+    fn a_saved_child_session_mode_becomes_nucleus_with_one_report() {
+        for old in [
+            "auto",
+            "child_session",
+            "virtual_display",
+            " Child_Session ",
         ] {
-            assert!(change(&mut config, key, value).is_err(), "{key} = {value}");
+            let text = format!("background_mode = {old}\nport = 48123\n");
+            let (config, retired) = Config::parse_retiring(&text).unwrap();
+            assert_eq!(config.get("background_mode", ""), "nucleus", "{old}");
+            assert_eq!(retired.len(), 1, "{old}");
+            let warning = retired_warning(&retired).unwrap();
+            assert!(warning.contains("is now nucleus"), "{warning}");
+            assert!(
+                warning.contains("Windows child sessions were removed"),
+                "{warning}"
+            );
+            // The saved text holds nucleus, and reads without a report.
+            assert!(config.text().contains("background_mode = nucleus"));
+            let (_, again) = Config::parse_retiring(&config.text()).unwrap();
+            assert!(again.is_empty(), "{old}");
         }
-        assert_eq!(config.get("child_session_resolution", ""), "2560x1440");
-        assert_eq!(config.get("child_session_scale", ""), "150");
+        for kept in ["nucleus", ""] {
+            let (config, retired) =
+                Config::parse_retiring(&format!("background_mode = {kept}\n")).unwrap();
+            assert!(retired.is_empty(), "{kept}");
+            assert_eq!(config.get("background_mode", ""), kept);
+        }
+        // Apps and devices.
+        let mut settings = serde_json::json!({"background_mode": "child_session", "port": "1"});
+        assert!(super::replace_retired(
+            settings.as_object_mut().unwrap().iter_mut()
+        ));
+        assert_eq!(settings["background_mode"], "nucleus");
+        let mut nucleus = serde_json::json!({"background_mode": "nucleus"});
+        assert!(!super::replace_retired(
+            nucleus.as_object_mut().unwrap().iter_mut()
+        ));
+    }
+    #[test]
+    fn the_child_session_settings_go_without_a_report() {
+        let (config, retired) = Config::parse_retiring(
+            "child_session_resolution = 2560x1440\nchild_session_scale = 150\nchild_session_port = 48289\nchild_session_host = true\nport = 48123\n",
+        )
+        .unwrap();
+        assert!(retired.is_empty());
+        for key in [
+            "child_session_resolution",
+            "child_session_scale",
+            "child_session_port",
+            "child_session_host",
+        ] {
+            assert!(!config.values.contains_key(key), "{key}");
+            assert!(super::removed(key), "{key}");
+        }
+        assert_eq!(config.port().unwrap(), 48123);
     }
     #[test]
     fn hardware_metrics_saves_validate_interval_and_selection() {

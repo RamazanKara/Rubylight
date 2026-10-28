@@ -695,7 +695,9 @@ async fn nightjar_pairs_with_the_pin_entered_on_the_host() -> Result<()> {
         };
         assert_eq!(pin.name, "Nightjar interop");
         assert_eq!(pin.certificate.trim(), identity.certificate_pem().trim());
-        pin.sender.send((entered.into(), pin.name.clone())).unwrap();
+        pin.sender
+            .send((entered.into(), pin.name.clone(), None))
+            .unwrap();
         let result = pairing.await??;
         if typed != entered {
             assert_eq!(result, PairResult::PinWrong);
@@ -748,7 +750,7 @@ async fn nightjar_pairs_from_the_qr_link_and_checks_the_host_certificate() -> Re
         );
     }
     let link = |h: &Harness| {
-        let answer = crate::web::pairing_qr(&h.h, "", vec!["127.0.0.1".into()]).unwrap();
+        let answer = crate::web::pairing_qr(&h.h, "", None, vec!["127.0.0.1".into()]).unwrap();
         let mut link = PairingUri::parse(answer["codes"][0]["uri"].as_str().unwrap()).unwrap();
         assert_eq!(link.host, "127.0.0.1");
         // The harness listens on its own port.

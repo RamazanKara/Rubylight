@@ -288,6 +288,7 @@ pub async fn maintain(
             tokio::task::spawn_blocking(move || {
                 crate::steam::watch(&h);
                 crate::playnite::watch(&h);
+                crate::library::watch(&h);
             });
         }
         if Instant::now() >= update_at {

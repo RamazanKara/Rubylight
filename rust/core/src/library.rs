@@ -76,6 +76,15 @@ impl Source {
 pub struct Settings {
     pub epic: bool,
     pub gog: bool,
+    pub battlenet: bool,
+    pub ea: bool,
+    pub ubisoft: bool,
+    pub microsoft: bool,
+    /// `library_auto_sync`: keep every installed game of the launchers that are on in the
+    /// library, as `steam_auto_sync` does for Steam.
+    pub auto_sync: bool,
+    /// `library_autosync_remove_uninstalled`: a synced game that is no longer installed leaves.
+    pub remove_uninstalled: bool,
     /// Folders whose subfolders are games, one game per subfolder.
     pub local_folders: Vec<PathBuf>,
     /// Game folders the folder scan leaves out, by folder name or full path.
@@ -91,6 +100,12 @@ impl Settings {
         Self {
             epic: config.boolean("library_epic_enabled", true),
             gog: config.boolean("library_gog_enabled", true),
+            battlenet: config.boolean("library_battlenet_enabled", true),
+            ea: config.boolean("library_ea_enabled", true),
+            ubisoft: config.boolean("library_ubisoft_enabled", true),
+            microsoft: config.boolean("library_microsoft_enabled", true),
+            auto_sync: config.boolean("library_auto_sync", true),
+            remove_uninstalled: config.boolean("library_autosync_remove_uninstalled", true),
             local_folders: config
                 .list("library_local_folders")
                 .into_iter()
@@ -108,8 +123,12 @@ impl Settings {
         match source {
             Source::Epic => self.epic,
             Source::Gog => self.gog,
+            Source::Battlenet => self.battlenet,
+            Source::Ea => self.ea,
+            Source::Ubisoft => self.ubisoft,
+            Source::Microsoft => self.microsoft,
             Source::Local => !self.local_folders.is_empty(),
-            _ => true,
+            Source::Steam => true,
         }
     }
     /// Whether the folder scan leaves out the game folder `folder`.
@@ -245,7 +264,7 @@ impl Game {
             && app["launcher-id"].as_str() == Some(&self.id))
             || app["uuid"].as_str() == Some(&self.uuid())
             || (self.source == Source::Steam
-                && crate::steam::app_id_of(app).is_some_and(|id| id.to_string() == self.id))
+                && crate::steam::game_of(app).is_some_and(|id| id.to_string() == self.id))
             || self.synced_copy(app)
     }
     /// An app Steam or Playnite already keeps for this game, or one that starts
@@ -350,6 +369,195 @@ pub fn import(apps: &mut Vec<Value>, games: &[Game], selected: &[Selection]) -> 
             result
         })
         .collect()
+}
+
+/// The app field that marks an app the launcher sync added and keeps in step, as
+/// `steam-managed` does for Steam's sync.
+pub const MANAGED: &str = "launcher-managed";
+/// The app document's list of synced games deleted from the library (`source:id`), so the
+/// sync does not bring them back. An import of the game takes it off the list.
+pub const DISMISSED: &str = "launcher-dismissed";
+
+/// How a game is named in [`DISMISSED`].
+pub fn dismissed_key(source: Source, id: &str) -> String {
+    format!("{}:{id}", source.key())
+}
+
+/// The [`DISMISSED`] entries for an app deleted from the library, whoever added it: its Steam
+/// game (`steam:<appid>`), its launcher game and its Playnite game (`playnite:<id>`).
+pub fn dismissal_keys(app: &Value) -> Vec<String> {
+    let mut keys = vec![];
+    if let Some(id) = crate::steam::game_of(app) {
+        keys.push(dismissed_key(Source::Steam, &id.to_string()));
+    }
+    if let Some(source) = app["launcher-source"]
+        .as_str()
+        .and_then(|key| Source::ALL.into_iter().find(|source| source.key() == key))
+        && let Some(id) = app["launcher-id"].as_str().filter(|id| !id.is_empty())
+    {
+        keys.push(dismissed_key(source, id));
+    }
+    if let Some(id) = app["playnite-id"].as_str().filter(|id| !id.is_empty()) {
+        keys.push(playnite_dismissed_key(id));
+    }
+    keys.dedup();
+    keys
+}
+
+/// How a Playnite game is named in [`DISMISSED`]: its id in lower case.
+pub fn playnite_dismissed_key(id: &str) -> String {
+    format!("playnite:{}", id.to_ascii_lowercase())
+}
+
+/// The app field naming the sync that created an app in this profile and still owns it:
+/// `steam`, `launcher` or `playnite`. A sync changes or removes only the apps with its own
+/// stamp; the `*-managed` markers alone are not enough, because Vibepollo writes them too.
+/// Every other app belongs to the user.
+pub const SYNCED_BY: &str = "synced-by";
+/// The app document's flag that [`stamp_synced`] ran.
+pub const SYNC_OWNER_VERSION: &str = "sync-owner-version";
+/// Each sync's [`SYNCED_BY`] name and its marker field.
+const SYNC_MARKERS: [(&str, &str); 3] = [
+    ("steam", "steam-managed"),
+    ("launcher", MANAGED),
+    ("playnite", "playnite-managed"),
+];
+
+/// Whether `sync` (`steam`, `launcher` or `playnite`) created `app` and owns it.
+pub fn synced_by(app: &Value, sync: &str) -> bool {
+    app[SYNCED_BY].as_str() == Some(sync)
+}
+
+/// A synced app saved in the console becomes the user's: `sync`'s stamp goes and its marker
+/// becomes `manual`, so no sync renames or removes the app again.
+pub fn hand_over(app: &mut Value, sync: &str) {
+    let Some(fields) = app.as_object_mut() else {
+        return;
+    };
+    fields.remove(SYNCED_BY);
+    if let Some((_, marker)) = SYNC_MARKERS.iter().find(|(name, _)| *name == sync) {
+        fields.insert((*marker).into(), json!("manual"));
+    }
+}
+
+/// Apps stamped by [`stamp_synced`], by sync.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Stamped {
+    pub steam: usize,
+    pub launcher: usize,
+    pub playnite: usize,
+}
+
+/// The one-time ownership stamp for the synced apps an earlier version left, flagged by
+/// [`SYNC_OWNER_VERSION`]. `steam-managed: auto` apps are stamped only when `steam_opted_in`
+/// (`sunshine.conf` holds `steam_enabled = true`): without it they came from another host and
+/// belong to the user. Every `launcher-managed` and `playnite-managed: auto` app is stamped.
+/// Returns `None` once it has run.
+pub fn stamp_synced(document: &mut Value, steam_opted_in: bool) -> Option<Stamped> {
+    let fields = document.as_object_mut()?;
+    if fields.get(SYNC_OWNER_VERSION).and_then(Value::as_u64) >= Some(1) {
+        return None;
+    }
+    fields.insert(SYNC_OWNER_VERSION.into(), json!(1));
+    let mut stamped = Stamped::default();
+    let apps = fields.get_mut("apps").and_then(Value::as_array_mut);
+    for app in apps.into_iter().flatten() {
+        if app.get(SYNCED_BY).is_some() {
+            continue;
+        }
+        let Some((sync, _)) = SYNC_MARKERS.iter().find(|(sync, marker)| {
+            app[*marker].as_str() == Some("auto") && (*sync != "steam" || steam_opted_in)
+        }) else {
+            continue;
+        };
+        app[SYNCED_BY] = json!(sync);
+        match *sync {
+            "steam" => stamped.steam += 1,
+            "launcher" => stamped.launcher += 1,
+            _ => stamped.playnite += 1,
+        }
+    }
+    Some(stamped)
+}
+
+/// The game a synced app was made from, as [`dismissed_key`] names it.
+pub fn managed_key(app: &Value) -> Option<String> {
+    (app[MANAGED].as_str() == Some("auto"))
+        .then(|| {
+            Some(format!(
+                "{}:{}",
+                app["launcher-source"].as_str()?,
+                app["launcher-id"].as_str()?
+            ))
+        })
+        .flatten()
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SyncChange {
+    pub added: usize,
+    pub removed: usize,
+}
+impl SyncChange {
+    pub fn changed(&self) -> bool {
+        self.added + self.removed > 0
+    }
+}
+
+/// The launcher sync (`library_auto_sync`): Steam's sync for every other launcher. Each
+/// installed game of a launcher that is on becomes an app marked `launcher-managed: auto`,
+/// unless an app already has the game (an import, or Playnite's or Steam's copy), the
+/// launcher cannot start it, or it was deleted from the library (`dismissed`). With
+/// `remove_uninstalled`, an app this sync owns ([`SYNCED_BY`]) whose game a clean read of its
+/// launcher (`read`) no longer finds leaves. Apps added by hand, imported or edited are never
+/// changed. Steam keeps its own sync and is skipped here.
+pub fn reconcile(
+    apps: &mut Vec<Value>,
+    games: &[Game],
+    settings: &Settings,
+    read: &[Source],
+    dismissed: &[String],
+) -> SyncChange {
+    let mut change = SyncChange::default();
+    if !settings.auto_sync {
+        return change;
+    }
+    if settings.remove_uninstalled {
+        let before = apps.len();
+        apps.retain(|app| {
+            let Some(source) = app["launcher-source"]
+                .as_str()
+                .and_then(|key| Source::ALL.into_iter().find(|source| source.key() == key))
+            else {
+                return true;
+            };
+            !synced_by(app, "launcher")
+                || source == Source::Steam
+                || !read.contains(&source)
+                || !settings.enabled(source)
+                || games.iter().any(|game| {
+                    game.source == source && app["launcher-id"].as_str() == Some(&game.id)
+                })
+        });
+        change.removed = before - apps.len();
+    }
+    for game in games {
+        if game.source == Source::Steam
+            || !settings.enabled(game.source)
+            || game.unavailable_reason.is_some()
+            || dismissed.contains(&dismissed_key(game.source, &game.id))
+            || apps.iter().any(|app| game.matches(app))
+        {
+            continue;
+        }
+        if let Ok(mut app) = game.app() {
+            app[MANAGED] = json!("auto");
+            app[SYNCED_BY] = json!("launcher");
+            apps.push(app);
+            change.added += 1;
+        }
+    }
+    change
 }
 
 fn identifier(value: &str) -> Result<&str> {

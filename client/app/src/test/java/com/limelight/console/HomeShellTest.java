@@ -323,8 +323,6 @@ public class HomeShellTest {
             List<String> expected = expected(screen, R.string.library_open, R.string.folders_title, R.string.files_menu,
                     R.string.pc_menu_settings, R.string.host_menu_rename, R.string.pcview_menu_unpair_pc,
                     R.string.pcview_menu_delete_pc);
-            // Shared folders carries its note on a second line.
-            expected.set(1, screen.getString(R.string.folders_title) + "\n" + screen.getString(R.string.host_menu_folders_note));
 
             View card = hostCard(screen, "tower");
             card.findViewById(R.id.console_more).performClick();

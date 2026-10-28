@@ -116,12 +116,12 @@ The [performance guide](docs/performance.md) explains each metric and links ever
 | **Native AMD encoding** | AMF encodes H.264, HEVC and AV1 with defaults tuned by measurement. A dropped frame is repaired with a small recovery frame, keeping the stream smooth. |
 | **Radeon compute pipeline** | Copies, colour conversion and scaling run on D3D12 compute queues, so your game and your stream share the GPU gracefully. [How it works](docs/architecture.md) |
 | **PyroWave, 4:4:4 HDR** | A wavelet codec for full-colour HDR on a fast local network, paced to each client's link. |
-| **Full chroma** (Experimental) | Rubylight packs each 4:4:4 frame into an ordinary HEVC or AV1 picture for crisp text and UI from AMD's hardware encoder, unpacked by Nightjar. 10-bit SDR is there for clients that ask. [More](docs/configuration.md#capture-and-video) |
+| **Full chroma** | Rubylight packs each 4:4:4 frame into an ordinary HEVC or AV1 picture for crisp text and UI from AMD's hardware encoder, unpacked by Nightjar. 10-bit SDR is there for clients that ask. [More](docs/configuration.md#capture-and-video) |
 | **VRR-aware capture** | With variable refresh, the host catches the game's next frame when it is close, so the picture reaches the encoder fresh, up to 1000 Hz. [Numbers](docs/performance.md#vrr-capture-age) |
 | **Link-rate adaptation** | The host matches the bitrate to what the link delivers, probes back up and returns to your rate as soon as the link allows. Clients can show each change. [More](docs/configuration.md#lower-bitrate-when-the-link-cannot-carry-it) |
 | **Wi-Fi pacing** | Clients on Wi-Fi or cellular get adaptive packet pacing from the first frame, faster while the link is clean. |
 | **Stream presets** | Lowest latency, Balanced or Reference quality, set once or per device or app. [More](docs/configuration.md#stream-presets) |
-| **Beam racing and slice delivery** (Experimental) | PyroWave frames arrive in display order and H.264 and HEVC frames leave the host slice by slice, so a client draws the top of the picture while the bottom is still on the wire. [Numbers](rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
+| **Beam racing and slice delivery** | PyroWave frames arrive in display order and H.264 and HEVC frames leave the host slice by slice, so a client draws the top of the picture while the bottom is still on the wire. [Numbers](rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
 | **Frame timing record** | One CSV row per frame with capture, convert, encode, send and client times on one clock. [More](docs/timing-record.md) |
 
 **Displays**
@@ -143,10 +143,10 @@ The [performance guide](docs/performance.md) explains each metric and links ever
 | **Session actions** | Disconnect keeps the game running, End session stops the stream and keeps the game, Close game quits it too. [More](docs/configuration.md#session-actions) |
 | **Native API** | Clients browse your library with covers, follow the session and drive the Radeon controls. [Contract](docs/native-api.md) |
 | **Live GPU readings** | Clients can show the PC's CPU load and the Radeon's usage, temperatures, power, clocks and VRAM in their overlay. [Protocol](docs/hardware-metrics.md) |
-| **WebRTC server** (Experimental) | Pair a Samsung Tizen TV or a browser with a PIN and stream H.264, HEVC or AV1, with HDR, surround, gamepads, keyboard and mouse. [More](docs/webrtc.md) |
-| **Stream in the console** (Experimental) | Play a game in a browser tab from the console's Stream page, signed in instead of paired: H.264 1080p60, stereo, keyboard and mouse. [More](docs/webrtc.md#stream-in-the-console-experimental) |
-| **Sleep PC** (Experimental) | A device you allow puts the PC to sleep while nothing is streaming, with the same requests as Vibepollo, on a PC with S1, S2 or S3 sleep. |
-| **File transfer** (Experimental) | Devices you allow send files to the PC and fetch them back, into your Downloads\Rubylight or a folder you choose, paced while a stream runs. [More](docs/configuration.md#file-transfer-experimental) |
+| **WebRTC server** | Pair a Samsung Tizen TV or a browser with a PIN and stream H.264, HEVC or AV1, with HDR, surround, gamepads, keyboard and mouse. [More](docs/webrtc.md) |
+| **Stream in the console** | Play a game in a browser tab from the console's Stream page, signed in instead of paired: H.264 1080p60, stereo, keyboard and mouse. [More](docs/webrtc.md#stream-in-the-console-experimental) |
+| **Sleep PC** | A device you allow puts the PC to sleep while nothing is streaming, with the same requests as Vibepollo, on a PC with S1, S2 or S3 sleep. |
+| **File transfer** | Devices you allow send files to the PC and fetch them back, into your Downloads\Rubylight or a folder you choose, paced while a stream runs. [More](docs/configuration.md#file-transfer-experimental) |
 
 **Controllers and audio**
 
@@ -171,9 +171,9 @@ Also built in: a tray icon with notifications, automatic updates verified by SHA
 | **Moonlight PC** (Windows, macOS, Linux, Steam Deck) | H.264, HEVC and AV1, SDR and HDR, up to 240 fps |
 | **Moonlight and Artemis on Android** | Native resolution at 120 Hz with HDR, on a virtual display that matches the phone |
 | **Moonlight for Xbox** | 4K 120 Hz HDR on your TV |
-| **[Nightjar](https://github.com/RamazanKara/nightjar)** for Android, plus Windows and Linux (Experimental) | PyroWave and full chroma, your library and the Radeon controls on your phone |
+| **[Nightjar](https://github.com/RamazanKara/nightjar)** for Android, plus Windows and Linux | PyroWave and full chroma, your library and the Radeon controls on your phone |
 | **[Nonary's Moonlight](https://github.com/Nonary/moonlight-qt)** | PyroWave and 1000 Hz VRR on a PC |
-| **Samsung Tizen TVs and browsers** | WebRTC streams with HDR, surround and gamepads (Experimental) |
+| **Samsung Tizen TVs and browsers** | WebRTC streams with HDR, surround and gamepads |
 | **iOS, Apple TV, Switch** | Everything the device can decode |
 
 [Pick the right client and stream format →](docs/getting-started.md#choose-your-stream-format)
@@ -206,7 +206,7 @@ Also built in: a tray icon with notifications, automatic updates verified by SHA
 
 ## Credits and license
 
-Rubylight is **GPL-3.0**. It began as a fork of [Vibepollo](https://github.com/Nonary/Vibepollo), whose native AMF encoder came from the same author ([#342](https://github.com/Nonary/Vibepollo/pull/342)); anything that works out here is GPL-3.0 for Vibepollo to take. Thanks to **Nonary** for Vibepollo, **ClassicOldSong** for Apollo, and **LizardByte and the Sunshine contributors**. The AMD encoder's low-latency defaults, the statistical video FEC and the encoder/FEC budget split draw on **qiin2333's** and the contributors' work in AlkaidLab's Foundation Sunshine, and the HDR10+ and HDR Vivid metadata writers, their GPU luminance statistics and the HLG encoding curve are ported in part from **the Foundation Sunshine authors'** code (GPL-3.0). PyroWave and Granite are by **Themaister** (MIT); the PyroWave Moonlight protocol and clients are **joemossjr16's** work. Composite DualSense haptics draw on **Nonary's** Vibepollo protocol, **Chase Payne's** libvirtualgamepad USB reports and **HIDMaestro contributors'** composite descriptors. Background streaming in a Windows child session is ported from **mattxslv's** [Annex](https://github.com/mattxslv/annex) (MIT), with **ocr1n's** launcher rework. Background streaming and co-op run games through **SplitScreen.Me's** [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) (GPL-3.0) and **Ilyaki's** ProtoInput (MIT), which the host downloads at first use and doesn't bundle.
+Rubylight is **GPL-3.0**. It began as a fork of [Vibepollo](https://github.com/Nonary/Vibepollo), whose native AMF encoder came from the same author ([#342](https://github.com/Nonary/Vibepollo/pull/342)); anything that works out here is GPL-3.0 for Vibepollo to take. Thanks to **Nonary** for Vibepollo, **ClassicOldSong** for Apollo, and **LizardByte and the Sunshine contributors**. The AMD encoder's low-latency defaults, the statistical video FEC and the encoder/FEC budget split draw on **qiin2333's** and the contributors' work in AlkaidLab's Foundation Sunshine, and the HDR10+ and HDR Vivid metadata writers, their GPU luminance statistics and the HLG encoding curve are ported in part from **the Foundation Sunshine authors'** code (GPL-3.0). PyroWave and Granite are by **Themaister** (MIT); the PyroWave Moonlight protocol and clients are **joemossjr16's** work. Composite DualSense haptics draw on **Nonary's** Vibepollo protocol, **Chase Payne's** libvirtualgamepad USB reports and **HIDMaestro contributors'** composite descriptors. Background streaming in a Windows child session (removed; its settings restore remains) is ported from **mattxslv's** [Annex](https://github.com/mattxslv/annex) (MIT), with **ocr1n's** launcher rework. Background streaming and co-op run games through **SplitScreen.Me's** [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) (GPL-3.0) and **Ilyaki's** ProtoInput (MIT), which the host downloads at first use and doesn't bundle.
 
 [License](LICENSE) · [Third-party components](rust/THIRD_PARTY.md) · [Project history](docs/butterpollo-cpp.md) · [Code signing policy](docs/code-signing-policy.md) · [Privacy](docs/privacy.md)
 

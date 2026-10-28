@@ -28,10 +28,16 @@ for example "Notepad can't stream in the background: No Nucleus Co-op handler
 for notepad.exe". It never falls back to streaming the PC's monitors.
 
 A `background_mode` line that an earlier build wrote (`auto`,
-`child_session` or `virtual_display`) reads as Nucleus Co-op; the host log
-and the Nucleus Co-op panel under **Maintenance** say so, and you can remove
-the line. A value that is no mode at all refuses background launches and says
-why.
+`child_session` or `virtual_display`) becomes `nucleus`, and the host log
+says so once. A value that is no mode at all refuses background launches and
+says why.
+
+Background streaming in a Windows child session was removed: Windows signs a
+child session in only with a Windows password, and a Microsoft account that
+uses only Windows Hello has none. On a PC where a development build set it
+up, the host puts the Windows settings back at its start and deletes the
+password that build saved; if that fails, **Maintenance** says why and offers
+**Restore again**.
 
 ## Installing Nucleus Co-op
 

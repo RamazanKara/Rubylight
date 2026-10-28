@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
 const server = await createTestServer({ configFile: false });
-const { toDraft, changes, savingEndsStream, PERMISSION_GROUPS, fullControl, permissionSummary } = await server.ssrLoadModule('/src/components/devices/device.ts');
+const { toDraft, changes, savingEndsStream, PERMISSION_GROUPS } = await server.ssrLoadModule('/src/components/devices/device.ts');
+const { withAccess, accessLabel } = await server.ssrLoadModule('/src/components/devices/access.ts');
 const client = extra => ({ uuid: 'u', name: 'Phone', perm: 0x071f1f00, enabled: true, connected: false, ...extra });
 
 test('host control is off for a device that never had it', () => {
@@ -67,10 +68,10 @@ test('the sleep draft round-trips: true to grant, null to revoke', () => {
   assert.deepEqual(changes(stored, { ...stored, name: 'Tablet' }), { name: 'Tablet' });
   assert.equal(savingEndsStream(true, off, on), false);
 });
-test('file transfer bits are labelled Experimental and round-trip in the draft', () => {
+test('file transfer bits are unlabelled and round-trip in the draft', () => {
   const items = PERMISSION_GROUPS.flatMap(group => group.items);
-  assert.equal(items.find(item => item.bit === 0x40000).label, 'Upload files (Experimental)');
-  assert.equal(items.find(item => item.bit === 0x80000).label, 'Download files (Experimental)');
+  assert.equal(items.find(item => item.bit === 0x40000).label, 'Upload files');
+  assert.equal(items.find(item => item.bit === 0x80000).label, 'Download files');
   const full = toDraft(client({}));
   assert.equal(full.perm & 0xc0000, 0xc0000);
   const uploadOnly = { ...full, perm: full.perm & ~0x80000 };
@@ -79,11 +80,11 @@ test('file transfer bits are labelled Experimental and round-trip in the draft',
   // Losing a bit ends a running stream, as any revoke does.
   assert.equal(savingEndsStream(true, full, uploadOnly), true);
 });
-test('full control leaves the file transfer bits as they are', () => {
-  assert.equal(fullControl(0x01000000), 0x07131f00);
-  assert.equal(fullControl(0x01040000), 0x07171f00);
-  assert.equal(fullControl(0x071f1f00), 0x071f1f00);
-  assert.equal(permissionSummary(0x07131f00), 'Full control');
-  assert.equal(permissionSummary(0x071f1f00), 'Full control');
-  assert.equal(permissionSummary(0x07031f00), 'Custom');
+test('everything leaves the file transfer bits as they are', () => {
+  assert.equal(withAccess(0x01000000, 'all'), 0x07131f00);
+  assert.equal(withAccess(0x01040000, 'all'), 0x07171f00);
+  assert.equal(withAccess(0x071f1f00, 'all'), 0x071f1f00);
+  assert.equal(accessLabel(0x07131f00), 'Everything');
+  assert.equal(accessLabel(0x071f1f00), 'Everything');
+  assert.equal(accessLabel(0x07031f00), 'Custom');
 });

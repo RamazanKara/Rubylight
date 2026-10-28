@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="host_menu_coop">Co-op beitreten</string>
-    <string name="host_menu_coop_note">Experimentell</string>
+    <string name="host_menu_coop_note">Einen freien Spielerplatz nehmen</string>
     <string name="coop_title">Co-op auf %1$s</string>
     <string name="coop_loading">%1$s wird nach Co-op-Sitzungen gefragt…</string>
     <string name="coop_none">Keine Co-op-Sitzung läuft. Starte in der Bibliothek den Eintrag „Co-op (Nucleus)“ eines Spiels, dann können andere Geräte hier beitreten.</string>

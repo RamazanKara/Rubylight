@@ -18,6 +18,7 @@
   import Stream from './pages/Stream.svelte';
   import Devices from './pages/Devices.svelte';
   import Settings from './pages/Settings.svelte';
+  import SettingsHome from './pages/SettingsHome.svelte';
   import Logs from './pages/Logs.svelte';
   import Maintenance from './pages/Maintenance.svelte';
   import Tokens from './pages/Tokens.svelte';
@@ -26,17 +27,21 @@
   import Setup from './pages/Setup.svelte';
   import NotFound from './pages/NotFound.svelte';
 
-  type NavItem = { path: string; label: string; icon: IconName };
-  // Everyday pages first; tools for troubleshooting and scripts below a divider.
+  type NavItem = { path: string; label: string; icon: IconName; match?: (path: string) => boolean };
+  // The everyday pages; Help below them; everything else in Advanced, folded.
   const primary: NavItem[] = [
     { path: '/', label: 'Home', icon: 'overview' },
-    { path: '/library', label: 'Games & apps', icon: 'library' },
-    { path: '/stream', label: 'Stream', icon: 'play' },
+    { path: '/library', label: 'Games', icon: 'library' },
     { path: '/devices', label: 'Devices', icon: 'devices' },
-    { path: '/settings', label: 'Settings', icon: 'settings' },
+    { path: '/settings', label: 'Settings', icon: 'settings', match: (path) => path === '/settings' },
+    { path: '/maintenance', label: 'Help', icon: 'help' },
   ];
-  const tools: NavItem[] = [
-    { path: '/maintenance', label: 'Help & diagnostics', icon: 'help' },
+  const advanced: NavItem[] = [
+    { path: '/settings/general', label: 'All settings', icon: 'maintenance', match: (path) => path.startsWith('/settings/') },
+    { path: '/stream', label: 'Stream in the browser', icon: 'play' },
+    { path: '/logs', label: 'Logs', icon: 'logs' },
+    { path: '/tokens', label: 'API tokens', icon: 'key' },
+    { path: '/webhooks', label: 'Webhooks', icon: 'link' },
   ];
   const themes: { value: Theme; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
@@ -51,8 +56,14 @@
   let content = $state<HTMLElement>();
   let lastPath = route.path;
 
-  const current = (path: string) =>
-    path === '/' ? route.path === '/' : route.path === path || route.path.startsWith(`${path}/`);
+  const current = (item: NavItem) =>
+    item.match
+      ? item.match(route.path)
+      : item.path === '/'
+        ? route.path === '/'
+        : route.path === item.path || route.path.startsWith(`${item.path}/`);
+  const inAdvanced = $derived(advanced.some(current));
+  let advancedOpen = $state(false);
 
   const Page = $derived.by(() => {
     if (route.path === '/login') return Login;
@@ -62,7 +73,8 @@
     if (match('/library') || match('/library/:uuid')) return Library;
     if (route.path === '/stream') return Stream;
     if (route.path === '/devices') return Devices;
-    if (match('/settings') || match('/settings/:section')) return Settings;
+    if (route.path === '/settings') return SettingsHome;
+    if (match('/settings/:section')) return Settings;
     if (route.path === '/logs') return Logs;
     if (route.path === '/maintenance') return Maintenance;
     if (route.path === '/tokens') return Tokens;
@@ -146,17 +158,17 @@
         <nav id="main-navigation" aria-label="Main">
           {#snippet links(items: NavItem[])}
             {#each items as item (item.path)}
-              <a href={item.path} use:link aria-current={current(item.path) ? 'page' : undefined}>
+              <a href={item.path} use:link aria-current={current(item) ? 'page' : undefined}>
                 <Icon name={item.icon} />
                 {item.label}
               </a>
             {/each}
           {/snippet}
           <div class="nav-group">{@render links(primary)}</div>
-          <div class="nav-group tools" role="group" aria-labelledby="nav-tools">
-            <span class="visually-hidden" id="nav-tools">Help</span>
-            {@render links(tools)}
-          </div>
+          <details class="nav-group advanced" open={advancedOpen || inAdvanced} ontoggle={(event) => (advancedOpen = event.currentTarget.open)}>
+            <summary><Icon name="chevron" size={16} />Advanced</summary>
+            <div class="nav-group">{@render links(advanced)}</div>
+          </details>
         </nav>
         <div class="foot">
           {#if session.metadata}
@@ -299,10 +311,41 @@
     display: grid;
     gap: var(--space-2);
   }
-  .tools {
+  .advanced {
     margin-top: auto;
     padding-top: var(--space-3);
     border-top: 1px solid var(--line);
+  }
+  .advanced summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: var(--control-height);
+    padding: 0 14px;
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    list-style: none;
+  }
+  .advanced summary::-webkit-details-marker {
+    display: none;
+  }
+  .advanced summary:hover {
+    background: var(--sunken);
+    color: var(--ink);
+  }
+  .advanced summary :global(svg) {
+    transition: transform var(--duration-fast);
+  }
+  .advanced[open] summary :global(svg) {
+    transform: rotate(90deg);
+  }
+  .advanced a {
+    min-height: var(--control-height);
+    padding: 10px 14px;
+    font-size: var(--text-sm);
   }
   nav a {
     display: flex;

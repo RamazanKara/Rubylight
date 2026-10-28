@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Experimental full chroma</string>
-    <string name="summary_packed_444">Requires Rubylight’s experimental full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. Unsupported modes stop the connection. HDR also requires a compatible 10-bit HDR display surface.</string>
+    <string name="title_packed_444">Full chroma</string>
+    <string name="summary_packed_444">Requires Rubylight’s full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. Unsupported modes stop the connection. HDR also requires a compatible 10-bit HDR display surface.</string>
     <!-- Shortcut strings -->
     <string name="scut_deleted_pc">PC deleted</string>
     <string name="scut_not_paired">PC not paired</string>
@@ -328,7 +328,7 @@
     <string name="latency_csv_lost">CSV rows lost to backlog: %1$d</string>
     <string name="title_codec_low_latency">Android low-latency mode</string>
     <string name="summary_codec_low_latency">Reduce video delay on Android 11 or later.</string>
-    <string name="title_experimental_chipset_tuning">Experimental chipset tuning</string>
+    <string name="title_experimental_chipset_tuning">Chipset tuning</string>
     <string name="summary_experimental_chipset_tuning">Extra low-latency settings for MediaTek Dimensity and Samsung Exynos decoders. If video stops or stutters, turn this off.</string>
     <string name="title_vendor_low_latency">Chipset low-latency mode</string>
     <string name="summary_vendor_low_latency">Reduce video delay with chipset support.</string>
@@ -368,7 +368,7 @@
     <string name="stream_permissions_help">Change permissions in your host’s settings or web UI.</string>
     <string name="stream_input_denied">The PC blocks input from this device. Allow it in the host’s settings or web UI.</string>
     <string name="stream_bitrate">Bitrate</string>
-    <string name="stream_bitrate_help">Set Mbps for this session.\nThis turns off automatic bitrate.</string>
+    <string name="stream_bitrate_help">Set Mbps for this session.\nThis turns off Device controls bitrate.</string>
     <string name="stream_bitrate_invalid">Enter a bitrate from 0.5 to 2000 Mbps</string>
     <string name="stream_bitrate_applied">Host applied %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps is below PyroWave’s minimum of %2$d Mbps at %3$d×%4$d, %5$d FPS. Expect a broken-up picture.</string>
@@ -426,7 +426,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Off (direct output)</string>
     <string name="title_vulkan_render">Render through Vulkan</string>
-    <string name="summary_vulkan_render">Experimental. Presents video through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. Adds a render pass, so some latency. Needs Android 10 or later. Not used with PyroWave. Upscaling is off while this is on.</string>
+    <string name="summary_vulkan_render">Presents video through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. Adds a render pass, so some latency. Needs Android 10 or later. Not used with PyroWave. Upscaling is off while this is on.</string>
     <string name="vulkan_render_fallback">Vulkan rendering is not used. %1$s</string>
     <string name="vulkan_reason_pyrowave">PyroWave video does not use it.</string>
     <string name="vulkan_reason_api">It needs Android 10 or later.</string>

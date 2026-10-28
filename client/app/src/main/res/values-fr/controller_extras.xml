@@ -53,6 +53,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Pilote Switch Pro USB</string>
-    <string name="summary_usb_switch_pro">Expérimental. Lit directement une Nintendo Switch Pro Controller branchée par câble, avec capteurs de mouvement, vibrations, Home et Capture.</string>
+    <string name="summary_usb_switch_pro">Lit directement une Nintendo Switch Pro Controller branchée par câble, avec capteurs de mouvement, vibrations, Home et Capture.</string>
     <string name="usb_switch_pro_denied">Pas d’accès USB ; la Switch Pro Controller reste sur l’entrée d’Android.\nRebranchez le câble pour réessayer.</string>
 </resources>

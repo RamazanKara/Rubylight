@@ -6,7 +6,7 @@
   import Panel from '../components/Panel.svelte';
   import AppEditor from '../components/library/AppEditor.svelte';
   import LibraryGrid from '../components/library/LibraryGrid.svelte';
-  import SteamSource from '../components/library/SteamSource.svelte';
+  import LauncherSources from '../components/library/LauncherSources.svelte';
   import PlayniteSource from '../components/library/PlayniteSource.svelte';
   import { api, type App, type SessionStatus } from '../lib/api';
   import { failed } from '../lib/feedback.svelte';
@@ -101,7 +101,7 @@
 {/snippet}
 
 {#if editing === null}
-  <PageHeader title="Games & apps" subtitle="Games and programs that paired devices can start." actions={apps?.length === 0 ? undefined : addApp} />
+  <PageHeader title="Games" subtitle="Everything your phone or TV can start on this PC." actions={apps?.length === 0 ? undefined : addApp} />
 
   {#if loadError}
     <div class="notice danger load-error" role="alert">
@@ -110,21 +110,22 @@
     </div>
   {/if}
 
-  <details class="sources"><summary>Manage sources</summary><div class="stack"><SteamSource onsynced={load} /><PlayniteSource onsynced={load} /></div></details>
 
   {#if apps === null}
     {#if !loadError}<p class="muted placeholder">Loading apps…</p>{/if}
   {:else if apps.length === 0}
     <Panel>
-      <EmptyState icon="library" title="No apps yet">
-        <p>Add a game or program so devices can start it. An app without a command streams the desktop.</p>
+      <EmptyState icon="library" title="No games yet">
+        <p>Games from the launchers below appear here by themselves. You can also pick games, or add any program.</p>
         <Button variant="primary" icon="plus" href="/library/import">Add games</Button>
   <Button href="/library/new">Add manually</Button>
       </EmptyState>
     </Panel>
   {:else}
-    <LibraryGrid {apps} {status} {reordering} onreorder={reorder} onstatus={refreshStatus} />
+    <LibraryGrid {apps} {status} {reordering} onreorder={reorder} onstatus={refreshStatus} onremoved={load} />
   {/if}
+  <LauncherSources onsynced={load} />
+  <PlayniteSource onsynced={load} />
 {:else}
   {#key editing}
     {#if editing === 'new'}
@@ -169,7 +170,6 @@
 {/if}
 
 <style>
-  .sources > summary { width: fit-content; color: var(--ink-2); }
   .placeholder {
     font-size: var(--text-sm);
   }

@@ -3,18 +3,17 @@
   import Button from '../Button.svelte';
   import Field from '../Field.svelte';
   import Toggle from '../Toggle.svelte';
+  import AccessChoice from './AccessChoice.svelte';
   import CommandList from './CommandList.svelte';
-  import { api, type Client, type DisplayDevice } from '../../lib/api';
+  import { accessOf, withAccess, type Access } from './access';
+  import { api, PERM, type Client, type DisplayDevice } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
     DISPLAY_OVERRIDE_OPTIONS,
-    fullControl,
-    permissionSummary,
     PERMISSION_GROUPS,
     savingEndsStream,
     toDraft,
-    VIEW_ONLY,
     VIRTUAL_DISPLAY_LAYOUTS,
     VIRTUAL_DISPLAY_MODES,
     validDisplayMode,
@@ -59,12 +58,28 @@
 
   // Custom permissions, or a granted Host control, Sleep PC, USB devices or Join co-op, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
+  // Join co-op comes with Launch apps when a device pairs, so only a grant beyond that opens it.
   const granted = () =>
-    permissionSummary(draft.perm) === 'Custom' || draft.host_control || draft.allow_sleep || draft.allow_usb || draft.coop_join;
+    accessOf(draft.perm) === 'custom' ||
+    draft.host_control ||
+    draft.allow_sleep ||
+    draft.allow_usb ||
+    (draft.coop_join && (draft.perm & PERM.LAUNCH_APPS) === 0);
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
   });
+  // Custom stays chosen while the boxes happen to match a preset.
+  let customPicked = $state(false);
+  const access = $derived.by(() => {
+    const preset = accessOf(draft.perm);
+    return customPicked || preset === 'none' ? 'custom' : preset;
+  });
+  function chooseAccess(next: Access | 'custom') {
+    customPicked = next === 'custom';
+    if (next === 'custom') permissionsOpen = true;
+    else draft.perm = withAccess(draft.perm, next);
+  }
 
   // Follow edits made elsewhere while this form has none of its own.
   $effect(() => {
@@ -190,6 +205,7 @@
   }
 
   function discard() {
+    customPicked = false;
     draft = $state.snapshot(saved);
   }
 </script>
@@ -212,19 +228,12 @@
   </section>
 
   <section>
-    <div class="section-head">
-      <h3>Permissions</h3>
-      <div class="row">
-        <span class="muted presets">Set to</span>
-        <Button size="sm" onclick={() => (draft.perm = fullControl(draft.perm))}>Full control</Button>
-        <Button size="sm" onclick={() => (draft.perm = VIEW_ONLY)}>View only</Button>
-      </div>
-    </div>
+    <h3>Permissions</h3>
+    <AccessChoice legend="This device can" custom value={access} onchange={chooseAccess} />
     <p class="note">
-      The first paired device gets full control. Later devices can only list apps and view streams.
-      File transfer is granted on its own, never with full control.
+      The first paired device gets everything. Later devices get what was chosen when they paired.
+      File transfer is granted on its own, never with Everything.
     </p>
-    <p class="note">Current access: <strong>{permissionSummary(draft.perm)}</strong></p>
     <details bind:open={permissionsOpen}><summary>Custom permissions</summary>
     <div class="groups">
       {#each PERMISSION_GROUPS as group (group.name)}
@@ -251,16 +260,16 @@
             {:else}
               <label class="check">
                 <input type="checkbox" bind:checked={draft.allow_sleep} />
-                Sleep PC: put this PC to sleep from this device while nothing is running (Experimental)
+                Sleep PC: put this PC to sleep from this device while nothing is running
               </label>
             {/if}
             <label class="check">
               <input type="checkbox" bind:checked={draft.allow_usb} />
-              USB devices: attach USB devices plugged into this device to this PC during a stream (Experimental)
+              USB devices: attach USB devices plugged into this device to this PC during a stream
             </label>
             <label class="check">
               <input type="checkbox" bind:checked={draft.coop_join} />
-              Join co-op: take a free player slot in a co-op game another device started on this PC (Experimental)
+              Join co-op: take a free player slot in a co-op game another device started on this PC
             </label>
           {/if}
         </fieldset>
@@ -269,7 +278,7 @@
     </details>
   </section>
 
-  <details class="override" bind:open={foldersOpen}><summary>Shared folders (Experimental)</summary>
+  <details class="override" bind:open={foldersOpen}><summary>Shared folders</summary>
   <section>
     {#if sharedFolders === null}
       <p class="note">Loading folders…</p>
@@ -302,7 +311,7 @@
         </div>
       {/if}
       <p class="note">
-        Folders are shared only here: Full control and the file transfer permissions don’t include them. Taking a folder
+        Folders are shared only here: Everything and the file transfer permissions don’t include them. Taking a folder
         away, or write access to it, disconnects the device.
       </p>
     {/if}
@@ -370,9 +379,9 @@
         </select>
       </Field>
       <Field
-        label="Rotate the display (Experimental)"
+        label="Rotate the display"
         id="{uid}-rotation"
-        hint="Match the device gives this device's virtual display its portrait or landscape shape, and turns a monitor to it, also when the device turns during the stream. A monitor turns back after the stream and needs Windows Graphics Capture. Experimental."
+        hint="Match the device gives this device's virtual display its portrait or landscape shape, and turns a monitor to it, also when the device turns during the stream. A monitor turns back after the stream and needs Windows Graphics Capture."
         error={unknownDisplay('dd_rotation_option') ? `“${draft.display.dd_rotation_option}” is not a choice, so the host ignores it. Choose one.` : undefined}
       >
         <select id="{uid}-rotation" class="select" bind:value={draft.display.dd_rotation_option}>
@@ -387,9 +396,9 @@
       </Field>
       {#if draft.display.dd_rotation_option === 'manual'}
         <Field
-          label="Rotation (Experimental)"
+          label="Rotation"
           id="{uid}-angle"
-          hint="The angle the display turns to, clockwise. A virtual display is made in the turned shape instead. Experimental."
+          hint="The angle the display turns to, clockwise. A virtual display is made in the turned shape instead."
           error={unknownDisplay('dd_manual_rotation') ? `${draft.display.dd_manual_rotation} is not an angle the host takes. Choose one.` : undefined}
         >
           <select id="{uid}-angle" class="select" bind:value={draft.display.dd_manual_rotation}>
@@ -406,7 +415,7 @@
       <Field
         label="Display scale"
         id="{uid}-scale"
-        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream (Experimental)."
+        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream."
         error={unknownDisplay('dd_virtual_display_scale') ? `${draft.display.dd_virtual_display_scale} is not a scale the host takes. Choose one.` : undefined}
       >
         <select id="{uid}-scale" class="select" bind:value={draft.display.dd_virtual_display_scale}>
@@ -463,7 +472,7 @@
   <details class="override"><summary>Play in the background</summary>
   <section>
     <Toggle
-      label="Stream in the background (Experimental)"
+      label="Stream in the background"
       hint="Lets this device play while someone keeps using the PC. Nucleus Co-op runs its games in their own window, away from your monitors, and only their own sound streams. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
       bind:checked={draft.background_stream}
     />
@@ -556,17 +565,6 @@
   }
   h3 {
     font-size: var(--text-sm);
-  }
-  .section-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-2) var(--space-4);
-    flex-wrap: wrap;
-  }
-  .presets {
-    font-size: var(--text-sm);
-    margin-right: var(--space-1);
   }
   .note {
     font-size: var(--text-xs);

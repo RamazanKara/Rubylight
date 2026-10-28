@@ -37,7 +37,7 @@ The text is JSON with these parts:
 | `inputDispatchAgeMs` | Age of touch, mouse and controller events when the app receives them. `null` if you gave no input during the test. |
 | `timerWakeupDelayMs` | How late a 100 ms timer wakes up. High values point to aggressive power saving. |
 
-Each latency metric has `samples`, `mean`, `p95` and `p99` in milliseconds (`p95` is the slowest 5%). The latency test measures this device only; it does not include the network, the host or the panel's own lag. For a full stream, use **Measure input latency** and **Why did my stream stutter?** in the stream menu (see [video and latency](video-and-latency.md#automatic-bitrate-and-diagnostics) and [stream health](stream-health.md)).
+Each latency metric has `samples`, `mean`, `p95` and `p99` in milliseconds (`p95` is the slowest 5%). The latency test measures this device only; it does not include the network, the host or the panel's own lag. For a full stream, use **Measure input latency** and **Why did my stream stutter?** in the stream menu (see [video and latency](video-and-latency.md#device-controls-bitrate-and-diagnostics) and [stream health](stream-health.md)).
 
 ## What is left out
 
@@ -104,7 +104,7 @@ The [Moonlight HEVC fix](https://github.com/Viktsolovevwork278/moonlight-android
 
 ## Candidate per-chip changes
 
-Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC compatibility switch](#hevc-low-latency-compatibility) and other decoder settings. The decoder benchmark honors the HEVC switch too. The ideas below still need measurements before adding further chipset tuning. The first two ship as **Experimental chipset tuning** in Advanced settings, off by default: `vdec-lowlatency` on `c2.mtk` decoders, and on Exynos decoders the operating rate they declare for the stream size next to the realtime priority hint. Both are sent on the first configure try only.
+Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC compatibility switch](#hevc-low-latency-compatibility) and other decoder settings. The decoder benchmark honors the HEVC switch too. The ideas below still need measurements before adding further chipset tuning. The first two ship as **Chipset tuning** in Advanced settings, off by default: `vdec-lowlatency` on `c2.mtk` decoders, and on Exynos decoders the operating rate they declare for the stream size next to the realtime priority hint. Both are sent on the first configure try only.
 
 | Chip family | Idea to measure | How to tell |
 | --- | --- | --- |

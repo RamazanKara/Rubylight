@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Eksperymentalna pełna chrominancja</string>
-    <string name="summary_packed_444">Wymaga eksperymentalnej opcji pełnej chrominancji w Rubylight, nowego silnika streamingu i zgodnego sprzętowego dekodera HEVC/AV1. Nieobsługiwane tryby przerywają połączenie. HDR wymaga też zgodnej 10-bitowej powierzchni wyświetlania HDR.</string>
-    <string name="title_experimental_chipset_tuning">Eksperymentalne dostrajanie chipsetu</string>
+    <string name="title_packed_444">Pełna chrominancja</string>
+    <string name="summary_packed_444">Wymaga opcji pełnej chrominancji w Rubylight, nowego silnika streamingu i zgodnego sprzętowego dekodera HEVC/AV1. Nieobsługiwane tryby przerywają połączenie. HDR wymaga też zgodnej 10-bitowej powierzchni wyświetlania HDR.</string>
+    <string name="title_experimental_chipset_tuning">Dostrajanie chipsetu</string>
     <string name="summary_experimental_chipset_tuning">Dodatkowe ustawienia niskich opóźnień dla dekoderów MediaTek Dimensity i Samsung Exynos. Jeśli obraz się zatrzymuje lub zacina, wyłącz tę opcję.</string>
     <string name="scut_deleted_pc">Komputer usunięty</string>
     <string name="scut_not_paired">Komputer niesparowany</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Zmień uprawnienia w ustawieniach lub interfejsie WWW hosta.</string>
     <string name="stream_input_denied">Komputer blokuje sterowanie z tego urządzenia. Zezwól na nie w ustawieniach lub interfejsie WWW hosta.</string>
     <string name="stream_bitrate">Szybkość transmisji</string>
-    <string name="stream_bitrate_help">Ustaw Mbps dla tej sesji.\nTo wyłącza automatyczną szybkość transmisji.</string>
+    <string name="stream_bitrate_help">Ustaw Mbps dla tej sesji.\nTo wyłącza „Urządzenie steruje szybkością transmisji”.</string>
     <string name="stream_bitrate_invalid">Wpisz szybkość transmisji od 0,5 do 2000 Mbps</string>
     <string name="stream_bitrate_applied">Host zastosował %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps to mniej niż minimum PyroWave, %2$d Mbps przy %3$d×%4$d, %5$d FPS. Obraz będzie się rozpadał.</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Wyłączone (wyjście bezpośrednie)</string>
     <string name="title_vulkan_render">Renderowanie przez Vulkan</string>
-    <string name="summary_vulkan_render">Funkcja eksperymentalna. Wyświetla wideo przez Vulkan z własnym sterowaniem tempem klatek, dla nakładek generowania klatek, które podpinają się pod Vulkan. Dodaje przebieg renderowania, więc opóźnienie jest nieco większe. Wymaga Androida 10 lub nowszego. Nie jest używane z PyroWave. Gdy jest włączone, skalowanie jest wyłączone.</string>
+    <string name="summary_vulkan_render">Wyświetla wideo przez Vulkan z własnym sterowaniem tempem klatek, dla nakładek generowania klatek, które podpinają się pod Vulkan. Dodaje przebieg renderowania, więc opóźnienie jest nieco większe. Wymaga Androida 10 lub nowszego. Nie jest używane z PyroWave. Gdy jest włączone, skalowanie jest wyłączone.</string>
     <string name="vulkan_render_fallback">Renderowanie przez Vulkan nie jest używane. %1$s</string>
     <string name="vulkan_reason_pyrowave">Wideo PyroWave go nie używa.</string>
     <string name="vulkan_reason_api">Wymaga Androida 10 lub nowszego.</string>

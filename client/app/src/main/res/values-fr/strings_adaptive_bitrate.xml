@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Activer le débit automatique</string>
-    <string name="stream_auto_bitrate_disable">Désactiver le débit automatique</string>
+    <string name="stream_auto_bitrate_enable">Activer « L\'appareil contrôle le débit »</string>
+    <string name="stream_auto_bitrate_disable">Désactiver « L\'appareil contrôle le débit »</string>
     <string name="stream_auto_bitrate_help">Adapte le débit à votre connexion.\nEnregistré pour ce PC ; un réglage manuel le désactive.</string>
     <string name="stream_pyrowave_bitrate_help">Ajuste automatiquement PyroWave pour ce PC.\nUn débit manuel désactive cette option.</string>
     <string name="stream_auto_bitrate_failed">Échec temporaire de la mise à jour du débit. Nouvelle tentative automatique.</string>
-    <string name="stream_auto_bitrate_unavailable">Ce PC n’indique pas le débit de son stream. Le débit automatique est désactivé pour ce stream.</string>
-    <string name="stream_auto_bitrate_status">Débit automatique : %1$.1f Mbit/s</string>
+    <string name="stream_auto_bitrate_unavailable">Ce PC n’indique pas le débit de son stream. « L\'appareil contrôle le débit » est désactivé pour ce stream.</string>
+    <string name="stream_auto_bitrate_status">L\'appareil contrôle le débit : %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Hôte occupé. Réessayez dans un instant.</string>
-    <string name="title_auto_bitrate">Débit automatique</string>
+    <string name="title_auto_bitrate">L\'appareil contrôle le débit</string>
     <string name="dialog_auto_bitrate">Baisse le débit quand la connexion ou l’appareil ne suit plus, puis le remonte quand la situation s’améliore. Il ne dépasse jamais le débit du flux. C’est le réglage par défaut de tous les PC ; le menu du flux peut le changer pour un seul PC.</string>
 </resources>

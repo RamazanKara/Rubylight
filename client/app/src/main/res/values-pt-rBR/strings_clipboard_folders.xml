@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Enviar imagem da área de transferência ao host (experimental)</string>
-    <string name="stream_clipboard_image_receive">Copiar imagem da área de transferência do host (experimental)</string>
+    <string name="stream_clipboard_image_send">Enviar imagem da área de transferência ao host</string>
+    <string name="stream_clipboard_image_receive">Copiar imagem da área de transferência do host</string>
     <string name="stream_clipboard_image_empty">A área de transferência não tem imagem</string>
     <string name="stream_clipboard_image_sent">Imagem da área de transferência enviada ao host</string>
     <string name="stream_clipboard_image_none">A área de transferência do host não tem imagem</string>
@@ -52,5 +52,4 @@
     <string name="folders_save_lost">O arquivo a salvar se perdeu enquanto a caixa de salvamento estava aberta. Nada foi salvo.</string>
     <string name="folders_partial_left">%1$s Um arquivo parcial ficou em %2$s.</string>
     <string name="folders_bad_path">O Nightjar não pode abrir este caminho: %1$s</string>
-    <string name="host_menu_folders_note">Experimental</string>
 </resources>

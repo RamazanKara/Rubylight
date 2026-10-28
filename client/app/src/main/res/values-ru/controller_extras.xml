@@ -53,6 +53,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Драйвер USB Switch Pro</string>
-    <string name="summary_usb_switch_pro">Экспериментально. Считывает проводной Nintendo Switch Pro Controller напрямую: датчики движения, вибрация, Home и Capture.</string>
+    <string name="summary_usb_switch_pro">Считывает проводной Nintendo Switch Pro Controller напрямую: датчики движения, вибрация, Home и Capture.</string>
     <string name="usb_switch_pro_denied">Нет доступа к USB; Switch Pro Controller работает через ввод Android.\nПереподключите кабель, чтобы повторить.</string>
 </resources>

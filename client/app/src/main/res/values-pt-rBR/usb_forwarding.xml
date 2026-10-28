@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">Encaminhar dispositivos USB (experimental)</string>
+    <string name="title_usb_forwarding">Encaminhar dispositivos USB</string>
     <string name="summary_usb_forwarding">Adiciona dispositivos USB ao menu do stream: um dispositivo conectado a este, como uma mesa digitalizadora ou uma chave de segurança, passa a funcionar no PC. Requer um PC que ofereça encaminhamento USB.</string>
     <string name="stream_usb_devices">Dispositivos USB</string>
     <string name="usb_forwarding_pick_title">Encaminhar um dispositivo USB</string>

@@ -3,7 +3,7 @@
 //! each workstream ships its feature. A value the
 //! host can't use is reported through [`invalid`] and the default applies,
 //! so a launch never fails because of one of these settings.
-use super::{Config, PORTS, first_report, invalid, unquote};
+use super::{Config, first_report, invalid, unquote};
 use std::path::PathBuf;
 
 /// Every 3.0 setting with its default, as `sunshine.conf` would spell it.
@@ -16,10 +16,9 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("touch_gestures", "true"),
     ("client_cursor", "true"),
     ("webhooks", "[]"),
-    ("qr_pairing", "false"),
+    ("qr_pairing", "true"),
     ("dd_rotation_option", "disabled"),
     ("dd_manual_rotation", "0"),
-    ("child_session_port", "48289"),
     // Nucleus Co-op background streaming and co-op.
     ("nucleus_path", ""),
     ("nucleus_coop_players", "4"),
@@ -127,7 +126,7 @@ impl Config {
     }
     /// Pairing by QR code instead of a PIN (off by default).
     pub fn qr_pairing(&self) -> bool {
-        self.boolean("qr_pairing", false)
+        self.boolean("qr_pairing", true)
     }
     /// `dd_rotation_option`: `disabled` (the default), `auto` or `manual`.
     pub fn dd_rotation_option(&self) -> DisplayAdjust {
@@ -157,13 +156,6 @@ impl Config {
     /// game's handler and the free controller slots can allow fewer.
     pub fn nucleus_coop_players(&self) -> u32 {
         self.integer30("nucleus_coop_players", 4, |n| (1..=4).contains(&n)) as u32
-    }
-    /// The child session's base port, as `port` is for the host
-    /// ([`super::Ports::from_base`]); 48289 by default, so its ports are 48284 to 48310.
-    /// Inert: the child session's host takes
-    /// [`crate::child_session::CHILD_BASE_PORT`] until this goes live.
-    pub fn child_session_port(&self) -> u16 {
-        self.integer30("child_session_port", 48289, |n| PORTS.contains(&n)) as u16
     }
 }
 
@@ -213,7 +205,6 @@ mod tests {
                     c.qr_pairing(),
                     c.dd_rotation_option(),
                     c.dd_manual_rotation(),
-                    c.child_session_port(),
                 ),
                 (c.nucleus_path(), c.nucleus_coop_players()),
             )
@@ -221,9 +212,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_14_unique_settings() {
+    fn there_are_13_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (14, 14));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (13, 13));
     }
 
     #[test]
@@ -237,12 +228,9 @@ mod tests {
         assert!(c.touch_gestures() && c.client_cursor() && c.clipboard_image());
         assert_eq!(c.clipboard_image_max_bytes(), 16 * 1024 * 1024);
         assert!(c.shared_folders().is_empty() && c.webhooks().is_empty());
-        assert!(!c.qr_pairing());
+        assert!(c.qr_pairing());
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Disabled);
         assert_eq!(c.dd_manual_rotation(), 0);
-        assert_eq!(c.child_session_port(), 48289);
-        let ports = super::super::Ports::from_base(c.child_session_port());
-        assert_eq!((ports.https, ports.rtsp), (48284, 48310));
         assert_eq!(c.nucleus_path(), None);
         assert_eq!(c.nucleus_coop_players(), 4);
     }
@@ -284,8 +272,6 @@ mod tests {
             "dd_rotation_option = sideways",
             "dd_manual_rotation = 45",
             "dd_manual_rotation = 360",
-            "child_session_port = 1028",
-            "child_session_port = 65515",
             "nucleus_coop_players = 0",
             "nucleus_coop_players = 5",
         ] {
@@ -301,7 +287,6 @@ mod tests {
             "clipboard_image_max_mb = 64\n",
             "dd_rotation_option = manual\n",
             "dd_manual_rotation = 270\n",
-            "child_session_port = 50000\n",
             "nucleus_path = \"D:\\Tools\\Nucleus\"\n",
             "nucleus_coop_players = 2\n",
         ));
@@ -310,7 +295,6 @@ mod tests {
         assert_eq!(c.clipboard_image_max_bytes(), 64 * 1024 * 1024);
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Manual);
         assert_eq!(c.dd_manual_rotation(), 270);
-        assert_eq!(c.child_session_port(), 50000);
         assert_eq!(c.nucleus_path(), Some(PathBuf::from("D:\\Tools\\Nucleus")));
         assert_eq!(c.nucleus_coop_players(), 2);
         let folders = config(
@@ -360,7 +344,6 @@ mod tests {
         "touch_mode",
         "touch_sensitivity",
         "touch_gestures",
-        "qr_pairing",
         // Nucleus Co-op.
         "nucleus_path",
         "nucleus_coop_players",

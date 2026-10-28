@@ -244,7 +244,7 @@ Up to rc.10, a launch failed with this error when Windows left the new virtual d
 
 Check the stream card in the console first.
 
-- **"…its device permissions do not allow it"**: the device lacks that input permission. Every device paired after the first starts view-only, as in Apollo and Vibepollo. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
+- **"…its device permissions do not allow it"**: the device lacks that input permission. A device paired after the first gets what was chosen when it paired (Watch only has no input), or view only without a choice, as in Apollo and Vibepollo. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
 - **"Virtual gamepad driver unavailable"**: the VHF gamepad driver could not be opened. Run the installer again with the gamepad driver selected.
 
 ## Steam shows two controllers

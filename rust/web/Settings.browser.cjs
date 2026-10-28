@@ -62,11 +62,11 @@ async function fixture(t, initial = {}, metadata = {}) {
   return { page, writes };
 }
 
+// All settings shows every setting; only expert groups fold.
 async function showAdvanced(page) {
-  const advanced = page.locator('details.advanced');
-  await advanced.waitFor();
-  if (!(await advanced.evaluate(node => node.open))) await advanced.locator(':scope > summary').click();
+  await page.locator('[data-setting]').first().waitFor();
 }
+const fold = (page, name) => page.locator('details.fold', { has: page.locator(':scope > summary', { hasText: name }) });
 
 const setting = (page, key) => page.locator(`[data-setting="${key}"]`);
 const search = (page, text) => page.getByRole('searchbox', { name: 'Search settings' }).fill(text);
@@ -115,7 +115,7 @@ test('direct driver push can be selected, saved, reloaded and reset to Automatic
 test('numeric errors block saves, survive categories, and can be corrected without losing focus', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/settings/network');
-  await showAdvanced(page);
+  await fold(page, 'Ports and addresses').locator(':scope > summary').click();
   await setting(page, 'port').getByRole('spinbutton').fill('70000');
   assert.equal(await page.getByRole('button', { name: 'Save changes' }).isDisabled(), true);
   await page.getByRole('link', { name: /^General/ }).click();
@@ -313,6 +313,8 @@ test("the AMD AMF settings are shown whatever the encoder setting or this PC's G
   const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });
   const { page } = await fixture(t, {}, { gpus: [gpu('NVIDIA GeForce RTX 4090', 0x10de)] });
   await page.goto(base + '/settings/encoders');
+  // AMD AMF is an expert group: folded until opened.
+  await fold(page, 'AMD AMF').locator(':scope > summary').click();
   const usage = setting(page, 'amd_usage');
   await usage.waitFor();
   assert.equal(await usage.locator('.dependency').count(), 0, 'AMF settings are in effect, not conditional');
@@ -331,10 +333,10 @@ test("the AMD AMF settings are shown whatever the encoder setting or this PC's G
   }
 });
 
-test('undoing an advanced change keeps the Advanced section open', async t => {
+test('undoing a change in an expert group keeps the group open', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/settings/video');
-  const advanced = page.locator('details.advanced');
+  const advanced = fold(page, 'Capture troubleshooting');
   await advanced.locator(':scope > summary').click();
   const row = setting(page, 'wgc_direct_encoder_input');
   await row.getByRole('switch').press('Space');
@@ -363,16 +365,20 @@ test('editing a dependency does not hide unsaved child settings and review keeps
 });
 
 
-test('six groups keep expert settings collapsed, searchable, and customized counts visible', async t => {
-  const { page, writes } = await fixture(t, { fec_percentage: 30, custom_setting: 'keep' });
+test('six groups keep only expert settings collapsed, searchable, and customized counts visible', async t => {
+  const { page, writes } = await fixture(t, { fec_percentage: 30, amd_usage: 'webcam', custom_setting: 'keep' });
   await page.goto(base + '/settings/video');
   const groups = page.getByRole('navigation', { name: 'Settings categories' });
   assert.deepEqual((await groups.getByRole('link').allInnerTexts()).map(text => text.trim()), ['General', 'Streaming', 'Display & HDR', 'Audio & controls', 'Games & automation', 'Network & access']);
-  const advanced = page.locator('details.advanced');
-  assert.equal(await advanced.evaluate(node => node.open), false);
-  assert.match(await advanced.locator(':scope > summary').innerText(), /1 customized/);
+  // A customized expert group opens by itself; the others stay folded.
+  const amf = fold(page, 'AMD AMF');
+  assert.equal(await amf.evaluate(node => node.open), true);
+  assert.match(await amf.locator(':scope > summary').innerText(), /1 customized/);
+  assert.equal(await fold(page, 'Capture troubleshooting').evaluate(node => node.open), false);
+  // No second fold: every other setting is on the page.
+  assert.equal(await page.locator('main details.advanced').count(), 0);
   assert.equal(await setting(page, 'max_bitrate').isVisible(), true);
-  assert.equal(await setting(page, 'fec_percentage').isVisible(), false);
+  assert.equal(await setting(page, 'fec_percentage').isVisible(), true);
   await search(page, 'fec_percentage');
   await setting(page, 'fec_percentage').getByRole('spinbutton').fill('25');
   await save(page);

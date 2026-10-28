@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">自動ビットレートを有効にする</string>
-    <string name="stream_auto_bitrate_disable">自動ビットレートを無効にする</string>
+    <string name="stream_auto_bitrate_enable">「デバイスがビットレートを制御」を有効にする</string>
+    <string name="stream_auto_bitrate_disable">「デバイスがビットレートを制御」を無効にする</string>
     <string name="stream_auto_bitrate_help">接続状況に合わせてビットレートを調整します。\nこの PC 用に保存され、手動で変更するとオフになります。</string>
     <string name="stream_pyrowave_bitrate_help">この PC の PyroWave を自動調整します。\nビットレートを手動で設定するとオフになります。</string>
     <string name="stream_auto_bitrate_failed">ビットレートを一時的に更新できませんでした。自動的に再試行しています。</string>
-    <string name="stream_auto_bitrate_unavailable">この PC はストリームのビットレートを報告しません。このストリームでは自動ビットレートはオフです。</string>
-    <string name="stream_auto_bitrate_status">自動ビットレート: %1$.1f Mbps</string>
+    <string name="stream_auto_bitrate_unavailable">この PC はストリームのビットレートを報告しません。このストリームでは「デバイスがビットレートを制御」はオフです。</string>
+    <string name="stream_auto_bitrate_status">デバイスがビットレートを制御: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">ホストがビジー状態です。しばらくしてからもう一度お試しください。</string>
-    <string name="title_auto_bitrate">自動ビットレート</string>
+    <string name="title_auto_bitrate">デバイスがビットレートを制御</string>
     <string name="dialog_auto_bitrate">回線や端末が追いつかないときはビットレートを下げ、安定したら元に戻します。ストリームのビットレートを超えることはありません。これはすべての PC の既定値で、ストリームメニューから PC ごとに変更できます。</string>
 </resources>

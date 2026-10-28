@@ -61,6 +61,9 @@ pub struct Pairing {
     /// The address that asked for the certificate; the later steps must come
     /// from it, so another device cannot end or advance this pairing.
     pub peer: Option<std::net::IpAddr>,
+    /// The permissions the owner chose for this device
+    /// ([`crate::state::pairing_access`]); `None` keeps the default.
+    pub permission: Option<u32>,
     phase: Phase,
     key: [u8; 16],
     server_secret: [u8; 16],
@@ -103,6 +106,7 @@ impl Pairing {
             certificate,
             created: Instant::now(),
             peer: None,
+            permission: None,
             phase: Phase::Cert,
             key: crypto::pin_key(salt[..16].try_into().unwrap(), pin),
             server_secret: crypto::random(),

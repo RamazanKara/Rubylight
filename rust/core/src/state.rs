@@ -75,6 +75,26 @@ pub const FIRST_DEVICE_PERMISSION: u32 = 0x07131f00;
 const STATE_VERSION: u64 = 1;
 /// What every later device may do until the administrator grants more: view only.
 pub const LATER_DEVICE_PERMISSION: u32 = 0x03000000;
+/// Permission bits, as in the console's permission table.
+pub const LIST_APPS: u32 = 0x0100_0000;
+pub const VIEW_STREAMS: u32 = 0x0200_0000;
+pub const LAUNCH_APPS: u32 = 0x0400_0000;
+/// Controllers, touch, pen, mouse and keyboard.
+pub const ALL_INPUT: u32 = 0x0000_1f00;
+/// "Play games": list, watch and launch apps, with every kind of input.
+pub const PLAY_DEVICE_PERMISSION: u32 = LIST_APPS | VIEW_STREAMS | LAUNCH_APPS | ALL_INPUT;
+/// The permissions the console's pairing access choice (`access`) grants a
+/// later device: `play`, `view` or `all`. Empty means no choice, so the device
+/// gets [`PairedState::new_device_permission`].
+pub fn pairing_access(access: &str) -> Result<Option<u32>> {
+    Ok(match access {
+        "" => None,
+        "play" => Some(PLAY_DEVICE_PERMISSION),
+        "view" => Some(LATER_DEVICE_PERMISSION),
+        "all" => Some(FIRST_DEVICE_PERMISSION),
+        _ => bail!("access must be play, view or all"),
+    })
+}
 fn enabled() -> bool {
     true
 }
@@ -506,6 +526,25 @@ impl PairedState {
         } else {
             LATER_DEVICE_PERMISSION
         }
+    }
+    /// The permissions of a device paired now with the access the owner chose
+    /// ([`pairing_access`]): the first device still gets everything, a later one
+    /// the choice, or view only without one.
+    pub fn paired_device_permission(&self, chosen: Option<u32>) -> u32 {
+        match self.new_device_permission() {
+            FIRST_DEVICE_PERMISSION => FIRST_DEVICE_PERMISSION,
+            later => chosen.unwrap_or(later),
+        }
+    }
+    /// The grants a device paired with `perm` gets besides its permission
+    /// bits: one that may launch apps may also join co-op sessions
+    /// (`coop_join`), which the owner can take away on the device's page.
+    pub fn paired_device_extra(perm: u32) -> BTreeMap<String, Value> {
+        let mut extra = BTreeMap::new();
+        if perm & LAUNCH_APPS != 0 {
+            extra.insert(crate::nucleus::coop::DEVICE_KEY.into(), Value::Bool(true));
+        }
+        extra
     }
     /// Pair a WebRTC device. `client` must be a WebRTC device ([`Client::is_webrtc`]);
     /// its `perm` is replaced by [`Self::new_device_permission`], or everything for
@@ -990,6 +1029,48 @@ mod tests {
         assert_eq!(perm_of(&s, "Two"), LATER_DEVICE_PERMISSION);
         let reloaded = PairedState::load(&p).unwrap();
         assert_eq!(perm_of(&reloaded, "Two"), LATER_DEVICE_PERMISSION);
+    }
+    #[test]
+    fn pairing_access_applies_to_later_devices_and_never_to_the_first() {
+        assert_eq!(PLAY_DEVICE_PERMISSION, 0x07001f00);
+        assert_eq!(PLAY_DEVICE_PERMISSION & !FIRST_DEVICE_PERMISSION, 0);
+        assert_eq!(pairing_access("").unwrap(), None);
+        assert_eq!(
+            pairing_access("play").unwrap(),
+            Some(PLAY_DEVICE_PERMISSION)
+        );
+        assert_eq!(
+            pairing_access("view").unwrap(),
+            Some(LATER_DEVICE_PERMISSION)
+        );
+        assert_eq!(
+            pairing_access("all").unwrap(),
+            Some(FIRST_DEVICE_PERMISSION)
+        );
+        assert!(pairing_access("Play").is_err());
+        // Play games and Everything may join co-op too; view only may not.
+        for (perm, joins) in [
+            (PLAY_DEVICE_PERMISSION, true),
+            (FIRST_DEVICE_PERMISSION, true),
+            (LATER_DEVICE_PERMISSION, false),
+        ] {
+            let mut client = client_with(perm, json!({}));
+            client.extra = PairedState::paired_device_extra(perm);
+            assert_eq!(client.allows_coop_join(), joins, "{perm:#x}");
+        }
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let mut s = PairedState::load(&p).unwrap();
+        assert_eq!(
+            s.paired_device_permission(Some(LATER_DEVICE_PERMISSION)),
+            FIRST_DEVICE_PERMISSION
+        );
+        s.add(&p, phone("Phone")).unwrap();
+        assert_eq!(
+            s.paired_device_permission(Some(PLAY_DEVICE_PERMISSION)),
+            PLAY_DEVICE_PERMISSION
+        );
+        assert_eq!(s.paired_device_permission(None), LATER_DEVICE_PERMISSION);
     }
     const FILE_BITS: u32 = crate::native::FILE_UPLOAD | crate::native::FILE_DOWNLOAD;
     #[test]

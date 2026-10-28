@@ -62,6 +62,8 @@ export const settings: Setting[] = [
       ],
     },
     default: '',
+    // config.rs virtual_display_mode: per client where os_gate::virtual_display holds.
+    defaultText: 'One for each device on Windows 11 23H2 or later, otherwise a monitor',
   },
   {
     key: 'virtual_display_layout',
@@ -255,7 +257,7 @@ export const settings: Setting[] = [
   },
   {
     key: 'dd_hold_layout_while_paused',
-    label: 'Keep monitors off while paused (Experimental)',
+    label: 'Keep monitors off while paused',
     description:
       'With an exclusive layout, keep switching the monitors back off while a device is disconnected, until it returns or the restore delay ends.',
     details:
@@ -546,7 +548,7 @@ export const settings: Setting[] = [
   },
   {
     key: 'virtual_display_hdr_calibration',
-    label: 'Windows HDR Calibration on virtual displays (Experimental)',
+    label: 'Windows HDR Calibration on virtual displays',
     description:
       'Gives an HDR virtual display the profile Windows HDR Calibration made for your HDR monitor, and gives the display back its own profile after the stream.',
     details:

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Experimentelle volle Farbauflösung</string>
-    <string name="summary_packed_444">Benötigt Rubylights experimentelle Option für volle Farbauflösung, die neue Streaming-Engine und einen kompatiblen HEVC/AV1-Hardwaredecoder. Nicht unterstützte Modi beenden die Verbindung. HDR benötigt zusätzlich eine kompatible 10-Bit-HDR-Anzeigefläche.</string>
-    <string name="title_experimental_chipset_tuning">Experimentelle Chipsatz-Optimierung</string>
+    <string name="title_packed_444">Volle Farbauflösung</string>
+    <string name="summary_packed_444">Benötigt Rubylights Option für volle Farbauflösung, die neue Streaming-Engine und einen kompatiblen HEVC/AV1-Hardwaredecoder. Nicht unterstützte Modi beenden die Verbindung. HDR benötigt zusätzlich eine kompatible 10-Bit-HDR-Anzeigefläche.</string>
+    <string name="title_experimental_chipset_tuning">Chipsatz-Optimierung</string>
     <string name="summary_experimental_chipset_tuning">Zusätzliche Low-Latency-Einstellungen für MediaTek-Dimensity- und Samsung-Exynos-Decoder. Wenn das Video stockt oder ruckelt, schalte dies aus.</string>
     <string name="scut_deleted_pc">PC gelöscht</string>
     <string name="scut_not_paired">PC nicht gekoppelt</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Ändere Rechte in den Einstellungen oder der Web-UI deines Hosts.</string>
     <string name="stream_input_denied">Der PC blockiert Eingaben dieses Geräts. Erlaube sie in den Host-Einstellungen oder der Web-UI.</string>
     <string name="stream_bitrate">Bitrate</string>
-    <string name="stream_bitrate_help">Mbit/s für diese Sitzung festlegen.\nDie automatische Bitrate wird deaktiviert.</string>
+    <string name="stream_bitrate_help">Mbit/s für diese Sitzung festlegen.\n„Gerät steuert die Bitrate“ wird ausgeschaltet.</string>
     <string name="stream_bitrate_invalid">Gib eine Bitrate von 0,5 bis 2000 Mbit/s ein.</string>
     <string name="stream_bitrate_applied">Host nutzt %1$.1f Mbit/s</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbit/s liegt unter dem PyroWave-Minimum von %2$d Mbit/s bei %3$d×%4$d, %5$d FPS. Das Bild wird zerfallen.</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Aus (direkte Ausgabe)</string>
     <string name="title_vulkan_render">Über Vulkan rendern</string>
-    <string name="summary_vulkan_render">Experimentell. Gibt das Video über Vulkan mit eigenem Frame-Pacing aus, für Frame-Generation-Overlays, die Vulkan abgreifen. Fügt einen Render-Durchgang hinzu, daher etwas mehr Latenz. Benötigt Android 10 oder neuer. Wird mit PyroWave nicht verwendet. Hochskalierung ist dabei aus.</string>
+    <string name="summary_vulkan_render">Gibt das Video über Vulkan mit eigenem Frame-Pacing aus, für Frame-Generation-Overlays, die Vulkan abgreifen. Fügt einen Render-Durchgang hinzu, daher etwas mehr Latenz. Benötigt Android 10 oder neuer. Wird mit PyroWave nicht verwendet. Hochskalierung ist dabei aus.</string>
     <string name="vulkan_render_fallback">Vulkan-Rendering wird nicht verwendet. %1$s</string>
     <string name="vulkan_reason_pyrowave">PyroWave-Video nutzt es nicht.</string>
     <string name="vulkan_reason_api">Es benötigt Android 10 oder neuer.</string>

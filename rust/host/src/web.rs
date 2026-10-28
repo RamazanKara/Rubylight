@@ -13,6 +13,7 @@ mod maintenance;
 #[cfg(test)]
 mod parity_tests;
 mod power;
+mod radeon;
 mod session;
 mod webhooks;
 #[cfg(test)]
@@ -262,6 +263,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/logs/analysis", &["GET"][..]),
         ("/api/library/discovery", &["GET"][..]),
         ("/api/library/import", &["POST"][..]),
+        ("/api/library/sync", &["POST"][..]),
         ("/api/steam/status", &["GET"][..]),
         ("/api/steam/games", &["GET"][..]),
         ("/api/steam/force_sync", &["POST"][..]),
@@ -276,6 +278,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/playnite/launch", &["POST"][..]),
         ("/api/apps/purge_autosync", &["POST"][..]),
         ("/api/lossless_scaling/status", &["GET"][..]),
+        ("/api/radeon", &["GET"][..]),
         ("/api/browse", &["GET"][..]),
         ("/api/restart", &["POST"][..]),
         ("/api/quit", &["POST"][..]),
@@ -617,19 +620,6 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
             "initial credentials must be set from this computer",
         );
     }
-    // The child session's host runs as SYSTEM beside the user's programs: it
-    // only takes the main console's sign-in, never a first one from any of them.
-    if fresh_password
-        && h.config
-            .read()
-            .unwrap()
-            .boolean(butterpollo_core::child_session::CHILD_HOST_KEY, false)
-    {
-        return error(
-            StatusCode::FORBIDDEN,
-            "the child session's host uses the main console's sign-in: set it there and start the child session again",
-        );
-    }
     if path.starts_with("/api/")
         && !public
         && !fresh_password
@@ -825,10 +815,9 @@ pub(crate) async fn api(
     body: Bytes,
 ) -> Response {
     let path = uri.path();
-    // Before the body becomes a Value: a child-session start carries the
-    // Windows password, which must not be copied into one.
+    // What is left of the removed child sessions takes no body.
     if path == "/api/child-session" || path.starts_with("/api/child-session/") {
-        return child_session::handle(&h, &method, path, body).await;
+        return child_session::handle(&h, &method, path).await;
     }
     let data: Value = if body.is_empty() {
         json!({})
@@ -859,6 +848,9 @@ pub(crate) async fn api(
     }
     if method == Method::GET && path == "/api/lossless_scaling/status" {
         return apps::lossless_scaling(&h, &uri).await;
+    }
+    if method == Method::GET && path == "/api/radeon" {
+        return radeon::read(&h).await;
     }
     if method == Method::GET && path == "/api/browse" {
         return apps::browse(&uri).await;

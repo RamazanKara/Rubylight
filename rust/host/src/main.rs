@@ -133,12 +133,9 @@ struct Args {
     /// With --apply-wake-settings: also turn off Fast Startup.
     #[arg(long, hide = true, requires = "apply_wake_settings")]
     fast_startup_off: bool,
-    /// The child-session viewer (Experimental): the host starts it as the
-    /// signed-in user; stdin carries commands, stdout the status.
-    #[arg(long, hide = true)]
-    child_session_viewer: bool,
-    /// Put back the Windows settings child-session setup changed, from the
-    /// PC's record (the uninstaller runs it). Needs administrator rights.
+    /// Put back the Windows settings the removed child-session setup changed,
+    /// from the PC's record, and delete the password it saved (the
+    /// uninstaller runs it). Needs administrator rights.
     #[arg(long, hide = true)]
     child_session_restore: bool,
 }
@@ -156,9 +153,6 @@ fn main() -> Result<()> {
     }
     if args.apply_wake_settings {
         std::process::exit(wake::apply_settings_exit_code(args.fast_startup_off));
-    }
-    if args.child_session_viewer {
-        return butterpollo_windows::child_session::viewer::run();
     }
     if args.child_session_restore {
         std::process::exit(child_session::restore_exit_code());
@@ -373,6 +367,9 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the previous host stopped during a session; it was cleared"
         );
     }
+    if let Err(error) = library::stamp_synced(&h) {
+        tracing::error!(error = %format!("{error:#}"), "the synced apps could not be stamped with their sync");
+    }
     // The first launcher scan for the native library runs on its own thread, so the first request
     // finds it done and startup does not wait.
     library::installed(&h);
@@ -470,8 +467,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         web_port = ports.web,
         "Butterpollo Rust host started"
     );
-    child_session::log_mode(&h.config.read().unwrap());
-    child_session::check_at_startup();
+    child_session::retire_at_startup(h.directory.clone());
     h.power.log_availability();
     // A block rule, left when Windows' "allow access" prompt was dismissed,
     // overrides the installer's allow rule: say so rather than leave users to
@@ -503,8 +499,6 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         _=runtime::maintain(h.clone(), stop_signal, actions, ports.web)=>Ok(())
     };
     h.stop.store(true, Ordering::Release);
-    // The child session keeps running; its viewer and host stop with this one.
-    child_session::quit();
     let canceled = h.sessions.lock().unwrap().request_stop(None);
     drop(canceled);
     let deadline = Instant::now() + Duration::from_secs(10);

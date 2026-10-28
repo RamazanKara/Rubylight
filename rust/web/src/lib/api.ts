@@ -151,6 +151,28 @@ const post = <T>(path: string, body: unknown = {}, timeout = REQUEST_TIMEOUT_MS)
 export interface Ok {
   status: true;
 }
+/** One Radeon setting as the driver reports it (the native API's model). */
+export interface RadeonSetting {
+  id: string;
+  group: string;
+  kind: 'toggle' | 'integer' | 'choice' | 'unknown';
+  /** `configurable` is supported and writable. */
+  state: 'configurable' | 'read_only' | 'needs_external_setup' | 'unsupported' | 'temporarily_unavailable' | 'unknown';
+  value?: boolean | number | string;
+  range?: { min: number; max: number; step: number };
+  options?: { value: string; label: string }[];
+  unit?: string;
+  reason?: string;
+  message?: string;
+}
+/** `GET /api/radeon`: what the Radeon controls may offer. It reads the driver and applies nothing. */
+export interface RadeonPanel {
+  status: true;
+  state: RadeonSetting['state'];
+  reason?: string | null;
+  message?: string | null;
+  gpus: { id: number; name: string; driver: string; settings: RadeonSetting[] }[];
+}
 export interface AuthStatus {
   status: true;
   authenticated: boolean;
@@ -565,43 +587,10 @@ export interface LimiterStatus {
   process_running: boolean;
   message: string;
 }
-export type ChildSessionPhase =
-  | 'idle'
-  | 'needs_password'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'signing_out'
-  | 'sign_in_failed'
-  | 'signed_out';
-/** What the child-session viewer last reported. */
-export interface ChildSessionViewer {
-  phase: ChildSessionPhase;
-  message: string;
-  child: number;
-  generation: number;
-  password_saved: boolean;
-  notice: string | null;
-}
-/** `GET /api/child-session`: background streaming in a Windows child session (Experimental). */
+/** `GET /api/child-session`: whether Windows settings the removed child-session feature's setup changed are still changed, and why the last restore failed. */
 export interface ChildSessionStatus {
-  mode: 'child_session' | 'nucleus' | 'inside_child_session' | 'unavailable';
-  label: string;
-  reason: string;
-  edition: string;
-  /** What setup still has to change; null when it could not be read (`missing_error`). */
-  missing: string[] | null;
-  missing_error: string | null;
-  /** Why this host starts no child session though they are set up (it runs without administrator rights); null otherwise. */
-  unavailable: string | null;
-  /** Rubylight changed Windows settings that Restore puts back. */
-  set_up: boolean;
-  display: { width: number; height: number; scale: number } | null;
-  display_error: string | null;
-  viewer: { status: ChildSessionViewer | null; host_child: number | null } | null;
-  host_port: number | null;
+  pending: boolean;
   problem: string | null;
-  limits: string[];
 }
 export type CoopPhase = 'starting' | 'running' | 'ended';
 /** How a Nucleus Co-op session ended; `detail` says what stopped for `crashed` and `failed`. */
@@ -631,12 +620,10 @@ export interface CoopSession {
 export interface CoopStatus {
   mode: {
     setting: string;
-    /** Nucleus Co-op is the only background mode; `unavailable` when `background_mode` holds no mode. */
-    mode: 'nucleus' | 'unavailable';
+    /** Nucleus Co-op is the only background mode. */
+    mode: 'nucleus';
     label: string;
     reason: string;
-    /** `background_mode` holds a value an earlier build wrote (`auto`, `child_session`, `virtual_display`), which reads as Nucleus Co-op. */
-    legacy: boolean;
   };
   install: {
     state: 'installed' | 'missing' | 'configured' | 'installing' | 'failed';
@@ -815,6 +802,8 @@ export interface PowerFixResult {
   skipped: string[];
 }
 
+/** What a device may do once paired (`butterpollo_core::state::pairing_access`). The first device gets everything. */
+export type PairingAccess = 'play' | 'view' | 'all';
 /** A pairing QR code for one of this PC's addresses (`rubylight://pair?...`). */
 export interface PairingCode {
   address: string;
@@ -900,10 +889,15 @@ export const api = {
     uploadCover: (key: string, source: { url: string } | { data: string }) =>
       post<{ status: true; path: string }>('/api/covers/upload', { key, ...source }, ACTION_TIMEOUT_MS),
   },
+  /** The Radeon settings this PC's GPU supports, for a game's Radeon controls. */
+  radeon: () => get<RadeonPanel>('/api/radeon'),
   library: {
     discovery: () => get<LibraryDiscovery>('/api/library/discovery', ACTION_TIMEOUT_MS),
     import: (games: { source: LibrarySource; id: string }[]) =>
       post<{ status: true; results: LibraryImportResult[] }>('/api/library/import', { games }, ACTION_TIMEOUT_MS),
+    /** The launcher sync now: every installed game of the launchers that are on. */
+    sync: () =>
+      post<{ status: true; added: number; removed: number; playnite: boolean }>('/api/library/sync', {}, SLOW_TIMEOUT_MS),
   },
   steam: {
     status: () => get<SteamStatus>('/api/steam/status'),
@@ -935,12 +929,14 @@ export const api = {
     unpairAll: () => post<Ok>('/api/clients/unpair-all', {}, ACTION_TIMEOUT_MS),
     disconnect: (uuid: string) => post<Ok>('/api/clients/disconnect', { uuid }, ACTION_TIMEOUT_MS),
     resetNetworkHistory: (uuid: string) => post<Ok>('/api/clients/reset-network-history', { uuid }, ACTION_TIMEOUT_MS),
-    pin: (pin: string, uniqueid?: string, name?: string) => post<Ok>('/api/pin', { pin, uniqueid, name }),
-    otp: (passphrase: string, deviceName: string) =>
-      post<{ status: true; otp: string; ip: string; name: string }>('/api/otp', { passphrase, deviceName }),
+    /** `access` is what a Moonlight device may do once paired; WebRTC requests take none. */
+    pin: (pin: string, uniqueid?: string, name?: string, access?: PairingAccess) => post<Ok>('/api/pin', { pin, uniqueid, name, access }),
+    otp: (passphrase: string, deviceName: string, access?: PairingAccess) =>
+      post<{ status: true; otp: string; ip: string; name: string }>('/api/otp', { passphrase, deviceName, access }),
     hdrProfiles: () => get<{ status: true; profiles: { filename: string }[] }>('/api/clients/hdr-profiles'),
-    pairingQr: (address = '') =>
-      post<{ status: true; codes: PairingCode[]; name: string; expires_in_seconds: number }>('/api/pairing/qr', { address }),
+    /** The live code while it has a minute left, else a new one; `access` applies to it either way. */
+    pairingQr: (address = '', access?: PairingAccess) =>
+      post<{ status: true; codes: PairingCode[]; name: string; expires_in_seconds: number }>('/api/pairing/qr', { address, access }),
   },
   webhooks: {
     list: () => get<WebhookList>('/api/webhooks'),
@@ -969,14 +965,8 @@ export const api = {
   },
   childSession: {
     status: () => get<ChildSessionStatus>('/api/child-session'),
-    setup: () => post<Ok>('/api/child-session/setup'),
-    restore: () => post<Ok & { restored: boolean }>('/api/child-session/restore'),
-    /** A newly typed Windows password goes to the viewer once; leave it out to use the saved one. */
-    start: (password?: string) => post<Ok>('/api/child-session/start', password ? { password } : {}),
-    stop: () => post<Ok>('/api/child-session/stop'),
-    show: () => post<Ok>('/api/child-session/show'),
-    end: (child: number, generation: number) => post<Ok>('/api/child-session/end', { child, generation }),
-    forgetPassword: () => post<Ok>('/api/child-session/forget-password'),
+    /** Runs the host's start-up restore again; the answer is the new status. */
+    restore: () => post<ChildSessionStatus>('/api/child-session/restore', {}, ACTION_TIMEOUT_MS),
   },
   coop: {
     status: () => get<CoopStatus>('/api/coop'),

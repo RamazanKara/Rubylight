@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">Перенаправлять USB-устройства (экспериментально)</string>
+    <string name="title_usb_forwarding">Перенаправлять USB-устройства</string>
     <string name="summary_usb_forwarding">Добавляет USB-устройства в меню стрима: устройство, подключённое к этому, например графический планшет или ключ безопасности, начинает работать на ПК. Нужен ПК, который предлагает перенаправление USB.</string>
     <string name="stream_usb_devices">USB-устройства</string>
     <string name="usb_forwarding_pick_title">Перенаправить USB-устройство</string>

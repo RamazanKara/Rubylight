@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">実験的なフルクロマ</string>
-    <string name="summary_packed_444">Rubylight の実験的なフルクロマ設定、新しいストリーミングエンジン、対応する HEVC/AV1 ハードウェアデコーダーが必要です。未対応のモードでは接続を停止します。HDR には対応する 10 ビット HDR 表示サーフェスも必要です。</string>
-    <string name="title_experimental_chipset_tuning">実験的なチップセット調整</string>
+    <string name="title_packed_444">フルクロマ</string>
+    <string name="summary_packed_444">Rubylight のフルクロマ設定、新しいストリーミングエンジン、対応する HEVC/AV1 ハードウェアデコーダーが必要です。未対応のモードでは接続を停止します。HDR には対応する 10 ビット HDR 表示サーフェスも必要です。</string>
+    <string name="title_experimental_chipset_tuning">チップセット調整</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity と Samsung Exynos のデコーダー向けの追加の低遅延設定です。映像が止まったりカクついたりする場合はオフにしてください。</string>
     <string name="scut_deleted_pc">PC は削除されています</string>
     <string name="scut_not_paired">PC はペアリングされていません</string>
@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">権限はホストの設定またはウェブ UI で変更してください。</string>
     <string name="stream_input_denied">PC がこのデバイスからの入力をブロックしています。ホストの設定またはウェブ UI で許可してください。</string>
     <string name="stream_bitrate">ビットレート</string>
-    <string name="stream_bitrate_help">このセッションの Mbps を設定します。\n自動ビットレートはオフになります。</string>
+    <string name="stream_bitrate_help">このセッションの Mbps を設定します。\n「デバイスがビットレートを制御」はオフになります。</string>
     <string name="stream_bitrate_invalid">0.5～2000 Mbps のビットレートを入力してください</string>
     <string name="stream_bitrate_applied">ホストが %1$.1f Mbps を適用しました</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps は PyroWave の最低値 %2$d Mbps（%3$d×%4$d、%5$d FPS）を下回っています。映像が崩れます。</string>
@@ -382,7 +382,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">オフ（直接出力）</string>
     <string name="title_vulkan_render">Vulkanで描画</string>
-    <string name="summary_vulkan_render">試験的機能です。独自のフレームペーシングでVulkan経由で映像を表示します。Vulkanにフックするフレーム生成オーバーレイ向けです。描画パスが1つ増えるため、遅延がやや増えます。Android 10以降が必要です。PyroWaveでは使われません。有効な間はアップスケーリングは無効になります。</string>
+    <string name="summary_vulkan_render">独自のフレームペーシングでVulkan経由で映像を表示します。Vulkanにフックするフレーム生成オーバーレイ向けです。描画パスが1つ増えるため、遅延がやや増えます。Android 10以降が必要です。PyroWaveでは使われません。有効な間はアップスケーリングは無効になります。</string>
     <string name="vulkan_render_fallback">Vulkan描画は使われません。%1$s</string>
     <string name="vulkan_reason_pyrowave">PyroWaveの映像では使われません。</string>
     <string name="vulkan_reason_api">Android 10以降が必要です。</string>

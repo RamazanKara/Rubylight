@@ -4,7 +4,7 @@
 //! Streaming Microphone by a render thread that runs only while it speaks;
 //! a second client is heard once the first has been quiet for a second.
 use crate::state::{Session, Shared};
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use butterpollo_core::{
     config::Config,
     mic::{self, Arrival, Playout, Sequencer},
@@ -46,12 +46,23 @@ pub fn spawn(h: Shared, socket: UdpSocket) -> Result<Arc<Counters>> {
     // The shared UDP factory is nonblocking, which bypasses the receive timeout.
     socket.set_nonblocking(false)?;
     socket.set_read_timeout(Some(Duration::from_millis(250)))?;
+    let directory = exe_directory(std::env::current_exe())?;
     let counters = Arc::new(Counters::default());
     let receiver_counters = counters.clone();
     thread::Builder::new()
         .name("microphone".into())
-        .spawn(move || Receiver::new(h, receiver_counters).run(&socket))?;
+        .spawn(move || Receiver::new(h, receiver_counters, directory).run(&socket))?;
     Ok(counters)
+}
+
+/// The folder of the host's executable, where libopus is: a host that cannot
+/// find itself has no decoder, which is an error rather than an empty folder.
+fn exe_directory(exe: std::io::Result<PathBuf>) -> Result<PathBuf> {
+    let exe = exe.context("the host's executable could not be found for the Opus decoder")?;
+    exe.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Into::into)
+        .with_context(|| format!("the host's executable {} has no folder", exe.display()))
 }
 
 #[derive(Default)]
@@ -82,7 +93,7 @@ struct Receiver {
     pcm: Vec<f32>,
 }
 impl Receiver {
-    fn new(h: Shared, counters: Arc<Counters>) -> Self {
+    fn new(h: Shared, counters: Arc<Counters>, directory: PathBuf) -> Self {
         #[cfg(test)]
         let native = h.reconnect_fixture.is_none();
         #[cfg(not(test))]
@@ -91,10 +102,7 @@ impl Receiver {
             h,
             counters,
             native,
-            directory: std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(Into::into))
-                .unwrap_or_default(),
+            directory,
             speaker: None,
             decoder: None,
             playout: Default::default(),
@@ -511,6 +519,26 @@ mod tests {
         assert_eq!(playout.take(&mut actual), 960);
         assert_eq!(actual, pcm[pcm.len() - 960..]);
         Ok(())
+    }
+
+    #[test]
+    fn a_host_that_cannot_find_its_executable_fails_loudly() {
+        let missing = exe_directory(Err(std::io::Error::other("no image path"))).unwrap_err();
+        let message = format!("{missing:#}");
+        assert!(
+            message.contains("could not be found") && message.contains("no image path"),
+            "{message}"
+        );
+        // A bare file name has no folder, which is not the working directory.
+        let bare = exe_directory(Ok(PathBuf::from("butterpollo.exe"))).unwrap_err();
+        assert!(format!("{bare:#}").contains("has no folder"), "{bare:#}");
+        assert_eq!(
+            exe_directory(Ok(PathBuf::from(
+                r"C:\Program Files\Rubylight\butterpollo.exe"
+            )))
+            .unwrap(),
+            PathBuf::from(r"C:\Program Files\Rubylight")
+        );
     }
 
     #[test]

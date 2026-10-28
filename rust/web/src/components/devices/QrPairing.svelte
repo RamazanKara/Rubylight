@@ -1,5 +1,6 @@
 <script lang="ts">
   import Button from '../Button.svelte';
+  import CopyButton from '../CopyButton.svelte';
   import { api, type PairingCode } from '../../lib/api';
   import { failed } from '../../lib/feedback.svelte';
 
@@ -40,7 +41,7 @@
 </script>
 
 <div class="qr">
-  <p class="muted">Nightjar on Android: tap Scan QR code when adding a PC and point the camera at this code. Experimental.</p>
+  <p class="muted">Nightjar on Android: tap Scan QR code when adding a PC and point the camera at this code. Nightjar on Windows and Linux: copy the link and paste it in Add a PC. Experimental.</p>
   {#if code}
     <div class="result" class:expired aria-live="polite">
       <img src={image} alt="Pairing QR code for {code.address}" width="220" height="220" />
@@ -49,6 +50,7 @@
           <p><strong>This code expired.</strong> Create a new one.</p>
         {:else}
           <p aria-live="off">Expires in <span class="num">{countdown}</span>. Works once.</p>
+          <div><CopyButton value={code.uri} label="Copy pairing link" what="the pairing link" showLabel /></div>
         {/if}
         {#if codes.length > 1}
           <label for="{uid}-address">Address the device reaches</label>

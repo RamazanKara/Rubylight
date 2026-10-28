@@ -4024,7 +4024,11 @@ impl Media {
                             }
                             // Clipboard sync from a Nightjar that asked or a Moonlight V+
                             // client, which never asks: its first frame starts the sync.
-                            butterpollo_core::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE => {
+                            // Encrypted only, as USB: a plain frame anyone on the network
+                            // could send would set the PC's clipboard and start sending it.
+                            butterpollo_core::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE
+                                if encrypted =>
+                            {
                                 let Ok(config) = effective_config(&h, &s.launch) else {
                                     continue;
                                 };

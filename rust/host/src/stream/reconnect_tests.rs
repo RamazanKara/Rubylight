@@ -1342,6 +1342,13 @@ impl Client {
         message.extend_from_slice(payload);
         self.outbox.lock().unwrap().push(message);
     }
+    /// Sends a control message of `kind` encrypted with the launch's `key`, as these
+    /// streams' version 1 control encryption has it; `seq` counts up from 0 per stream.
+    fn send_encrypted(&self, key: &[u8; 16], seq: u32, kind: u16, payload: &[u8]) {
+        let message =
+            butterpollo_core::packet::encrypted_control(key, seq, kind, payload, false).unwrap();
+        self.outbox.lock().unwrap().push(message);
+    }
     /// Stops the video pings and returns once no round that could still send one is running.
     async fn stop_video_pings(&self) {
         self.video_down.store(true, Ordering::Release);

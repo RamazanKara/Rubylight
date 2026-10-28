@@ -79,7 +79,17 @@ async fn copies_travel_both_ways_after_the_first_frame() -> Result<()> {
         .encode()
         .unwrap()
     };
-    client.send_control(CLIPBOARD_SYNC_MESSAGE_TYPE, &frame(7, "from the device"));
+    // A plain frame, which anyone on the network could send, starts nothing.
+    client.send_control(CLIPBOARD_SYNC_MESSAGE_TYPE, &frame(6, "injected"));
+    client.quiet_heartbeat().await;
+    assert_ne!(FAKE.text(), "injected");
+
+    client.send_encrypted(
+        &launch.key,
+        0,
+        CLIPBOARD_SYNC_MESSAGE_TYPE,
+        &frame(7, "from the device"),
+    );
     until("the device's copy is on the clipboard", WAIT, || {
         FAKE.text() == "from the device"
     })

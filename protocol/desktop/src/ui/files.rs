@@ -559,7 +559,7 @@ impl Launcher {
         let may_send = page.may(Feature::FileUpload);
         let may_download = page.may(Feature::FileDownload) && folder.is_some();
         scroll(ui, "files", |ui| {
-            ui.label(RichText::new(tr("Experimental. Leaving this page cancels the transfers that have not finished. A transfer tried again starts from its first byte.")).color(ON_SURFACE_VARIANT));
+            ui.label(RichText::new(tr("Leaving this page cancels the transfers that have not finished. A transfer tried again starts from its first byte.")).color(ON_SURFACE_VARIANT));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let send = ui.add_enabled_ui(may_send && !page.choosing, |ui| primary_button(ui, "Send files…")).inner;

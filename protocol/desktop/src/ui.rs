@@ -204,7 +204,7 @@ impl HostOption {
             Self::PairOtp => en("Pair with one-time PIN"),
             Self::Wake => en("Wake up"),
             Self::Sleep => en("Sleep PC"),
-            Self::Files => en("Files (Experimental)"),
+            Self::Files => en("Files"),
             Self::Settings => en("PC settings"),
             Self::Details => en("View details"),
             Self::Rename => en("Rename"),
@@ -279,6 +279,8 @@ pub struct Launcher {
     pub editing_app: Option<nightjar_core::http::App>,
     pub edit_name: String,
     pub settings_dirty: bool,
+    /// The settings sections showing their folded rows; none when the app starts.
+    unfolded: std::collections::BTreeSet<&'static str>,
     pub controller_key: String,
     pub controller_mapping: crate::gamepad::Mapping,
     pub controller_test: bool,
@@ -456,6 +458,7 @@ impl Launcher {
             editing_app: None,
             edit_name: String::new(),
             settings_dirty: false,
+            unfolded: Default::default(),
             controller_key: String::new(),
             controller_mapping: crate::gamepad::Mapping::default(),
             controller_test: false,
@@ -1715,7 +1718,7 @@ impl Launcher {
     fn shared_folders(&mut self, ui: &mut Ui, id: u64, commands: &mut Vec<Command>) {
         use crate::folders_page::{size_text, Place};
         use nightjar_core::http::EntryKind;
-        section(ui, "Shared folders (Experimental)");
+        section(ui, "Shared folders");
         let Some(open) = self.folders.state_for(id) else {
             let button = row(ui, "Shared folders", "Browse the folders this PC shares with this device, download files from them and, with a write grant, upload to them. The PC opens them as the user signed in on it.", |ui| {
                 quiet_button(ui, "Browse")
@@ -1967,6 +1970,7 @@ impl Launcher {
         let test_host = if let Screen::HostSettings(id) = self.screen { view.hosts.get(id) } else { None };
         let inherited = self.inherited_settings.clone();
         let overrides = &mut self.edit_overrides;
+        let mut rows = Rows { layer: layered.then_some((&inherited, overrides)), unfolded: &mut self.unfolded, section: "", folded: 0 };
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
         let before = s.clone();
         // Coming back from a sub-page, the link that opened it takes focus instead.
@@ -1976,14 +1980,14 @@ impl Launcher {
         }
         scroll(ui, "settings", |ui| {
             ui.set_max_width(760.0);
-            section_at(ui, "Video", &mut jump);
+            rows.section(ui, "Video", &mut jump);
             let native = trf("Native ({}x{})", &[&display.width, &display.height]);
             let current = if s.width == 0 {
                 native.clone()
             } else {
                 format!("{}x{}", s.width, s.height)
             };
-            let first = setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["width", "height"], "Resolution", "The stream's size. Native matches this display.", |ui, s| {
+            let first = setting_row(ui, s, &mut rows, &["width", "height"], "Resolution", "The stream's size. Native matches this display.", |ui, s| {
                 egui::ComboBox::from_id_salt("resolution")
                     .selected_text(current)
                     .show_ui(ui, |ui| {
@@ -2000,11 +2004,11 @@ impl Launcher {
                     })
                     .response
             });
-            if focus_first {
+            if let Some(first) = first.filter(|_| focus_first) {
                 first.request_focus();
             }
             if s.width != 0 {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["width", "height"], "Custom resolution", "Width and height in pixels.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["width", "height"], "Custom resolution", "Width and height in pixels.", |ui, s| {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         step_value(ui, &mut s.width, 320..=7680, 16.0, |d| d);
                         ui.label("×");
@@ -2018,7 +2022,7 @@ impl Launcher {
             } else {
                 trf("{} fps", &[&s.fps])
             };
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["fps"], "Frame rate", "Display matches this monitor's refresh rate.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["fps"], "Frame rate", "Display matches this monitor's refresh rate.", |ui, s| {
                 egui::ComboBox::from_id_salt("fps")
                     .selected_text(fps_text)
                     .show_ui(ui, |ui| {
@@ -2032,7 +2036,7 @@ impl Launcher {
             let (w, h, fps, bitrate) = stream_mode(s, display);
             let recommended = stream_mode(&Settings { bitrate_kbps: 0, ..s.clone() }, display).3;
             let mut automatic = s.bitrate_kbps == 0;
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["bitrate_kbps"], "Automatic bitrate",
+            setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Automatic bitrate",
                 &trf("{} Mbps for {}x{} at {} fps.", &[&format!("{:.0}", f64::from(recommended) / 1000.0), &w, &h, &fps]),
                 |ui, s| {
                     let r = toggle(ui, &mut automatic);
@@ -2046,7 +2050,7 @@ impl Launcher {
                 let mut mbps = bitrate as f32 / 1000.0;
                 let note = if s.codec.is_pyrowave() { en("PyroWave maintains a minimum bitrate for this size and frame rate.") }
                     else { en("Higher is sharper and needs a faster network.") };
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["bitrate_kbps"], "Bitrate",
+                setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {
                         let r = ui.add(
@@ -2063,13 +2067,10 @@ impl Launcher {
                     },
                 );
             }
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["adaptive_bitrate"], "Adapt bitrate to the connection", "Reduce bitrate during sustained congestion and recover gradually. Requires a compatible host.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["adaptive_bitrate"], "Device controls bitrate", "Reduce bitrate during sustained congestion and recover gradually. Requires a compatible host.", |ui, s| {
                 toggle(ui, &mut s.adaptive_bitrate)
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["client_hint_bitrate"], "Client-hint bitrate", "Lower the bitrate when frames are lost and raise it again after clean seconds, from the next frame on. Works with Rubylight PCs that take mid-stream rate changes, and replaces Adapt bitrate to the connection there.", |ui, s| {
-                toggle(ui, &mut s.client_hint_bitrate)
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["adaptive_quality"], "Automatic quality", "Adjust resolution and frame rate under sustained load. Requires a host that supports live stream changes.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["adaptive_quality"], "Automatic quality", "Adjust resolution and frame rate under sustained load. Requires a host that supports live stream changes.", |ui, s| {
                 egui::ComboBox::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
                         ui.selectable_value(&mut s.adaptive_quality, mode, tr(mode.label()));
@@ -2077,10 +2078,10 @@ impl Launcher {
                 }).response
             });
             if s.adaptive_quality != crate::config::QualityMode::Off {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["quality_min_short_edge"], "Minimum resolution", "Shortest edge, in pixels. Never increases the selected stream size.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["quality_min_short_edge"], "Minimum resolution", "Shortest edge, in pixels. Never increases the selected stream size.", |ui, s| {
                     step_value(ui, &mut s.quality_min_short_edge, 256..=2160, 8.0, |d| d.speed(2).suffix(" px"))
                 });
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["quality_min_fps"], "Minimum frame rate", "Automatic quality stays above this rate.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["quality_min_fps"], "Minimum frame rate", "Automatic quality stays above this rate.", |ui, s| {
                     step_value(ui, &mut s.quality_min_fps, 15..=240, 5.0, |d| d.suffix(" fps"))
                 });
             }
@@ -2097,7 +2098,7 @@ impl Launcher {
                 probe.and_then(Result::err)
             };
             let gpu_decoder_error = if s.codec.is_pyrowave() { gpu_probe(ui) } else { None };
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["codec"], "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["codec"], "Codec", "Automatic picks HEVC, then H.264. PyroWave needs GPU rendering; restart after selecting it on Linux.", |ui, s| {
                 egui::ComboBox::from_id_salt("codec")
                     .selected_text(match s.codec {
                         CodecPreference::Auto => tr("Automatic"),
@@ -2120,7 +2121,7 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["upscaling"], "Upscaling", "Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.", |ui, s| {
                 egui::ComboBox::from_id_salt("upscaling").selected_text(s.upscaling.label()).show_ui(ui, |ui| {
                     for mode in [crate::config::Upscaling::Bilinear, crate::config::Upscaling::Fsr1, crate::config::Upscaling::Sgsr1] {
                         ui.selectable_value(&mut s.upscaling, mode, mode.label());
@@ -2128,31 +2129,21 @@ impl Launcher {
                 }).response
             });
             if s.upscaling != crate::config::Upscaling::Bilinear {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["upscale_sharpness"], "Sharpness", "Extra sharpening applied by the upscaler.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Sharpness", "Extra sharpening applied by the upscaler.", |ui, s| {
                     ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
                 });
             }
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["video_scaling"], "Video size", "Fit shows the whole stream; Fill crops the edges; Native uses one display pixel per stream pixel.", |ui, s| {
-                use crate::config::VideoScaling;
-                egui::ComboBox::from_id_salt("video-scaling").selected_text(tr(s.video_scaling.label())).show_ui(ui, |ui| {
-                    for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
-                        ui.selectable_value(&mut s.video_scaling, mode, tr(mode.label()));
-                    }
-                }).response
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["align_video_top"], "Align video to top", "Moves Fit and Native video to the top of the window.", |ui, s| toggle(ui, &mut s.align_video_top));
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["hdr"], "HDR",
+            setting_row(ui, s, &mut rows, &["hdr"], "HDR",
                 "Streams 10-bit HDR to an HDR-enabled display. Enable HDR in the operating system first.",
                 |ui, s| toggle(ui, &mut s.hdr),
             );
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["prefer_yuv444"], "Prefer YUV 4:4:4 (Experimental)",
+            setting_row(ui, s, &mut rows, &["prefer_yuv444"], "Prefer YUV 4:4:4",
                 "Sharper colored text when the PC and this device support it. HDR takes priority. Restart Nightjar after changing this setting on Linux.",
                 |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave() && !s.experimental_packed_444, |ui| toggle(ui, &mut s.prefer_yuv444)).inner);
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["sdr_10bit"], "10-bit color (SDR, Experimental)",
+            setting_row(ui, s, &mut rows, &["sdr_10bit"], "10-bit color (SDR)",
                 "Streams SDR in 10-bit HEVC or AV1 to reduce banding. Needs a Main10 decoder on this device; the PC’s display must be in SDR. Restart Nightjar after changing this setting on Linux.",
                 |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave() && !s.experimental_packed_444, |ui| toggle(ui, &mut s.sdr_10bit)).inner);
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["full_range"], "Full color range", "Request the full RGB range from the host.", |ui, s| toggle(ui, &mut s.full_range));
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["decoder"], "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["decoder"], "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui, s| {
                 ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| egui::ComboBox::from_id_salt("decoder")
                     .selected_text(match s.decoder {
                         DecoderPreference::Auto => tr("Automatic"),
@@ -2168,7 +2159,7 @@ impl Launcher {
                 Some(reason) => trf("CPU decodes on the CPU and reconstructs on the GPU. GPU decodes with the PyroWave SDK and never falls back to CPU. GPU decoding is unavailable here: {}", &[reason]),
                 None => tr("CPU decodes on the CPU and reconstructs on the GPU. GPU decodes with the PyroWave SDK and never falls back to CPU.").to_owned(),
             };
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["pyrowave_decoder"], "PyroWave decoder", &decoder_note, |ui, s| {
+            setting_row(ui, s, &mut rows, &["pyrowave_decoder"], "PyroWave decoder", &decoder_note, |ui, s| {
                 egui::ComboBox::from_id_salt("pyrowave-decoder")
                     .selected_text(tr(s.pyrowave_decoder.label()))
                     .show_ui(ui, |ui| {
@@ -2179,9 +2170,18 @@ impl Launcher {
                     .response
             });
 
-            section_at(ui, "Display & image", &mut jump);
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["virtual_display"], "Virtual display", "Use a separate display on hosts that support it.", |ui, s| toggle(ui, &mut s.virtual_display));
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["host_display"], "Display arrangement", "Applied only to normal streams on hosts that support display modes.", |ui, s| {
+            rows.section(ui, "Display & image", &mut jump);
+            setting_row(ui, s, &mut rows, &["video_scaling"], "Video size", "Fit shows the whole stream; Fill crops the edges; Native uses one display pixel per stream pixel.", |ui, s| {
+                use crate::config::VideoScaling;
+                egui::ComboBox::from_id_salt("video-scaling").selected_text(tr(s.video_scaling.label())).show_ui(ui, |ui| {
+                    for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
+                        ui.selectable_value(&mut s.video_scaling, mode, tr(mode.label()));
+                    }
+                }).response
+            });
+            setting_row(ui, s, &mut rows, &["align_video_top"], "Align video to top", "Moves Fit and Native video to the top of the window.", |ui, s| toggle(ui, &mut s.align_video_top));
+            setting_row(ui, s, &mut rows, &["virtual_display"], "Virtual display", "Use a separate display on hosts that support it.", |ui, s| toggle(ui, &mut s.virtual_display));
+            setting_row(ui, s, &mut rows, &["host_display"], "Display arrangement", "Applied only to normal streams on hosts that support display modes.", |ui, s| {
                 egui::ComboBox::from_id_salt("host-display")
                     .selected_text(tr(host_display_name(s.host_display)))
                     .show_ui(ui, |ui| {
@@ -2191,10 +2191,10 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["virtual_display_scale"], "PC display scaling", "Text and interface size on the virtual display.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC display scaling", "Text and interface size on the virtual display.", |ui, s| {
                 ui.add(egui::Slider::new(&mut s.virtual_display_scale, 100..=300).step_by(25.0).suffix("%"))
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
                     .selected_text(match s.window_mode {
                         WindowMode::Fullscreen => tr("Fullscreen"),
@@ -2213,10 +2213,10 @@ impl Launcher {
             } else {
                 en("This system cannot present with tearing, which VRR needs here.")
             };
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["vrr"], "Variable refresh rate", vrr_note, |ui, s| toggle(ui, &mut s.vrr));
+            setting_row(ui, s, &mut rows, &["vrr"], "Variable refresh rate", vrr_note, |ui, s| toggle(ui, &mut s.vrr));
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && tearing;
             ui.add_enabled_ui(s.vrr && !immediate_packed, |ui| {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["present_at_host_times"], "Show frames at the PC's frame times",
+                setting_row(ui, s, &mut rows, &["present_at_host_times"], "Show frames at the PC's frame times",
                     if immediate_packed {
                         en("Full chroma presents frames immediately with VRR, without the extra timing delay.")
                     } else {
@@ -2226,33 +2226,12 @@ impl Launcher {
                 );
             });
             ui.add_enabled_ui(!s.vrr, |ui| {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["vsync"], "V-Sync", "Without VRR: wait for the display's refresh, no tearing.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Without VRR: wait for the display's refresh, no tearing.", |ui, s| {
                     toggle(ui, &mut s.vsync)
                 });
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["overlay", "overlay_mode"], "Performance overlay",
-                "Compact shows one line with the stream's health, Statistics the frame rates, network, host and decode times, Debug every measurement. Ctrl+Alt+Shift+S and the stream menu change it too.", |ui, s| {
-                let shown = if s.overlay { tr(s.overlay_mode.label()) } else { tr("Off") };
-                egui::ComboBox::from_id_salt("overlay-mode").selected_text(shown).show_ui(ui, |ui| {
-                    if ui.selectable_label(!s.overlay, tr("Off")).clicked() { s.overlay = false; }
-                    for mode in crate::config::OverlayMode::ALL {
-                        if ui.selectable_label(s.overlay && s.overlay_mode == mode, tr(mode.label())).clicked() {
-                            (s.overlay, s.overlay_mode) = (true, mode);
-                        }
-                    }
-                }).response
-            });
-            ui.add_enabled_ui(s.overlay, |ui| {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["overlay_position"], "Overlay position", "The corner the performance overlay sits in.", |ui, s| {
-                    egui::ComboBox::from_id_salt("overlay-position").selected_text(tr(s.overlay_position.label())).show_ui(ui, |ui| {
-                        for corner in crate::config::OverlayCorner::ALL {
-                            ui.selectable_value(&mut s.overlay_position, corner, tr(corner.label()));
-                        }
-                    }).response
-                });
-            });
 
-            section_at(ui, "Controls", &mut jump);
+            rows.section(ui, "Controls", &mut jump);
             if !layered {
                 row(ui, "Input customization", "Controller mappings, stick dead zones and saved keyboard chords.", |ui| {
                     ui.horizontal(|ui| {
@@ -2266,7 +2245,7 @@ impl Launcher {
                     }).inner
                 });
             }
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_mode"], "Mouse", "Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mouse_mode"], "Mouse", "Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", |ui, s| {
                 egui::ComboBox::from_id_salt("mouse")
                     .selected_text(match s.mouse_mode {
                         MouseMode::Capture => tr("Captured"),
@@ -2278,24 +2257,24 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["capture_system_keys"], "Send system keys",
+            setting_row(ui, s, &mut rows, &["capture_system_keys"], "Send system keys",
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui, s| toggle(ui, &mut s.capture_system_keys),
             );
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["cursor_shapes"], "Local cursor", "Show the PC's cursor without video delay in desktop pointer mode when the host supports it.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["cursor_shapes"], "Local cursor", "Show the PC's cursor without video delay in desktop pointer mode when the host supports it.", |ui, s| {
                 toggle(ui, &mut s.cursor_shapes)
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_speed"], "Mouse speed", "Sensitivity of the captured pointer.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_nav_buttons"], "Mouse navigation buttons", "Send the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controllers"], "Controllers", "Every connected controller becomes a controller on the PC.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "Sensitivity of the captured pointer.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
+            setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Send the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
+            setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
+            setting_row(ui, s, &mut rows, &["controllers"], "Controllers", "Every connected controller becomes a controller on the PC.", |ui, s| {
                 toggle(ui, &mut s.controllers)
             });
             ui.add_enabled_ui(s.controllers, |ui| {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["back_opens_menu"], "Back opens stream controls", "Use the controller's Back / Select button to open the menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_mouse"], "Controller mouse mode", "Hold Start for 750 ms, then release. A/B click and the D-pad scrolls.", |ui, s| toggle(ui, &mut s.controller_mouse));
+                setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "Use the controller's Back / Select button to open the menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+                setting_row(ui, s, &mut rows, &["controller_mouse"], "Controller mouse mode", "Hold Start for 750 ms, then release. A/B click and the D-pad scrolls.", |ui, s| toggle(ui, &mut s.controller_mouse));
                 if s.controller_mouse {
-                    setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["analog_scrolling"], "Stick for scrolling", "The other stick moves the pointer. Off lets both sticks move it.", |ui, s| {
+                    setting_row(ui, s, &mut rows, &["analog_scrolling"], "Stick for scrolling", "The other stick moves the pointer. Off lets both sticks move it.", |ui, s| {
                         use crate::config::AnalogScrolling;
                         egui::ComboBox::from_id_salt("analog-scrolling").selected_text(match s.analog_scrolling { AnalogScrolling::Off => tr("Off"), AnalogScrolling::Left => tr("Left"), AnalogScrolling::Right => tr("Right") }).show_ui(ui, |ui| {
                             ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Off, tr("Off"));
@@ -2303,23 +2282,26 @@ impl Launcher {
                             ui.selectable_value(&mut s.analog_scrolling, AnalogScrolling::Right, tr("Right"));
                         }).response
                     });
-                    setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["mouse_fixed_step"], "Precise controller mouse", "Hold X for fixed pixel steps. Press Y to double the step from 1 to 128 pixels.", |ui, s| toggle(ui, &mut s.mouse_fixed_step));
+                    setting_row(ui, s, &mut rows, &["mouse_fixed_step"], "Precise controller mouse", "Hold X for fixed pixel steps. Press Y to double the step from 1 to 128 pixels.", |ui, s| toggle(ui, &mut s.mouse_fixed_step));
                 }
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["gamepad_touchpad_as_mouse"], "Controller touchpad as mouse", "Move with one finger, scroll with two. Press the pad for a left click, or with two fingers for a right click.", |ui, s| toggle(ui, &mut s.gamepad_touchpad_as_mouse));
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["disable_rumble"], "Disable vibration", "Turn off controller rumble, trigger rumble, and waveform haptics.", |ui, s| toggle(ui, &mut s.disable_rumble));
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["swap_face_buttons"], "Nintendo button layout", "Swap A/B and X/Y.", |ui, s| toggle(ui, &mut s.swap_face_buttons));
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_motion"], "Motion controls", "Send gyro and accelerometer data when a game asks for it.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["gamepad_touchpad_as_mouse"], "Controller touchpad as mouse", "Move with one finger, scroll with two. Press the pad for a left click, or with two fingers for a right click.", |ui, s| toggle(ui, &mut s.gamepad_touchpad_as_mouse));
+                setting_row(ui, s, &mut rows, &["disable_rumble"], "Disable vibration", "Turn off controller rumble, trigger rumble, and waveform haptics.", |ui, s| toggle(ui, &mut s.disable_rumble));
+                setting_row(ui, s, &mut rows, &["swap_face_buttons"], "Nintendo button layout", "Swap A/B and X/Y.", |ui, s| toggle(ui, &mut s.swap_face_buttons));
+                setting_row(ui, s, &mut rows, &["controller_motion"], "Motion controls", "Send gyro and accelerometer data when a game asks for it.", |ui, s| {
                     toggle(ui, &mut s.controller_motion)
                 });
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["controller_audio"], "DualSense USB audio", "Use waveform haptics, speaker, headset and microphone. Choose devices in stream controls; microphone forwarding also needs Microphone enabled.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["controller_audio"], "DualSense USB audio", "Use waveform haptics, speaker, headset and microphone. Choose devices in stream controls; microphone forwarding also needs Microphone enabled.", |ui, s| {
                     toggle(ui, &mut s.controller_audio)
                 });
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["background_controllers"], "Input in the background", "Keep controllers working when Nightjar is not focused.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["background_controllers"], "Input in the background", "Keep controllers working when Nightjar is not focused.", |ui, s| {
                     toggle(ui, &mut s.background_controllers)
                 });
             });
-            section_at(ui, "Audio", &mut jump);
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio"], "Channels", "Surround needs a host and output device that support it.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["clipboard_sync"], "Clipboard sync", "Text copied here goes on the PC's clipboard, and text copied on the PC comes here. The PC must allow this device to read and write its clipboard.", |ui, s| {
+                toggle(ui, &mut s.clipboard_sync)
+            });
+            rows.section(ui, "Audio", &mut jump);
+            setting_row(ui, s, &mut rows, &["audio"], "Channels", "Surround needs a host and output device that support it.", |ui, s| {
                 egui::ComboBox::from_id_salt("audio")
                     .selected_text(match s.audio {
                         AudioChannels::Stereo => tr("Stereo"),
@@ -2333,17 +2315,38 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio_passthrough"], "Audio passthrough (Experimental)", "Ask a Rubylight PC for uncompressed PCM audio instead of Opus: lossless, at 1.5 Mbps for stereo up to 6 Mbps for 7.1. Other PCs keep Opus.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["audio_passthrough"], "Audio passthrough", "Ask a Rubylight PC for uncompressed PCM audio instead of Opus: lossless, at 1.5 Mbps for stereo up to 6 Mbps for 7.1. Other PCs keep Opus.", |ui, s| {
                 toggle(ui, &mut s.audio_passthrough)
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["play_audio_on_host"], "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["play_audio_on_host"], "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui, s| {
                 toggle(ui, &mut s.play_audio_on_host)
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["microphone"], "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["microphone"], "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui, s| {
                 toggle(ui, &mut s.microphone)
             });
 
-            section_at(ui, "Streaming", &mut jump);
+            rows.section(ui, "Streaming", &mut jump);
+            setting_row(ui, s, &mut rows, &["overlay", "overlay_mode"], "Performance overlay",
+                "Compact shows one line with the stream's health, Statistics the frame rates, network, host and decode times, Debug every measurement. Ctrl+Alt+Shift+S and the stream menu change it too.", |ui, s| {
+                let shown = if s.overlay { tr(s.overlay_mode.label()) } else { tr("Off") };
+                egui::ComboBox::from_id_salt("overlay-mode").selected_text(shown).show_ui(ui, |ui| {
+                    if ui.selectable_label(!s.overlay, tr("Off")).clicked() { s.overlay = false; }
+                    for mode in crate::config::OverlayMode::ALL {
+                        if ui.selectable_label(s.overlay && s.overlay_mode == mode, tr(mode.label())).clicked() {
+                            (s.overlay, s.overlay_mode) = (true, mode);
+                        }
+                    }
+                }).response
+            });
+            ui.add_enabled_ui(s.overlay, |ui| {
+                setting_row(ui, s, &mut rows, &["overlay_position"], "Overlay position", "The corner the performance overlay sits in.", |ui, s| {
+                    egui::ComboBox::from_id_salt("overlay-position").selected_text(tr(s.overlay_position.label())).show_ui(ui, |ui| {
+                        for corner in crate::config::OverlayCorner::ALL {
+                            ui.selectable_value(&mut s.overlay_position, corner, tr(corner.label()));
+                        }
+                    }).response
+                });
+            });
             if let Some(host) = test_host {
                 let online = host.paired() && host.reach == Reach::Online;
                 row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
@@ -2364,16 +2367,10 @@ impl Launcher {
                     }).inner
                 });
             }
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["auto_reconnect"], "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["auto_reconnect"], "Recover interrupted streams", "Try to resume the same running app up to five times within one minute.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "A Rubylight PC then paces the stream for Wi-Fi from the start. Other PCs are not told.", |ui, s| {
-                toggle(ui, &mut s.tell_host_wireless)
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
-                toggle(ui, &mut s.tell_host_link_speed)
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["error_correction"], "Error correction", "How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", |ui, s| {
                 egui::ComboBox::from_id_salt("error-correction")
                     .selected_text(error_correction_name(s.error_correction))
                     .show_ui(ui, |ui| {
@@ -2383,10 +2380,7 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["link_probe"], "Link test before the first bitrate (Experimental)", "A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.", |ui, s| {
-                toggle(ui, &mut s.link_probe)
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
                 egui::ComboBox::from_id_salt("network-grace")
                     .selected_text(trf("{} seconds", &[&(s.network_grace_ms / 1000)]))
                     .show_ui(ui, |ui| {
@@ -2395,41 +2389,40 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["client_roaming"], "Client roaming (Experimental)", "Keep the stream running when this device changes networks. Works with Rubylight PCs that support it.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["client_roaming"], "Client roaming", "Keep the stream running when this device changes networks. Works with Rubylight PCs that support it.", |ui, s| {
                 toggle(ui, &mut s.client_roaming)
             });
             if s.client_roaming {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["roaming_metered"], "Continue on mobile data", "Let the stream move onto mobile data or another metered network. Streaming uses a lot of data.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["roaming_metered"], "Continue on mobile data", "Let the stream move onto mobile data or another metered network. Streaming uses a lot of data.", |ui, s| {
                     toggle(ui, &mut s.roaming_metered)
                 });
             }
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["clipboard_sync"], "Clipboard sync", "Text copied here goes on the PC's clipboard, and text copied on the PC comes here. The PC must allow this device to read and write its clipboard.", |ui, s| {
-                toggle(ui, &mut s.clipboard_sync)
-            });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["usb_forwarding"], "USB forwarding (Experimental)", "Attach USB devices plugged into this computer to the PC from the stream controls. The PC must allow USB devices for this client. On Windows a device needs the WinUSB driver.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["usb_forwarding"], "USB forwarding", "Attach USB devices plugged into this computer to the PC from the stream controls. The PC must allow USB devices for this client. On Windows a device needs the WinUSB driver.", |ui, s| {
                 toggle(ui, &mut s.usb_forwarding)
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["unbatched_input"], "Instant mouse and pen input", "Send mouse and pen movements immediately.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["unbatched_input"], "Instant mouse and pen input", "Send mouse and pen movements immediately.", |ui, s| {
                 toggle(ui, &mut s.unbatched_input)
             });
             // The engine sets socket and thread priorities on Linux only; on Windows the switch would do nothing.
             if cfg!(target_os = "linux") {
-                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_priority"], "Prioritize stream traffic", "Give stream traffic priority on this device.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Give stream traffic priority on this device.", |ui, s| {
                     toggle(ui, &mut s.network_priority)
                 });
             }
 
             if !layered {
-                section_at(ui, "App", &mut jump);
+                rows.section(ui, "App", &mut jump);
                 row(ui, "Open on Home", "Start on the games to continue and your library. Off starts on the list of PCs.", |ui| {
                     toggle(ui, &mut s.console_home)
                 });
                 row(ui, "Quick resume", "Clicking a PC that is running a game goes straight back into the game instead of opening its library.", |ui| {
                     toggle(ui, &mut s.quick_resume)
                 });
-                row(ui, "Input-only on any PC", "Adds Input-only to a game’s menu on PCs whose host has no Input-only mode of its own. The PC still sends video and audio at the smallest size, under 1 Mbit/s; Nightjar doesn’t show or play them. Hosts with their own mode keep using it.", |ui| {
-                    toggle(ui, &mut s.input_only_any_host)
-                });
+                if rows.shows(&["input_only_any_host"]) {
+                    row(ui, "Input-only on any PC", "Adds Input-only to a game’s menu on PCs whose host has no Input-only mode of its own. The PC still sends video and audio at the smallest size, under 1 Mbit/s; Nightjar doesn’t show or play them. Hosts with their own mode keep using it.", |ui| {
+                        toggle(ui, &mut s.input_only_any_host)
+                    });
+                }
                 row(ui, "Language", "The language of the launcher and the stream menu. System default follows the operating system.", |ui| {
                     egui::ComboBox::from_id_salt("language")
                         .selected_text(match s.language {
@@ -2444,42 +2437,63 @@ impl Launcher {
                         })
                         .response
                 });
-                row(ui, "UI zoom", "Makes everything bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", |ui| {
-                    egui::ComboBox::from_id_salt("ui-zoom")
-                        .selected_text(format!("{}%", crate::config::nearest_zoom(s.ui_zoom)))
-                        .show_ui(ui, |ui| {
-                            for step in UI_ZOOM_STEPS {
-                                ui.selectable_value(&mut s.ui_zoom, step, format!("{step}%"));
-                            }
-                        })
-                        .response
-                });
+                if rows.shows(&["ui_zoom"]) {
+                    row(ui, "UI zoom", "Makes everything bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", |ui| {
+                        egui::ComboBox::from_id_salt("ui-zoom")
+                            .selected_text(format!("{}%", crate::config::nearest_zoom(s.ui_zoom)))
+                            .show_ui(ui, |ui| {
+                                for step in UI_ZOOM_STEPS {
+                                    ui.selectable_value(&mut s.ui_zoom, step, format!("{step}%"));
+                                }
+                            })
+                            .response
+                    });
+                }
                 row(ui, "Logs", "Nightjar keeps a log of the last two runs. Attach nightjar.log, and nightjar.prev.log if the problem was before a restart, to a bug report.", |ui| {
                     let button = quiet_button(ui, "Open logs folder");
                     if button.clicked() { commands.push(Command::OpenLogs); }
                     button
                 });
-                row(ui, "High contrast", "Black surfaces, white text and thicker outlines and focus rings.", |ui| {
-                    toggle(ui, &mut s.high_contrast)
-                });
-                row(ui, "Reduce motion", "Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems do not report one, so motion stays on.", |ui| {
-                    egui::ComboBox::from_id_salt("reduce-motion")
-                        .selected_text(match s.reduce_motion {
-                            ReduceMotion::System => tr("Follow system"),
-                            ReduceMotion::Reduce => tr("Reduce"),
-                            ReduceMotion::Full => tr("Full motion"),
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut s.reduce_motion, ReduceMotion::System, tr("Follow system"));
-                            ui.selectable_value(&mut s.reduce_motion, ReduceMotion::Reduce, tr("Reduce"));
-                            ui.selectable_value(&mut s.reduce_motion, ReduceMotion::Full, tr("Full motion"));
-                        })
-                        .response
-                });
+                if rows.shows(&["high_contrast"]) {
+                    row(ui, "High contrast", "Black surfaces, white text and thicker outlines and focus rings.", |ui| {
+                        toggle(ui, &mut s.high_contrast)
+                    });
+                }
+                if rows.shows(&["reduce_motion"]) {
+                    row(ui, "Reduce motion", "Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems do not report one, so motion stays on.", |ui| {
+                        egui::ComboBox::from_id_salt("reduce-motion")
+                            .selected_text(match s.reduce_motion {
+                                ReduceMotion::System => tr("Follow system"),
+                                ReduceMotion::Reduce => tr("Reduce"),
+                                ReduceMotion::Full => tr("Full motion"),
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut s.reduce_motion, ReduceMotion::System, tr("Follow system"));
+                                ui.selectable_value(&mut s.reduce_motion, ReduceMotion::Reduce, tr("Reduce"));
+                                ui.selectable_value(&mut s.reduce_motion, ReduceMotion::Full, tr("Full motion"));
+                            })
+                            .response
+                    });
+                }
             }
-            section_at(ui, "Advanced", &mut jump);
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["experimental_packed_444"], "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
+            rows.section(ui, "Advanced", &mut jump);
+            setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Request the full RGB range from the host.", |ui, s| toggle(ui, &mut s.full_range));
+            setting_row(ui, s, &mut rows, &["client_hint_bitrate"], "Loss-based bitrate (Rust engine)", "Lower the bitrate when frames are lost and raise it again after clean seconds, from the next frame on. Works with Rubylight PCs that take mid-stream rate changes, and replaces Device controls bitrate there.", |ui, s| {
+                toggle(ui, &mut s.client_hint_bitrate)
+            });
+            setting_row(ui, s, &mut rows, &["experimental_packed_444"], "Full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
                 |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
+            rows.group(ui, "Diagnostics");
+            setting_row(ui, s, &mut rows, &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "A Rubylight PC then paces the stream for Wi-Fi from the start. Other PCs are not told.", |ui, s| {
+                toggle(ui, &mut s.tell_host_wireless)
+            });
+            setting_row(ui, s, &mut rows, &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
+                toggle(ui, &mut s.tell_host_link_speed)
+            });
+            setting_row(ui, s, &mut rows, &["link_probe"], "Link test before the first bitrate", "A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.", |ui, s| {
+                toggle(ui, &mut s.link_probe)
+            });
+            rows.finish(ui);
             ui.add_space(18.0);
             ui.label(
                 RichText::new(tr(
@@ -2698,7 +2712,7 @@ impl Launcher {
                         ui.set_width(440.0);
                         ui.label(RichText::new(trf("Put {} to sleep?", &[&name])).font(semibold(text::SECTION)));
                         ui.label(
-                            RichText::new(tr("Experimental. The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
+                            RichText::new(tr("The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
                                 .color(ON_SURFACE_VARIANT),
                         );
                         ui.add_space(12.0);
@@ -3628,19 +3642,121 @@ fn error_correction_name(mode: ErrorCorrection) -> String {
     }
 }
 
+/// The main rows of each section, as `client/app/src/main/res/values/settings_tiers.xml` lists them
+/// by Android preference key, in `SETTINGS_SECTIONS` order. A test keeps the two equal.
+const MAIN_KEYS: [(&str, &[&str]); 7] = [
+    ("video", &["stream_profiles", "list_resolution", "list_fps", "seekbar_bitrate_kbps", "checkbox_auto_bitrate", "list_mobile_bitrate_kbps", "video_format", "checkbox_enable_hdr"]),
+    ("display", &["checkbox_stretch_video", "stream_orientation"]),
+    ("input", &["checkbox_multi_controller", "controller_button_mapping", "controller_test", "checkbox_flip_face_buttons", "checkbox_touchscreen_trackpad", "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"]),
+    ("audio", &["list_audio_config", "checkbox_host_audio", "checkbox_enable_mic", "checkbox_mic_button"]),
+    ("streaming", &["checkbox_enable_perf_overlay", "checkbox_auto_reconnect"]),
+    ("app", &["checkbox_always_dark", "list_languages", "checkbox_console_home", "checkbox_quick_resume", "pin_lock", "help", "report_problem", "check_updates_now"]),
+    ("advanced", &["checkbox_rust_engine", "low_latency_decoding", "low_latency_customize", "gpu_driver", "checkbox_gpu_max_clocks", "checkbox_texture_view", "checkbox_vulkan_render", "checkbox_full_range"]),
+];
+
+/// Desktop rows and the Android preference each one matches. A row is main when its match is.
+const ANDROID_KEYS: [(&str, &str); 30] = [
+    ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
+    ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
+    ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
+    ("swap_face_buttons", "checkbox_flip_face_buttons"), ("clipboard_sync", "checkbox_clipboard_sync"),
+    ("audio", "list_audio_config"), ("play_audio_on_host", "checkbox_host_audio"), ("microphone", "checkbox_enable_mic"),
+    ("overlay", "checkbox_enable_perf_overlay"), ("auto_reconnect", "checkbox_auto_reconnect"),
+    ("console_home", "checkbox_console_home"), ("quick_resume", "checkbox_quick_resume"), ("language", "list_languages"),
+    ("full_range", "checkbox_full_range"),
+    ("client_hint_bitrate", "checkbox_rate_change_bitrate"), ("experimental_packed_444", "experimental_packed_444"),
+    ("tell_host_wireless", "checkbox_tell_host_wireless"), ("tell_host_link_speed", "checkbox_tell_host_link_speed"),
+    ("link_probe", "checkbox_link_probe"), ("client_roaming", "checkbox_client_roaming"),
+    ("audio_passthrough", "checkbox_audio_passthrough"), ("usb_forwarding", "checkbox_usb_forwarding"),
+    ("unbatched_input", "checkbox_unbatched_input"), ("network_priority", "checkbox_network_priority"),
+    ("input_only_any_host", "checkbox_input_only_any_host"),
+];
+
+/// Main rows Android has no match for.
+const DESKTOP_MAIN: [&str; 2] = ["window_mode", "mouse_mode"];
+
+fn main_row(key: &str) -> bool {
+    DESKTOP_MAIN.contains(&key)
+        || ANDROID_KEYS.iter().any(|&(desktop, android)| desktop == key && MAIN_KEYS.iter().any(|(_, main)| main.contains(&android)))
+}
+
+/// The settings page's rows as it draws them: each section shows its main rows and folds the rest
+/// behind a "More … settings" button. A folded row a PC or profile overrides stays in view.
+struct Rows<'a> {
+    layer: Option<(&'a Settings, &'a mut Overrides)>,
+    unfolded: &'a mut std::collections::BTreeSet<&'static str>,
+    section: &'static str,
+    /// The section's folded rows so far, drawn or not.
+    folded: usize,
+}
+
+impl Rows<'_> {
+    fn open(&self) -> bool {
+        self.unfolded.contains(self.section)
+    }
+
+    /// Whether the row for `keys` is drawn.
+    fn shows(&mut self, keys: &[&str]) -> bool {
+        if keys.first().is_some_and(|k| main_row(k)) {
+            return true;
+        }
+        self.folded += 1;
+        self.open() || self.layer.as_ref().is_some_and(|(_, overrides)| overrides.has(keys))
+    }
+
+    /// Ends the section before, then starts `title`.
+    fn section(&mut self, ui: &mut Ui, title: &'static str, jump: &mut Option<&'static str>) {
+        self.finish(ui);
+        section_at(ui, title, jump);
+        (self.section, self.folded) = (title, 0);
+    }
+
+    /// A group heading inside the fold, such as Advanced's Diagnostics.
+    fn group(&self, ui: &mut Ui, title: &str) {
+        if self.open() {
+            ui.add_space(6.0);
+            ui.label(RichText::new(tr(title)).font(semibold(text::LABEL)).color(ON_SURFACE_VARIANT));
+            ui.add_space(4.0);
+        }
+    }
+
+    /// The section's fold button, when it has folded rows.
+    fn finish(&mut self, ui: &mut Ui) {
+        if self.folded == 0 {
+            return;
+        }
+        let open = self.open();
+        let label = if open { trf("Fewer {} settings", &[&tr(self.section)]) } else { trf("More {} settings ({})", &[&tr(self.section), &self.folded]) };
+        let button = ui.add(egui::Button::new(RichText::new(label).color(ON_SURFACE_VARIANT).font(semibold(text::LABEL)))
+            .frame(false)
+            .min_size(vec2(0.0, 36.0)));
+        focus_ring(ui, button.rect, &button, radius::CONTROL);
+        if button.clicked() && !self.unfolded.remove(self.section) {
+            self.unfolded.insert(self.section);
+        }
+        ui.add_space(6.0);
+        self.folded = 0;
+    }
+}
+
+/// A setting's row, or None while its section folds it away.
 fn setting_row(
     ui: &mut Ui,
     settings: &mut Settings,
-    layer: Option<(&Settings, &mut Overrides)>,
+    rows: &mut Rows<'_>,
     keys: &[&str],
     label: &str,
     description: &str,
     control: impl FnOnce(&mut Ui, &mut Settings) -> Response,
-) -> Response {
-    let Some((inherited, overrides)) = layer else {
-        return row(ui, label, description, |ui| control(ui, settings));
+) -> Option<Response> {
+    if !rows.shows(keys) {
+        return None;
+    }
+    let Some((inherited, overrides)) = rows.layer.as_mut() else {
+        return Some(row(ui, label, description, |ui| control(ui, settings)));
     };
-    row(ui, label, description, |ui| {
+    let inherited = *inherited;
+    Some(row(ui, label, description, |ui| {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
             ui.set_width(240.0);
             let mut own = overrides.has(keys);
@@ -3653,7 +3769,7 @@ fn setting_row(
             if own { overrides.capture(settings, keys); }
             response.union(value)
         }).inner
-    })
+    }))
 }
 
 /// A settings row: label and description on the left, the control on the right.
@@ -4336,6 +4452,48 @@ mod tests {
     }
 
     #[test]
+    fn settings_main_rows_are_androids_tiers() {
+        let tiers = include_str!("../../../app/src/main/res/values/settings_tiers.xml");
+        let parsed: Vec<(&str, Vec<&str>)> = tiers.split("<string-array name=\"settings_tier_").skip(1).map(|array| {
+            let (name, body) = array.split_once('"').expect("a named array");
+            let body = body.split("</string-array>").next().unwrap_or_default();
+            (name, body.split("<item>").skip(1).filter_map(|i| i.split("</item>").next()).collect())
+        }).collect();
+        let ours: Vec<(&str, Vec<&str>)> = MAIN_KEYS.iter().map(|(name, keys)| (*name, keys.to_vec())).collect();
+        assert_eq!(ours, parsed, "MAIN_KEYS follows settings_tiers.xml");
+        let preferences = include_str!("../../../app/src/main/res/xml/preferences.xml");
+        for (desktop, android) in ANDROID_KEYS {
+            assert!(preferences.contains(&format!("android:key=\"{android}\"")), "{desktop} matches Android's {android}, which exists");
+            assert!(!DESKTOP_MAIN.contains(&desktop), "{desktop}: Android decides its tier");
+        }
+        assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode"));
+        assert!(!main_row("tell_host_wireless") && !main_row("client_hint_bitrate") && !main_row("ui_zoom"));
+    }
+
+    #[test]
+    fn settings_fold_rows_behind_more_and_show_them_when_opened() {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.size = vec2(1280.0, 12000.0);
+        f.l.go(Screen::Settings);
+        f.settle();
+        assert!(shows(&f, "Device controls bitrate") && shows(&f, "Recover interrupted streams"), "main rows show: {:?}", f.drawn);
+        assert!(!shows(&f, "Tell the PC when on Wi-Fi") && !shows(&f, "Loss-based bitrate (Rust engine)") && !shows(&f, "Diagnostics"), "folded rows wait");
+        let more = f.placed.iter().find(|(t, _, _)| t == "More Advanced settings (5)").map(|p| p.1.center()).expect("Advanced folds five rows");
+        f.click_at(more, egui::PointerButton::Primary);
+        for text in ["Loss-based bitrate (Rust engine)", "Full chroma", "Diagnostics", "Tell the PC when on Wi-Fi", "Link test before the first bitrate", "Fewer Advanced settings"] {
+            assert!(shows(&f, text), "{text} shows once Advanced opens");
+        }
+        assert!(!shows(&f, "Client roaming"), "Streaming stays folded");
+        // A PC's override of a folded row keeps it in view while the section is folded.
+        f.l.unfolded.clear();
+        let id = f.hosts.list[0].id;
+        f.l.go(Screen::HostSettings(id));
+        f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
+        f.settle();
+        assert!(shows(&f, "Client roaming") && !shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
+    }
+
+    #[test]
     fn the_pyrowave_gpu_probe_starts_only_with_pyrowave_selected_or_the_codec_menu_open() {
         use crate::config::{CodecPreference, PyroWaveDecoder};
         let started = || crate::stream::pyrowave_mode::settings_probe_started(true);
@@ -4577,19 +4735,20 @@ mod tests {
         // The 1280-pixel width is what is checked; the height lets the network rows be drawn
         // without scrolling to them.
         f.size.y = 8000.0;
+        f.l.unfolded.extend(SETTINGS_SECTIONS);
         let shown = |f: &Frames, text: &str| f.placed.iter().any(|(t, _, _)| t.contains(text));
         let id = f.hosts.list[0].id;
         for (screen, global) in [(Screen::Settings, true), (Screen::HostSettings(id), false)] {
             f.l.settings.client_roaming = true;
             f.l.go(screen);
             f.settle();
-            assert!(shown(&f, "Netzwerkwechsel (Experimentell)"), "{screen:?}: the roaming row is drawn in German");
+            assert!(shown(&f, "Netzwerkwechsel"), "{screen:?}: the roaming row is drawn in German");
             assert!(shown(&f, "Über mobile Daten fortsetzen"), "{screen:?}: mobile data shows while roaming is on");
             assert_fits(&f, &format!("{screen:?} with roaming"), false);
             if global {
                 f.l.settings.client_roaming = false;
                 f.settle();
-                assert!(shown(&f, "Netzwerkwechsel (Experimentell)"));
+                assert!(shown(&f, "Netzwerkwechsel"));
                 assert!(!shown(&f, "Über mobile Daten fortsetzen"), "mobile data hides while roaming is off");
             }
         }

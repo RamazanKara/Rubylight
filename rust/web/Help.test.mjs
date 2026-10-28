@@ -6,7 +6,6 @@ import { createTestServer } from './test-server.mjs';
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
 const server = await createTestServer();
-const { pending } = await server.ssrLoadModule('/src/components/maintenance/child-session.ts');
 const { render } = await server.ssrLoadModule('svelte/server');
 const { default: HostReadiness } = await server.ssrLoadModule('/src/components/overview/HostReadiness.svelte');
 
@@ -24,7 +23,7 @@ test('Help is titled for someone with a problem and keeps the order of the page 
   assert.match(help, /<PageHeader title="Help" subtitle="Something is wrong\? Start here\.">/);
   // The host anchor other pages link to stays.
   assert.match(help, /<div id="host"><\/div>/);
-  const order = ['<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<LogAnalysisPanel', '<ChildSessionPanel', '<CrashPanel'];
+  const order = ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<NucleusPanel', '<LogAnalysisPanel', '<CrashPanel'];
   const at = order.map((tag) => help.indexOf(tag));
   assert.ok(at.every((index) => index > 0), `${at}`);
   assert.deepEqual([...at].sort((a, b) => a - b), at);
@@ -38,25 +37,6 @@ test('the Vulkan HDR layer and RTSS live in a collapsed Integrations group under
   assert.match(fold, /Integrations/);
   assert.match(fold, /<VulkanPanel \/>/);
   assert.match(fold, /<LimiterPanel \/>/);
-});
-
-const off = {
-  mode: 'virtual_display',
-  set_up: false,
-  viewer: null,
-  problem: null,
-  missing: ['Remote Desktop'],
-  missing_error: null,
-  display_error: null,
-  unavailable: null,
-};
-
-test('Help shows the child session only while there is something to use, restore or fix', () => {
-  assert.equal(pending(off), false);
-  assert.equal(pending({ ...off, set_up: true }), true, 'restore is pending');
-  assert.equal(pending({ ...off, mode: 'child_session' }), true, 'Background mode uses it');
-  assert.equal(pending({ ...off, problem: 'Background streaming stopped' }), true);
-  assert.equal(pending({ ...off, missing_error: 'Access denied' }), true);
 });
 
 const metadata = {

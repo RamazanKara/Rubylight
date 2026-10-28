@@ -1,7 +1,7 @@
 <script lang="ts">
   import Button from '../components/Button.svelte';
   import PageHeader from '../components/PageHeader.svelte';
-  import ChildSessionPanel from '../components/maintenance/ChildSessionPanel.svelte';
+  import ChildSessionBanner from '../components/maintenance/ChildSessionBanner.svelte';
   import CrashPanel from '../components/maintenance/CrashPanel.svelte';
   import LogAnalysisPanel from '../components/maintenance/LogAnalysisPanel.svelte';
   import DisplaysPanel from '../components/maintenance/DisplaysPanel.svelte';
@@ -10,9 +10,6 @@
   import Section from '../components/maintenance/Section.svelte';
   import WindowsSessionPanel from '../components/maintenance/WindowsSessionPanel.svelte';
   import { link } from '../lib/router.svelte';
-
-  // Mounted from the start so it loads; its section shows once there is something to restore or fix.
-  let childSession = $state(false);
 </script>
 
 <!-- Updates, power, signed-in browsers and the password live on the Settings home;
@@ -21,6 +18,7 @@
   <PageHeader title="Help" subtitle="Something is wrong? Start here.">
     {#snippet actions()}<Button href="/logs" icon="logs">View logs</Button>{/snippet}
   </PageHeader>
+  <ChildSessionBanner />
   <div id="host"></div>
   <Section title="Host">
     <HostPanel />
@@ -33,11 +31,6 @@
   <Section title="Logs">
     <LogAnalysisPanel />
   </Section>
-  <div class="optional" hidden={!childSession}>
-    <Section title="Background child session">
-      <ChildSessionPanel bind:shown={childSession} />
-    </Section>
-  </div>
   <Section title="Crashes and support bundle">
     <CrashPanel />
   </Section>
@@ -52,9 +45,6 @@
     display: grid;
     gap: var(--space-6);
     min-width: 0;
-  }
-  .optional[hidden] {
-    display: none;
   }
   .moved {
     font-size: var(--text-sm);

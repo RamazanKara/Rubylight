@@ -587,43 +587,10 @@ export interface LimiterStatus {
   process_running: boolean;
   message: string;
 }
-export type ChildSessionPhase =
-  | 'idle'
-  | 'needs_password'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'signing_out'
-  | 'sign_in_failed'
-  | 'signed_out';
-/** What the child-session viewer last reported. */
-export interface ChildSessionViewer {
-  phase: ChildSessionPhase;
-  message: string;
-  child: number;
-  generation: number;
-  password_saved: boolean;
-  notice: string | null;
-}
-/** `GET /api/child-session`: background streaming in a Windows child session. */
+/** `GET /api/child-session`: whether Windows settings the removed child-session feature's setup changed are still changed, and why the last restore failed. */
 export interface ChildSessionStatus {
-  mode: 'child_session' | 'nucleus' | 'inside_child_session' | 'unavailable';
-  label: string;
-  reason: string;
-  edition: string;
-  /** What setup still has to change; null when it could not be read (`missing_error`). */
-  missing: string[] | null;
-  missing_error: string | null;
-  /** Why this host starts no child session though they are set up (it runs without administrator rights); null otherwise. */
-  unavailable: string | null;
-  /** Rubylight changed Windows settings that Restore puts back. */
-  set_up: boolean;
-  display: { width: number; height: number; scale: number } | null;
-  display_error: string | null;
-  viewer: { status: ChildSessionViewer | null; host_child: number | null } | null;
-  host_port: number | null;
+  pending: boolean;
   problem: string | null;
-  limits: string[];
 }
 export type CoopPhase = 'starting' | 'running' | 'ended';
 /** How a Nucleus Co-op session ended; `detail` says what stopped for `crashed` and `failed`. */
@@ -653,12 +620,10 @@ export interface CoopSession {
 export interface CoopStatus {
   mode: {
     setting: string;
-    /** Nucleus Co-op is the only background mode; `unavailable` when `background_mode` holds no mode. */
-    mode: 'nucleus' | 'unavailable';
+    /** Nucleus Co-op is the only background mode. */
+    mode: 'nucleus';
     label: string;
     reason: string;
-    /** `background_mode` holds a value an earlier build wrote (`auto`, `child_session`, `virtual_display`), which reads as Nucleus Co-op. */
-    legacy: boolean;
   };
   install: {
     state: 'installed' | 'missing' | 'configured' | 'installing' | 'failed';
@@ -1000,14 +965,8 @@ export const api = {
   },
   childSession: {
     status: () => get<ChildSessionStatus>('/api/child-session'),
-    setup: () => post<Ok>('/api/child-session/setup'),
-    restore: () => post<Ok & { restored: boolean }>('/api/child-session/restore'),
-    /** A newly typed Windows password goes to the viewer once; leave it out to use the saved one. */
-    start: (password?: string) => post<Ok>('/api/child-session/start', password ? { password } : {}),
-    stop: () => post<Ok>('/api/child-session/stop'),
-    show: () => post<Ok>('/api/child-session/show'),
-    end: (child: number, generation: number) => post<Ok>('/api/child-session/end', { child, generation }),
-    forgetPassword: () => post<Ok>('/api/child-session/forget-password'),
+    /** Runs the host's start-up restore again; the answer is the new status. */
+    restore: () => post<ChildSessionStatus>('/api/child-session/restore', {}, ACTION_TIMEOUT_MS),
   },
   coop: {
     status: () => get<CoopStatus>('/api/coop'),

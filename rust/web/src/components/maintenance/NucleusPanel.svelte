@@ -7,7 +7,7 @@
   import Panel from '../Panel.svelte';
   import { api, type CoopPlayer, type CoopSession, type CoopStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
-  import { statusLoader } from './child-session';
+  import { statusLoader } from './status-loader';
   import { endText, installStates, kickable, phaseOf, playerText, polls } from './coop';
   import { reason } from './util';
 
@@ -101,12 +101,6 @@
           {#if status.install.path}<span class="muted mono">{status.install.path}</span>{/if}
         </dd>
       </dl>
-      {#if status.mode.mode === 'unavailable'}
-        <Banner tone="danger" title={status.mode.label}>{status.mode.reason}</Banner>
-      {/if}
-      {#if status.mode.legacy}
-        <p class="muted">This PC's background_mode line is from an earlier build and reads as Nucleus Co-op, the only background mode: you can remove it.</p>
-      {/if}
       {#if !status.available && status.reason}
         <Banner tone="warn" title="Nucleus Co-op sessions are unavailable">{status.reason}</Banner>
       {/if}

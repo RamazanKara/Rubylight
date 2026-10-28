@@ -76,7 +76,7 @@ SOFTWARE.
 
 ## Annex
 
-Background streaming in a Windows child session (Experimental) is ported from [Annex](https://github.com/mattxslv/annex) by mattxslv, with ocr1n's launcher rework ([mattxslv/annex#2](https://github.com/mattxslv/annex/pull/2)), under the MIT License: the request gate and confirmation, the end-session checks and display settings, the peer rule, the viewer's poll loop, the RDP client settings and the Windows settings that setup changes and restore puts back (`rust/core/src/child_session.rs`, `rust/windows/src/child_session.rs`, `rust/windows/src/child_session/viewer.rs`, `rust/host/src/child_session.rs`). The ported parts carry the notice below; the full text is in `third-party/licenses/annex-LICENSE.txt`.
+Background streaming in a Windows child session (removed; its settings restore remains) is ported from [Annex](https://github.com/mattxslv/annex) by mattxslv, with ocr1n's launcher rework ([mattxslv/annex#2](https://github.com/mattxslv/annex/pull/2)), under the MIT License: what remains is the Windows settings that setup changed and restore puts back (`rust/core/src/child_session.rs`, `rust/windows/src/child_session.rs`, `rust/host/src/child_session.rs`). The ported parts carry the notice below; the full text is in `third-party/licenses/annex-LICENSE.txt`.
 
 ```text
 MIT License

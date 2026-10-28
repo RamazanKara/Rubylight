@@ -295,7 +295,7 @@ impl PictureOrder {
                 )
                 .chain(resolved.iter().map(|(_, full)| *full))
                 .collect();
-            let sub_layer_non_reference = kind <= 14 && kind % 2 == 0;
+            let sub_layer_non_reference = kind <= 14 && kind.is_multiple_of(2);
             if temporal_id == 0 && !sub_layer_non_reference && !(6..=9).contains(&kind) {
                 self.previous = Some(poc);
                 std::mem::swap(&mut self.known, &mut known);

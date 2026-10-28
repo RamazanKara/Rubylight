@@ -294,12 +294,16 @@ pub fn recovery_frame_cap(
 /// nominal frames, `recovery_frame_cap`'s floor, already pass `fec_whole`, no
 /// cap at the floor keeps full parity, so `cap` stays as it is.
 pub fn fec_whole_frame_cap(cap: u64, fec_whole: usize, bitrate_kbps: u32, period: Duration) -> u64 {
+    fec_whole_frame_limit(fec_whole, bitrate_kbps, period).map_or(cap, |limit| cap.min(limit))
+}
+
+/// The bound [`fec_whole_frame_cap`] holds a cap to: `fec_whole`, or none
+/// where two nominal frames already pass it. An encoded frame above it loses
+/// parity, so the encoder re-encodes an inter frame that large as a keyframe;
+/// with no bound, a keyframe at the cap would lose it as well, so none is.
+pub fn fec_whole_frame_limit(fec_whole: usize, bitrate_kbps: u32, period: Duration) -> Option<u64> {
     let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
-    if minimum > fec_whole as u64 {
-        cap
-    } else {
-        cap.min(fec_whole as u64)
-    }
+    (minimum <= fec_whole as u64).then_some(fec_whole as u64)
 }
 
 /// Time spent in the send call or waking late that still counts toward the
@@ -469,6 +473,10 @@ mod tests {
         let fast = recovery_frame_cap(800_000_000, 400_000, period, 20, 1392, false);
         assert!((400_000. * 125. * period.as_secs_f64() * 2.).ceil() as u64 > whole as u64);
         assert_eq!(fec_whole_frame_cap(fast, whole, 400_000, period), fast);
+        // The re-encode bound for scene cuts is the same: full parity where the
+        // cap keeps it, none where a keyframe at the cap would lose it too.
+        assert_eq!(fec_whole_frame_limit(whole, 200_000, period), Some(whole as u64));
+        assert_eq!(fec_whole_frame_limit(whole, 400_000, period), None);
     }
 
     #[test]

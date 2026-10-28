@@ -2538,6 +2538,8 @@ impl Media {
                                             idr_requests=s.stats.idr_requests.load(Ordering::Relaxed),
                                             reference_invalidations=s.stats.reference_invalidations.load(Ordering::Relaxed),
                                             send_loss_recoveries=s.stats.send_loss_recoveries.load(Ordering::Relaxed),
+                                            // Inter frames past the full-FEC bound, sent as keyframes instead.
+                                            reencoded_cuts=encoder.as_ref().map_or(0, |encoder| encoder.reencoded_cuts()),
                                             fec_reports=timing["fec_reports"].as_u64().unwrap_or(0),
                                             fec_invalid_reports=timing["fec_invalid_reports"].as_u64().unwrap_or(0),
                                             fec_duplicate_reports=timing["fec_duplicate_reports"].as_u64().unwrap_or(0),
@@ -3065,6 +3067,12 @@ impl Media {
                                 }
                                 let cap = butterpollo_core::network_pacing::fec_whole_frame_cap(cap, fec_whole.1, bitrate, period);
                                 let _ = active.set_frame_cap(cap);
+                                // AMF does not hold a scene cut's inter frame to the cap: one
+                                // past this bound is encoded again as a keyframe.
+                                active.set_cut_limit(
+                                    butterpollo_core::network_pacing::fec_whole_frame_limit(fec_whole.1, bitrate, period)
+                                        .unwrap_or(0),
+                                );
                             }
                             // The device draws the pointer: only Desktop Duplication supplies
                             // it apart, so with any other capture it stays in the video and the

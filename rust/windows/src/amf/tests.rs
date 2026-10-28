@@ -14,8 +14,11 @@ fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreatio
             after_invalidation: false,
             frame_cap_bytes: Some(100_000),
             skipped: 0,
+            cut_limit: None,
+            reencoded: false,
             _capture: None,
             _converted: None,
+            _converted12: None,
         };
         assert_eq!(output_is_idr(None, submission.idr), requested);
         // A real driver report remains authoritative over a requested type.
@@ -58,8 +61,11 @@ fn a_frame_counts_as_unreturned_from_its_acceptance_not_from_its_conversion() {
         after_invalidation: false,
         frame_cap_bytes: None,
         skipped: 0,
+        cut_limit: None,
+        reencoded: false,
         _capture: None,
         _converted: None,
+        _converted12: None,
     };
     let slow_conversion = submission(Duration::from_millis(4700), Duration::ZERO);
     assert!(!slow_conversion.unreturned(now));
@@ -125,8 +131,11 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         after_invalidation: plan.after_invalidation,
         frame_cap_bytes: encoder.frame_cap(),
         skipped: plan.skipped,
+        cut_limit: None,
+        reencoded: false,
         _capture: Some(image),
         _converted: Some(converted),
+        _converted12: None,
     });
     encoder.backlog.submitted();
     encoder.references.accepted(encoder.index as u64 + 1, &plan);
@@ -1929,4 +1938,98 @@ fn amf_errors_name_the_result_and_say_when_the_hardware_cannot() {
         "AMF error AMF_FAIL (1)"
     );
     assert!(super::check(AMF_RESULT_AMF_OK).is_ok());
+}
+
+#[test]
+fn only_an_inter_frame_past_the_full_fec_bound_is_encoded_again_once() {
+    // The October 28 run: a scene cut after steady 380 KB frames came out as
+    // a 2.4 MB inter frame against a 1.17 MB bound and went without parity.
+    let limit = Some(1_170_000);
+    assert!(reencodes_cut(false, 2_400_000, limit, true));
+    // A frame within the bound, a requested keyframe, the re-encode itself
+    // (also a keyframe, so never a second time) and a stream without the
+    // bound go as AMF made them.
+    assert!(!reencodes_cut(false, 1_170_000, limit, true));
+    assert!(!reencodes_cut(false, 380_000, limit, true));
+    assert!(!reencodes_cut(true, 2_400_000, limit, true));
+    assert!(!reencodes_cut(false, 2_400_000, None, true));
+    // A later submission already references the frame, or one is being
+    // prepared against the references as they are: it stays.
+    assert!(!reencodes_cut(false, 2_400_000, limit, false));
+}
+
+#[test]
+#[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
+fn native_an_oversize_scene_cut_goes_out_once_as_a_keyframe_at_its_own_index() -> Result<()> {
+    let _com = crate::capture::ComGuard::new()?;
+    let device = Device::new("")?;
+    let options = butterpollo_core::config::Config::parse("amd_ltr_frames=4\n")?;
+    for codec in 0..3 {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 1280,
+            height: 720,
+            codec,
+            ..Default::default()
+        };
+        let image = |noise: bool| {
+            let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+            let bytes = (0..config.width as usize * config.height as usize * 4)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    if noise { seed as u8 } else { 128 }
+                })
+                .collect();
+            GpuImage::upload(
+                &device,
+                &Image {
+                    width: config.width,
+                    height: config.height,
+                    stride: config.width as usize * 4,
+                    bytes,
+                    captured: Instant::now(),
+                    pixel: crate::capture::Pixel::Bgra8,
+                },
+            )
+        };
+        let (flat, noise) = (image(false)?, image(true)?);
+        let mut encoder = Encoder::new_device_options(&config, device.clone(), &options)?;
+        assert!(encoder.supports_invalidation(), "codec {codec}: LTR");
+        // Flat frames are a few hundred bytes; the cut to noise is far past it.
+        encoder.set_cut_limit(100_000);
+        let mut output = vec![];
+        for frame in 1..=30 {
+            let image = if frame < 21 { &flat } else { &noise };
+            output.extend(encoder.encode_gpu(image, frame == 1, config.bitrate_kbps)?);
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while encoder.pending() && Instant::now() < deadline {
+                output.extend(encoder.poll()?);
+            }
+        }
+        // One output a frame, the cut a keyframe in place of its inter frame,
+        // and the static noise after it inter frames that reference it.
+        let keyframes: Vec<_> = output
+            .iter()
+            .enumerate()
+            .filter(|(_, frame)| frame.idr)
+            .map(|(index, _)| index + 1)
+            .collect();
+        assert_eq!(output.len(), 30, "codec {codec}");
+        assert_eq!(keyframes, [1, 21], "codec {codec}");
+        assert_eq!(encoder.reencoded_cuts(), 1, "codec {codec}");
+        // The keyframe is held to the frame cap, as a requested one is.
+        let sizes: Vec<_> = output[19..].iter().map(|frame| frame.bytes.len()).collect();
+        println!(
+            "codec {codec}: frames 20 to 30 {sizes:?}, cap {:?}",
+            encoder.frame_cap()
+        );
+        assert!(output[21..].iter().all(|frame| frame.bytes.len() < 100_000));
+        // A loss after the cut is repaired from a reference since the keyframe
+        // (whatever it costs: noise makes a repair as large as a keyframe).
+        encoder.references.repair_whatever_it_costs();
+        assert!(encoder.invalidate_ref_frames(25, 26), "codec {codec}");
+        assert!(!encoder.recover);
+    }
+    Ok(())
 }

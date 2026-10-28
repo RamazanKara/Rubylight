@@ -116,7 +116,7 @@ impl Converter {
     }
 }
 /// `texture` as an AMF input surface, kept alive until AMF releases it.
-fn wrap(
+pub(crate) fn wrap(
     context: *mut AMFContext,
     texture: &Arc<ID3D11Texture2D>,
     ownership: &mut Ownership,

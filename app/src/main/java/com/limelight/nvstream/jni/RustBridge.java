@@ -102,6 +102,8 @@ final class RustBridge {
     static native void sendUtf8Text(byte[] text);
     static native boolean sendServerCommand(byte[] payload);
     static native int getPendingAudioDuration();
+
+    static native long audioConcealer();
     static native int getPendingVideoFrames();
     static native long getEstimatedRttInfo();
     static native boolean reportFrameSlack(long slackNs, long periodNs);

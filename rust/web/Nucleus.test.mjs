@@ -11,7 +11,7 @@ const Panel = (await server.ssrLoadModule('/src/components/maintenance/NucleusPa
 const { toDraft, changes } = await server.ssrLoadModule('/src/components/devices/device.ts');
 
 const status = (overrides) => ({
-  mode: { setting: 'auto', mode: 'nucleus', label: 'Background streaming (Nucleus Co-op)', reason: 'Windows Home has no child sessions', legacy: false },
+  mode: { setting: '', mode: 'nucleus', label: 'Background streaming (Nucleus Co-op)', reason: 'Nucleus Co-op runs background streams', legacy: false },
   install: { state: 'installed', path: 'C:\\ProgramData\\Butterpollo\\nucleus\\2.4.2', version: '2.4.2', error: null },
   available: true,
   reason: null,
@@ -43,8 +43,9 @@ test('the panel is labelled Experimental and loads with a skeleton', () => {
 test('the mode, its reason and the install state show', () => {
   const out = html(status({}));
   assert.match(out, /Background streaming \(Nucleus Co-op\)/);
-  assert.match(out, /Windows Home has no child sessions/);
+  assert.match(out, /Nucleus Co-op runs background streams/);
   assert.match(out, /Installed/);
+  assert.doesNotMatch(out, /child session|Background mode/i);
   assert.match(out, /2\.4\.2/);
   assert.match(out, /No session runs/);
 });
@@ -52,13 +53,20 @@ test('the mode, its reason and the install state show', () => {
 test('an unavailable mode, unavailable sessions and a failed install say why, loudly', () => {
   const out = html(
     status({
-      mode: { setting: 'child_session', mode: 'unavailable', label: 'Background streaming unavailable', reason: 'Windows Home has no child sessions', legacy: false },
+      mode: {
+        setting: 'rdp',
+        mode: 'unavailable',
+        label: 'Background streaming: not available',
+        reason: 'background_mode = rdp is not a mode: Nucleus Co-op is the only background mode, so remove the line or set it to nucleus',
+        legacy: false,
+      },
       available: false,
       reason: 'the host does not run as the service',
       install: { state: 'failed', path: null, version: null, error: 'The download has another SHA-256.' },
     }),
   );
-  assert.match(out, /Background streaming unavailable/);
+  assert.match(out, /Background streaming: not available/);
+  assert.match(out, /background_mode = rdp is not a mode/);
   assert.match(out, /Nucleus Co-op sessions are unavailable/);
   assert.match(out, /the host does not run as the service/);
   assert.match(out, /Installing Nucleus Co-op failed/);
@@ -66,10 +74,10 @@ test('an unavailable mode, unavailable sessions and a failed install say why, lo
 });
 
 test('a missing install says the first launch downloads it, and the legacy setting is explained', () => {
-  const out = html(status({ install: { state: 'missing', path: null, version: null, error: null }, mode: { ...status({}).mode, legacy: true } }));
+  const out = html(status({ install: { state: 'missing', path: null, version: null, error: null }, mode: { ...status({}).mode, setting: 'child_session', legacy: true } }));
   assert.match(out, /Not installed yet/);
   assert.match(out, /first background or co-op launch downloads Nucleus Co-op/);
-  assert.match(out, /replaced virtual display setting/);
+  assert.match(out, /from an earlier build and reads as Nucleus Co-op/);
 });
 
 test('every install state and phase is spelled out, with a failure in danger', () => {

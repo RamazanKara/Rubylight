@@ -90,7 +90,7 @@
   {#if status}
     <div class="stack">
       <dl class="facts">
-        <dt>Background mode</dt>
+        <dt>Background streaming</dt>
         <dd>{status.mode.label}</dd>
         <dt>Why</dt>
         <dd class="muted">{status.mode.reason}</dd>
@@ -105,7 +105,7 @@
         <Banner tone="danger" title={status.mode.label}>{status.mode.reason}</Banner>
       {/if}
       {#if status.mode.legacy}
-        <p class="muted">Background mode still holds the replaced virtual display setting, which now runs through Nucleus Co-op.</p>
+        <p class="muted">This PC's background_mode line is from an earlier build and reads as Nucleus Co-op, the only background mode: you can remove it.</p>
       {/if}
       {#if !status.available && status.reason}
         <Banner tone="warn" title="Nucleus Co-op sessions are unavailable">{status.reason}</Banner>

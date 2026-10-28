@@ -631,10 +631,11 @@ export interface CoopSession {
 export interface CoopStatus {
   mode: {
     setting: string;
-    mode: 'nucleus' | 'child_session' | 'unavailable';
+    /** Nucleus Co-op is the only background mode; `unavailable` when `background_mode` holds no mode. */
+    mode: 'nucleus' | 'unavailable';
     label: string;
     reason: string;
-    /** The setting still says the replaced `virtual_display`, which reads as Nucleus Co-op. */
+    /** `background_mode` holds a value an earlier build wrote (`auto`, `child_session`, `virtual_display`), which reads as Nucleus Co-op. */
     legacy: boolean;
   };
   install: {

@@ -99,14 +99,17 @@ pub fn open(folder: &Path) -> Result<Opened> {
     Ok(Opened(process))
 }
 
-/// A standard user's Nucleus Co-op would run with standard rights: it can't
-/// write to its folder, which only administrators can change, and stops on
-/// its loading screen ("Microsoft Edge can't read and write to its data
+/// Without an elevated token for the signed-in user (a standard account, or
+/// Windows' Administrator protection, which elevates only into a separate
+/// account after a Windows Hello prompt) Nucleus Co-op would run with
+/// standard rights: it can't write to
+/// its folder, which only administrators can change, and stops on its
+/// loading screen ("Microsoft Edge can't read and write to its data
 /// directory").
 fn require_administrator(elevated: bool) -> Result<()> {
     ensure!(
         elevated,
-        "Nucleus Co-op needs administrator rights, and the Windows account signed in on this PC is a standard user: sign in with an administrator account"
+        "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)"
     );
     Ok(())
 }
@@ -661,13 +664,15 @@ mod tests {
     use butterpollo_core::steam::Process;
 
     #[test]
-    fn a_standard_user_is_refused_before_nucleus_starts() {
+    fn an_account_without_administrator_rights_is_refused_before_nucleus_starts() {
         // A standard user's Nucleus Co-op hung on its loading screen: it
         // could not write its WebView2 cache into the Administrators-only folder.
         assert!(require_administrator(true).is_ok());
         let refused = format!("{:#}", require_administrator(false).unwrap_err());
-        assert!(refused.contains("standard user"), "{refused}");
-        assert!(refused.contains("administrator account"), "{refused}");
+        assert!(refused.contains("needs administrator rights"), "{refused}");
+        // Both ways Windows has no elevated token for an account are named.
+        assert!(refused.contains("a standard account"), "{refused}");
+        assert!(refused.contains("Administrator protection"), "{refused}");
     }
 
     /// A fake desktop the test changes while the session runs.

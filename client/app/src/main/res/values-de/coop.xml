@@ -29,7 +29,7 @@
     <string name="coop_return">Zurück auf deinen Platz</string>
     <string name="coop_return_note">Spieler %1$d</string>
     <string name="coop_refresh">Erneut prüfen</string>
-    <string name="coop_joining">%1$s wird beigetreten…</string>
+    <string name="coop_joining">Beitritt zu %1$s…</string>
     <string name="coop_unavailable_no_reason">Der PC kann gerade keine Co-op-Sitzungen ausführen.</string>
     <string name="coop_problem_permission">Co-op beitreten ist für dieses Gerät aus</string>
     <string name="coop_problem_refused">%1$s hat den Beitritt abgelehnt</string>

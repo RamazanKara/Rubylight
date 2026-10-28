@@ -770,7 +770,12 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("butterpollo-child-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).unwrap();
-        directory
+        // By its long name: the temp folder can be an 8.3 short one (CI's
+        // C:\Users\RUNNER~1), which the wipe's link check refuses as leading
+        // elsewhere. ProfileList and the known folders give long names.
+        let long = std::fs::canonicalize(&directory).unwrap();
+        let long = long.to_str().unwrap();
+        PathBuf::from(long.strip_prefix(r"\\?\").unwrap_or(long))
     }
     /// The PC's record, in `directory`.
     fn record_in(directory: &Path) -> Record {

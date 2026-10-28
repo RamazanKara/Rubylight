@@ -235,6 +235,23 @@ public class SettingsStructureTest {
         }
     }
 
+    // Moonlight V+'s clipboard sync is an established feature there: off until asked, but no Experimental label.
+    @Test
+    public void clipboardSyncIsOffAndShowsOnlyWithTheRustEngine() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            PreferenceScreen input = open(controller.get(), "input").getPreferenceScreen();
+            SwitchPreference sync = (SwitchPreference) input.findPreference("checkbox_clipboard_sync");
+            assertFalse(sync.isChecked());
+            assertEquals(controller.get().getString(R.string.title_clipboard_sync), String.valueOf(sync.getTitle()));
+            assertFalse(String.valueOf(sync.getTitle()).contains("Experimental"));
+        }
+        // The C engine has no clipboard sync: the row is hidden.
+        prefs().edit().putBoolean("checkbox_rust_engine", false).commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            assertNull(open(controller.get(), "input").getPreferenceScreen().findPreference("checkbox_clipboard_sync"));
+        }
+    }
+
     @Test
     public void adaptiveRefreshDisablesFramePacingAndTheLowerRefreshRate() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {

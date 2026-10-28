@@ -13,5 +13,6 @@
     <string name="overlay_off">사용 안함</string>
     <string name="title_theme">테마</string>
     <string name="theme_system">시스템</string>
+    <string name="theme_system_tv">시스템(TV에서는 어둡게)</string>
     <string name="theme_dark">어둡게</string>
 </resources>

@@ -13,5 +13,6 @@
     <string name="overlay_off">Tắt</string>
     <string name="title_theme">Giao diện</string>
     <string name="theme_system">Hệ thống</string>
+    <string name="theme_system_tv">Hệ thống (tối trên TV)</string>
     <string name="theme_dark">Tối</string>
 </resources>

@@ -13,5 +13,6 @@
     <string name="overlay_off">Wyłączona</string>
     <string name="title_theme">Motyw</string>
     <string name="theme_system">Systemowy</string>
+    <string name="theme_system_tv">Systemowy (ciemny na telewizorze)</string>
     <string name="theme_dark">Ciemny</string>
 </resources>

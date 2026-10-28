@@ -13,5 +13,6 @@
     <string name="overlay_off">オフ</string>
     <string name="title_theme">テーマ</string>
     <string name="theme_system">システム</string>
+    <string name="theme_system_tv">システム（テレビではダーク）</string>
     <string name="theme_dark">ダーク</string>
 </resources>

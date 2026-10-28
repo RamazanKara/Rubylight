@@ -13,5 +13,6 @@
     <string name="overlay_off">关闭</string>
     <string name="title_theme">主题</string>
     <string name="theme_system">跟随系统</string>
+    <string name="theme_system_tv">跟随系统（电视上为深色）</string>
     <string name="theme_dark">深色</string>
 </resources>

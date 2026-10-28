@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV: the remote setup speaks of this device, not a phone. -->
+<resources>
+    <string name="remote_prepare">Prepáralo en casa\n\nVincula este dispositivo con tu PC en la red de casa y comprueba que una transmisión normal funciona. Mantén el PC activo y el servidor en ejecución.\n\nWake-on-LAN remoto requiere un router compatible o un dispositivo siempre encendido en casa; este dispositivo no puede activar por sí solo un PC inaccesible.</string>
+    <string name="remote_vpn">Conecta tus dispositivos\n\nUna VPN privada como Tailscale puede conectar este dispositivo y tu PC sin exponer a Internet la interfaz web del servidor. Instálala en ambos dispositivos, inicia sesión con tu propia cuenta y activa su conexión. También puedes usar una VPN que ya tengas configurada.\n\nEl enlace abre la guía de descarga oficial. Esta aplicación no instala software, no crea cuentas, no cambia los ajustes del router ni activa la redirección de puertos.</string>
+</resources>

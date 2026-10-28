@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV: the remote setup speaks of this device, not a phone. -->
+<resources>
+    <string name="remote_prepare">집에서 준비하기\n\n집 네트워크에서 이 기기를 PC와 페어링하고 일반 스트림이 잘 되는지 확인하세요. PC를 켜 두고 호스트를 실행한 상태로 유지하세요.\n\n원격 Wake-on-LAN을 사용하려면 호환되는 공유기나 집에 항상 켜져 있는 기기가 필요합니다. 이 기기만으로는 연결할 수 없는 PC를 깨울 수 없습니다.</string>
+    <string name="remote_vpn">기기 연결하기\n\nTailscale 같은 개인 VPN을 사용하면 호스트의 웹 UI를 인터넷에 노출하지 않고 이 기기와 PC를 연결할 수 있습니다. 두 기기에 모두 설치하고 본인 계정으로 로그인한 후 연결을 활성화하세요. 기존 VPN 설정을 사용할 수도 있습니다.\n\n링크를 누르면 공식 다운로드 가이드가 열립니다. 이 앱은 소프트웨어를 설치하거나 계정을 만들거나 공유기 설정을 변경하거나 포트 포워딩을 활성화하지 않습니다.</string>
+</resources>

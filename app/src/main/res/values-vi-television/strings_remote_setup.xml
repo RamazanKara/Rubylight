@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV: the remote setup speaks of this device, not a phone. -->
+<resources>
+    <string name="remote_prepare">Chuẩn bị ở nhà\n\nGhép đôi thiết bị này với PC trong mạng gia đình và xác nhận stream bình thường hoạt động. Giữ PC luôn thức và máy chủ đang chạy.\n\nWake-on-LAN từ xa cần router tương thích hoặc một thiết bị luôn bật ở nhà; thiết bị này không thể tự đánh thức một PC không truy cập được.</string>
+    <string name="remote_vpn">Kết nối các thiết bị\n\nMột VPN riêng như Tailscale có thể kết nối thiết bị này và PC mà không để lộ giao diện web của máy chủ ra Internet. Hãy cài đặt trên cả hai thiết bị, đăng nhập bằng tài khoản của bạn và bật kết nối giữa chúng. Bạn cũng có thể dùng VPN sẵn có.\n\nLiên kết sẽ mở hướng dẫn tải xuống chính thức. Ứng dụng này không cài đặt phần mềm, tạo tài khoản, thay đổi cài đặt router hay bật chuyển tiếp cổng.</string>
+</resources>

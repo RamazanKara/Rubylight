@@ -1,5 +1,6 @@
 // Paired-device permissions and the editable form of a device's settings.
 import { PERM, PERM_ALL, type Client } from '../../lib/api';
+import { joinsCoop, storedCoopJoin } from '../../lib/coop-view';
 import { grantsValue, readGrants, type FolderGrants } from '../../lib/shared-folders';
 import { SETTING as STREAM_PRESET, presets } from '../../lib/stream-presets';
 import { settings as displaySettings } from '../../lib/schema/display';
@@ -112,8 +113,8 @@ export interface Draft {
   allow_sleep: boolean;
   /** Lets the device attach its USB devices to the host; off unless granted here. */
   allow_usb: boolean;
-  /** Lets the device join other devices' co-op sessions; off unless granted here. */
-  coop_join: boolean;
+  /** "Can join co-op games" as stored: null while it follows Launch apps (see joinsCoop). */
+  coop_join: boolean | null;
   /** Read or write by shared folder id; a folder not named here is not shared with the device. */
   shared_folders: FolderGrants;
   do: CommandRow[];
@@ -230,8 +231,7 @@ export function toDraft(client: Client): Draft {
     allow_sleep: client.allow_sleep === true,
     // As the host reads it (Client::allows_usb): only a JSON true.
     allow_usb: client.allow_usb === true,
-    // As the host reads it (coop::may_join): true and "true".
-    coop_join: client.coop_join === true || client.coop_join === 'true',
+    coop_join: storedCoopJoin(client.coop_join),
     shared_folders: readGrants(client.shared_folders),
     do: commandRows(client.do),
     undo: commandRows(client.undo),
@@ -296,7 +296,8 @@ function serialise(draft: Draft): Changes {
     host_control: draft.host_control ? true : null,
     allow_sleep: draft.allow_sleep ? true : null,
     allow_usb: draft.allow_usb ? true : null,
-    coop_join: draft.coop_join ? true : null,
+    // null follows Launch apps; false keeps a device that launches apps out.
+    coop_join: draft.coop_join,
     // null removes every grant.
     shared_folders: grantsValue(draft.shared_folders),
     // The host rejects a null command list, so an empty list is sent instead.
@@ -322,6 +323,7 @@ export function savingEndsStream(connected: boolean, before: Draft, after: Draft
     ((before.enabled && !after.enabled) ||
       (before.perm & ~after.perm) !== 0 ||
       (before.allow_usb && !after.allow_usb) ||
+      (joinsCoop(before.perm, before.coop_join) && !joinsCoop(after.perm, after.coop_join)) ||
       losesFolderAccess(before.shared_folders, after.shared_folders))
   );
 }

@@ -496,7 +496,7 @@ pub(crate) mod tests {
 
     #[test]
     fn every_refusal_is_shown_with_the_pcs_words_and_launches_nothing() {
-        let permission = "Turn on Join co-op for this device in the Rubylight console.";
+        let permission = "Turn on “Can join co-op games” for this device in the Rubylight console.";
         for (error, page) in [
             (
                 api(403, ErrorCode::PermissionRequired, permission),

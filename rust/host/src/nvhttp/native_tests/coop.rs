@@ -78,10 +78,24 @@ fn launch(s: &Setup, index: usize, launch: &str) -> butterpollo_core::session::S
         .unwrap()
 }
 
+/// The device's own "Can join co-op games" as its capabilities say.
+async fn read(s: &Setup) -> bool {
+    let reply = s.get("/capabilities").await;
+    serde_json::from_slice::<Capabilities>(&reply.body)
+        .unwrap()
+        .permissions
+        .coop_join
+}
+
 fn allow_coop_join(s: &Setup, index: usize) {
+    set_coop_join(s, index, true);
+}
+
+/// "Can join co-op games" set on the device's page; never set, it follows Launch apps.
+fn set_coop_join(s: &Setup, index: usize, value: bool) {
     s.host().paired.write().unwrap().clients[index]
         .extra
-        .insert("coop_join".into(), true.into());
+        .insert("coop_join".into(), value.into());
 }
 
 fn coop(reply: &Reply) -> Coop {
@@ -101,7 +115,8 @@ async fn coop_answers_503_and_is_no_feature_while_nucleus_cannot_run() {
     let capabilities: Capabilities =
         serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
     assert!(!capabilities.features.iter().any(|f| f == "coop"));
-    assert!(!capabilities.permissions.coop_join);
+    // The device's own permission shows either way: never set, it follows Launch apps.
+    assert!(capabilities.permissions.coop_join);
 }
 
 #[tokio::test]
@@ -111,10 +126,17 @@ async fn capabilities_list_coop_while_nucleus_can_run_and_show_join_co_op() {
     let capabilities: Capabilities =
         serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
     assert!(capabilities.features.iter().any(|f| f == "coop"));
-    assert!(!capabilities.permissions.coop_join);
+    // Never set: a device that launches apps may join ("Play games" includes it).
+    assert!(capabilities.permissions.coop_join);
+    // Turned off on its page: an explicit false refuses, Launch apps or not.
+    set_coop_join(&s, 0, false);
+    assert!(!read(&s).await);
     allow_coop_join(&s, 0);
-    let granted: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
-    assert!(granted.permissions.coop_join);
+    assert!(read(&s).await);
+    // A watching device that never set it may not join.
+    let watching = Setup::with(butterpollo_core::state::LATER_DEVICE_PERMISSION);
+    with_nucleus(&watching);
+    assert!(!read(&watching).await);
 }
 
 #[tokio::test]
@@ -145,7 +167,8 @@ async fn coop_lists_the_games_and_the_sessions_as_the_device_sees_them() {
         (fake::GUID, 2)
     );
     assert!(empty.sessions.is_empty());
-    // Another device starts the game.
+    // Another device starts the game; this one may not join.
+    set_coop_join(&s, 0, false);
     other_device(&s.f, ALL, false);
     let seat = launch(&s, 1, "other-launch");
     let listed = coop(&s.get("/coop").await);
@@ -164,7 +187,11 @@ async fn coop_lists_the_games_and_the_sessions_as_the_device_sees_them() {
     assert_eq!(session.free_slots, 1);
     assert!(!session.joinable);
     assert!(
-        session.refusal.as_deref().unwrap().contains("Join co-op"),
+        session
+            .refusal
+            .as_deref()
+            .unwrap()
+            .contains("“Can join co-op games”"),
         "{session:?}"
     );
     allow_coop_join(&s, 0);
@@ -205,11 +232,12 @@ async fn coop_join_seats_the_device_and_answers_each_refusal() {
     let other = other_device(&s.f, ALL, false);
     let seat = launch(&s, 1, "other-launch");
     let body = format!(r#"{{"session":{}}}"#, seat.session);
+    set_coop_join(&s, 0, false);
     let refused = join(&s, &s.connection, &body).await;
     refused.assert_error(403, "permission_required");
     assert_eq!(
         refused.json()["error"]["message"],
-        "Turn on Join co-op for this device in the Rubylight console."
+        "Turn on “Can join co-op games” for this device in the Rubylight console."
     );
     allow_coop_join(&s, 0);
     let joined = join(&s, &s.connection, &body).await;

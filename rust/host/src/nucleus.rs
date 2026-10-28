@@ -1606,9 +1606,8 @@ mod tests {
             "name": format!("Device {uuid}"), "cert": "", "uuid": uuid,
         }))
         .unwrap();
-        if coop_join {
-            client.extra.insert("coop_join".into(), true.into());
-        }
+        // Set either way: never set, a device that launches apps may join.
+        client.extra.insert("coop_join".into(), coop_join.into());
         client
     }
     fn setup() -> (Registry, Arc<fake::Pc>, Vec<App>) {

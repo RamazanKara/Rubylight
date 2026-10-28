@@ -338,7 +338,7 @@ export interface Client {
   remembered_resolution?: string | null;
   remembered_scale?: number | string | null;
   background_stream?: boolean | string | null;
-  /** Join other devices' co-op sessions (Experimental). The host reads a JSON true or "true". */
+  /** Can join co-op games other devices started. Unset (or null) follows Launch apps; set, only true and "true" join. */
   coop_join?: boolean | string | null;
   virtual_display_mode?: string | null;
   virtual_display_layout?: string | null;
@@ -605,6 +605,8 @@ export interface CoopPlayer {
   name: string | null;
   /** The device's stream is gone; it keeps the slot for a while. */
   away: boolean;
+  /** Seconds an away device has left to come back (older hosts leave it out). */
+  rejoin_in?: number | null;
 }
 export interface CoopSession {
   id: number;

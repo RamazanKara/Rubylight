@@ -541,16 +541,28 @@ mod tests {
             )
         };
         let allowed = || f.host.paired.read().unwrap().clients[0].allows_coop_join();
+        let set = || {
+            f.host.paired.read().unwrap().clients[0]
+                .extra
+                .get("coop_join")
+                .cloned()
+        };
+        // Never set: the device launches apps, so it may join.
+        assert_ne!(PERM & butterpollo_core::state::LAUNCH_APPS, 0);
+        assert!(allowed());
         let error = update(json!("yes")).unwrap_err();
         assert_eq!(error.to_string(), "coop_join must be true, false or null");
-        assert!(!allowed());
-        update(json!(true)).unwrap();
-        assert!(allowed());
+        assert_eq!(set(), None, "a refused value changes nothing");
+        // Turned off: an explicit false keeps out a device that launches apps.
         update(json!(false)).unwrap();
         assert!(!allowed());
         update(json!(true)).unwrap();
+        assert!(allowed());
+        // null clears it: it follows Launch apps again.
+        update(json!(false)).unwrap();
         update(serde_json::Value::Null).unwrap();
-        assert!(!allowed());
+        assert_eq!(set(), None);
+        assert!(allowed());
     }
 
     #[test]

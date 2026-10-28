@@ -198,15 +198,21 @@ fn status(h: &Shared) -> Value {
                     Some(crate::native_api::coop::end_of(end)),
                 ),
             };
+            let now = std::time::Instant::now();
             let players: Vec<Value> = session
                 .players()
                 .into_iter()
                 .map(|player| {
+                    // Whole seconds an away device has left to come back, rounded up.
+                    let rejoin_in = session
+                        .rejoin_left(player.slot, now)
+                        .map(|left| left.as_millis().div_ceil(1000) as u64);
                     json!({
                         "slot": player.slot,
                         "device": player.device,
                         "name": player.name,
                         "away": player.away,
+                        "rejoin_in": rejoin_in,
                     })
                 })
                 .collect();
@@ -373,10 +379,30 @@ mod tests {
         assert_eq!(
             session["players"],
             json!([
-                {"slot": 0, "device": "parity-device", "name": "Parity device", "away": false},
-                {"slot": 1, "device": "second-device", "name": "Second device", "away": false},
+                {"slot": 0, "device": "parity-device", "name": "Parity device", "away": false, "rejoin_in": null},
+                {"slot": 1, "device": "second-device", "name": "Second device", "away": false, "rejoin_in": null},
             ])
         );
+        // A device whose stream ended is away and shows how long it may come back.
+        let h = &c.f.host;
+        let seat = h.sessions.lock().unwrap().pending[&c.pending]
+            .nucleus
+            .unwrap();
+        h.nucleus.leave(seat, &c.pending);
+        let body = value(
+            request(&c.f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        let away = &body["sessions"][0]["players"][1];
+        assert_eq!(away["away"], true);
+        let left = away["rejoin_in"].as_u64().unwrap();
+        assert!(
+            (110..=120).contains(&left),
+            "{left} of {}",
+            butterpollo_core::nucleus::coop::GRACE.as_secs()
+        );
+        assert_eq!(body["sessions"][0]["players"][0]["rejoin_in"], Value::Null);
         // Unavailable on this host: the reason shows.
         *c.pc.unavailable.lock().unwrap() = Some("not on this test PC".into());
         let body = value(

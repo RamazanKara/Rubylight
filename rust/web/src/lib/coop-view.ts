@@ -1,4 +1,4 @@
-import type { CoopGame, CoopStatus } from './api';
+import { PERM, type Client, type CoopGame, type CoopSession, type CoopStatus } from './api';
 
 /**
  * What the game page's Play together panel shows for one app, from `GET /api/coop`. Pure, so every
@@ -117,7 +117,119 @@ export function pollsView(view: PlayTogetherView): boolean {
 }
 
 /** The limits, said where co-op is ready. */
-export const COOP_LIMITS = 'Controllers only: keyboard and mouse don’t reach the game. Paired devices can join unless Join co-op is off on their page under Devices.';
+export const COOP_LIMITS = 'Controllers only: keyboard and mouse don’t reach the game. A paired device can join unless “Can join co-op games” is off on its page under Devices.';
+
+// ---------- Home: one card per live co-op game ----------
+
+/** "Can join co-op games" as stored: true, false, or null when the device never set it. */
+export function storedCoopJoin(value: unknown): boolean | null {
+  if (value === undefined || value === null) return null;
+  // As the host reads it (coop::may_join): true and "true" join, anything else set keeps the device out.
+  return value === true || value === 'true';
+}
+
+/** Whether a device may join co-op games: never set, it follows Launch apps, as the host decides. */
+export function joinsCoop(perm: number, stored: unknown): boolean {
+  return storedCoopJoin(stored) ?? (perm & PERM.LAUNCH_APPS) !== 0;
+}
+
+/** The library entry a co-op game starts from (the host's `nucleus::ENTRY_SUFFIX`). */
+export function entryName(title: string): string {
+  return `${title} (Co-op)`;
+}
+
+/** The co-op games running now, one Home card each. A background stream shows as a stream, not here. */
+export function liveCoop(status: CoopStatus | null): CoopSession[] {
+  return (status?.sessions ?? []).filter((session) => session.kind === 'coop' && session.phase !== 'ended');
+}
+
+/** Minutes and seconds, as a countdown reads: 1:05, 0:09. */
+export function clock(seconds: number): string {
+  const whole = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+export interface Seat {
+  slot: number;
+  /** "Player 1": the number Nucleus Co-op and the controller show. */
+  label: string;
+  /** The device's name; null for a free slot. */
+  name: string | null;
+  device: string | null;
+  /** While the device's stream is gone: how long it keeps the slot. */
+  away: string | null;
+}
+
+/**
+ * Each slot of a session, seated or free. An away device keeps its slot for the host's 120 s grace;
+ * `elapsed` seconds since the session was read count it down between polls.
+ */
+export function seats(session: CoopSession, elapsed = 0): Seat[] {
+  return session.players.map((player) => ({
+    slot: player.slot,
+    label: `Player ${player.slot + 1}`,
+    name: player.device ? (player.name ?? 'Unnamed device') : null,
+    device: player.device,
+    away: !player.device || !player.away
+      ? null
+      : typeof player.rejoin_in === 'number'
+        ? `Away, keeps the slot for ${clock(player.rejoin_in - elapsed)}`
+        : 'Away, keeps the slot for 2 minutes',
+  }));
+}
+
+/** "2 of 4 players · 2 free slots". */
+export function headcount(session: CoopSession): string {
+  const seated = session.players.filter((player) => player.device).length;
+  const free = session.players.length - seated;
+  const slots = free === 0 ? 'no free slot' : free === 1 ? '1 free slot' : `${free} free slots`;
+  return `${seated} of ${session.players.length} ${session.players.length === 1 ? 'player' : 'players'} · ${slots}`;
+}
+
+export interface Invitee {
+  uuid: string;
+  name: string;
+  /** Already allowed: it only has to start the game. */
+  canJoin: boolean;
+}
+
+/**
+ * Paired devices that could take a free slot: on, and not seated in this game (an away device keeps
+ * its slot and comes back by itself). Empty while the game has no free slot.
+ */
+export function invitees(session: CoopSession, clients: Client[]): Invitee[] {
+  if (!session.players.some((player) => !player.device)) return [];
+  const seated = new Set(session.players.flatMap((player) => (player.device ? [player.device] : [])));
+  return clients
+    .filter((client) => client.enabled !== false && !seated.has(client.uuid))
+    .map((client) => ({ uuid: client.uuid, name: client.name, canJoin: joinsCoop(client.perm ?? 0, client.coop_join) }));
+}
+
+/** What a device does to join once it may. */
+export function joinSteps(session: CoopSession): string {
+  return `Open Nightjar or Moonlight on it and pick “${entryName(session.title)}”.`;
+}
+
+export interface Confirmation {
+  title: string;
+  message: string;
+  confirm: string;
+  danger: boolean;
+}
+
+export function removeConfirmation(seat: Seat): Confirmation {
+  const name = seat.name ?? seat.label;
+  return { title: `Remove ${name}?`, message: `${name} leaves the game and can’t rejoin this session.`, confirm: 'Remove', danger: true };
+}
+
+export function endConfirmation(session: CoopSession): Confirmation {
+  return {
+    title: `End co-op in ${session.title}?`,
+    message: `Ends every player’s stream and closes ${session.title} on this PC.`,
+    confirm: 'End co-op',
+    danger: true,
+  };
+}
 
 /** For a console opened away from the PC: what happens where. */
 export const AWAY_FROM_PC = 'Nucleus Co-op opens on the PC’s own screen, not on this device. Do the steps at the PC; this page shows the game as ready once the handler is in.';

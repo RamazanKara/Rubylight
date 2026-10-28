@@ -84,15 +84,21 @@ one slot per player: the handler's maximum, capped at 4 and at
 launches the same entry joins the running session in a free slot. Any
 Moonlight client can join this way.
 
-Joining a session that someone else started needs the device permission
-**Join co-op** (`coop_join`, Experimental) on the device's page in the console.
-Without it, the join is refused with "Turn on Join co-op for this device in the
-Rubylight console." A device that holds a slot can go back to it while it has
-the permission; turning Join co-op off ends the device's stream and keeps it
-out. The device that started the session needs no permission to return. When a
-device's stream ends, its slot is held for 120 s so it can come back. A
+Joining a session that someone else started needs **Can join co-op games**
+(`coop_join`) on the device's page in the console. A device that never set it
+follows Launch apps, so every device with Play games joins; an explicit off
+refuses the join with "This device may not join co-op games: turn on “Can join
+co-op games” for it in the Rubylight console". A device that holds a slot can go
+back to it while it may join; turning it off ends the device's stream and keeps
+it out. The device that started the session needs no permission to return. When
+a device's stream ends, its slot is held for 120 s so it can come back. A
 player's Quit ends only its own stream: the other players keep playing.
-Sessions list who plays only to devices with Join co-op.
+Sessions list who plays only to devices that may join.
+
+Home in the console shows each running co-op game as a card: its players, an
+away device's remaining 120 s, **Remove** (asks first) and **End co-op** (asks
+first). While a slot is free, the card lists the paired devices with **Let
+<device> join** for one that may not yet.
 
 Nightjar lists the running co-op sessions on a PC with their free slots and
 this device's own seat: on Android under **Join co-op** in the PC's menu, on

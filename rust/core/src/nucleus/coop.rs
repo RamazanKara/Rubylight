@@ -14,14 +14,19 @@ pub const GRACE: Duration = Duration::from_secs(120);
 /// XInput has four user indices, so at most four players have a pad.
 pub const MAX_PLAYERS: usize = 4;
 /// The device permission to join someone's co-op session (a paired
-/// client's extra field, granted by the administrator like Host control).
+/// client's extra field, "Can join co-op games" on the device's page).
 pub const DEVICE_KEY: &str = "coop_join";
 
-/// Whether the administrator let this device join co-op sessions.
-pub fn may_join(extra: &BTreeMap<String, serde_json::Value>) -> bool {
-    extra
-        .get(DEVICE_KEY)
-        .is_some_and(|v| v == true || v == "true")
+/// Whether this device may join co-op sessions. A device whose page never
+/// set it follows `launches` (Launch apps), as "Play games" includes joining;
+/// a set value decides alone, so only `true` or `"true"` lets it join and an
+/// explicit `false` keeps a device that launches apps out.
+pub fn may_join(extra: &BTreeMap<String, serde_json::Value>, launches: bool) -> bool {
+    match extra.get(DEVICE_KEY) {
+        // null is how the console clears it.
+        None | Some(serde_json::Value::Null) => launches,
+        Some(v) => v == true || v == "true",
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -105,7 +110,7 @@ impl std::fmt::Display for Refused {
                 "This device was removed from the {title} co-op session; it can join the next one"
             ),
             Self::NotPermitted => f.write_str(
-                "This device may not join co-op sessions: allow Join co-op for it in the web console",
+                "This device may not join co-op games: turn on “Can join co-op games” for it in the Rubylight console",
             ),
         }
     }
@@ -298,6 +303,13 @@ impl Session {
         true
     }
 
+    /// How much longer the away device in `slot` keeps it: None for a free
+    /// slot or a device that streams, zero once the next tick frees it.
+    pub fn rejoin_left(&self, slot: usize, now: Instant) -> Option<Duration> {
+        let since = self.slots.get(slot)?.seat.as_ref()?.away_since?;
+        Some(GRACE.saturating_sub(now.saturating_duration_since(since)))
+    }
+
     /// Free slots of devices away too long; end a session left empty.
     pub fn tick(&mut self, now: Instant) -> Vec<Event> {
         let mut events = Vec::new();
@@ -484,16 +496,19 @@ mod tests {
         assert_eq!(s.join("laptop", "Laptop", true), Ok(Joined::Returned(1)));
         s.end(End::Ended);
         assert_eq!(s.join("tv", "TV", false), Err(Refused::NotPermitted));
-        assert!(may_join(
-            &serde_json::from_value(json!({"coop_join": true})).unwrap()
-        ));
-        assert!(may_join(
-            &serde_json::from_value(json!({"coop_join": "true"})).unwrap()
-        ));
-        assert!(!may_join(
-            &serde_json::from_value(json!({"coop_join": 1})).unwrap()
-        ));
-        assert!(!may_join(&BTreeMap::new()));
+        let extra = |value| serde_json::from_value(json!({ "coop_join": value })).unwrap();
+        for launches in [false, true] {
+            assert!(may_join(&extra(json!(true)), launches));
+            assert!(may_join(&extra(json!("true")), launches));
+            // A set value decides alone: false keeps out a device that launches apps.
+            assert!(!may_join(&extra(json!(false)), launches));
+            assert!(!may_join(&extra(json!(1)), launches));
+        }
+        // Never set, or cleared with null: joining follows Launch apps.
+        assert!(may_join(&BTreeMap::new(), true));
+        assert!(may_join(&extra(json!(null)), true));
+        assert!(!may_join(&extra(json!(null)), false));
+        assert!(!may_join(&BTreeMap::new(), false));
     }
 
     #[test]
@@ -519,9 +534,19 @@ mod tests {
         let start = Instant::now();
         let mut s = coop(&[0, 1]);
         s.join("laptop", "Laptop", true).unwrap();
+        assert_eq!(s.rejoin_left(1, start), None, "streaming");
+        assert_eq!(s.rejoin_left(3, start), None, "no such slot");
         s.leave("laptop", start);
         // Away: no input reaches its pad, and its slot is not free.
         assert_eq!(s.route("laptop"), None);
+        assert_eq!(
+            s.rejoin_left(1, start + Duration::from_secs(15)),
+            Some(GRACE - Duration::from_secs(15))
+        );
+        assert_eq!(
+            s.rejoin_left(1, start + GRACE + GRACE),
+            Some(Duration::ZERO)
+        );
         assert!(matches!(
             s.join("tv", "TV", true),
             Err(Refused::Full { .. })

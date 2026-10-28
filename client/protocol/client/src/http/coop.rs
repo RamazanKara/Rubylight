@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn every_refusal_keeps_the_hosts_words() {
-        let permission = "Turn on Join co-op for this device in the Rubylight console.";
+        let permission = "Turn on “Can join co-op games” for this device in the Rubylight console.";
         assert_eq!(
             CoopProblem::of(&api(403, ErrorCode::PermissionRequired, permission)),
             CoopProblem::Permission(permission.into())

@@ -452,7 +452,7 @@ mod tests {
                     status: code.status(),
                     error: ApiError {
                         code,
-                        message: "Turn on Join co-op for this device in the Rubylight console."
+                        message: "Turn on “Can join co-op games” for this device in the Rubylight console."
                             .into(),
                         setting: None,
                         retry_after_ms: None,
@@ -593,7 +593,7 @@ mod tests {
         assert_eq!(reply["error"]["code"], "permission_required");
         assert_eq!(
             reply["error"]["message"],
-            "Turn on Join co-op for this device in the Rubylight console."
+            "Turn on “Can join co-op games” for this device in the Rubylight console."
         );
     }
 

@@ -5250,13 +5250,13 @@ mod tests {
         assert_eq!(launches, [(id, 1234567, false)], "the join launches the session's entry once");
         assert!(shows(&f, "Player 2: This device") && shows(&f, "Return to my slot") && shows(&f, "Joined Portal 2 as player 2. Starting the stream…"), "{:?}", f.drawn);
         // A refusal is drawn with the PC's own words, and launches nothing.
-        let fake = Arc::new(Fake { refuse: Some(api(403, ErrorCode::PermissionRequired, "Turn on Join co-op for this device in the Rubylight console.")), ..Fake::default() });
+        let fake = Arc::new(Fake { refuse: Some(api(403, ErrorCode::PermissionRequired, "Turn on “Can join co-op games” for this device in the Rubylight console.")), ..Fake::default() });
         f.l.coop.open(id, fake, waker());
         let mut commands = listed(&mut f);
         commands.extend(click_text(&mut f, "Join"));
         commands.extend(listed(&mut f));
         assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "a refused join launches nothing");
-        assert!(shows(&f, "This device may not join co-op sessions on this PC.\nTurn on Join co-op for this device in the Rubylight console."), "{:?}", f.drawn);
+        assert!(shows(&f, "This device may not join co-op sessions on this PC.\nTurn on “Can join co-op games” for this device in the Rubylight console."), "{:?}", f.drawn);
     }
 
     /// Whether `text` is drawn on the widget with focus.

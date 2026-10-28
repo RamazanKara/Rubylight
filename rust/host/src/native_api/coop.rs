@@ -152,7 +152,9 @@ pub async fn join(
             ErrorCode::NoSession,
             "There is no such co-op session.",
         )),
-        Err(JoinError::Refused(Refused::NotPermitted)) => Err(permission_required("Join co-op")),
+        Err(JoinError::Refused(Refused::NotPermitted)) => {
+            Err(permission_required("“Can join co-op games”"))
+        }
         Err(JoinError::Refused(refused)) => {
             Err(Failure::new(ErrorCode::CoopRefused, refused.to_string()))
         }

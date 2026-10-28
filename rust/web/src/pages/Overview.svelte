@@ -3,6 +3,7 @@
   import Button from '../components/Button.svelte';
   import Icon from '../components/Icon.svelte';
   import AppCover from '../components/library/AppCover.svelte';
+  import CoopCard from '../components/overview/CoopCard.svelte';
   import { coverPath } from '../components/library/app';
   import { hostChecks } from '../lib/host-readiness';
   const landscape = new URL('../assets/home-landscape.webp', import.meta.url).href;
@@ -15,7 +16,8 @@
   import HostReadiness from '../components/overview/HostReadiness.svelte';
   import RunningApp from '../components/overview/RunningApp.svelte';
   import StreamCard from '../components/overview/StreamCard.svelte';
-  import { api, type App, type SessionStatus, type StreamSession } from '../lib/api';
+  import { api, type App, type Client, type CoopStatus, type SessionStatus, type StreamSession } from '../lib/api';
+  import { liveCoop } from '../lib/coop-view';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
   import { link } from '../lib/router.svelte';
@@ -37,6 +39,32 @@
   }
   /** uuid of the device being disconnected. */
   let disconnecting = $state<string | null>(null);
+
+  // Live co-op games: one card each, with the paired devices to invite while one runs.
+  let coop = $state<CoopStatus | null>(null);
+  let coopAt = $state(0);
+  let coopError = $state('');
+  let coopClients = $state<Client[] | null>(null);
+  let coopClientsError = $state('');
+  const coopGames = $derived(liveCoop(coop));
+  async function refreshCoop() {
+    try {
+      coop = await api.coop.status();
+      coopAt = Date.now();
+      coopError = '';
+    } catch (error) {
+      // A host without co-op answers nothing to show; a card already shown says it is stale.
+      coopError = reason(error);
+      return;
+    }
+    if (!liveCoop(coop).length) return;
+    try {
+      coopClients = (await api.clients.list()).clients;
+      coopClientsError = '';
+    } catch (error) {
+      coopClientsError = reason(error);
+    }
+  }
 
   const metadata = $derived(session.metadata);
   const streams = $derived((sessions ?? []).filter((item) => item.role === 'stream'));
@@ -118,9 +146,11 @@
     void loadGames();
     const stopSessions = poll(refreshSessions, 2000);
     const stopMetadata = poll(loadMetadata, 30_000);
+    const stopCoop = poll(refreshCoop, 3000);
     return () => {
       stopSessions();
       stopMetadata();
+      stopCoop();
     };
   });
 </script>
@@ -191,6 +221,10 @@
 {#if checksOpen || attention}
   <HostReadiness {metadata} error={metadataError} checking={rechecking} onrecheck={recheck} />
 {/if}
+{#if coopError && coopGames.length}<p class="notice danger" role="alert">Showing the last known co-op state. {coopError}</p>{/if}
+{#each coopGames as game (game.id)}
+  <CoopCard session={game} clients={coopClients} clientsError={coopClientsError} at={coopAt} onchange={refreshCoop} />
+{/each}
 {#if streams.length}
   <Panel title="Connected streams" flush>
     {#each streams as stream}<StreamCard {stream} busy={disconnecting === stream.uuid} ondisconnect={disconnect} />{/each}

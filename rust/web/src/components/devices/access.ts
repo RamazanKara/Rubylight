@@ -15,7 +15,7 @@ export const ACCESS_PERM: Record<Access, number> = {
 };
 
 export const ACCESS_CHOICES: { id: Access; label: string; hint: string }[] = [
-  { id: 'play', label: 'Play games', hint: 'Start games and use the controller, touch, mouse and keyboard.' },
+  { id: 'play', label: 'Play games', hint: 'Start games, join co-op games, and use the controller, touch, mouse and keyboard.' },
   { id: 'view', label: 'Watch only', hint: 'See the stream, but not start games or use any controls.' },
   { id: 'all', label: 'Everything', hint: 'Also the clipboard and host commands. File transfer is granted on its own.' },
 ];

@@ -23,7 +23,7 @@ test('Help is titled for someone with a problem and keeps the order of the page 
   assert.match(help, /<PageHeader title="Help" subtitle="Something is wrong\? Start here\.">/);
   // The host anchor other pages link to stays.
   assert.match(help, /<div id="host"><\/div>/);
-  const order = ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<NucleusPanel', '<LogAnalysisPanel', '<CrashPanel'];
+  const order = ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<CoopHelpPanel', '<LogAnalysisPanel', '<CrashPanel'];
   const at = order.map((tag) => help.indexOf(tag));
   assert.ok(at.every((index) => index > 0), `${at}`);
   assert.deepEqual([...at].sort((a, b) => a - b), at);

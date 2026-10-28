@@ -7,6 +7,7 @@
   import CommandList from './CommandList.svelte';
   import { accessOf, withAccess, type Access } from './access';
   import { api, PERM, type Client, type DisplayDevice } from '../../lib/api';
+  import { joinsCoop } from '../../lib/coop-view';
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
@@ -56,15 +57,10 @@
     dirty = changed;
   });
 
-  // Custom permissions, or a granted Host control, Sleep PC, USB devices or Join co-op, open the section.
+  // Custom permissions, or a granted Host control, Sleep PC or USB devices, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
-  // Join co-op comes with Launch apps when a device pairs, so only a grant beyond that opens it.
   const granted = () =>
-    accessOf(draft.perm) === 'custom' ||
-    draft.host_control ||
-    draft.allow_sleep ||
-    draft.allow_usb ||
-    (draft.coop_join && (draft.perm & PERM.LAUNCH_APPS) === 0);
+    accessOf(draft.perm) === 'custom' || draft.host_control || draft.allow_sleep || draft.allow_usb;
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
@@ -78,7 +74,19 @@
   function chooseAccess(next: Access | 'custom') {
     customPicked = next === 'custom';
     if (next === 'custom') permissionsOpen = true;
-    else draft.perm = withAccess(draft.perm, next);
+    else {
+      draft.perm = withAccess(draft.perm, next);
+      // A preset decides co-op too: Play games and Everything join, Watch only does not.
+      draft.coop_join = null;
+    }
+  }
+
+  // "Can join co-op games": while it matches Launch apps the device follows it (null), so a
+  // later preset change carries it along; a stored value the switch lands back on stays as stored.
+  const joins = $derived(joinsCoop(draft.perm, draft.coop_join));
+  function setJoins(next: boolean) {
+    const follows = (draft.perm & PERM.LAUNCH_APPS) !== 0;
+    draft.coop_join = next === saved.coop_join ? saved.coop_join : next === follows ? null : next;
   }
 
   // Follow edits made elsewhere while this form has none of its own.
@@ -230,6 +238,12 @@
   <section>
     <h3>Permissions</h3>
     <AccessChoice legend="This device can" custom value={access} onchange={chooseAccess} />
+    <Toggle
+      label="Can join co-op games"
+      hint="Take a free slot in a co-op game another device started on this PC. Turning it off ends this device’s streams."
+      checked={joins}
+      onchange={setJoins}
+    />
     <p class="note">
       The first paired device gets everything. Later devices get what was chosen when they paired.
       File transfer is granted on its own, never with Everything.
@@ -266,10 +280,6 @@
             <label class="check">
               <input type="checkbox" bind:checked={draft.allow_usb} />
               USB devices: attach USB devices plugged into this device to this PC during a stream
-            </label>
-            <label class="check">
-              <input type="checkbox" bind:checked={draft.coop_join} />
-              Join co-op: take a free player slot in a co-op game another device started on this PC
             </label>
           {/if}
         </fieldset>

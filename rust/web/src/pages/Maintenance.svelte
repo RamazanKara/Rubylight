@@ -2,11 +2,11 @@
   import Button from '../components/Button.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import ChildSessionBanner from '../components/maintenance/ChildSessionBanner.svelte';
+  import CoopHelpPanel from '../components/maintenance/CoopHelpPanel.svelte';
   import CrashPanel from '../components/maintenance/CrashPanel.svelte';
   import LogAnalysisPanel from '../components/maintenance/LogAnalysisPanel.svelte';
   import DisplaysPanel from '../components/maintenance/DisplaysPanel.svelte';
   import HostPanel from '../components/maintenance/HostPanel.svelte';
-  import NucleusPanel from '../components/maintenance/NucleusPanel.svelte';
   import Section from '../components/maintenance/Section.svelte';
   import WindowsSessionPanel from '../components/maintenance/WindowsSessionPanel.svelte';
   import { link } from '../lib/router.svelte';
@@ -26,7 +26,9 @@
   <Section title="Displays and Windows session">
     <DisplaysPanel />
     <WindowsSessionPanel />
-    <NucleusPanel />
+  </Section>
+  <Section title="Co-op">
+    <CoopHelpPanel />
   </Section>
   <Section title="Logs">
     <LogAnalysisPanel />

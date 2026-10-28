@@ -3107,7 +3107,8 @@ async fn launch_app(h: &Harness, client: usize, id: u32) -> Result<String> {
         .await?)
 }
 /// A harness whose host has Nucleus Co-op (the fake) and Portal 2, which it
-/// has a handler for; client 1 may join co-op. Returns the co-op entry's id.
+/// has a handler for; client 1 may join co-op and client 0 has it turned off.
+/// Returns the co-op entry's id.
 async fn coop_harness() -> Result<(Harness, Arc<crate::nucleus::fake::Pc>, u32)> {
     let h = Harness::new(10_000, 2).await?;
     let pc = Arc::new(crate::nucleus::fake::Pc::installed());
@@ -3124,6 +3125,10 @@ async fn coop_harness() -> Result<(Harness, Arc<crate::nucleus::fake::Pc>, u32)>
     h.h.paired.write().unwrap().clients[1]
         .extra
         .insert("coop_join".into(), true.into());
+    // Never set, a device that launches apps may join: client 0 has it off.
+    h.h.paired.write().unwrap().clients[0]
+        .extra
+        .insert("coop_join".into(), false.into());
     let apps = h.h.apps.read().unwrap().clone();
     let entries = h.h.nucleus.entries(&apps, "");
     assert_eq!(entries.len(), 1);
@@ -3212,7 +3217,7 @@ async fn refused_co_op_launches_answer_their_status_and_leave_nothing_pending() 
     // Device 0 may not join the running session.
     let refused = launch_app(&h, 0, id).await?;
     assert!(refused.contains("status_code=\"409\""), "{refused}");
-    assert!(refused.contains("Join co-op"), "{refused}");
+    assert!(refused.contains("Can join co-op games"), "{refused}");
     assert!(pending_of(&h, 0).is_none());
     // The handler is gone by the time the next device launches.
     h.h.paired.write().unwrap().clients[0]
@@ -3304,7 +3309,7 @@ async fn webrtc_co_op_launches_take_seats_and_answer_refusals() -> Result<()> {
     let seat = pending_of(&h, 1).unwrap().nucleus.unwrap();
     match webrtc(0).await?.err() {
         Some(WebRtcLaunchError::SessionActive(message)) => {
-            assert!(message.contains("Join co-op"), "{message}")
+            assert!(message.contains("Can join co-op games"), "{message}")
         }
         other => panic!("{other:?}"),
     }

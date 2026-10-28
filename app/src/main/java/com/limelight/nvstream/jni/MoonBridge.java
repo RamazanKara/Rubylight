@@ -3,6 +3,7 @@ package com.limelight.nvstream.jni;
 import com.limelight.LimeLog;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nvstream.NvConnectionListener;
+import com.limelight.nvstream.RateChangeResult;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
@@ -474,6 +475,13 @@ public class MoonBridge {
     public static native int readUsbMicrophone(long handle, byte[] samples);
     public static void bridgeClLinkNotice(int state, int ceilingKbps, int currentKbps) {
         if (connectionListener != null) connectionListener.linkNotice(state, ceilingKbps, currentKbps);
+    }
+    public static void bridgeClRateChange(int serial, int bitrateKbps, int fpsMillihz, int bitrateStatus,
+                                          int bitrateReason, int fpsStatus, int fpsReason) {
+        if (connectionListener != null) {
+            connectionListener.rateChange(new RateChangeResult(serial, bitrateKbps, fpsMillihz, bitrateStatus,
+                    bitrateReason, fpsStatus, fpsReason));
+        }
     }
     public static void bridgeClTextInput(int kind, int inputType, int flags) {
         if (connectionListener != null) connectionListener.textInput(kind, inputType, flags);
@@ -985,6 +993,14 @@ public class MoonBridge {
     // support it and this returns false.
     public static boolean sendTextInputRequest(boolean enabled) {
         return rustStream && RustBridge.sendTextInputRequest(enabled);
+    }
+
+    // Asks the host for a bitrate in kbps, a rate in mHz or both (0x553C; rateChange on the
+    // listener with the same serial), 0 keeping that value. Only call when
+    // hostSupportsControlMessage(CONTROL_MESSAGE_RATE_CHANGE) on a Rust stream; false when it
+    // could not be sent or a value is out of range. The C engine does not support it.
+    public static boolean sendRateChange(int serial, int bitrateKbps, int fpsMillihz) {
+        return rustStream && RustBridge.sendRateChange(serial, bitrateKbps, fpsMillihz);
     }
 
     // Reports the client's keyboard layout as a BCP 47 tag (0x553E), so the host types keys the

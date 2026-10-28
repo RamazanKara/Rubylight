@@ -65,6 +65,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // goes to the HEVC decoder for good); dolbyVisionActive is the decoder running now.
     private MediaCodecInfo dolbyVisionDecoder;
     private volatile int announcedHdrFormat;
+    // What the Vulkan renderer leaves out of this screen's HDR, set by pickHdrFormat and said once
+    private volatile HdrFormatPolicy.DrawnLimit vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
     private volatile boolean dolbyVisionFailed;
     private volatile boolean dolbyVisionActive;
 
@@ -1053,6 +1055,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VULKAN_JITTER_BUFFER, 0, getPreferredColorSpace(),
                 getPreferredColorRange() == MoonBridge.COLOR_RANGE_FULL,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
+                getStreamTransfer() == MediaFormat.COLOR_TRANSFER_HLG,
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                         outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate(),
                 vulkanCodecName(), videoDecoder.getName(), null, false);
@@ -1709,8 +1712,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /**
      * The Vulkan renderer will present a HEVC or AV1 stream that is not packed, as setupUpscaling
-     * then chooses it: its surface is BT.2020/PQ only. Game asks before the stream to refuse HDR on
-     * a screen that has HLG alone (HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT).
+     * then chooses it. Game asks before the stream (vulkanSurface).
      */
     public static boolean vulkanPresents(PreferenceConfiguration prefs) {
         return VideoRendererChoice.choose(prefs.vulkanRender, false, Build.VERSION.SDK_INT,
@@ -1718,22 +1720,51 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VideoRendererChoice.Renderer.VULKAN;
     }
 
+    /**
+     * Who will put a HEVC or AV1 stream that is not packed on the screen: the Vulkan renderer, PQ and
+     * HLG or PQ only (VulkanRendererBridge.drawsHlg), or the decoder. Game asks before the stream to
+     * refuse HDR on a screen that has HLG alone where the surface is PQ only
+     * (HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT).
+     */
+    public static HdrFormatPolicy.DrawnSurface vulkanSurface(PreferenceConfiguration prefs) {
+        if (!vulkanPresents(prefs)) return HdrFormatPolicy.DrawnSurface.NONE;
+        return VulkanRendererBridge.drawsHlg() ? HdrFormatPolicy.DrawnSurface.PQ_HLG :
+                HdrFormatPolicy.DrawnSurface.PQ_ONLY;
+    }
+
     @Override
     public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
+        vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
         if (hostHdrFormats == 0) return 0;
         int[] displayTypes = HdrPolicy.displayHdrTypes(outputDisplay);
-        // The outputs this client draws itself are BT.2020/PQ surfaces (HdrFormatPolicy).
-        String pqSurface = packed444 ? "packed full chroma" :
-                (videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? "PyroWave" :
-                vulkanPresents(prefs) ? "the Vulkan renderer" : null;
-        int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoder != null, pqSurface != null);
+        // Packed full chroma and PyroWave draw BT.2020/PQ surfaces, the Vulkan renderer PQ or HLG
+        // (HdrFormatPolicy).
+        String drawer = null;
+        HdrFormatPolicy.DrawnSurface surface = HdrFormatPolicy.DrawnSurface.NONE;
+        boolean vulkan = false;
+        if (packed444 || (videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            drawer = packed444 ? "packed full chroma" : "PyroWave";
+            surface = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
+        } else if (vulkanPresents(prefs)) {
+            drawer = "the Vulkan renderer";
+            surface = vulkanSurface(prefs);
+            vulkan = true;
+        }
+        int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoder != null, surface);
+        if (vulkan) {
+            // Game says it once per PC (takeVulkanHdrLimit).
+            vulkanHdrLimit = HdrFormatPolicy.vulkanLimit(hostHdrFormats, displayTypes, dolbyVisionDecoder != null,
+                    format);
+        }
         LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +
-                HdrFormatPolicy.name(format) + (pqSurface != null ? " (" + pqSurface + " draws PQ only)" :
-                dolbyVisionDecoder == null ? " (no Dolby Vision decoder)" : ""));
-        if (pqSurface != null && !HdrPolicy.hasHdr10(displayTypes) &&
+                HdrFormatPolicy.name(format) + (drawer != null ? " (" + drawer + " draws " +
+                (surface == HdrFormatPolicy.DrawnSurface.PQ_HLG ? "PQ and HLG" : "PQ only") + ")" :
+                dolbyVisionDecoder == null ? " (no Dolby Vision decoder)" : "") +
+                (vulkanHdrLimit != HdrFormatPolicy.DrawnLimit.NONE ? ", without " + vulkanHdrLimit : ""));
+        if (surface == HdrFormatPolicy.DrawnSurface.PQ_ONLY && !HdrPolicy.hasHdr10(displayTypes) &&
                 HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes)) {
             // Game names it on the status line (HdrPolicy.Status.PQ_ON_HLG_SCREEN).
-            LimeLog.warning("The screen reports HLG and no HDR10, but " + pqSurface +
+            LimeLog.warning("The screen reports HLG and no HDR10, but " + drawer +
                     " draws PQ only: this stream is HDR10");
         }
         return format;
@@ -1771,6 +1802,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public HdrPolicy.Metadata getHdrMetadataState() {
         return HdrPolicy.metadata(currentHdrMetadata);
+    }
+
+    /** The Vulkan renderer tone maps the PC's HDR to SDR because its surface refused HDR. */
+    public boolean isVulkanHdrToneMapped() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        return vulkan != null && vulkan.isHdrToneMapped();
+    }
+
+    /**
+     * What the Vulkan renderer leaves out of this screen's HDR (Dolby Vision, HDR10+), once the
+     * renderer runs; NONE after the first call for the stream.
+     */
+    public HdrFormatPolicy.DrawnLimit takeVulkanHdrLimit() {
+        if (vulkanRenderer == null) return HdrFormatPolicy.DrawnLimit.NONE;
+        HdrFormatPolicy.DrawnLimit limit = vulkanHdrLimit;
+        vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        return limit;
     }
 
     /**

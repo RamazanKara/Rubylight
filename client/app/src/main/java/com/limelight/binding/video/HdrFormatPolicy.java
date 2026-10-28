@@ -15,12 +15,36 @@ import android.view.Display;
  * same stream.</li>
  * <li>HLG when the screen reports HLG and no HDR10, so a panel without PQ still gets HDR.</li>
  * </ul>
- * Neither when the client draws the picture itself (packed full chroma, PyroWave, the Vulkan
- * renderer): those surfaces are BT.2020/PQ only, and a Dolby Vision decoder would map a picture
- * that is not the one shown.
+ * Never Dolby Vision when the client draws the picture itself (DrawnSurface): a Dolby Vision decoder
+ * would map a picture that is not the one shown, and no API takes Dolby Vision with drawn buffers.
+ * HLG only on the Vulkan renderer, whose surface takes it; packed full chroma and PyroWave draw
+ * BT.2020/PQ only.
  */
 public final class HdrFormatPolicy {
     private HdrFormatPolicy() {}
+
+    /** Who puts the decoder's picture on the screen. */
+    public enum DrawnSurface {
+        /** The decoder itself: the picture reaches the screen as it was decoded. */
+        NONE,
+        /** The client draws it on a BT.2020/PQ surface: packed full chroma, PyroWave. */
+        PQ_ONLY,
+        /**
+         * The Vulkan renderer, where its instance has VK_EXT_swapchain_colorspace
+         * (VulkanRendererBridge.drawsHlg): BT.2020 PQ or HLG, through the HDR colour spaces or the
+         * window dataspace.
+         */
+        PQ_HLG
+    }
+
+    /** What the screen would show with the decoder's own output and the Vulkan renderer leaves out. */
+    public enum DrawnLimit {
+        NONE,
+        /** A Dolby Vision screen and decoder: the stream is HDR10 instead. */
+        DOLBY_VISION,
+        /** An HDR10+ screen: the stream's dynamic metadata does not reach it. */
+        HDR10_PLUS
+    }
 
     public static final int PQ = 1;
     public static final int HLG = 2;
@@ -35,21 +59,39 @@ public final class HdrFormatPolicy {
      * @param hostFormats  the host's HdrFormats bits (serverinfo), 0 when it lists none
      * @param displayTypes the types from Display.getHdrCapabilities(), null when there are none
      * @param dolbyVisionDecoder a hardware decoder takes video/dolby-vision profile 8 (DvheSt)
-     * @param pqSurface    the client draws the picture itself on a BT.2020/PQ surface (packed full
-     *                     chroma, PyroWave, the Vulkan renderer)
+     * @param surface      who draws the picture
      * @return one bit to ask for, or 0 for stock HDR10
      */
-    public static int pick(int hostFormats, int[] displayTypes, boolean dolbyVisionDecoder, boolean pqSurface) {
-        if (pqSurface) return 0;
-        if (dolbyVisionDecoder && has(displayTypes, Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION)) {
-            if ((hostFormats & DV_81) != 0) return DV_81;
-            if ((hostFormats & DV_84) != 0) return DV_84;
-        }
-        if ((hostFormats & HLG) != 0 && !HdrPolicy.hasHdr10(displayTypes) &&
+    public static int pick(int hostFormats, int[] displayTypes, boolean dolbyVisionDecoder, DrawnSurface surface) {
+        if (surface == DrawnSurface.PQ_ONLY) return 0;
+        int format = 0;
+        if (surface == DrawnSurface.NONE && dolbyVisionDecoder &&
+                has(displayTypes, Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION) && (hostFormats & DOLBY_VISION) != 0) {
+            format = (hostFormats & DV_81) != 0 ? DV_81 : DV_84;
+        } else if ((hostFormats & HLG) != 0 && !HdrPolicy.hasHdr10(displayTypes) &&
                 has(displayTypes, Display.HdrCapabilities.HDR_TYPE_HLG)) {
-            return HLG;
+            format = HLG;
         }
-        return 0;
+        // A drawn surface takes nothing beyond PQ and HLG, whatever formats come later.
+        return surface == DrawnSurface.NONE ? format : format & (PQ | HLG);
+    }
+
+    /**
+     * What the Vulkan renderer leaves out that this screen would show from the decoder's own output,
+     * said once per PC: Dolby Vision first, then HDR10+ (Rubylight hosts write its dynamic metadata
+     * into PQ streams; HLG carries none).
+     * @param format what pick chose for the Vulkan renderer
+     */
+    public static DrawnLimit vulkanLimit(int hostFormats, int[] displayTypes, boolean dolbyVisionDecoder, int format) {
+        if (hostFormats == 0) return DrawnLimit.NONE;
+        if (dolbyVision(pick(hostFormats, displayTypes, dolbyVisionDecoder, DrawnSurface.NONE))) {
+            return DrawnLimit.DOLBY_VISION;
+        }
+        if (transfer(format) == MediaFormat.COLOR_TRANSFER_ST2084 &&
+                has(displayTypes, Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS)) {
+            return DrawnLimit.HDR10_PLUS;
+        }
+        return DrawnLimit.NONE;
     }
 
     /** The screen can show an HLG stream from this host, which then stands in for HDR10. */

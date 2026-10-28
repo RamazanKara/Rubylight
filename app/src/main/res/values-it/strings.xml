@@ -364,6 +364,7 @@
     <string name="stream_end_input">Termina sessione di input</string>
     <string name="launch_confirm_title">Conferma su questo dispositivo</string>
     <string name="launch_confirm_replace">Chiudere l’app in esecuzione e avviare questa?\nConferma entro 60 secondi.</string>
+    <string name="launch_confirm_replace_named">Chiudere %1$s e avviare %2$s?\nConferma entro 60 secondi.</string>
     <string name="launch_confirm_terminate">Chiudere l’app?\nI client monitor/input restano connessi.\nConferma entro 60 secondi.</string>
     <string name="launch_confirm">Conferma</string>
     <string name="summary_about">Versione %1$s · Basato su Moonlight (GPL-3.0)</string>

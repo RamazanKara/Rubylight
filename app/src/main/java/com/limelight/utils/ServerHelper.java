@@ -32,8 +32,10 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.StringReader;
 import java.net.UnknownHostException;
 import java.security.cert.CertificateEncodingException;
+import java.util.List;
 
 import okhttp3.HttpUrl;
 
@@ -87,6 +89,39 @@ public class ServerHelper {
         return i;
     }
 
+    /**
+     * The name of the game running on {@code computer} that starting {@code app} replaces, or null when nothing runs,
+     * {@code app} is the running game, or {@code apps} does not name it. The host's confirmation prompt shows it.
+     */
+    static String replacedAppName(ComputerDetails computer, NvApp app, List<NvApp> apps) {
+        if (apps == null || !computer.hasRunningGame()
+                || app.matchesRunningApp(computer.runningGameId, computer.runningGameUuid)) {
+            return null;
+        }
+        for (NvApp candidate : apps) {
+            if (candidate.getControl() == NvApp.Control.NONE
+                    && candidate.matchesRunningApp(computer.runningGameId, computer.runningGameUuid)) {
+                return candidate.getAppName();
+            }
+        }
+        return null;
+    }
+
+    /** The PC's app list as last polled or cached, or null when there is none yet. */
+    private static List<NvApp> appList(Activity parent, ComputerDetails computer) {
+        if (!computer.hasRunningGame()) {
+            return null;
+        }
+        try {
+            String list = computer.rawAppList != null ? computer.rawAppList : CacheHelper.readInputStreamToString(
+                    CacheHelper.openCacheFileForInput(parent.getCacheDir(), "applist", computer.uuid));
+            return NvHTTP.getAppListByReader(new StringReader(list), computer.caps);
+        } catch (IOException | XmlPullParserException e) {
+            // No list yet: the prompt says "the running app" without naming it.
+            return null;
+        }
+    }
+
     /** {@code source} says what asked for the start (see {@link LaunchSource}); the stream logs it. */
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
                                            ComputerManagerService.ComputerManagerBinder managerBinder, String source) {
@@ -114,6 +149,10 @@ public class ServerHelper {
         intent.putExtra(Game.EXTRA_UNIQUEID, managerBinder.getUniqueId());
         intent.putExtra(Game.EXTRA_PC_UUID, computer.uuid);
         intent.putExtra(Game.EXTRA_PC_NAME, computer.displayName());
+        String replaced = replacedAppName(computer, app, appList(parent, computer));
+        if (replaced != null) {
+            intent.putExtra(Game.EXTRA_REPLACED_APP_NAME, replaced);
+        }
         LaunchSource.put(intent, source);
         try {
             if (computer.serverCert != null) {

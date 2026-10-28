@@ -303,9 +303,9 @@ public final class HostActions {
                     }
                 }
             } catch (HostHttpResponseException e) {
-                // The host answered and refused, so the network is fine: a used or expired code, say.
-                LimeLog.warning("Pairing refused: " + e.getMessage());
-                message = activity.getString(refusalMessage(link != null, oneTimePin != null));
+                LimeLog.warning("Pairing failed: " + e.getMessage());
+                message = activity.getString(refused(e.getErrorCode()) ? refusalMessage(link != null, oneTimePin != null)
+                        : R.string.pair_connection_fix);
             } catch (IOException | XmlPullParserException e) {
                 message = activity.getString(R.string.pair_connection_fix);
             }
@@ -320,7 +320,16 @@ public final class HostActions {
      * True when the host already knows this device and nothing is to be paired. A link pairs again while no
      * certificate is pinned, so its fingerprint is checked and the certificate pinned.
      */
-    /** What to show when the host answers a pairing request with an error, not with a pairing state. */
+    /**
+     * Whether an error status means the host refused the request (a used or expired code, say) rather than failed
+     * to answer it: 4xx, as in the host's XML status. A 503 or another server error keeps the network advice.
+     */
+    @VisibleForTesting
+    static boolean refused(int status) {
+        return status >= 400 && status < 500;
+    }
+
+    /** What to show when the host refuses a pairing request instead of answering it with a pairing state. */
     @VisibleForTesting
     static int refusalMessage(boolean fromLink, boolean oneTimePin) {
         return fromLink ? R.string.pair_qr_incorrect_pin : oneTimePin ? R.string.pair_otp_incorrect_pin : R.string.pair_fail;

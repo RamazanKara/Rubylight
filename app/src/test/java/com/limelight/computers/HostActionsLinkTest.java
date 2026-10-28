@@ -50,5 +50,10 @@ public class HostActionsLinkTest {
         assertEquals(R.string.pair_otp_incorrect_pin, HostActions.refusalMessage(false, true));
         assertEquals(R.string.pair_fail, HostActions.refusalMessage(false, false));
         assertNotEquals(R.string.pair_connection_fix, HostActions.refusalMessage(true, false));
+        // Only a refusal: the host's "OTP pairing is not available" is status 400; a 503 or a 5xx is no answer.
+        assertTrue(HostActions.refused(400));
+        assertTrue(HostActions.refused(403));
+        assertFalse(HostActions.refused(503));
+        assertFalse(HostActions.refused(599));
     }
 }

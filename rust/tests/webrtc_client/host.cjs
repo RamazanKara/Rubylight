@@ -30,10 +30,20 @@ async function assertRealHostIdle() {
     if (value(tag) !== '0') throw new Error(`the installed host is busy (${tag}=${value(tag)}); not starting a stream`);
   }
   if (value('state') !== 'SUNSHINE_SERVER_FREE') throw new Error('the installed host is streaming');
-  const games = execFileSync('powershell', ['-NoProfile', '-Command',
-    "Get-Process | Where-Object { $_.Path -match 'steamapps|\\\\Games\\\\|Epic Games|\\\\GOG|Battle\\.net' } | Select-Object -ExpandProperty ProcessName"], {encoding: 'utf8'}).trim();
-  if (games) throw new Error(`a game appears to be running (${games.split(/\s+/).join(', ')}); not starting a stream`);
+  const processes = JSON.parse(execFileSync('powershell', ['-NoProfile', '-Command',
+    'ConvertTo-Json -Compress @(Get-Process | Where-Object Path | Select-Object @{n="name";e={$_.ProcessName}}, @{n="path";e={$_.Path}})'],
+  {encoding: 'utf8', maxBuffer: 1 << 24}) || '[]');
+  const games = gameProcesses(processes);
+  if (games.length) throw new Error(`a game appears to be running (${games.join(', ')}); not starting a stream`);
   return true;
+}
+
+// The Steam client is no game, wherever it is installed (C:\games\Steam matches \Games\); the
+// games under its steamapps still count.
+const LAUNCHERS = /^(steam|steamwebhelper|steamservice)$/i;
+const GAME_PATH = /steamapps|\\Games\\|Epic Games|\\GOG|Battle\.net/i;
+function gameProcesses(processes) {
+  return processes.filter(p => GAME_PATH.test(p.path || '') && !LAUNCHERS.test(p.name)).map(p => p.name);
 }
 
 const defaults = {
@@ -126,10 +136,11 @@ const isAdmin = () => { try { execFileSync('net', ['session'], {stdio: 'ignore'}
 const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 // Runs steps that need administrator rights through elevated_tasks.ps1, which accepts only this
-// harness's own task, staging directory and firewall rule: the checkout's copy in an elevated shell,
-// otherwise the installed copy through the elevation task. A step is {args: [...schtasks
-// arguments]}, {kill: true} or {firewall: true, remove?: true}; a failing step throws unless it is
-// `optional`. Synchronous, because the exit handlers use it.
+// harness's own task and staging directory: the checkout's copy in an elevated shell, otherwise the
+// installed copy through the elevation task. A step is {args: [...schtasks arguments]} or
+// {kill: true}; a failing step throws unless it is `optional`. Synchronous, because the exit
+// handlers use it. The harness never adds or changes a firewall rule: the test host binds
+// 127.0.0.1, and a run from another device relies on the user's own rule for the staging folder.
 function elevate(o, steps) {
   const admin = isAdmin();
   const problem = admin ? null : elevationProblem();
@@ -167,21 +178,20 @@ function elevate(o, steps) {
     pause(250);
   }
   steps.forEach((step, i) => {
-    if (!step.optional && results[i]?.exit !== 0) throw new Error(`${step.kill ? 'kill' : step.firewall ? 'firewall' : 'schtasks ' + step.args.join(' ')} failed (${results[i]?.exit}): ${results[i]?.output}`);
+    if (!step.optional && results[i]?.exit !== 0) throw new Error(`${step.kill ? 'kill' : 'schtasks ' + step.args.join(' ')} failed (${results[i]?.exit}): ${results[i]?.output}`);
   });
   return results;
 }
 
 // What a run that was killed outright left behind and only an administrator can remove: the SYSTEM
-// task, the host it started and the firewall rule. Returns notes on what was there.
+// task and the host it started. Returns notes on what was there.
 function recoverElevated(o = defaults) {
-  const [, deleted, killed, firewall] = elevate(o, [
+  const [, deleted, killed] = elevate(o, [
     {args: ['/End', '/TN', o.task], optional: true}, {args: ['/Delete', '/TN', o.task, '/F'], optional: true},
-    {kill: true, optional: true}, {firewall: true, remove: true, optional: true}]);
+    {kill: true, optional: true}]);
   const notes = [];
   if (deleted?.exit === 0) notes.push(`deleted the task ${o.task} an earlier run left`);
   if (killed?.output) notes.push(`stopped what the earlier SYSTEM host left: ${killed.output}`);
-  if (firewall?.output === 'firewall rule removed') notes.push('removed the firewall rule an earlier run left');
   return notes;
 }
 
@@ -208,9 +218,6 @@ class TestHost {
       throw new Error(`a SYSTEM test host needs ${ELEVATION.launcher}: build it (cargo build --release -p butterpollo-windows --example system_launch) and run \`pwsh -File rust/release/elevation.ps1 -SystemLaunch <path to system_launch.exe>\` from an elevated PowerShell`);
     }
     const exe = stage(this.o);
-    // The firewall rule lives for this run only: `stop` and `kill` remove it.
-    elevate(this.o, [{firewall: true}]);
-    this.firewall = true;
     fs.writeFileSync(this.log, '');
     const args = ['--config-dir', this.o.root, '--assets', this.o.assets || path.join(this.o.package, 'assets', 'web'),
       '--port', String(this.o.port), '--bind', '127.0.0.1', '--no-tray'];
@@ -241,21 +248,7 @@ class TestHost {
 
   // Ends and deletes the SYSTEM task and stops what it left running.
   cleanTask() {
-    elevate(this.o, [{args: ['/End', '/TN', this.o.task], optional: true}, {args: ['/Delete', '/TN', this.o.task, '/F'], optional: true}, {kill: true, optional: true},
-      ...this.closeFirewallSteps()]);
-  }
-
-  // The step that removes this run's firewall rule, once.
-  closeFirewallSteps() {
-    if (!this.firewall) return [];
-    this.firewall = false;
-    return [{firewall: true, remove: true, optional: true}];
-  }
-
-  closeFirewall() {
-    const steps = this.closeFirewallSteps();
-    if (!steps.length) return;
-    try { elevate(this.o, steps); } catch (error) { console.error(`could not remove the firewall rule: ${error.message}`); }
+    elevate(this.o, [{args: ['/End', '/TN', this.o.task], optional: true}, {args: ['/Delete', '/TN', this.o.task, '/F'], optional: true}, {kill: true, optional: true}]);
   }
 
   async stop() {
@@ -270,7 +263,6 @@ class TestHost {
     try { await this.api('POST', '/api/quit', {}); } catch {}
     const code = await Promise.race([this.exited, new Promise(r => setTimeout(() => r(null), 8000))]);
     if (code === null) this.kill();
-    this.closeFirewall();
   }
 
   // Synchronous, for the exit handlers. A SYSTEM host is stopped with its task and whatever it
@@ -284,7 +276,6 @@ class TestHost {
     if (this.child && this.child.exitCode === null) {
       try { execFileSync('taskkill', ['/PID', String(this.child.pid), '/T', '/F'], {stdio: 'ignore'}); } catch {}
     }
-    this.closeFirewall();
   }
 
   request(method, route, body, headers = {}) {
@@ -337,4 +328,4 @@ class TestHost {
   }
 }
 
-module.exports = {assertRealHostIdle, prepare, TestHost, defaults, REAL_LOG, get, recoverElevated, elevationProblem, ELEVATION};
+module.exports = {assertRealHostIdle, prepare, TestHost, defaults, REAL_LOG, get, recoverElevated, elevationProblem, ELEVATION, gameProcesses};

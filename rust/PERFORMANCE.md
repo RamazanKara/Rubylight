@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| The console's Stream page against the browser page: glass-to-glass split at the frame's arrival, page part against the network and host part | [October 28, the console's Stream page against the browser page](#october-28-the-consoles-stream-page-against-the-browser-page-d4) |
 | Scene cuts AMF encodes past the full-FEC bound, encoded again as keyframes: lost cuts, freezes, keyframe requests, end-to-end picture age, encode time (ABBA) | [October 28, oversize scene cuts encoded again as keyframes](#october-28-oversize-scene-cuts-encoded-again-as-keyframes) |
 | LTR recovery on H.264 and HEVC with header rewrites: repair against keyframe bytes per gap (1 to 130) and codec, scrolling and static, decodes, the size estimate's choices, rewrite cost in a 60 s stream (ABBA) | [October 28, LTR recovery with header rewrites](#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default) |
 | Scene cuts on a clean route with 0.3% random loss: the automatic frame cap held within full four-block FEC (fixed, automatic and no FEC), oversize-only pacing (not kept), freezes, recovery keyframes, end-to-end picture age | [October 28, lost scene cuts and recovery keyframes past four FEC blocks](#october-28-lost-scene-cuts-and-recovery-keyframes-past-four-fec-blocks) |
@@ -54,6 +55,19 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 28: the console's Stream page against the browser page (D4)
+
+The rc.4 pass failed D4 on glass-to-glass: `webrtc_e2e.cjs --console` measured the console's Stream page at a 21 ms median (p99 25) against 12 ms for the browser client a minute earlier, over the 5 ms gate. The page is not slower. Same fixture as the WebRTC sections below (test host on `C:\tests\webrtc`, headless Edge over loopback, H.264 1080p60, 3.0.0-rc.4 package), one 60 s stream per leg, legs run one after the other:
+
+| Run | Browser page median, ms | Console page median, ms | Up to arrival, browser / console, ms | Arrival to display, browser / console, ms |
+| --- | ---: | ---: | --- | --- |
+| rc.4 pass D4 | 12 | 21 | not split | not split |
+| Before (same harness, same pages) | 21 | 21 | not split | not split |
+| After 1 | 17 | 17 | 14.5 / 14.2 | 2.0 / 1.9 |
+| After 2 | 21 | 17 | 18.8 / 14.7 | 1.6 / 3.1 |
+
+A diagnostic stream on the console page (12 s phases on one stream) moved the median no more than within noise: 21 ms as it is, 19 without the picture's rounded clip, 25 with every animation off, 21 with only the player visible, 19 in full screen; the browser page in the same run measured 21 in full screen and 21 out of it. The probe now splits each sample at the frame's arrival (`requestVideoFrameCallback` `receiveTime`). From arrival to display both pages take 2–3 ms. Up to arrival (host, network, the clock window) the median moves by itself between streams, by 4 ms in one run and probably the 9 ms of D4, in both directions, while the host's encode and present-to-send stay the same. The gate now holds the console page's part, arrival to display, to the browser page's plus 5 ms. A gap before arrival goes into the run's notes with each leg's host timings. No change to the page.
 
 ## October 28: oversize scene cuts encoded again as keyframes
 

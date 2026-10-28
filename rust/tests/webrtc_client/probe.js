@@ -42,10 +42,19 @@
 
   // ---- glass-to-glass ------------------------------------------------------
   const median = (a, q) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(q * s.length))]; };
+  // `wait` splits each sample at the frame's arrival (rVFC receiveTime, when the browser gives it):
+  // what came before is the host, the network and the clock window, the same for every page and
+  // moving between streams by itself; what came after is the page's decode and display.
   probe.g2gSummary = function () {
     const v = probe.g2g.map(s => s.ms);
+    const waits = probe.g2g.filter(s => Number.isFinite(s.wait)).map(s => s.wait);
+    const arrived = probe.g2g.filter(s => Number.isFinite(s.wait)).map(s => s.ms - s.wait);
+    const round = x => x === null ? null : Math.round(x * 10) / 10;
     return {samples: v.length, rejected: probe.g2gRejected, median_ms: median(v, .5), p95_ms: median(v, .95), p99_ms: median(v, .99),
-      min_ms: v.length ? Math.min(...v) : null, max_ms: v.length ? Math.max(...v) : null, calibration: probe.calibration};
+      min_ms: v.length ? Math.min(...v) : null, max_ms: v.length ? Math.max(...v) : null,
+      waitSamples: waits.length, wait_median_ms: round(median(waits, .5)), wait_p95_ms: round(median(waits, .95)),
+      wait_min_ms: waits.length ? round(Math.min(...waits)) : null, wait_max_ms: waits.length ? round(Math.max(...waits)) : null,
+      arrival_median_ms: round(median(arrived, .5)), arrival_p95_ms: round(median(arrived, .95)), calibration: probe.calibration};
   };
   // Reads the clock block from every decoded frame of `video`. The block is
   // located by its magenta border once (and again whenever it is lost).
@@ -123,6 +132,8 @@
     let frames = 0;
     const onFrame = (now, metadata) => {
       const at = Date.now();
+      // receiveTime is on performance.now()'s clock: from it to this callback, same clock.
+      const wait = metadata && Number.isFinite(metadata.receiveTime) ? performance.now() - metadata.receiveTime : undefined;
       frames++;
       try {
         if (!box) { if (frames % 15 === 1) calibrate(); }
@@ -133,7 +144,7 @@
             lost = 0;
             const ms = ((at % (1 << layout.BITS)) - value + (1 << layout.BITS)) % (1 << layout.BITS);
             // A wrong decode (a cell flipped by compression) shows as an absurd delay.
-            if (ms > 2000) probe.g2gRejected++; else probe.g2g.push({ms, at, presented: metadata && metadata.presentedFrames});
+            if (ms > 2000) probe.g2gRejected++; else probe.g2g.push({ms, at, wait, presented: metadata && metadata.presentedFrames});
           }
         }
       } catch (error) { probe.g2gError = String(error); }

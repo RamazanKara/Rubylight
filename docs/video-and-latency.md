@@ -49,6 +49,8 @@ Nightjar for Windows shows HDR10. On Linux it asks the compositor for an HDR swa
 
 Nightjar for Windows and Linux has both under **Settings → Video**. When a stream starts it decodes a short test picture in each codec and offers the PC only what this device's decoder returns as 4:4:4 or 10-bit pictures; a decoder that can't gets 4:2:0 or 8-bit, and the stream names the reason. The PC takes 4:4:4 or 10-bit SDR, not both.
 
+Few hardware decoders decode true 4:4:4, so on most PCs **Prefer YUV 4:4:4** needs the software decoder. **Full chroma** gets 4:4:4 colour on the hardware decoder instead: the PC packs it into an ordinary HEVC or AV1 stream and Nightjar unpacks it on the GPU. It needs the host option, and PyroWave has its own chroma modes.
+
 **Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
 
 ## Refresh rate and VRR

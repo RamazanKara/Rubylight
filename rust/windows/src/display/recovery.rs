@@ -2,7 +2,7 @@
 
 use super::hdr::{HdrAction, hdr_action, restore_hdr};
 use super::modes::{Timing, supported_modes};
-use super::virtual_display::{DisplayLease, display_lease};
+use super::virtual_display::{DisplayLease, display_lease, joined_monitor};
 use super::*;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -707,13 +707,14 @@ impl Guard {
         physical_refresh: Option<butterpollo_core::framegen::Rate>,
         options: &VirtualOptions,
     ) -> Result<Self> {
-        let virtual_display = if virtual_mode {
-            Some(display_lease(stable_id, width, height, rate.0, options)?)
+        let (virtual_display, needed) = if virtual_mode {
+            let (lease, needed) = display_lease(stable_id, width, height, rate.0, options)?;
+            (Some(lease), needed)
         } else {
-            None
+            (None, None)
         };
         let chosen = if let Some(v) = &virtual_display {
-            v.lock().unwrap().current_monitor()?
+            joined_monitor(&mut *v.lock().unwrap(), needed)?
         } else {
             let choices = monitors()?;
             choose(&choices, output)

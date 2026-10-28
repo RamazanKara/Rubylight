@@ -2,7 +2,7 @@
 //! heartbeats.
 
 use super::modes::{
-    ModeOutcome, current_timing, fallback_rate, format_timing, mode_outcome, offered_rates,
+    ModeOutcome, Timing, current_timing, fallback_rate, format_timing, mode_outcome, offered_rates,
     supported_modes,
 };
 use super::rubylight_vdd::{self, Control};
@@ -236,51 +236,131 @@ pub struct VirtualDisplay {
     pub switched_on: bool,
 }
 pub(super) type DisplayLease = std::sync::Arc<std::sync::Mutex<VirtualDisplay>>;
-static DISPLAYS: std::sync::Mutex<
-    std::collections::BTreeMap<String, std::sync::Weak<std::sync::Mutex<VirtualDisplay>>>,
-> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// The displays streams lease, by id; a shared display has one entry for all.
+type Leases<D> = std::collections::BTreeMap<String, std::sync::Weak<std::sync::Mutex<D>>>;
+static DISPLAYS: std::sync::Mutex<Leases<VirtualDisplay>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// The display `id` for a stream at this mode, and the refresh (millihertz)
+/// it still has to be raised to when the stream joins a slower shared one:
+/// [`joined_monitor`] does that once the display is on.
 pub(super) fn display_lease(
     id: &str,
     width: u32,
     height: u32,
     fps: u32,
     options: &VirtualOptions,
-) -> Result<DisplayLease> {
-    let mut displays = DISPLAYS.lock().unwrap();
+) -> Result<(DisplayLease, Option<u32>)> {
+    lease(
+        &mut DISPLAYS.lock().unwrap(),
+        id,
+        (width, height, fps),
+        || VirtualDisplay::create_options(id, width, height, fps, options.clone()),
+    )
+}
+/// What leasing, joining and raising a virtual display need of it, so that
+/// tests can stand in for the driver and Windows.
+pub(super) trait SharedDisplay {
+    /// The mode it was created with, and the one the host sets on it now.
+    fn modes(&self) -> (Timing, Timing);
+    /// The mode the host sets on it from now on.
+    fn set_mode(&mut self, mode: Timing);
+    /// Have the driver offer that mode.
+    fn offer_mode(&self);
+    /// Set that mode in Windows; whether Windows shows it.
+    fn apply(&self, stage: &str) -> bool;
+    /// Its monitor, switched back on when Windows left it off.
+    fn switch_on(&mut self) -> Result<Monitor>;
+}
+impl SharedDisplay for VirtualDisplay {
+    fn modes(&self) -> (Timing, Timing) {
+        (self.created, self.mode)
+    }
+    fn set_mode(&mut self, mode: Timing) {
+        self.mode = mode;
+    }
+    fn offer_mode(&self) {
+        self.driver
+            .offer_mode(self.id, Mode::new(self.mode.0, self.mode.1, self.mode.2));
+    }
+    fn apply(&self, stage: &str) -> bool {
+        self.apply_mode(stage)
+    }
+    fn switch_on(&mut self) -> Result<Monitor> {
+        let monitor = self.current_monitor()?;
+        // Windows can name a display it switched back on anew.
+        self.name = monitor.display_name.clone();
+        Ok(monitor)
+    }
+}
+fn lease<D: SharedDisplay>(
+    displays: &mut Leases<D>,
+    id: &str,
+    requested: Timing,
+    create: impl FnOnce() -> Result<D>,
+) -> Result<(std::sync::Arc<std::sync::Mutex<D>>, Option<u32>)> {
     displays.retain(|_, lease| lease.strong_count() != 0);
     if let Some(display) = displays.get(id).and_then(std::sync::Weak::upgrade) {
-        {
-            let mut shared = display.lock().unwrap();
-            join(shared.created, shared.mode, (width, height, fps), |rate| {
-                shared.raise_rate(rate)
-            })?;
-        }
-        return Ok(display);
+        let (created, current) = display.lock().unwrap().modes();
+        let needed = join(created, current, requested)?;
+        return Ok((display, needed));
     }
-    let display = std::sync::Arc::new(std::sync::Mutex::new(VirtualDisplay::create_options(
-        id,
-        width,
-        height,
-        fps,
-        options.clone(),
-    )?));
+    let display = std::sync::Arc::new(std::sync::Mutex::new(create()?));
     displays.insert(id.into(), std::sync::Arc::downgrade(&display));
-    Ok(display)
+    Ok((display, None))
+}
+/// The monitor of a leased display, switched back on first (a paused shared
+/// display can be off), then raised to `needed`, the refresh a joining stream
+/// asks for above the display's ([`display_lease`]). A raise Windows refuses
+/// fails with why; the display keeps its mode for the streams on it.
+pub(super) fn joined_monitor(
+    display: &mut impl SharedDisplay,
+    needed: Option<u32>,
+) -> Result<Monitor> {
+    let monitor = display.switch_on()?;
+    if let Some(rate) = needed {
+        let (_, before) = display.modes();
+        if raise(display, rate).is_none() {
+            bail!(
+                "shared virtual display already uses a different mode: it runs at {:.3} Hz, and Windows refused the {:.3} Hz this stream asks for",
+                f64::from(before.2) / 1000.,
+                f64::from(rate) / 1000.
+            );
+        }
+        tracing::info!(
+            from = %format_timing(before),
+            to_millihz = rate,
+            "a joining stream raised the shared virtual display's refresh"
+        );
+    }
+    Ok(monitor)
+}
+/// Raise the refresh in place to at least `rate`: the refresh (millihertz)
+/// the display has now, or None when Windows refused it. A refusal puts the
+/// previous mode back, since Windows can refuse the rate yet leave another
+/// rate or size behind for the streams already on it.
+fn raise(display: &mut impl SharedDisplay, rate: u32) -> Option<u32> {
+    let (_, previous) = display.modes();
+    if rate <= previous.2 {
+        return Some(previous.2);
+    }
+    display.set_mode((previous.0, previous.1, rate));
+    display.offer_mode();
+    if display.apply("stream request") {
+        return Some(rate);
+    }
+    display.set_mode(previous);
+    display.apply("stream raise refused");
+    None
 }
 /// A stream joins a shared virtual display that was created at the size it
 /// asks for, or that shows that size now: a turn or a size the user picked in
 /// Windows moves `current`, and the encoder scales as it does on a shared
 /// physical display. Any refresh at least the stream's serves it, since
 /// capture and encode are paced per stream: a VRR stream's 1000 Hz display
-/// serves a fixed 60 fps one. A stream that asks for more raises the display
-/// in place with `raise` (for the streams on it, too, a faster refresh
-/// serves them). Another size, or a raise Windows refuses, fails with why.
-fn join(
-    created: (u32, u32, u32),
-    current: (u32, u32, u32),
-    requested: (u32, u32, u32),
-    raise: impl FnOnce(u32) -> Option<u32>,
-) -> Result<()> {
+/// serves a fixed 60 fps one. A stream that asks for more gets the refresh
+/// the display has to be raised to (for the streams on it, too, a faster
+/// refresh serves them). Another size fails with why.
+fn join(created: Timing, current: Timing, requested: Timing) -> Result<Option<u32>> {
     let (width, height, rate) = requested;
     if (width, height) != (created.0, created.1) && (width, height) != (current.0, current.1) {
         bail!(
@@ -289,22 +369,7 @@ fn join(
             current.1
         );
     }
-    if rate <= current.2 {
-        return Ok(());
-    }
-    if raise(rate).is_none() {
-        bail!(
-            "shared virtual display already uses a different mode: it runs at {:.3} Hz, and Windows refused the {:.3} Hz this stream asks for",
-            f64::from(current.2) / 1000.,
-            f64::from(rate) / 1000.
-        );
-    }
-    tracing::info!(
-        from = %format_timing(current),
-        to_millihz = rate,
-        "a joining stream raised the shared virtual display's refresh"
-    );
-    Ok(())
+    Ok((rate > current.2).then_some(rate))
 }
 fn lease_exists(result: Result<()>) -> Result<bool> {
     match result {
@@ -858,20 +923,9 @@ impl VirtualDisplay {
     /// Raise the refresh in place for a stream that asks for more than its
     /// launch did, keeping the display and what runs on it. Returns the
     /// refresh (millihertz) the display has now, at least `rate`, or None
-    /// when Windows refused it and the display kept its previous mode.
+    /// when Windows refused it and the display went back to its previous mode.
     pub(super) fn raise_rate(&mut self, rate: u32) -> Option<u32> {
-        if rate <= self.mode.2 {
-            return Some(self.mode.2);
-        }
-        let previous = self.mode;
-        self.mode.2 = rate;
-        self.driver
-            .offer_mode(self.id, Mode::new(self.mode.0, self.mode.1, self.mode.2));
-        if self.apply_mode("stream request") {
-            return Some(rate);
-        }
-        self.mode = previous;
-        None
+        raise(self, rate)
     }
     /// Give the display another size at its refresh in place, for a stream
     /// that turned between portrait and landscape. False when Windows did not
@@ -1016,13 +1070,77 @@ impl Drop for VirtualDisplay {
 
 #[cfg(test)]
 mod tests {
-    /// Joins without changing the display.
-    fn joins(
-        created: (u32, u32, u32),
-        current: (u32, u32, u32),
-        requested: (u32, u32, u32),
-    ) -> bool {
-        super::join(created, current, requested, |_| panic!("raised")).is_ok()
+    use std::sync::{Arc, Mutex};
+
+    /// A shared virtual display as Windows treats it.
+    #[derive(Debug)]
+    struct Fake {
+        created: Timing,
+        mode: Timing,
+        /// What Windows shows.
+        shown: std::cell::Cell<Timing>,
+        /// Off, as a paused display can be, refuses every mode.
+        on: bool,
+        /// Refused refreshes, after which Windows shows 60 Hz.
+        refuses: Vec<u32>,
+        log: std::cell::RefCell<Vec<String>>,
+    }
+    impl Fake {
+        fn new(mode: Timing) -> Self {
+            Self {
+                created: mode,
+                mode,
+                shown: mode.into(),
+                on: true,
+                refuses: Vec::new(),
+                log: Default::default(),
+            }
+        }
+    }
+    impl SharedDisplay for Fake {
+        fn modes(&self) -> (Timing, Timing) {
+            (self.created, self.mode)
+        }
+        fn set_mode(&mut self, mode: Timing) {
+            self.mode = mode;
+        }
+        fn offer_mode(&self) {
+            self.log.borrow_mut().push(format!("offer {}", self.mode.2));
+        }
+        fn apply(&self, stage: &str) -> bool {
+            self.log.borrow_mut().push(stage.into());
+            if !self.on || self.refuses.contains(&self.mode.2) {
+                self.shown.set((self.mode.0, self.mode.1, 60_000));
+                return false;
+            }
+            self.shown.set(self.mode);
+            true
+        }
+        fn switch_on(&mut self) -> anyhow::Result<crate::display::Monitor> {
+            self.on = true;
+            self.log.borrow_mut().push("on".into());
+            Ok(super::super::monitor("virtual", 1, false))
+        }
+    }
+    /// Lease `id` for a stream at `requested`, creating `fresh` when nothing has it.
+    fn lease(
+        displays: &mut super::Leases<Fake>,
+        requested: Timing,
+        fresh: Option<Fake>,
+    ) -> anyhow::Result<(Arc<Mutex<Fake>>, Option<u32>)> {
+        super::lease(displays, "shared", requested, || {
+            Ok(fresh.expect("a display was created"))
+        })
+    }
+    /// Lease and switch on, as a stream's display guard does.
+    fn stream(
+        displays: &mut super::Leases<Fake>,
+        requested: Timing,
+        fresh: Option<Fake>,
+    ) -> anyhow::Result<Arc<Mutex<Fake>>> {
+        let (display, needed) = lease(displays, requested, fresh)?;
+        super::joined_monitor(&mut *display.lock().unwrap(), needed)?;
+        Ok(display)
     }
 
     #[test]
@@ -1035,14 +1153,14 @@ mod tests {
             (1080, 1920, 60_000),
             (2560, 1440, 60_000),
         ] {
-            assert!(joins(launched, current, launched));
-            assert!(joins(launched, current, current));
-            let error = super::join(launched, current, (1280, 720, 60_000), |_| panic!())
+            assert_eq!(super::join(launched, current, launched).unwrap(), None);
+            assert_eq!(super::join(launched, current, current).unwrap(), None);
+            let error = super::join(launched, current, (1280, 720, 60_000))
                 .unwrap_err()
                 .to_string();
             assert!(error.contains("asks for 1280x720"), "{error}");
         }
-        assert!(joins(launched, launched, launched));
+        assert_eq!(super::join(launched, launched, launched).unwrap(), None);
     }
 
     #[test]
@@ -1051,27 +1169,36 @@ mod tests {
         let vrr = (1920, 1080, 1_000_000);
         let fixed = (1920, 1080, 120_000);
         // VRR first: its 1000 Hz serves the 60 fps stream as it is.
-        assert!(joins(vrr, vrr, fixed));
+        let mut displays = super::Leases::new();
+        let first = stream(&mut displays, vrr, Some(Fake::new(vrr))).unwrap();
+        let second = stream(&mut displays, fixed, None).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.lock().unwrap().shown.get(), vrr);
+        // Only switched on, by each stream: no mode was set.
+        assert_eq!(*first.lock().unwrap().log.borrow(), ["on", "on"]);
         // The fixed rate first: the VRR stream raises the display, and keeps VRR.
-        let mut raised = None;
-        super::join(fixed, fixed, vrr, |rate| {
-            raised = Some(rate);
-            Some(rate)
-        })
-        .unwrap();
-        assert_eq!(raised, Some(1_000_000));
+        let mut displays = super::Leases::new();
+        let first = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
+        let second = stream(&mut displays, vrr, None).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.lock().unwrap().mode, vrr);
+        assert_eq!(first.lock().unwrap().shown.get(), vrr);
         // Now at 1000 Hz, a third stream at either rate joins as it is.
-        assert!(joins(fixed, vrr, fixed));
-        assert!(joins(fixed, vrr, vrr));
-        // A display that already refreshes faster is never lowered.
-        assert!(joins(fixed, fixed, (1920, 1080, 60_000)));
+        assert_eq!(lease(&mut displays, fixed, None).unwrap().1, None);
+        assert_eq!(lease(&mut displays, vrr, None).unwrap().1, None);
+        // Once every stream left, the next one gets a display of its own.
+        drop((first, second));
+        let fresh = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
+        assert_eq!(fresh.lock().unwrap().mode, fixed);
     }
 
     #[test]
     fn a_shared_virtual_display_that_cannot_serve_a_stream_refuses_it_with_why() {
         let fixed = (1920, 1080, 120_000);
+        let mut displays = super::Leases::new();
+        let first = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
         // Another size, even at a rate the display serves.
-        let error = super::join(fixed, fixed, (2560, 1440, 60_000), |_| panic!("raised"))
+        let error = lease(&mut displays, (2560, 1440, 60_000), None)
             .unwrap_err()
             .to_string();
         assert_eq!(
@@ -1079,13 +1206,43 @@ mod tests {
             "shared virtual display already uses a different mode: it is 1920x1080, and this stream asks for 2560x1440"
         );
         // A refresh Windows refuses to raise the display to.
-        let error = super::join(fixed, fixed, (1920, 1080, 1_000_000), |_| None)
+        first.lock().unwrap().refuses.push(1_000_000);
+        let error = stream(&mut displays, (1920, 1080, 1_000_000), None)
             .unwrap_err()
             .to_string();
         assert_eq!(
             error,
             "shared virtual display already uses a different mode: it runs at 120.000 Hz, and Windows refused the 1000.000 Hz this stream asks for"
         );
+        // Windows left 60 Hz behind: the stream already on it gets its mode back.
+        let display = first.lock().unwrap();
+        assert_eq!(display.mode, fixed);
+        assert_eq!(display.shown.get(), fixed);
+        assert_eq!(
+            display.log.borrow().last().map(String::as_str),
+            Some("stream raise refused")
+        );
+    }
+
+    #[test]
+    fn a_stream_raises_a_paused_shared_display_only_once_it_is_on_again() {
+        // The VRR device relaunches onto the display a disconnected phone
+        // left paused, and Windows switched it off meanwhile.
+        let fixed = (1920, 1080, 120_000);
+        let mut displays = super::Leases::new();
+        let paused = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
+        {
+            let mut display = paused.lock().unwrap();
+            display.on = false;
+            display.log.borrow_mut().clear();
+        }
+        stream(&mut displays, (1920, 1080, 1_000_000), None).unwrap();
+        let display = paused.lock().unwrap();
+        assert_eq!(
+            *display.log.borrow(),
+            ["on", "offer 1000000", "stream request"]
+        );
+        assert_eq!(display.shown.get(), (1920, 1080, 1_000_000));
     }
 
     #[test]

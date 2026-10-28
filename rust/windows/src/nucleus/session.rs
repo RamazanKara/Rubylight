@@ -84,8 +84,7 @@ impl Launcher for Elevated {
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
         require_administrator(crate::process::user_runs_elevated()?)?;
-        let mut environment = environment()?;
-        environment.extend(extra.clone());
+        let environment = environment(extra)?;
         let since = crate::process::now();
         let program = folder.join(EXECUTABLE);
         // Nucleus reads Settings.ini from its working folder, and its window
@@ -122,7 +121,7 @@ pub fn open(folder: &Path) -> Result<Opened> {
         &line,
         Some(folder),
         crate::process::Target::User { elevated: true },
-        &environment()?,
+        &environment(&BTreeMap::new())?,
         false,
         true,
     )
@@ -137,17 +136,23 @@ pub fn open(folder: &Path) -> Result<Opened> {
 /// Nucleus stayed on its loading screen with "Microsoft Edge can't read and
 /// write to its data directory" (#59). `WEBVIEW2_USER_DATA_FOLDER` replaces
 /// the folder Nucleus passes: one in the signed-in user's own AppData\Local.
-fn environment() -> Result<BTreeMap<String, String>> {
+/// `extra` (a Steam game's app id) is added to it.
+fn environment(extra: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
     let local = crate::child_session::console_local_app_data()?
         .context("Nucleus Co-op needs a Windows account signed in at this PC's screen")?;
-    Ok(webview_environment(&local))
+    Ok(webview_environment(&local, extra))
 }
-fn webview_environment(local_app_data: &Path) -> BTreeMap<String, String> {
+fn webview_environment(
+    local_app_data: &Path,
+    extra: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
     let folder = local_app_data.join("Butterpollo").join("nucleus-webview");
-    BTreeMap::from([(
+    let mut environment = BTreeMap::from([(
         "WEBVIEW2_USER_DATA_FOLDER".to_string(),
         folder.to_string_lossy().into_owned(),
-    )])
+    )]);
+    environment.extend(extra.clone());
+    environment
 }
 
 /// Without an elevated token for the signed-in user (a standard account, or
@@ -740,12 +745,25 @@ mod tests {
         // WebView2's browser runs without administrator rights and could not
         // write Nucleus' Administrators-only webview\cache (#59).
         let local = Path::new(r"C:\Users\Player\AppData\Local");
-        let environment = webview_environment(local);
+        let environment = webview_environment(local, &BTreeMap::new());
         assert_eq!(environment.len(), 1);
         assert_eq!(
             environment["WEBVIEW2_USER_DATA_FOLDER"],
             r"C:\Users\Player\AppData\Local\Butterpollo\nucleus-webview"
         );
+    }
+
+    #[test]
+    fn a_steam_games_app_id_joins_webview2s_folder() {
+        // Nucleus needs both: WebView2's folder for its window, and the app
+        // id so a Steam game it starts by its .exe doesn't restart via Steam.
+        let local = Path::new(r"C:\Users\Player\AppData\Local");
+        let environment = webview_environment(local, &steam_environment(Some(400)));
+        assert_eq!(
+            environment.keys().collect::<Vec<_>>(),
+            ["SteamAppId", "SteamGameId", "WEBVIEW2_USER_DATA_FOLDER"]
+        );
+        assert_eq!(environment["SteamAppId"], "400");
     }
 
     #[test]

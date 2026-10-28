@@ -8,6 +8,7 @@
   import DisplaysPanel from '../components/maintenance/DisplaysPanel.svelte';
   import HostPanel from '../components/maintenance/HostPanel.svelte';
   import LimiterPanel from '../components/maintenance/LimiterPanel.svelte';
+  import NucleusPanel from '../components/maintenance/NucleusPanel.svelte';
   import PasswordPanel from '../components/maintenance/PasswordPanel.svelte';
   import PowerPanel from '../components/maintenance/PowerPanel.svelte';
   import Section from '../components/maintenance/Section.svelte';
@@ -51,6 +52,7 @@
     <DisplaysPanel />
     <WindowsSessionPanel />
     <ChildSessionPanel />
+    <NucleusPanel />
   </Section>
   <Section title="Troubleshooting">
     <LogAnalysisPanel />

@@ -316,6 +316,8 @@ export interface Client {
   remembered_resolution?: string | null;
   remembered_scale?: number | string | null;
   background_stream?: boolean | string | null;
+  /** Join other devices' co-op sessions (Experimental). The host reads a JSON true or "true". */
+  coop_join?: boolean | string | null;
   virtual_display_mode?: string | null;
   virtual_display_layout?: string | null;
   virtual_display_layout_set_by_user?: boolean | null;
@@ -600,6 +602,51 @@ export interface ChildSessionStatus {
   host_port: number | null;
   problem: string | null;
   limits: string[];
+}
+export type CoopPhase = 'starting' | 'running' | 'ended';
+/** How a Nucleus Co-op session ended; `detail` says what stopped for `crashed` and `failed`. */
+export interface CoopEnd {
+  reason: 'ended' | 'empty' | 'crashed' | 'failed';
+  detail: string | null;
+}
+export interface CoopPlayer {
+  slot: number;
+  /** The paired device's uuid; null for a free slot. */
+  device: string | null;
+  name: string | null;
+  /** The device's stream is gone; it keeps the slot for a while. */
+  away: boolean;
+}
+export interface CoopSession {
+  id: number;
+  kind: 'coop' | 'background';
+  app_id: number;
+  title: string;
+  game: string;
+  phase: CoopPhase;
+  end: CoopEnd | null;
+  players: CoopPlayer[];
+}
+/** `GET /api/coop`: background streaming and co-op through Nucleus Co-op (Experimental). */
+export interface CoopStatus {
+  mode: {
+    setting: string;
+    mode: 'nucleus' | 'child_session' | 'unavailable';
+    label: string;
+    reason: string;
+    /** The setting still says the replaced `virtual_display`, which reads as Nucleus Co-op. */
+    legacy: boolean;
+  };
+  install: {
+    state: 'installed' | 'missing' | 'configured' | 'installing' | 'failed';
+    path: string | null;
+    version: string | null;
+    error: string | null;
+  };
+  available: boolean;
+  /** Why this host runs no Nucleus Co-op sessions; null when it does. */
+  reason: string | null;
+  sessions: CoopSession[];
 }
 export interface VulkanLayerStatus {
   status: true;
@@ -929,6 +976,13 @@ export const api = {
     show: () => post<Ok>('/api/child-session/show'),
     end: (child: number, generation: number) => post<Ok>('/api/child-session/end', { child, generation }),
     forgetPassword: () => post<Ok>('/api/child-session/forget-password'),
+  },
+  coop: {
+    status: () => get<CoopStatus>('/api/coop'),
+    /** Frees the slot; the device's stream ends. */
+    kick: (session: number, slot: number) => post<{ device: string }>('/api/coop/kick', { session, slot }, ACTION_TIMEOUT_MS),
+    /** Stops Nucleus Co-op and every instance, and ends each player's stream. */
+    end: (session: number) => post<Record<string, never>>('/api/coop/end', { session }, ACTION_TIMEOUT_MS),
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),

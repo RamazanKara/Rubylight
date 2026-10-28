@@ -715,6 +715,7 @@ mod tests {
             transport: Default::default(),
             roaming_offered: Default::default(),
             claimed_until: None,
+            nucleus: None,
             warnings: Default::default(),
         }
     }

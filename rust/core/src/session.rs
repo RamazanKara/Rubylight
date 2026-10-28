@@ -1997,6 +1997,7 @@ mod tests {
             transport: Default::default(),
             roaming_offered: Default::default(),
             claimed_until: None,
+            nucleus: None,
             warnings: Default::default(),
         }
     }
@@ -2769,6 +2770,15 @@ pub struct Launch<P = (), A = ()> {
     /// Until when an RTSP handshake holds this launch past its 30 s
     /// ([`Sessions::claim`]); `None` until its first RTSP request.
     pub claimed_until: Option<Instant>,
+    /// The Nucleus Co-op session and slot this launch streams, fixed when the
+    /// host admits it; `None` for every other launch.
+    pub nucleus: Option<Seat>,
+}
+/// One player's place in a Nucleus Co-op session (see `crate::nucleus::coop`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Seat {
+    pub session: u32,
+    pub slot: usize,
 }
 // Launch clones share the slots; the platform preparations need not be Clone.
 impl<P, A> Clone for Launch<P, A> {
@@ -2799,6 +2809,7 @@ impl<P, A> Clone for Launch<P, A> {
             transport: self.transport,
             roaming_offered: self.roaming_offered.clone(),
             claimed_until: self.claimed_until,
+            nucleus: self.nucleus,
         }
     }
 }

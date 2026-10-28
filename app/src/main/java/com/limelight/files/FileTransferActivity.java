@@ -383,7 +383,8 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     }
 
     private void queueUpload(Uri uri) {
-        ContentResolver resolver = getContentResolver();
+        // The upload's opener outlives this screen in the ViewModel: never hold the Activity.
+        ContentResolver resolver = getApplicationContext().getContentResolver();
         String name = null;
         long size = -1;
         try (Cursor cursor = resolver.query(uri, new String[] {OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE},

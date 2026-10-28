@@ -142,6 +142,38 @@ public class TvSettingsFocusTest {
         assertTrue("rows cut at the top: " + cut, cut.isEmpty());
     }
 
+    /**
+     * TV run on a TCL C6K: with search results on the right the rail still marked Controls. The search row is marked
+     * (grey pill and amber bar), and Left from the results comes back to it.
+     */
+    @Test
+    public void searchResultsMarkTheSearchRowAndLeftReturnsToIt() {
+        StreamSettings screen = open();
+        ListView list = sections(screen);
+        int search = StreamSettings.RootFragment.positionOf(list, StreamSettings.SEARCH_ROW_KEY);
+        assertEquals(0, search);
+        assertEquals("input", keyAt(list, list.getCheckedItemPosition()));
+        press(screen, KeyEvent.KEYCODE_DPAD_UP);
+        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        androidx.appcompat.widget.SearchView field = screen.findViewById(R.id.settings_search);
+        assertTrue("Select on the search row opens the field", field.getVisibility() == View.VISIBLE);
+        field.setQuery("controller", true);
+        settle(screen);
+        list = sections(screen);
+        assertEquals("the rail marks the search row", StreamSettings.SEARCH_ROW_KEY,
+                keyAt(list, list.getCheckedItemPosition()));
+        SettingsRail rail = org.robolectric.util.ReflectionHelpers.getField(screen, "rail");
+        assertEquals("the amber bar is on the search row", search, rail.position());
+        ListView results = (ListView) screen.getFragmentManager().findFragmentById(R.id.stream_settings).getView()
+                .findViewById(android.R.id.list);
+        results.requestFocus();
+        settle(screen);
+        press(screen, KeyEvent.KEYCODE_DPAD_LEFT);
+        assertTrue(list.hasFocus());
+        assertEquals("Left lands on the marked row", StreamSettings.SEARCH_ROW_KEY,
+                keyAt(list, list.getSelectedItemPosition()));
+    }
+
     @Test
     public void onASectionTheRingAndTheShownSectionAreTheSameRow() {
         StreamSettings screen = open();

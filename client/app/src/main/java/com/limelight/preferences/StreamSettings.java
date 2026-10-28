@@ -278,13 +278,22 @@ public class StreamSettings extends NightjarActivity {
 
     /** Marks the section the right pane shows in the list of sections. */
     private void markSection() {
+        String row = markedRow();
         android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.settings_sections);
-        if (twoPane && fragment instanceof RootFragment) ((RootFragment) fragment).mark(section);
+        if (twoPane && fragment instanceof RootFragment) ((RootFragment) fragment).mark(row);
         if (rail != null) {
             ListView list = listOf(R.id.settings_sections);
             rail.setList(list);
-            rail.mark(list == null ? -1 : RootFragment.positionOf(list, section));
+            rail.mark(list == null ? -1 : RootFragment.positionOf(list, row));
         }
+    }
+
+    /**
+     * The row of the list of sections that stands for the right pane: its section, or on a TV the search row while the
+     * pane shows search results (the rail kept marking the section left behind them).
+     */
+    String markedRow() {
+        return isTelevision(this) && !searchQuery.isEmpty() ? SEARCH_ROW_KEY : section;
     }
 
     /** TV Settings' rail bar and pane motion; null without the TV layout. */
@@ -295,11 +304,12 @@ public class StreamSettings extends NightjarActivity {
         ListView list = sectionList();
         if (list == null) return;
         ListView content = twoPane ? listOf(R.id.stream_settings) : null;
-        if (content != null && section != null && content.hasFocus()) {
+        // Search results are not the section's rows: their position is not the one to come back to.
+        if (content != null && section != null && section.equals(markedRow()) && content.hasFocus()) {
             paneSelection.put(section, content.getSelectedItemPosition());
         }
         markSection();
-        int position = RootFragment.positionOf(list, section);
+        int position = RootFragment.positionOf(list, markedRow());
         if (position >= 0) list.setSelection(position);
         list.requestFocus();
     }
@@ -380,6 +390,8 @@ public class StreamSettings extends NightjarActivity {
         if (fragment instanceof SettingsFragment && !searchQuery.isEmpty()) {
             ((SettingsFragment) fragment).filterPreferences();
             updateHeader();
+            // The pane turned from a section into results in place: on a TV the search row takes the mark.
+            markSection();
         } else {
             reloadSettings();
         }

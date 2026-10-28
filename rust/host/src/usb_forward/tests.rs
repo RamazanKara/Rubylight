@@ -770,6 +770,45 @@ async fn an_attached_device_detaches_when_its_session_ends() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn turning_usb_forwarding_off_detaches_every_device_now() {
+    let Relay {
+        forwarding,
+        vhci,
+        driver: _driver,
+        client: _client,
+        served,
+    } = attached().await;
+    // Another client's device still waits for its tunnel.
+    forwarding.on_message("other", &client(true), true, 4, request(1, BUSID));
+    token(&forwarding.take("other", Instant::now()));
+    assert_eq!(forwarding.disable(), 2);
+    tokio::time::timeout(Duration::from_secs(5), served)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(vhci.detached(), [(3, BUSID.to_owned())]);
+    assert!(forwarding.list().is_empty());
+    for (session, request_id) in [(SESSION, 5), ("other", 1)] {
+        let told = forwarding.take(session, Instant::now());
+        assert!(
+            matches!(
+                told[..],
+                [
+                    UsbMessage::Detach { request_id: r },
+                    UsbMessage::Status {
+                        request_id: s,
+                        state: UsbState::Detached,
+                        reason: UsbReason::Disabled
+                    }
+                ] if r == request_id && s == request_id
+            ),
+            "{session}: {told:?}"
+        );
+    }
+    assert_eq!(forwarding.disable(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_relay_detaches_a_client_that_breaks_the_framing() {
     for reply in [
         // A reply to nothing the driver asked.

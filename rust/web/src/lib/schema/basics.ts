@@ -264,7 +264,7 @@ const general: Setting[] = [
     label: 'USB forwarding (Experimental)',
     description:
       'Let the devices you allow attach their USB devices to this PC during a stream. Each device also needs Allow USB devices.',
-    details: 'Needs the usbip-win2 driver on this PC. A device is detached when its stream ends.',
+    details: 'Needs the usbip-win2 driver on this PC. A device is detached when its stream ends, and every device when this is turned off.',
     category: 'general',
     group: 'USB devices',
     control: { kind: 'toggle' },

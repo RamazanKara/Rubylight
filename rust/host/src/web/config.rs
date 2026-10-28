@@ -56,6 +56,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             *h.config.write().unwrap() = next;
             h.config_version
                 .fetch_add(1, std::sync::atomic::Ordering::Release);
+            ended_usb(h);
             h.metadata.lock().unwrap().take();
             // The launchers to read changed: the last scan answers for the old ones.
             if object.keys().any(|key| key.starts_with("library_")) {
@@ -99,7 +100,16 @@ pub(super) fn save_setting(
     *h.config.write().unwrap() = config;
     h.config_version
         .fetch_add(1, std::sync::atomic::Ordering::Release);
+    ended_usb(h);
     Ok(())
+}
+
+/// USB forwarding is a permission: turning it off detaches every device now,
+/// as taking USB from one device does, not when each stream ends.
+fn ended_usb(h: &Shared) {
+    if !h.config.read().unwrap().usb_forwarding() {
+        h.usb.disable();
+    }
 }
 
 fn metadata(
@@ -434,6 +444,52 @@ mod tests {
                 .values
                 .contains_key("dd_virtual_display_permanent_count")
         );
+    }
+
+    #[test]
+    fn turning_usb_forwarding_off_in_the_console_detaches_attached_devices() {
+        let fixture = Fixture::new();
+        let host = &fixture.host;
+        host.usb.set_vhci(crate::usb_forward::tests::installed());
+        let attach = |request_id| {
+            host.usb.on_message(
+                "session-1",
+                &crate::usb_forward::tests::client(true),
+                true,
+                4,
+                butterpollo_core::usb_forward::UsbMessage::AttachRequest {
+                    request_id,
+                    vid: 0x0781,
+                    pid: 0x5581,
+                    class: 8,
+                    speed: 3,
+                    busid: "1-1".into(),
+                    name: "Flash drive".into(),
+                },
+            )
+        };
+        handle(
+            host,
+            "PATCH",
+            "/api/config",
+            &json!({"usb_forwarding": true}),
+        )
+        .unwrap();
+        attach(1);
+        // Other settings leave the device attached.
+        handle(host, "PATCH", "/api/config", &json!({"locale": "de"})).unwrap();
+        assert_eq!(host.usb.list().len(), 1);
+        handle(
+            host,
+            "PATCH",
+            "/api/config",
+            &json!({"usb_forwarding": false}),
+        )
+        .unwrap();
+        assert!(host.usb.list().is_empty());
+        attach(2);
+        save_setting(host, "locale", |_| Ok("en".into())).unwrap();
+        assert!(host.usb.list().is_empty(), "a page's own save ends it too");
     }
 
     #[test]

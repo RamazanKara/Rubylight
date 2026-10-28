@@ -441,6 +441,35 @@ impl UsbForwarding {
         messages
     }
 
+    /// USB forwarding was turned off: ends every attachment now, as a console detach does,
+    /// rather than when its stream ends. A device the driver kept stays for the console's
+    /// retry. Returns how many it ended.
+    pub fn disable(&self) -> usize {
+        let mut registry = self.registry();
+        let ending: Vec<_> = registry
+            .attachments
+            .iter()
+            .filter(|a| !matches!(a.stage, Stage::Stuck { .. }))
+            .map(|a| (a.id, a.request_id))
+            .collect();
+        for &(id, request_id) in &ending {
+            registry.end(
+                id,
+                vec![
+                    UsbMessage::Detach { request_id },
+                    status(request_id, UsbState::Detached, UsbReason::Disabled),
+                ],
+            );
+        }
+        if !ending.is_empty() {
+            tracing::info!(
+                devices = ending.len(),
+                "USB forwarding turned off; detaching every device"
+            );
+        }
+        ending.len()
+    }
+
     /// The console's list.
     pub fn list(&self) -> Vec<Listed> {
         self.registry()

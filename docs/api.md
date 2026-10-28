@@ -95,6 +95,7 @@ The routes below are implemented by the Rust host. JSON requests use `Content-Ty
 | Steam | `GET /api/steam/status`, `GET /api/steam/games` | `POST /api/steam/force_sync`, `POST /api/steam/launch` |
 | Playnite | `GET /api/playnite/status`, `GET /api/playnite/games`, `GET /api/playnite/categories` | `POST /api/playnite/install`, `POST /api/playnite/uninstall`, `POST /api/playnite/force_sync`, `POST /api/playnite/cover`, `POST /api/playnite/launch` |
 | Library extras | `GET /api/covers/{id}`, `GET /api/lossless_scaling/status`, `GET /api/browse?path=...&type=...` | `POST /api/covers/upload`, `POST /api/apps/purge_autosync` |
+| Radeon | `GET /api/radeon`: the GPU's Radeon settings as the [native panel](#radeon-settings) lists them (id, state, range, options), for a game's Radeon controls. It only reads; a game's profile is applied when it starts. | Set `radeon-profile` and `radeon-settings` on the application. |
 | Updates | `GET /api/updates` | `POST /api/updates/check`, `POST /api/updates/install`, `POST /api/updates/install_now`, `POST /api/updates/cancel` |
 | Diagnostics | `GET /api/logs`, `GET /api/logs/tail`, `GET /api/logs/analysis`, `GET /api/logs/export`, `GET /api/logs/export_crash`, `GET /api/logs/export_crash/manifest`, `GET /api/health/crashdump` | `POST /api/health/crashdump/dismiss` |
 | Administration | Authentication and token routes above. | `POST /api/password`, `POST /api/restart`, `POST /api/quit` |

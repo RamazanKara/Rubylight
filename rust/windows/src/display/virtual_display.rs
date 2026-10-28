@@ -287,9 +287,18 @@ impl SharedDisplay for VirtualDisplay {
     }
     fn switch_on(&mut self) -> Result<Monitor> {
         let monitor = self.current_monitor()?;
-        // Windows can name a display it switched back on anew.
-        self.name = monitor.display_name.clone();
+        take_name(&mut self.name, &mut self.generation, &monitor.display_name);
         Ok(monitor)
+    }
+}
+/// Take the name Windows gave a display it switched back on. A new name is a
+/// new generation, as after a heartbeat switched it on: the guards of the
+/// streams on it, a paused one too, reapply their layout and capture there.
+/// A guard made after this reads the new generation, so it recovers nothing.
+fn take_name(name: &mut String, generation: &mut u64, listed: &str) {
+    if name != listed {
+        *name = listed.into();
+        *generation = generation.wrapping_add(1);
     }
 }
 fn lease<D: SharedDisplay>(
@@ -1241,6 +1250,17 @@ mod tests {
         first.lock().unwrap().refuses.push(1_000_000);
         assert_eq!(super::raise_lease(&first, 1_000_000), None);
         assert_eq!(second.lock().unwrap().shown.get(), (1920, 1080, 240_000));
+    }
+
+    #[test]
+    fn a_display_switched_on_under_a_new_name_is_a_new_generation() {
+        let (mut name, mut generation) = (String::from(r"\\.\DISPLAY3"), 4);
+        // The same name: the paused stream's guard keeps its target.
+        super::take_name(&mut name, &mut generation, r"\\.\DISPLAY3");
+        assert_eq!((name.as_str(), generation), (r"\\.\DISPLAY3", 4));
+        // A new one: its guard sees another generation and moves there.
+        super::take_name(&mut name, &mut generation, r"\\.\DISPLAY5");
+        assert_eq!((name.as_str(), generation), (r"\\.\DISPLAY5", 5));
     }
 
     #[test]

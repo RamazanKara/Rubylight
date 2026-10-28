@@ -851,3 +851,122 @@ fn the_histogram_buckets_are_exact_below_eight_and_a_quarter_octave_above() {
         x += 1 + x / 97;
     }
 }
+
+/// A co-op player's WebRTC input drives its slot's pad and nothing else: its
+/// first pad becomes the slot's, a keyboard is dropped and said once, and the
+/// slot's rumble reaches the device's pad. A launch whose session the host
+/// no longer has gets no sink, never one that reaches the desktop.
+#[test]
+fn a_co_op_players_input_drives_only_its_slots_pad() {
+    use crate::nucleus::{Admission, Game, fake};
+    use butterpollo_core::{config::Config, state::App};
+    use butterpollo_windows::input::PadReport;
+    let f = Fixture::new();
+    let h = f.host.clone();
+    let pc = Arc::new(fake::Pc::installed());
+    h.nucleus.use_pc(pc.clone());
+    let apps = [App {
+        name: "Portal 2".into(),
+        cmd: format!("\"{}\"", fake::EXE),
+        working_dir: String::new(),
+        prep: Vec::new(),
+        computed_id: None,
+        aliases: Vec::new(),
+        extra: Default::default(),
+    }];
+    let entry = h.nucleus.entries(&apps, "").remove(0);
+    let mut launch = f.launch(f.client(u32::MAX), Role::Stream);
+    let seat = h
+        .nucleus
+        .admit(Admission {
+            launch: &launch.id,
+            client: &launch.client,
+            game: Game::Coop(&entry),
+            size: (1920, 1080),
+            config: &Config::default(),
+            warnings: Default::default(),
+        })
+        .unwrap();
+    launch.nucleus = Some(seat);
+    let session = Session::new(launch, Negotiated::default());
+    let t0 = Instant::now();
+    let make = h.clone();
+    let mut core = Core::new(
+        session.clone(),
+        Box::new(move |s| CoopSink::create(&make, s)),
+        t0,
+    );
+    let sent = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let log = sent.clone();
+    core.control = Some(Box::new(move |data| {
+        log.lock()
+            .unwrap()
+            .push(serde_json::from_slice(&data).unwrap());
+        true
+    }));
+    let at = |ms| t0 + Duration::from_millis(ms);
+    core.gamepad(
+        r#"{"v":2,"type":"gamepad-connected","controllerId":7,"id":"Pad","mapping":"standard","buttons":17,"axes":4,"dualRumble":true,"triggerRumble":true}"#,
+        at(0),
+    );
+    core.gamepad(
+        &format!(
+            r#"{{"v":2,"type":"gamepad-state","controllerId":7,"seq":1,"buttons":{A},"leftTrigger":0,"rightTrigger":0,"leftStickX":0,"leftStickY":0,"rightStickX":0,"rightStickY":0}}"#
+        ),
+        at(5),
+    );
+    for _ in 0..2 {
+        core.input(r#"{"v":1,"type":"key","code":"KeyA","down":true}"#, at(6));
+    }
+    let instance = pc.last();
+    let inputs = instance.inputs.lock().unwrap().clone();
+    assert_eq!(inputs.len(), 1, "{inputs:?}");
+    assert!(
+        matches!(inputs[0], (0, Input::Controller { id: 0, active: 0b11, buttons, .. }) if buttons != 0),
+        "{inputs:?}"
+    );
+    let dropped: Vec<_> = session
+        .launch
+        .warnings
+        .snapshot()
+        .into_iter()
+        .filter(|w| w.code.starts_with("coop_"))
+        .map(|w| w.code)
+        .collect();
+    assert_eq!(dropped, ["coop_keyboard_mouse"]);
+    // Slot 0's rumble, and slot 1's, which is not this player's.
+    let rumble = |id| PadReport::Feedback {
+        id,
+        kind: RUMBLE_DATA,
+        data: vec![0xff, 0xff, 0x00, 0x80],
+    };
+    instance
+        .reports
+        .lock()
+        .unwrap()
+        .extend([(1, rumble(0)), (0, rumble(0))]);
+    assert!(core.poll(at(20)));
+    let rumble: Vec<_> = sent
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|m| m["type"] == "rumble")
+        .cloned()
+        .collect();
+    assert_eq!(rumble.len(), 1, "{rumble:?}");
+    assert_eq!(rumble[0]["controllerId"], 7);
+    assert_eq!(rumble[0]["strongMagnitude"], 1.0);
+    // A session the registry no longer has: no sink at all.
+    let mut gone = f.launch(f.client(u32::MAX), Role::Stream);
+    gone.nucleus = Some(butterpollo_core::session::Seat {
+        session: seat.session + 1,
+        slot: 0,
+    });
+    let error = CoopSink::create(&h, &Session::new(gone, Negotiated::default()))
+        .err()
+        .unwrap();
+    assert!(
+        format!("{error:#}").contains("the co-op session ended"),
+        "{error:#}"
+    );
+}

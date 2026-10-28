@@ -3461,6 +3461,58 @@ async fn co_op_streams_drive_their_slots_and_end_with_the_session() -> Result<()
     h.finish().await
 }
 
+/// The console's End and every player gone (`End::Empty`, which Nucleus
+/// Co-op's session reaches after `coop::GRACE`) close each player's stream
+/// quietly with the reason, never as a failure, and stop Nucleus Co-op.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn co_op_streams_close_quietly_when_the_session_is_ended_or_empty() -> Result<()> {
+    use butterpollo_core::nucleus::coop::End;
+    let (h, pc, id) = coop_harness().await?;
+    let closed_with = |s: &Session, text: &str| {
+        let ended = s
+            .launch
+            .warnings
+            .snapshot()
+            .into_iter()
+            .find(|w| w.code == "coop_ended")
+            .unwrap();
+        assert!(ended.message.contains(text), "{}", ended.message);
+        assert_eq!(s.termination_reason(), CLOSED);
+    };
+    assert!(launch_app(&h, 0, id).await?.contains("status_code=\"200\""));
+    assert!(launch_app(&h, 1, id).await?.contains("status_code=\"200\""));
+    let (a, b) = (pending_of(&h, 0).unwrap(), pending_of(&h, 1).unwrap());
+    let session = a.nucleus.unwrap().session;
+    pc.last().show();
+    let (sa, ca) = h.play(&a).await?;
+    let (sb, cb) = h.play(&b).await?;
+    h.counts(2, 0).await?;
+    assert!(h.h.nucleus.end(session));
+    until("both streams ended", WAIT, || {
+        sa.stopping() && sb.stopping()
+    })
+    .await;
+    closed_with(&sa, "The Portal 2 co-op session was ended on the PC");
+    closed_with(&sb, "The Portal 2 co-op session was ended on the PC");
+    assert!(pc.last().stopped());
+    drop((ca, cb, a, b, sa, sb));
+    h.empty().await?;
+    // The next launch starts a new session; everybody leaves it.
+    assert!(launch_app(&h, 0, id).await?.contains("status_code=\"200\""));
+    let a = pending_of(&h, 0).unwrap();
+    assert_ne!(a.nucleus.unwrap().session, session);
+    assert_eq!(pc.started.lock().unwrap().len(), 2);
+    pc.last().show();
+    let (sa, ca) = h.play(&a).await?;
+    pc.last().session.lock().unwrap().end(End::Empty);
+    until("the stream ended", WAIT, || sa.stopping()).await;
+    closed_with(&sa, "every player left");
+    drop((ca, a, sa));
+    h.empty().await?;
+    until("the session stopped", WAIT, || pc.last().stopped()).await;
+    h.finish().await
+}
+
 /// A co-op launch whose device never connects gives its slot back when it
 /// expires, once the expired launch is dropped outside the sessions lock.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

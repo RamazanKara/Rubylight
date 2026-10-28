@@ -8,10 +8,13 @@
   import Panel from '../Panel.svelte';
   import { api, type ChildSessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
-  import { phases, statusLoader, step } from './child-session';
+  import { pending, phases, statusLoader, step } from './child-session';
   import { reason } from './util';
 
   type Action = 'setup' | 'restore' | 'start' | 'stop' | 'show' | 'end' | 'forget';
+
+  /** Set once the status loads: whether there is anything to do here (a load error counts). */
+  let { shown = $bindable(false) }: { shown?: boolean } = $props();
 
   let status = $state<ChildSessionStatus | null>(null);
   let loadError = $state('');
@@ -22,6 +25,10 @@
 
   const viewer = $derived(status?.viewer?.status ?? null);
   const current = $derived(status ? step(status) : null);
+
+  $effect(() => {
+    shown = status ? pending(status) : Boolean(loadError);
+  });
 
   const loader = statusLoader(
     () => api.childSession.status(),
@@ -76,8 +83,8 @@
   }
 
   async function end() {
-    const shown = viewer;
-    if (!shown?.child) return;
+    const attached = viewer;
+    if (!attached?.child) return;
     const ok = await confirm({
       title: 'Sign out the child session?',
       message: 'Every app open on the child session’s desktop closes without saving.',
@@ -85,7 +92,7 @@
       danger: true,
     });
     if (ok)
-      await run('end', () => api.childSession.end(shown.child, shown.generation), 'Signing out the child session.', 'Signing out failed');
+      await run('end', () => api.childSession.end(attached.child, attached.generation), 'Signing out the child session.', 'Signing out failed');
   }
 
   onMount(() => {
@@ -98,7 +105,7 @@
 </script>
 
 <Panel
-  title="Background child session (Experimental)"
+  title="Background child session"
   level={3}
   description="Streams a second desktop of your own account while you keep using this one."
 >

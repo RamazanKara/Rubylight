@@ -78,6 +78,8 @@ export interface Setting {
   aliases?: Aliases;
   /** The value the Rust host uses when the key is not set. */
   default: ConfigValue;
+  /** What the default does, in words, where its option label only says "Default". */
+  defaultText?: string;
   /** Hide when not relevant, given the current (edited) values. */
   visibleWhen?: (values: Record<string, ConfigValue>) => boolean;
   /** Explain a hidden setting when search or review reveals it. */

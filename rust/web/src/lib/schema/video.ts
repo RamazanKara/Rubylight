@@ -730,6 +730,7 @@ const amd: Setting[] = [
     },
     aliases: switchWords,
     default: '',
+    defaultText: 'Off for H.264, on for HEVC and AV1',
   },
   {
     key: 'amd_enforce_hrd',

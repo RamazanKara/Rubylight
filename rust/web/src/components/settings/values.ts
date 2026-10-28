@@ -257,6 +257,7 @@ const literal = (text: string, otherwise: string): DefaultText =>
 export function describeDefault(setting: Setting): DefaultText {
   const control = setting.control;
   const value = setting.default;
+  if (setting.defaultText) return word(setting.defaultText);
   switch (control.kind) {
     case 'toggle':
       return word(toBoolean(value) ? 'On' : 'Off');

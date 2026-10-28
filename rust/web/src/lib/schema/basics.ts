@@ -141,7 +141,7 @@ const general: Setting[] = [
     label: 'Sleep after idle',
     description: 'Put this PC to sleep when nobody has streamed or used it for this many minutes. 0 turns it off.',
     details:
-      'Allowed: 0, or 5 to 1440 minutes. Streams, launches, updates, this console, the keyboard and mouse, and apps that keep Windows awake all count as use. Help & diagnostics shows the countdown and Wake-on-LAN readiness.',
+      'Allowed: 0, or 5 to 1440 minutes. Streams, launches, updates, this console, the keyboard and mouse, and apps that keep Windows awake all count as use. The Settings home shows the countdown and Wake-on-LAN readiness.',
     category: 'general',
     group: 'Power',
     control: { kind: 'number', min: 0, max: 1440, step: 1, unit: 'min' },

@@ -48,10 +48,10 @@ test('every viewer phase is spelled out, with a failure in danger', () => {
   assert.equal(phases.connected.tone, 'ok');
 });
 
-test('the panel is labelled Experimental and loads with a skeleton', () => {
+test('the panel carries no Experimental label and loads with a skeleton', () => {
   const out = render(Panel, { props: {} }).body;
-  assert.match(out, /Background child session \(Experimental\)/);
-  assert.doesNotMatch(out, /untested|Expected/i);
+  assert.match(out, /Background child session/);
+  assert.doesNotMatch(out, /Experimental|untested|Expected/i);
 });
 
 test('child sessions stay off by default and their display settings show only when used', () => {

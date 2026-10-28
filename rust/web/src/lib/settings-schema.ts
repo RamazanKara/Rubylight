@@ -6,6 +6,7 @@ import { settings as video } from './schema/video';
 import { settings as display } from './schema/display';
 import { settings as library } from './schema/library';
 import { settings as extensions } from './schema/extensions';
+import { ALWAYS_ON, asDebugSwitch } from './schema/main';
 
 const categories: Category[] = [
   { id: 'general', label: 'General', description: 'Host name, pairing, updates and logs' },
@@ -69,8 +70,10 @@ const basicKeys = new Set([
 
 export const schema: Schema = {
   categories,
+  // Always-on features keep their keys, shown only under Debug switches.
   settings: [...basics, ...video, ...display, ...library, ...extensions]
-    .filter(setting => !setting.pending)
+    .filter(setting => !setting.pending || ALWAYS_ON.includes(setting.key))
+    .map(setting => (ALWAYS_ON.includes(setting.key) ? asDebugSwitch(setting) : setting))
     .map(setting => ({ ...setting, advanced: !basicKeys.has(setting.key) })),
 };
 
@@ -82,6 +85,14 @@ export const settingGroups: Category[] = [
   { id: 'library', label: 'Games & automation', description: 'Library sources, app behavior and commands' },
   { id: 'network', label: 'Network & access', description: 'Discovery, connections and console access' },
 ];
+
+/** The categories a setting shows under: its settings group, then its own. */
+export function categoriesOf(setting: { category: string }): Category[] {
+  return [
+    settingGroups.find((group) => group.id === settingsGroup(setting.category)),
+    categories.find((category) => category.id === setting.category),
+  ].filter((category): category is Category => !!category);
+}
 
 export function settingsGroup(id: string): CategoryId {
   switch (id) {

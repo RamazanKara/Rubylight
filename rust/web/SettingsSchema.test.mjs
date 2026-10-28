@@ -297,7 +297,7 @@ test('an unset virtual display mode keeps the OS-dependent default without hidin
   const key = 'virtual_display_mode';
   const setting = settings.get(key);
   assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Default (by Windows version)');
+  assert.equal(describeDefault(setting).text, 'One for each device on Windows 11 23H2 or later, otherwise a monitor');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
   assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
 });
@@ -547,7 +547,8 @@ test('settings still pending stay out of the console, and shipped ones are in it
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);
-    assert.equal(settings.has(setting.key), shipped, setting.key);
+    // Always-on keys are pending as switches but readable under Debug switches.
+    assert.equal(settings.has(setting.key), shipped || setting.key === 'qr_pairing', setting.key);
     assert.ok(schema.categories.some(category => category.id === setting.category), setting.key);
   }
 });
@@ -566,9 +567,10 @@ test('touch profiles are Experimental and their options show only as a mouse or 
   }
 });
 
-test('QR pairing is always on: no console toggle, on by default, no Experimental label', () => {
+test('QR pairing is always on: only a troubleshooting switch, on by default, no Experimental label', () => {
   const setting = pending.find(item => item.key === 'qr_pairing');
-  assert.equal(settings.has('qr_pairing'), false);
+  assert.equal(settings.get('qr_pairing').group, 'Debug switches');
+  assert.match(settings.get('qr_pairing').description, /only for troubleshooting/);
   assert.equal(setting.default, true);
   assert.doesNotMatch(setting.label + setting.description, /Experimental/);
 });

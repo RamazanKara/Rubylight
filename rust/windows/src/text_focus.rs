@@ -419,13 +419,37 @@ impl Watcher {
         }
     }
 
+    /// Whether `element`, an edit, is the text box of a number box: its parent is a spinner.
+    /// A parent that cannot be read counts as none, so the field stays plain text.
+    unsafe fn in_spinner(&self, element: &IUIAutomationElement) -> bool {
+        // SAFETY: on the watcher's thread, with COM initialized; `element` is from it.
+        unsafe {
+            match self
+                .automation
+                .ControlViewWalker()
+                .and_then(|walker| walker.GetParentElement(element))
+            {
+                Ok(parent) => parent
+                    .CurrentControlType()
+                    .is_ok_and(|kind| kind.0 == text_input::control_type::SPINNER),
+                Err(error) => {
+                    tracing::debug!(%error, "the parent of the focused edit could not be read");
+                    false
+                }
+            }
+        }
+    }
+
     /// Reads the newest focus and reports it.
     unsafe fn focus_moved(&mut self, report: &dyn Fn(Option<Focused>)) {
         // SAFETY: on the watcher's thread, with COM initialized.
         unsafe {
             let focused = match self.automation.GetFocusedElementBuildCache(&self.cache) {
                 Ok(element) => {
-                    let described = describe(&element);
+                    let mut described = describe(&element);
+                    if described.control_type == text_input::control_type::EDIT {
+                        described.in_spinner = self.in_spinner(&element);
+                    }
                     let own = element
                         .CachedProcessId()
                         .is_ok_and(|process| u32::try_from(process) == Ok(std::process::id()));
@@ -629,6 +653,7 @@ unsafe fn describe(element: &IUIAutomationElement) -> FocusedElement {
             automation_id: string(element.CachedAutomationId()),
             class_name: string(element.CachedClassName()),
             localized_type: string(element.CachedLocalizedControlType()),
+            in_spinner: false,
         }
     }
 }

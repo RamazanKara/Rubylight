@@ -395,9 +395,17 @@ pub fn sync(h: &Shared) -> Result<Outcome> {
             (id, (cover, icon))
         })
         .collect();
-    let changed = crate::steam::update_apps(h, |apps| {
-        let synced =
-            playnite::reconcile(apps, &games, &settings, now(), &artwork, settings.auto_sync);
+    let changed = crate::steam::update_library(h, |apps, document| {
+        let dismissed = crate::library::dismissed(document);
+        let synced = playnite::reconcile(
+            apps,
+            &games,
+            &settings,
+            now(),
+            &artwork,
+            settings.auto_sync,
+            &dismissed,
+        );
         playnite::fullscreen_entry(apps, settings.fullscreen_entry) | synced
     })?;
     if changed {

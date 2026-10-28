@@ -265,7 +265,8 @@ fn manually_imported_steam_games_survive_automatic_removal_and_keep_existing_met
         &mut apps,
         &[],
         &settings,
-        &Default::default()
+        &Default::default(),
+        &[]
     ));
     assert_eq!(apps.len(), 1);
     apps[0]["steam-source"] = json!("custom metadata");
@@ -945,4 +946,79 @@ fn an_uninstalled_synced_game_leaves_only_after_a_clean_read_and_manual_apps_sta
         0
     );
     assert_eq!(apps.len(), 2);
+}
+
+#[test]
+fn the_ownership_stamp_runs_once_and_takes_steam_apps_only_after_the_old_opt_in() {
+    let document = || {
+        json!({"apps": [
+            {"name": "Vibepollo's Portal", "steam-id": "620", "steam-managed": "auto"},
+            {"name": "Mirage", "launcher-source": "ubisoft", "launcher-id": "13504", "launcher-managed": "auto"},
+            {"name": "Kart", "playnite-id": "aa", "playnite-managed": "auto"},
+            {"name": "Imported", "steam-id": "570", "steam-managed": "manual"},
+            {"name": "Desktop"},
+        ]})
+    };
+    let mut without = document();
+    assert_eq!(
+        stamp_synced(&mut without, false),
+        Some(Stamped {
+            steam: 0,
+            launcher: 1,
+            playnite: 1
+        })
+    );
+    let stamps: Vec<&Value> = without["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|app| &app[SYNCED_BY])
+        .collect();
+    assert_eq!(
+        stamps,
+        [
+            &Value::Null,
+            &json!("launcher"),
+            &json!("playnite"),
+            &Value::Null,
+            &Value::Null
+        ]
+    );
+    assert_eq!(without[SYNC_OWNER_VERSION], 1);
+    // Once: a later start stamps nothing, even an app that lost its stamp.
+    let ran = without.clone();
+    assert_eq!(stamp_synced(&mut without, true), None);
+    assert_eq!(without, ran);
+    let mut opted_in = document();
+    assert_eq!(stamp_synced(&mut opted_in, true).unwrap().steam, 1);
+    assert_eq!(opted_in["apps"][0][SYNCED_BY], "steam");
+    assert_eq!(opted_in["apps"][3].get(SYNCED_BY), None);
+}
+
+#[test]
+fn a_handed_over_app_loses_its_stamp_and_the_launcher_sync_leaves_it() {
+    let settings = Settings::default();
+    let games = vec![mirage()];
+    let mut apps = vec![];
+    reconcile(&mut apps, &games, &settings, &Source::ALL, &[]);
+    assert_eq!(apps[0][SYNCED_BY], "launcher");
+    hand_over(&mut apps[0], "launcher");
+    assert_eq!(apps[0].get(SYNCED_BY), None);
+    assert_eq!(apps[0][MANAGED], "manual");
+    // Uninstalled: the user's app stays, and the game is not added a second time.
+    assert_eq!(
+        reconcile(&mut apps, &[], &settings, &Source::ALL, &[]),
+        SyncChange::default()
+    );
+    assert_eq!(
+        reconcile(&mut apps, &games, &settings, &Source::ALL, &[]),
+        SyncChange::default()
+    );
+    assert_eq!(apps.len(), 1);
+    // An unstamped `launcher-managed: auto` app is the user's as well.
+    let mut theirs = vec![json!({"name": "Mirage", "launcher-source": "ubisoft",
+        "launcher-id": "13504", "launcher-managed": "auto"})];
+    assert!(!reconcile(&mut theirs, &[], &settings, &Source::ALL, &[]).changed());
+    assert_eq!(theirs.len(), 1);
+    assert_eq!(dismissal_keys(&theirs[0]), ["ubisoft:13504"]);
 }

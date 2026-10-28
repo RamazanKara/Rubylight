@@ -142,8 +142,8 @@ pub fn discovery(h: &Shared) -> Result<Value> {
     Ok(json!({ "status": true, "sources": catalog.sources, "games": games }))
 }
 
-/// The games deleted from the library that the launcher sync must not bring back.
-fn dismissed(document: &Value) -> Vec<String> {
+/// The games deleted from the library that no sync may bring back.
+pub fn dismissed(document: &Value) -> Vec<String> {
     document[library::DISMISSED]
         .as_array()
         .map(|list| {
@@ -155,17 +155,38 @@ fn dismissed(document: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Remembers a deleted synced app's game so the launcher sync leaves it out. `app` is the
-/// deleted app as JSON; other apps change nothing.
+/// Remembers a deleted app's games so no sync brings them back: its Steam, launcher and
+/// Playnite game, whoever added the app. `app` is the deleted app as JSON.
 pub fn dismiss(document: &mut Value, app: &Value) {
-    let Some(key) = library::managed_key(app) else {
-        return;
-    };
     let mut list = dismissed(document);
-    if !list.contains(&key) {
-        list.push(key);
+    let before = list.len();
+    for key in library::dismissal_keys(app) {
+        if !list.contains(&key) {
+            list.push(key);
+        }
+    }
+    if list.len() != before {
         document[library::DISMISSED] = json!(list);
     }
+}
+
+/// The one-time ownership stamp at host start (see `library::stamp_synced`). Steam's apps
+/// are the sync's only when `sunshine.conf` itself turns `steam_enabled` on: that user chose
+/// the opt-in sync of earlier versions. Returns whether `document` changed.
+pub fn stamp_synced(document: &mut Value, config: &butterpollo_core::config::Config) -> bool {
+    let steam_opted_in =
+        config.values.contains_key("steam_enabled") && config.boolean("steam_enabled", false);
+    let Some(stamped) = library::stamp_synced(document, steam_opted_in) else {
+        return false;
+    };
+    tracing::info!(
+        steam = stamped.steam,
+        launcher = stamped.launcher,
+        playnite = stamped.playnite,
+        steam_opted_in,
+        "synced apps stamped with their sync"
+    );
+    true
 }
 
 /// A launcher's PNG cover in the profile's covers folder, converted once.
@@ -287,7 +308,7 @@ pub fn import(h: &Shared, selected: &[Selection]) -> Result<Value> {
     result
 }
 
-fn import_games(
+pub(crate) fn import_games(
     h: &Shared,
     mut games: Vec<library::Game>,
     selected: &[Selection],
@@ -467,6 +488,59 @@ mod tests {
                 .unwrap()
                 .changed()
         );
+    }
+
+    #[test]
+    fn the_start_stamps_synced_apps_once_and_steam_apps_only_after_the_old_opt_in() {
+        for (conf, steam) in [
+            ("", Value::Null),
+            ("steam_enabled = false\n", Value::Null),
+            ("steam_enabled = true\n", json!("steam")),
+        ] {
+            let directory = Fixture::profile();
+            std::fs::write(directory.join("sunshine.conf"), conf).unwrap();
+            let apps = json!({"apps": [
+                {"name": "Portal", "uuid": "p", "steam-id": "620", "steam-managed": "auto"},
+                {"name": "Mirage", "uuid": "m", "launcher-source": "ubisoft",
+                 "launcher-id": "13504", "launcher-managed": "auto"},
+                {"name": "Kart", "uuid": "k", "playnite-id": "aa", "playnite-managed": "auto"},
+                {"name": "Mine", "uuid": "x", "cmd": "C:/mine.exe"},
+            ]});
+            std::fs::write(directory.join("apps.json"), apps.to_string()).unwrap();
+            let f = Fixture::load(directory.clone());
+            let saved = butterpollo_core::state::load_json(&f.host.apps_path, json!({})).unwrap();
+            assert_eq!(saved[library::SYNC_OWNER_VERSION], 1, "{conf}");
+            let stamps: Vec<Value> = saved["apps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|app| app[library::SYNCED_BY].clone())
+                .collect();
+            assert_eq!(
+                stamps,
+                [
+                    steam.clone(),
+                    json!("launcher"),
+                    json!("playnite"),
+                    Value::Null
+                ],
+                "{conf:?}"
+            );
+            // Once: an app handed over since keeps no stamp at the next start.
+            let mut later = saved.clone();
+            later["apps"][1]
+                .as_object_mut()
+                .unwrap()
+                .remove(library::SYNCED_BY);
+            let directory = Fixture::profile();
+            std::fs::write(directory.join("sunshine.conf"), conf).unwrap();
+            std::fs::write(directory.join("apps.json"), later.to_string()).unwrap();
+            let f = Fixture::load(directory);
+            assert_eq!(
+                butterpollo_core::state::load_json(&f.host.apps_path, json!({})).unwrap(),
+                later
+            );
+        }
     }
 
     #[test]

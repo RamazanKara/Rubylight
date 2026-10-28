@@ -4,8 +4,9 @@
 //! The Playnite plugin (`SunshinePlaynite`) serves a named pipe and sends
 //! one JSON message per line. A sync matches the library's apps against
 //! Playnite's games and adds the recently played, chosen category, chosen
-//! plugin or all installed games as apps marked `playnite-managed: "auto"`.
-use crate::config::Config;
+//! plugin or all installed games as apps marked `playnite-managed: "auto"`
+//! and stamped `synced-by: playnite`; only those are the sync's to change.
+use crate::{config::Config, library};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -407,6 +408,10 @@ fn command_program(command: &str) -> String {
 fn field<'a>(app: &'a Value, name: &str) -> &'a str {
     app.get(name).and_then(Value::as_str).unwrap_or("")
 }
+/// An app this sync added and still owns.
+fn owned(app: &Value) -> bool {
+    library::synced_by(app, "playnite")
+}
 /// Vibepollo's UUID for a Playnite app: the game id in capitals.
 pub fn app_uuid(id: &str) -> String {
     id.to_ascii_uppercase()
@@ -469,9 +474,11 @@ fn excluded(
         || (!game.plugin_id.is_empty() && plugins.contains(&key(&game.plugin_id)))
 }
 /// Bring the library in line with Playnite's games. With `manage` (auto
-/// sync) the selection adds and removes managed apps; without it only the
-/// apps already linked to a game get its current name and artwork. Returns
-/// whether anything changed.
+/// sync) the selection adds and removes the apps this sync owns; without it
+/// only the owned apps get their game's current name and artwork. An app the
+/// user made or edited only keeps its game from being added twice, and gets a
+/// cover when it has none. Games in `dismissed` (`playnite:<id>`, deleted
+/// from the library) are not added. Returns whether anything changed.
 pub fn reconcile(
     apps: &mut Vec<Value>,
     games: &[Game],
@@ -479,13 +486,14 @@ pub fn reconcile(
     now: i64,
     artwork: &Artwork,
     manage: bool,
+    dismissed: &[String],
 ) -> bool {
     let before = apps.clone();
     if manage {
         let mut seen = HashSet::new();
         apps.retain(|app| {
             let id = field(app, "playnite-id");
-            field(app, "playnite-managed") != "auto" || id.is_empty() || seen.insert(key(id))
+            !owned(app) || id.is_empty() || seen.insert(key(id))
         });
     }
     let installed: Vec<&Game> = games.iter().filter(|g| g.installed).collect();
@@ -500,10 +508,16 @@ pub fn reconcile(
             .map(|v| v.to_lowercase())
             .collect::<HashSet<_>>()
     };
-    let (ids, categories, plugins) = (
+    let (mut ids, categories, plugins) = (
         lower(&settings.exclude_games),
         lower(&settings.exclude_categories),
         lower(&settings.exclude_plugins),
+    );
+    ids.extend(
+        games
+            .iter()
+            .filter(|game| dismissed.contains(&library::playnite_dismissed_key(&game.id)))
+            .map(|game| key(&game.id)),
     );
     let mut flags: HashMap<String, u8> = HashMap::new();
     let mut selected: Vec<&Game> = vec![];
@@ -584,10 +598,7 @@ pub fn reconcile(
     let mut matched = HashSet::new();
     for app in apps.iter_mut() {
         let id = field(app, "playnite-id").to_owned();
-        if field(app, "playnite-managed") == "auto"
-            && !id.is_empty()
-            && uninstalled.contains(&key(&id))
-        {
+        if owned(app) && !id.is_empty() && uninstalled.contains(&key(&id)) {
             continue;
         }
         let game = Some(id.as_str())
@@ -613,6 +624,14 @@ pub fn reconcile(
             continue;
         };
         matched.insert(key(&game.id));
+        if !owned(app) {
+            if field(app, "image-path").is_empty()
+                && let Some((Some(cover), _)) = artwork.get(&key(&game.id))
+            {
+                app["image-path"] = json!(cover.to_string_lossy().replace('\\', "/"));
+            }
+            continue;
+        }
         apply_game(app, game, artwork);
         if let Some(source) = flags.get(&key(&game.id)) {
             app["playnite-source"] = json!(source_label(*source));
@@ -623,9 +642,10 @@ pub fn reconcile(
         let selected_ids: HashSet<String> = selected.iter().map(|g| key(&g.id)).collect();
         let current: HashSet<String> = apps
             .iter()
-            .filter(|app| field(app, "playnite-managed") == "auto")
+            .filter(|app| owned(app))
             .map(|app| key(field(app, "playnite-id")))
             .filter(|id| !id.is_empty())
+            .chain(matched.iter().cloned())
             .collect();
         let mut replacements = selected_ids.difference(&current).count();
         let last_played: HashMap<String, i64> = installed
@@ -634,7 +654,7 @@ pub fn reconcile(
             .collect();
         apps.retain(|app| {
             let id = key(field(app, "playnite-id"));
-            if field(app, "playnite-managed") != "auto" || id.is_empty() {
+            if !owned(app) || id.is_empty() {
                 return true;
             }
             let added = parse_time(field(app, "playnite-added-at")).unwrap_or(now);
@@ -663,6 +683,7 @@ pub fn reconcile(
             apply_game(&mut app, game, artwork);
             app["playnite-source"] = json!(source_label(flags[&key(&game.id)]));
             app["playnite-managed"] = json!("auto");
+            app[library::SYNCED_BY] = json!("playnite");
             app["playnite-added-at"] = json!(format_time(now));
             app["exit-timeout"] = json!(10);
             apps.push(app);
@@ -704,10 +725,10 @@ pub fn fullscreen_entry(apps: &mut Vec<Value>, wanted: bool) -> bool {
     }
     false
 }
-/// Remove every app the sync added.
+/// Remove every app the sync added and still owns.
 pub fn purge(apps: &mut Vec<Value>) -> usize {
     let before = apps.len();
-    apps.retain(|app| field(app, "playnite-managed") != "auto");
+    apps.retain(|app| !owned(app));
     before - apps.len()
 }
 /// Category names and plugins seen in a game list, for the console.
@@ -855,9 +876,10 @@ mod tests {
         ];
         let mut apps = vec![
             json!({"name": "Desktop"}),
-            // Added by hand with the game's name: Vibepollo links it.
+            // Added by hand with the game's name: the game is in the library, and the app stays
+            // the user's.
             json!({"name": "  newest ", "cmd": "C:/x.exe"}),
-            json!({"name": "Gone", "playnite-id": "dd", "playnite-managed": "auto"}),
+            json!({"name": "Gone", "playnite-id": "dd", "playnite-managed": "auto", "synced-by": "playnite"}),
         ];
         assert!(reconcile(
             &mut apps,
@@ -865,12 +887,15 @@ mod tests {
             &settings,
             now,
             &Artwork::new(),
-            true
+            true,
+            &[]
         ));
         let names: Vec<_> = apps.iter().map(|a| field(a, "name").to_owned()).collect();
-        assert_eq!(names, ["Desktop", "Newest", "Newer"]);
-        assert_eq!(apps[1]["uuid"], "CC");
-        assert!(apps[1].get("cmd").is_none());
+        assert_eq!(names, ["Desktop", "  newest ", "Newer"]);
+        assert_eq!(apps[1]["cmd"], "C:/x.exe");
+        assert!(apps[1].get("playnite-managed").is_none());
+        assert_eq!(apps[2]["uuid"], "BB");
+        assert_eq!(apps[2]["synced-by"], "playnite");
         assert_eq!(apps[2]["playnite-source"], "recent");
         assert_eq!(apps[2]["playnite-added-at"], format_time(now));
         assert!(!reconcile(
@@ -879,7 +904,8 @@ mod tests {
             &settings,
             now,
             &Artwork::new(),
-            true
+            true,
+            &[]
         ));
         // A game played since replaces the oldest managed one.
         let mut games = games;
@@ -890,13 +916,14 @@ mod tests {
             &settings,
             now + 1,
             &Artwork::new(),
-            true
+            true,
+            &[]
         ));
         let ids: Vec<_> = apps
             .iter()
             .map(|a| field(a, "playnite-id").to_owned())
             .collect();
-        assert_eq!(ids, ["", "cc", "aa"]);
+        assert_eq!(ids, ["", "", "aa"]);
         // Without auto sync only linked apps are refreshed.
         games[0].name = "Renamed".into();
         assert!(reconcile(
@@ -905,10 +932,66 @@ mod tests {
             &settings,
             now + 2,
             &Artwork::new(),
-            false
+            false,
+            &[]
         ));
         assert_eq!(apps.len(), 3);
         assert_eq!(apps[2]["name"], "Renamed");
+    }
+    #[test]
+    fn the_sync_leaves_apps_it_did_not_stamp_and_games_deleted_from_the_library() {
+        let now = 100 * 86400;
+        let mut settings = Settings::from_config(&Config::default());
+        settings.sync_all_installed = true;
+        let games = vec![
+            game("aa", "Kart", Some(now)),
+            game("bb", "Party", Some(now)),
+            Game {
+                installed: false,
+                ..game("cc", "Gone", Some(now))
+            },
+        ];
+        // Vibepollo's synced apps, imported without the stamp, and a stamped one renamed by hand.
+        let mut apps = vec![
+            json!({"name": "My Kart", "playnite-id": "aa", "playnite-managed": "auto", "cmd": "C:/kart.exe"}),
+            json!({"name": "Gone", "playnite-id": "cc", "playnite-managed": "auto", "playnite-source": "installed"}),
+        ];
+        let artwork = Artwork::from([(
+            "aa".into(),
+            (Some(PathBuf::from("C:\\covers\\aa.png")), None),
+        )]);
+        assert!(reconcile(
+            &mut apps,
+            &games,
+            &settings,
+            now,
+            &artwork,
+            true,
+            &["playnite:bb".into()]
+        ));
+        assert_eq!(
+            apps.len(),
+            2,
+            "Party was deleted: not added again; Gone stays"
+        );
+        assert_eq!(apps[0]["name"], "My Kart");
+        assert_eq!(apps[0]["cmd"], "C:/kart.exe");
+        assert_eq!(apps[0]["image-path"], "C:/covers/aa.png");
+        assert!(apps[0].get("synced-by").is_none());
+        assert_eq!(apps[1]["name"], "Gone");
+        assert_eq!(purge(&mut apps), 0);
+        // Once the deletion is lifted, the game joins as the sync's own app.
+        assert!(reconcile(
+            &mut apps,
+            &games,
+            &settings,
+            now,
+            &artwork,
+            true,
+            &[]
+        ));
+        assert_eq!(apps.len(), 3);
+        assert_eq!(apps[2]["synced-by"], "playnite");
     }
     #[test]
     fn exclusions_categories_ttl_and_the_fullscreen_entry() {
@@ -922,7 +1005,7 @@ mod tests {
         let mut excluded_game = game("bb", "Party", None);
         excluded_game.categories = vec!["Couch".into()];
         let mut apps = vec![
-            json!({"name":"Stale","playnite-id":"zz","playnite-managed":"auto","playnite-added-at":format_time(now - 20 * 86400)}),
+            json!({"name":"Stale","playnite-id":"zz","playnite-managed":"auto","synced-by":"playnite","playnite-added-at":format_time(now - 20 * 86400)}),
         ];
         assert!(reconcile(
             &mut apps,
@@ -930,7 +1013,8 @@ mod tests {
             &settings,
             now,
             &Artwork::new(),
-            true
+            true,
+            &[]
         ));
         let ids: Vec<_> = apps
             .iter()

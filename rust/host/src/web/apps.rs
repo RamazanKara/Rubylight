@@ -38,6 +38,18 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let uuid = app.extra["uuid"].clone();
             let mut apps = h.apps.write().unwrap();
             let mut next = apps.clone();
+            // Only a sync stamps an app. A synced app saved here becomes the user's, so no sync
+            // renames or removes it again.
+            app.extra.remove(butterpollo_core::library::SYNCED_BY);
+            if let Some(sync) = next
+                .iter()
+                .find(|a| a.extra.get("uuid") == Some(&uuid))
+                .and_then(|a| a.extra.get(butterpollo_core::library::SYNCED_BY)?.as_str())
+            {
+                let mut value = serde_json::to_value(&app)?;
+                butterpollo_core::library::hand_over(&mut value, sync);
+                app = serde_json::from_value(value)?;
+            }
             if let Some(i) = next.iter().position(|a| a.extra.get("uuid") == Some(&uuid)) {
                 next[i] = app;
             } else {
@@ -416,7 +428,7 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
     }
     h.assign_apps(&mut next)?;
     let mut doc = h.app_document.read().unwrap().clone();
-    // A game the launcher sync added stays deleted.
+    // A deleted game stays deleted: no sync adds it again until an import brings it back.
     for app in deleted {
         crate::library::dismiss(&mut doc, &app?);
     }
@@ -555,5 +567,109 @@ mod tests {
         // An app with none saves as before.
         save(json!({})).unwrap();
         assert_eq!(stored(), Some((None, None)));
+    }
+
+    fn stored(f: &Fixture, uuid: &str) -> Option<serde_json::Value> {
+        f.host
+            .apps
+            .read()
+            .unwrap()
+            .iter()
+            .find(|app| app.extra.get("uuid").and_then(|u| u.as_str()) == Some(uuid))
+            .map(|app| serde_json::to_value(app).unwrap())
+    }
+
+    #[test]
+    fn a_synced_app_saved_in_the_console_becomes_the_users_and_survives_uninstall() {
+        use butterpollo_core::steam;
+        let f = Fixture::new();
+        let uuid = steam::canonical_uuid(620);
+        crate::steam::update_apps(&f.host, |apps| {
+            apps.push(json!({"name": "Portal 2", "uuid": uuid, "steam-id": "620",
+                "steam-managed": "auto", "synced-by": "steam", "cmd": steam::launch_command(620)}));
+            true
+        })
+        .unwrap();
+        // The editor sends the app back with the user's name, without the stamp.
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "My Portal", "uuid": uuid, "steam-id": "620",
+                "steam-managed": "auto", "cmd": steam::launch_command(620)}),
+        )
+        .unwrap();
+        let app = stored(&f, &uuid).unwrap();
+        assert_eq!(app["name"], "My Portal");
+        assert_eq!(app["steam-managed"], "manual");
+        assert_eq!(app.get("synced-by"), None);
+        // Uninstalled, with a sync that removes missing games: it stays as saved.
+        let settings = steam::Settings::from_config(
+            &butterpollo_core::config::Config::parse(
+                "steam_sync_all_installed=true\nsteam_autosync_remove_uninstalled=true",
+            )
+            .unwrap(),
+        );
+        let changed = crate::steam::update_apps(&f.host, |apps| {
+            steam::reconcile(apps, &[], &settings, &Default::default(), &[])
+        })
+        .unwrap();
+        assert!(!changed);
+        assert_eq!(stored(&f, &uuid).unwrap(), app);
+        // Only a sync stamps an app: a stamp sent with one is dropped.
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "Forged", "uuid": "forged", "synced-by": "steam",
+                "steam-id": "440", "steam-managed": "auto"}),
+        )
+        .unwrap();
+        let forged = stored(&f, "forged").unwrap();
+        assert_eq!(forged.get("synced-by"), None);
+        assert_eq!(forged["steam-managed"], "auto");
+    }
+
+    #[test]
+    fn deleting_any_app_that_starts_a_steam_game_dismisses_the_game() {
+        let f = Fixture::new();
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "Mine", "uuid": "mine", "cmd": "cmd /c start steam://rungameid/620"}),
+        )
+        .unwrap();
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps/delete",
+            &json!({"uuid": "mine"}),
+        )
+        .unwrap();
+        assert!(stored(&f, "mine").is_none());
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["steam:620"])
+        );
+        // An app without a launcher game dismisses nothing.
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps",
+            &json!({"name": "Tool", "uuid": "tool"}),
+        )
+        .unwrap();
+        handle(
+            &f.host,
+            "POST",
+            "/api/apps/delete",
+            &json!({"uuid": "tool"}),
+        )
+        .unwrap();
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["steam:620"])
+        );
     }
 }

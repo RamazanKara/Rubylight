@@ -12,6 +12,9 @@ impl fmt::Display for Unsupported {
 impl std::error::Error for Unsupported {}
 pub type Result<T> = std::result::Result<T, Unsupported>;
 pub const TRUNCATED: Unsupported = Unsupported("header cut short");
+/// A NAL unit's new bytes, and the index in the old unit from which its
+/// bytes follow them unchanged.
+pub type Replacement = (Vec<u8>, usize);
 
 pub struct Reader<'a> {
     bytes: &'a [u8],
@@ -122,6 +125,15 @@ pub fn units(bytes: &[u8]) -> Vec<(usize, usize)> {
     let mut starts = Vec::new();
     let mut index = 0;
     while index + 2 < bytes.len() {
+        // No start code begins at a byte that is not zero: skip eight
+        // bytes at a time while none is.
+        if let Some(word) = bytes.get(index..index + 8) {
+            let word = u64::from_le_bytes(word.try_into().unwrap());
+            if word.wrapping_sub(0x0101_0101_0101_0101) & !word & 0x8080_8080_8080_8080 == 0 {
+                index += 8;
+                continue;
+            }
+        }
         if bytes[index + 2] > 1 {
             index += 3;
         } else if bytes[index + 2] == 1 && bytes[index] == 0 && bytes[index + 1] == 0 {
@@ -180,26 +192,31 @@ pub fn escape(rbsp: &[u8], output: &mut Vec<u8>) {
 }
 
 /// A NAL unit whose first `header` RBSP bytes become `rewritten`. The rest
-/// is copied as it was, emulation prevention included: the last byte of both
+/// stays as it was, emulation prevention included: the last byte of both
 /// headers is non-zero (it holds a one bit), so no escape spans the seam.
-pub fn splice(nal: &[u8], prefix: usize, rewritten: &[u8], from: &[usize], header: usize) -> Vec<u8> {
+pub fn splice(
+    nal: &[u8],
+    prefix: usize,
+    rewritten: &[u8],
+    from: &[usize],
+    header: usize,
+) -> Replacement {
     debug_assert!(header > 0 && rewritten.last().is_some_and(|&byte| byte != 0));
-    let rest = prefix + from[header - 1] + 1;
-    let mut output = Vec::with_capacity(nal.len() + rewritten.len() / 2 + 8);
-    output.extend_from_slice(&nal[..prefix]);
-    escape(rewritten, &mut output);
-    output.extend_from_slice(&nal[rest..]);
-    output
+    let mut head = Vec::with_capacity(prefix + rewritten.len() + rewritten.len() / 2);
+    head.extend_from_slice(&nal[..prefix]);
+    escape(rewritten, &mut head);
+    (head, prefix + from[header - 1] + 1)
 }
 
-/// `bytes` with the NAL units at `edits` replaced.
-pub fn assemble(bytes: &[u8], edits: Vec<((usize, usize), Vec<u8>)>) -> Vec<u8> {
-    let extra: usize = edits.iter().map(|(_, nal)| nal.len()).sum();
-    let mut output = Vec::with_capacity(bytes.len() + extra / 8 + 16);
+/// `bytes` with the NAL units at `edits` replaced, copied once.
+pub fn assemble(bytes: &[u8], edits: Vec<((usize, usize), Replacement)>) -> Vec<u8> {
+    let extra: usize = edits.iter().map(|(_, (head, _))| head.len()).sum();
+    let mut output = Vec::with_capacity(bytes.len() + extra);
     let mut cursor = 0;
-    for ((start, end), nal) in edits {
+    for ((start, end), (head, rest)) in edits {
         output.extend_from_slice(&bytes[cursor..start]);
-        output.extend_from_slice(&nal);
+        output.extend_from_slice(&head);
+        output.extend_from_slice(&bytes[start + rest..end]);
         cursor = end;
     }
     output.extend_from_slice(&bytes[cursor..]);
@@ -251,6 +268,13 @@ mod tests {
         assert_eq!(from, [0, 1, 3, 4, 6]);
         let stream = [0, 0, 0, 1, 0x40, 1, 0, 0, 1, 0x42, 1, 9, 0, 0, 0, 0, 1, 0x26];
         assert_eq!(units(&stream), [(4, 6), (9, 12), (17, 18)]);
+        // Long runs without a zero, and start codes at every alignment of
+        // the eight-byte skip.
+        for at in 0..24 {
+            let mut stream = vec![7u8; 40];
+            stream[at..at + 3].copy_from_slice(&[0, 0, 1]);
+            assert_eq!(units(&stream), [(at + 3, 40)], "start code at {at}");
+        }
         assert!(units(&[0, 0]).is_empty());
         assert_eq!(ceil_log2(1), 0);
         assert_eq!(ceil_log2(2), 1);

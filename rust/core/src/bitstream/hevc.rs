@@ -10,7 +10,8 @@
 //! references to match, which leaves the pictures as they were and lets a
 //! repair reach a decoder up to [`ORDER_WINDOW`] frames after its last one.
 use super::rbsp::{
-    Reader, Result, Unsupported, Writer, assemble, ceil_log2, splice, unescape, units,
+    Reader, Replacement, Result, TRUNCATED, Unsupported, Writer, assemble, ceil_log2, splice,
+    unescape, units,
 };
 
 /// Low bits of the POC in the rewritten stream: x265's default, and well
@@ -20,6 +21,8 @@ pub const POC_LSB_BITS: u32 = 8;
 pub const ORDER_WINDOW: u64 = 1 << (POC_LSB_BITS - 1);
 /// Slice headers end long before this; entry points and extensions included.
 const HEADER_LIMIT: usize = 4096;
+/// The RBSP bytes read first: a header without many entry points fits.
+const HEADER_FIRST: usize = 256;
 
 #[derive(Clone, Default)]
 struct Rps {
@@ -96,7 +99,7 @@ impl PictureOrder {
         Ok((!edits.is_empty()).then(|| assemble(bytes, edits)))
     }
 
-    fn unit(&mut self, nal: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn unit(&mut self, nal: &[u8]) -> Result<Option<Replacement>> {
         if nal.len() < 3 {
             return Ok(None);
         }
@@ -104,7 +107,12 @@ impl PictureOrder {
             return Err(Unsupported("layered HEVC"));
         }
         match (nal[0] >> 1) & 63 {
-            kind @ 0..=21 => self.slice(kind, nal),
+            kind @ 0..=21 => match self.slice(kind, nal, HEADER_FIRST) {
+                Err(TRUNCATED) if nal.len() > 2 + HEADER_FIRST => {
+                    self.slice(kind, nal, HEADER_LIMIT)
+                }
+                result => result,
+            },
             22..=31 => Err(Unsupported("reserved HEVC slice type")),
             33 => self.parameter_set(nal),
             34 => {
@@ -122,7 +130,7 @@ impl PictureOrder {
         }
     }
 
-    fn parameter_set(&mut self, nal: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn parameter_set(&mut self, nal: &[u8]) -> Result<Option<Replacement>> {
         let (rbsp, _) = unescape(&nal[2..], usize::MAX);
         let (id, sps, field) = sequence_parameter_set(&rbsp)?;
         let widen = sps.lsb_bits < POC_LSB_BITS;
@@ -142,14 +150,16 @@ impl PictureOrder {
         writer.copy(&rbsp, field.1, stop);
         let mut output = nal[..2].to_vec();
         super::rbsp::escape(&writer.finish(), &mut output);
-        Ok(Some(output))
+        Ok(Some((output, nal.len())))
     }
 
-    fn slice(&mut self, kind: u8, nal: &[u8]) -> Result<Option<Vec<u8>>> {
+    /// A slice's header rewritten from its first `limit` RBSP bytes. Nothing
+    /// changes before the header has parsed, so a cut one can be read again.
+    fn slice(&mut self, kind: u8, nal: &[u8], limit: usize) -> Result<Option<Replacement>> {
         let temporal_id = (nal[1] & 7)
             .checked_sub(1)
             .ok_or(Unsupported("NAL temporal id zero"))?;
-        let (rbsp, from) = unescape(&nal[2..], HEADER_LIMIT);
+        let (rbsp, from) = unescape(&nal[2..], limit);
         let mut reader = Reader::new(&rbsp);
         let first = reader.flag()?;
         if (16..=23).contains(&kind) {
@@ -695,4 +705,214 @@ fn rest_of_header(
         }
     }
     Ok(end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AMF's HEVC from the RX 7900 XT run that froze at gap 8: one slice a
+    /// frame for frames 0 to 259, each cut after its header. Frame 249 is the
+    /// repair of 241..=248 and names frame 239 as its long-term reference.
+    const STREAM: &[u8] = include_bytes!("fixtures/amf-hevc-ltr.bin");
+
+    /// Per picture: its POC LSB width and value, and its long-term entries
+    /// (LSB, used, MSB cycle), read back with the parsers above.
+    type Header = (u32, u32, Vec<(u32, bool, Option<u32>)>);
+    fn headers(stream: &[u8]) -> Vec<Header> {
+        let (mut sps, mut pps, mut pictures) = (None, None, Vec::new());
+        for (start, end) in units(stream) {
+            let nal = &stream[start..end];
+            let kind = (nal[0] >> 1) & 63;
+            let (rbsp, _) = unescape(&nal[2..], usize::MAX);
+            match kind {
+                33 => sps = Some(sequence_parameter_set(&rbsp).unwrap().1),
+                34 => pps = Some(picture_parameter_set(&rbsp).unwrap().1),
+                0..=21 => {
+                    let (sps, pps) = (sps.as_ref().unwrap(), pps.as_ref().unwrap());
+                    let mut reader = Reader::new(&rbsp);
+                    assert!(reader.flag().unwrap(), "one slice a frame");
+                    if (16..=23).contains(&kind) {
+                        reader.skip(1).unwrap();
+                    }
+                    reader.ue().unwrap();
+                    reader.skip(pps.extra_bits).unwrap();
+                    reader.ue().unwrap();
+                    if kind == 19 || kind == 20 {
+                        pictures.push((sps.lsb_bits, 0, Vec::new()));
+                        continue;
+                    }
+                    let lsb = reader.bits(sps.lsb_bits).unwrap();
+                    if reader.flag().unwrap() {
+                        reader.bits(ceil_log2(sps.sets.len() as u32)).unwrap();
+                    } else {
+                        let count = sps.sets.len();
+                        short_term_set(&mut reader, count, count, &sps.sets).unwrap();
+                    }
+                    let mut long_term = Vec::new();
+                    for _ in 0..reader.ue().unwrap() {
+                        let lsb = reader.bits(sps.lsb_bits).unwrap();
+                        let used = reader.flag().unwrap();
+                        let cycle = reader.flag().unwrap().then(|| reader.ue().unwrap());
+                        long_term.push((lsb, used, cycle));
+                    }
+                    pictures.push((sps.lsb_bits, lsb, long_term));
+                }
+                _ => {}
+            }
+        }
+        pictures
+    }
+
+    /// The POC and full long-term POCs that a decoder given only the
+    /// pictures `shown` derives for each (H.265 8.3.1, 8.3.2); a long-term
+    /// entry without its MSB is `None`.
+    fn derived(
+        headers: &[Header],
+        shown: impl Fn(usize) -> bool,
+    ) -> Vec<(usize, i64, Vec<Option<i64>>)> {
+        let mut previous = 0i64;
+        let mut pictures = Vec::new();
+        for (index, (bits, lsb, long_term)) in headers.iter().enumerate() {
+            if !shown(index) {
+                continue;
+            }
+            let max = 1i64 << bits;
+            let (previous_lsb, lsb) = (previous.rem_euclid(max), i64::from(*lsb));
+            let msb = previous - previous_lsb;
+            let poc = if index == 0 {
+                0
+            } else if lsb < previous_lsb && previous_lsb - lsb >= max / 2 {
+                msb + max + lsb
+            } else if lsb > previous_lsb && lsb - previous_lsb > max / 2 {
+                msb - max + lsb
+            } else {
+                msb + lsb
+            };
+            let mut cycle = 0;
+            let references = long_term
+                .iter()
+                .map(|&(lt, _, delta)| {
+                    delta.map(|delta| {
+                        cycle += i64::from(delta);
+                        poc - cycle * max - poc.rem_euclid(max) + i64::from(lt)
+                    })
+                })
+                .collect();
+            pictures.push((index, poc, references));
+            previous = poc;
+        }
+        pictures
+    }
+
+    #[test]
+    fn widened_pocs_let_a_decoder_that_skipped_frames_order_the_repair() {
+        assert_eq!(ORDER_WINDOW, 128);
+        let original = headers(STREAM);
+        assert_eq!(original.len(), 260);
+        assert!(original.iter().all(|(bits, ..)| *bits == 4));
+        let rewritten = PictureOrder::default().rewrite(STREAM).unwrap().unwrap();
+        let wide = headers(&rewritten);
+        assert_eq!(wide.len(), 260);
+        assert!(wide.iter().all(|(bits, ..)| *bits == POC_LSB_BITS));
+        // Every picture keeps its order and its long-term references, now
+        // named by MSB: the IDR or an anchor marked every fourth frame.
+        for (index, poc, references) in derived(&wide, |_| true) {
+            assert_eq!(poc, index as i64);
+            assert_eq!(references.len(), original[index].2.len(), "frame {index}");
+            for reference in references {
+                let reference = reference.unwrap();
+                assert!(
+                    reference < poc && (reference == 0 || reference % 4 == 3),
+                    "frame {index}: {reference}"
+                );
+            }
+        }
+        assert_eq!(wide[249].2[0], (239, true, Some(0)));
+        // The client dropped 241..=248. From AMF's four bits it derives POC
+        // 233 for the repair; from eight, 249, and the anchor it still has.
+        let lossy = |index: usize| !(241..=248).contains(&index);
+        let repair = |headers: &[Header]| {
+            derived(headers, lossy)
+                .into_iter()
+                .find(|(index, ..)| *index == 249)
+                .unwrap()
+        };
+        assert_eq!(repair(&original).1, 233);
+        assert_eq!(repair(&wide).1, 249);
+        assert_eq!(repair(&wide).2[0], Some(239));
+        assert!(derived(&wide, lossy).iter().all(|(index, poc, _)| *poc == *index as i64));
+        // The window: 128 frames after the last one shown still order, 129
+        // land 256 too low.
+        for (last, ordered) in [(101, true), (100, false)] {
+            let pictures = derived(&wide, |index| index <= last || index >= 229);
+            let after = pictures.iter().find(|(index, ..)| *index == 229).unwrap();
+            assert_eq!(after.1 == 229, ordered, "last shown {last}");
+        }
+        // Frame by frame, as AMF returns them, gives the same stream, and a
+        // widened stream needs nothing more.
+        let units = units(STREAM);
+        let mut cuts: Vec<usize> = units[4..].iter().map(|unit| unit.0 - 4).collect();
+        cuts.insert(0, 0);
+        cuts.push(STREAM.len());
+        let mut order = PictureOrder::default();
+        let mut frames = Vec::new();
+        for cut in cuts.windows(2) {
+            let frame = &STREAM[cut[0]..cut[1]];
+            frames.extend(order.rewrite(frame).unwrap().unwrap());
+        }
+        assert_eq!(frames, rewritten);
+        assert_eq!(PictureOrder::default().rewrite(&rewritten), Ok(None));
+    }
+
+    /// Deterministic bytes for the mutation test (xorshift).
+    fn random(state: &mut u64) -> u64 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        *state
+    }
+
+    #[test]
+    fn malformed_hevc_is_an_error_and_never_a_panic() {
+        let units = units(STREAM);
+        let (sps, slice) = (units[1], units[23]);
+        let order = |bytes: &[u8]| PictureOrder::default().rewrite(bytes);
+        // A slice before its parameter sets, a layered unit, and the SPS or
+        // a P slice's header cut short.
+        assert_eq!(
+            order(&STREAM[slice.0 - 4..]),
+            Err(Unsupported("slice before its PPS"))
+        );
+        let mut layered = STREAM.to_vec();
+        layered[sps.0 + 1] |= 8;
+        assert_eq!(order(&layered), Err(Unsupported("layered HEVC")));
+        for cut in 3..14 {
+            let mut bytes = STREAM[..sps.0 + cut].to_vec();
+            bytes.extend_from_slice(&STREAM[sps.1..]);
+            assert!(order(&bytes).is_err(), "SPS cut to {cut}");
+        }
+        for cut in 3..6 {
+            let mut bytes = STREAM[..slice.0 + cut].to_vec();
+            bytes.extend_from_slice(&STREAM[slice.1..]);
+            assert!(order(&bytes).is_err(), "slice cut to {cut}");
+        }
+        // Flipped bits and cuts anywhere in the parameter sets and the first
+        // frames: an answer either way, and a rewrite keeps every unit.
+        let mut state = 0x9E37_79B9_7F4A_7C15;
+        let mut rewrites = 0;
+        for _ in 0..3000 {
+            let mut bytes = STREAM[..units[12].1].to_vec();
+            for _ in 0..1 + random(&mut state) % 4 {
+                let at = random(&mut state) as usize % bytes.len();
+                bytes[at] ^= 1 << (random(&mut state) % 8);
+            }
+            bytes.truncate(bytes.len() - random(&mut state) as usize % 64);
+            if let Ok(Some(rewritten)) = order(&bytes) {
+                assert_eq!(super::units(&rewritten).len(), super::units(&bytes).len());
+                rewrites += 1;
+            }
+        }
+        assert!(rewrites > 100, "{rewrites}");
+    }
 }

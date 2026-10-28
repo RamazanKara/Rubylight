@@ -9,7 +9,7 @@
 //! client skipped since the last IDR, so it writes each later frame_num as if
 //! they had never existed. References name long-term pictures by index and
 //! short-term ones by difference, so the pictures stay as they were.
-use super::rbsp::{Reader, Result, Unsupported, assemble, escape, unescape, units};
+use super::rbsp::{Reader, Replacement, Result, Unsupported, assemble, escape, unescape, units};
 
 /// RBSP bytes unescaped before looking further: frame_num comes within the
 /// first few.
@@ -36,7 +36,7 @@ impl FrameNumbers {
         Ok((!edits.is_empty()).then(|| assemble(bytes, edits)))
     }
 
-    fn unit(&mut self, nal: &[u8], skipped: u64) -> Result<Option<Vec<u8>>> {
+    fn unit(&mut self, nal: &[u8], skipped: u64) -> Result<Option<Replacement>> {
         if nal.len() < 2 {
             return Ok(None);
         }
@@ -71,7 +71,7 @@ impl FrameNumbers {
         }
     }
 
-    fn slice(&self, nal: &[u8], skipped: u64) -> Result<Option<Vec<u8>>> {
+    fn slice(&self, nal: &[u8], skipped: u64) -> Result<Option<Replacement>> {
         let (mut rbsp, mut from) = unescape(&nal[1..], PREFIX);
         let mut reader = Reader::new(&rbsp);
         reader.ue()?;
@@ -121,11 +121,10 @@ impl FrameNumbers {
                 end
             }
         };
-        let mut output = Vec::with_capacity(nal.len() + 4);
-        output.push(nal[0]);
-        escape(&rbsp[..end], &mut output);
-        output.extend_from_slice(&nal[1 + from[end - 1] + 1..]);
-        Ok(Some(output))
+        let mut head = Vec::with_capacity(end + end / 2 + 1);
+        head.push(nal[0]);
+        escape(&rbsp[..end], &mut head);
+        Ok(Some((head, 1 + from[end - 1] + 1)))
     }
 }
 
@@ -136,7 +135,7 @@ fn sequence_parameter_set(rbsp: &[u8]) -> Result<(usize, (u32, bool))> {
     reader.skip(16)?;
     let id = reader.ue_max(31, "SPS id")? as usize;
     let mut separate_colour_plane = false;
-    if [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].contains(&profile) {
+    if [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135, 144].contains(&profile) {
         let chroma = reader.ue_max(3, "chroma format")?;
         if chroma == 3 {
             separate_colour_plane = reader.flag()?;
@@ -184,4 +183,113 @@ fn sequence_parameter_set(rbsp: &[u8]) -> Result<(usize, (u32, bool))> {
         return Err(Unsupported("H.264 field coding"));
     }
     Ok((id, (bits, separate_colour_plane)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::rbsp::Writer;
+    use super::*;
+
+    /// AMF's H.264 from the RX 7900 XT gap 1 run: one slice a frame for
+    /// frames 0 to 249, each cut after its first bytes.
+    const STREAM: &[u8] = include_bytes!("fixtures/amf-h264-ltr.bin");
+
+    /// Each slice's NAL type and frame_num, with AMF's four bits.
+    fn frame_numbers(stream: &[u8]) -> Vec<(u8, u32)> {
+        units(stream)
+            .into_iter()
+            .map(|(start, end)| &stream[start..end])
+            .filter(|nal| matches!(nal[0] & 31, 1 | 5))
+            .map(|nal| {
+                let (rbsp, _) = unescape(&nal[1..], usize::MAX);
+                let mut reader = Reader::new(&rbsp);
+                for _ in 0..3 {
+                    reader.ue().unwrap();
+                }
+                (nal[0] & 31, reader.bits(4).unwrap())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn renumbering_lowers_frame_num_by_the_skipped_frames_and_nothing_else() {
+        let original = frame_numbers(STREAM);
+        assert_eq!(original.len(), 250);
+        assert!(original.iter().enumerate().all(|(index, &(_, number))| number == index as u32 % 16));
+        // Nothing skipped, or whole periods: AMF's stream as it was.
+        for skipped in [0, 16, 32] {
+            assert_eq!(FrameNumbers::default().rewrite(STREAM, skipped), Ok(None));
+        }
+        for skipped in [1, 5, 15, 130] {
+            let rewritten = FrameNumbers::default().rewrite(STREAM, skipped).unwrap().unwrap();
+            let numbers = frame_numbers(&rewritten);
+            for (index, (&(kind, before), &(_, after))) in original.iter().zip(&numbers).enumerate() {
+                let expected = if kind == 5 { before } else { (before + 16 - skipped as u32 % 16) % 16 };
+                assert_eq!(after, expected, "frame {index} skipped {skipped}");
+            }
+            // Only frame_num moved: the rest of every unit comes back.
+            let back = FrameNumbers::default().rewrite(&rewritten, 16 - skipped % 16).unwrap().unwrap();
+            assert_eq!(back, STREAM, "skipped {skipped}");
+        }
+        // Frame by frame, as AMF returns them, gives the same stream.
+        let units = units(STREAM);
+        let mut cuts: Vec<usize> = units[3..].iter().map(|unit| unit.0 - 4).collect();
+        cuts.insert(0, 0);
+        cuts.push(STREAM.len());
+        let mut numbers = FrameNumbers::default();
+        let mut frames = Vec::new();
+        for cut in cuts.windows(2) {
+            let frame = &STREAM[cut[0]..cut[1]];
+            frames.extend(numbers.rewrite(frame, 3).unwrap().unwrap_or_else(|| frame.to_vec()));
+        }
+        assert_eq!(Some(frames), FrameNumbers::default().rewrite(STREAM, 3).unwrap());
+    }
+
+    #[test]
+    fn malformed_h264_is_an_error_and_never_a_panic() {
+        let units = units(STREAM);
+        let numbers = |bytes: &[u8]| FrameNumbers::default().rewrite(bytes, 5);
+        assert_eq!(
+            numbers(&STREAM[units[3].0 - 4..]),
+            Err(Unsupported("slice before its parameter sets"))
+        );
+        let mut disposable = STREAM.to_vec();
+        disposable[units[3].0] &= !0x60;
+        assert_eq!(numbers(&disposable), Err(Unsupported("non-reference H.264 frame")));
+        // POC type 0 counts its own low bits; a gap would break those too.
+        let mut sps = Writer::default();
+        sps.bits(24, 66 << 16 | 40);
+        sps.ue(0);
+        sps.ue(0);
+        sps.ue(0);
+        let mut bytes = vec![0, 0, 0, 1, 0x67];
+        bytes.extend(sps.finish());
+        assert_eq!(numbers(&bytes), Err(Unsupported("H.264 POC type 0")));
+        for cut in 2..9 {
+            let mut bytes = STREAM[..units[0].0 + cut].to_vec();
+            bytes.extend_from_slice(&STREAM[units[0].1..]);
+            assert!(numbers(&bytes).is_err(), "SPS cut to {cut}");
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let mut random = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut rewrites = 0;
+        for _ in 0..3000 {
+            let mut bytes = STREAM[..units[12].1].to_vec();
+            for _ in 0..1 + random() % 4 {
+                let at = random() as usize % bytes.len();
+                bytes[at] ^= 1 << (random() % 8);
+            }
+            bytes.truncate(bytes.len() - random() as usize % 48);
+            if let Ok(Some(rewritten)) = numbers(&bytes) {
+                assert_eq!(super::units(&rewritten).len(), super::units(&bytes).len());
+                rewrites += 1;
+            }
+        }
+        assert!(rewrites > 100, "{rewrites}");
+    }
 }

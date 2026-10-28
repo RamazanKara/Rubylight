@@ -126,8 +126,36 @@ public class ProfileScreensTest {
         assertTrue(controller.get().isFinishing());
     }
 
+    private void mobileData(boolean has) {
+        Shadows.shadowOf(app.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY, has);
+    }
+
+    @Test
+    public void withoutMobileDataTheMobileRuleShowsOnlyOnceSet() {
+        // A TV or a Wi-Fi tablet streams on Wi-Fi; a mobile data rule set earlier still acts on a metered one.
+        mobileData(false);
+        String hotel = StreamProfiles.create(app, "Hotel", new HostStreamProfile());
+        StreamProfiles.setAuto(app, true);
+        ActivityController<StreamProfilesActivity> controller = Robolectric.buildActivity(StreamProfilesActivity.class).setup();
+        try {
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            PreferenceFragment fragment = (PreferenceFragment) controller.get().getFragmentManager()
+                    .findFragmentById(R.id.page_content);
+            assertNull(fragment.findPreference("rule:MOBILE"));
+            assertNotNull(fragment.findPreference("rule:HOME_WIFI"));
+            assertNotNull(fragment.findPreference("rule:WIFI"));
+
+            StreamProfiles.setRule(app, StreamLayers.Network.MOBILE, hotel);
+            controller.pause().resume();
+            assertTrue(summary(fragment, "rule:MOBILE").startsWith("Hotel"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void theProfileListShowsEachProfileAndWhatAStreamUses() {
+        mobileData(true);
         String home = StreamProfiles.create(app, "Home", HostStreamProfile.deserialize("v2;bitrate=80000;hdr=true"));
         StreamProfiles.create(app, "Hotel", new HostStreamProfile());
         StreamProfiles.setActive(app, home);

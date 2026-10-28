@@ -173,6 +173,11 @@ public class StreamProfilesActivity extends NightjarActivity {
             });
             choice.addPreference(auto);
             for (StreamLayers.Network network : RULE_NETWORKS) {
+                // Mobile data only where there is mobile data, unless a rule set earlier still acts.
+                if (network == StreamLayers.Network.MOBILE && profiles.rule(network) == null &&
+                        !SettingRules.hasMobileData(activity)) {
+                    continue;
+                }
                 String summary = profileName(profiles, profiles.rule(network), R.string.profiles_rule_default);
                 if (network == StreamLayers.Network.MOBILE) {
                     summary += "\n" + getString(R.string.profiles_rule_mobile_summary);

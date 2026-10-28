@@ -107,6 +107,9 @@ public final class ShellBar {
             ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) button.getLayoutParams();
             params.setMarginEnd(gap);
             items.addView(button, params);
+            // On a TV, Right past the last tab found the first card below it (a PC tile, where Select starts pairing).
+            // The bar's end is a wall there, as on a TV launcher's tab row; Down still reaches the content.
+            if (i == menu.size() - 1 && isTelevision(activity)) button.setNextFocusRightId(button.getId());
         }
         refresh(activity);
     }
@@ -121,6 +124,11 @@ public final class ShellBar {
         if (home != null) {
             home.setVisibility(home.isSelected() || homeAvailable(activity) ? View.VISIBLE : View.GONE);
         }
+    }
+
+    private static boolean isTelevision(Context context) {
+        return (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
     private static Destination destinationOf(@IdRes int id) {

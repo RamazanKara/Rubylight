@@ -558,6 +558,39 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /**
+     * TV run on a TCL C6K: Right on Settings, the last tab, jumped to the PC tile below it, and the next Select asked
+     * the PC to pair. Right there stays on Settings; Down still reaches the tiles.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionRightOnTheLastShellTabStaysThere() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            com.limelight.ui.TvScreensPreviewTest.leaveTouchMode(screen);
+            android.view.View root = screen.getWindow().getDecorView();
+            int w = screen.getResources().getDisplayMetrics().widthPixels;
+            int h = screen.getResources().getDisplayMetrics().heightPixels;
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, w, h);
+            android.view.View settings = screen.findViewById(R.id.shell_settings);
+            android.view.View pcs = screen.findViewById(R.id.shell_pcs);
+            assertTrue(settings.requestFocus());
+            assertSame("Right on the last tab goes nowhere", settings, settings.focusSearch(android.view.View.FOCUS_RIGHT));
+            com.limelight.ui.TvScreensPreviewTest.key(screen, android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
+            assertTrue("focus stays on Settings", settings.hasFocus());
+            assertSame("Left still walks the bar", pcs, settings.focusSearch(android.view.View.FOCUS_LEFT));
+            android.view.View below = settings.focusSearch(android.view.View.FOCUS_DOWN);
+            assertNotNull(below);
+            assertNotSame("Down leaves the bar", settings, below);
+            assertEquals("the other tabs still lead on", android.view.View.NO_ID, pcs.getNextFocusRightId());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** Three PCs on a 1080p TV: one centred row across the width inside the overscan, with Add PC clear of it and still reachable. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")

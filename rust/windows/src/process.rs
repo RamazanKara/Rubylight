@@ -612,9 +612,9 @@ fn shell_token(own: &OwnedHandle) -> Result<Option<OwnedHandle>> {
     Ok((!token_elevated(&primary)?).then_some(primary))
 }
 /// The user a `Target::User` program runs as: the one signed in to this
-/// host's own session, never the console's. A host inside a child session
-/// starts its capture worker (and games) on the child session's desktop, not
-/// on the main desktop the user is working on.
+/// host's own session, never the console's. A host in another session
+/// starts its capture worker (and games) on that session's desktop, not on
+/// the main desktop the user is working on.
 fn own_session_user<T>(
     current: impl FnOnce() -> Result<u32>,
     user: impl FnOnce(u32) -> Result<T>,
@@ -2304,7 +2304,7 @@ mod tests {
         );
     }
     #[test]
-    fn child_session_record_writers_are_read_from_its_permissions() {
+    fn the_settings_record_writers_are_read_from_its_permissions() {
         use super::*;
         use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
         let allowed = |sddl: &str, mask: u32| {
@@ -2366,7 +2366,7 @@ mod tests {
         );
     }
     #[test]
-    fn child_session_record_files_are_made_with_their_permissions() {
+    fn the_settings_record_files_are_made_with_their_permissions() {
         use super::*;
         use std::io::{ErrorKind, Write};
         let temporary = tempfile::tempdir().unwrap();
@@ -2739,8 +2739,8 @@ mod tests {
         }
     }
     #[test]
-    fn user_programs_start_in_the_hosts_own_child_session_not_the_consoles() {
-        // A host inside child session 3 while the console (session 1) is the
+    fn user_programs_start_in_the_hosts_own_session_not_the_consoles() {
+        // A host in session 3 while the console (session 1) is the
         // user's main desktop: its capture worker gets session 3's user.
         let asked = super::own_session_user(|| Ok(3), Ok).unwrap();
         assert_eq!(asked, 3);

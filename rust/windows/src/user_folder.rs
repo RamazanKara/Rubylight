@@ -201,7 +201,7 @@ pub(crate) fn as_session_user<T>(work: impl FnOnce() -> T) -> io::Result<T> {
 
 /// How `WTSQueryUserToken` says the session has no user: ERROR_NO_TOKEN
 /// at the sign-in screen, ERROR_FILE_NOT_FOUND when the session is gone.
-fn no_signed_in_user(code: HRESULT) -> bool {
+pub(crate) fn no_signed_in_user(code: HRESULT) -> bool {
     code == HRESULT::from_win32(ERROR_NO_TOKEN.0)
         || code == HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0)
 }
@@ -219,7 +219,10 @@ pub fn roaming_app_data() -> Result<PathBuf, UserFolderError> {
 }
 
 /// The known folder `id` of the user `token` names, or of the host's user.
-fn known_folder(id: &GUID, token: Option<&OwnedHandle>) -> Result<PathBuf, UserFolderError> {
+pub(crate) fn known_folder(
+    id: &GUID,
+    token: Option<&OwnedHandle>,
+) -> Result<PathBuf, UserFolderError> {
     let token = token.map(|token| HANDLE(token.as_raw_handle()));
     // SAFETY: the token stays open for the call; the string Windows returns
     // is copied, then freed once.
@@ -239,7 +242,7 @@ pub(crate) fn plain(metadata: &Metadata) -> bool {
 
 /// `path` made absolute with the `\\?\` prefix, so Win32 calls take it
 /// beyond MAX_PATH (260 characters). Not NUL-terminated.
-fn verbatim(path: &Path) -> io::Result<Vec<u16>> {
+pub(crate) fn verbatim(path: &Path) -> io::Result<Vec<u16>> {
     let path: Vec<u16> = std::path::absolute(path)?
         .as_os_str()
         .encode_wide()
@@ -290,7 +293,7 @@ fn rename_open(file: &File, target: &Path) -> io::Result<()> {
 }
 
 /// Deletes the open file once its last handle closes.
-fn delete_on_close(file: &File) -> io::Result<()> {
+pub(crate) fn delete_on_close(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO { DeleteFile: true };
     // SAFETY: info is a live FILE_DISPOSITION_INFO of the size passed.
     unsafe {

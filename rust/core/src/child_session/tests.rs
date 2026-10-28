@@ -3,493 +3,19 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
-    sync::{Arc, Mutex},
 };
 
 const SID: &str = "S-1-5-21-1000-2000-3000-1001";
-const PASSWORD: &str = "correct horse battery staple";
-
-#[test]
-fn no_setting_picks_a_child_session() {
-    for setting in ["", "nucleus", "auto", "child_session", "virtual_display"] {
-        let decision = decide(setting, false);
-        assert_eq!(decision.mode, Mode::Nucleus, "{setting}");
-        assert_eq!(decision.label, "Background streaming (Nucleus Co-op)");
-    }
-    let bad = decide("child", false);
-    assert_eq!(bad.mode, Mode::Unavailable);
-    assert!(bad.reason.contains("is not a mode"), "{}", bad.reason);
-    assert_eq!(decide("auto", true).mode, Mode::InsideChildSession);
-}
-
-#[test]
-fn the_child_desktop_defaults_to_1080p_at_100_percent() {
-    let display = DisplaySettings::parse("", "").unwrap();
-    assert_eq!(display, DisplaySettings::default());
-    assert_eq!(
-        (display.width, display.height, display.scale),
-        (1920, 1080, 100)
-    );
-    assert_eq!(display.rdp_scale_factors(), (100, 180));
-    let display = DisplaySettings::parse("2560X1440", "150 %").unwrap();
-    assert_eq!(
-        (display.width, display.height, display.scale),
-        (2560, 1440, 150)
-    );
-    for (resolution, scale) in [
-        ("1920", ""),
-        ("100x100", ""),
-        ("9000x1080", ""),
-        ("axb", ""),
-        ("", "99"),
-        ("", "501"),
-        ("", "big"),
-    ] {
-        assert!(
-            DisplaySettings::parse(resolution, scale).is_err(),
-            "{resolution} {scale}"
-        );
-    }
-}
-
-#[test]
-fn only_other_real_sessions_are_targets() {
-    assert!(is_target(7, 1, 2));
-    for target in [0, 1, 2, u32::MAX, i32::MAX as u32 + 1] {
-        assert!(!is_target(target, 1, 2), "{target}");
-    }
-}
-
-#[test]
-fn an_approval_does_not_survive_a_reattach_with_the_same_id() {
-    let mut gate = RequestGate::default();
-    gate.update(7, true);
-    let approval = Confirmation::new(&gate, 7);
-    assert!(approval.can_proceed(&gate, 7));
-    // Windows reuses child-session 7 for the next connection.
-    gate.update(7, false);
-    gate.update(7, true);
-    assert!(!approval.can_proceed(&gate, 7));
-    let fresh = Confirmation::new(&gate, 7);
-    assert!(fresh.can_proceed(&gate, 7));
-    assert!(!fresh.can_proceed(&gate, 8));
-    gate.select("host");
-    assert!(!fresh.can_proceed(&gate, 7));
-    let late = Confirmation::from_status(7, gate.generation());
-    gate.close();
-    assert!(!late.can_proceed(&gate, 7));
-    assert!(!gate.accepts(gate.generation(), 7));
-}
-
-#[test]
-fn ending_never_signs_out_the_wrong_session() {
-    assert_eq!(end_confirmed_session(7, 7, 1, 2), Ok(7));
-    assert_eq!(end_confirmed_session(7, 8, 1, 2), Err(EndError::Changed));
-    for sentinel in [0, u32::MAX, 1, 2] {
-        assert_eq!(
-            end_confirmed_session(sentinel, sentinel, 1, 2),
-            Err(EndError::NoChild),
-            "{sentinel}"
-        );
-    }
-}
-
-const CURRENT: u32 = 1;
-const CONSOLE: u32 = 1;
-
-fn attached(viewer: &mut Viewer, now: u64) {
-    assert_eq!(
-        viewer.connect(now, RdpState::Disconnected, Some(false)),
-        vec![ViewerAction::Connect]
-    );
-    assert!(
-        viewer
-            .poll(
-                now + 2000,
-                RdpState::Connected,
-                None,
-                Some(7),
-                CURRENT,
-                CONSOLE
-            )
-            .is_empty()
-    );
-    assert_eq!(viewer.phase(), Phase::Connected);
-    assert_eq!(viewer.child(), 7);
-}
-
-#[test]
-fn without_a_password_the_viewer_asks_for_one() {
-    let mut viewer = Viewer::default();
-    assert!(viewer.connect(0, RdpState::Disconnected, None).is_empty());
-    assert_eq!(viewer.phase(), Phase::NeedsPassword);
-    assert!(viewer.message().contains("not your PIN"));
-    // Nothing reconnects without a password.
-    assert!(
-        viewer
-            .poll(60_000, RdpState::Disconnected, None, None, CURRENT, CONSOLE)
-            .is_empty()
-    );
-}
-
-#[test]
-fn a_new_password_is_saved_only_once_it_signed_in() {
-    let mut viewer = Viewer::default();
-    assert_eq!(
-        viewer.connect(0, RdpState::Disconnected, Some(true)),
-        vec![ViewerAction::Connect]
-    );
-    assert!(
-        viewer
-            .poll(1000, RdpState::Connecting, None, None, CURRENT, CONSOLE)
-            .is_empty()
-    );
-    assert_eq!(
-        viewer.poll(2000, RdpState::Connected, None, Some(7), CURRENT, CONSOLE),
-        vec![ViewerAction::SavePassword]
-    );
-    // Saved once, not on every poll.
-    assert!(
-        viewer
-            .poll(4000, RdpState::Connected, None, Some(7), CURRENT, CONSOLE)
-            .is_empty()
-    );
-}
-
-#[test]
-fn a_rejected_password_is_dropped_and_never_retried() {
-    let mut viewer = Viewer::default();
-    viewer.connect(0, RdpState::Disconnected, Some(true));
-    assert!(
-        viewer
-            .poll(
-                2000,
-                RdpState::Disconnected,
-                Some(0),
-                None,
-                CURRENT,
-                CONSOLE
-            )
-            .is_empty()
-    );
-    assert_eq!(
-        viewer.poll(
-            4000,
-            RdpState::Disconnected,
-            Some(0),
-            None,
-            CURRENT,
-            CONSOLE
-        ),
-        vec![ViewerAction::DropPassword]
-    );
-    assert_eq!(viewer.phase(), Phase::SignInFailed);
-    assert!(viewer.message().contains("Nothing was saved"));
-    assert!(
-        viewer
-            .poll(
-                30_000,
-                RdpState::Disconnected,
-                Some(0),
-                None,
-                CURRENT,
-                CONSOLE
-            )
-            .is_empty()
-    );
-}
-
-#[test]
-fn a_refused_connect_keeps_a_new_password_and_says_why() {
-    let poll = |viewer: &mut Viewer, now| {
-        viewer.poll(now, RdpState::Disconnected, Some(0), None, CURRENT, CONSOLE)
-    };
-    let mut viewer = Viewer::default();
-    assert_eq!(
-        viewer.connect(0, RdpState::Disconnected, Some(true)),
-        vec![ViewerAction::Connect]
-    );
-    // The RDP server check refused: the password never reached Windows.
-    assert!(
-        viewer
-            .refuse(
-                RdpState::Disconnected,
-                "another program (process 6666) listens on port 3390"
-            )
-            .is_empty()
-    );
-    for now in [4000, 30_000] {
-        assert!(poll(&mut viewer, now).is_empty(), "no drop, no retry");
-    }
-    assert_eq!(viewer.phase(), Phase::Idle);
-    assert!(
-        viewer.message().contains("process 6666"),
-        "{}",
-        viewer.message()
-    );
-    // The same password, tried again, is still checked: a wrong one is still dropped.
-    viewer.connect(40_000, RdpState::Disconnected, Some(false));
-    assert_eq!(poll(&mut viewer, 44_000), vec![ViewerAction::DropPassword]);
-    // A plain stop after a new password is no sign-in failure either.
-    let mut viewer = Viewer::default();
-    viewer.connect(0, RdpState::Disconnected, Some(true));
-    viewer.detach(RdpState::Disconnected);
-    assert!(poll(&mut viewer, 4000).is_empty());
-    assert_eq!(viewer.phase(), Phase::Idle);
-}
-
-#[test]
-fn a_dropped_viewer_reconnects_after_six_seconds() {
-    let mut viewer = Viewer::default();
-    attached(&mut viewer, 0);
-    // The RDP client dropped (not a sign-out).
-    assert!(
-        viewer
-            .poll(
-                4000,
-                RdpState::Disconnected,
-                Some(3),
-                None,
-                CURRENT,
-                CONSOLE
-            )
-            .is_empty()
-    );
-    assert_eq!(viewer.phase(), Phase::Reconnecting);
-    assert_eq!(viewer.child(), 0);
-    assert!(!viewer.gate().accepts(viewer.gate().generation(), 7));
-    assert!(
-        viewer
-            .poll(
-                6000,
-                RdpState::Disconnected,
-                Some(3),
-                None,
-                CURRENT,
-                CONSOLE
-            )
-            .is_empty()
-    );
-    assert_eq!(
-        viewer.poll(
-            6001,
-            RdpState::Disconnected,
-            Some(3),
-            None,
-            CURRENT,
-            CONSOLE
-        ),
-        vec![ViewerAction::Connect]
-    );
-}
-
-#[test]
-fn reconnect_disconnects_first_then_connects_at_once() {
-    let mut viewer = Viewer::default();
-    attached(&mut viewer, 0);
-    assert_eq!(
-        viewer.reconnect(5000, RdpState::Connected, Some(false)),
-        vec![ViewerAction::Disconnect]
-    );
-    assert_eq!(viewer.child(), 0);
-    assert_eq!(
-        viewer.poll(
-            5100,
-            RdpState::Disconnected,
-            Some(1),
-            None,
-            CURRENT,
-            CONSOLE
-        ),
-        vec![ViewerAction::Connect]
-    );
-    // Disconnected already: connect right away.
-    let mut idle = Viewer::default();
-    assert_eq!(
-        idle.reconnect(0, RdpState::Disconnected, Some(false)),
-        vec![ViewerAction::Connect]
-    );
-}
-
-#[test]
-fn signing_out_inside_the_child_session_returns_to_start() {
-    for reason in SIGNED_OUT_REASONS {
-        let mut viewer = Viewer::default();
-        attached(&mut viewer, 0);
-        assert!(
-            viewer
-                .poll(
-                    4000,
-                    RdpState::Disconnected,
-                    Some(reason),
-                    None,
-                    CURRENT,
-                    CONSOLE
-                )
-                .is_empty()
-        );
-        assert_eq!(viewer.phase(), Phase::SignedOut);
-        assert!(
-            viewer
-                .poll(
-                    60_000,
-                    RdpState::Disconnected,
-                    Some(reason),
-                    None,
-                    CURRENT,
-                    CONSOLE
-                )
-                .is_empty()
-        );
-    }
-}
-
-#[test]
-fn a_stale_or_foreign_child_id_is_never_attached() {
-    let mut viewer = Viewer::default();
-    viewer.connect(0, RdpState::Disconnected, Some(false));
-    for found in [None, Some(0), Some(CURRENT), Some(CONSOLE), Some(u32::MAX)] {
-        viewer.poll(2000, RdpState::Connected, None, found, CURRENT, CONSOLE);
-        assert_eq!(viewer.child(), 0, "{found:?}");
-        assert!(!viewer.gate().accepts(viewer.gate().generation(), 0));
-    }
-    let approval = viewer.confirm();
-    assert_eq!(
-        viewer.end_session(3000, approval, 0, CURRENT, CONSOLE),
-        Err(EndError::Changed)
-    );
-}
-
-#[test]
-fn end_session_signs_out_the_confirmed_child_only() {
-    let mut viewer = Viewer::default();
-    attached(&mut viewer, 0);
-    let approval = Confirmation::from_status(viewer.child(), viewer.gate().generation());
-    // Windows now reports another child session.
-    assert_eq!(
-        viewer.end_session(3000, approval, 8, CURRENT, CONSOLE),
-        Err(EndError::Changed)
-    );
-    assert_eq!(
-        viewer.end_session(3000, approval, 7, CURRENT, CONSOLE),
-        Ok(vec![ViewerAction::SignOut(7)])
-    );
-    assert_eq!(viewer.phase(), Phase::SigningOut);
-    // A second request while signing out does nothing.
-    assert!(
-        viewer
-            .end_session(3000, approval, 7, CURRENT, CONSOLE)
-            .is_err()
-    );
-    // The desktop is still up 15 s later: the viewer drops it.
-    assert!(
-        viewer
-            .poll(10_000, RdpState::Connected, None, Some(7), CURRENT, CONSOLE)
-            .is_empty()
-    );
-    assert_eq!(
-        viewer.poll(18_001, RdpState::Connected, None, Some(7), CURRENT, CONSOLE),
-        vec![ViewerAction::Disconnect]
-    );
-    assert!(
-        viewer
-            .poll(
-                19_000,
-                RdpState::Disconnected,
-                Some(1),
-                None,
-                CURRENT,
-                CONSOLE
-            )
-            .is_empty()
-    );
-    assert_eq!(viewer.phase(), Phase::SignedOut);
-    assert_eq!(viewer.child(), 0);
-}
-
-#[test]
-fn an_approval_from_before_a_reattach_is_refused() {
-    let mut viewer = Viewer::default();
-    attached(&mut viewer, 0);
-    let approval = viewer.confirm();
-    viewer.poll(
-        4000,
-        RdpState::Disconnected,
-        Some(3),
-        None,
-        CURRENT,
-        CONSOLE,
-    );
-    viewer.poll(
-        10_100,
-        RdpState::Disconnected,
-        Some(3),
-        None,
-        CURRENT,
-        CONSOLE,
-    );
-    viewer.poll(12_000, RdpState::Connected, None, Some(7), CURRENT, CONSOLE);
-    assert_eq!(viewer.child(), 7);
-    assert_eq!(
-        viewer.end_session(13_000, approval, 7, CURRENT, CONSOLE),
-        Err(EndError::Changed)
-    );
-}
-
-#[test]
-fn a_refused_sign_out_goes_back_to_the_desktop() {
-    let mut viewer = Viewer::default();
-    attached(&mut viewer, 0);
-    let approval = viewer.confirm();
-    viewer
-        .end_session(3000, approval, 7, CURRENT, CONSOLE)
-        .unwrap();
-    viewer.end_failed("access denied");
-    assert_eq!(viewer.phase(), Phase::Connected);
-    assert!(viewer.message().contains("access denied"));
-}
-
-#[test]
-fn stopping_detaches_and_does_not_reconnect() {
-    let mut viewer = Viewer::default();
-    attached(&mut viewer, 0);
-    assert_eq!(
-        viewer.detach(RdpState::Connected),
-        vec![ViewerAction::Disconnect]
-    );
-    assert_eq!(viewer.phase(), Phase::Idle);
-    assert!(
-        viewer
-            .poll(
-                60_000,
-                RdpState::Disconnected,
-                Some(1),
-                None,
-                CURRENT,
-                CONSOLE
-            )
-            .is_empty()
-    );
-}
 
 /// The system settings in memory, with every call logged.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Machine {
     values: BTreeMap<(Hive, String, String), u32>,
     child_sessions: bool,
-    /// What [`SystemSettings::firewall_problem`] says, None for a firewall on
-    /// for every profile that takes local rules.
-    firewall_problem: Option<String>,
-    /// Profiles where group policy keeps local rules from taking effect.
-    policy_overrides: Vec<String>,
-    /// Allow rules of the Remote Desktop group group policy turns on.
-    policy_allowed: Vec<String>,
     /// Rule ID -> (display name, group, enabled).
     rules: BTreeMap<String, (String, String, bool)>,
-    /// Name -> the ports it closes.
-    block_rules: BTreeMap<String, Vec<u16>>,
-    /// Allow rules, of any group, that override block rules.
-    overriding: Vec<OverridingRule>,
+    /// The block rules' names.
+    block_rules: BTreeSet<String>,
     /// Accounts whose hive is under HKEY_USERS: signed in, or loaded.
     loaded_hives: BTreeSet<String>,
 }
@@ -500,16 +26,10 @@ struct Fake {
     /// Writes that succeed without changing the value (a value something
     /// else puts back at once).
     stuck_writes: BTreeSet<String>,
-    /// The firewall's state cannot be read (PowerShell or COM failing).
+    /// The firewall's rules cannot be read (COM failing).
     firewall_unreadable: bool,
-    /// Turning child sessions on fails, or succeeds while they stay off.
-    child_sessions_fail: bool,
-    child_sessions_stay_off: bool,
-    /// What changes on this PC once RDP is turned on (group policy applied then).
-    on_rdp_on: Option<fn(&mut Machine)>,
-    /// The Remote Desktop service's listeners; None for one on the
-    /// registry's `PortNumber` in its own process, as after the service's start.
-    listening: Option<RdpListeners>,
+    /// Switching child sessions succeeds while they stay as they are.
+    child_sessions_stuck: bool,
 }
 impl Fake {
     fn new() -> Self {
@@ -563,26 +83,31 @@ impl Fake {
             machine: Machine {
                 values,
                 child_sessions: false,
-                firewall_problem: None,
-                policy_overrides: Vec::new(),
-                policy_allowed: Vec::new(),
                 rules,
-                block_rules: BTreeMap::new(),
-                overriding: Vec::new(),
+                block_rules: BTreeSet::new(),
                 loaded_hives: [SID.to_string(), "S-1-5-21-other".to_string()].into(),
             },
             log: Rc::default(),
             fail_writes: BTreeSet::new(),
             stuck_writes: BTreeSet::new(),
             firewall_unreadable: false,
-            child_sessions_fail: false,
-            child_sessions_stay_off: false,
-            on_rdp_on: None,
-            listening: None,
+            child_sessions_stuck: false,
         }
     }
     fn note(&self, entry: String) {
         self.log.borrow_mut().push(entry);
+    }
+    fn enabled_rules(&self, group: &str) -> Vec<String> {
+        self.machine
+            .rules
+            .iter()
+            .filter(|(_, (_, g, enabled))| g == group && *enabled)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+    fn rdp(&self) -> Option<u32> {
+        self.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap()
     }
 }
 fn key(hive: Hive, path: &str, name: &str) -> (Hive, String, String) {
@@ -613,11 +138,6 @@ impl Registry for Fake {
         self.machine
             .values
             .insert(key(hive.clone(), path, name), value);
-        if (name, value) == ("fDenyTSConnections", 0)
-            && let Some(change) = self.on_rdp_on.take()
-        {
-            change(&mut self.machine);
-        }
         Ok(())
     }
 }
@@ -632,55 +152,22 @@ impl SystemSettings for Fake {
     }
     fn set_child_sessions(&mut self, enabled: bool) -> Result<()> {
         self.note(format!("child sessions {enabled}"));
-        if enabled && self.child_sessions_fail {
-            bail!("the call failed");
+        if !self.child_sessions_stuck {
+            self.machine.child_sessions = enabled;
         }
-        self.machine.child_sessions = enabled && !self.child_sessions_stay_off;
         Ok(())
     }
-    fn firewall_problem(&self) -> Result<Option<String>> {
-        Ok(self.machine.firewall_problem.clone())
-    }
-    fn active_firewall(&self, group: &str, block_rule: &str) -> Result<ActiveFirewall> {
+    fn block_rule_present(&self, name: &str) -> Result<bool> {
         if self.firewall_unreadable {
-            bail!("PowerShell exited with 1");
+            bail!("opening Windows Firewall failed");
         }
-        // Local rules take effect only where no group policy overrides them.
-        let local = self.machine.policy_overrides.is_empty();
-        let mut allowed = self.machine.policy_allowed.clone();
-        if local {
-            allowed.extend(self.enabled_rules(group)?);
-        }
-        let block = self.machine.block_rules.get(block_rule).filter(|_| local);
-        Ok(ActiveFirewall {
-            allowed,
-            blocks: block
-                .map(|ports| BlockRule::added(block_rule, ports))
-                .unwrap_or_default(),
-            overriding: self.machine.overriding.clone(),
-            unprotected: self.machine.policy_overrides.clone(),
-        })
+        Ok(self.machine.block_rules.contains(name))
     }
-    fn enabled_rules(&self, group: &str) -> Result<Vec<String>> {
-        Ok(self
-            .machine
-            .rules
-            .iter()
-            .filter(|(_, (_, g, enabled))| g == group && *enabled)
-            .map(|(id, _)| id.clone())
-            .collect())
-    }
-    fn set_rule_enabled(&mut self, group: &str, id: &str, enabled: bool) -> Result<()> {
-        self.note(format!("rule {id} {enabled}"));
+    fn enable_rule(&mut self, group: &str, id: &str) -> Result<()> {
+        self.note(format!("rule {id} true"));
         let rule = self.machine.rules.get_mut(id).context("no such rule")?;
         anyhow::ensure!(rule.1 == group, "{id} is not in {group}");
-        rule.2 = enabled;
-        Ok(())
-    }
-    fn add_block_rule(&mut self, name: &str, ports: &[u16]) -> Result<()> {
-        let listed: Vec<String> = ports.iter().map(u16::to_string).collect();
-        self.note(format!("block {}", listed.join(",")));
-        self.machine.block_rules.insert(name.into(), ports.to_vec());
+        rule.2 = true;
         Ok(())
     }
     fn remove_rule(&mut self, name: &str) -> Result<()> {
@@ -701,12 +188,6 @@ impl SystemSettings for Fake {
         anyhow::ensure!(self.machine.loaded_hives.remove(sid), "{sid} is not loaded");
         Ok(())
     }
-    fn rdp_listeners(&self) -> Result<RdpListeners> {
-        match &self.listening {
-            Some(listeners) => Ok(listeners.clone()),
-            None => Ok(alone(&[live_rdp_port(self)?])),
-        }
-    }
 }
 
 /// [`restore`] of a copy of `state`, with nothing saved.
@@ -714,99 +195,42 @@ fn restore_copy(fake: &mut Fake, state: &SetupState) -> Result<()> {
     restore(fake, &mut state.clone(), |_| Ok(()))
 }
 
+/// What the removed setup recorded and then changed on `fake`.
 fn set_up(fake: &mut Fake) -> SetupState {
-    let saves = fake.log.clone();
-    setup(
-        fake,
-        None,
-        SID,
-        |_| {
-            saves.borrow_mut().push("save".into());
-            Ok(())
-        },
-        no_wait,
-    )
-    .unwrap()
-}
-
-#[test]
-fn setup_saves_the_originals_before_the_first_change() {
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    let log = fake.log.borrow().clone();
-    assert_eq!(log.first().map(String::as_str), Some("save"), "{log:?}");
-    assert_eq!(
-        state,
-        SetupState {
-            version: 1,
-            user_sid: SID.into(),
-            deny_ts_connections: Some(1),
-            dwm_frame_interval: None,
-            suppress_when_minimized: Some(0),
-            child_sessions: false,
-            remote_desktop_rule_ids: vec![
-                "RemoteDesktop-UserMode-In-TCP".into(),
-                "RemoteDesktop-UserMode-In-UDP".into(),
-            ],
-            rdp_port: 3389,
-            rdp_restored: false,
-        }
-    );
-    // What Annex's setup sets, plus the block rule for the RDP port.
-    let read = |hive: Hive, path: &str, name: &str| fake.read_dword(&hive, path, name).unwrap();
-    assert_eq!(
-        read(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
-        Some(0)
-    );
-    assert_eq!(
-        read(Hive::LocalMachine, WINSTATIONS, "DWMFRAMEINTERVAL"),
-        Some(8)
-    );
-    assert_eq!(
-        read(
-            Hive::User(SID.into()),
-            RDP_CLIENT,
-            "RemoteDesktop_SuppressWhenMinimized"
-        ),
-        Some(2)
-    );
-    assert_eq!(
-        read(
-            Hive::User("S-1-5-21-other".into()),
-            RDP_CLIENT,
-            "RemoteDesktop_SuppressWhenMinimized"
-        ),
-        Some(1)
-    );
-    assert!(fake.machine.child_sessions);
-    assert!(fake.enabled_rules(REMOTE_DESKTOP_RULES).unwrap().is_empty());
-    // The RDP port, and Remote Desktop over WebSocket's.
-    assert_eq!(
-        fake.machine.block_rules.get(BLOCK_RULE),
-        Some(&vec![3387, 3389, 3392])
-    );
-    // The block rule is in place before RDP is turned on.
-    let position = |entry: &str| log.iter().position(|e| e == entry).unwrap();
-    assert!(position("block 3387,3389,3392") < position("write fDenyTSConnections"));
-    assert!(
-        missing(&fake, SID, Some(state.rdp_port))
+    let read = |change: &Change| {
+        fake.read_dword(&hive(change, SID), change.path, change.name)
             .unwrap()
-            .is_empty()
-    );
+    };
+    let state = SetupState {
+        version: 1,
+        user_sid: SID.into(),
+        deny_ts_connections: read(&CHANGES[0]),
+        dwm_frame_interval: read(&CHANGES[1]),
+        suppress_when_minimized: read(&CHANGES[2]),
+        child_sessions: fake.machine.child_sessions,
+        remote_desktop_rule_ids: fake.enabled_rules(REMOTE_DESKTOP_RULES),
+        rdp_port: 3389,
+        rdp_restored: false,
+    };
+    fake.machine.block_rules.insert(BLOCK_RULE.into());
+    for id in &state.remote_desktop_rule_ids {
+        fake.machine.rules.get_mut(id).unwrap().2 = false;
+    }
+    for change in &CHANGES {
+        fake.machine.values.insert(
+            key(hive(change, SID), change.path, change.name),
+            change.value,
+        );
+    }
+    fake.machine.child_sessions = true;
+    state
 }
 
 #[test]
 fn uninstall_restores_every_original_value() {
     let mut fake = Fake::new();
-    fake.machine
-        .values
-        .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
     let before = fake.machine.clone();
     let state = set_up(&mut fake);
-    assert_eq!(
-        fake.machine.block_rules.get(BLOCK_RULE),
-        Some(&block_ports(3390))
-    );
     assert_ne!(fake.machine, before);
     // The state goes through its file between setup and uninstall.
     let state: SetupState = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
@@ -817,6 +241,29 @@ fn uninstall_restores_every_original_value() {
             .borrow()
             .contains(&"delete DWMFRAMEINTERVAL".to_string())
     );
+}
+
+#[test]
+fn this_pcs_record_reads_and_restores() {
+    // As child-session setup left it on the release test PC.
+    let state: SetupState = serde_json::from_str(
+        r#"{"version":1,"user_sid":"S-1-5-21-1000-2000-3000-1001","deny_ts_connections":1,"dwm_frame_interval":null,"suppress_when_minimized":null,"child_sessions":false,"remote_desktop_rule_ids":[],"rdp_port":3389}"#,
+    )
+    .unwrap();
+    let mut fake = Fake::new();
+    fake.machine.values.remove(&key(
+        Hive::User(SID.into()),
+        RDP_CLIENT,
+        "RemoteDesktop_SuppressWhenMinimized",
+    ));
+    for rule in fake.machine.rules.values_mut() {
+        rule.2 &= rule.1 != REMOTE_DESKTOP_RULES;
+    }
+    let before = fake.machine.clone();
+    assert_eq!(set_up(&mut fake), state);
+    restore_copy(&mut fake, &state).unwrap();
+    assert_eq!(fake.machine, before);
+    assert_eq!(fake.rdp(), Some(1));
 }
 
 #[test]
@@ -834,7 +281,7 @@ fn restore_turns_on_only_the_rules_that_were_on_when_names_repeat() {
     );
     let before = fake.machine.clone();
     let state = set_up(&mut fake);
-    assert!(fake.enabled_rules(REMOTE_DESKTOP_RULES).unwrap().is_empty());
+    assert!(fake.enabled_rules(REMOTE_DESKTOP_RULES).is_empty());
     restore_copy(&mut fake, &state).unwrap();
     assert_eq!(fake.machine, before);
     assert!(
@@ -846,74 +293,6 @@ fn restore_turns_on_only_the_rules_that_were_on_when_names_repeat() {
 }
 
 #[test]
-fn setting_up_again_keeps_the_first_originals() {
-    let mut fake = Fake::new();
-    let before = fake.machine.clone();
-    let first = set_up(&mut fake);
-    // A repair after setup: the values are Rubylight's now, the record is not.
-    let again = setup(
-        &mut fake,
-        Some(first.clone()),
-        SID,
-        |_| panic!("the originals are saved only once"),
-        no_wait,
-    )
-    .unwrap();
-    assert_eq!(again, first);
-    restore_copy(&mut fake, &again).unwrap();
-    assert_eq!(fake.machine, before);
-}
-
-#[test]
-fn a_pc_set_up_without_the_record_is_refused() {
-    // B sets up, then A (whose record would hold B's values as the originals); before the
-    // refusal, B's restore and then A's left RDP on for good.
-    let mut fake = Fake::new();
-    let before = fake.machine.clone();
-    let b = set_up(&mut fake);
-    let set_up_by_b = fake.machine.clone();
-    let changes = fake.log.borrow().len();
-    let error = format!(
-        "{:#}",
-        setup(
-            &mut fake,
-            None,
-            SID,
-            |_| panic!("nothing is saved"),
-            no_wait
-        )
-        .unwrap_err()
-    );
-    assert!(
-        error.contains("restore it there") && error.contains("Nothing was changed"),
-        "{error}"
-    );
-    assert_eq!(fake.machine, set_up_by_b);
-    assert_eq!(fake.log.borrow().len(), changes);
-    restore_copy(&mut fake, &b).unwrap();
-    assert_eq!(fake.machine, before);
-    // Setup's values with its block rule gone, and the block rule alone, are refused too.
-    let mut fake = Fake::new();
-    set_up(&mut fake);
-    fake.machine.block_rules.clear();
-    let error = format!("{:#}", record(&fake, SID).unwrap_err());
-    assert!(error.contains("restore it there"), "{error}");
-    let mut fake = Fake::new();
-    fake.machine
-        .block_rules
-        .insert(BLOCK_RULE.into(), block_ports(3389));
-    let error = format!("{:#}", record(&fake, SID).unwrap_err());
-    assert!(error.contains(BLOCK_RULE), "{error}");
-    // RDP the user turned on is not a setup: it is recorded, and restore leaves it on.
-    let mut fake = Fake::new();
-    fake.machine.values.insert(
-        key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
-        0,
-    );
-    assert_eq!(record(&fake, SID).unwrap().deny_ts_connections, Some(0));
-}
-
-#[test]
 fn the_setup_record_is_one_for_the_pc() {
     let record = setup_record();
     assert!(record.ends_with(r"Butterpollo\windows-settings\child_session_setup.json"));
@@ -921,254 +300,75 @@ fn the_setup_record_is_one_for_the_pc() {
 }
 
 #[test]
-fn setup_refuses_with_the_firewall_off_and_changes_nothing() {
+fn child_sessions_that_stay_on_after_restore_are_a_failure() {
     let mut fake = Fake::new();
-    fake.machine.firewall_problem = Some("Windows Firewall is off for the Public profile".into());
-    let before = fake.machine.clone();
-    let error = setup(
-        &mut fake,
-        None,
-        SID,
-        |_| panic!("nothing is saved"),
-        no_wait,
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(error.contains("Windows Firewall is off"), "{error}");
-    assert_eq!(fake.machine, before);
-    assert!(fake.log.borrow().is_empty());
-}
-
-#[test]
-fn setup_never_turns_on_rdp_when_group_policy_overrides_the_firewall_rules() {
-    let rdp = |fake: &Fake| {
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap()
-    };
-    // Local rules ignored for a profile: the block rule would not take effect.
-    let mut fake = Fake::new();
-    fake.machine.policy_overrides = vec!["Domain".into()];
-    let error = format!("{:#}", set_up_err(&mut fake));
+    let mut state = set_up(&mut fake);
+    fake.child_sessions_stuck = true;
+    let error = format!(
+        "{:#}",
+        restore(&mut fake, &mut state, |_| Ok(())).unwrap_err()
+    );
     assert!(
-        error.contains("group policy") && error.contains("Domain"),
+        error.contains("child sessions: they read true after restoring false"),
         "{error}"
     );
-    assert!(error.contains("RDP was not turned on"), "{error}");
-    assert_eq!(rdp(&fake), Some(1));
-    assert!(!fake.log.borrow().iter().any(|e| e.starts_with("write ")));
-    // A Remote Desktop allow rule group policy keeps on.
-    let mut fake = Fake::new();
-    fake.machine.policy_allowed = vec!["{gpo-rdp}".into()];
-    let error = format!("{:#}", set_up_err(&mut fake));
-    assert!(error.contains("{gpo-rdp}"), "{error}");
-    assert_eq!(rdp(&fake), Some(1));
-    // Either way, restore puts back what setup changed before it stopped.
-    let state = record(&Fake::new(), SID).unwrap();
-    restore_copy(&mut fake, &state).unwrap();
+    // The rest is back.
+    assert_eq!(fake.rdp(), Some(1));
     assert!(fake.machine.block_rules.is_empty());
-}
-fn no_wait(_: std::time::Duration) {}
-fn set_up_err(fake: &mut Fake) -> anyhow::Error {
-    setup(fake, None, SID, |_| Ok(()), no_wait).unwrap_err()
-}
-
-#[test]
-fn setup_checks_the_firewall_again_once_rdp_listens() {
-    // A Remote Desktop allow rule group policy turns on while RDP comes on.
-    let mut fake = Fake::new();
-    fake.on_rdp_on = Some(|machine| machine.policy_allowed = vec!["{gpo-rdp}".into()]);
-    let error = format!("{:#}", set_up_err(&mut fake));
-    assert!(
-        error.contains("{gpo-rdp}")
-            && error.contains("would be open to the network")
-            && error.contains("Remote Desktop was turned off again"),
-        "{error}"
-    );
-    assert_eq!(
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap(),
-        Some(1)
-    );
-    // RDP listens a moment after it is on: setup waits for that, a bounded time, then checks.
-    let mut fake = Fake::new();
-    fake.listening = Some(alone(&[]));
-    let mut waits = Vec::new();
-    setup(&mut fake, None, SID, |_| Ok(()), |wait| waits.push(wait)).unwrap();
-    assert_eq!(waits, vec![LISTENER_WAIT; LISTENER_TRIES as usize - 1]);
-    // Listening at once, it does not wait.
-    let mut fake = Fake::new();
-    setup(&mut fake, None, SID, |_| Ok(()), |_| panic!("waited")).unwrap();
+    // Once Windows switches them, restoring again finishes.
+    fake.child_sessions_stuck = false;
+    restore(&mut fake, &mut state, |_| Ok(())).unwrap();
+    assert!(!fake.machine.child_sessions);
 }
 
 #[test]
-fn a_setup_that_fails_after_turning_rdp_on_turns_it_off_again() {
-    let rdp = |fake: &Fake| {
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap()
-    };
-    /// What fails, and how.
-    type Failure = (&'static str, fn(&mut Fake));
-    let failing: [Failure; 3] = [
-        ("the call failed", |fake| fake.child_sessions_fail = true),
-        ("did not turn on child sessions", |fake| {
-            fake.child_sessions_stay_off = true
-        }),
-        ("setting DWMFRAMEINTERVAL", |fake| {
-            fake.fail_writes.insert("DWMFRAMEINTERVAL".into());
-        }),
-    ];
-    for (cause, fail) in failing {
-        let mut fake = Fake::new();
-        fail(&mut fake);
-        let error = format!("{:#}", set_up_err(&mut fake));
-        assert!(error.contains(cause), "{error}");
-        assert!(
-            error.contains("Remote Desktop was turned off again"),
-            "{error}"
-        );
-        assert!(
-            fake.log
-                .borrow()
-                .contains(&"write fDenyTSConnections".to_string())
-        );
-        assert_eq!(rdp(&fake), Some(1), "{cause}");
-    }
-    // RDP that cannot be turned off again is said as loudly.
-    let mut fake = Fake::new();
-    fake.child_sessions_fail = true;
-    fake.stuck_writes.insert("fDenyTSConnections".into());
-    fake.machine.values.insert(
+fn a_setup_whose_record_is_gone_turns_rdp_off_then_removes_its_rule() {
+    // Never set up: the user's own RDP stays as it is, on or off.
+    let mut own = Fake::new();
+    own.machine.values.insert(
         key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
         0,
     );
-    let error = format!("{:#}", set_up_err(&mut fake));
-    assert!(error.contains("Remote Desktop is still on"), "{error}");
-}
-
-#[test]
-fn the_firewall_is_checked_again_after_setup() {
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    assert!(firewall_missing(&fake, 3389).unwrap().is_empty());
-    // Someone removes the block rule, or group policy changes later: the
-    // host's start and every child-session start see it.
-    fake.machine.block_rules.clear();
-    let found = missing(&fake, SID, Some(3389)).unwrap();
-    assert!(
-        found
-            .iter()
-            .any(|m| m.contains(BLOCK_RULE) && m.contains("not in effect")),
-        "{found:?}"
-    );
-    setup(&mut fake, Some(state), SID, |_| Ok(()), no_wait).unwrap();
-    fake.machine.policy_overrides = vec!["Public".into()];
-    let found = firewall_missing(&fake, 3389).unwrap();
-    assert!(found.iter().any(|m| m.contains("Public")), "{found:?}");
-}
-
-#[test]
-fn a_firewall_that_stops_holding_rdp_turns_it_off() {
-    let rdp = |fake: &Fake| {
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap()
-    };
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    // The firewall still holds it: nothing found, RDP stays on.
-    assert!(enforce_firewall(&mut fake, state.rdp_port).is_empty());
-    assert_eq!(rdp(&fake), Some(0));
-    // The firewall goes off later: RDP goes off with it, and the report says both.
-    fake.machine.firewall_problem = Some("Windows Firewall is off for the Public profile".into());
-    let found = enforce_firewall(&mut fake, state.rdp_port);
-    assert_eq!(rdp(&fake), Some(1));
-    assert!(found[0].contains("Windows Firewall is off"), "{found:?}");
-    assert!(
-        found
-            .last()
-            .unwrap()
-            .contains("Remote Desktop was turned off (fDenyTSConnections = 1)"),
-        "{found:?}"
-    );
-    // A check that can be tried again still turns RDP off for what it finds.
-    let mut again = Fake::new();
-    set_up(&mut again);
-    again.machine.policy_overrides = vec!["Domain".into()];
-    let found = check_firewall(&mut again, 3389).unwrap();
-    assert_eq!(rdp(&again), Some(1));
-    assert!(
-        found
-            .last()
-            .unwrap()
-            .contains("Remote Desktop was turned off"),
-        "{found:?}"
-    );
-    // So does a firewall that cannot even turn RDP off.
-    let mut stuck = Fake::new();
-    set_up(&mut stuck);
-    stuck.machine.policy_overrides = vec!["Domain".into()];
-    stuck.fail_writes.insert("fDenyTSConnections".into());
-    let found = enforce_firewall(&mut stuck, 3389);
-    assert_eq!(rdp(&stuck), Some(0));
-    assert!(
-        found
-            .last()
-            .unwrap()
-            .contains("turning Remote Desktop off failed"),
-        "{found:?}"
-    );
-    // Restore still puts back the value from before setup, and setting up
-    // again (with the firewall fixed) turns RDP back on.
-    fake.machine.firewall_problem = None;
-    setup(
-        &mut fake,
-        Some(state.clone()),
-        SID,
-        |_| panic!("saved once"),
-        no_wait,
-    )
-    .unwrap();
-    assert_eq!(rdp(&fake), Some(0));
-    restore_copy(&mut fake, &state).unwrap();
-    assert_eq!(rdp(&fake), Some(1));
-}
-
-#[test]
-fn a_setup_whose_record_is_gone_turns_rdp_off() {
-    let rdp = |fake: &Fake| {
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap()
-    };
-    // Never set up: the user's own RDP stays as it is, on or off.
-    let mut own = Fake::new();
-    own.write_dword(
-        &Hive::LocalMachine,
-        TERMINAL_SERVER,
-        "fDenyTSConnections",
-        0,
-    )
-    .unwrap();
     assert!(enforce_unrecorded(&mut own).unwrap().is_empty());
-    assert_eq!(rdp(&own), Some(0));
-    // Set up, then the record went: setup's block rule says so, and RDP goes off.
+    assert_eq!(own.rdp(), Some(0));
+    assert!(own.log.borrow().is_empty());
+    // Set up, then the record went: setup's block rule says so, RDP goes off, then the rule.
     let mut fake = Fake::new();
     set_up(&mut fake);
-    assert_eq!(rdp(&fake), Some(0));
+    assert_eq!(fake.rdp(), Some(0));
     let found = enforce_unrecorded(&mut fake).unwrap();
-    assert_eq!(rdp(&fake), Some(1));
+    assert_eq!(fake.rdp(), Some(1));
+    assert!(fake.machine.block_rules.is_empty());
     assert!(
-        found.len() == 2
+        found.len() == 3
             && found[0].contains(BLOCK_RULE)
-            && found[1].contains("Remote Desktop was turned off (fDenyTSConnections = 1)"),
+            && found[1].contains("Remote Desktop was turned off (fDenyTSConnections = 1)")
+            && found[2].contains("was removed"),
         "{found:?}"
     );
-    // One that cannot turn it off says so.
+    let log = fake.log.borrow().clone();
+    assert_eq!(
+        log,
+        [
+            "write fDenyTSConnections".to_string(),
+            format!("remove {BLOCK_RULE}")
+        ]
+    );
+    // RDP off already: only the rule goes.
+    let mut off = Fake::new();
+    off.machine.block_rules.insert(BLOCK_RULE.into());
+    let found = enforce_unrecorded(&mut off).unwrap();
+    assert_eq!((off.rdp(), found.len()), (Some(1), 2), "{found:?}");
+    assert!(off.machine.block_rules.is_empty());
+    // One that cannot turn it off says so, and keeps the rule.
     let mut stuck = Fake::new();
     set_up(&mut stuck);
     stuck.fail_writes.insert("fDenyTSConnections".into());
     let found = enforce_unrecorded(&mut stuck).unwrap();
-    assert_eq!(rdp(&stuck), Some(0));
+    assert_eq!(stuck.rdp(), Some(0));
+    assert!(stuck.machine.block_rules.contains(BLOCK_RULE));
     assert!(
-        found[1].contains("turning Remote Desktop off failed"),
+        found[1].contains("turning Remote Desktop off failed") && found[2].contains("stays"),
         "{found:?}"
     );
     // Rules that cannot be read change nothing: without a record, RDP may be the user's own.
@@ -1177,41 +377,10 @@ fn a_setup_whose_record_is_gone_turns_rdp_off() {
     unreadable.firewall_unreadable = true;
     let error = enforce_unrecorded(&mut unreadable).unwrap_err();
     assert!(
-        format!("{error:#}").contains("PowerShell exited"),
+        format!("{error:#}").contains("opening Windows Firewall failed"),
         "{error:#}"
     );
-    assert_eq!(rdp(&unreadable), Some(0));
-}
-
-#[test]
-fn a_firewall_that_cannot_be_checked_turns_rdp_off_too() {
-    let rdp = |fake: &Fake| {
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap()
-    };
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    fake.firewall_unreadable = true;
-    // A check that can be tried again changes nothing when it cannot run.
-    let error = check_firewall(&mut fake, state.rdp_port).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("PowerShell exited"),
-        "{error:#}"
-    );
-    assert_eq!(rdp(&fake), Some(0));
-    let found = enforce_firewall(&mut fake, state.rdp_port);
-    assert_eq!(rdp(&fake), Some(1), "fails closed");
-    assert!(
-        found[0].contains("could not be checked") && found[0].contains("PowerShell exited"),
-        "{found:?}"
-    );
-    assert!(
-        found
-            .last()
-            .unwrap()
-            .contains("Remote Desktop was turned off"),
-        "{found:?}"
-    );
+    assert_eq!(unreadable.rdp(), Some(0));
 }
 
 #[test]
@@ -1258,578 +427,6 @@ fn turning_rdp_off_is_read_back_and_policy_cannot_keep_it_on() {
 }
 
 #[test]
-fn rdp_listening_on_another_port_than_the_registry_is_refused() {
-    // PortNumber changed, but the service still listens on the port it read at its start.
-    let mut fake = Fake::new();
-    fake.machine
-        .values
-        .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
-    fake.listening = Some(alone(&[3389]));
-    let before = fake.machine.clone();
-    let error = format!("{:#}", set_up_err(&mut fake));
-    assert!(
-        error.contains("listens on port 3389 but is set to port 3390")
-            && error.contains("Nothing was changed"),
-        "{error}"
-    );
-    assert_eq!(fake.machine, before);
-    // After setup: the service moves without the registry (or the other way round).
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    fake.listening = Some(alone(&[3389, 3391]));
-    let found = firewall_missing(&fake, state.rdp_port).unwrap();
-    assert!(
-        found
-            .iter()
-            .any(|m| m.contains("listens on port 3391, not on the port 3389")),
-        "{found:?}"
-    );
-    // Not running at all: nothing listens, nothing is open.
-    fake.listening = Some(alone(&[]));
-    assert!(firewall_missing(&fake, state.rdp_port).unwrap().is_empty());
-}
-
-/// The Remote Desktop service alone in its process, listening on `ports`.
-fn alone(ports: &[u16]) -> RdpListeners {
-    RdpListeners {
-        shared: false,
-        listeners: ports
-            .iter()
-            .map(|&port| ServiceListener { port, owner: None })
-            .collect(),
-    }
-}
-/// The Remote Desktop service in a svchost it shares, as on PCs below
-/// Windows' split threshold: `rdp` its own ports, beside Delivery
-/// Optimization's 7680, a DNS client socket and one no service is tagged on.
-fn shared(rdp: &[u16]) -> RdpListeners {
-    let owned = |port, owner: &str| ServiceListener {
-        port,
-        owner: Some(owner.into()),
-    };
-    let mut listeners = vec![
-        owned(7680, "DoSvc"),
-        owned(5355, "Dnscache"),
-        owned(49702, "svchost.exe"),
-    ];
-    // Windows' module names keep the service's own casing; any casing matches.
-    listeners.extend(rdp.iter().map(|&port| owned(port, "termservice")));
-    listeners.extend(rdp.iter().map(|&port| owned(port, "TermService")));
-    RdpListeners {
-        shared: true,
-        listeners,
-    }
-}
-
-#[test]
-fn the_service_ports_are_its_own_tcp_listeners() {
-    assert_eq!(alone(&[3389, 3389]).ports().unwrap(), vec![3389]);
-    assert!(RdpListeners::default().ports().unwrap().is_empty());
-    // Sharing a svchost: only the sockets Windows names TermService the owner of.
-    assert_eq!(shared(&[3390, 3389]).ports().unwrap(), vec![3389, 3390]);
-    assert!(shared(&[]).ports().unwrap().is_empty());
-    // A shared listener whose owner was not read could be RDP's: it fails, naming the port.
-    let mut unread = shared(&[3389]);
-    unread.listeners[0].owner = None;
-    let error = format!("{:#}", unread.ports().unwrap_err());
-    assert!(
-        error.contains("shares its process") && error.contains("port 7680"),
-        "{error}"
-    );
-}
-
-#[test]
-fn other_services_in_the_remote_desktop_svchost_are_not_drift() {
-    // DoSvc's 7680 in TermService's process once read as RDP listening on an
-    // unblocked port: setup refused, and a set-up PC had RDP turned off.
-    let mut fake = Fake::new();
-    fake.listening = Some(shared(&[3389]));
-    let state = set_up(&mut fake);
-    assert_eq!(state.rdp_port, 3389);
-    assert!(firewall_missing(&fake, 3389).unwrap().is_empty());
-    assert!(enforce_firewall(&mut fake, 3389).is_empty());
-    assert_eq!(
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap(),
-        Some(0)
-    );
-    // TermService's own socket on another port still is.
-    fake.listening = Some(shared(&[3389, 3391]));
-    let found = firewall_missing(&fake, 3389).unwrap();
-    assert!(
-        found
-            .iter()
-            .any(|m| m.contains("listens on port 3391, not on the port 3389")),
-        "{found:?}"
-    );
-    // An owner that was not read fails closed: RDP goes off.
-    let mut unread = shared(&[3389]);
-    unread.listeners[1].owner = None;
-    fake.listening = Some(unread.clone());
-    let found = enforce_firewall(&mut fake, 3389);
-    assert!(
-        found[0].contains("could not be checked") && found[0].contains("port 5355"),
-        "{found:?}"
-    );
-    assert!(
-        found[1].contains("Remote Desktop was turned off"),
-        "{found:?}"
-    );
-    // Setup refuses before changing anything.
-    let mut fake = Fake::new();
-    fake.listening = Some(unread);
-    let before = fake.machine.clone();
-    let error = format!("{:#}", set_up_err(&mut fake));
-    assert!(error.contains("port 5355"), "{error}");
-    assert_eq!(fake.machine, before);
-}
-
-#[test]
-fn firewall_rules_read_once_say_what_missing_reads_itself() {
-    // The console's status keeps the rules a while: from them it finds what missing does.
-    let mut fake = Fake::new();
-    let unset = FirewallRules::read(&fake).unwrap();
-    assert_eq!(
-        missing_with(&fake, SID, None, &unset).unwrap(),
-        missing(&fake, SID, None).unwrap()
-    );
-    let state = set_up(&mut fake);
-    let rules = FirewallRules::read(&fake).unwrap();
-    assert!(
-        missing_with(&fake, SID, Some(state.rdp_port), &rules)
-            .unwrap()
-            .is_empty()
-    );
-    // Rules read before setup find the firewall as it was then.
-    let stale = missing_with(&fake, SID, Some(state.rdp_port), &unset).unwrap();
-    assert!(
-        stale.iter().any(|m| m.contains("is not in effect")),
-        "{stale:?}"
-    );
-    fake.firewall_unreadable = true;
-    assert!(FirewallRules::read(&fake).is_err());
-}
-
-#[test]
-fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    assert_eq!(state.rdp_port, 3389);
-    // Someone moves RDP to another port after setup: the block rule closes the old one.
-    fake.machine
-        .values
-        .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
-    for found in [
-        missing(&fake, SID, Some(state.rdp_port)).unwrap(),
-        firewall_missing(&fake, state.rdp_port).unwrap(),
-    ] {
-        assert!(
-            found.iter().any(|m| m.contains("is set to port 3390 now")
-                && m.contains("port 3389")
-                && m.contains("set up child sessions again")),
-            "{found:?}"
-        );
-    }
-    // The block rule closes another port than the one recorded (a rule edited by hand).
-    let mut edited = Fake::new();
-    set_up(&mut edited);
-    edited
-        .machine
-        .block_rules
-        .insert(BLOCK_RULE.into(), block_ports(3390));
-    let found = firewall_missing(&edited, 3389).unwrap();
-    assert!(
-        found.iter().any(|m| m.contains(
-            "closes port 3387,3390,3392, not ports 3387,3389,3392 (the RDP port 3389 and Remote Desktop over WebSocket's)"
-        )),
-        "{found:?}"
-    );
-    // Remote Desktop over WebSocket's ports stay closed too, TCP and UDP: a rule that closes the
-    // RDP port alone (an earlier setup), or leaves one of them open, fails closed.
-    for ports in [vec![3389], vec![3387, 3389]] {
-        edited.machine.block_rules.insert(BLOCK_RULE.into(), ports);
-        let found = firewall_missing(&edited, 3389).unwrap();
-        assert!(
-            found.iter().any(|m| m.contains("not ports 3387,3389,3392")
-                && m.contains("set up child sessions again")),
-            "{found:?}"
-        );
-    }
-    // In any order, it is the same rule.
-    edited
-        .machine
-        .block_rules
-        .insert(BLOCK_RULE.into(), vec![3392, 3389, 3387]);
-    assert!(firewall_missing(&edited, 3389).unwrap().is_empty());
-    // Ports that do not read as a list of ports never pass for them.
-    for closed in ["3387-3392", "Any", "3387, 3389, 3392, x"] {
-        let mut active = ActiveFirewall {
-            blocks: BlockRule::added(BLOCK_RULE, &block_ports(3389)),
-            ..ActiveFirewall::default()
-        };
-        active.blocks[0].local_ports = closed.into();
-        let found = firewall_missing_with(&edited, 3389, &active).unwrap();
-        assert!(
-            found
-                .iter()
-                .any(|m| m.contains(&format!("closes port {closed}, not"))),
-            "{closed}: {found:?}"
-        );
-    }
-    assert_eq!(block_ports(3387), [3387, 3392]);
-    assert_eq!(block_ports(3389), [3387, 3389, 3392]);
-    // Setting up again follows the new port: the record, the block rule and the checks.
-    let saved = Rc::new(RefCell::new(None));
-    let into = saved.clone();
-    let again = setup(
-        &mut fake,
-        Some(state.clone()),
-        SID,
-        move |state| {
-            *into.borrow_mut() = Some(state.clone());
-            Ok(())
-        },
-        no_wait,
-    )
-    .unwrap();
-    assert_eq!(again.rdp_port, 3390);
-    assert_eq!(saved.borrow().as_ref(), Some(&again));
-    assert_eq!(
-        SetupState {
-            rdp_port: 3389,
-            ..again.clone()
-        },
-        state,
-        "the originals stay"
-    );
-    assert_eq!(
-        fake.machine.block_rules.get(BLOCK_RULE),
-        Some(&block_ports(3390))
-    );
-    assert!(
-        missing(&fake, SID, Some(again.rdp_port))
-            .unwrap()
-            .is_empty()
-    );
-}
-
-/// What [`firewall_missing_with`] finds for the block rules as setup adds
-/// them, with `edit` applied first.
-fn found_for_blocks(edit: impl FnOnce(&mut Vec<BlockRule>)) -> Vec<String> {
-    let mut fake = Fake::new();
-    set_up(&mut fake);
-    let mut active = fake
-        .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
-        .unwrap();
-    edit(&mut active.blocks);
-    firewall_missing_with(&fake, 3389, &active).unwrap()
-}
-
-#[test]
-fn a_block_rule_with_any_condition_but_its_ports_fails_closed() {
-    // As setup adds them: both rules, every profile, nothing else.
-    assert!(found_for_blocks(|_| {}).is_empty());
-    for every in ["Domain, Private, Public", "Public, Domain, Private", "any"] {
-        let found = found_for_blocks(|rules| rules[0].profile = every.into());
-        assert!(found.is_empty(), "{every}: {found:?}");
-    }
-    // A rule that applies to fewer networks, addresses, programs or interfaces leaves
-    // the rest open: each condition is named, and setting up again replaces the rule.
-    type Edit = fn(&mut BlockRule);
-    let cases: [(&str, Edit); 17] = [
-        ("profile \"Domain\"", |rule| rule.profile = "Domain".into()),
-        ("profile \"Domain, Private\"", |rule| {
-            rule.profile = "Domain, Private".into()
-        }),
-        ("profile \"\"", |rule| rule.profile = String::new()),
-        ("remote port \"1-1024\"", |rule| {
-            rule.remote_ports = "1-1024".into()
-        }),
-        ("local address \"127.0.0.1\"", |rule| {
-            rule.local_addresses = "127.0.0.1".into()
-        }),
-        ("remote address \"LocalSubnet\"", |rule| {
-            rule.remote_addresses = "LocalSubnet".into()
-        }),
-        (
-            "program \"C:\\\\WINDOWS\\\\system32\\\\svchost.exe\"",
-            |rule| rule.program = r"C:\WINDOWS\system32\svchost.exe".into(),
-        ),
-        ("service \"termservice\"", |rule| {
-            rule.service = "termservice".into()
-        }),
-        ("interface type \"Wireless\"", |rule| {
-            rule.interface_types = "Wireless".into()
-        }),
-        ("interface \"Ethernet\"", |rule| {
-            rule.interfaces = "Ethernet".into()
-        }),
-        ("package \"S-1-15-2-1\"", |rule| {
-            rule.package = "S-1-15-2-1".into()
-        }),
-        ("platform \"6.2+\"", |rule| rule.platforms = "6.2+".into()),
-        ("dynamic address \"{id}\"", |rule| {
-            rule.dynamic_addresses = "{id}".into()
-        }),
-        ("local user \"D:(A;;CC;;;BA)\"", |rule| {
-            rule.local_users = "D:(A;;CC;;;BA)".into()
-        }),
-        ("remote user \"D:(A;;CC;;;BA)\"", |rule| {
-            rule.remote_users = "D:(A;;CC;;;BA)".into()
-        }),
-        ("remote computer \"D:(A;;CC;;;BA)\"", |rule| {
-            rule.remote_machines = "D:(A;;CC;;;BA)".into()
-        }),
-        // A value that is not read reads as a condition, not as none.
-        ("service \"\"", |rule| rule.service = String::new()),
-    ];
-    for (condition, edit) in cases {
-        let found = found_for_blocks(|rules| edit(&mut rules[1]));
-        assert_eq!(found.len(), 1, "{condition}: {found:?}");
-        assert!(
-            found[0].contains(&format!(
-                "\"{BLOCK_RULE} (UDP)\" blocks only for {condition},"
-            )) && found[0].contains("set up child sessions again"),
-            "{condition}: {found:?}"
-        );
-    }
-    // Each rule blocks the protocol it is named for.
-    for protocol in ["UDP", "Any", ""] {
-        let found = found_for_blocks(|rules| rules[0].protocol = protocol.into());
-        assert!(
-            found.iter().any(|m| m.contains(&format!(
-                "\"{BLOCK_RULE} (TCP)\" blocks protocol {protocol:?}, not the one it is named for"
-            ))),
-            "{protocol}: {found:?}"
-        );
-    }
-    assert!(found_for_blocks(|rules| rules[0].protocol = "tcp".into()).is_empty());
-    // Either rule gone leaves that protocol open; both gone, the rule is.
-    let found = found_for_blocks(|rules| {
-        rules.remove(1);
-    });
-    assert_eq!(
-        found,
-        [format!(
-            "the firewall rule \"{BLOCK_RULE} (UDP)\" is not in effect"
-        )]
-    );
-    let found = found_for_blocks(Vec::clear);
-    assert_eq!(
-        found,
-        [format!(
-            "the firewall rule \"{BLOCK_RULE}\" is not in effect"
-        )]
-    );
-    // A narrower copy beside the rule setup added still fails: every rule under the name counts.
-    let found = found_for_blocks(|rules| {
-        let mut copy = rules[0].clone();
-        copy.remote_addresses = "LocalSubnet".into();
-        rules.push(copy);
-    });
-    assert!(
-        found
-            .iter()
-            .any(|m| m.contains("blocks only for remote address \"LocalSubnet\"")),
-        "{found:?}"
-    );
-    // A rule under the name whose ports were not read never passes either.
-    let found = found_for_blocks(|rules| rules[1].local_ports = " ".into());
-    assert!(
-        found.iter().any(|m| m.contains("closes could not be read")),
-        "{found:?}"
-    );
-}
-
-fn overriding(protocol: &str, local_ports: &str) -> OverridingRule {
-    OverridingRule {
-        name: "{bypass}".into(),
-        protocol: protocol.into(),
-        local_ports: local_ports.into(),
-    }
-}
-
-#[test]
-fn an_allow_rule_that_overrides_block_rules_on_an_rdp_port_fails_closed() {
-    let wanted = block_ports(3389);
-    // Whatever can reach 3389, 3387 or 3392 over TCP or UDP opens it; what cannot reads as
-    // ports or ranges without them, or another protocol.
-    for (protocol, ports) in [
-        ("TCP", "3389"),
-        ("UDP", "3387"),
-        ("TCP", "80,3392"),
-        ("TCP", "3380-3400"),
-        ("TCP", "Any"),
-        ("Any", "Any"),
-        ("UDP", "RPC"),
-        ("TCP", ""),
-        ("6", "3389"),
-        ("256", "Any"),
-        ("", "Any"),
-        ("TCP", "80, 3389"),
-    ] {
-        assert!(
-            overriding(protocol, ports).opens(&wanted),
-            "{protocol} {ports}"
-        );
-    }
-    for (protocol, ports) in [
-        ("TCP", "80,443"),
-        ("UDP", "49152-65535"),
-        ("TCP", "3390-3391"),
-        ("ICMPv4", "Any"),
-        ("icmpv6", "Any"),
-        ("47", "Any"),
-    ] {
-        assert!(
-            !overriding(protocol, ports).opens(&wanted),
-            "{protocol} {ports}"
-        );
-    }
-    // On a set-up PC it turns RDP off.
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    fake.machine.overriding = vec![overriding("TCP", "80,443")];
-    assert!(enforce_firewall(&mut fake, state.rdp_port).is_empty());
-    fake.machine.overriding.push(overriding("TCP", "3389"));
-    let found = enforce_firewall(&mut fake, state.rdp_port);
-    assert!(
-        found[0].contains("override block rules") && found[0].contains("{bypass}"),
-        "{found:?}"
-    );
-    assert!(
-        found
-            .last()
-            .unwrap()
-            .contains("Remote Desktop was turned off"),
-        "{found:?}"
-    );
-    assert_eq!(
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap(),
-        Some(1)
-    );
-    // Setup refuses to turn RDP on past one.
-    let mut fake = Fake::new();
-    fake.machine.overriding = vec![overriding("UDP", "3392")];
-    let error = format!("{:#}", set_up_err(&mut fake));
-    assert!(
-        error.contains("override block rules") && error.contains("RDP was not turned on"),
-        "{error}"
-    );
-    assert_eq!(
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap(),
-        Some(1)
-    );
-}
-
-#[test]
-fn setting_up_again_past_an_overriding_rule_turns_rdp_off() {
-    let rdp = |fake: &Fake| {
-        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
-            .unwrap()
-    };
-    // RDP is on from the setup before; an allow rule now overrides the block rule.
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    assert_eq!(rdp(&fake), Some(0));
-    fake.machine.overriding = vec![overriding("TCP", "3389")];
-    let error = format!(
-        "{:#}",
-        setup(&mut fake, Some(state.clone()), SID, |_| Ok(()), no_wait).unwrap_err()
-    );
-    assert!(
-        error.contains("override block rules")
-            && error.contains("Remote Desktop was on, so it was turned off"),
-        "{error}"
-    );
-    assert!(!error.contains("not turned on"), "{error}");
-    assert_eq!(rdp(&fake), Some(1));
-    // Restore still puts back the value from before setup.
-    fake.machine.overriding.clear();
-    restore_copy(&mut fake, &state).unwrap();
-    assert_eq!(rdp(&fake), Some(1));
-    // A first setup finding the user's own RDP on turns it off too; restore turns it back on.
-    let mut fake = Fake::new();
-    fake.machine.values.insert(
-        key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
-        0,
-    );
-    fake.machine.overriding = vec![overriding("UDP", "3392")];
-    let saved = Rc::new(RefCell::new(None));
-    let keep = saved.clone();
-    let error = format!(
-        "{:#}",
-        setup(
-            &mut fake,
-            None,
-            SID,
-            |state| {
-                *keep.borrow_mut() = Some(state.clone());
-                Ok(())
-            },
-            no_wait
-        )
-        .unwrap_err()
-    );
-    assert!(error.contains("so it was turned off"), "{error}");
-    assert_eq!(rdp(&fake), Some(1));
-    fake.machine.overriding.clear();
-    restore_copy(&mut fake, &saved.take().unwrap()).unwrap();
-    assert_eq!(rdp(&fake), Some(0));
-    // Setting up again with RDP off already: it stays off, said as it is.
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    fake.machine.values.insert(
-        key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
-        1,
-    );
-    fake.machine.overriding = vec![overriding("TCP", "Any")];
-    let error = format!(
-        "{:#}",
-        setup(&mut fake, Some(state.clone()), SID, |_| Ok(()), no_wait).unwrap_err()
-    );
-    assert!(error.contains("Remote Desktop stays off"), "{error}");
-    // RDP that cannot be turned off is said as loudly.
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    fake.stuck_writes.insert("fDenyTSConnections".into());
-    fake.machine.overriding = vec![overriding("TCP", "3389")];
-    let error = format!(
-        "{:#}",
-        setup(&mut fake, Some(state), SID, |_| Ok(()), no_wait).unwrap_err()
-    );
-    assert!(error.contains("Remote Desktop is still on"), "{error}");
-    assert_eq!(rdp(&fake), Some(0));
-}
-
-#[test]
-fn setup_for_another_account_is_refused() {
-    let mut fake = Fake::new();
-    let state = set_up(&mut fake);
-    let error = setup(
-        &mut fake,
-        Some(state),
-        "S-1-5-21-other",
-        |_| Ok(()),
-        no_wait,
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(error.contains("another Windows account"), "{error}");
-    assert!(setup(&mut fake, None, " ", |_| Ok(()), no_wait).is_err());
-}
-
-#[test]
-fn a_failed_save_stops_setup_before_any_change() {
-    let mut fake = Fake::new();
-    let before = fake.machine.clone();
-    assert!(setup(&mut fake, None, SID, |_| bail!("disk full"), no_wait).is_err());
-    assert_eq!(fake.machine, before);
-}
-
-#[test]
 fn restore_finishes_every_step_and_reports_what_failed() {
     let mut fake = Fake::new();
     let before = fake.machine.clone();
@@ -1845,9 +442,7 @@ fn restore_finishes_every_step_and_reports_what_failed() {
         key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
         0,
     );
-    expected
-        .block_rules
-        .insert(BLOCK_RULE.into(), block_ports(3389));
+    expected.block_rules.insert(BLOCK_RULE.into());
     for id in &state.remote_desktop_rule_ids {
         expected.rules.get_mut(id).unwrap().2 = false;
     }
@@ -1886,8 +481,7 @@ fn restore_partly(fake: &mut Fake) -> SetupState {
     assert_eq!(saves, [state.clone()]);
     assert!(state.rdp_restored);
     assert_eq!(state.remote_desktop_rule_ids, [USER_MODE_UDP]);
-    let read = fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections");
-    assert_eq!(read.unwrap(), Some(1));
+    assert_eq!(fake.rdp(), Some(1));
     assert!(fake.machine.block_rules.is_empty());
     // It goes through its file, and an unflagged record has no such field.
     let text = serde_json::to_string(&state).unwrap();
@@ -1936,51 +530,6 @@ fn a_restore_that_stops_after_rdp_resumes_without_redoing_it() {
 }
 
 #[test]
-fn setting_up_after_a_partial_restore_records_rdp_again() {
-    let mut fake = Fake::new();
-    let before = fake.machine.clone();
-    let partial = restore_partly(&mut fake);
-    // The user turns RDP and the Shadow rule on since.
-    let deny = key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections");
-    fake.machine.values.insert(deny.clone(), 0);
-    let shadow = "RemoteDesktop-Shadow-In-TCP";
-    fake.machine.rules.get_mut(shadow).unwrap().2 = true;
-    let mut saves = Vec::new();
-    let again = setup(
-        &mut fake,
-        Some(partial.clone()),
-        SID,
-        |state| {
-            saves.push(state.clone());
-            Ok(())
-        },
-        no_wait,
-    )
-    .unwrap();
-    assert_eq!(saves, std::slice::from_ref(&again));
-    assert_eq!(
-        again,
-        SetupState {
-            deny_ts_connections: Some(0),
-            remote_desktop_rule_ids: vec![
-                shadow.into(),
-                "RemoteDesktop-UserMode-In-TCP".into(),
-                USER_MODE_UDP.into(),
-            ],
-            rdp_restored: false,
-            // SuppressWhenMinimized is still setup's: the record keeps its original.
-            ..partial
-        }
-    );
-    // Restoring puts back what the user has now, and what was there before setup.
-    restore_copy(&mut fake, &again).unwrap();
-    let mut expected = before;
-    expected.values.insert(deny, 0);
-    expected.rules.get_mut(shadow).unwrap().2 = true;
-    assert_eq!(fake.machine, expected);
-}
-
-#[test]
 fn restore_loads_a_signed_out_accounts_hive_and_unloads_it_after() {
     let mut fake = Fake::new();
     let before = fake.machine.clone();
@@ -2009,597 +558,129 @@ fn restore_loads_a_signed_out_accounts_hive_and_unloads_it_after() {
     assert!(fake.machine.loaded_hives.contains(SID));
 }
 
-fn listener(address: &str, port: u16, pid: u32) -> Listener {
-    Listener {
-        address: address.parse().unwrap(),
-        port,
-        pid,
-        udp: false,
-    }
-}
-fn rdp_server() -> RdpServer {
-    RdpServer {
-        service_pid: 1200,
-        listeners: vec![
-            listener("0.0.0.0", 3390, 1200),
-            listener("::", 3390, 1200),
-            listener("0.0.0.0", 445, 4),
-            listener("127.0.0.1", 47989, 900),
-        ],
-        port_number: Some(3390),
-        deny_ts_connections: Some(0),
-    }
-}
-fn refusal(server: &RdpServer) -> String {
-    format!("{:#}", check_rdp_server(3390, server).unwrap_err())
-}
-
-#[test]
-fn the_viewer_connects_only_to_windows_own_rdp_listener() {
-    check_rdp_server(3390, &rdp_server()).unwrap();
-    // Listening on loopback only, or IPv4 only, is still Windows' own server.
-    let mut server = rdp_server();
-    server.listeners = vec![listener("127.0.0.1", 3390, 1200)];
-    check_rdp_server(3390, &server).unwrap();
-    // A squatter on the port, on IPv4 loopback or on IPv6, beside TermService.
-    // TermService's own UDP transport on the port is Windows' server too.
-    let mut server = rdp_server();
-    server.listeners.push(Listener {
-        udp: true,
-        ..listener("0.0.0.0", 3390, 1200)
-    });
-    check_rdp_server(3390, &server).unwrap();
-    // But a UDP socket alone is not the TCP listener the client connects to.
-    server.listeners.retain(|listener| listener.udp);
-    assert!(
-        refusal(&server).contains("does not listen on 127.0.0.1:3390"),
-        "{}",
-        refusal(&server)
-    );
-    // A squatter on the port, on IPv4 loopback or on IPv6, TCP or UDP, beside TermService.
-    for squatter in [
-        listener("127.0.0.1", 3390, 6666),
-        listener("::1", 3390, 6666),
-        Listener {
-            udp: true,
-            ..listener("127.0.0.1", 3390, 6666)
-        },
-    ] {
-        let mut server = rdp_server();
-        server.listeners.push(squatter);
-        let error = refusal(&server);
-        assert!(
-            error.contains("another program (process 6666) listens on port 3390"),
-            "{error}"
-        );
-    }
-    // TermService stopped and another program on its port.
-    let mut server = rdp_server();
-    server.service_pid = 0;
-    server.listeners = vec![listener("0.0.0.0", 3390, 6666)];
-    let error = refusal(&server);
-    assert!(
-        error.contains("TermService) is not running") && error.contains("process 6666"),
-        "{error}"
-    );
-    // TermService listens on another port, or on a network address only.
-    let mut server = rdp_server();
-    server.listeners = vec![listener("0.0.0.0", 3389, 1200)];
-    assert!(refusal(&server).contains("does not listen on 127.0.0.1:3390"));
-    server.listeners = vec![listener("192.168.4.2", 3390, 1200)];
-    assert!(refusal(&server).contains("does not listen on 127.0.0.1:3390"));
-    // The registry moved the port or turned RDP off since setup.
-    let mut server = rdp_server();
-    server.port_number = Some(3389);
-    let error = refusal(&server);
-    assert!(
-        error.contains("set to port 3389, not the port 3390")
-            && error.contains("set up child sessions again"),
-        "{error}"
-    );
-    server.port_number = None;
-    assert!(refusal(&server).contains("set to port 3389"));
-    let mut server = rdp_server();
-    server.deny_ts_connections = Some(1);
-    assert!(refusal(&server).contains("fDenyTSConnections"));
-    server.deny_ts_connections = None;
-    assert!(refusal(&server).contains("fDenyTSConnections"));
-    // No port setup recorded: Windows' default.
-    let mut server = rdp_server();
-    server.port_number = None;
-    server.listeners = vec![listener("0.0.0.0", 3389, 1200)];
-    check_rdp_server(3389, &server).unwrap();
-}
-
-#[test]
-fn missing_lists_what_setup_still_has_to_do() {
-    let fake = Fake::new();
-    let missing = missing(&fake, SID, None).unwrap();
-    assert!(missing.iter().any(|m| m.contains("child sessions are off")));
-    assert!(missing.iter().any(|m| m.contains("DWMFRAMEINTERVAL")));
-    assert!(missing.iter().any(|m| m.contains("firewall rules are on")));
-}
-
-/// DPAPI stand-in: XOR with the user's key, tagged with the user.
-struct FakeDpapi(&'static str);
-impl Dpapi for FakeDpapi {
-    fn protect(&self, plain: &[u8]) -> Result<Vec<u8>> {
-        let mut blob = self.0.as_bytes().to_vec();
-        blob.push(0);
-        blob.extend(plain.iter().map(|byte| byte ^ 0x5a));
-        Ok(blob)
-    }
-    fn unprotect(&self, blob: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-        let tag = self.0.len();
-        if blob.len() <= tag || &blob[..tag] != self.0.as_bytes() || blob[tag] != 0 {
-            bail!("the data is invalid");
-        }
-        Ok(Zeroizing::new(
-            blob[tag + 1..].iter().map(|byte| byte ^ 0x5a).collect(),
-        ))
-    }
-}
-
-#[test]
-fn the_password_roundtrips_through_dpapi_and_can_be_forgotten() {
-    let folder = tempfile::tempdir().unwrap();
-    let path = folder.path().join("child-session").join("password.bin");
-    let store = PasswordStore::new(path.clone(), FakeDpapi(SID));
-    assert!(store.load().unwrap().is_none());
-    assert!(!store.saved());
-    store.save(&Secret::new(PASSWORD.into())).unwrap();
-    assert!(store.saved());
-    let on_disk = std::fs::read(&path).unwrap();
-    assert!(
-        !on_disk
-            .windows(PASSWORD.len())
-            .any(|w| w == PASSWORD.as_bytes())
-    );
-    assert_eq!(store.load().unwrap().unwrap().expose(), PASSWORD);
-    // Another Windows user can't decrypt it, and the error says what to do.
-    let other = PasswordStore::new(path.clone(), FakeDpapi("S-1-5-21-other"));
-    let error = format!("{:#}", other.load().unwrap_err());
-    assert!(error.contains("forget it"), "{error}");
-    assert!(!error.contains(PASSWORD));
-    assert!(store.forget().unwrap());
-    assert!(!store.forget().unwrap());
-    assert!(store.load().unwrap().is_none());
-    assert!(store.save(&Secret::new(String::new())).is_err());
-}
-
-#[test]
-fn a_damaged_saved_password_is_refused_without_quoting_it() {
-    let folder = tempfile::tempdir().unwrap();
-    let path = folder.path().join("password.bin");
-    // Valid DPAPI framing around bytes that are not UTF-8.
-    let mut blob = FakeDpapi(SID).protect(b"hunter2").unwrap();
-    blob.push(0xff ^ 0x5a);
-    std::fs::write(&path, blob).unwrap();
-    let error = format!(
-        "{:#}",
-        PasswordStore::new(path, FakeDpapi(SID)).load().unwrap_err()
-    );
-    assert!(error.contains("damaged"), "{error}");
-    assert!(
-        !error.contains("hunter2") && !error.contains("104"),
-        "{error}"
-    );
-}
-
-/// Collects everything a tracing subscriber writes.
-#[derive(Clone, Default)]
-struct Captured(Arc<Mutex<Vec<u8>>>);
-impl std::io::Write for Captured {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-/// A pipe that hands out at most `chunk` bytes per read.
-struct Trickle {
-    data: Vec<u8>,
-    at: usize,
-    chunk: usize,
-}
-impl std::io::Read for Trickle {
-    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-        let count = self.chunk.min(out.len()).min(self.data.len() - self.at);
-        out[..count].copy_from_slice(&self.data[self.at..self.at + count]);
-        self.at += count;
-        Ok(count)
-    }
-}
-fn lines_of(reader: &mut LineReader<Trickle>) -> Vec<Result<String, String>> {
-    let mut lines = Vec::new();
-    loop {
-        match reader.read_line() {
-            Ok(Some(line)) => lines.push(Ok(String::from_utf8(line.to_vec()).unwrap())),
-            Ok(None) => return lines,
-            Err(error) => {
-                assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-                lines.push(Err(error.to_string()));
-            }
-        }
-    }
-}
-
-#[test]
-fn a_line_over_the_cap_fails_alone_and_quotes_nothing() {
-    let long = format!("{}SECRET", "x".repeat(40));
-    for chunk in [1, 7, 64, 4096] {
-        let data = format!("one\n{long}\ntwo\n\nlast").into_bytes();
-        let mut reader = LineReader::new(Trickle { data, at: 0, chunk }, 32);
-        let expected: Vec<Result<String, String>> = vec![
-            Ok("one".into()),
-            Err("a line longer than 32 bytes".into()),
-            Ok("two".into()),
-            Ok(String::new()),
-            Ok("last".into()),
-        ];
-        assert_eq!(lines_of(&mut reader), expected, "chunk {chunk}");
-        // The buffer never grew past the cap.
-        assert_eq!(reader.buffer.capacity(), 32, "chunk {chunk}");
-    }
-    // A line that fits only with its newline is still a line; an endless one
-    // ends with the pipe.
-    let fits = format!("{}\n", "y".repeat(31)).into_bytes();
-    let mut reader = LineReader::new(
-        Trickle {
-            data: fits,
-            at: 0,
-            chunk: 5,
-        },
-        32,
-    );
-    assert_eq!(lines_of(&mut reader), [Ok::<_, String>("y".repeat(31))]);
-    let endless = "z".repeat(100).into_bytes();
-    let mut reader = LineReader::new(
-        Trickle {
-            data: endless,
-            at: 0,
-            chunk: 9,
-        },
-        32,
-    );
-    assert_eq!(
-        lines_of(&mut reader),
-        [Err::<String, _>("a line longer than 32 bytes".to_owned())]
-    );
-}
-
-#[test]
-fn a_read_line_is_wiped_once_the_next_one_is_read() {
-    let secret = hex::encode(PASSWORD);
-    let data = format!("{{\"password\":\"{secret}\"}}\n{{\"command\":\"stop\"}}\n").into_bytes();
-    let mut reader = LineReader::new(
-        Trickle {
-            data,
-            at: 0,
-            chunk: 4096,
-        },
-        1024,
-    );
-    let first = reader.read_line().unwrap().unwrap();
-    assert!(String::from_utf8_lossy(first).contains(&secret));
-    let holds = |reader: &LineReader<Trickle>| {
-        reader
-            .buffer
-            .windows(secret.len())
-            .any(|window| window == secret.as_bytes())
+/// A wipe through the file system: zeros, then the file goes.
+fn wipe(path: &Path) -> std::io::Result<bool> {
+    let length = match std::fs::metadata(path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
     };
-    assert_eq!(
-        reader.read_line().unwrap().unwrap(),
-        br#"{"command":"stop"}"#
-    );
-    assert!(!holds(&reader), "the first line is wiped");
-    assert!(reader.read_line().unwrap().is_none());
-    assert!(
-        reader.buffer.iter().all(|&byte| byte == 0),
-        "nothing is left"
-    );
+    std::fs::write(path, vec![0u8; length as usize])?;
+    std::fs::remove_file(path)?;
+    Ok(true)
+}
+fn remove_empty(folder: &Path) -> std::io::Result<()> {
+    match std::fs::remove_dir(folder) {
+        Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => Ok(()),
+        removed => removed,
+    }
 }
 
 #[test]
-fn the_password_never_reaches_a_log() {
-    let secret = Secret::new(PASSWORD.into());
-    let command = ViewerCommand::Start {
-        display: DisplaySettings::default(),
-        rdp_port: 3389,
-        password: Some(secret.clone()),
+fn saved_passwords_go_from_every_profile_and_only_empty_folders_with_them() {
+    let root = tempfile::tempdir().unwrap();
+    let profile = |name: &str| root.path().join(name);
+    let folder = |name: &str| {
+        profile(name)
+            .join("AppData")
+            .join("Local")
+            .join(PASSWORD_FOLDER)
     };
-    assert_eq!(format!("{secret}"), "[redacted]");
-    assert_eq!(format!("{secret:?}"), "[redacted]");
-    assert!(!format!("{command:?}").contains(PASSWORD));
-    assert!(!format!("{command:#?}").contains(PASSWORD));
-    // A request body with the password parses straight into a Secret.
-    let body: BTreeMap<String, Secret> =
-        serde_json::from_str(&format!(r#"{{"password":"{PASSWORD}"}}"#)).unwrap();
-    assert!(!format!("{body:?}").contains(PASSWORD));
-
-    let captured = Captured::default();
-    let writer = captured.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .finish();
-    tracing::subscriber::with_default(subscriber, || {
-        tracing::info!(?command, %secret, password = ?secret, "viewer command");
-        tracing::warn!("sending {command:?} with {secret}");
-        tracing::debug!(?body, "console request");
-    });
-    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
-    assert!(log.contains("[redacted]"), "{log}");
-    assert!(log.contains("viewer command"), "{log}");
-    assert!(!log.contains(PASSWORD), "{log}");
-}
-
-#[test]
-fn a_console_request_password_unescapes_like_serde_json() {
-    for password in [
-        PASSWORD,
-        "quo\"te back\\slash / slash",
-        "\u{8}\u{c}\n\r\t\u{1}",
-        "caf\u{e9} \u{1f600} \u{10ffff}",
-    ] {
-        // serde_json's own escaping, and every escape spelled out as \u.
-        let literal = serde_json::to_string(password).unwrap();
-        assert_eq!(
-            Secret::from_json_string(&literal).unwrap().expose(),
-            password
-        );
-        let mut spelled = String::from('"');
-        for unit in password.encode_utf16() {
-            spelled.push_str(&format!("\\u{unit:04X}"));
-        }
-        spelled.push('"');
-        assert_eq!(
-            Secret::from_json_string(&spelled).unwrap().expose(),
-            password
-        );
+    for name in ["ramaz", "other", "kept"] {
+        std::fs::create_dir_all(folder(name)).unwrap();
     }
-    assert_eq!(Secret::from_json_string(r#""\/""#).unwrap().expose(), "/");
-    for bad in [
-        "",
-        "\"",
-        "5",
-        "null",
-        r#""a"b""#,
-        r#""a\""#,
-        r#""\x""#,
-        r#""\u12""#,
-        r#""\ud83d""#,
-        r#""\ude00""#,
-        r#""\ud83dA""#,
-        "\"tab\tin\"",
-    ] {
-        assert!(Secret::from_json_string(bad).is_err(), "{bad}");
-    }
-}
-
-#[test]
-fn viewer_commands_carry_the_password_only_on_the_wire() {
-    let command = ViewerCommand::Start {
-        display: DisplaySettings::parse("2560x1440", "125").unwrap(),
-        rdp_port: 3390,
-        password: Some(Secret::new(PASSWORD.into())),
-    };
-    let line = command.line().unwrap();
-    assert!(line.ends_with('\n'));
-    assert!(!line.contains(PASSWORD), "the password travels as hex");
-    assert!(line.contains(&hex::encode(PASSWORD)));
-    match serde_json::from_str(line.trim_end()).unwrap() {
-        ViewerCommand::Start {
-            display,
-            rdp_port,
-            password,
-        } => {
-            assert_eq!(display.scale, 125);
-            assert_eq!(rdp_port, 3390);
-            assert_eq!(password.unwrap().expose(), PASSWORD);
-        }
-        other => panic!("{other:?}"),
-    }
-    // Text JSON would escape: as hex, the line needs no escapes at all, so
-    // serde reads it without a scratch copy.
-    let awkward = "quo\"te back\\slash \u{e9}\u{1f600}\ttab";
-    let line = ViewerCommand::Start {
-        display: DisplaySettings::default(),
-        rdp_port: 3389,
-        password: Some(Secret::new(awkward.into())),
-    }
-    .line()
-    .unwrap();
-    assert!(!line.trim_end().contains('\\'), "{}", line.as_str());
-    match serde_json::from_str(line.trim_end()).unwrap() {
-        ViewerCommand::Start { password, .. } => assert_eq!(password.unwrap().expose(), awkward),
-        other => panic!("{other:?}"),
-    }
-    for bad in [r#""zz""#, r#""abc""#, "5"] {
-        let error = serde_json::from_str::<ViewerCommand>(&format!(
-            r#"{{"command":"start","display":{{"width":1920,"height":1080,"scale":100}},"password":{bad}}}"#
-        ))
-        .unwrap_err();
-        assert!(!error.to_string().contains("zz"), "{error}");
-    }
-    let saved: ViewerCommand = serde_json::from_str(
-        r#"{"command":"start","display":{"width":1920,"height":1080,"scale":100}}"#,
+    std::fs::write(folder("ramaz").join(PASSWORD_FILES[0]), b"blob").unwrap();
+    std::fs::write(folder("ramaz").join(PASSWORD_FILES[1]), b"half").unwrap();
+    std::fs::write(folder("other").join(PASSWORD_FILES[0]), b"blob").unwrap();
+    std::fs::write(folder("other").join("settings.json"), b"{}").unwrap();
+    // A redirected AppData\Local, given as the console user's.
+    let redirected = root.path().join("D").join("Local");
+    std::fs::create_dir_all(redirected.join(PASSWORD_FOLDER)).unwrap();
+    std::fs::write(
+        redirected.join(PASSWORD_FOLDER).join(PASSWORD_FILES[0]),
+        b"blob",
     )
     .unwrap();
-    assert!(matches!(
-        saved,
-        ViewerCommand::Start {
-            password: None,
-            rdp_port: 3389,
-            ..
-        }
-    ));
-    let end: ViewerCommand =
-        serde_json::from_str(r#"{"command":"end_session","child":7,"generation":3}"#).unwrap();
-    assert!(matches!(
-        end,
-        ViewerCommand::EndSession {
-            child: 7,
-            generation: 3
-        }
-    ));
-    let status = ViewerStatus {
-        phase: Phase::Connected,
-        message: "attached".into(),
-        child: 7,
-        generation: 3,
-        password_saved: true,
-        notice: None,
-    };
-    let text = serde_json::to_string(&status).unwrap();
-    assert!(text.contains(r#""phase":"connected""#));
-    assert_eq!(serde_json::from_str::<ViewerStatus>(&text).unwrap(), status);
-}
-
-fn adapter(name: &str, vendor: u32, dedicated_mib: u64, uma: Option<bool>) -> Adapter {
-    Adapter {
-        name: name.into(),
-        vendor,
-        dedicated_memory: dedicated_mib << 20,
-        software: false,
-        uma,
-    }
-}
-
-#[test]
-fn an_integrated_gpu_beside_a_discrete_one_is_called_out() {
-    let dgpu = adapter("AMD Radeon RX 7900 XT", 0x1002, 20_464, Some(false));
-    let igpu = adapter("AMD Radeon(TM) Graphics", 0x1002, 512, Some(true));
-    let basic = Adapter {
-        name: "Microsoft Basic Render Driver".into(),
-        vendor: 0x1414,
-        dedicated_memory: 0,
-        software: true,
-        uma: Some(true),
-    };
-    let all = [igpu.clone(), dgpu.clone(), basic.clone()];
-
-    let verdict = gpu_verdict(Some(&dgpu), &all);
+    let folders = password_folders(
+        &[
+            profile("ramaz"),
+            profile("other"),
+            profile("kept"),
+            profile("missing"),
+            // Relative, or with `..`: skipped.
+            PathBuf::from(r"Users\ramaz"),
+            root.path().join("ramaz").join("..").join("other"),
+        ],
+        &[
+            redirected.clone(),
+            // Once each.
+            profile("ramaz").join("AppData").join("Local"),
+        ],
+    );
     assert_eq!(
-        verdict,
-        GpuVerdict::Discrete {
-            name: dgpu.name.clone()
-        }
-    );
-    assert_eq!(gpu_problem(&verdict), None);
-
-    let verdict = gpu_verdict(Some(&igpu), &all);
-    assert_eq!(
-        verdict,
-        GpuVerdict::Integrated {
-            name: igpu.name.clone(),
-            discrete: Some(dgpu.name.clone())
-        }
-    );
-    let problem = gpu_problem(&verdict).unwrap();
-    assert!(
-        problem.contains("integrated GPU AMD Radeon(TM) Graphics, not on AMD Radeon RX 7900 XT")
-    );
-    assert!(
-        problem.contains("Use hardware graphics adapters for all Remote Desktop Services sessions")
-    );
-    assert!(problem.contains("High performance"));
-    assert!(problem.contains("never encodes in software"));
-
-    let verdict = gpu_verdict(Some(&basic), &all);
-    assert_eq!(
-        verdict,
-        GpuVerdict::Software {
-            discrete: Some(dgpu.name.clone())
-        }
-    );
-    assert!(
-        gpu_problem(&verdict)
-            .unwrap()
-            .contains("Basic Render Driver")
-    );
-    assert!(gpu_problem(&gpu_verdict(None, &all)).is_some());
-}
-
-#[test]
-fn an_apu_without_a_discrete_gpu_is_fine() {
-    let apu = adapter("AMD Radeon 780M Graphics", 0x1002, 512, Some(true));
-    let verdict = gpu_verdict(Some(&apu), std::slice::from_ref(&apu));
-    assert_eq!(
-        verdict,
-        GpuVerdict::Integrated {
-            name: apu.name.clone(),
-            discrete: None
-        }
-    );
-    assert_eq!(gpu_problem(&verdict), None);
-}
-
-#[test]
-fn without_d3d12_memory_size_decides_integrated() {
-    assert!(adapter("small", 0x1002, 128, None).is_integrated());
-    assert!(!adapter("big", 0x1002, 16_384, None).is_integrated());
-    // D3D12's answer wins over the memory size.
-    assert!(!adapter("small but discrete", 0x1002, 256, Some(false)).is_integrated());
-}
-
-#[test]
-fn only_the_console_users_own_child_session_is_attached() {
-    assert!(check_child_owner(5, 1, 1, SID, SID).is_ok());
-    // SIDs compare without case.
-    assert!(check_child_owner(5, 1, 1, &SID.to_lowercase(), SID).is_ok());
-    let other = check_child_owner(5, 1, 1, "S-1-5-21-other", SID)
-        .unwrap_err()
-        .to_string();
-    assert!(other.contains("another Windows account"), "{other}");
-    for (child, console) in [(0, 1), (1, 1), (u32::MAX, 1), (0x8000_0000, 1)] {
-        assert!(check_child_owner(child, console, console, SID, SID).is_err());
-    }
-    assert!(check_child_owner(5, 1, 1, "", "").is_err());
-}
-
-#[test]
-fn a_child_session_reported_from_outside_the_console_is_never_attached() {
-    // The same account signed in elsewhere (another RDP session, session 0)
-    // runs a viewer that names its own child session: refused.
-    for viewer in [0, 2, 5] {
-        let error = check_child_owner(5, 1, viewer, SID, SID)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains(&format!("runs in session {viewer}")) && error.contains("screen (1)"),
-            "{error}"
-        );
-    }
-}
-
-#[test]
-fn the_child_host_gets_its_own_ports_and_name() {
-    let config: BTreeMap<_, _> = child_host_config("Gaming PC", 47989).into_iter().collect();
-    assert_eq!(config["port"], "48989");
-    assert_eq!(config["sunshine_name"], "Gaming PC (background)");
-    assert_eq!(config["webrtc_port"], "8100");
-    assert_eq!(config["webrtc_media_port"], "8101");
-    assert_eq!(config["capture"], "wgc");
-    assert_eq!(config[CHILD_HOST_KEY], "true");
-    assert_eq!(config["virtual_display_mode"], "disabled");
-    let config: BTreeMap<_, _> = child_host_config("", CHILD_BASE_PORT).into_iter().collect();
-    assert_eq!(config["port"], "49989");
-    assert_eq!(config["sunshine_name"], "Rubylight (background)");
-    // Every port of the child host stays clear of the main host's.
-    let main = crate::config::Ports::from_base(47989);
-    let child = crate::config::Ports::from_base(CHILD_BASE_PORT);
-    let ports = |p: &crate::config::Ports| {
+        folders,
         [
-            p.http, p.https, p.web, p.video, p.control, p.audio, p.mic, p.rtsp,
+            folder("ramaz"),
+            folder("other"),
+            folder("kept"),
+            folder("missing"),
+            redirected.join(PASSWORD_FOLDER),
         ]
-    };
-    for port in ports(&child) {
-        assert!(!ports(&main).contains(&port), "{port}");
-        assert!(!(48518..=48544).contains(&port), "{port}");
+    );
+    let cleanup = delete_passwords(&folders, wipe, remove_empty);
+    assert!(cleanup.failed.is_empty(), "{:?}", cleanup.failed);
+    assert_eq!(
+        cleanup.deleted,
+        [
+            folder("ramaz").join(PASSWORD_FILES[0]),
+            folder("ramaz").join(PASSWORD_FILES[1]),
+            folder("other").join(PASSWORD_FILES[0]),
+            redirected.join(PASSWORD_FOLDER).join(PASSWORD_FILES[0]),
+        ]
+    );
+    // Empty now: gone. Holding something else, or never holding a password: kept.
+    assert!(!folder("ramaz").exists());
+    assert!(!redirected.join(PASSWORD_FOLDER).exists());
+    assert!(folder("other").join("settings.json").is_file());
+    assert!(folder("kept").is_dir());
+    // Nothing left: nothing to do, and nothing to say.
+    assert_eq!(
+        delete_passwords(&folders, wipe, remove_empty),
+        PasswordCleanup::default()
+    );
+}
+
+#[test]
+fn a_password_that_cannot_be_deleted_is_named_and_the_others_still_go() {
+    let root = tempfile::tempdir().unwrap();
+    let folders = password_folders(&[root.path().join("a"), root.path().join("b")], &[]);
+    for folder in &folders {
+        std::fs::create_dir_all(folder).unwrap();
+        for name in PASSWORD_FILES {
+            std::fs::write(folder.join(name), b"blob").unwrap();
+        }
     }
+    let stuck = folders[0].join(PASSWORD_FILES[0]);
+    let cleanup = delete_passwords(
+        &folders,
+        |path| {
+            if path == stuck {
+                Err(std::io::Error::other("the file is in use"))
+            } else {
+                wipe(path)
+            }
+        },
+        remove_empty,
+    );
+    assert_eq!(cleanup.failed.len(), 1, "{:?}", cleanup.failed);
+    let failed = &cleanup.failed[0];
+    assert!(
+        failed.contains(&stuck.display().to_string())
+            && failed.contains("the file is in use")
+            && failed.contains("delete it by hand"),
+        "{failed}"
+    );
+    assert_eq!(cleanup.deleted.len(), 3);
+    assert!(stuck.is_file() && folders[0].is_dir());
+    assert!(!folders[1].exists());
 }

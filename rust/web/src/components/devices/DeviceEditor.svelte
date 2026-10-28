@@ -254,12 +254,12 @@
             {:else}
               <label class="check">
                 <input type="checkbox" bind:checked={draft.allow_sleep} />
-                Sleep PC: put this PC to sleep from this device while nothing is running (Experimental)
+                Sleep PC: put this PC to sleep from this device while nothing is running
               </label>
             {/if}
             <label class="check">
               <input type="checkbox" bind:checked={draft.allow_usb} />
-              USB devices: attach USB devices plugged into this device to this PC during a stream (Experimental)
+              USB devices: attach USB devices plugged into this device to this PC during a stream
             </label>
           {/if}
         </fieldset>
@@ -268,7 +268,7 @@
     </details>
   </section>
 
-  <details class="override" bind:open={foldersOpen}><summary>Shared folders (Experimental)</summary>
+  <details class="override" bind:open={foldersOpen}><summary>Shared folders</summary>
   <section>
     {#if sharedFolders === null}
       <p class="note">Loading folders…</p>
@@ -369,9 +369,9 @@
         </select>
       </Field>
       <Field
-        label="Rotate the display (Experimental)"
+        label="Rotate the display"
         id="{uid}-rotation"
-        hint="Match the device gives this device's virtual display its portrait or landscape shape, and turns a monitor to it, also when the device turns during the stream. A monitor turns back after the stream and needs Windows Graphics Capture. Experimental."
+        hint="Match the device gives this device's virtual display its portrait or landscape shape, and turns a monitor to it, also when the device turns during the stream. A monitor turns back after the stream and needs Windows Graphics Capture."
         error={unknownDisplay('dd_rotation_option') ? `“${draft.display.dd_rotation_option}” is not a choice, so the host ignores it. Choose one.` : undefined}
       >
         <select id="{uid}-rotation" class="select" bind:value={draft.display.dd_rotation_option}>
@@ -386,9 +386,9 @@
       </Field>
       {#if draft.display.dd_rotation_option === 'manual'}
         <Field
-          label="Rotation (Experimental)"
+          label="Rotation"
           id="{uid}-angle"
-          hint="The angle the display turns to, clockwise. A virtual display is made in the turned shape instead. Experimental."
+          hint="The angle the display turns to, clockwise. A virtual display is made in the turned shape instead."
           error={unknownDisplay('dd_manual_rotation') ? `${draft.display.dd_manual_rotation} is not an angle the host takes. Choose one.` : undefined}
         >
           <select id="{uid}-angle" class="select" bind:value={draft.display.dd_manual_rotation}>
@@ -405,7 +405,7 @@
       <Field
         label="Display scale"
         id="{uid}-scale"
-        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream (Experimental)."
+        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream."
         error={unknownDisplay('dd_virtual_display_scale') ? `${draft.display.dd_virtual_display_scale} is not a scale the host takes. Choose one.` : undefined}
       >
         <select id="{uid}-scale" class="select" bind:value={draft.display.dd_virtual_display_scale}>

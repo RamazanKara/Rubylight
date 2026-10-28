@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Wyślij obraz ze schowka do hosta (eksperymentalne)</string>
-    <string name="stream_clipboard_image_receive">Kopiuj obraz ze schowka hosta (eksperymentalne)</string>
+    <string name="stream_clipboard_image_send">Wyślij obraz ze schowka do hosta</string>
+    <string name="stream_clipboard_image_receive">Kopiuj obraz ze schowka hosta</string>
     <string name="stream_clipboard_image_empty">Schowek nie zawiera obrazu</string>
     <string name="stream_clipboard_image_sent">Obraz ze schowka wysłany do hosta</string>
     <string name="stream_clipboard_image_none">Schowek hosta nie zawiera obrazu</string>

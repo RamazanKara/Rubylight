@@ -12,7 +12,6 @@
     <string name="host_unpair_message">PC はこの端末を忘れ、保存済みのライブラリもここで消去されます。ストリーミングするには再度ペアリングが必要です。PC は一覧に残ります。</string>
     <string name="host_wake_needs_pairing">PC の電源が入っているときに一度ペアリングすると、起動できるようになります</string>
     <string name="host_menu_sleep">PC をスリープ</string>
-    <string name="host_menu_sleep_note">試験運用</string>
     <string name="host_sleep_title">%1$s をスリープしますか？</string>
     <string name="host_sleep_message">先に PC のゲームとストリームを終了してください。Wake-on-LAN で再び起動できます。</string>
     <string name="host_sleep_asking">PC に問い合わせています…</string>

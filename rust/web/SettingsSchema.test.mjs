@@ -42,13 +42,13 @@ test('HDR dynamic metadata defaults on and ships HDR Vivid as a normal feature',
   assert.equal(differsFromDefault(setting, {}, { hdr_dynamic_metadata: false }), true);
 });
 
-test('Dolby Vision is a live Experimental setting that says why packed 4:4:4 streams go without it', () => {
+test('Dolby Vision is a live unlabelled setting that says why packed 4:4:4 streams go without it', () => {
   const setting = settings.get('hdr_dolby_vision');
   assert.equal(setting.default, true);
   assert.equal(setting.control.kind, 'toggle');
   assert.equal(setting.category, 'video');
-  assert.match(setting.label, /\(Experimental\)$/);
-  assert.match(setting.description, /Experimental\.$/);
+  assert.doesNotMatch(setting.label, /Experimental/);
+  assert.doesNotMatch(setting.description, /Experimental/);
   assert.match(setting.details, /Packed 4:4:4 streams carry static HDR10 instead: the device unpacks the packed picture itself/);
   assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /Foundation|dovi_tool|quietvoid/);
   assert.equal(pending.some(candidate => candidate.key === 'hdr_dolby_vision'), false);
@@ -440,7 +440,7 @@ test('integer tuning steps reject fractions without forcing multiples of the arr
 test('file transfer is off by default, its options show once it is on, and the draft round-trips', () => {
   const transfer = settings.get('file_transfer');
   assert.equal(transfer.default, false);
-  assert.match(transfer.label, /Experimental/);
+  assert.doesNotMatch(transfer.label, /Experimental/);
   assert.equal(transfer.advanced, false);
   const defaults = { file_transfer_dir: '', file_transfer_max_mb: 4096, file_transfer_stream_mbps: 50 };
   for (const [key, value] of Object.entries(defaults)) {
@@ -463,10 +463,10 @@ test('file transfer is off by default, its options show once it is on, and the d
   assert.deepEqual(computeChanges(settings, { file_transfer: null }, sent), { file_transfer: null });
 });
 
-test('USB forwarding is live, Experimental and off, and takes 1 to 16 devices once it is on', () => {
+test('USB forwarding is live, unlabelled and off, and takes 1 to 16 devices once it is on', () => {
   const forwarding = settings.get('usb_forwarding');
   assert.deepEqual([forwarding.category, forwarding.group, forwarding.default, forwarding.advanced], ['general', 'USB devices', false, false]);
-  assert.match(forwarding.label, /Experimental/);
+  assert.doesNotMatch(forwarding.label, /Experimental/);
   assert.equal(pending.some(setting => setting.key.startsWith('usb_')), false);
   const devices = settings.get('usb_max_devices');
   assert.deepEqual([devices.category, devices.group, devices.default], ['general', 'USB devices', 4]);
@@ -497,10 +497,10 @@ test('the keyboard follows text fields without their text, typing with the devic
   const surrounding = settings.get('text_input_surrounding_text');
   const layout = settings.get('keyboard_layout');
   assert.deepEqual([follows.default, surrounding.default, layout.default], [true, false, 'client']);
+  assert.doesNotMatch(surrounding.label, /Experimental/);
+  assert.doesNotMatch(surrounding.description, /Experimental/);
   for (const setting of [follows, surrounding, layout]) {
     assert.equal(setting.group, 'Keyboard', setting.key);
-    assert.match(setting.label, /\(Experimental\)$/, setting.key);
-    assert.match(setting.description, / Experimental\.$/, setting.key);
     assert.equal(setting.visibleWhen({ keyboard: false }), false, setting.key);
     assert.equal(setting.visibleWhen({}), true, setting.key);
   }
@@ -508,10 +508,10 @@ test('the keyboard follows text fields without their text, typing with the devic
   assert.equal(surrounding.visibleWhen({ keyboard_follows_focus: false }), false);
 });
 
-test('image clipboard is on by default, Experimental, and its limit follows it as the host checks it', () => {
+test('image clipboard is on by default, unlabelled, and its limit follows it as the host checks it', () => {
   const images = settings.get('clipboard_image');
   assert.equal(images.default, true);
-  assert.match(images.label, /Experimental/);
+  assert.doesNotMatch(images.label, /Experimental/);
   const limit = settings.get('clipboard_image_max_mb');
   assert.deepEqual([limit.category, limit.group, limit.default], ['general', 'Clipboard', 16]);
   assert.equal(limit.visibleWhen({}), true);
@@ -521,10 +521,10 @@ test('image clipboard is on by default, Experimental, and its limit follows it a
   for (const bad of ['0', '65', '1.5']) assert.notEqual(numberError(limit, bad), '', bad);
 });
 
-test('shared folders are a live, Experimental list beside file transfer, empty by default', () => {
+test('shared folders are a live list beside file transfer, empty by default', () => {
   const folders = settings.get('shared_folders');
   assert.deepEqual([folders.category, folders.group, folders.default], ['network', 'Shared folders', '[]']);
-  assert.match(folders.label, /Experimental/);
+  assert.doesNotMatch(folders.label, /Experimental/);
   // Shared folders don't need File transfer on.
   assert.equal(folders.visibleWhen, undefined);
 });
@@ -553,9 +553,9 @@ test('settings still pending stay out of the console, and shipped ones are in it
   }
 });
 
-test('touch profiles are Experimental and their options show only as a mouse or trackpad', () => {
+test('touch profiles are unlabelled and their options show only as a mouse or trackpad', () => {
   const mode = settings.get('touch_mode');
-  assert.match(mode.label, /\(Experimental\)$/);
+  assert.doesNotMatch(mode.label, /Experimental/);
   assert.match(mode.description, /Needs native pen and touch/);
   assert.equal(mode.default, 'client');
   for (const key of ['touch_sensitivity', 'touch_gestures']) {
@@ -575,19 +575,19 @@ test('QR pairing is always on: only a troubleshooting switch, on by default, no 
   assert.doesNotMatch(setting.label + setting.description, /Experimental/);
 });
 
-test('7.1.4 surround is Experimental and says the heights need a 7.1.4 device', () => {
+test('7.1.4 surround is unlabelled and says the heights need a 7.1.4 device', () => {
   const setting = settings.get('audio_surround_714');
-  assert.match(setting.label, /\(Experimental\)$/);
+  assert.doesNotMatch(setting.label, /Experimental/);
   assert.match(setting.description, /Height channels stay silent/);
   assert.equal(setting.default, true);
 });
 
-test('display rotation is Experimental, off by default, and its angle shows only when chosen', () => {
+test('display rotation is unlabelled, off by default, and its angle shows only when chosen', () => {
   const option = settings.get('dd_rotation_option');
   const angle = settings.get('dd_manual_rotation');
   for (const setting of [option, angle]) {
-    assert.match(setting.label, /\(Experimental\)$/, setting.key);
-    assert.match(setting.description, / Experimental\.$/, setting.key);
+    assert.doesNotMatch(setting.label, /Experimental/, setting.key);
+    assert.doesNotMatch(setting.description, /Experimental/, setting.key);
     assert.equal(setting.group, 'Streamed display', setting.key);
   }
   assert.equal(option.default, 'disabled');
@@ -633,10 +633,10 @@ test('pending keys are unique, and Foundation ports are neither credited in the 
   }
 });
 
-test('haptics from game audio are off by default, Experimental, and their options follow the toggle', () => {
+test('haptics from game audio are off by default, unlabelled, and their options follow the toggle', () => {
   const toggle = settings.get('audio_haptics');
   assert.equal(toggle.default, false);
-  assert.match(toggle.label, /Experimental/);
+  assert.doesNotMatch(toggle.label, /Experimental/);
   assert.equal(toggle.group, 'Controllers');
   assert.equal(toggle.visibleWhen({}), true);
   // Generated haptics go out with game vibration, so they hide with it.

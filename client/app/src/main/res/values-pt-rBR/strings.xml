@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Croma completo experimental</string>
-    <string name="summary_packed_444">Requer a opção experimental de croma completo do Rubylight, o novo mecanismo de transmissão e um decodificador HEVC/AV1 por hardware compatível. Modos não compatíveis encerram a conexão. HDR também requer uma superfície de exibição HDR de 10 bits compatível.</string>
-    <string name="title_experimental_chipset_tuning">Ajuste experimental do chipset</string>
+    <string name="title_packed_444">Croma completo</string>
+    <string name="summary_packed_444">Requer a opção de croma completo do Rubylight, o novo mecanismo de transmissão e um decodificador HEVC/AV1 por hardware compatível. Modos não compatíveis encerram a conexão. HDR também requer uma superfície de exibição HDR de 10 bits compatível.</string>
+    <string name="title_experimental_chipset_tuning">Ajuste do chipset</string>
     <string name="summary_experimental_chipset_tuning">Configurações extras de baixa latência para decodificadores MediaTek Dimensity e Samsung Exynos. Se o vídeo parar ou travar, desative esta opção.</string>
     <string name="scut_deleted_pc">PC excluído</string>
     <string name="scut_not_paired">PC não pareado</string>
@@ -381,7 +381,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Desativado (saída direta)</string>
     <string name="title_vulkan_render">Renderizar com Vulkan</string>
-    <string name="summary_vulkan_render">Experimental. Exibe o vídeo por meio do Vulkan, com ritmo de quadros próprio, para overlays de geração de quadros que se conectam ao Vulkan. Adiciona uma etapa de renderização, então há um pouco mais de latência. Requer Android 10 ou superior. Não é usado com PyroWave. O upscaling fica desativado enquanto esta opção estiver ativa.</string>
+    <string name="summary_vulkan_render">Exibe o vídeo por meio do Vulkan, com ritmo de quadros próprio, para overlays de geração de quadros que se conectam ao Vulkan. Adiciona uma etapa de renderização, então há um pouco mais de latência. Requer Android 10 ou superior. Não é usado com PyroWave. O upscaling fica desativado enquanto esta opção estiver ativa.</string>
     <string name="vulkan_render_fallback">A renderização com Vulkan não está sendo usada. %1$s</string>
     <string name="vulkan_reason_pyrowave">O vídeo PyroWave não o usa.</string>
     <string name="vulkan_reason_api">Requer Android 10 ou superior.</string>

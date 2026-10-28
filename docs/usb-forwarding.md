@@ -6,7 +6,7 @@ A USB device plugged into the client, such as a flash drive, a USB gamepad or a 
 
 1. **On the host:** install usbip-win2 (the installer's optional **Steam Deck and DualSense USB audio and haptics** component, or its own release). Turn on **Settings → General → USB devices → USB forwarding** (`usb_forwarding`, off by default). **USB devices at once** (`usb_max_devices`, 1 to 16, default 4) limits how many devices this PC takes from all clients at the same time.
 2. **For each client:** open the device under **Devices** in the console and tick **USB devices** under its permissions. Taking the permission away disconnects a streaming device, which detaches its USB devices.
-3. **On Nightjar for Windows or Linux:** turn on **USB forwarding (Experimental)** in the settings. During a stream, the stream controls list the USB devices plugged in here (hubs left out), each with Attach or the reason it can't be forwarded.
+3. **On Nightjar for Windows or Linux:** turn on **USB forwarding** in the settings. During a stream, the stream controls list the USB devices plugged in here (hubs left out), each with Attach or the reason it can't be forwarded.
 
 The host forwards nothing while the setting is off, usbip-win2 is missing or the client lacks the permission; the client then says why.
 
@@ -18,7 +18,7 @@ The host forwards nothing while the setting is off, usbip-win2 is missing or the
 
 ## On the host
 
-The console's **Devices** page shows a **USB devices (Experimental)** panel once a device has the permission or something is attached: each client's devices with their ID (`vid:pid`), bus ID and state (waiting for the device, connecting, attached on a port, detaching, detach failed). **Detach** unplugs one; **Detach again** retries a failed detach.
+The console's **Devices** page shows a **USB devices** panel once a device has the permission or something is attached: each client's devices with their ID (`vid:pid`), bus ID and state (waiting for the device, connecting, attached on a port, detaching, detach failed). **Detach** unplugs one; **Detach again** retries a failed detach.
 
 An attachment ends when the client detaches it, the console detaches it, the stream ends, either side closes the tunnel or the client disconnects.
 

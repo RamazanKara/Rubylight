@@ -12,7 +12,6 @@
     <string name="host_unpair_message">Der PC vergisst dieses Gerät, und die gespeicherte Bibliothek wird hier gelöscht. Zum Streamen musst du erneut koppeln. Der PC bleibt in der Liste.</string>
     <string name="host_wake_needs_pairing">Koppele den PC einmal, solange er eingeschaltet ist, um ihn aufwecken zu können</string>
     <string name="host_menu_sleep">PC in Energiesparmodus</string>
-    <string name="host_menu_sleep_note">Experimentell</string>
     <string name="host_sleep_title">%1$s in den Energiesparmodus versetzen?</string>
     <string name="host_sleep_message">Spiele und Streams auf dem PC müssen zuerst beendet sein. Mit Wake-on-LAN lässt er sich wieder aufwecken.</string>
     <string name="host_sleep_asking">PC wird gefragt…</string>

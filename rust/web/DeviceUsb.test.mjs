@@ -77,7 +77,7 @@ test('the panel lists each device under its client, with a failed detach and its
       ondetach: () => {},
     },
   }).body;
-  assert.match(html, /USB devices \(Experimental\)/);
+  assert.doesNotMatch(html, /Experimental/);
   assert.match(html, /<h3[^>]*>Phone<\/h3>[\s\S]*Flash drive[\s\S]*0781:5581 · 1-2[\s\S]*Attached on port 2/);
   assert.match(html, /<h3[^>]*>Tablet<\/h3>[\s\S]*Gamepad[\s\S]*usbip detach failed[\s\S]*Detach failed[\s\S]*Detach again/);
   const empty = render(UsbDevices, { props: { devices: [], error: 'timed out', ondetach: () => {} } }).body;

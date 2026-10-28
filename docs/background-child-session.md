@@ -17,7 +17,7 @@ default, and it is what Windows Home uses: Home has no child sessions.
    which uses child sessions where the Windows edition has them). The setting
    is `background_mode = auto | child_session | virtual_display`. The console
    and the host log say which mode runs and why.
-2. Under **Maintenance**, open **Background child session (Experimental)** and
+2. Under **Maintenance**, open **Background child session** and
    choose **Set up child sessions**. Setup:
    - turns on Windows child sessions;
    - turns on Remote Desktop for this PC only: Windows' own Remote Desktop

@@ -260,7 +260,7 @@ export const settings: Setting[] = [
   },
   {
     key: 'dd_hold_layout_while_paused',
-    label: 'Keep monitors off while paused (Experimental)',
+    label: 'Keep monitors off while paused',
     description:
       'With an exclusive layout, keep switching the monitors back off while a device is disconnected, until it returns or the restore delay ends.',
     details:
@@ -551,7 +551,7 @@ export const settings: Setting[] = [
   },
   {
     key: 'virtual_display_hdr_calibration',
-    label: 'Windows HDR Calibration on virtual displays (Experimental)',
+    label: 'Windows HDR Calibration on virtual displays',
     description:
       'Gives an HDR virtual display the profile Windows HDR Calibration made for your HDR monitor, and gives the display back its own profile after the stream.',
     details:
@@ -576,7 +576,7 @@ export const settings: Setting[] = [
   // Background streaming
   {
     key: 'background_mode',
-    label: 'Background mode (Experimental)',
+    label: 'Background mode',
     description:
       'How the host streams while someone keeps using this PC. A Windows child session gives the stream its own desktop and apps.',
     details:

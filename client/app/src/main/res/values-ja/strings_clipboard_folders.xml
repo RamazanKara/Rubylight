@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">クリップボードの画像をホストに送信（試験運用）</string>
-    <string name="stream_clipboard_image_receive">ホストのクリップボードの画像をコピー（試験運用）</string>
+    <string name="stream_clipboard_image_send">クリップボードの画像をホストに送信</string>
+    <string name="stream_clipboard_image_receive">ホストのクリップボードの画像をコピー</string>
     <string name="stream_clipboard_image_empty">クリップボードに画像がありません</string>
     <string name="stream_clipboard_image_sent">クリップボードの画像をホストに送信しました</string>
     <string name="stream_clipboard_image_none">ホストのクリップボードに画像がありません</string>

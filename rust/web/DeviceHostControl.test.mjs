@@ -68,10 +68,10 @@ test('the sleep draft round-trips: true to grant, null to revoke', () => {
   assert.deepEqual(changes(stored, { ...stored, name: 'Tablet' }), { name: 'Tablet' });
   assert.equal(savingEndsStream(true, off, on), false);
 });
-test('file transfer bits are labelled Experimental and round-trip in the draft', () => {
+test('file transfer bits are unlabelled and round-trip in the draft', () => {
   const items = PERMISSION_GROUPS.flatMap(group => group.items);
-  assert.equal(items.find(item => item.bit === 0x40000).label, 'Upload files (Experimental)');
-  assert.equal(items.find(item => item.bit === 0x80000).label, 'Download files (Experimental)');
+  assert.equal(items.find(item => item.bit === 0x40000).label, 'Upload files');
+  assert.equal(items.find(item => item.bit === 0x80000).label, 'Download files');
   const full = toDraft(client({}));
   assert.equal(full.perm & 0xc0000, 0xc0000);
   const uploadOnly = { ...full, perm: full.perm & ~0x80000 };

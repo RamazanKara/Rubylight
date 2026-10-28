@@ -229,7 +229,7 @@ public class SettingsStructureTest {
             PreferenceScreen controls = open(controller.get(), "input").getPreferenceScreen();
             SwitchPreference forwarding = (SwitchPreference) controls.findPreference("checkbox_usb_forwarding");
             assertFalse(forwarding.isChecked());
-            assertTrue(String.valueOf(forwarding.getTitle()).contains("(Experimental)"));
+            assertEquals("Forward USB devices", String.valueOf(forwarding.getTitle()));
         }
         // The C engine forwards nothing: the row is hidden.
         prefs().edit().putBoolean("checkbox_rust_engine", false).commit();

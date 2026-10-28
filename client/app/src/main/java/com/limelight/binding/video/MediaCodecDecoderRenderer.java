@@ -2113,7 +2113,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 "\nTuning keys applied: " + describeKeys(lowLatencyKeysApplied) +
                 "\nTuning keys dropped after rejected configures: " + describeKeys(lowLatencyKeysDropped) +
                         (lowLatencyKeysExperimental
-                                ? "\nExperimental: vendor keys not run on this hardware" : "");
+                                ? "\nVendor keys not run on this hardware" : "");
         ProblemReport.setDecoderDiagnostics(initialWidth + "x" + initialHeight + " @ " + refreshRate + " FPS\n" +
                 decoderDiagnostics + keyReport);
     }
@@ -2286,7 +2286,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // Success!
                 lowLatencyKeysExperimental = MediaCodecHelper.isExperimentalVendorDecoder(selectedDecoderInfo.getName());
                 LimeLog.info("Decoder " + selectedDecoderInfo.getName() +
-                        (lowLatencyKeysExperimental ? " (Experimental: vendor keys not run on this hardware)" : "") +
+                        (lowLatencyKeysExperimental ? " (vendor keys not run on this hardware)" : "") +
                         " tuning keys applied: " +
                         describeKeys(lowLatencyKeysApplied) + "; dropped after rejected configures: " +
                         describeKeys(lowLatencyKeysDropped));

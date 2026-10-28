@@ -31,8 +31,8 @@ test('readiness follows the adapter devices are sent, and says what to do', () =
   assert.deepEqual([needs.status, needs.tone], ['warning', 'warn']);
   assert.match(needs.text, /Apply the changes below/);
   const onlyWifi = readiness(status({ wake: { primary: wifi.mac, targets: [{ ...wifi, connected: true }] } }));
-  assert.equal(onlyWifi.label, 'Experimental');
-  assert.match(onlyWifi.text, /Experimental/);
+  assert.equal(onlyWifi.label, 'Depends on Wi-Fi');
+  assert.doesNotMatch(onlyWifi.text, /Experimental/);
   assert.equal(readiness(status({ wake: { primary: null } })).label, 'Not connected');
   assert.equal(readiness(status({ wake: { targets: [], primary: null } })).tone, 'danger');
   // A state from a newer host is not shown as ready.

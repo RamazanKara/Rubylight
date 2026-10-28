@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Экспериментальная полная цветность</string>
-    <string name="summary_packed_444">Требуются экспериментальная опция полной цветности в Rubylight, новый движок стриминга и совместимый аппаратный декодер HEVC/AV1. Неподдерживаемые режимы прерывают соединение. Для HDR также нужна совместимая 10-битная поверхность вывода HDR.</string>
-    <string name="title_experimental_chipset_tuning">Экспериментальная настройка чипсета</string>
+    <string name="title_packed_444">Полная цветность</string>
+    <string name="summary_packed_444">Требуются опция полной цветности в Rubylight, новый движок стриминга и совместимый аппаратный декодер HEVC/AV1. Неподдерживаемые режимы прерывают соединение. Для HDR также нужна совместимая 10-битная поверхность вывода HDR.</string>
+    <string name="title_experimental_chipset_tuning">Настройка чипсета</string>
     <string name="summary_experimental_chipset_tuning">Дополнительные настройки низкой задержки для декодеров MediaTek Dimensity и Samsung Exynos. Если видео останавливается или подтормаживает, отключите эту функцию.</string>
     <string name="scut_deleted_pc">ПК удалён</string>
     <string name="scut_not_paired">ПК не сопряжён</string>
@@ -381,7 +381,7 @@
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Выкл. (прямой вывод)</string>
     <string name="title_vulkan_render">Рендеринг через Vulkan</string>
-    <string name="summary_vulkan_render">Экспериментально. Выводит видео через Vulkan с собственным управлением темпом кадров, для оверлеев генерации кадров, которые подключаются к Vulkan. Добавляет проход рендеринга, поэтому задержка немного растёт. Требуется Android 10 или новее. С PyroWave не используется. Пока включено, масштабирование отключено.</string>
+    <string name="summary_vulkan_render">Выводит видео через Vulkan с собственным управлением темпом кадров, для оверлеев генерации кадров, которые подключаются к Vulkan. Добавляет проход рендеринга, поэтому задержка немного растёт. Требуется Android 10 или новее. С PyroWave не используется. Пока включено, масштабирование отключено.</string>
     <string name="vulkan_render_fallback">Рендеринг через Vulkan не используется. %1$s</string>
     <string name="vulkan_reason_pyrowave">Видео PyroWave его не использует.</string>
     <string name="vulkan_reason_api">Требуется Android 10 или новее.</string>

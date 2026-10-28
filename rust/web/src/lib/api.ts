@@ -603,7 +603,7 @@ export interface ChildSessionViewer {
   password_saved: boolean;
   notice: string | null;
 }
-/** `GET /api/child-session`: background streaming in a Windows child session (Experimental). */
+/** `GET /api/child-session`: background streaming in a Windows child session. */
 export interface ChildSessionStatus {
   mode: 'child_session' | 'virtual_display' | 'inside_child_session';
   label: string;

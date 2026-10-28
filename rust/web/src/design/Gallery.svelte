@@ -75,7 +75,7 @@
       </div>
       <div class="row">
         <Badge>HEVC</Badge><Badge tone="ok">Paired</Badge><Badge tone="warn">Applies after a restart</Badge>
-        <Badge tone="danger">Blocked</Badge><Badge tone="accent">Experimental</Badge><Badge tone="live">Live</Badge>
+        <Badge tone="danger">Blocked</Badge><Badge tone="accent">New</Badge><Badge tone="live">Live</Badge>
       </div>
     </div>
   </Panel>

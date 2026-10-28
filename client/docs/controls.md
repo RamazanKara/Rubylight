@@ -71,7 +71,7 @@ For a GameSir G8+ MFi, use its green **Xbox mode** for direct USB input and rumb
 
 Android reads a Switch Pro Controller through its own input path; what that offers for motion, rumble and the Capture button depends on the device and Android version. For the direct USB driver:
 
-1. Open **Settings → Controls → More Controls settings** and enable **USB Switch Pro driver (Experimental)** (off by default).
+1. Open **Settings → Controls → More Controls settings** and enable **USB Switch Pro driver** (off by default).
 2. Connect a Nintendo Switch Pro Controller by USB and start a stream.
 3. Allow Android's USB access request. Denying it keeps the ordinary Android input path; unplug and reconnect to retry.
 

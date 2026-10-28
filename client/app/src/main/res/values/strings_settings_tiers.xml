@@ -5,6 +5,6 @@
     <string name="settings_more">More settings</string>
     <string name="settings_more_count">More %1$s settings (%2$d)</string>
     <string name="settings_fewer">Fewer %1$s settings</string>
-    <string name="settings_category_experimental">Experimental</string>
+    <string name="settings_category_experimental">More options</string>
     <string name="summary_off_auto_bitrate">Off: the PC adapts the bitrate (recommended)</string>
 </resources>

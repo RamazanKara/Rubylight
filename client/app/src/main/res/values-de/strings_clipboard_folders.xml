@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Bild an PC senden (Experimentell)</string>
-    <string name="stream_clipboard_image_receive">Bild vom PC kopieren (Experimentell)</string>
+    <string name="stream_clipboard_image_send">Bild an PC senden</string>
+    <string name="stream_clipboard_image_receive">Bild vom PC kopieren</string>
     <string name="stream_clipboard_image_empty">Die Zwischenablage enthält kein Bild</string>
     <string name="stream_clipboard_image_sent">Bild an PC gesendet</string>
     <string name="stream_clipboard_image_none">Die Zwischenablage des PCs enthält kein Bild</string>

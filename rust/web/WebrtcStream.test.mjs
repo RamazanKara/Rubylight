@@ -280,9 +280,9 @@ test('a lapsed sign-in’s anonymous token does not replace the session’s', as
   }
 });
 
-test('the page is marked Experimental and has the stream video the e2e probe finds', () => {
+test('the page carries no Experimental badge and has the stream video the e2e probe finds', () => {
   const { body } = render(Stream);
-  assert.match(body, />Experimental</);
+  assert.doesNotMatch(body, />Experimental</);
   assert.match(body, /<video id="stream-video"/);
   // The socket opens on Connect, not with the page.
   assert.match(body, /Checking the host/);

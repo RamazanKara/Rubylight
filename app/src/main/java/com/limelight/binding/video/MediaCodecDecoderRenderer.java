@@ -3781,8 +3781,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return false;
         }
         LimeLog.info("HDR metadata set on the running decoder; its output format is checked for it");
-        uncheckedHdrStaticInfo = info.array();
+        // The count first: the output thread reads it after the volatile check it pairs with.
         hdrStaticInfoOutputs = 0;
+        uncheckedHdrStaticInfo = info.array();
         return true;
     }
 

@@ -136,6 +136,15 @@ impl Keeper {
         }
     }
 
+    /// Every instance's processes at the last pass (pid → start time), to
+    /// stop with the session.
+    pub fn processes(&self) -> BTreeMap<u32, u64> {
+        self.slots
+            .iter()
+            .flat_map(|s| s.tree.iter().map(|id| (id.pid, id.started)))
+            .collect()
+    }
+
     fn is_game(&self, process: &Process) -> bool {
         self.executables
             .iter()
@@ -495,6 +504,11 @@ pub(crate) mod tests {
             ]
         );
         assert_eq!(desktop.unthrottled, BTreeSet::from([20, 21, 30]));
+        // The session stops these, never the PC user's own copy.
+        assert_eq!(
+            keeper.processes(),
+            BTreeMap::from([(20, 110), (21, 111), (30, 120)])
+        );
         // Parked beside the desktop at each player's stream size; the PC
         // user's window is left alone.
         assert_eq!(

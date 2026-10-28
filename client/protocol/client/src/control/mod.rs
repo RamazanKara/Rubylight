@@ -11,6 +11,7 @@
 //! [`ControlSession`] is the protocol without sockets. [`driver`] runs it, and the input
 //! queue, over ENet on a thread of the caller's choosing.
 
+pub mod clipboard_sync;
 pub mod driver;
 pub mod events;
 pub mod haptics;

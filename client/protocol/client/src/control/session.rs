@@ -533,6 +533,11 @@ impl ControlSession {
             ptype::USB if extensions && self.caps.supports_control_message(ptype::USB) => {
                 events::usb(p)
             }
+            ptype::CLIPBOARD_SYNC
+                if extensions && self.caps.supports_control_message(ptype::CLIPBOARD_SYNC) =>
+            {
+                Some(events::clipboard_sync(p))
+            }
             _ => None,
         };
         if let Some(event) = event {
@@ -1171,6 +1176,66 @@ mod tests {
             })),
             Err(SendError::Unsupported)
         );
+    }
+
+    #[test]
+    fn clipboard_frames_go_both_ways_only_once_announced() {
+        use super::super::clipboard_sync::{ClipboardItem, ClipboardSync, Local};
+        use rubylight_protocol::clipboard_sync::{Frame, KIND_TEXT};
+        let mut s = ControlSession::new(
+            HostCapabilities {
+                control_messages: vec![0x5530, 0x5508],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let mut sync = ClipboardSync::new(false);
+        s.send(sync.hello()).unwrap();
+        let Local::Send(copy) = sync.local(ClipboardItem::Text("hi".into()), t0) else {
+            panic!();
+        };
+        s.send(copy).unwrap();
+        let sent = host_reads(&mut s);
+        assert_eq!(sent.len(), 2);
+        assert_eq!(
+            (sent[0].0, sent[0].1, sent[0].2),
+            (0, Delivery::Reliable, 0x5508)
+        );
+        assert!(Frame::decode(&sent[0].3).unwrap().is_hello());
+        let frame = Frame::decode(&sent[1].3).unwrap();
+        assert_eq!(
+            (frame.kind, frame.payload.as_slice()),
+            (KIND_TEXT, &b"hi"[..])
+        );
+
+        let pc = Frame {
+            kind: KIND_TEXT,
+            token: 9,
+            payload: b"pc".to_vec(),
+        };
+        s.handle_datagram(t0, &from_host(1, 0x5508, &pc.encode().unwrap()))
+            .unwrap();
+        s.handle_datagram(t0, &from_host(2, 0x5508, &[2, 1, 0]))
+            .unwrap();
+        assert_eq!(
+            s.take_events(),
+            [
+                ControlEvent::ClipboardSync(pc.clone()),
+                ControlEvent::ClipboardSyncRejected(3)
+            ]
+        );
+
+        // A host that did not offer it, as one the launch did not ask, neither hears nor
+        // sends frames.
+        let mut bare = session(SessionOptions::default());
+        assert_eq!(bare.send(sync.hello()), Err(SendError::Unsupported));
+        bare.handle_datagram(t0, &from_host(1, 0x5508, &pc.encode().unwrap()))
+            .unwrap();
+        assert_eq!(bare.take_events(), []);
     }
 
     #[test]

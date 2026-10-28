@@ -1353,6 +1353,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return (map.targetButtonFlags() & ControllerPacket.TOUCHPAD_FLAG) != 0 ? MoonBridge.LI_CTYPE_PS : type;
     }
 
+    /**
+     * Whether Select+LB stands in for the touchpad click on a pad faked as PlayStation for motion.
+     * A button mapped to the touchpad already clicks it, so the combo would only swallow Select and LB.
+     */
+    static boolean needsClickpadEmulation(ControllerButtonMap map) {
+        return (map.targetButtonFlags() & ControllerPacket.TOUCHPAD_FLAG) == 0;
+    }
+
     static boolean updateMappedButton(Map<Integer, Integer> pressedButtons, int physicalKey, int target, boolean down) {
         if (target == KeyEvent.KEYCODE_MENU) target = KeyEvent.KEYCODE_BUTTON_START;
         else if (target == KeyEvent.KEYCODE_BACK) target = KeyEvent.KEYCODE_BUTTON_SELECT;
@@ -4016,7 +4024,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 reportedType = MoonBridge.LI_CTYPE_UNKNOWN;
 
                 // Remember that we should enable the clickpad emulation combo (Select+LB) for this device
-                needsClickpadEmulation = true;
+                needsClickpadEmulation = needsClickpadEmulation(buttonMap);
             }
             else {
                 // Report the true type to the host PC if we're not emulating motion sensors

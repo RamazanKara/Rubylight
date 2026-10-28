@@ -328,7 +328,9 @@ def execute(check, root, log, target):
     if check.kind == 'gradle':
         env = {k: v for k, v in os.environ.items() if k.upper() != 'CARGO_TARGET_DIR'}
         filters = [a for t in check.items for a in ('--tests', t)]
-        return run(['cmd', '/c', 'gradlew.bat', '--no-daemon', '--max-workers=2', GRADLE_TASK, *filters],
+        # By its full path: with NoDefaultCurrentDirectoryInExePath set, cmd
+        # doesn't look in its working folder for a bare gradlew.bat.
+        return run(['cmd', '/c', str(root / 'client' / 'gradlew.bat'), '--no-daemon', '--max-workers=2', GRADLE_TASK, *filters],
                    log, root / 'client', env) == 0
     if check.kind == 'web':
         web = root / 'rust/web'

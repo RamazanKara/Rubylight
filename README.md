@@ -20,7 +20,7 @@
 
 <div align="center">
 
-**[Download 3.0.0-rc.3](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.3)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md)
+**[Download 3.0.0-rc.4](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.4)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md)
 
 <sub>Windows 10 and 11 · Any AMD Radeon with AMF · Formerly Butterpollo</sub>
 
@@ -68,7 +68,7 @@
 
 ## Install. Pair. Play.
 
-1. **Install.** Run **`rubylight-setup-3.0.0-rc.3.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.3). It sets up the service, the virtual display driver and controller support in one pass, ready to stream right away. A portable ZIP is there too.
+1. **Install.** Run **`rubylight-setup-3.0.0-rc.4.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.4). It sets up the service, the virtual display driver and controller support in one pass, ready to stream right away. A portable ZIP is there too.
 2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
 3. **Pair and play.** Open Moonlight or any compatible client on your device, select your PC and enter its PIN on the console's **Devices** page. Then pick **Desktop** or a game and play.
 

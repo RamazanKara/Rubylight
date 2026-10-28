@@ -1,2 +1,0 @@
-# HDR: HLG on PyroWave
-- **HLG on PyroWave.** PyroWave HDR streams now offer HLG too, to clients that ask for it, such as a screen that shows HLG and not HDR10: the picture is encoded with the same HLG curve as HEVC and AV1, graded for a 1000-nit display. PyroWave carries no HDR dynamic metadata, so an HLG stream there has none. Stock Moonlight and older clients see nothing new and get HDR10 as before; `hdr_hlg` turns it off with the rest of HLG.

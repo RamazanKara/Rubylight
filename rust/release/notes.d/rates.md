@@ -1,2 +1,0 @@
-# Rates
-- **Bitrate and frame rate change mid-stream.** A client that asks at launch can change its stream's bitrate and frame rate without reconnecting: a bitrate applies on the next frame without a keyframe, a frame rate switches the encoder like a resolution change. The host caps both to the device's maximum bitrate and the rate the encoder keeps up with at the stream's size, and answers every request with what it applied or why it refused. Stock Moonlight sees no change.

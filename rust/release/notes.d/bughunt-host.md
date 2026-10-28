@@ -1,9 +1,0 @@
-- A client that sends input faster than the PC can inject it no longer grows the host's memory without limit: past 512 waiting events the stream stops and says to reconnect. Input that waited on a controller the PC refused is dropped instead of replayed later.
-- An update whose "installed" record could not be written is no longer rolled back at the next service start.
-- The updater checks a downloaded installer without holding up launches and the console while it reads the file.
-- Webhooks refuse a URL whose name resolves to this PC or a link-local address when they deliver, not only when the address is typed as a number.
-- A new console password also revokes the API tokens. One-time PIN pairing counts wrong answers per address, so a wrong guess from one device no longer spends the PIN for the device it was meant for.
-- A browser form on another site can no longer use saved Basic credentials to send console API requests.
-- Packed 4:4:4 HDR streams run no HDR10+ statistics pass: the device unpacks the picture itself and takes static HDR10 from the control channel. The console text now says so.
-- A second stream on a shared virtual display joins it again after the first stream raised the rate, turned, or Windows changed the size.
-- The pairing, Moonlight and console ports close connections that send nothing, send their request slowly, or stall an upload, and cap how many connections one address may hold. Transfers that keep sending are not cut off.

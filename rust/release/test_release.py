@@ -255,12 +255,11 @@ class NightjarNotes(unittest.TestCase):
     def changelog(self, locale, code=None):
         return self.root / f'client/fastlane/metadata/android/{locale}/changelogs/{code or self.code}.txt'
 
-    def test_fragments_become_the_draft_and_both_changelogs(self):
-        (self.notes / 'b-menu.md').write_text('## en\n- The **stream menu** opens\n  with a long press.\n\n'
-                                              '## de\n- Das **Stream-Menü** öffnet sich\n  mit langem Drücken.\n',
+    def test_fragments_become_the_draft_and_the_english_changelog(self):
+        (self.notes / 'b-menu.md').write_text('## en\n- The **stream menu** opens\n  with a long press.\n',
                                               encoding='utf-8')
-        (self.notes / 'a-tv.md').write_text('<!-- nightjar#7 -->\n## de\n- Neues [TV-Design](https://x.test).\n'
-                                            '## en\n- A new [TV design](https://x.test).\n', encoding='utf-8')
+        (self.notes / 'a-tv.md').write_text('<!-- nightjar#7 -->\n## en\n- A new [TV design](https://x.test).\n',
+                                            encoding='utf-8')
         result = self.run_tool()
         self.assertEqual(result.returncode, 0, result.stderr)
         draft = self.out.read_text(encoding='utf-8')
@@ -268,15 +267,26 @@ class NightjarNotes(unittest.TestCase):
                                 '- The **stream menu** opens with a long press.\n\n**Tested.** \n')
         self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'),
                          '• A new TV design.\n• The stream menu opens with a long press.\n')
-        self.assertEqual(self.changelog('de').read_text(encoding='utf-8'),
-                         '• Neues TV-Design.\n• Das Stream-Menü öffnet sich mit langem Drücken.\n')
+        self.assertFalse(self.changelog('de').exists())
         self.assertEqual([p.name for p in self.notes.iterdir()], ['README.md'])
+
+    def test_notes_assemble_without_german_and_ignore_a_left_over_german_section(self):
+        # Release notes are English only; fragments written before still carry "## de".
+        (self.notes / 'a-old.md').write_text('## de\n- Neues TV-Design.\n## en\n- A new TV design.\n',
+                                             encoding='utf-8')
+        (self.notes / 'b-new.md').write_text('## en\n- Only English.\n', encoding='utf-8')
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'),
+                         '• A new TV design.\n• Only English.\n')
+        self.assertNotIn('Neues', self.out.read_text(encoding='utf-8'))
+        self.assertFalse(self.changelog('de').exists())
 
     def test_mistakes_change_nothing(self):
         cases = {
-            'needs a list': '## en\n- Only English.\n',
+            'needs a list': '## de\n- Nur Deutsch.\n',
             'unknown section': '## en\n- A.\n## fr\n- B.\n',
-            "Google Play's 500": '## en\n' + '- A long sentence about streaming.\n' * 20 + '## de\n- B.\n',
+            "Google Play's 500": '## en\n' + '- A long sentence about streaming.\n' * 20,
         }
         for message, text in cases.items():
             with self.subTest(message=message):
@@ -288,6 +298,28 @@ class NightjarNotes(unittest.TestCase):
                 self.assertFalse(self.changelog('en-US').exists())
                 self.assertTrue((self.notes / 'x.md').exists())
 
+    def test_a_hand_written_changelog_replaces_long_bullets(self):
+        # 4.0.0-alpha.1: the bullets of 40 fragments made a 19,000-character changelog.
+        (self.notes / 'x.md').write_text('## en\n' + '- A long sentence about streaming.\n' * 20, encoding='utf-8')
+        short = self.root / 'play-en.txt'
+        short.write_text('• Streaming, shorter.\r\n\r\n', encoding='utf-8')
+        result = self.run_tool('--changelog-en', str(short))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'), '• Streaming, shorter.\n')
+        self.assertEqual(self.out.read_text(encoding='utf-8').count('- A long sentence about streaming.'), 20)
+
+    def test_a_hand_written_changelog_over_the_limit_changes_nothing(self):
+        (self.notes / 'x.md').write_text('## en\n- A.\n', encoding='utf-8')
+        long = self.root / 'play-en.txt'
+        long.write_text('x' * 501 + '\n', encoding='utf-8')
+        result = self.run_tool('--changelog-en', str(long))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Google Play's 500", result.stderr)
+        self.assertIn('--changelog-en', result.stderr)
+        self.assertFalse(self.out.exists())
+        self.assertFalse(self.changelog('en-US').exists())
+        self.assertTrue((self.notes / 'x.md').exists())
+
     def test_the_repository_fragments_are_well_formed(self):
         # A fragment with "## English" broke the release only at release time.
         spec = importlib.util.spec_from_file_location('nightjar_notes', ROOT / 'tools/nightjar_notes.py')
@@ -297,20 +329,20 @@ class NightjarNotes(unittest.TestCase):
         self.assertEqual(len(bullets['en']) > 0, len(files) > 0)
 
     def test_an_existing_changelog_needs_force_and_keep_keeps_the_fragments(self):
-        (self.notes / 'x.md').write_text('## en\n- A.\n## de\n- B.\n', encoding='utf-8')
-        self.changelog('de').parent.mkdir(parents=True)
-        self.changelog('de').write_text('published\n', encoding='utf-8')
+        (self.notes / 'x.md').write_text('## en\n- A.\n', encoding='utf-8')
+        self.changelog('en-US').parent.mkdir(parents=True)
+        self.changelog('en-US').write_text('published\n', encoding='utf-8')
         result = self.run_tool()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('exists', result.stderr)
-        self.assertEqual(self.changelog('de').read_text(encoding='utf-8'), 'published\n')
+        self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'), 'published\n')
         result = self.run_tool('--version-code', str(self.code + 1), '--keep')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.changelog('de', self.code + 1).read_text(encoding='utf-8'), '• B.\n')
+        self.assertEqual(self.changelog('en-US', self.code + 1).read_text(encoding='utf-8'), '• A.\n')
         self.assertTrue((self.notes / 'x.md').exists())
         result = self.run_tool('--force')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.changelog('de').read_text(encoding='utf-8'), '• B.\n')
+        self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'), '• A.\n')
         self.assertFalse((self.notes / 'x.md').exists())
 
 

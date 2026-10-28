@@ -1,4 +1,0 @@
-# Log analysis
-
-- **Log analysis.** Help & diagnostics has a Log analysis panel that reads the last 8 MiB of the host log and explains the known failures it finds: AMD encoder hangs, start failures and unsupported codecs, GPU resets, capture access lost and protected content, ports already in use, UPnP, client timeouts and network loss, roaming, and a missing or old virtual display driver. Each finding names how often it happened and when it last did, says what to do, and links to the matching section of the troubleshooting guide, which gained sections for codecs, outside access, drivers and network drops. The rules run on this PC; nothing is sent anywhere. `GET /api/logs/analysis` returns the same findings.
-- **Client build warnings.** The device list shows the user agent each paired device last sent, and a warning when that build has a known problem with this host. The list of such builds ships empty and never refuses a device.

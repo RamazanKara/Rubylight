@@ -361,6 +361,9 @@ mod tests {
         "touch_sensitivity",
         "touch_gestures",
         "qr_pairing",
+        // Nucleus Co-op.
+        "nucleus_path",
+        "nucleus_coop_players",
     ];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line

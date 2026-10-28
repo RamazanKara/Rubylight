@@ -152,7 +152,6 @@ export const settings: Setting[] = [
     group: 'Background streaming',
     control: { kind: 'text', placeholder: 'C:\\Tools\\Nucleus Co-op', mono: true },
     default: '',
-    pending: true,
   },
   {
     key: 'nucleus_coop_players',
@@ -162,6 +161,5 @@ export const settings: Setting[] = [
     group: 'Background streaming',
     control: { kind: 'number', min: 1, max: 4, step: 1 },
     default: 4,
-    pending: true,
   },
 ];

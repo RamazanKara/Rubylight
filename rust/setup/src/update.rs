@@ -292,13 +292,14 @@ fn finish_update(
 ) -> Result<()> {
     if let Some(warning) = warning {
         line(warning);
-        write_record(
-            result,
-            &json!({"version":env!("CARGO_PKG_VERSION"),"phase":"installed","error":null,"warning":warning}),
-        )?;
-    } else {
-        write_result(result, "installed", None)?;
     }
+    let record = match warning {
+        Some(warning) => {
+            json!({"version":env!("CARGO_PKG_VERSION"),"phase":"installed","error":null,"warning":warning})
+        }
+        None => json!({"version":env!("CARGO_PKG_VERSION"),"phase":"installed","error":null}),
+    };
+    keep_installed_record(result, || write_record(result, &record))?;
     for old in previous {
         if !entries
             .iter()
@@ -311,6 +312,25 @@ fn finish_update(
     }
     let _ = std::fs::remove_dir_all(work);
     Ok(())
+}
+/// The update works, so the record must stop saying "installing" with a
+/// backup: the service would restore the previous version over it at its
+/// next start. When the write fails twice (a full disk, a scanner holding
+/// the file) the record goes, and setup still reports the error.
+fn keep_installed_record(result: &Path, write: impl Fn() -> Result<()>) -> Result<()> {
+    let Err(error) = write().or_else(|_| write()) else {
+        return Ok(());
+    };
+    match std::fs::remove_file(result) {
+        Ok(()) => Err(error.context(
+            "The update is installed, but its record could not be written, so it was removed",
+        )),
+        Err(removal) if removal.kind() == std::io::ErrorKind::NotFound => Err(error),
+        Err(removal) => Err(error.context(format!(
+            "The update is installed, but its record could not be written or removed ({removal}); \
+             the service may restore the previous version at its next start"
+        ))),
+    }
 }
 
 fn check_service_folder(service: &Path, install: &Path) -> Result<()> {
@@ -1065,6 +1085,36 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn a_failed_installed_record_does_not_leave_a_rollback_behind() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let install = root.path().join("install");
+        std::fs::create_dir(&install)?;
+        let result = root.path().join("update-result.json");
+        let installing = json!({"phase":"installing","backup":root.path().join("backup"),
+                                "install":install});
+        write_record(&result, &installing)?;
+        // One failure is retried.
+        let tries = std::cell::Cell::new(0);
+        keep_installed_record(&result, || {
+            tries.set(tries.get() + 1);
+            if tries.get() == 1 {
+                bail!("disk full");
+            }
+            write_result(&result, "installed", None)
+        })?;
+        assert_eq!(tries.get(), 2);
+        // Two fail: the record that names the backup goes, and setup still fails.
+        write_record(&result, &installing)?;
+        let error = keep_installed_record(&result, || bail!("disk full")).unwrap_err();
+        assert!(format!("{error:#}").contains("disk full"));
+        assert!(!result.exists());
+        assert_eq!(
+            butterpollo_core::update_recovery::recover(root.path(), &install)?,
+            None
+        );
+        Ok(())
+    }
     #[test]
     fn a_service_left_disabled_is_a_warning_on_the_installed_record() -> Result<()> {
         let root = tempfile::tempdir()?;

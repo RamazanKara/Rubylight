@@ -50,4 +50,6 @@
     <string name="files_problem_network">Die Verbindung zum PC ist fehlgeschlagen.</string>
     <string name="files_problem_local">Die Datei auf diesem Gerät ließ sich nicht lesen oder schreiben.</string>
     <string name="files_problem_host">Der PC hat mit einem Fehler geantwortet.</string>
+    <string name="files_save_lost">Der Download ging verloren, während der Speichern-Dialog offen war; nichts wurde gespeichert. Tippe erneut auf Herunterladen.</string>
+    <string name="files_partial_left">Ein unfertiger Download ließ sich nicht löschen: %1$s liegt noch dort, wo du ihn gespeichert hast, und ist nicht die vollständige Datei. Lösche ihn dort.</string>
 </resources>

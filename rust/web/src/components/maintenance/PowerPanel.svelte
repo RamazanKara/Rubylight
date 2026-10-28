@@ -228,6 +228,8 @@
     gap: var(--space-2);
   }
   .checks {
+    /* The result badge keeps its width; on a phone the check's name wraps instead. */
+    grid-template-columns: fit-content(16em) minmax(max-content, 1fr);
     font-size: var(--text-sm);
   }
   .fix {

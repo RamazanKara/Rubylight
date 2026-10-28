@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
@@ -78,4 +79,11 @@ test('an incomplete power status is an error, not an empty page', () => {
   for (const reply of [{ status: true, available: false, enabled: false }, null, [], { ...status(), fix: null }, { ...status(), idle_sleep: {} }]) {
     assert.throws(() => checkPowerStatus(reply), /incomplete power status/);
   }
+});
+
+test("an adapter check's badge keeps its width, so it stays inside the card on a phone", () => {
+  const panel = readFileSync(new URL('./src/components/maintenance/PowerPanel.svelte', import.meta.url), 'utf8');
+  const rule = panel.match(/\.checks \{([^}]*)\}/);
+  assert.ok(rule);
+  assert.match(rule[1], /grid-template-columns: fit-content\(16em\) minmax\(max-content, 1fr\)/);
 });

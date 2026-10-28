@@ -1,5 +1,7 @@
 #include <cassert>
 #include <cmath>
+#include <string>
+#include <vector>
 #include "../../main/jni/pyrowave-renderer/presentation.h"
 
 // Compile the actual shared GLSL UV mapping as C++ with its small vector type.
@@ -170,8 +172,49 @@ static void swapchainFormatSelection() {
     assert(pyroWindowDataspace(false, true) == 142671872);
 }
 
+// The dataspace setter is searched by library handle, never through RTLD_DEFAULT (null on Android 13).
+static void dataspaceSymbolLookup() {
+    static int nativewindow, android, setter, other;
+    std::vector<std::string> opened;
+    std::string has;  // the library that exports the symbol
+    auto open = [&](const char *library) -> void * {
+        opened.push_back(library);
+        const std::string name = library;
+        return name == "libnativewindow.so" ? (void *)&nativewindow : name == "libandroid.so" ? (void *)&android : nullptr;
+    };
+    auto lookup = [&](void *handle, const char *symbol) -> void * {
+        assert(handle != nullptr);
+        if (std::string(symbol) != "ANativeWindow_setBuffersDataSpace") return &other;
+        const std::string library = handle == &nativewindow ? "libnativewindow.so" : "libandroid.so";
+        return library == has ? (void *)&setter : nullptr;
+    };
+    const char *name = "ANativeWindow_setBuffersDataSpace";
+
+    has = "libnativewindow.so";
+    assert(pyroFindSymbol(name, open, lookup) == &setter);
+    assert(opened == std::vector<std::string>{"libnativewindow.so"});
+
+    opened.clear();
+    has = "libandroid.so";
+    assert(pyroFindSymbol(name, open, lookup) == &setter);
+    assert((opened == std::vector<std::string>{"libnativewindow.so", "libandroid.so"}));
+
+    opened.clear();
+    has.clear();
+    assert(pyroFindSymbol(name, open, lookup) == nullptr);
+    assert(opened.size() == 2);
+
+    // A library that does not open is skipped, not searched.
+    auto noNativewindow = [&](const char *library) -> void * {
+        return std::string(library) == "libandroid.so" ? (void *)&android : nullptr;
+    };
+    has = "libandroid.so";
+    assert(pyroFindSymbol(name, noNativewindow, lookup) == &setter);
+}
+
 int main() {
     swapchainFormatSelection();
+    dataspaceSymbolLookup();
     rotationMapping();
     rotatedFitAndUpscaling();
     assert(pyroSurfaceDimension(1920, 1280, 64, 4096) == 1920);

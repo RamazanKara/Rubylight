@@ -1,5 +1,6 @@
 package com.limelight.computers;
 
+import com.limelight.R;
 import com.limelight.nvstream.http.PairingLink;
 import com.limelight.nvstream.http.PairingManager.PairState;
 
@@ -39,5 +40,15 @@ public class HostActionsLinkTest {
         assertFalse(link.matches(pinned));
         assertFalse(HostActions.alreadyPaired(PairState.NOT_PAIRED, link, pinned));
         assertFalse(HostActions.alreadyPaired(PairState.NOT_PAIRED, null, null));
+    }
+
+    @Test
+    public void aRefusedPairingSaysWhatToDoInsteadOfBlamingTheNetwork() {
+        // A replayed or expired QR code is refused by the host with an HTTP error; it used to show the
+        // network and firewall advice.
+        assertEquals(R.string.pair_qr_incorrect_pin, HostActions.refusalMessage(true, false));
+        assertEquals(R.string.pair_otp_incorrect_pin, HostActions.refusalMessage(false, true));
+        assertEquals(R.string.pair_fail, HostActions.refusalMessage(false, false));
+        assertNotEquals(R.string.pair_connection_fix, HostActions.refusalMessage(true, false));
     }
 }

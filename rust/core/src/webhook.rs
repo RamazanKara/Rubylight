@@ -77,29 +77,42 @@ pub struct DeliveryHost<'a> {
 
 /// Reads the `webhooks` setting: a JSON list of [`Webhook`]s. An unknown
 /// event, a URL that is not http(s), an empty event list or an empty secret
-/// refuses the whole list.
+/// refuses the whole list. Its errors name a hook by [`origin`] alone: they
+/// reach the log, and a URL's path or query may hold a token.
 pub fn parse_webhooks(text: &str) -> Result<Vec<Webhook>> {
     let hooks: Vec<Webhook> =
         serde_json::from_str(text).context("webhooks is not a JSON list of hooks")?;
-    for hook in &hooks {
+    for (at, hook) in hooks.iter().enumerate() {
         let rest = hook
             .url
             .strip_prefix("https://")
             .or_else(|| hook.url.strip_prefix("http://"));
         if rest.is_none_or(|rest| rest.is_empty() || rest.chars().any(char::is_whitespace)) {
-            bail!("webhook URL {:?} is not an http(s) URL", hook.url);
+            bail!("the URL of webhook {} is not an http(s) URL", at + 1);
         }
+        let origin = origin(&hook.url);
         if hook.events.is_empty() {
-            bail!("webhook {} subscribes to no events", hook.url);
+            bail!("webhook {origin} subscribes to no events");
         }
         if let Some(event) = hook.events.iter().find(|e| !EVENTS.contains(&e.as_str())) {
-            bail!("webhook {} names an unknown event {event:?}", hook.url);
+            bail!("webhook {origin} names an unknown event {event:?}");
         }
         if hook.secret.is_empty() {
-            bail!("webhook {} has no secret", hook.url);
+            bail!("webhook {origin} has no secret");
         }
     }
     Ok(hooks)
+}
+
+/// `scheme://host:port` of an http(s) `url`, without the user name, password,
+/// path, query or fragment, any of which may hold a token.
+pub fn origin(url: &str) -> String {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("", url));
+    let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    format!("{scheme}://{host}")
 }
 
 /// Lowercase hex HMAC-SHA256 of `body` with `secret`.
@@ -150,6 +163,36 @@ mod tests {
         ] {
             assert!(parse_webhooks(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_refused_hook_is_named_without_its_token() {
+        // Discord and Slack hooks hold their token in the path; the error reaches the log.
+        let token = "T0K3N";
+        for bad in [
+            r#"[{"url":"https://discord.test/api/webhooks/1/T0K3N","events":[],"secret":"s"}]"#,
+            r#"[{"url":"https://hooks.test/services/T0K3N?x=1","events":["app.crashed"],"secret":"s"}]"#,
+            r#"[{"url":"https://user:T0K3N@hooks.test/a","events":["app.started"],"secret":""}]"#,
+        ] {
+            let error = format!("{:#}", parse_webhooks(bad).unwrap_err());
+            assert!(!error.contains(token), "{error}");
+            assert!(error.contains(".test"), "{error}");
+        }
+        let error = parse_webhooks(
+            r#"[{"url":"https://a.test","events":["app.started"],"secret":"s"},
+                {"url":"ftp://T0K3N@b.test/T0K3N","events":["app.started"],"secret":"s"}]"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            !error.contains(token) && error.contains("webhook 2"),
+            "{error}"
+        );
+        assert_eq!(
+            origin("https://user:pw@example.com:8443/a/b?token=x#f"),
+            "https://example.com:8443"
+        );
+        assert_eq!(origin("http://192.168.1.5\\x"), "http://192.168.1.5");
     }
 
     #[test]

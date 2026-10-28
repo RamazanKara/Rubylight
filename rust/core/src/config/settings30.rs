@@ -109,7 +109,7 @@ impl Config {
     /// reported without its text, which holds the secrets, and no hook is used.
     pub fn webhooks(&self) -> Vec<crate::webhook::Webhook> {
         crate::webhook::parse_webhooks(self.get("webhooks", "[]")).unwrap_or_else(|error| {
-            // The outermost message only: it names the URL, never a secret.
+            // The outermost message only: it names a hook by its origin, never its secret.
             let error = error.to_string();
             if first_report("webhooks", &error) {
                 tracing::warn!(

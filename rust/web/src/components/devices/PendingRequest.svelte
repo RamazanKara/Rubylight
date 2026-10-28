@@ -1,12 +1,12 @@
 <script lang="ts">
   import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
-  import { api, type PendingPairing } from '../../lib/api';
+  import { api, type PairingAccess, type PendingPairing } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { duration } from '../../lib/format';
   import { refreshPending } from '../../lib/session.svelte';
 
-  let { request }: { request: PendingPairing } = $props();
+  let { request, access }: { request: PendingPairing; access?: PairingAccess } = $props();
 
   const uid = $props.id();
   let pin = $state('');
@@ -23,7 +23,8 @@
     if (!complete) return;
     busy = true;
     try {
-      await api.clients.pin(pin, request.uniqueid, request.name);
+      // A WebRTC device takes no access choice: it keeps its own default.
+      await api.clients.pin(pin, request.uniqueid, request.name, request.webrtc ? undefined : access);
       notify(`PIN sent to ${request.name}. Check the device for the result. If it rejects the PIN, start pairing again on the device and enter its new PIN.`, 'info', 8000);
       pin = '';
     } catch (error) {

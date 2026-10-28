@@ -1,11 +1,13 @@
 <script lang="ts">
   import Button from '../Button.svelte';
   import Field from '../Field.svelte';
-  import { api } from '../../lib/api';
+  import { api, type PairingAccess } from '../../lib/api';
   import { failed } from '../../lib/feedback.svelte';
 
   // The host accepts a one-time PIN for three minutes.
   const LIFETIME_MS = 180_000;
+
+  let { access }: { access?: PairingAccess } = $props();
 
   const uid = $props.id();
   let passphrase = $state('');
@@ -30,7 +32,7 @@
     if (tooShort) return;
     busy = true;
     try {
-      const result = await api.clients.otp(passphrase, deviceName.trim());
+      const result = await api.clients.otp(passphrase, deviceName.trim(), access);
       now = Date.now();
       otp = { pin: result.otp, host: result.name, address: result.ip, expires: now + LIFETIME_MS };
     } catch (error) {

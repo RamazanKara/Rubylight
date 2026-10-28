@@ -69,7 +69,7 @@ Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video enco
 
 ## Pairing and the web console
 
-- **Pairing** with a PIN or a one-time PIN, with per-device permissions and an enable switch. Devices paired after the first start view-only until you grant more. **Host control** is a separate per-device switch, off until you turn it on ([details](configuration.md#host-control-for-a-device)).
+- **Pairing** with a PIN or a one-time PIN, with per-device permissions and an enable switch. When you pair from the console you choose what the device can do: Play games (the default), Watch only or Everything; the first device gets everything. WebRTC devices, and pairings made through the API without a choice, start view-only until you grant more. **Host control** is a separate per-device switch, off until you turn it on ([details](configuration.md#host-control-for-a-device)).
 - **A console for everyday play.** Home shows setup, readiness and the current stream, with your game shelf below. Games & apps, Devices and Settings cover the library, pairing and stream options; Help & diagnostics holds logs, display recovery and updates. A stream card shows frame rate, bitrate and encoder timing together and explains what the host did and why.
 - **A tray icon** with notifications for pairing requests, new versions and apps launching, pausing and stopping.
 - **Logs and support.** Rotating logs, a live tail in the console, crash dumps and a support bundle.

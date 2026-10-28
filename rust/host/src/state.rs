@@ -103,13 +103,16 @@ impl CodecRetry {
         true
     }
 }
-/// A one-time PIN that lets a client pair with a passphrase, valid 180 s.
+/// A one-time PIN that lets a client pair with a passphrase, valid
+/// [`ONE_TIME_PIN_LIFETIME`] and for [`OtpMisses`] wrong tries.
 pub struct OneTimePin {
     pub pin: String,
     pub passphrase: String,
     pub device_name: String,
     pub created: Instant,
     pub misses: OtpMisses,
+    /// The access the owner chose ([`butterpollo_core::state::pairing_access`]).
+    pub permission: Option<u32>,
 }
 /// Wrong one-time PIN answers by device address. Pairing needs no client
 /// certificate, so one global count let any LAN device use up the invitation
@@ -135,14 +138,86 @@ impl OtpMisses {
         self.total += 1;
         self.total < Self::TOTAL
     }
+    /// Wrong answers from `peer` so far.
+    pub fn count(&self, peer: std::net::IpAddr) -> u8 {
+        self.by_peer.get(&peer).copied().unwrap_or(0)
+    }
 }
+pub const ONE_TIME_PIN_LIFETIME: Duration = Duration::from_secs(180);
+impl OneTimePin {
+    pub fn live(&self) -> bool {
+        self.created.elapsed() < ONE_TIME_PIN_LIFETIME
+    }
+}
+/// The two one-time PINs: the console's QR code and the PIN typed in Artemis.
+/// Making one never replaces the other, and pairing consumes only the one
+/// that matched.
+#[derive(Default)]
+pub struct OneTimePins {
+    pub qr: Option<OneTimePin>,
+    pub typed: Option<OneTimePin>,
+}
+impl OneTimePins {
+    /// The live slot whose PIN and passphrase hash with `salt` to `auth`
+    /// (Artemis' `otpauth`), taken out of its slot. Slots that refuse `peer`
+    /// ([`OtpMisses::refuses`]) are not tried. A miss counts a wrong answer
+    /// from `peer` against every slot tried and closes a slot once it is
+    /// spent. Fails when no slot is live or every live slot refuses `peer`.
+    pub fn take_matching(
+        &mut self,
+        auth: &str,
+        salt: &str,
+        peer: std::net::IpAddr,
+    ) -> Result<Option<OneTimePin>> {
+        let auth = hex::decode(auth).ok();
+        let (mut live, mut tried) = (false, false);
+        for slot in [&mut self.qr, &mut self.typed] {
+            if slot.as_ref().is_some_and(|otp| !otp.live()) {
+                *slot = None;
+            }
+            let Some(otp) = slot.as_ref() else { continue };
+            live = true;
+            if otp.misses.refuses(peer) {
+                continue;
+            }
+            tried = true;
+            let expected = butterpollo_core::crypto::hash(
+                format!("{}{salt}{}", otp.pin, otp.passphrase).as_bytes(),
+            );
+            if auth
+                .as_deref()
+                .is_some_and(|auth| butterpollo_core::crypto::equal(&expected, auth))
+            {
+                return Ok(slot.take());
+            }
+        }
+        if !live {
+            anyhow::bail!("OTP pairing is not available");
+        }
+        if !tried {
+            anyhow::bail!("too many wrong one-time PIN answers from this address");
+        }
+        for slot in [&mut self.qr, &mut self.typed] {
+            if let Some(otp) = slot.as_mut()
+                && !otp.misses.refuses(peer)
+                && !otp.misses.miss(peer)
+            {
+                *slot = None;
+            }
+        }
+        Ok(None)
+    }
+}
+/// What the console sends a waiting pairing request: the PIN, the device's
+/// name and the access the owner chose (`None` keeps the default).
+pub type PinEntry = (String, String, Option<u32>);
 pub struct PendingPin {
     pub name: String,
     /// The requesting device's certificate: Moonlight's apps share one
     /// unique ID, so this tells another device apart.
     pub certificate: String,
     pub created: Instant,
-    pub sender: tokio::sync::oneshot::Sender<(String, String)>,
+    pub sender: tokio::sync::oneshot::Sender<PinEntry>,
 }
 /// A client's display lease and when it last stopped being streamed.
 pub type RetainedDisplay = (Arc<crate::display_session::Ready>, Option<Instant>);
@@ -198,7 +273,7 @@ pub struct Host {
     pub webrtc: crate::webrtc::clients::Registry,
     /// The media transport of each WebRTC session between its signalling task and its stream.
     pub webrtc_links: crate::webrtc::session::Links,
-    pub otp: Mutex<Option<OneTimePin>>,
+    pub otp: Mutex<OneTimePins>,
     pub web_sessions: Mutex<HashMap<String, WebSession>>,
     pub stop: std::sync::atomic::AtomicBool,
     pub restart: std::sync::atomic::AtomicBool,
@@ -544,7 +619,7 @@ impl Host {
             pins: Mutex::new(BTreeMap::new()),
             webrtc: crate::webrtc::clients::Registry::new(),
             webrtc_links: Default::default(),
-            otp: Mutex::new(None),
+            otp: Mutex::new(OneTimePins::default()),
             web_sessions: Mutex::new(web_sessions),
             stop: std::sync::atomic::AtomicBool::new(false),
             restart: std::sync::atomic::AtomicBool::new(false),

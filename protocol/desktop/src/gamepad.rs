@@ -6,7 +6,7 @@
 //! types and capabilities, the Start+Select+LB+RB quit combo) follows moonlight-qt's
 //! `app/streaming/input/gamepad.cpp` (GPL-3.0, Cameron Gutman and contributors).
 
-use crate::strings::en;
+use crate::strings::{en, trf};
 use nightjar_core::input::packets::{button, capability, motion_type, touch_event};
 use nightjar_core::input::InputQueue;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,25 @@ const BATTERY_FULL: u8 = 0x05;
 const BATTERY_PERCENT_UNKNOWN: u8 = 0xFF;
 
 const MAX_PADS: usize = 16;
+
+/// Why [`Gamepads::added`] left a controller out.
+#[derive(Debug, PartialEq)]
+pub enum NotOpened {
+    /// SDL could not open it; SDL's error.
+    Failed(String),
+    /// All [`MAX_PADS`] controllers the host takes are connected.
+    Limit,
+}
+
+impl NotOpened {
+    /// What the user is told.
+    pub fn message(&self) -> String {
+        match self {
+            NotOpened::Failed(error) => trf("Controller could not be opened: {}", &[error]),
+            NotOpened::Limit => trf("Controller limit reached: {} are connected", &[&MAX_PADS]),
+        }
+    }
+}
 
 /// SDL gamepad buttons in `SDL_GamepadButton` order, as Moonlight button flags.
 pub const BUTTON_MAP: [u32; 21] = [
@@ -217,21 +236,24 @@ impl Gamepads {
         self.disable_rumble = settings.disable_rumble;
     }
 
-    /// Opens a newly attached gamepad.
-    pub fn added(&mut self, id: SDL_JoystickID) {
+    /// Opens a newly attached gamepad. One that SDL cannot open, or one past the [`MAX_PADS`]
+    /// the host takes, is logged and left out, and the caller tells the user.
+    pub fn added(&mut self, id: SDL_JoystickID) -> Result<(), NotOpened> {
         if self.pads.iter().any(|p| p.id == id) {
-            return;
-        }
-        // SAFETY: opening a gamepad SDL reported.
-        let handle = unsafe { SDL_OpenGamepad(id) };
-        if handle.is_null() {
-            return;
+            return Ok(());
         }
         let used: Vec<u8> = self.pads.iter().map(|p| p.index).collect();
         let Some(index) = (0..MAX_PADS as u8).find(|i| !used.contains(i)) else {
-            unsafe { SDL_CloseGamepad(handle) };
-            return;
+            eprintln!("nightjar: controller {}: left out, {MAX_PADS} are already connected", id.0);
+            return Err(NotOpened::Limit);
         };
+        // SAFETY: opening a gamepad SDL reported.
+        let handle = unsafe { SDL_OpenGamepad(id) };
+        if handle.is_null() {
+            let error = crate::sdl::error();
+            eprintln!("nightjar: controller {}: could not be opened: {error}", id.0);
+            return Err(NotOpened::Failed(error));
+        }
         let name = unsafe {
             let name = SDL_GetGamepadName(handle);
             if name.is_null() { "Controller".into() } else { std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned() }
@@ -258,6 +280,7 @@ impl Gamepads {
             rs: (0, 0),
             announced: false,
         });
+        Ok(())
     }
 
     /// Closes a removed gamepad; returns its host number.
@@ -776,7 +799,7 @@ mod tests {
             assert!(id.0 != 0, "{}", crate::sdl::error());
 
             let mut pads = Gamepads::default();
-            pads.added(id);
+            pads.added(id).unwrap();
             assert_eq!(pads.pads.len(), 1, "{}", crate::sdl::error());
             let mut queue = InputQueue::new(&HostCapabilities {
                 app_version: [7, 1, 431, -1],
@@ -868,7 +891,7 @@ mod tests {
             let id = SDL_AttachVirtualJoystick(&desc);
             assert!(id.0 != 0, "{}", crate::sdl::error());
             let mut pads = Gamepads::default();
-            pads.added(id);
+            pads.added(id).unwrap();
             let mut queue = InputQueue::new(&HostCapabilities {
                 app_version: [7, 1, 431, -1],
                 feature_flags: 0x03,
@@ -902,6 +925,46 @@ mod tests {
 
             pads.close_all();
             SDL_DetachVirtualJoystick(id);
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+        }
+    }
+
+    /// A controller left out says why: SDL's error when it cannot be opened, the limit past
+    /// the host's 16.
+    #[test]
+    fn a_controller_that_is_left_out_says_why() {
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+        // SAFETY: SDL calls on this test's thread; the descriptor outlives the attaches.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let mut pads = Gamepads::default();
+            match pads.added(SDL_JoystickID(0x7fff_fff0)) {
+                Err(NotOpened::Failed(error)) => assert!(!error.is_empty()),
+                other => panic!("{other:?}"),
+            }
+            assert!(pads.pads.is_empty());
+
+            let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+            desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+            desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+            desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+            desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+            desc.name = c"Nightjar test pad".as_ptr();
+            let ids: Vec<_> = (0..=MAX_PADS).map(|_| SDL_AttachVirtualJoystick(&desc)).collect();
+            assert!(ids.iter().all(|id| id.0 != 0), "{}", crate::sdl::error());
+            for id in &ids[..MAX_PADS] {
+                pads.added(*id).unwrap();
+            }
+            assert_eq!(pads.added(ids[MAX_PADS]), Err(NotOpened::Limit));
+            assert_eq!(pads.pads.len(), MAX_PADS);
+            assert!(NotOpened::Limit.message().contains("16"));
+
+            pads.close_all();
+            for id in ids {
+                SDL_DetachVirtualJoystick(id);
+            }
             SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
         }
     }

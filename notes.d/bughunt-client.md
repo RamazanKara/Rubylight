@@ -6,6 +6,8 @@
 - If a failed download's unfinished file cannot be deleted, the error now names it.
 - A damaged image on the clipboard could crash the clipboard sync. It is now refused with an error.
 - A Remote Monitor session, which only watches, no longer sends the microphone to the PC.
+- With Controllers off, or in a Remote Monitor session, unplugging an audio device no longer reports the connected controllers to the PC.
+- A controller that cannot be opened, or one past the 16 the PC takes, now shows a message instead of doing nothing.
 
 ## de
 - Wenn der PC die Verbindung beendete, während ein Stream noch startete, konnte die automatische Wiederherstellung den gerade wiederhergestellten Stream beenden. Jeder Versuch meldet jetzt nur noch sein eigenes Ende.
@@ -15,3 +17,5 @@
 - Lässt sich die unfertige Datei eines fehlgeschlagenen Downloads nicht löschen, nennt der Fehler sie jetzt.
 - Ein beschädigtes Bild in der Zwischenablage konnte die Zwischenablage-Synchronisierung abstürzen lassen. Es wird jetzt mit einem Fehler abgelehnt.
 - Eine Remote-Monitor-Sitzung, die nur zuschaut, sendet das Mikrofon nicht mehr an den PC.
+- Mit ausgeschalteten Controllern oder in einer Remote-Monitor-Sitzung meldet das Abziehen eines Audiogeräts die verbundenen Controller nicht mehr an den PC.
+- Ein Controller, der sich nicht öffnen lässt, oder einer über die 16 hinaus, die der PC annimmt, zeigt jetzt eine Meldung, statt dass nichts passiert.

@@ -3300,10 +3300,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void showStreamHealth() {
         com.limelight.utils.StreamHealth.Report report = streamHealth.report(SystemClock.uptimeMillis());
         StringBuilder text = healthText(this, report, wifiText(0));
-        boolean undo = healthOriginalBitrate > 0 && currentBitrate == healthTrialBitrate &&
-                !isAdaptiveBitrateEnabled() && adaptiveQuality == null;
-        boolean suggest = report.canSuggestBitrate() && supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled() &&
-                currentBitrate > 500 && !hostActionInProgress && adaptiveQuality == null && !undo;
+        boolean manual = healthTrialAllowed(isAdaptiveBitrateEnabled(), isRateChangeBitrateOn(), adaptiveQuality != null);
+        boolean undo = healthOriginalBitrate > 0 && currentBitrate == healthTrialBitrate && manual;
+        boolean suggest = report.canSuggestBitrate() && supportsAdaptiveBitrate() && manual &&
+                currentBitrate > 500 && !hostActionInProgress && !undo;
         if (undo || suggest) text.append("\n\n").append(getString(R.string.health_trial_help));
         MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(this).setTitle(R.string.health_title)
                 .setMessage(text).setNegativeButton(android.R.string.cancel, null)
@@ -3352,9 +3352,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 context.getString(R.string.latency_unavailable);
     }
 
+    /**
+     * The doctor's bitrate trial runs only while nothing automatic owns the bitrate: the host's
+     * adaptive bitrate, automatic bitrate on this device (0x553C) or adaptive quality.
+     */
+    static boolean healthTrialAllowed(boolean adaptiveBitrate, boolean rateChangeBitrate, boolean adaptiveQuality) {
+        return !adaptiveBitrate && !rateChangeBitrate && !adaptiveQuality;
+    }
+
     private void applyHealthBitrate(boolean undo) {
-        if (!foreground || !connected || hostActionInProgress || isAdaptiveBitrateEnabled() || isRateChangeBitrateOn() ||
-                adaptiveQuality != null || !supportsAdaptiveBitrate()) return;
+        if (!foreground || !connected || hostActionInProgress || !supportsAdaptiveBitrate() ||
+                !healthTrialAllowed(isAdaptiveBitrateEnabled(), isRateChangeBitrateOn(), adaptiveQuality != null)) return;
         if (undo && (healthOriginalBitrate <= 0 || currentBitrate != healthTrialBitrate)) return;
         final int original = healthOriginalBitrate;
         final int expectedTrial = healthTrialBitrate;

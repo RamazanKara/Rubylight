@@ -6,6 +6,7 @@ import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.PreferenceConfiguration;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -182,6 +183,19 @@ public class NvConnectionControllerMicrophoneTest {
         assertTrue(connection.captures.isEmpty());
         assertFalse(ReflectionHelpers.callInstanceMethod(connection, "controllerMicrophoneOwnsRoute"));
         assertFalse(connection.controllerMicrophoneEnabled());
+    }
+
+    @Test public void remoteMonitorNeverOpensThePhoneMicrophoneWhateverTheSetting() {
+        Connection connection = new Connection(2147483505);
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.enableMic = true;
+        connection.readMicrophoneSettings(prefs);
+        assertFalse(ReflectionHelpers.getField(connection, "micEnabled"));
+        assertFalse(ReflectionHelpers.getField(connection, "micPermitted"));
+        connection.startOrdinary();
+        connection.setMicrophoneMuted(false);
+        assertTrue(connection.captures.isEmpty());
+        assertEquals(MicrophoneStatus.OFF, connection.getMicrophoneStatus());
     }
 
     @Test public void keyboardOnlyAccessKeepsTheOrdinaryMicrophoneAvailable() {

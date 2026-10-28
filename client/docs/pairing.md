@@ -26,6 +26,30 @@ This needs a host that supports one-time PINs (e.g. Apollo or Rubylight). Create
 
 This reverses the ordinary flow: you enter the host's PIN on Android. Generate a new one after expiry.
 
+## Pair with a QR code (Experimental)
+
+This needs a Rubylight host with **Pair with a QR code** turned on in its settings. Its Devices page then shows a QR code for each of the PC's network addresses, with a one-time PIN that works once and expires after three minutes.
+
+- **Android:** choose **Add PC**, tap **Scan QR code** and point the camera at the code. Nightjar asks for the camera only then; without it, type the address instead. The button is missing on devices without a camera.
+- **Windows and Linux:** choose **Copy pairing link** under the code on the PC, then **Paste link** in Nightjar's Add PC dialog, or paste the link in its address field.
+
+Nightjar adds the PC at the code's address and pairs at once. It refuses to pair when the PC presents a certificate other than the one the code names, so a code is only good for the PC that showed it. A failed code is used up: show a new one.
+
+### Pairing link
+
+The QR code holds one link, and the copied link is the same text:
+
+```
+rubylight://pair?v=1&host=<address>&port=<http port>&otp=<one-time PIN>&pass=<passphrase>&id=<host uniqueid>&fp=<certificate SHA-256>&name=<host name>
+```
+
+- `v` is `1`; other versions are refused.
+- `host`, `port`, `otp` and `fp` are required. `port` is the host's HTTP port, 1 to 65535. `fp` is the SHA-256 of the host certificate's DER encoding, as 64 hex digits.
+- `pass`, `id` and `name` may be missing. Keys Nightjar does not know are ignored; a repeated key refuses the link.
+- Values are percent-encoded UTF-8.
+
+The PIN and passphrase pair like a host-generated one-time PIN. The link is a secret until it expires: anyone who scans it on your network within those three minutes can pair.
+
 ## Per-device permissions
 
 Hosts with per-device permissions (e.g. Apollo or Rubylight) set them in the host's settings or web UI, separately for each paired installation. Android shows the permissions reported by the host and checks them before protected actions. The host stays in charge of every permission. Hosts that do not report permissions keep their usual behavior.

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_audio_passthrough">Audio passthrough (Experimental)</string>
+    <string name="title_checkbox_audio_passthrough">Audio passthrough</string>
     <string name="summary_checkbox_audio_passthrough">Asks a Rubylight PC for the sound in a format your audio output plays as is: uncompressed PCM, or Dolby Digital (AC3) or Dolby Digital Plus (E-AC3) for a receiver, soundbar or TV that decodes it. Needs Android 10 or later and the New streaming engine. Dolby audio comes in 32 ms frames, so it arrives later than Opus. Other PCs and outputs keep Opus.</string>
 </resources>

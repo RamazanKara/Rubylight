@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Enviar imagen del portapapeles al servidor (experimental)</string>
-    <string name="stream_clipboard_image_receive">Copiar imagen del portapapeles del servidor (experimental)</string>
+    <string name="stream_clipboard_image_send">Enviar imagen del portapapeles al servidor</string>
+    <string name="stream_clipboard_image_receive">Copiar imagen del portapapeles del servidor</string>
     <string name="stream_clipboard_image_empty">El portapapeles no tiene ninguna imagen</string>
     <string name="stream_clipboard_image_sent">Imagen del portapapeles enviada al servidor</string>
     <string name="stream_clipboard_image_none">El portapapeles del servidor no tiene ninguna imagen</string>

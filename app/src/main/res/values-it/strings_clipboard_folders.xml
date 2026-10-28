@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Invia immagine degli appunti all’host (sperimentale)</string>
-    <string name="stream_clipboard_image_receive">Copia immagine degli appunti dell’host (sperimentale)</string>
+    <string name="stream_clipboard_image_send">Invia immagine degli appunti all’host</string>
+    <string name="stream_clipboard_image_receive">Copia immagine degli appunti dell’host</string>
     <string name="stream_clipboard_image_empty">Gli appunti non contengono immagini</string>
     <string name="stream_clipboard_image_sent">Immagine degli appunti inviata all’host</string>
     <string name="stream_clipboard_image_none">Gli appunti dell’host non contengono immagini</string>

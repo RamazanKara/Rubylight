@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">USB 장치 전달(실험적)</string>
+    <string name="title_usb_forwarding">USB 장치 전달</string>
     <string name="summary_usb_forwarding">스트림 메뉴에 USB 장치를 추가합니다. 이 기기에 연결한 드로잉 태블릿이나 보안 키 같은 장치를 PC에서 사용할 수 있습니다. USB 전달을 제공하는 PC가 필요합니다.</string>
     <string name="stream_usb_devices">USB 장치</string>
     <string name="usb_forwarding_pick_title">USB 장치 전달</string>

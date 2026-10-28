@@ -12,7 +12,6 @@
     <string name="host_unpair_message">PC sẽ quên thiết bị này và thư viện đã lưu sẽ bị xóa ở đây. Bạn cần ghép đôi lại để phát trực tiếp. PC vẫn ở trong danh sách.</string>
     <string name="host_wake_needs_pairing">Hãy ghép đôi PC một lần khi PC đang bật để có thể đánh thức</string>
     <string name="host_menu_sleep">Cho PC ngủ</string>
-    <string name="host_menu_sleep_note">Thử nghiệm</string>
     <string name="host_sleep_title">Cho %1$s vào chế độ ngủ?</string>
     <string name="host_sleep_message">Trước tiên cần đóng trò chơi và luồng phát trên PC. Wake-on-LAN có thể đánh thức lại PC.</string>
     <string name="host_sleep_asking">Đang hỏi PC…</string>

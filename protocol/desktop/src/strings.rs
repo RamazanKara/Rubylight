@@ -537,15 +537,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn no_text_on_screen_says_experimental_in_either_language() {
-        let texts = marked().into_iter().map(|m| m.text).chain(de::TABLE.iter().flat_map(|(e, g)| [e.to_string(), g.to_string()]));
-        let labelled: Vec<String> = texts.filter(|t| {
-            let t = t.to_lowercase();
-            t.contains("experimental") || t.contains("experimentell")
-        }).collect();
-        assert!(labelled.is_empty(), "UI text with an Experimental label:\n{}", labelled.join("\n"));
+    fn no_shown_text_says_experimental_in_either_language() {
+        // Features ship plainly (ux/labels.md); setting keys such as experimental_packed_444 are not text.
+        let says = |text: &str| text.to_lowercase().contains("experiment");
+        let labelled: Vec<String> = marked().into_iter().map(|m| m.text).filter(|t| says(t)).collect();
+        assert!(labelled.is_empty(), "English text says Experimental:\n{}", labelled.join("\n"));
+        let german: Vec<&str> = de::TABLE.iter().map(|(_, g)| *g).filter(|g| says(g)).collect();
+        assert!(german.is_empty(), "German text says Experimentell:\n{}", german.join("\n"));
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
-        assert!(shown("ui.rs", "Shared folders") && shown("main.rs", "Send image to PC") && shown("main.rs", "Copy PC image here"));
+        for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui.rs", "Shared folders"),
+            ("ui.rs", "Full chroma"), ("ui.rs", "Client roaming"), ("ui.rs", "USB forwarding")]
+        {
+            assert!(shown(file, text), "{file} shows {text:?}");
+        }
     }
 
     #[test]

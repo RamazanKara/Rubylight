@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_audio_passthrough">Passthrough de áudio (experimental)</string>
+    <string name="title_checkbox_audio_passthrough">Passthrough de áudio</string>
     <string name="summary_checkbox_audio_passthrough">Pede a um PC com Rubylight o som em um formato que sua saída de áudio reproduz como está: PCM sem compressão, ou Dolby Digital (AC3) ou Dolby Digital Plus (E-AC3) para um receiver, soundbar ou TV que o decodifique. Requer Android 10 ou mais recente e o Novo mecanismo de transmissão. O áudio Dolby vem em blocos de 32 ms, então chega depois do Opus. Outros PCs e saídas continuam com Opus.</string>
 </resources>

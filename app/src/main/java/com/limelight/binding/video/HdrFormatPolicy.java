@@ -3,6 +3,8 @@ package com.limelight.binding.video;
 import android.media.MediaFormat;
 import android.view.Display;
 
+import com.limelight.nvstream.jni.MoonBridge;
+
 /**
  * The HDR format beyond stock HDR10 that this client asks a Rubylight 3.0 host for
  * (x-rl-video[0].hdrFormat), apart from the Android objects so it can be tested with made-up
@@ -60,6 +62,20 @@ public final class HdrFormatPolicy {
     /** The format goes through a video/dolby-vision decoder. */
     public static boolean dolbyVision(int format) {
         return (format & DOLBY_VISION) != 0;
+    }
+
+    /**
+     * The video formats to negotiate once {@code format} is picked. Dolby Vision is HEVC only and
+     * the handshake takes AV1 before HEVC, so with the automatic codec choice AV1 is left out when
+     * HEVC Main10 can carry the stream; otherwise the ANNOUNCE would drop Dolby Vision for AV1
+     * HDR10. A codec the user chose stays.
+     */
+    public static int videoFormats(int format, int videoFormats, boolean automaticCodec) {
+        if (!automaticCodec || !dolbyVision(format) ||
+                (videoFormats & MoonBridge.VIDEO_FORMAT_H265_MAIN10) == 0) {
+            return videoFormats;
+        }
+        return videoFormats & ~MoonBridge.VIDEO_FORMAT_MASK_AV1;
     }
 
     /** The MediaFormat colour transfer of an HDR stream in this format: HLG for HLG and 8.4, else PQ. */

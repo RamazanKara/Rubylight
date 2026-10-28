@@ -1747,6 +1747,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     @Override
+    public int videoFormatsForHdrFormat(int hdrFormat, int videoFormats) {
+        int formats = HdrFormatPolicy.videoFormats(hdrFormat, videoFormats,
+                prefs.videoFormat == PreferenceConfiguration.FormatOption.AUTO);
+        if (formats != videoFormats) {
+            LimeLog.info(HdrFormatPolicy.name(hdrFormat) + " needs HEVC: the automatic codec choice leaves AV1 out");
+        }
+        return formats;
+    }
+
+    @Override
     public void setAnnouncedHdrFormat(int format) {
         announcedHdrFormat = format;
         dolbyVisionFailed = false;

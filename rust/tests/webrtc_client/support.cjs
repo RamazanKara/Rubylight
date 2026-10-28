@@ -128,4 +128,33 @@ function hostLog(logPath, offset = 0) {
   return {summary, timings, inputs, text, errors: lines.filter(l => /\b(ERROR|WARN)\b/.test(l)).slice(0, 40)};
 }
 
-module.exports = {edgePath, chromePath, clientArgs, startWebClient, killLeftovers, isInside, startStatic, hostLog, fields, mean, pct, waitForPort, CLIENT_PIN};
+// ---- glass-to-glass comparison ------------------------------------------------
+// The console leg against the browser leg, two streams a minute apart (probe.js g2gSummary). Only
+// the part from a frame's arrival to its display is the page's: decode, compositing, its own work.
+// Up to the arrival it is the host, the network and the clock window, the same for both pages, and
+// that part moves between streams by itself: D4 in the rc.4 pass measured 12 ms in the browser leg
+// and 21 in the console's; the browser page alone measured 21 and then 17 in later runs, with 2 ms
+// from arrival to display on both pages. So the page's part may be `slackMs` worse than the
+// browser's; a gap up to the arrival is noted with the host's timings, not blamed on the page.
+function compareG2g(consoleG2g, browserG2g, {slackMs}) {
+  const round = x => Math.round(x * 10) / 10;
+  const out = {problems: [], notes: []};
+  if (Number.isFinite(consoleG2g?.median_ms) && Number.isFinite(browserG2g?.median_ms)) out.vsBrowserMs = round(consoleG2g.median_ms - browserG2g.median_ms);
+  const split = g => Number.isFinite(g?.arrival_median_ms) && Number.isFinite(g?.wait_median_ms);
+  if (!split(consoleG2g) || !split(browserG2g)) {
+    const which = [!split(consoleG2g) && 'console', !split(browserG2g) && 'browser'].filter(Boolean).join(' and ');
+    out.problems.push(`no frame arrival times (requestVideoFrameCallback receiveTime) from the ${which} leg to compare glass-to-glass at`);
+    return out;
+  }
+  out.waitVsBrowserMs = round(consoleG2g.wait_median_ms - browserG2g.wait_median_ms);
+  out.arrivalVsBrowserMs = round(consoleG2g.arrival_median_ms - browserG2g.arrival_median_ms);
+  if (out.waitVsBrowserMs > slackMs) {
+    out.problems.push(`the console page shows a frame ${consoleG2g.wait_median_ms} ms after it arrived, the browser page ${browserG2g.wait_median_ms} ms (median; ${out.waitVsBrowserMs} ms worse, over ${slackMs} ms)`);
+  }
+  if (out.arrivalVsBrowserMs > slackMs) {
+    out.notes.push(`console: glass-to-glass up to the frame's arrival is ${out.arrivalVsBrowserMs} ms worse than in the browser leg: the host, the network or the clock window, not the page (see each leg's host timings)`);
+  }
+  return out;
+}
+
+module.exports = {edgePath, chromePath, clientArgs, startWebClient, killLeftovers, isInside, startStatic, hostLog, fields, mean, pct, waitForPort, compareG2g, CLIENT_PIN};

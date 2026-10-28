@@ -54,3 +54,37 @@ test('the static server serves its files and refuses a directory and a traversal
     server.stop();
   }
 });
+
+test("the console leg is held to the browser page's part of glass-to-glass, from a frame's arrival", () => {
+  const o = {slackMs: 5};
+  const browser = {median_ms: 12, arrival_median_ms: 10, wait_median_ms: 2};
+  // D4 in the rc.4 pass: 21 ms against 12, with the gap before the frame arrived (host and clock).
+  const upstream = support.compareG2g({median_ms: 21, arrival_median_ms: 19, wait_median_ms: 2}, browser, o);
+  assert.deepEqual(upstream.problems, []);
+  assert.equal(upstream.vsBrowserMs, 9);
+  assert.equal(upstream.waitVsBrowserMs, 0);
+  assert.match(upstream.notes.join(), /up to the frame's arrival is 9 ms worse .*not the page/);
+  // A page that holds each frame for its own work.
+  const held = support.compareG2g({median_ms: 21, arrival_median_ms: 10, wait_median_ms: 11}, browser, o);
+  assert.match(held.problems.join(), /console page shows a frame 11 ms after it arrived, the browser page 2 ms .*9 ms worse, over 5 ms/);
+  assert.deepEqual(held.notes, []);
+  assert.deepEqual(support.compareG2g({median_ms: 14, arrival_median_ms: 10, wait_median_ms: 6.5}, browser, o).problems, []);
+  // No arrival times on either side is a failure, not a pass on the full medians.
+  assert.match(support.compareG2g({median_ms: 12}, browser, o).problems.join(), /from the console leg/);
+  assert.match(support.compareG2g({median_ms: 12, arrival_median_ms: 10, wait_median_ms: 2}, {median_ms: 12}, o).problems.join(), /from the browser leg/);
+  assert.match(support.compareG2g({median_ms: 12, arrival_median_ms: 10, wait_median_ms: 2}, undefined, o).problems.join(), /from the browser leg/);
+});
+test('the probe splits each glass-to-glass sample at the frame arrival', () => {
+  const root = {};
+  require('node:vm').runInNewContext(fs.readFileSync(path.join(__dirname, 'probe.js'), 'utf8'), {globalThis: root});
+  const probe = root.RlProbe;
+  probe.g2g.push({ms: 20, wait: 2}, {ms: 22, wait: 3}, {ms: 21, wait: 2.5});
+  const summary = probe.g2gSummary();
+  assert.equal(summary.median_ms, 21);
+  assert.equal(summary.wait_median_ms, 2.5);
+  assert.equal(summary.arrival_median_ms, 18.5);
+  assert.equal(summary.waitSamples, 3);
+  // A browser without receiveTime leaves the split empty, which the comparison refuses.
+  probe.g2g.length = 0; probe.g2g.push({ms: 20, wait: undefined});
+  assert.equal(probe.g2gSummary().arrival_median_ms, null);
+});

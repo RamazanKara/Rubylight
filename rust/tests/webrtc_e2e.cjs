@@ -288,9 +288,17 @@ async function browserSession(host) {
 // the first app for `seconds`, presses F24 (a key no game uses) and quits the app. A release host
 // has no fake input sink, so the key counts as arrived when the host's input summary says it
 // injected the press and the release, and nothing else: the mouse stays off the picture. The
-// leg fails on any page error, and when its glass-to-glass median is more than
-// CONSOLE_G2G_SLACK_MS worse than the browser leg's.
+// leg fails on any page error, and when the page's part of glass-to-glass, from a frame's arrival to
+// its display, is more than CONSOLE_G2G_SLACK_MS worse than the browser page's (support.compareG2g).
 const CONSOLE_G2G_SLACK_MS = 5;
+// Through CDP: Playwright's keyboard layout has no F24 ("Unknown key: F24" in playwright-core 1.64).
+async function pressF24(page) {
+  const cdp = await page.context().newCDPSession(page);
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await cdp.send('Input.dispatchKeyEvent', {type, key: 'F24', code: 'F24', windowsVirtualKeyCode: 135, nativeVirtualKeyCode: 135});
+  }
+  await cdp.detach();
+}
 async function consoleSession(host) {
   const consoleUrl = `https://127.0.0.1:${host.o.port + 1}`;
   const staticServer = await support.startStatic(STATIC_PORT);
@@ -331,7 +339,7 @@ async function consoleSession(host) {
       await wait(4000);
       const first = await page.evaluate(() => RlProbe.sample());
       await page.evaluate(() => { RlProbe.g2g.length = 0; RlProbe.g2gRejected = 0; });
-      await page.keyboard.press('F24');
+      await pressF24(page);
       await wait(Math.max(0, seconds * 1000 - 4000));
       const last = await page.evaluate(() => RlProbe.sample());
       const g2g = await page.evaluate(() => RlProbe.g2gSummary());
@@ -352,14 +360,16 @@ async function consoleSession(host) {
       // The summary is written when the session ends.
       const input = result.hostInput = support.hostLog(host.log, offset).inputs.at(-1) || null;
       const keyArrived = !!input && input.input_messages === 2 && input.injected === 2 && input.unknown_codes === 0;
-      const browserG2g = ctx.results.h264?.glassToGlass?.median_ms;
-      if (Number.isFinite(browserG2g) && Number.isFinite(g2g?.median_ms)) result.g2gVsBrowserMs = Math.round((g2g.median_ms - browserG2g) * 10) / 10;
-      else ctx.notes.push('console: no browser-leg glass-to-glass median to compare with');
+      const compared = support.compareG2g(g2g, ctx.results.h264?.glassToGlass, {slackMs: CONSOLE_G2G_SLACK_MS});
+      result.g2gVsBrowserMs = compared.vsBrowserMs;
+      result.g2gWaitVsBrowserMs = compared.waitVsBrowserMs;
+      result.g2gArrivalVsBrowserMs = compared.arrivalVsBrowserMs;
+      ctx.notes.push(...compared.notes);
       const errors = [
         !keyArrived && `the host's input summary does not show F24 alone injected: ${JSON.stringify(input)}`,
         quitError && `Quit app showed an error: ${quitError}`,
         pageErrors.length && `page errors: ${pageErrors.slice(0, 5).join(' | ')}`,
-        result.g2gVsBrowserMs > CONSOLE_G2G_SLACK_MS && `glass-to-glass is ${result.g2gVsBrowserMs} ms worse than the browser leg's (over ${CONSOLE_G2G_SLACK_MS} ms)`,
+        ...compared.problems,
       ].filter(Boolean);
       result.status = result.video.codec === 'video/H264' && result.video.decodedOverReceived > .98 && !errors.length && stop.status === 'passed' ? 'passed' : 'failed';
       if (errors.length) result.error = errors.join('; ');
@@ -397,7 +407,7 @@ function restoreSink(before) {
 
 // A run that was killed outright (power, taskkill /F) cannot clean up. The next one does it before
 // anything else: the sink gets its old format back, the old test host, tone player and browser
-// client server are stopped, and its SYSTEM task and firewall rule are removed.
+// client server are stopped, and its SYSTEM task is removed.
 function recoverFromEarlierRun() {
   const notes = hostSupport.recoverElevated();
   if (fs.existsSync(SINK_RESTORE)) {

@@ -55,7 +55,19 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
-## October 28: oversize scene cuts encoded again as keyframes
+## October 28: the console's Stream page against the browser page (D4)
+
+The rc.4 pass failed D4 on glass-to-glass: `webrtc_e2e.cjs --console` measured the console's Stream page at a 21 ms median (p99 25) against 12 ms for the browser client a minute earlier, over the 5 ms gate. The page is not slower. Same fixture as the WebRTC sections below (test host on `C:\tests\webrtc`, headless Edge over loopback, H.264 1080p60, 3.0.0-rc.4 package), one 60 s stream per leg, legs run one after the other:
+
+| Run | Browser page median, ms | Console page median, ms | Up to arrival, browser / console, ms | Arrival to display, browser / console, ms |
+| --- | ---: | ---: | --- | --- |
+| rc.4 pass D4 | 12 | 21 | not split | not split |
+| Before (same harness, same pages) | 21 | 21 | not split | not split |
+| After 1 | 17 | 17 | 14.5 / 14.2 | 2.0 / 1.9 |
+| After 2 | 21 | 17 | 18.8 / 14.7 | 1.6 / 3.1 |
+
+A diagnostic stream on the console page (12 s phases on one stream) moved the median no more than within noise: 21 ms as it is, 19 without the picture's rounded clip, 25 with every animation off, 21 with only the player visible, 19 in full screen; the browser page in the same run measured 21 in full screen and 21 out of it. The probe now splits each sample at the frame's arrival (`requestVideoFrameCallback` `receiveTime`). From arrival to display both pages take 2–3 ms. Up to arrival (host, network, the clock window) the median moves by itself between streams, by 4 ms in one run and probably the 9 ms of D4, in both directions, while the host's encode and present-to-send stay the same. The gate now holds the console page's part, arrival to display, to the browser page's plus 5 ms. A gap before arrival goes into the run's notes with each leg's host timings. No change to the page.
+
 
 The cuts the frame cap above could not save: AMF picks each frame's QP from the frames before and never encodes again, so after steady 385 KB frames a cut comes out as an inter frame of about 2.4 MB, past the 1.17 MB that keeps full parity in four blocks, and is lost. A keyframe of the same picture lands at the cap (855 KB). Now an inter frame larger than the stream's full-FEC bound (the same bound the cap is held to: `network_pacing::fec_whole_frame_limit`; none where two nominal frames already pass it, as in the cap's decision below, which these runs at about 830 KB for two frames are not) is not sent: its converted input goes back to AMF once as a keyframe at the same wire frame, and that keyframe is sent. There is no lookahead and no added frame of delay; the second encode happens only on such frames. Same fixture as the section below (HEVC 1440p60, 250 Mbps, 0.3% random loss, a cut every 2 s, `--fresh-rows 256`, 45 s), C = the cap within full FEC with LTR repair on (the merged branch), R = C plus the re-encode; two pairs, C then R and R then C, one binary each.
 

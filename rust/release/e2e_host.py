@@ -69,6 +69,15 @@ def prepare(args, case, port=48523, rust_log='info'):
     return env, display, sink
 
 
+def receiver_path(path):
+    """The receiver's PATH, with the host package last. The package ships a
+    minimal FFmpeg (AC3 and E-AC3 only) that would shadow the full one the
+    receiver was built with; the package's other libraries still load."""
+    entries = [entry for entry in path.split(os.pathsep) if entry]
+    package = [entry for entry in entries if (pathlib.Path(entry) / 'butterpollo.exe').is_file()]
+    return os.pathsep.join([entry for entry in entries if entry not in package] + package)
+
+
 def receiver_environment(env, display, mode, client, vrr=False, port=48523):
     width, height, fps = mode.split('x')
     scale = min(int(width) / display['width'], int(height) / display['height'])
@@ -78,6 +87,7 @@ def receiver_environment(env, display, mode, client, vrr=False, port=48523):
     left = ((int(width) - content_width) // 2) & ~1
     bottom = int(height) - content_height - (((int(height) - content_height) // 2) & ~1)
     client_env = env.copy()
+    client_env['PATH'] = receiver_path(env['PATH'])
     client_env.update(BUTTERPOLLO_TEST_HOST='127.0.0.1', BUTTERPOLLO_TEST_PORT=str(port),
                       BUTTERPOLLO_TEST_CLIENT_EXE=str(client), BUTTERPOLLO_TEST_MATCH_DISPLAY='1',
                       BUTTERPOLLO_TEST_REQUIRE_PICTURE='1', BUTTERPOLLO_TEST_WARMUP_SECONDS='3',

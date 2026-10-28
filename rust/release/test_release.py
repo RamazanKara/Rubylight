@@ -780,5 +780,24 @@ class PortedCredits(unittest.TestCase):
                 self.assertNotIn(name, text, path)
 
 
+class ReceiverPath(unittest.TestCase):
+    """The receiver finds the FFmpeg it was built with, not the package's minimal one."""
+
+    def test_the_host_package_goes_last_on_the_receivers_path(self):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        # e2e_host needs requests only to talk to hosts; CI's Python may not have it.
+        sys.modules.setdefault('requests', __import__('types').ModuleType('requests'))
+        import e2e_host
+        with tempfile.TemporaryDirectory() as temp:
+            package, msys, system = (pathlib.Path(temp) / name for name in ('package', 'msys', 'system'))
+            for folder in (package, msys, system):
+                folder.mkdir()
+            (package / 'butterpollo.exe').write_bytes(b'')
+            path = os.pathsep.join([str(package), str(msys), '', str(system)])
+            self.assertEqual(e2e_host.receiver_path(path), os.pathsep.join([str(msys), str(system), str(package)]))
+            self.assertEqual(e2e_host.receiver_path(os.pathsep.join([str(msys), str(system)])),
+                             os.pathsep.join([str(msys), str(system)]))
+
+
 if __name__ == '__main__':
     unittest.main()

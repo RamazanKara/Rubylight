@@ -586,7 +586,10 @@ fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--selftest") {
         let link_kbps = args.get(1).map_or(Ok(100_000), |rate| rate.parse())?;
-        ensure!(link_kbps > 0, "the self-test link rate must be above 0 Kbps");
+        ensure!(
+            link_kbps > 0,
+            "the self-test link rate must be above 0 Kbps"
+        );
         return selftest(link_kbps);
     }
     let mut loss_ppm = 0;

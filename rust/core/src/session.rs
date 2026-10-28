@@ -3500,6 +3500,11 @@ impl<P, A> Session<P, A> {
         }
         self.frame_fec_percent(recovery)
     }
+    /// Whether the client sizes FEC per frame from its own reports
+    /// (`rlFecPercentage=auto`) rather than taking a fixed percentage.
+    pub fn statistical_fec(&self) -> bool {
+        self.client_fec_on.load(Ordering::Acquire)
+    }
     /// The FEC percentage to budget a recovery frame's parity with before it
     /// is encoded: [`Self::video_fec_percent`] for an average frame.
     pub fn recovery_fec_percent(&self) -> usize {

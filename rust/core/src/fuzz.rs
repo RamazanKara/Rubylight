@@ -20,6 +20,8 @@ use proptest::sample::{Index, select};
 use std::collections::{BTreeSet, VecDeque};
 use std::time::Instant;
 
+mod hdr;
+
 /// Bytes biased towards what the decoders check: small values, printable ASCII, the RTSP
 /// line ends and 0xFF.
 fn byte() -> impl Strategy<Value = u8> {

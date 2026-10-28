@@ -70,6 +70,11 @@ public class TvSettingsFocusTest {
         root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
         root.layout(0, 0, width, height);
+        // A device draws after every layout, and its pre-draw pass may still move a list (SettingsRail.snapTopRow);
+        // this manual layout has no frame after it, so run that pass here until a frame would draw.
+        for (int i = 0; i < 5 && !root.getViewTreeObserver().dispatchOnPreDraw(); i++) {
+            root.layout(0, 0, width, height);
+        }
         ShadowLooper.idleMainLooper(300, TimeUnit.MILLISECONDS);
     }
 
@@ -111,6 +116,29 @@ public class TvSettingsFocusTest {
             press(screen, KeyEvent.KEYCODE_DPAD_UP);
             assertEquals("Up moves one row", i, list.getSelectedItemPosition());
         }
+    }
+
+    /** TV run on a TCL C6K: after a few presses the search row sat half under the subtitle. No rail row is ever cut at the top. */
+    @Test
+    public void noRailRowIsLeftHalfScrolledUnderTheSubtitle() {
+        StreamSettings screen = open();
+        ListView list = sections(screen);
+        for (int i = 0; i < list.getCount() && list.getSelectedItemPosition() != 0; i++) press(screen, KeyEvent.KEYCODE_DPAD_UP);
+        List<String> cut = new ArrayList<>();
+        int[] keys = new int[2 * list.getCount()];
+        for (int i = 0; i < keys.length; i++) keys[i] = i < list.getCount() ? KeyEvent.KEYCODE_DPAD_DOWN : KeyEvent.KEYCODE_DPAD_UP;
+        for (int key : keys) {
+            press(screen, key);
+            View first = null;
+            for (int c = 0; c < list.getChildCount() && first == null; c++) {
+                if (list.getChildAt(c).getBottom() > list.getPaddingTop()) first = list.getChildAt(c);
+            }
+            View selected = list.getSelectedView();
+            String at = keyAt(list, list.getSelectedItemPosition());
+            if (first.getTop() < list.getPaddingTop()) cut.add(at + ": " + keyAt(list, list.getPositionForView(first)) + " at " + first.getTop());
+            assertTrue("the selected row " + at + " is whole", selected.getTop() >= 0 && selected.getBottom() <= list.getHeight());
+        }
+        assertTrue("rows cut at the top: " + cut, cut.isEmpty());
     }
 
     @Test

@@ -50,6 +50,7 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
     private ValueAnimator slide;
     private String paneSection;
     private final Rect scratch = new Rect();
+    private int snaps;
 
     /** Null when the layout has no rail (a phone, or a wide screen that is not a TV). */
     static SettingsRail attach(Activity activity) {
@@ -115,8 +116,70 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
         return y;
     }
 
+    /**
+     * The list's D-pad scroll keeps only a sliver of the row past the selected one in view, and a selected rail row grows by its
+     * summary's second line, so the top row was left half under the subtitle (TV run: the search row after a few presses).
+     * A cut top row is shown whole, or else scrolled away, when the selected row stays whole and its neighbours keep a part
+     * on screen: the list moves its selection only onto a row it shows. True when the list moved.
+     */
+    boolean snapTopRow() {
+        if (list == null || !list.isAttachedToWindow() || list.getChildCount() == 0) return false;
+        // The list clips its rows at its padding; a revealed row goes where the list lays out its first row, below its
+        // selector's padding too, so the ring is not cut either.
+        int top = list.getPaddingTop();
+        View first = null;
+        for (int i = 0; i < list.getChildCount() && first == null; i++) {
+            if (list.getChildAt(i).getBottom() > top) first = list.getChildAt(i);
+        }
+        // A snap lands a row exactly at the top; the cap only guards the frame against a list that will not settle.
+        if (first == null || first.getTop() >= top || snaps >= 2) {
+            snaps = 0;
+            return false;
+        }
+        int before = first.getTop();
+        int reveal = list.getListPaddingTop() - before;
+        int hide = first.getBottom() - top;
+        if (keepsSelection(reveal)) {
+            list.scrollListBy(-reveal);
+        } else if (keepsSelection(-hide)) {
+            list.scrollListBy(hide);
+        } else {
+            snaps = 0;
+            return false;
+        }
+        boolean moved = first.getTop() != before;
+        snaps = moved ? snaps + 1 : 0;
+        return moved;
+    }
+
+    /** Whether moving the rows down by {@code dy} keeps the selected row whole and a part of the rows on either side of it. */
+    private boolean keepsSelection(int dy) {
+        int selected = list.getSelectedItemPosition();
+        View row = list.getSelectedView();
+        if (row == null || selected < 0) return true;
+        int top = list.getPaddingTop();
+        int bottom = list.getHeight();
+        // The list moves its selection on only from a row inside its padding (its selector's included); below that, a press
+        // scrolls instead. The last row has no Down to take, so it may sit in the padding (ExpandingSummaryView.reveal).
+        boolean last = selected == list.getCount() - 1;
+        if (row.getTop() + dy < list.getListPaddingTop()
+                || row.getBottom() + dy > bottom - (last ? 0 : list.getListPaddingBottom())) return false;
+        int first = list.getFirstVisiblePosition();
+        if (selected > 0) {
+            View previous = list.getChildAt(selected - 1 - first);
+            if (previous == null || previous.getBottom() + dy <= top) return false;
+        }
+        if (selected < list.getCount() - 1) {
+            View next = list.getChildAt(selected + 1 - first);
+            if (next == null || next.getTop() + dy >= bottom) return false;
+        }
+        return true;
+    }
+
     @Override
     public boolean onPreDraw() {
+        // This frame would show the cut row; the next one draws the list where it settled.
+        if (snapTopRow()) return false;
         float y = targetY();
         if (Float.isNaN(y)) {
             if (slide == null || !slide.isRunning()) bar.setVisibility(View.INVISIBLE);

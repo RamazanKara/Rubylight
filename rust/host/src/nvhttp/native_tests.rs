@@ -25,6 +25,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 mod compat;
+mod coop;
 mod couch_menu;
 mod files;
 mod folders;
@@ -237,6 +238,8 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("POST", "/radeon/settings"),
         ("POST", "/radeon/restore"),
         ("GET", "/wake"),
+        ("GET", "/coop"),
+        ("POST", "/coop/join"),
         ("GET", "/folders"),
         ("GET", "/folders/games/entries?path="),
         ("GET", "/folders/games/content?path=a"),

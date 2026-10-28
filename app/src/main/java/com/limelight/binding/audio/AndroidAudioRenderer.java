@@ -307,6 +307,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
         if (track == null) {
             // Couldn't create any audio track for playback
+            reserveFrames = 0;
             return -2;
         }
 

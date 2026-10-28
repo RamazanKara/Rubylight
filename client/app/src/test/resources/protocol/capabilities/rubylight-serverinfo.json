@@ -43,6 +43,7 @@
     "pen_barrel_roll": "unsupported",
     "pipeline_rates": "unsupported",
     "image_clipboard": "unsupported:update_host",
-    "shared_folders": "unsupported:update_host"
+    "shared_folders": "unsupported:update_host",
+    "coop": "unsupported:update_host"
   }
 }

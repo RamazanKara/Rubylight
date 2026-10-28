@@ -81,10 +81,13 @@ pub enum Feature {
     ImageClipboard,
     /// Shared folders (native `folders`). Known only after [`HostCapabilities::with_native`].
     SharedFolders,
+    /// Nucleus Co-op sessions to list and join (native `coop`). Known only after
+    /// [`HostCapabilities::with_native`]. Whether this device may take a free slot is per session.
+    Coop,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 41] = [
+    pub const ALL: [Feature; 42] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -126,6 +129,7 @@ impl Feature {
         Feature::PipelineRates,
         Feature::ImageClipboard,
         Feature::SharedFolders,
+        Feature::Coop,
     ];
 }
 
@@ -250,6 +254,8 @@ pub struct Evidence {
     pub image_clipboard_offered: bool,
     pub folders_offered: bool,
     pub folder_permission: bool,
+    /// `coop` in the native features.
+    pub coop_offered: bool,
 }
 
 /// A host's capabilities. [`HostCapabilities::UNKNOWN`] is a host never reached.
@@ -799,6 +805,9 @@ impl Evidence {
                 let refused = (!self.folder_permission).then_some(Reason::FolderPermission);
                 self.native_feature(self.folders_offered, refused)
             }
+            // No permission reason: a device without Join co-op still sees the sessions and
+            // returns to its own slot; each session says why it cannot take a free one.
+            Feature::Coop => self.native_feature(self.coop_offered, None),
         }
     }
 
@@ -853,7 +862,7 @@ impl HostCapabilities {
     }
 
     /// These capabilities with what the native API's `GET /capabilities` adds: the file
-    /// transfer, USB, image clipboard and shared folder features and permissions. Read it
+    /// transfer, USB, image clipboard, shared folder and co-op features and permissions. Read it
     /// again after every serverinfo refresh; until then those features are unknown. A host
     /// never reached stays unknown.
     pub fn with_native(&self, native: &NativeCapabilities) -> Self {
@@ -872,6 +881,7 @@ impl HostCapabilities {
         evidence.image_clipboard_offered = listed("clipboard.image");
         evidence.folders_offered = listed("folders");
         evidence.folder_permission = native.files.shared_folders;
+        evidence.coop_offered = listed("coop");
         Self::from_evidence(evidence)
     }
 
@@ -1037,7 +1047,12 @@ mod tests {
         }
         // Before the native API answered, its features are unknown, never supported.
         let caps = caps("HdrFormats", "15");
-        for feature in [Feature::UsbForwarding, Feature::ImageClipboard, Feature::SharedFolders] {
+        for feature in [
+            Feature::UsbForwarding,
+            Feature::ImageClipboard,
+            Feature::SharedFolders,
+            Feature::Coop,
+        ] {
             assert_eq!(caps.availability(feature), Availability::Unknown, "{feature:?}");
         }
         assert!(caps.supported().contains(&Feature::TextInput));

@@ -9,6 +9,7 @@
 mod apps;
 mod capabilities;
 mod clipboard_image;
+mod coop;
 mod crypto;
 mod der;
 mod files;
@@ -42,6 +43,9 @@ pub use capabilities::{
 pub use clipboard_image::{
     png_size, ImageClipboardError, MAX_CLIPBOARD_IMAGE_BYTES, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE,
     PNG_SIGNATURE,
+};
+pub use coop::{
+    Coop, CoopEnd, CoopEndReason, CoopGame, CoopJoined, CoopPhase, CoopPlayer, CoopProblem, CoopSession,
 };
 pub use files::{FileError, FileList, FileRefusal, RemoteFile, TransferCancel, Uploaded};
 pub use folders::{

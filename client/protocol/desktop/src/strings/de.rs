@@ -341,6 +341,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Quit the game when I leave the stream", "Spiel beim Verlassen des Streams beenden"),
     ("On: Disconnect also quits it on the PC", "An: Trennen beendet es auch auf dem PC"),
     ("Off: Disconnect leaves it running on the PC", "Aus: Trennen lässt es auf dem PC weiterlaufen"),
+    ("Quitting {} on the PC…", "{} wird auf dem PC beendet …"),
     ("Couldn’t quit {} on the PC, so it is still running. {}", "{0} konnte auf dem PC nicht beendet werden und läuft weiter. {1}"),
     ("Mouse", "Maus"),
     ("Captured suits games; desktop pointer suits remote work. Ctrl+Alt+Shift+M switches.", "Erfasst eignet sich für Spiele, der Desktop-Zeiger für Fernarbeit. Strg+Alt+Umschalt+M wechselt."),

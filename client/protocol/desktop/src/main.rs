@@ -1496,6 +1496,7 @@ impl App {
             let chosen = self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id));
             if nightjar_policy::launch::quits_on_leave(chosen, ui::policy_role(streaming.facts.role), true) {
                 eprintln!("nightjar: quitting {} on the PC, as chosen for leaving its stream", app.name);
+                self.launcher.toast(trf("Quitting {} on the PC…", &[&app.name]));
                 self.quitting_on_leave = Some((host, app.name.clone()));
                 self.hosts.quit_app(host);
             }

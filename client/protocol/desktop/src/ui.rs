@@ -321,6 +321,8 @@ pub struct Launcher {
     pub folders: crate::folders_page::SharedFolders,
     /// The Files page and its transfers.
     pub files: files::Files,
+    /// A short notice over the launcher, such as the game quitting after leaving its stream.
+    toast: Option<(String, std::time::Instant)>,
 }
 
 /// What the launcher shows, borrowed from the app each frame.
@@ -480,6 +482,7 @@ impl Launcher {
             remote: Default::default(),
             folders: Default::default(),
             files: Default::default(),
+            toast: None,
         }
     }
 
@@ -670,6 +673,35 @@ impl Launcher {
         self.focus_dialog = true;
     }
 
+    /// Shows `text` over the launcher for a few seconds, like Android's toasts.
+    pub fn toast(&mut self, text: impl Into<String>) {
+        self.toast = Some((text.into(), std::time::Instant::now()));
+    }
+
+    fn draw_toast(&mut self, ctx: &egui::Context) {
+        const SHOWN: std::time::Duration = std::time::Duration::from_secs(4);
+        let Some((notice, at)) = &self.toast else { return };
+        let Some(left) = SHOWN.checked_sub(at.elapsed()) else {
+            self.toast = None;
+            ctx.request_repaint();
+            return;
+        };
+        egui::Area::new(Id::unique("launcher-toast"))
+            .order(egui::Order::Tooltip)
+            .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -40.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                Frame::new()
+                    .fill(Color32::from_rgba_unmultiplied(0x28, 0x2A, 0x36, 235))
+                    .corner_radius(CornerRadius::same(18))
+                    .inner_margin(Margin::symmetric(18, 10))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(notice).font(regular(text::LABEL)).color(ON_SURFACE));
+                    });
+            });
+        ctx.request_repaint_after(left);
+    }
+
     fn logo(&mut self, ctx: &egui::Context) -> egui::TextureId {
         self.logo
             .get_or_insert_with(|| ctx.load_texture("logo", logo_image(128), egui::TextureOptions::LINEAR))
@@ -800,6 +832,7 @@ impl Launcher {
         } else if let Some(host) = &view.waking {
             waking(&ctx, host, &mut commands);
         }
+        self.draw_toast(&ctx);
         commands
     }
 
@@ -4657,6 +4690,23 @@ mod tests {
         host.reach = Reach::Online;
         assert!(host_options(&host).contains(&HostOption::Unpair));
         assert!(!host_options(&host).contains(&HostOption::PairingHelp), "the help is for a PC that is not paired");
+    }
+
+    #[test]
+    fn a_toast_shows_over_the_launcher_and_goes_away() {
+        let mut f = Frames::new(record("Den", true, true), Reach::Online);
+        f.l.toast(trf("Quitting {} on the PC…", &[&"Hades"]));
+        f.settle();
+        assert!(f.drawn.iter().any(|t| t == "Quitting Hades on the PC…"), "{:?}", f.drawn);
+        assert!(f.press(Key::Escape).is_empty(), "the toast takes no input");
+        f.l.settings.language = Language::German;
+        f.settle();
+        f.l.toast(trf("Quitting {} on the PC…", &[&"Hades"]));
+        f.settle();
+        assert!(f.drawn.iter().any(|t| t == "Hades wird auf dem PC beendet …"), "{:?}", f.drawn);
+        f.l.toast = Some(("gone".into(), std::time::Instant::now() - std::time::Duration::from_secs(5)));
+        f.settle();
+        assert!(f.l.toast.is_none() && !f.drawn.iter().any(|t| t == "gone"), "{:?}", f.drawn);
     }
 
     #[test]

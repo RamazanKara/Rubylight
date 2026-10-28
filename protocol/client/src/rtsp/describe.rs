@@ -495,6 +495,9 @@ mod tests {
         );
         // Unknown bits are dropped; malformed values are no offer.
         assert_eq!(with("a=x-rl-video.hdrFormats:255\r\n").hdr_formats, 15);
+        // A host's offer flags (PyroWave HLG) are not formats: this parse keeps hdr::ALL only.
+        assert_eq!(with("a=x-rl-video.hdrFormats:131\r\n").hdr_formats, 3);
+        assert_eq!(with("a=x-rl-video.hdrFormats:143\r\n").hdr_formats, 15);
         assert_eq!(with("a=x-rl-video.hdrFormats: 2 \r\n").hdr_formats, 2);
         for line in [
             "a=x-rl-video.hdrFormats:256",

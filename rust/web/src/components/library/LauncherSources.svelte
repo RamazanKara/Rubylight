@@ -148,10 +148,13 @@
         <li class="source" class:off={source.state === 'disabled'}>
           <span class="tile" aria-hidden="true">{#if source.source === 'local'}<Icon name="folder" size={18} />{:else}{monogram(source.source)}{/if}</span>
           <span class="text">
-            <strong id="launcher-{source.source}">{source.name}</strong>
+            <!-- Steam's link sits by its name so the status line keeps the row's width. -->
+            <span class="name">
+              <strong id="launcher-{source.source}">{source.name}</strong>
+              {#if source.source === 'steam'}<a class="choose" href="/settings/library" use:link>Steam options</a>{/if}
+            </span>
             <span class="state {state.tone}">{#if state.tone === 'warn'}<Icon name="alert" size={14} />{/if}{state.text}</span>
           </span>
-          {#if source.source === 'steam'}<a class="choose" href="/settings/library" use:link>Steam options</a>{/if}
           {#if key}
             <label class="switch-label" title="{source.name}: {source.state === 'disabled' ? 'off' : 'on'}">
               <span class="visually-hidden">Add games from {source.name}</span>
@@ -229,6 +232,12 @@
   }
   .text strong {
     font-weight: var(--weight-medium);
+  }
+  .name {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
   }
   .state {
     display: inline-flex;

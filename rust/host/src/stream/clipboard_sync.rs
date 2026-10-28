@@ -12,8 +12,7 @@
 //! is on, and nothing while the stream plays in the background.
 use std::collections::VecDeque;
 use std::net::UdpSocket;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
@@ -217,11 +216,55 @@ fn system() -> impl Clipboard {
     tests::FAKE.clone()
 }
 
+/// The device's copies for the worker. Only the newest waits: it replaces
+/// one the worker has not taken yet, so a device sending faster than the
+/// clipboard takes them holds one copy here rather than all of them.
+#[derive(Default)]
+struct Inbox {
+    /// The waiting copy, and whether the peer has gone.
+    slot: Mutex<(Option<Item>, bool)>,
+    ready: Condvar,
+}
+/// The peer has gone, and no copy waits.
+#[derive(Debug, PartialEq)]
+struct Closed;
+impl Inbox {
+    fn put(&self, item: Item) {
+        self.slot.lock().unwrap().0 = Some(item);
+        self.ready.notify_one();
+    }
+    fn close(&self) {
+        self.slot.lock().unwrap().1 = true;
+        self.ready.notify_one();
+    }
+    /// The waiting copy, after up to `timeout` for one.
+    fn take(&self, timeout: Duration) -> Result<Option<Item>, Closed> {
+        let slot = self.slot.lock().unwrap();
+        let (mut slot, _) = self
+            .ready
+            .wait_timeout_while(slot, timeout, |(item, closed)| item.is_none() && !*closed)
+            .unwrap();
+        match slot.0.take() {
+            Some(item) => Ok(Some(item)),
+            None if slot.1 => Err(Closed),
+            None => Ok(None),
+        }
+    }
+}
+/// The control loop's end of an [`Inbox`]: closes it when the peer goes,
+/// which ends the worker.
+struct Mailbox(Arc<Inbox>);
+impl Drop for Mailbox {
+    fn drop(&mut self) {
+        self.0.close();
+    }
+}
+
 /// A peer's clipboard sync, in the control loop.
 #[derive(Default)]
 pub(crate) struct PeerSync {
-    /// The worker's queue of the device's copies, from the first frame.
-    worker: Option<Sender<Item>>,
+    /// The worker's inbox of the device's copies, from the first frame.
+    worker: Option<Mailbox>,
     /// The PC's newest copy, for the loop to send.
     outbox: Arc<Mutex<Option<Frame>>>,
     /// Tokens of the PC's copies sent, with when.
@@ -252,7 +295,8 @@ impl PeerSync {
                 images = allowed.png.is_some(),
                 "clipboard sync"
             );
-            let (items, worker) = mpsc::channel();
+            let items = Mailbox(Arc::default());
+            let worker = items.0.clone();
             let watch = Watch::new(system(), allowed);
             let outbox = self.outbox.clone();
             let (client, warnings, wake) = (
@@ -283,7 +327,7 @@ impl PeerSync {
             }
             Accepted::Write(item) => {
                 if let Some(worker) = &self.worker {
-                    let _ = worker.send(item);
+                    worker.0.put(item);
                 }
             }
             Accepted::Refused(refused) => {
@@ -419,7 +463,7 @@ impl std::error::Error for Large {}
 /// PC's in `outbox`, waking the control loop.
 fn run<C: Clipboard>(
     mut watch: Watch<C>,
-    items: Receiver<Item>,
+    items: Arc<Inbox>,
     outbox: Arc<Mutex<Option<Frame>>>,
     wake: Arc<UdpSocket>,
     client: &str,
@@ -428,8 +472,8 @@ fn run<C: Clipboard>(
     // Failures are warned about once until the clipboard works again.
     let (mut write_failed, mut read_failed) = (false, false);
     loop {
-        match items.recv_timeout(POLL) {
-            Ok(item) => match watch.write(item) {
+        match items.take(POLL) {
+            Ok(Some(item)) => match watch.write(item) {
                 Ok(()) => write_failed = false,
                 Err(e) if !write_failed => {
                     write_failed = true;
@@ -437,8 +481,8 @@ fn run<C: Clipboard>(
                 }
                 Err(_) => {}
             },
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return,
+            Ok(None) => {}
+            Err(Closed) => return,
         }
         match watch.poll() {
             Ok(Some(frame)) => {
@@ -666,6 +710,45 @@ pub(crate) mod tests {
         }
         assert_eq!(sync.sent.len(), ECHO_TOKENS);
         assert_eq!(sync.sent.front().unwrap().0, 101);
+    }
+
+    #[test]
+    fn only_the_devices_newest_copy_waits_for_the_worker() {
+        let items = Mailbox(Arc::default());
+        let worker = items.0.clone();
+        assert_eq!(worker.take(Duration::from_millis(10)), Ok(None));
+        for n in 0..100 {
+            items.0.put(Item::Text(format!("copy {n}")));
+        }
+        assert_eq!(
+            worker.take(Duration::ZERO),
+            Ok(Some(Item::Text("copy 99".into())))
+        );
+        assert_eq!(worker.take(Duration::ZERO), Ok(None));
+        // A worker waiting for a copy gets it at once.
+        let waiting = std::thread::spawn({
+            let worker = worker.clone();
+            move || worker.take(Duration::from_secs(10))
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        items.0.put(Item::Text("late".into()));
+        assert_eq!(waiting.join().unwrap(), Ok(Some(Item::Text("late".into()))));
+        // The peer going ends the worker once the copy waiting is written.
+        items.0.put(Item::Text("last".into()));
+        let waiting = std::thread::spawn({
+            let worker = worker.clone();
+            move || {
+                (
+                    worker.take(Duration::from_secs(10)),
+                    worker.take(Duration::from_secs(10)),
+                )
+            }
+        });
+        drop(items);
+        assert_eq!(
+            waiting.join().unwrap(),
+            (Ok(Some(Item::Text("last".into()))), Err(Closed))
+        );
     }
 
     #[test]

@@ -345,7 +345,8 @@ pub fn speakers(input_channels: usize, mask: u32) -> Vec<u32> {
 /// Windows speaker mask -> Moonlight's FL, FR, FC, LFE, BL, BR, SL, SR order, and for 7.1.4
 /// TFL, TFR, TBL, TBR after it. Each speaker the endpoint has goes to its own channel; a
 /// 7.1.4 client of an endpoint without heights gets silent heights rather than an upmix
-/// that would invent them.
+/// that would invent them. A client with fewer channels than a 7.1.4 endpoint gets each
+/// height in the ear-level speaker below it at -3 dB.
 pub fn mix_matrix(
     input_channels: usize,
     mask: u32,
@@ -364,6 +365,8 @@ pub fn mix_matrix(
                 (4, 0.70710677),
                 (rear, 0.70710677),
                 (if ch == 0 { 512 } else { 1024 }, 0.70710677),
+                (if ch == 0 { 0x1000 } else { 0x4000 }, 0.70710677),
+                (if ch == 0 { 0x8000 } else { 0x20000 }, 0.70710677),
             ] {
                 if let Some(i) = index(bit) {
                     matrix[ch][i] += gain;
@@ -397,6 +400,22 @@ pub fn mix_matrix(
                 }
             } else if let Some(i) = index(bit) {
                 matrix[ch][i] = 1.;
+            }
+        }
+        if output_channels < 12 {
+            // A client without heights hears them from the speaker below
+            // each at -3 dB, as stereo does, rather than not at all.
+            for (height, below) in [(0x1000, 0), (0x4000, 1), (0x8000, 4), (0x20000, 5)] {
+                if let Some(i) = index(height) {
+                    let row = &mut matrix[below];
+                    row[i] += 0.70710677;
+                    let sum: f32 = row.iter().sum();
+                    if sum > 1. {
+                        for v in row.iter_mut() {
+                            *v /= sum;
+                        }
+                    }
+                }
             }
         }
     }
@@ -529,10 +548,36 @@ mod tests {
         let matrix = mix_matrix(2, 3, 12).unwrap();
         assert_eq!((matrix[0][0], matrix[1][1]), (1., 1.));
         assert!(matrix[2..].iter().flatten().all(|v| *v == 0.));
-        // 7.1 clients of a 7.1.4 endpoint keep their bed as before.
+        // 7.1 clients of a 7.1.4 endpoint keep their bed and hear each height
+        // from the speaker below it at -3 dB, scaled so nothing clips.
         let matrix = mix_matrix(12, mask, 8).unwrap();
+        let bed = 1. / (1. + 0.70710677);
         for (output, row) in matrix.iter().enumerate() {
-            assert_eq!(row[output], 1.);
+            let below = [0, 1, 4, 5].iter().position(|&o| o == output);
+            match below {
+                Some(height) => {
+                    assert!((row[output] - bed).abs() < 1e-6, "{output}");
+                    assert!(
+                        (row[8 + height] - 0.70710677 * bed).abs() < 1e-6,
+                        "{output}"
+                    );
+                }
+                None => assert_eq!(row[output], 1.),
+            }
+            assert!(row.iter().sum::<f32>() <= 1. + 1e-6);
+            assert_eq!(
+                row.iter().filter(|v| **v != 0.).count(),
+                1 + below.map_or(0, |_| 1)
+            );
+        }
+        // 5.1 and stereo clients keep the heights too, front ones in front.
+        let matrix = mix_matrix(12, mask, 6).unwrap();
+        assert!(matrix[0][8] > 0. && matrix[1][9] > 0. && matrix[4][10] > 0. && matrix[5][11] > 0.);
+        let matrix = mix_matrix(12, mask, 2).unwrap();
+        assert!(matrix[0][8] > 0. && matrix[0][10] > 0. && matrix[0][9] == 0.);
+        assert!(matrix[1][9] > 0. && matrix[1][11] > 0. && matrix[1][8] == 0.);
+        for row in &matrix {
+            assert!(row.iter().sum::<f32>() <= 1. + 1e-6);
         }
         assert!(Resampler::new(48000, 12).is_ok());
         assert!(Resampler::new(48000, 10).is_err());

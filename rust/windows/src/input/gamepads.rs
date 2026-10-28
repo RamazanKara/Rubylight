@@ -82,8 +82,36 @@ struct FeedbackFailure {
 static SLOTS: std::sync::Mutex<[bool; 16]> = std::sync::Mutex::new([false; 16]);
 /// Reserve a host-wide identity until its USB attachment is fully detached.
 pub(super) struct Slot(u16);
+/// Driver slots whose pad would not unplug when its session's gamepads closed. They stay
+/// reserved in [`SLOTS`], so no other pad is plugged over one the driver may still hold,
+/// until a later unplug of them succeeds.
+static STRANDED: std::sync::Mutex<BTreeSet<u16>> = std::sync::Mutex::new(BTreeSet::new());
+/// Unplugs the stranded slots that will now, freeing them in `slots`.
+fn reclaim(slots: &mut [bool; 16], mut unplug: impl FnMut(u32) -> Result<()>) {
+    STRANDED
+        .lock()
+        .unwrap()
+        .retain(|&global| match unplug(u32::from(global)) {
+            Ok(()) => {
+                tracing::info!(
+                    slot = global,
+                    "a virtual controller left by an earlier session was removed"
+                );
+                slots[global as usize] = false;
+                false
+            }
+            Err(error) => {
+                tracing::debug!(
+                    slot = global,
+                    error = format!("{error:#}"),
+                    "a virtual controller left by an earlier session still will not unplug"
+                );
+                true
+            }
+        });
+}
 impl Slot {
-    fn reserve() -> Result<Self> {
+    pub(super) fn reserve() -> Result<Self> {
         let mut slots = SLOTS.lock().unwrap();
         let id = slots
             .iter()
@@ -180,7 +208,8 @@ impl Gamepads {
             self.deck_failed.insert(id);
             return Ok(false);
         }
-        let deck = match steam_deck_pad::DeckPad::plug(&exe, &format!("BUTTERPOLLO{id}")) {
+        let deck = match Slot::reserve().and_then(|slot| steam_deck_pad::DeckPad::plug(&exe, slot))
+        {
             Ok(deck) => deck,
             Err(error) => {
                 self.warnings.set("input_steam_deck", format!("Steam Deck controller unavailable ({error:#}); the Deck's controls arrive as a virtual pad. Check that usbip-win2 is installed and working, then reconnect."));
@@ -233,26 +262,40 @@ impl Gamepads {
             SLOTS.lock().unwrap()[global as usize] = false;
         }
         let mut slots = SLOTS.lock().unwrap();
+        reclaim(&mut slots, |global| self.backend.unplug(global));
+        let mut failed = None;
         for global in 0..16u16 {
             if slots[global as usize] {
                 continue;
             }
-            if self.backend.plug(u32::from(global), profile).is_ok() {
-                slots[global as usize] = true;
-                self.active.insert(id, global);
-                self.profiles.insert(id, profile);
-                tracing::info!(
-                    controller = id,
-                    client_type = kind,
-                    capabilities = format!("{capabilities:#x}"),
-                    backend = self.backend.name(),
-                    profile = profile_name(profile),
-                    "virtual controller connected"
-                );
-                return Ok(());
+            if let Err(error) = self.backend.plug(u32::from(global), profile) {
+                failed = Some(error);
+                continue;
             }
+            slots[global as usize] = true;
+            self.active.insert(id, global);
+            self.profiles.insert(id, profile);
+            if let Some(warning) = switch_fallback(self.profile, kind, capabilities, profile) {
+                self.warnings.set("input_switch", warning);
+            }
+            tracing::info!(
+                controller = id,
+                client_type = kind,
+                capabilities = format!("{capabilities:#x}"),
+                backend = self.backend.name(),
+                profile = profile_name(profile),
+                "virtual controller connected"
+            );
+            return Ok(());
         }
-        bail!("no free virtual controller slots")
+        // The driver's own reason, not slot exhaustion, when it refused every free slot.
+        match failed {
+            Some(error) => Err(error.context(format!(
+                "the gamepad driver could not plug a {} controller",
+                profile_name(profile)
+            ))),
+            None => bail!("no free virtual controller slots"),
+        }
     }
     fn ensure_dualsense(&mut self, id: u16) -> Result<bool> {
         use butterpollo_core::{
@@ -719,6 +762,29 @@ fn profile_name(profile: u16) -> &'static str {
         _ => "vhf",
     }
 }
+/// The session warning for a Nintendo controller (Moonlight type 3) that automatic
+/// selection made another pad because the driver has no Switch Pro profile.
+fn switch_fallback(configured: u16, kind: u8, capabilities: u16, profile: u16) -> Option<String> {
+    use butterpollo_core::input_policy::{VHF_DS4, VHF_DUALSENSE, VHF_SWITCH};
+    if configured != 0 || kind != 3 || profile == VHF_SWITCH {
+        return None;
+    }
+    let pad = match profile {
+        VHF_DUALSENSE => "a DualSense",
+        VHF_DS4 => "a DualShock 4",
+        _ => "an Xbox controller",
+    };
+    let gyro = if capabilities & 0x30 == 0 {
+        ""
+    } else if matches!(profile, VHF_DUALSENSE | VHF_DS4) {
+        ", which keeps its gyro"
+    } else {
+        ", without its gyro"
+    };
+    Some(format!(
+        "The gamepad driver has no Switch Pro profile, so the Nintendo controller plays as {pad}{gyro}. Run Rubylight setup again to update the gamepad driver, then reconnect."
+    ))
+}
 // The driver has one touch surface and two contact slots. Keep this mapping
 // independent of device IO so unsupported surfaces cannot change slot state.
 pub(super) struct GamepadTouchRequest {
@@ -810,9 +876,20 @@ fn gamepad_touch_request(
 }
 impl Drop for Gamepads {
     fn drop(&mut self) {
-        for (_, global) in self.active.clone() {
-            let _ = self.backend.unplug(u32::from(global));
-            SLOTS.lock().unwrap()[global as usize] = false;
+        for (i, global) in self.active.clone() {
+            match self.backend.unplug(u32::from(global)) {
+                Ok(()) => SLOTS.lock().unwrap()[global as usize] = false,
+                // Its slot stays reserved and is tried again before the next plug.
+                Err(error) => {
+                    tracing::warn!(
+                        controller = i,
+                        slot = global,
+                        error = format!("{error:#}"),
+                        "virtual controller removal failed as its session ended"
+                    );
+                    STRANDED.lock().unwrap().insert(global);
+                }
+            }
         }
     }
 }
@@ -1120,7 +1197,82 @@ mod tests {
             pads.release_all().is_err(),
             "a pad with a touch is released"
         );
-        // Drop would unplug through the missing handle and free slot 15.
+        // Drop would unplug through the missing handle and strand slot 15.
         pads.active.clear();
+    }
+    /// Gamepads whose driver handle is missing: every plug and unplug fails.
+    fn broken_pads() -> Gamepads {
+        let mut pads = Gamepads::open_options(
+            butterpollo_core::input_policy::USBIP_DUALSENSE,
+            butterpollo_core::input_policy::Policy::resolve(&Default::default()).unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+        pads.profile = 0;
+        pads
+    }
+    #[test]
+    fn a_pad_that_will_not_unplug_at_session_end_keeps_its_slot_until_it_does() {
+        let slot = Slot::reserve().unwrap();
+        let global = slot.id();
+        // The pad owns the slot now, as `ensure` leaves it.
+        std::mem::forget(slot);
+        let mut pads = broken_pads();
+        pads.active.insert(0, global);
+        drop(pads);
+        assert!(SLOTS.lock().unwrap()[global as usize], "still reserved");
+        assert!(STRANDED.lock().unwrap().contains(&global));
+        // Still refused: it stays reserved.
+        let mut slots = *SLOTS.lock().unwrap();
+        reclaim(&mut slots, |_| anyhow::bail!("busy"));
+        assert!(slots[global as usize]);
+        assert!(STRANDED.lock().unwrap().contains(&global));
+        // Unplugged at last: free again.
+        let mut slots = SLOTS.lock().unwrap();
+        let mut tried = Vec::new();
+        reclaim(&mut slots, |g| {
+            tried.push(g);
+            if g == u32::from(global) {
+                Ok(())
+            } else {
+                anyhow::bail!("another test's")
+            }
+        });
+        assert!(tried.contains(&u32::from(global)));
+        assert!(!slots[global as usize]);
+        assert!(!STRANDED.lock().unwrap().contains(&global));
+    }
+    #[test]
+    fn a_nintendo_controller_without_the_switch_profile_is_warned_about() {
+        use butterpollo_core::input_policy::{VHF_DS4, VHF_DUALSENSE, VHF_SWITCH, VHF_XBOX_SERIES};
+        assert_eq!(switch_fallback(0, 3, 0x30, VHF_SWITCH), None);
+        assert_eq!(
+            switch_fallback(0, 1, 0x30, VHF_DUALSENSE),
+            None,
+            "not Nintendo"
+        );
+        assert_eq!(
+            switch_fallback(VHF_DS4, 3, 0x30, VHF_DS4),
+            None,
+            "a profile chosen in the settings"
+        );
+        let kept = switch_fallback(0, 3, 0x30, VHF_DUALSENSE).unwrap();
+        assert!(kept.contains("a DualSense, which keeps its gyro"), "{kept}");
+        let lost = switch_fallback(0, 3, 0x30, VHF_XBOX_SERIES).unwrap();
+        assert!(
+            lost.contains("an Xbox controller, without its gyro"),
+            "{lost}"
+        );
+        let plain = switch_fallback(0, 3, 0, VHF_XBOX_SERIES).unwrap();
+        assert!(plain.contains("an Xbox controller."), "{plain}");
+    }
+    #[test]
+    fn a_failed_plug_reports_the_drivers_error_not_full_slots() {
+        let mut pads = broken_pads();
+        pads.available = !0;
+        let error = format!("{:#}", pads.ensure(0).unwrap_err());
+        assert!(error.contains("could not plug"), "{error}");
+        assert!(!error.contains("no free"), "{error}");
+        assert!(pads.active.is_empty());
     }
 }

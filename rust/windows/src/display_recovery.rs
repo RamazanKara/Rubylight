@@ -50,6 +50,8 @@ struct Entry {
     scale: Option<(u32, u32)>,
 }
 impl Entry {
+    /// What recovery keeps until each restore succeeds. The arrangement is
+    /// restored before this copy is taken and re-added only if it failed.
     fn display_settings(&self) -> Self {
         Self {
             output: self.output.clone(),
@@ -58,7 +60,11 @@ impl Entry {
             mode: self.mode,
             mode_rate: self.mode_rate,
             position: self.position,
+            external: self.external,
+            audio: self.audio,
             microphone: self.microphone,
+            baseline: self.baseline.clone(),
+            activation: self.activation.clone(),
             rotation: self.rotation,
             scale: self.scale,
             ..Default::default()
@@ -100,6 +106,19 @@ pub(crate) fn put_back<T: PartialEq>(
 fn restored<T>(pending: &mut Option<T>, result: Result<()>) -> Result<()> {
     result?;
     *pending = None;
+    Ok(())
+}
+/// The same for a restore that covers every entry at once, such as the
+/// frame limiter or the audio route.
+fn restored_all(
+    kept: &mut Journal,
+    flag: fn(&mut Entry) -> &mut bool,
+    result: Result<()>,
+) -> Result<()> {
+    result?;
+    for entry in kept.entries.values_mut() {
+        *flag(entry) = false;
+    }
     Ok(())
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -550,11 +569,33 @@ fn recover(path: &Path) -> Result<()> {
             failures.push(format!("{what}: {error:#}"));
         }
     };
+    let mut kept = Journal {
+        entries: journal
+            .entries
+            .iter()
+            .map(|(id, entry)| (id.clone(), entry.display_settings()))
+            .collect(),
+        ..Default::default()
+    };
     if journal.entries.values().any(|e| e.external) {
-        step("frame limiter", crate::limiter::recover(directory));
+        step(
+            "frame limiter",
+            restored_all(
+                &mut kept,
+                |e| &mut e.external,
+                crate::limiter::recover(directory),
+            ),
+        );
     }
     if journal.entries.values().any(|e| e.audio) {
-        step("audio routing", crate::audio_route::recover(directory));
+        step(
+            "audio routing",
+            restored_all(
+                &mut kept,
+                |e| &mut e.audio,
+                crate::audio_route::recover(directory),
+            ),
+        );
     }
     let mut pending_arrangements = BTreeMap::new();
     for (id, entry) in &journal.entries {
@@ -570,14 +611,6 @@ fn recover(path: &Path) -> Result<()> {
         step("display list", Err(error));
         Vec::new()
     });
-    let mut kept = Journal {
-        entries: journal
-            .entries
-            .iter()
-            .map(|(id, entry)| (id.clone(), entry.display_settings()))
-            .collect(),
-        ..Default::default()
-    };
     for (id, arrangement) in pending_arrangements {
         kept.entries.entry(id).or_default().arrangement = arrangement;
     }
@@ -717,20 +750,27 @@ fn recover(path: &Path) -> Result<()> {
             Ok(())
         })(),
     );
-    for entry in journal.entries.values() {
+    for (id, entry) in &journal.entries {
+        let pending = kept.entries.get_mut(id).expect("copied display entry");
         if let Some((before, applied)) = &entry.activation {
             step(
                 "display activation",
-                (|| {
-                    if applied.is_empty() || crate::display_arrangement::unchanged(applied)? {
-                        before.restore()?;
-                    }
-                    Ok(())
-                })(),
+                restored(
+                    &mut pending.activation,
+                    (|| {
+                        if applied.is_empty() || crate::display_arrangement::unchanged(applied)? {
+                            before.restore()?;
+                        }
+                        Ok(())
+                    })(),
+                ),
             );
         }
         if let Some((snapshot, excluded)) = &entry.baseline {
-            step("saved display layout", snapshot.restore_excluding(excluded));
+            step(
+                "saved display layout",
+                restored(&mut pending.baseline, snapshot.restore_excluding(excluded)),
+            );
         }
     }
     // Keep a valid document so interrupted reads never see partial JSON. The
@@ -874,6 +914,50 @@ mod tests {
         restored(&mut reloaded.hdr, Ok(()))?;
         restored(&mut reloaded.profile, Ok(()))?;
         assert!(!reloaded.pending());
+        Ok(())
+    }
+    #[test]
+    fn failed_limiter_audio_activation_and_layout_restores_stay_pending() -> Result<()> {
+        let layout = crate::display::Snapshot::decode(&serde_json::json!({
+            "topology": [["tv"]],
+            "modes": {"tv": {"w": 3840, "h": 2160, "num": 60, "den": 1}},
+            "primary": "tv"
+        }))?;
+        let original = Entry {
+            external: true,
+            audio: true,
+            activation: Some((layout.clone(), Vec::new())),
+            baseline: Some((layout, vec!["virtual".into()])),
+            ..Default::default()
+        };
+        let mut kept = Journal::default();
+        kept.entries
+            .insert("tv".into(), original.display_settings());
+        kept.entries.insert(
+            "monitor".into(),
+            Entry {
+                external: true,
+                ..Default::default()
+            },
+        );
+        // The endpoint is missing and the VDD is tearing down: nothing is lost.
+        assert!(restored_all(&mut kept, |e| &mut e.audio, Err(anyhow::anyhow!("gone"))).is_err());
+        let pending = kept.entries.get_mut("tv").unwrap();
+        assert!(restored(&mut pending.activation, Err(anyhow::anyhow!("busy"))).is_err());
+        assert!(restored(&mut pending.baseline, Err(anyhow::anyhow!("busy"))).is_err());
+        // The limiter came back: every entry drops its flag.
+        restored_all(&mut kept, |e| &mut e.external, Ok(()))?;
+        assert!(!kept.entries["monitor"].pending());
+        let reloaded: Journal = serde_json::from_slice(&serde_json::to_vec(&kept)?)?;
+        let tv = &reloaded.entries["tv"];
+        assert!(tv.audio && !tv.external);
+        assert!(tv.activation.is_some() && tv.baseline.is_some());
+        assert_eq!(tv.baseline.as_ref().unwrap().1, ["virtual"]);
+        let mut tv = tv.clone();
+        restored(&mut tv.activation, Ok(()))?;
+        restored(&mut tv.baseline, Ok(()))?;
+        tv.audio = false;
+        assert!(!tv.pending());
         Ok(())
     }
     #[test]

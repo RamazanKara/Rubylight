@@ -419,6 +419,7 @@ The image clipboard (Experimental) is `type=png` on Vibepollo's `/actions/clipbo
 
 - `GET /actions/clipboard?type=png` answers `image/png`, or 404 while the clipboard holds no image. A `PNG` another program put on the clipboard is passed on as it is; a bitmap (`CF_DIBV5` or `CF_DIB`, 24 or 32 bits a pixel) is converted. An image larger than the limit below is 413, one the host can't convert 415.
 - `POST /actions/clipboard?type=png` takes `Content-Type: image/png` (415 without it) of at most `clipboard_image_max_mb` (16 MiB by default, 1 to 64), and is 413 above that: by its `Content-Length` before a byte is read, or once the body passes the limit. The 1 MiB limit of the other routes, text on this one included, doesn't apply to it. The host checks the image's size before it decodes the pixels (at most 16384 a side and 32 megapixels, else 413), then puts them on the clipboard as `CF_DIBV5` and `PNG`, re-encoded, so no other chunk of the file reaches the PC's programs. A body that isn't a PNG is 400, one the host can't decode 415.
+- Image requests take turns across devices, and a device's image request made while another of its own is waiting or running is 429.
 
 ## Shared folders
 

@@ -136,8 +136,8 @@ fn authority(h: &Shared, connection: &Connection) -> Option<Authority> {
 }
 /// The lifecycle gate, taken without waiting, while nothing runs: no app,
 /// stream, pending launch, teardown, display monitor, WebRTC link or
-/// controller session in use.
-fn idle(h: &Shared) -> Option<MutexGuard<'_, ()>> {
+/// controller session in use. Also gates resetting display persistence.
+pub(crate) fn idle(h: &Shared) -> Option<MutexGuard<'_, ()>> {
     let gate = h.launch_transition.try_lock().ok()?;
     let busy = crate::updater::busy(h)
         || !h.sessions.lock().unwrap().teardown.is_empty()

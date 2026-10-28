@@ -81,44 +81,48 @@ impl Drop for Exclusive {
     }
 }
 
-/// Monitors whose rings failed before delivering a frame, on which adapter, and how often.
-/// A failure the driver reports after the ring was accepted (textures that do not open, a
-/// surface that never settles, no frame at all) would repeat on every reopen, so after
-/// [`FAILURES_BEFORE_WGC`] the monitor's captures use WGC until it renders on another adapter
-/// or a ring delivers a frame. A new monitor has a new session id and starts clean.
+/// Monitors whose rings failed before delivering a frame, in which [`FenceScope`], and how
+/// often. A failure the driver reports after the ring was accepted (textures that do not
+/// open, a surface that never settles, no frame at all) would repeat on every reopen, so after
+/// [`FAILURES_BEFORE_WGC`] the monitor's captures use WGC until a ring delivers a frame or the
+/// scope changes: the display is recreated, the driver restarts, or it renders on another
+/// adapter. Session ids alone are persistent client identities, so a recreated display keeps
+/// its id and starts clean only by its new registration.
 #[derive(Default)]
-struct Failures(Vec<(u64, (u32, i32), u32)>);
+struct Failures(Vec<(FenceScope, u32)>);
 
 impl Failures {
-    fn failed(&mut self, session_id: u64, adapter: (u32, i32)) -> u32 {
-        match self.0.iter_mut().find(|(id, _, _)| *id == session_id) {
-            Some((_, at, count)) if *at == adapter => {
+    fn failed(&mut self, scope: FenceScope) -> u32 {
+        match self
+            .0
+            .iter_mut()
+            .find(|(at, _)| at.session == scope.session)
+        {
+            Some((at, count)) if *at == scope => {
                 *count += 1;
                 *count
             }
             Some(entry) => {
-                *entry = (session_id, adapter, 1);
+                *entry = (scope, 1);
                 1
             }
             None => {
-                self.0.push((session_id, adapter, 1));
+                self.0.push((scope, 1));
                 1
             }
         }
     }
 
     fn delivered(&mut self, session_id: u64) {
-        self.0.retain(|(id, _, _)| *id != session_id);
+        self.0.retain(|(at, _)| at.session != session_id);
     }
 
-    /// The failures that send this monitor's captures to WGC on `adapter`, if it has them.
-    fn excluded(&self, session_id: u64, adapter: (u32, i32)) -> Option<u32> {
+    /// The failures that send this monitor's captures to WGC in `scope`, if it has them.
+    fn excluded(&self, scope: FenceScope) -> Option<u32> {
         self.0
             .iter()
-            .find(|(id, at, count)| {
-                *id == session_id && *at == adapter && *count >= FAILURES_BEFORE_WGC
-            })
-            .map(|(_, _, count)| *count)
+            .find(|(at, count)| *at == scope && *count >= FAILURES_BEFORE_WGC)
+            .map(|(_, count)| *count)
     }
 }
 
@@ -799,10 +803,10 @@ impl Session {
         if let Some(failures) = FAILURES
             .lock()
             .unwrap()
-            .excluded(monitor.session_id, adapter)
+            .excluded(FenceScope::new(&monitor, adapter))
         {
             bail!(
-                "its frame ring failed {failures} times before delivering a frame; capturing with WGC until the display is recreated or renders on another GPU"
+                "its frame ring failed {failures} times before delivering a frame; capturing with WGC until the display is recreated, the driver restarts or it renders on another GPU"
             );
         }
         if let Err(error) = crate::gpu_priority::configure(&gpu, config) {
@@ -1182,7 +1186,7 @@ impl Session {
                     let failures = FAILURES
                         .lock()
                         .unwrap()
-                        .failed(self.monitor.session_id, self.adapter);
+                        .failed(FenceScope::new(&self.monitor, self.adapter));
                     tracing::warn!(error = %format!("{error:#}"), failures, "the Rubylight frame ring failed before its first frame");
                 }
                 return Err(error);
@@ -1495,24 +1499,69 @@ mod tests {
     #[test]
     fn rings_that_keep_failing_before_a_frame_send_the_monitor_to_wgc() {
         let mut failures = Failures::default();
-        let gpu = (7, 0);
-        assert_eq!(failures.failed(1, gpu), 1);
-        assert_eq!(failures.excluded(1, gpu), None, "the first failure retries");
-        assert_eq!(failures.failed(1, gpu), FAILURES_BEFORE_WGC);
-        assert_eq!(failures.excluded(1, gpu), Some(FAILURES_BEFORE_WGC));
-        assert_eq!(failures.excluded(2, gpu), None, "another monitor");
-        assert_eq!(failures.excluded(1, (8, 0)), None, "another GPU retries");
+        let scope = FenceScope {
+            session: 1,
+            registration: 5,
+            driver_pid: 40,
+            adapter: (7, 0),
+        };
+        let other_gpu = FenceScope {
+            adapter: (8, 0),
+            ..scope
+        };
+        assert_eq!(failures.failed(scope), 1);
+        assert_eq!(failures.excluded(scope), None, "the first failure retries");
+        assert_eq!(failures.failed(scope), FAILURES_BEFORE_WGC);
+        assert_eq!(failures.excluded(scope), Some(FAILURES_BEFORE_WGC));
+        let other_monitor = FenceScope {
+            session: 2,
+            ..scope
+        };
+        assert_eq!(failures.excluded(other_monitor), None, "another monitor");
+        assert_eq!(failures.excluded(other_gpu), None, "another GPU retries");
         // Failing on another GPU starts the count again.
-        assert_eq!(failures.failed(1, (8, 0)), 1);
-        assert_eq!(failures.excluded(1, gpu), None);
-        failures.failed(1, (8, 0));
-        assert!(failures.excluded(1, (8, 0)).is_some());
+        assert_eq!(failures.failed(other_gpu), 1);
+        assert_eq!(failures.excluded(scope), None);
+        failures.failed(other_gpu);
+        assert!(failures.excluded(other_gpu).is_some());
         failures.delivered(1);
         assert_eq!(
-            failures.excluded(1, (8, 0)),
+            failures.excluded(other_gpu),
             None,
             "a delivered frame clears it"
         );
+    }
+
+    #[test]
+    fn a_recreated_display_or_restarted_driver_gets_its_frame_ring_back() {
+        // A virtual display's session id is its client's, the same every time it is created.
+        let mut failures = Failures::default();
+        let scope = FenceScope {
+            session: 1,
+            registration: 5,
+            driver_pid: 40,
+            adapter: (7, 0),
+        };
+        for _ in 0..FAILURES_BEFORE_WGC {
+            failures.failed(scope);
+        }
+        assert!(failures.excluded(scope).is_some(), "reopening keeps WGC");
+        for fresh in [
+            FenceScope {
+                registration: 6,
+                ..scope
+            },
+            FenceScope {
+                driver_pid: 41,
+                ..scope
+            },
+        ] {
+            assert_eq!(failures.excluded(fresh), None);
+            // A failure there counts from one.
+            let mut again = Failures(failures.0.clone());
+            assert_eq!(again.failed(fresh), 1);
+            assert_eq!(again.excluded(scope), None);
+        }
     }
 
     #[test]

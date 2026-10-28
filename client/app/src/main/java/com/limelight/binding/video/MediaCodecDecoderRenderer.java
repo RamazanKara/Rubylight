@@ -2410,6 +2410,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if ((format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 setupUpscaling();
                 result = pyroWaveRenderer.getFormat() == format ? 0 : -1;
+                // The surface was made before the ANNOUNCE, as PQ; an HLG stream switches it now.
+                if (result == 0) pyroWaveRenderer.setTransfer(getStreamTransfer() == MediaFormat.COLOR_TRANSFER_HLG);
                 if (result == 0 && currentHdrMode != null) {
                     pyroWaveRenderer.setHdrMode(currentHdrMode, currentHdrMetadata);
                 }
@@ -3849,7 +3851,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             } else {
                 frameLatencyStats.discard(ptsUs, submissionResult < 0 ? "decode_failed" : "invalid_frame");
                 if (submissionResult < 0 || ++pyroWaveFailures == 60) {
-                    LimeLog.severe("PyroWave decoder stopped producing frames");
+                    int hdrFailure = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 ?
+                            PyroWaveDecoderRenderer.streamHdrFailure() : 0;
+                    LimeLog.severe("PyroWave decoder stopped producing frames" +
+                            (hdrFailure != 0 ? ": " + context.getString(hdrFailure) : ""));
                     stopping = true;
                     MoonBridge.bridgeClConnectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_FRAME);
                 }

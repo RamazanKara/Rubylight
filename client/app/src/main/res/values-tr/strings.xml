@@ -217,6 +217,7 @@
     <string name="pyrowave_missing_hdr">Desteklenmiyor: HDR kullanılamıyor</string>
     <string name="pyrowave_hdr_needs_android_15">HDR çıkışı için Android 15 gerekir</string>
     <string name="pyrowave_hdr_display_refused">ekran veya sürücü HDR çıkışını reddetti</string>
+    <string name="pyrowave_hlg_display_refused">ekran veya sürücü HLG çıkışını reddetti</string>
     <string name="pyrowave_check_failed">Desteklenmiyor: GPU kontrolü başarısız oldu</string>
     <string name="title_enable_hdr">HDR</string>
     <string name="summary_enable_hdr">Bu cihazda HDR ekran ve bilgisayarın ekranında HDR’nin açık olması gerekir.</string>

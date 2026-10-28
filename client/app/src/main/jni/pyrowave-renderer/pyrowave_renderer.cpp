@@ -74,13 +74,15 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include "present_timing.h"
 #include "rubylight_protocol.h"
 
-static_assert(PYRO_DATASPACE_SRGB == ADATASPACE_SRGB && PYRO_DATASPACE_BT2020_PQ == ADATASPACE_BT2020_PQ,
+static_assert(PYRO_DATASPACE_SRGB == ADATASPACE_SRGB && PYRO_DATASPACE_BT2020_PQ == ADATASPACE_BT2020_PQ &&
+              PYRO_DATASPACE_BT2020_HLG == ADATASPACE_BT2020_HLG,
               "window dataspace constants in presentation.h must match the NDK");
 static_assert(PYRO_FORMAT_A2B10G10R10 == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
               PYRO_FORMAT_A2R10G10B10 == VK_FORMAT_A2R10G10B10_UNORM_PACK32 &&
               PYRO_FORMAT_R8G8B8A8 == VK_FORMAT_R8G8B8A8_UNORM && PYRO_FORMAT_B8G8R8A8 == VK_FORMAT_B8G8R8A8_UNORM &&
               PYRO_COLORSPACE_SRGB_NONLINEAR == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
-              PYRO_COLORSPACE_HDR10_ST2084 == VK_COLOR_SPACE_HDR10_ST2084_EXT,
+              PYRO_COLORSPACE_HDR10_ST2084 == VK_COLOR_SPACE_HDR10_ST2084_EXT &&
+              PYRO_COLORSPACE_HDR10_HLG == VK_COLOR_SPACE_HDR10_HLG_EXT,
               "surface format constants in presentation.h must match Vulkan");
 
 #define LOG_TAG "PyroWave"
@@ -91,7 +93,7 @@ static_assert(PYRO_FORMAT_A2B10G10R10 == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
 namespace {
     // Why the last ten-bit output surface failed, for Java's HDR fallback notice.
     // 0 none, 1 no usable ten-bit surface format (Android 13 and 14 loaders may list none),
-    // 2 the display or driver refused the HDR window dataspace.
+    // 2 the display or driver refused the HDR window dataspace, 3 the same for an HLG stream.
     std::atomic<int> hdrSurfaceFailure{0};
 
     // Results returned to Java.
@@ -1200,22 +1202,18 @@ namespace {
                     LOGE("Surface reports no formats");
                     return false;
                 }
-                std::vector<PyroSurfaceFormat> available;
+                surfaceFormats.clear();
                 for (const auto &format : formats) {
-                    available.push_back({int32_t(format.format), int32_t(format.colorSpace)});
+                    surfaceFormats.push_back({int32_t(format.format), int32_t(format.colorSpace)});
                 }
-                const auto choice = pyroSelectSwapchainFormat(available.data(), available.size(), tenBit);
+                const auto choice = pyroSelectSwapchainFormat(surfaceFormats.data(), surfaceFormats.size(), tenBit, hlg);
                 swapchainFormat = static_cast<VkFormat>(choice.format);
                 dataspaceOverride = choice.dataspaceOverride;
                 if (tenBit && swapchainFormat == VK_FORMAT_UNDEFINED) {
                     hdrSurfaceFailure = 1;
-                    LOGE("PyroWave HDR: the surface lists no usable 10-bit format (%zu formats)", available.size());
+                    LOGE("PyroWave HDR: the surface lists no usable 10-bit format (%zu formats)", surfaceFormats.size());
                 }
-                if (tenBit && swapchainFormat != VK_FORMAT_UNDEFINED) {
-                    LOGI(dataspaceOverride ?
-                         "PyroWave HDR: 10-bit SDR swapchain with BT2020_PQ window dataspace (Android <= 14)" :
-                         "PyroWave HDR: native HDR10 swapchain");
-                }
+                if (tenBit && swapchainFormat != VK_FORMAT_UNDEFINED) logHdrOutput();
                 if (swapchainFormat == VK_FORMAT_UNDEFINED) return false;
 
                 uint32_t modeCount = 0;
@@ -1237,8 +1235,9 @@ namespace {
             }
 
             if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) return false;
-            // The Android 13 and 14 loader lists no HDR10_ST2084 format; HDR then rides on the window dataspace.
-            swapchainColorSpace = hdr && !dataspaceOverride ? VK_COLOR_SPACE_HDR10_ST2084_EXT : VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+            // The Android 13 and 14 loader lists no HDR colour space; HDR then rides on the window dataspace.
+            swapchainColorSpace = hdr && !dataspaceOverride ? static_cast<VkColorSpaceKHR>(pyroHdrColorSpace(hlg)) :
+                                  VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
             uint32_t imageCount = caps.minImageCount + 1;
             if (caps.maxImageCount > 0) {
                 imageCount = std::min(imageCount, caps.maxImageCount);
@@ -2117,18 +2116,28 @@ namespace {
 
         // HDR changes come from Java's thread and are applied here, by the swapchain's owner.
         bool applyPendingHdr() {
-            bool enabled;
+            bool enabled, transfer;
             VkHdrMetadataEXT metadata;
             {
                 std::lock_guard<std::mutex> lock(slotMutex);
-                if (!hdrPending) return true;
-                hdrPending = false;
-                enabled = pendingHdr;
-                metadata = pendingHdrMetadata;
+                if (!hdrPending && !transferPending) return true;
+                enabled = hdrPending ? pendingHdr : hdr;
+                metadata = hdrPending ? pendingHdrMetadata : hdrMetadata;
+                transfer = transferPending ? pendingHlg : hlg;
+                hdrPending = transferPending = false;
             }
             const bool changed = hdr != enabled;
             hdr = enabled;
             hdrMetadata = metadata;
+            if (transfer != hlg) {
+                // The ANNOUNCE settled on HLG (or PQ): the format stays, the colour space or window
+                // dataspace follows the transfer.
+                hlg = transfer;
+                dataspaceOverride = !pyroNativeHdr(surfaceFormats.data(), surfaceFormats.size(),
+                                                   int32_t(swapchainFormat), hlg);
+                logHdrOutput();
+                return recreateSwapchain();
+            }
             // The dataspace override keeps the same swapchain for HDR on and off; only the window changes.
             if (changed && !dataspaceOverride) return recreateSwapchain();
             applyHdrMetadata();
@@ -2194,6 +2203,8 @@ namespace {
         bool chroma444 = false;
         bool tenBit = false;
         bool hdr = false;
+        // HDR is HLG, else PQ; owned by the present thread like hdr.
+        bool hlg = false;
         bool fullRange = false;
         std::atomic<bool> failed{false};
         VkHdrMetadataEXT hdrMetadata = {VK_STRUCTURE_TYPE_HDR_METADATA_EXT};
@@ -2246,6 +2257,8 @@ namespace {
         bool stopPresenter = false;
         bool hdrPending = false;
         bool pendingHdr = false;
+        bool transferPending = false;
+        bool pendingHlg = false;
         VkHdrMetadataEXT pendingHdrMetadata = {VK_STRUCTURE_TYPE_HDR_METADATA_EXT};
         std::thread presenter;
         std::mutex decodeQueueMutex;
@@ -2258,6 +2271,8 @@ namespace {
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
         VkColorSpaceKHR swapchainColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
         bool dataspaceOverride = false;
+        // What the surface listed when the format was chosen; a transfer change keeps the format.
+        std::vector<PyroSurfaceFormat> surfaceFormats;
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
         VkExtent2D swapchainExtent = {};
@@ -2394,6 +2409,15 @@ namespace {
             hdrPending = true;
         }
 
+        // The stream's HDR transfer, from the format its ANNOUNCE asked for: HLG, else PQ. Java sets
+        // it before the first frame; the present thread recreates the swapchain when it changes.
+        void setTransfer(bool hlgTransfer) {
+            if (!tenBit || failed) return;
+            std::lock_guard<std::mutex> lock(slotMutex);
+            pendingHlg = hlgTransfer;
+            transferPending = true;
+        }
+
         // One atomic snapshot preserves completion-before-release across JNI polls.
         void takeEvents(std::vector<jlong> &completed, std::vector<jlong> &released, std::vector<jlong> &rendered) {
             completed.clear();
@@ -2412,20 +2436,31 @@ namespace {
             if (!dataspaceOverride || window == nullptr) return true;
             using SetDataSpace = int32_t (*)(ANativeWindow *, int32_t);
             static const auto setDataSpace = reinterpret_cast<SetDataSpace>(dlsym(RTLD_DEFAULT, "ANativeWindow_setBuffersDataSpace"));
-            const int32_t dataspace = pyroWindowDataspace(hdr);
+            const int32_t dataspace = pyroWindowDataspace(hdr, hlg);
+            const char *name = !hdr ? "SRGB" : hlg ? "BT2020_HLG" : "BT2020_PQ";
             const int32_t result = setDataSpace != nullptr ? setDataSpace(window, dataspace) : -1;
             if (result != 0) {
-                LOGE("Window dataspace %s (0x%x) was refused (%d%s)", hdr ? "BT2020_PQ" : "SRGB", uint32_t(dataspace),
+                LOGE("Window dataspace %s (0x%x) was refused (%d%s)", name, uint32_t(dataspace),
                      result, setDataSpace == nullptr ? ", ANativeWindow_setBuffersDataSpace missing" : "");
-                if (hdr) hdrSurfaceFailure = 2;
+                if (hdr) hdrSurfaceFailure = hlg ? 3 : 2;
                 return !hdr;
             }
-            LOGI("Window dataspace set to %s (0x%x)", hdr ? "BT2020_PQ" : "SRGB", uint32_t(dataspace));
+            LOGI("Window dataspace set to %s (0x%x)", name, uint32_t(dataspace));
             return true;
         }
 
+        void logHdrOutput() {
+            if (dataspaceOverride) {
+                LOGI("PyroWave HDR: 10-bit SDR swapchain with %s window dataspace (Android <= 14), %s",
+                     hlg ? "BT2020_HLG" : "BT2020_PQ", hlg ? "HLG" : "HDR10");
+            } else {
+                LOGI("PyroWave HDR: native %s swapchain", hlg ? "HLG" : "HDR10");
+            }
+        }
+
+        // HLG carries no static metadata: the host's mastering data describes PQ.
         void applyHdrMetadata() {
-            if (tenBit && vk.SetHdrMetadataEXT && swapchain) {
+            if (tenBit && !hlg && vk.SetHdrMetadataEXT && swapchain) {
                 vk.SetHdrMetadataEXT(device, 1, &swapchain, &hdrMetadata);
             }
         }
@@ -2749,6 +2784,12 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSetHdrMode(JNIEnv
         if (env->ExceptionCheck()) return;
     }
     reinterpret_cast<Renderer *>(handle)->setHdrMode(enabled, valid ? bytes : nullptr);
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSetTransfer(JNIEnv *, jclass, jlong handle,
+                                                                       jboolean hlg) {
+    reinterpret_cast<Renderer *>(handle)->setTransfer(hlg);
 }
 
 JNIEXPORT void JNICALL

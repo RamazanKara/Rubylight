@@ -637,6 +637,20 @@ public class NvHTTPParityTest {
         assertThrows(IllegalArgumentException.class, () -> FecChoice.fixed(-1));
     }
 
+    @Test
+    public void rateChangesAreAskedForOnlyWhenTheStreamCanSendThem() throws Exception {
+        for (String server : new String[] {"butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml"}) {
+            ConnectionContext context = context(server);
+            String plain = NvHTTP.getLaunchQuery(context, 42, false);
+            assertFalse(server, plain.contains(NvHTTP.RATE_CHANGE_LAUNCH_PARAMETER));
+            context.rateChange = true;
+            // Any host gets it, last, and the rest of the query stays byte for byte.
+            assertEquals(server, plain + "&rlRateChange=1", NvHTTP.getLaunchQuery(context, 42, false));
+        }
+        assertTrue(new StreamConfiguration.Builder().setRateChange(true).build().getRateChange());
+        assertFalse(new StreamConfiguration.Builder().build().getRateChange());
+    }
+
     // The Error correction setting stores the wire value; anything else leaves it to the PC.
     @Test
     public void theFecSettingReadsBackAsItsChoice() {

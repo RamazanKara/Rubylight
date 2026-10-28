@@ -785,6 +785,25 @@ fn decide_location(location: Location, remote: IpAddr, stream: &mut StreamConfig
     };
 }
 
+/// Whether the session sends microphone audio to the host's `mic_port` (0: none offered).
+/// `Err` says why not: a remote monitor is view-only and sends nothing from this client, and
+/// without negotiated encryption the voice would go out in the clear.
+fn microphone_wanted(
+    mic_port: u16,
+    encryption_enabled: u32,
+    remote_monitor: bool,
+) -> Result<bool, &'static str> {
+    if mic_port == 0 {
+        Ok(false)
+    } else if remote_monitor {
+        Err("Microphone: off in a remote monitor session")
+    } else if encryption_enabled & sdp::SS_ENC_MICROPHONE == 0 {
+        Err("Microphone: encryption was not negotiated; not sending")
+    } else {
+        Ok(true)
+    }
+}
+
 /// The microphone's socket; a failure costs only the microphone, and the listener hears why.
 fn open_microphone_socket(
     local: SocketAddr,
@@ -1167,22 +1186,26 @@ fn start(
 
     listener.stage_starting(Stage::InputStreamStart);
     // The microphone comes up with the last stage; failing costs only the microphone.
-    if outcome.mic_port != 0 {
-        if outcome.encryption_enabled & sdp::SS_ENC_MICROPHONE == 0 {
-            listener.log("Microphone: encryption was not negotiated; not sending");
-        } else if let Some(socket) =
-            open_microphone_socket(local, config.network_priority, listener)
-        {
-            *parts.microphone.lock().unwrap_or_else(|p| p.into_inner()) = Some(Microphone {
-                socket,
-                target: net::with_port(remote, outcome.mic_port),
-                key: stream.remote_input_aes_key,
-                key_id: u32::from_be_bytes(
-                    stream.remote_input_aes_iv[..4].try_into().expect("4 bytes"),
-                ),
-                sequence: 0,
-                started: Instant::now(),
-            });
+    match microphone_wanted(
+        outcome.mic_port,
+        outcome.encryption_enabled,
+        config.remote_monitor,
+    ) {
+        Ok(false) => {}
+        Err(why) => listener.log(why),
+        Ok(true) => {
+            if let Some(socket) = open_microphone_socket(local, config.network_priority, listener) {
+                *parts.microphone.lock().unwrap_or_else(|p| p.into_inner()) = Some(Microphone {
+                    socket,
+                    target: net::with_port(remote, outcome.mic_port),
+                    key: stream.remote_input_aes_key,
+                    key_id: u32::from_be_bytes(
+                        stream.remote_input_aes_iv[..4].try_into().expect("4 bytes"),
+                    ),
+                    sequence: 0,
+                    started: Instant::now(),
+                });
+            }
         }
     }
     if control.roaming() {
@@ -1340,7 +1363,10 @@ mod tests {
         shared.started();
         assert_eq!(terminated.recv_timeout(Duration::from_secs(5)), Ok(7));
         shared.terminate(8);
-        assert!(terminated.recv_timeout(Duration::from_millis(100)).is_err(), "reported once");
+        assert!(
+            terminated.recv_timeout(Duration::from_millis(100)).is_err(),
+            "reported once"
+        );
     }
 
     #[test]
@@ -1351,6 +1377,19 @@ mod tests {
         shared.terminate(9);
         assert_eq!(terminated.recv_timeout(Duration::from_secs(5)), Ok(9));
         assert_eq!(shared.start_failed(), None);
+    }
+
+    #[test]
+    fn a_remote_monitor_opens_no_microphone() {
+        let encrypted = sdp::SS_ENC_MICROPHONE;
+        assert_eq!(microphone_wanted(48000, encrypted, false), Ok(true));
+        assert!(microphone_wanted(48000, encrypted, true).is_err());
+        assert_eq!(
+            microphone_wanted(0, encrypted, true),
+            Ok(false),
+            "none offered: no word"
+        );
+        assert!(microphone_wanted(48000, 0, false).is_err());
     }
 
     #[test]

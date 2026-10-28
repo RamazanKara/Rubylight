@@ -5,6 +5,7 @@
 - A download that sends more than the size the PC listed now stops with an error instead of writing on.
 - If a failed download's unfinished file cannot be deleted, the error now names it.
 - A damaged image on the clipboard could crash the clipboard sync. It is now refused with an error.
+- A Remote Monitor session, which only watches, no longer sends the microphone to the PC.
 
 ## de
 - Wenn der PC die Verbindung beendete, während ein Stream noch startete, konnte die automatische Wiederherstellung den gerade wiederhergestellten Stream beenden. Jeder Versuch meldet jetzt nur noch sein eigenes Ende.
@@ -13,3 +14,4 @@
 - Ein Download, der mehr sendet als die vom PC angegebene Größe, bricht jetzt mit einem Fehler ab, statt weiterzuschreiben.
 - Lässt sich die unfertige Datei eines fehlgeschlagenen Downloads nicht löschen, nennt der Fehler sie jetzt.
 - Ein beschädigtes Bild in der Zwischenablage konnte die Zwischenablage-Synchronisierung abstürzen lassen. Es wird jetzt mit einem Fehler abgelehnt.
+- Eine Remote-Monitor-Sitzung, die nur zuschaut, sendet das Mikrofon nicht mehr an den PC.

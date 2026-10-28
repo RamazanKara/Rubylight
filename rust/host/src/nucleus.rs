@@ -1604,6 +1604,7 @@ mod tests {
     fn client(uuid: &str, coop_join: bool) -> Client {
         let mut client: Client = serde_json::from_value(serde_json::json!({
             "name": format!("Device {uuid}"), "cert": "", "uuid": uuid,
+            "perm": butterpollo_core::state::PLAY_DEVICE_PERMISSION,
         }))
         .unwrap();
         // Set either way: never set, a device that launches apps may join.

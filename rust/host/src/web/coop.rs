@@ -308,6 +308,8 @@ mod tests {
         let mut second = first.clone();
         second.uuid = "second-device".into();
         second.name = "Second device".into();
+        // Joining launches the co-op entry, so it needs Launch apps too.
+        second.perm |= butterpollo_core::state::LAUNCH_APPS;
         second.extra.insert("coop_join".into(), true.into());
         let seated = |client: Client| {
             let mut launch = f.launch(client, Role::Stream);

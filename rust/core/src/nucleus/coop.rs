@@ -17,16 +17,17 @@ pub const MAX_PLAYERS: usize = 4;
 /// client's extra field, "Can join co-op games" on the device's page).
 pub const DEVICE_KEY: &str = "coop_join";
 
-/// Whether this device may join co-op sessions. A device whose page never
-/// set it follows `launches` (Launch apps), as "Play games" includes joining;
-/// a set value decides alone, so only `true` or `"true"` lets it join and an
-/// explicit `false` keeps a device that launches apps out.
+/// Whether this device may join co-op sessions. Joining is a launch of the
+/// co-op entry, so it needs `launches` (Launch apps), and "Play games"
+/// includes it: a device whose page never set it joins, `true` or `"true"`
+/// keeps it in, and an explicit `false` (or any other value) keeps it out.
 pub fn may_join(extra: &BTreeMap<String, serde_json::Value>, launches: bool) -> bool {
-    match extra.get(DEVICE_KEY) {
-        // null is how the console clears it.
-        None | Some(serde_json::Value::Null) => launches,
-        Some(v) => v == true || v == "true",
-    }
+    launches
+        && match extra.get(DEVICE_KEY) {
+            // null is how the console clears it.
+            None | Some(serde_json::Value::Null) => true,
+            Some(v) => v == true || v == "true",
+        }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -497,17 +498,18 @@ mod tests {
         s.end(End::Ended);
         assert_eq!(s.join("tv", "TV", false), Err(Refused::NotPermitted));
         let extra = |value| serde_json::from_value(json!({ "coop_join": value })).unwrap();
-        for launches in [false, true] {
-            assert!(may_join(&extra(json!(true)), launches));
-            assert!(may_join(&extra(json!("true")), launches));
-            // A set value decides alone: false keeps out a device that launches apps.
-            assert!(!may_join(&extra(json!(false)), launches));
-            assert!(!may_join(&extra(json!(1)), launches));
-        }
+        assert!(may_join(&extra(json!(true)), true));
+        assert!(may_join(&extra(json!("true")), true));
+        // false keeps out a device that launches apps, and so does any other value.
+        assert!(!may_join(&extra(json!(false)), true));
+        assert!(!may_join(&extra(json!(1)), true));
         // Never set, or cleared with null: joining follows Launch apps.
         assert!(may_join(&BTreeMap::new(), true));
         assert!(may_join(&extra(json!(null)), true));
-        assert!(!may_join(&extra(json!(null)), false));
+        // Joining launches the co-op entry: without Launch apps nothing lets it in.
+        for value in [json!(true), json!("true"), json!(null), json!(false)] {
+            assert!(!may_join(&extra(value), false));
+        }
         assert!(!may_join(&BTreeMap::new(), false));
     }
 

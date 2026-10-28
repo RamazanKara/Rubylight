@@ -28,7 +28,7 @@ export function megabytes(bytes: number): string {
 }
 
 /** The host's reasons are clauses; the panel shows them as sentences. */
-function sentence(text: string): string {
+export function sentence(text: string): string {
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
@@ -117,7 +117,7 @@ export function pollsView(view: PlayTogetherView): boolean {
 }
 
 /** The limits, said where co-op is ready. */
-export const COOP_LIMITS = 'Controllers only: keyboard and mouse don’t reach the game. A paired device can join unless “Can join co-op games” is off on its page under Devices.';
+export const COOP_LIMITS = 'Controllers only: keyboard and mouse don’t reach the game. A paired device that can play games joins unless “Can join co-op games” is off on its page under Devices.';
 
 // ---------- Home: one card per live co-op game ----------
 
@@ -128,9 +128,12 @@ export function storedCoopJoin(value: unknown): boolean | null {
   return value === true || value === 'true';
 }
 
-/** Whether a device may join co-op games: never set, it follows Launch apps, as the host decides. */
+/**
+ * Whether a device may join co-op games, as the host decides: joining is a launch of the co-op entry,
+ * so it needs Launch apps; never set, it follows Launch apps, and set to false it keeps the device out.
+ */
 export function joinsCoop(perm: number, stored: unknown): boolean {
-  return storedCoopJoin(stored) ?? (perm & PERM.LAUNCH_APPS) !== 0;
+  return (perm & PERM.LAUNCH_APPS) !== 0 && (storedCoopJoin(stored) ?? true);
 }
 
 /** The library entry a co-op game starts from (the host's `nucleus::ENTRY_SUFFIX`). */
@@ -158,6 +161,8 @@ export interface Seat {
   device: string | null;
   /** While the device's stream is gone: how long it keeps the slot. */
   away: string | null;
+  /** The same without "Away, ", beside the card's Away badge: "keeps the slot for 1:24". */
+  keeps: string | null;
 }
 
 /**
@@ -165,17 +170,21 @@ export interface Seat {
  * `elapsed` seconds since the session was read count it down between polls.
  */
 export function seats(session: CoopSession, elapsed = 0): Seat[] {
-  return session.players.map((player) => ({
-    slot: player.slot,
-    label: `Player ${player.slot + 1}`,
-    name: player.device ? (player.name ?? 'Unnamed device') : null,
-    device: player.device,
-    away: !player.device || !player.away
+  return session.players.map((player) => {
+    const keeps = !player.device || !player.away
       ? null
       : typeof player.rejoin_in === 'number'
-        ? `Away, keeps the slot for ${clock(player.rejoin_in - elapsed)}`
-        : 'Away, keeps the slot for 2 minutes',
-  }));
+        ? `keeps the slot for ${clock(player.rejoin_in - elapsed)}`
+        : 'keeps the slot for 2 minutes';
+    return {
+      slot: player.slot,
+      label: `Player ${player.slot + 1}`,
+      name: player.device ? (player.name ?? 'Unnamed device') : null,
+      device: player.device,
+      away: keeps && `Away, ${keeps}`,
+      keeps,
+    };
+  });
 }
 
 /** "2 of 4 players · 2 free slots". */
@@ -194,14 +203,15 @@ export interface Invitee {
 }
 
 /**
- * Paired devices that could take a free slot: on, and not seated in this game (an away device keeps
- * its slot and comes back by itself). Empty while the game has no free slot.
+ * Paired devices that could take a free slot: on, allowed to launch apps (a watch-only device can't
+ * start the co-op entry), and not seated in this game (an away device keeps its slot and comes back
+ * by itself). Empty while the game has no free slot.
  */
 export function invitees(session: CoopSession, clients: Client[]): Invitee[] {
   if (!session.players.some((player) => !player.device)) return [];
   const seated = new Set(session.players.flatMap((player) => (player.device ? [player.device] : [])));
   return clients
-    .filter((client) => client.enabled !== false && !seated.has(client.uuid))
+    .filter((client) => client.enabled !== false && ((client.perm ?? 0) & PERM.LAUNCH_APPS) !== 0 && !seated.has(client.uuid))
     .map((client) => ({ uuid: client.uuid, name: client.name, canJoin: joinsCoop(client.perm ?? 0, client.coop_join) }));
 }
 

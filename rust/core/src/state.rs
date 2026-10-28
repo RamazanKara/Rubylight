@@ -168,8 +168,9 @@ impl Client {
         self.enabled && self.extra.get("allow_usb") == Some(&Value::Bool(true))
     }
     /// Whether this device may join other devices' co-op sessions (`coop_join`,
-    /// `nucleus::coop::may_join`): never set, it follows Launch apps; set, only
-    /// true counts. A disabled device may not.
+    /// `nucleus::coop::may_join`): it needs Launch apps, as joining launches the
+    /// co-op entry; never set, it follows them, set, only true counts. A
+    /// disabled device may not.
     pub fn allows_coop_join(&self) -> bool {
         self.enabled && crate::nucleus::coop::may_join(&self.extra, self.perm & LAUNCH_APPS != 0)
     }
@@ -831,13 +832,15 @@ mod tests {
         assert!(client_with(PLAY_DEVICE_PERMISSION, json!({})).allows_coop_join());
         assert!(client_with(LAUNCH_APPS, json!({"coop_join":null})).allows_coop_join());
         assert!(!client_with(LATER_DEVICE_PERMISSION, json!({})).allows_coop_join());
+        assert!(!client_with(!LAUNCH_APPS, json!({"host_control":true})).allows_coop_join());
+        // Joining launches the co-op entry, so without Launch apps even a stored true
+        // keeps the device out: the console's switch and invite list say the same.
+        assert!(!client_with(0, json!({"coop_join":true})).allows_coop_join());
         assert!(
-            !client_with(u32::MAX & !LAUNCH_APPS, json!({"host_control":true})).allows_coop_join()
+            !client_with(LATER_DEVICE_PERMISSION, json!({"coop_join":"true"})).allows_coop_join()
         );
-        // Set, it decides alone: true lets even a watching device join, and anything
-        // else keeps out a device that launches apps.
-        assert!(client_with(0, json!({"coop_join":true})).allows_coop_join());
-        assert!(client_with(0, json!({"coop_join":"true"})).allows_coop_join());
+        assert!(client_with(LAUNCH_APPS, json!({"coop_join":"true"})).allows_coop_join());
+        // Set to anything but true, it keeps out a device that launches apps.
         for value in [json!(false), json!(1), json!("yes")] {
             assert!(
                 !client_with(u32::MAX, json!({"coop_join":value})).allows_coop_join(),

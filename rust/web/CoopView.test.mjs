@@ -216,7 +216,8 @@ test('the card shows the game, each player with their slot, who is away and the 
   assert.match(out, /Player 1/);
   assert.match(out, /Fold7/);
   assert.match(out, /Playing/);
-  assert.match(out, /Away, keeps the slot for 1:45/);
+  // The badge says Away; the countdown sits beside it as text, so a phone wraps it instead of the pill.
+  assert.match(out, /badge warn[^>]*>(<!--[^>]*-->|\s)*Away(<!--[^>]*-->)*<\/span>(<!--[^>]*-->)*<span class="keeps[^"]*">keeps the slot for 1:45<\/span>/);
   assert.equal(out.match(/Free slot/g)?.length, 2);
   assert.equal(out.match(/>Remove</g)?.length, 2, 'only seated players, away ones too');
   assert.match(out, /End co-op/);
@@ -227,17 +228,18 @@ test('the away time counts down between polls and never goes below zero', () => 
   assert.equal(home.seats(running, 500)[1].away, 'Away, keeps the slot for 0:00');
   assert.equal(home.seats(coopSession([seat(0, 'a', 'A', true)]))[0].away, 'Away, keeps the slot for 2 minutes', 'an older host');
   assert.equal(home.seats(running)[0].away, null);
+  assert.equal(home.seats(running)[0].keeps, null);
+  assert.equal(home.seats(running, 10)[1].keeps, 'keeps the slot for 1:35');
   assert.equal(home.clock(65), '1:05');
   assert.equal(home.clock(9.2), '0:10');
 });
 
-test('the invite list leaves out seated and turned-off devices, and says who can already join', () => {
+test('the invite list leaves out seated, turned-off and watch-only devices, and says who can already join', () => {
   const list = home.invitees(running, paired);
   assert.deepEqual(
     list.map((d) => [d.name, d.canJoin]),
     [
       ['Retroid', true],
-      ['Laptop', false],
       ['Steam Deck', false],
     ],
   );
@@ -245,8 +247,9 @@ test('the invite list leaves out seated and turned-off devices, and says who can
   const out = card();
   assert.match(out, /Invite a player/);
   assert.match(out, /Can join/);
-  assert.match(out, /Let Laptop join/);
   assert.match(out, /Let Steam Deck join/);
+  // Watch only can't launch the co-op entry, so letting it join would change nothing.
+  assert.doesNotMatch(out, /Laptop/);
   assert.doesNotMatch(out, /Let Retroid join|Let Fold7 join|Old phone/);
   assert.match(out, /Open Nightjar or Moonlight on it and pick “Portal 2 \(Co-op\)”\./);
   assert.match(out, /href="\/devices"[^>]*>.*Pair a new device/s);
@@ -296,11 +299,14 @@ test('Remove, End co-op and Let join post the right bodies', async () => {
 test('“Can join co-op games” follows Launch apps until set, as the host decides', () => {
   assert.equal(home.joinsCoop(PLAY, undefined), true);
   assert.equal(home.joinsCoop(PLAY, null), true);
+  assert.equal(home.joinsCoop(PLAY, true), true);
+  assert.equal(home.joinsCoop(PLAY, 'true'), true);
   assert.equal(home.joinsCoop(ACCESS_PERM.view, undefined), false);
   assert.equal(home.joinsCoop(PLAY, false), false, 'an explicit false refuses');
-  assert.equal(home.joinsCoop(ACCESS_PERM.view, true), true);
+  // Joining launches the co-op entry: without Launch apps a stored true can't let it in.
+  assert.equal(home.joinsCoop(ACCESS_PERM.view, true), false);
+  assert.equal(home.joinsCoop(0, 'true'), false);
   assert.equal(home.joinsCoop(PLAY, 1), false);
-  assert.equal(home.joinsCoop(0, 'true'), true);
   assert.equal((PLAY & PERM.LAUNCH_APPS) !== 0, true);
 });
 
@@ -313,6 +319,13 @@ test('a device’s page shows “Can join co-op games”, on for Play games and 
   assert.match(off, /Can join co-op games/);
   assert.doesNotMatch(off.slice(off.indexOf('Can join co-op games') - 400, off.indexOf('Can join co-op games')), /checked/);
   assert.doesNotMatch(on, /Join co-op:/, 'one control, not a second checkbox');
+  // Watch only can't launch the co-op entry: the switch is off and says what it needs, even if stored true.
+  const watching = page(device('laptop', 'Laptop', ACCESS_PERM.view, { coop_join: true }));
+  const at = watching.indexOf('Can join co-op games');
+  const toggle = watching.slice(watching.lastIndexOf('<label', at), at);
+  assert.match(toggle, /disabled/);
+  assert.doesNotMatch(toggle, /checked/);
+  assert.match(watching, /Needs Launch apps, which Play games and Everything include\./);
 });
 
 test('every co-op text names the permission the way the device page does', () => {

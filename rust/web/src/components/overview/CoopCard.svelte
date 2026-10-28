@@ -104,7 +104,11 @@
           {#if seat.device}
             <span class="who">
               <strong>{seat.name}</strong>
-              {#if seat.away}<Badge tone="warn">{seat.away}</Badge>{:else}<Badge tone="live">Playing</Badge>{/if}
+              {#if seat.keeps}
+                <Badge tone="warn">Away</Badge><span class="keeps">{seat.keeps}</span>
+              {:else}
+                <Badge tone="live">Playing</Badge>
+              {/if}
             </span>
             <Button
               size="sm"
@@ -165,21 +169,24 @@
     padding: 0;
     display: grid;
   }
+  /* Columns, not wrapping: on a phone the action stays on its row's right, beside the name it acts on. */
   .seats li,
   .devices li {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-2) var(--space-3);
-    flex-wrap: wrap;
     min-height: var(--control-height);
     padding-block: var(--space-2);
+  }
+  .seats li {
+    grid-template-columns: 5.5rem minmax(0, 1fr) auto;
   }
   .seats li + li,
   .devices li + li {
     border-top: 1px solid var(--line);
   }
   .number {
-    flex: 0 0 5.5rem;
     color: var(--ink-2);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
@@ -189,7 +196,6 @@
     align-items: center;
     gap: var(--space-2);
     flex-wrap: wrap;
-    flex: 1 1 12rem;
     min-width: 0;
   }
   .who strong,
@@ -198,6 +204,11 @@
   }
   .free .who {
     font-size: var(--text-sm);
+  }
+  .keeps {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
   }
   .invite {
     display: grid;
@@ -210,8 +221,12 @@
     font-size: var(--text-md);
   }
   .name {
-    flex: 1 1 10rem;
     min-width: 0;
+  }
+  @media (max-width: 30rem) {
+    .seats li {
+      grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+    }
   }
   .can {
     display: inline-flex;

@@ -83,10 +83,11 @@
 
   // "Can join co-op games": while it matches Launch apps the device follows it (null), so a
   // later preset change carries it along; a stored value the switch lands back on stays as stored.
+  // Joining is a launch of the co-op entry, so without Launch apps the switch stays off.
+  const launches = $derived((draft.perm & PERM.LAUNCH_APPS) !== 0);
   const joins = $derived(joinsCoop(draft.perm, draft.coop_join));
   function setJoins(next: boolean) {
-    const follows = (draft.perm & PERM.LAUNCH_APPS) !== 0;
-    draft.coop_join = next === saved.coop_join ? saved.coop_join : next === follows ? null : next;
+    draft.coop_join = next === saved.coop_join ? saved.coop_join : next ? null : false;
   }
 
   // Follow edits made elsewhere while this form has none of its own.
@@ -240,8 +241,11 @@
     <AccessChoice legend="This device can" custom value={access} onchange={chooseAccess} />
     <Toggle
       label="Can join co-op games"
-      hint="Take a free slot in a co-op game another device started on this PC. Turning it off ends this device’s streams."
+      hint={launches
+        ? 'Take a free slot in a co-op game another device started on this PC. Turning it off ends this device’s streams.'
+        : 'Needs Launch apps, which Play games and Everything include.'}
       checked={joins}
+      disabled={!launches}
       onchange={setJoins}
     />
     <p class="note">

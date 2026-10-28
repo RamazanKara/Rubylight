@@ -41,7 +41,7 @@ GET /api/native/v1/capabilities
 ```
 
 - `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker; `files.upload` and `files.download` only while the host's File transfer setting is on. Clients ignore feature strings they don't know.
-- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
+- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
 ## Endpoints
 

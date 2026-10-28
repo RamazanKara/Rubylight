@@ -86,7 +86,9 @@ Moonlight client can join this way.
 
 Joining a session that someone else started needs **Can join co-op games**
 (`coop_join`) on the device's page in the console. A device that never set it
-follows Launch apps, so every device with Play games joins; an explicit off
+follows Launch apps, so every device with Play games joins. Joining launches the
+co-op entry, so a device without Launch apps (Watch only) never joins, and the
+console keeps the switch off for it and leaves it out of the invite list. An explicit off
 refuses the join with "This device may not join co-op games: turn on “Can join
 co-op games” for it in the Rubylight console". A device that holds a slot can go
 back to it while it may join; turning it off ends the device's stream and keeps

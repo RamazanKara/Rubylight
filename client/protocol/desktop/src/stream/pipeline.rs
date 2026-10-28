@@ -64,7 +64,8 @@ pub enum Notice {
     Terminated(i32),
     Control(ControlEvent),
     DecoderFallback(String),
-    /// The GPU PyroWave decoder broke; the stream ends with this message (nothing falls back).
+    /// The GPU PyroWave decoder broke, or a decoder kept failing with no picture; the stream
+    /// ends with this message (nothing falls back).
     DecoderFailed(String),
     MicrophoneFailed(String),
     /// Audio passthrough was asked for, but the PC sends Opus; the stream plays on with a message.
@@ -298,6 +299,60 @@ pub struct Decoder {
     /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
     /// and how many were written.
     dump: Option<(std::path::PathBuf, u32)>,
+    /// Frames that failed since the last picture.
+    failing: Failing,
+}
+
+/// How long frames may fail with no picture between before the decoder is taken for broken.
+/// After a GPU reset or a lost device a hardware decoder fails every frame, and each failed
+/// frame only asks for the next IDR, so the picture would freeze without a word.
+const FAILING_FOR_US: u64 = 1_000_000;
+/// And how many frames, so that one bad frame and the next one after a pause are not enough.
+const FAILING_FRAMES: u32 = 3;
+
+/// The frames that failed since the decoder last made a picture.
+#[derive(Debug, Default, PartialEq)]
+struct Failing {
+    since_us: Option<u64>,
+    frames: u32,
+    /// The decoder was opened again in this run of failures.
+    reopened: bool,
+    /// The stream was told to end; nothing more is said.
+    given_up: bool,
+}
+
+/// What a decoder that failed again has to do.
+#[derive(Debug, PartialEq)]
+enum Escalation {
+    /// Ask for an IDR as usual.
+    Wait,
+    /// Open the decoder again (once).
+    Reopen,
+    /// End the stream: the decoder failed after it was opened again, or cannot be.
+    GiveUp,
+}
+
+impl Failing {
+    fn decoded(&mut self) {
+        *self = Self::default();
+    }
+
+    fn failed(&mut self, now_us: u64, reopenable: bool) -> Escalation {
+        if self.given_up {
+            return Escalation::Wait;
+        }
+        let since = *self.since_us.get_or_insert(now_us);
+        self.frames += 1;
+        if self.frames < FAILING_FRAMES || now_us.saturating_sub(since) < FAILING_FOR_US {
+            return Escalation::Wait;
+        }
+        if reopenable && !self.reopened {
+            *self = Self { reopened: true, ..Self::default() };
+            return Escalation::Reopen;
+        }
+        self.given_up = true;
+        Escalation::GiveUp
+    }
 }
 
 /// How many real PyroWave envelopes `NIGHTJAR_PYROWAVE_DUMP` keeps.
@@ -317,6 +372,31 @@ impl Decoder {
             slices: 0,
             gpu: None,
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
+            failing: Failing::default(),
+        }
+    }
+
+    /// A frame failed with no picture since the last one: after [`FAILING_FOR_US`] of that the
+    /// FFmpeg decoder is opened again once, and when it still fails, or PyroWave does, the
+    /// stream ends saying why instead of freezing.
+    fn frame_failed(&mut self, now_us: u64) {
+        let frames = self.failing.frames + 1;
+        let for_ms = self.failing.since_us.map_or(0, |since| now_us.saturating_sub(since) / 1000);
+        match self.failing.failed(now_us, self.decoder.is_some()) {
+            Escalation::Wait => {}
+            Escalation::Reopen => {
+                eprintln!("nightjar: the video decoder failed {frames} frames in a row over {for_ms} ms with no picture; opening it again");
+                let setup = self.setup.expect("decoder setup precedes frames");
+                self.decoder = None;
+                if self.setup(&setup).is_err() || self.decoder.is_none() {
+                    self.failing.given_up = true;
+                    self.shared.notify(Notice::DecoderFailed("The video decoder stopped working and could not be opened again.".into()));
+                }
+            }
+            Escalation::GiveUp => {
+                eprintln!("nightjar: the video decoder failed {frames} frames in a row over {for_ms} ms with no picture; ending the stream");
+                self.shared.notify(Notice::DecoderFailed(format!("The video decoder stopped working: no picture for {} s.", for_ms.div_ceil(1000))));
+            }
         }
     }
 
@@ -483,6 +563,29 @@ impl VideoDecoder for Decoder {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
+        let pictures = self.shared.counters.decoded.load(Ordering::Relaxed);
+        let status = self.decode_frame(frame);
+        if self.shared.counters.decoded.load(Ordering::Relaxed) != pictures {
+            self.failing.decoded();
+        } else if status == DecodeStatus::NeedIdr {
+            self.frame_failed(session::now_us());
+        }
+        status
+    }
+
+    fn cleanup(&mut self) {
+        lock(&self.shared.frames).clear();
+        self.decoder = None;
+        if let Some(summary) = self.pyrowave.as_ref().and_then(|decoder| decoder.stage_summary()) {
+            eprintln!("nightjar: PyroWave decode stages {summary}");
+        }
+        self.pyrowave = None;
+    }
+}
+
+impl Decoder {
+    /// Decodes `frame`, PyroWave or FFmpeg, and queues its picture for the presenter.
+    fn decode_frame(&mut self, frame: &Frame) -> DecodeStatus {
         self.shared.counters.count_host_latency(frame.host_processing_latency);
         self.shared.counters.video_bytes.fetch_add(frame.data().len() as u64, Ordering::Relaxed);
         if self.pyrowave.is_some() {
@@ -585,15 +688,6 @@ impl VideoDecoder for Decoder {
             }
         }
         status
-    }
-
-    fn cleanup(&mut self) {
-        lock(&self.shared.frames).clear();
-        self.decoder = None;
-        if let Some(summary) = self.pyrowave.as_ref().and_then(|decoder| decoder.stage_summary()) {
-            eprintln!("nightjar: PyroWave decode stages {summary}");
-        }
-        self.pyrowave = None;
     }
 }
 
@@ -993,6 +1087,62 @@ mod tests {
         assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 3);
         // Even the last queued picture is older than the frame being decoded, so it may go.
         assert!(shared.evict_oldest() && !shared.evict_oldest());
+    }
+
+    #[test]
+    fn frames_failing_for_a_second_open_the_decoder_again_once_then_end_the_stream() {
+        let mut failing = Failing::default();
+        assert_eq!(failing.failed(0, true), Escalation::Wait);
+        assert_eq!(failing.failed(400_000, true), Escalation::Wait);
+        assert_eq!(failing.failed(1_000_000, true), Escalation::Reopen);
+        assert_eq!(failing.failed(1_100_000, true), Escalation::Wait, "the reopened decoder gets its own second");
+        assert_eq!(failing.failed(1_600_000, true), Escalation::Wait);
+        assert_eq!(failing.failed(2_100_000, true), Escalation::GiveUp);
+        assert_eq!(failing.failed(3_000_000, true), Escalation::Wait, "said once");
+        // A picture between failures starts over, and two failures a pause apart are not enough.
+        let mut failing = Failing::default();
+        failing.failed(0, true);
+        failing.failed(500_000, true);
+        failing.decoded();
+        assert_eq!(failing.failed(1_200_000, true), Escalation::Wait);
+        assert_eq!(failing.failed(6_000_000, true), Escalation::Wait);
+        // A decoder that cannot be opened again ends the stream at once.
+        let mut failing = Failing::default();
+        failing.failed(0, false);
+        failing.failed(500_000, false);
+        assert_eq!(failing.failed(1_000_000, false), Escalation::GiveUp);
+    }
+
+    #[test]
+    fn a_decoder_that_keeps_failing_is_opened_again_and_then_ends_the_stream_saying_why() {
+        let (mut decoder, shared) = decoder();
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        decoder.setup(&setup).unwrap();
+        for at in [0, 500_000, 1_000_000] {
+            decoder.frame_failed(at);
+        }
+        assert!(decoder.decoder.is_some(), "opened again");
+        assert!(decoder.failing.reopened);
+        assert!(notices(&shared).is_empty(), "the stream goes on");
+        for at in [1_100_000, 1_600_000, 2_200_000] {
+            decoder.frame_failed(at);
+        }
+        let ended = notices(&shared);
+        let [Notice::DecoderFailed(text)] = ended.as_slice() else { panic!("expected exactly the DecoderFailed notice") };
+        assert!(text.contains("stopped working"), "{text}");
+        decoder.frame_failed(3_000_000);
+        assert!(notices(&shared).is_empty(), "said once");
+    }
+
+    #[test]
+    fn a_pyrowave_decoder_that_keeps_failing_ends_the_stream() {
+        let (mut decoder, shared) = decoder();
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_PYROWAVE, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        decoder.setup(&setup).unwrap();
+        for at in [0, 500_000, 1_000_000] {
+            decoder.frame_failed(at);
+        }
+        assert!(matches!(notices(&shared).as_slice(), [Notice::DecoderFailed(_)]));
     }
 
     #[test]

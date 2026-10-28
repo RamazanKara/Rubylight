@@ -1426,6 +1426,16 @@ pub enum Wait {
     For(Duration),
 }
 
+/// Why the stream ends after SDL's render device event `kind`: the stream's textures and the
+/// decoder's GPU planes are gone with the device, and the picture would freeze without a word.
+fn render_device_ended(kind: SDL_EventType) -> Option<&'static str> {
+    match kind {
+        SDL_EVENT_RENDER_DEVICE_RESET => Some("The graphics driver was reset, which ended the stream. Connect again."),
+        SDL_EVENT_RENDER_DEVICE_LOST => Some("The graphics device was lost (the driver stopped or the GPU was removed), which ended the stream. Restart Nightjar."),
+        _ => None,
+    }
+}
+
 /// [`Streaming::sends_controllers`] for `settings` in a session of `role`.
 fn sends_controllers(settings: &Settings, role: AppRole) -> bool {
     settings.controllers && role != AppRole::RemoteMonitor
@@ -3193,6 +3203,11 @@ impl Streaming {
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
                     self.exit = Some(Exit::CloseWindow);
                 }
+                SDL_EVENT_RENDER_DEVICE_RESET | SDL_EVENT_RENDER_DEVICE_LOST => {
+                    let reason = render_device_ended(kind).expect("a render device event");
+                    eprintln!("nightjar: {reason}");
+                    self.exit.get_or_insert(Exit::Ended(Some(reason.into())));
+                }
                 SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, window, pads),
                 SDL_EVENT_TEXT_INPUT if !event.text.text.is_null() => {
                     let text = std::ffi::CStr::from_ptr(event.text.text).to_string_lossy();
@@ -3673,6 +3688,15 @@ mod tests {
         assert!(!stream.remote_monitor && !stream.input_only);
         let input = config(AppRole::InputOnly);
         assert!(!input.remote_monitor && input.input_only);
+    }
+
+    #[test]
+    fn a_lost_or_reset_render_device_ends_the_stream_saying_why() {
+        for kind in [SDL_EVENT_RENDER_DEVICE_RESET, SDL_EVENT_RENDER_DEVICE_LOST] {
+            let reason = render_device_ended(kind).expect("ends the stream");
+            assert!(!Exit::Ended(Some(reason.into())).retryable(), "{reason}");
+        }
+        assert_eq!(render_device_ended(SDL_EVENT_RENDER_TARGETS_RESET), None);
     }
 
     #[test]

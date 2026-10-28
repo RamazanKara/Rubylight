@@ -103,7 +103,9 @@ fn decode(
 /// `-hwaccel` name such as `d3d11va`) decodes the full and the lossy stream;
 /// after an accepted invalidation every decoder must show the full stream's
 /// pictures from the recovery frame on, and a declined one must be a
-/// keyframe. The streams stay beside the report for decoders on other devices.
+/// keyframe. The host accepts exactly the gaps a decoder can still order
+/// (`ltr::Counter`): HEVC up to 7, H.264 up to 14 from frame 241. The streams
+/// stay beside the report for decoders on other devices.
 #[test]
 #[ignore = "requires an idle AMD GPU, AMF, independent FFmpeg and a task-owned report path"]
 fn native_ltr_recovery_after_lost_frames() -> Result<()> {
@@ -242,6 +244,13 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             drop(lossy);
             drop(encoder);
             let accepted = accepted == Some(true);
+            // Frame LOST - 1 is the last shown: HEVC orders a repair up to 8
+            // frames on, H.264 to the end of its 16-frame period.
+            let repairable = asked
+                && match codec {
+                    0 => recovery / 16 == (LOST - 1) / 16,
+                    _ => recovery - (LOST - 1) <= 8,
+                };
             let keyframes: Vec<usize> = frames
                 .iter()
                 .filter(|frame| frame.0)
@@ -289,6 +298,7 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
                 "first_frame_not_shown": LOST, "frames_not_shown": gap, "recovery_frame": recovery,
                 "source": "scrolling synthetic texture, 16 px a frame; no capture/display/network",
                 "properties": read, "invalidation_accepted": accepted,
+                "invalidation_expected": repairable,
                 "recovery_frame_idr": frames[recovery].0, "recovery_frame_bytes": frames[recovery].1,
                 "recovery_after_invalidation": frames[recovery].2,
                 "keyframes": keyframes.len(), "keyframe_bytes": keyframes,
@@ -302,9 +312,9 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             } else {
                 frames[recovery].0
             };
-            if !answered || !healthy {
+            if !answered || !healthy || accepted != repairable {
                 failures.push(format!(
-                    "{name}: invalidation accepted {accepted}, recovery keyframe {}, decoders {}",
+                    "{name}: invalidation accepted {accepted} (expected {repairable}), recovery keyframe {}, decoders {}",
                     frames[recovery].0,
                     serde_json::Value::Object(decoded)
                 ));

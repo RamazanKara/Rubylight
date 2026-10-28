@@ -42,13 +42,14 @@ test('HDR dynamic metadata defaults on and ships HDR Vivid as a normal feature',
   assert.equal(differsFromDefault(setting, {}, { hdr_dynamic_metadata: false }), true);
 });
 
-test('Dolby Vision is a live Experimental setting that says why packed 4:4:4 streams go without it', () => {
+test('Dolby Vision is a live setting, without an Experimental label, that says why packed 4:4:4 streams go without it', () => {
   const setting = settings.get('hdr_dolby_vision');
   assert.equal(setting.default, true);
   assert.equal(setting.control.kind, 'toggle');
   assert.equal(setting.category, 'video');
-  assert.match(setting.label, /\(Experimental\)$/);
-  assert.match(setting.description, /Experimental\.$/);
+  assert.equal(setting.label, 'Dolby Vision');
+  assert.doesNotMatch(`${setting.label} ${setting.description}`, /Experimental/i);
+  assert.match(setting.description, /profile 10\.1 on AV1 HDR streams/);
   assert.match(setting.details, /Packed 4:4:4 streams carry HDR10 and HDR10\+ instead: the device unpacks the packed picture itself/);
   assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /Foundation|dovi_tool|quietvoid/);
   assert.equal(pending.some(candidate => candidate.key === 'hdr_dolby_vision'), false);

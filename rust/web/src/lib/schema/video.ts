@@ -245,9 +245,9 @@ const video: Setting[] = [
   },
   {
     key: 'hdr_dolby_vision',
-    label: 'Dolby Vision (Experimental)',
+    label: 'Dolby Vision',
     description:
-      'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, on HEVC HDR streams and profile 10.1 on AV1 HDR streams, to devices that ask for it. Experimental.',
+      'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, on HEVC HDR streams and profile 10.1 on AV1 HDR streams, to devices that ask for it.',
     details:
       'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10 (8.1 and 10.1) or HLG (8.4). Packed 4:4:4 streams carry HDR10 and HDR10+ instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
     category: 'video',

@@ -152,6 +152,27 @@ async fn the_library_lists_the_co_op_entries_after_the_apps() {
 }
 
 #[tokio::test]
+async fn a_hidden_co_op_entry_is_left_out_of_coop_and_the_library() {
+    let s = Setup::new();
+    let (_, id) = with_nucleus(&s);
+    s.host()
+        .apps
+        .write()
+        .unwrap()
+        .last_mut()
+        .unwrap()
+        .extra
+        .insert(crate::nucleus::ENTRY_KEY.into(), false.into());
+    let listed = coop(&s.get("/coop").await);
+    assert!(listed.available);
+    assert!(listed.games.is_empty(), "{:?}", listed.games);
+    let reply = s.get("/library").await;
+    let library: Library = serde_json::from_slice(&reply.body).unwrap();
+    assert!(library.games.iter().all(|game| game.app_id != id));
+    assert_eq!(library.games.last().unwrap().title, "Portal 2");
+}
+
+#[tokio::test]
 async fn coop_lists_the_games_and_the_sessions_as_the_device_sees_them() {
     let s = Setup::new();
     let (_, id) = with_nucleus(&s);

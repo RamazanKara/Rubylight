@@ -4,18 +4,10 @@
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
   import Panel from '../Panel.svelte';
-  import { api, type Client, type CoopSession } from '../../lib/api';
-  import {
-    endConfirmation,
-    headcount,
-    invitees,
-    joinSteps,
-    removeConfirmation,
-    seats,
-    type Invitee,
-    type Seat,
-  } from '../../lib/coop-view';
-  import { confirm, failed, notify } from '../../lib/feedback.svelte';
+  import type { Client, CoopSession } from '../../lib/api';
+  import { headcount, invitees, joinSteps, seats } from '../../lib/coop-view';
+  import { failed, notify } from '../../lib/feedback.svelte';
+  import { cardActions } from './card-actions';
   import { link } from '../../lib/router.svelte';
 
   let {
@@ -66,34 +58,7 @@
     await onchange?.();
   }
 
-  async function remove(seat: Seat) {
-    if (!(await confirm(removeConfirmation(seat)))) return;
-    await run(
-      `remove:${seat.slot}`,
-      () => api.coop.kick(session.id, seat.slot),
-      `${seat.name ?? seat.label} left ${session.title}.`,
-      'Removing the player failed',
-    );
-  }
-
-  async function letJoin(device: Invitee) {
-    await run(
-      `join:${device.uuid}`,
-      () => api.clients.update({ uuid: device.uuid, coop_join: true }),
-      `${device.name} can join. ${joinSteps(session)}`,
-      `Letting ${device.name} join failed`,
-    );
-  }
-
-  async function end() {
-    if (!(await confirm(endConfirmation(session)))) return;
-    await run(
-      'end',
-      () => api.coop.end(session.id),
-      background ? `The background stream of ${session.title} is ending.` : `Co-op in ${session.title} is ending.`,
-      background ? 'Ending the stream failed' : 'Ending co-op failed',
-    );
-  }
+  const { remove, letJoin, end } = cardActions(() => session, run);
 </script>
 
 {#snippet endAction()}

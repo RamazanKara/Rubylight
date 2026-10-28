@@ -752,9 +752,13 @@ impl Registry {
         if let Some(why) = pc.unavailable() {
             return Err(Refusal::unavailable(why));
         }
-        let installed = pc.installed(configured);
+        // A folder that can't be trusted (its owner or ACL) is refused, not
+        // downloaded over.
+        let installed = pc.installed(configured).map_err(|error| {
+            Refusal::unavailable(format!("Nucleus Co-op is not ready: {error:#}"))
+        })?;
         let mut state = self.lock();
-        if let Ok(Some(_)) = installed {
+        if installed.is_some() {
             return Ok(SetUp::Installed);
         }
         if state.installing.is_some() {
@@ -1589,6 +1593,8 @@ pub(crate) mod fake {
     pub(crate) struct Pc {
         pub unavailable: Mutex<Option<String>>,
         pub installed: Mutex<Option<PathBuf>>,
+        /// What reading the install fails with (a folder whose ACL is refused).
+        pub installed_error: Mutex<Option<String>>,
         /// What an install fails with.
         pub install_error: Mutex<Option<String>>,
         /// What an install downloads, checked as the pinned release is;
@@ -1622,6 +1628,7 @@ pub(crate) mod fake {
             Self {
                 unavailable: Mutex::new(None),
                 installed: Mutex::new(Some(PathBuf::from(r"C:\Nucleus"))),
+                installed_error: Mutex::new(None),
                 install_error: Mutex::new(None),
                 archive: Mutex::new(None),
                 hold: Mutex::new(false),
@@ -1661,6 +1668,9 @@ pub(crate) mod fake {
             self.unavailable.lock().unwrap().clone()
         }
         fn installed(&self, _configured: &str) -> Result<Option<PathBuf>> {
+            if let Some(error) = self.installed_error.lock().unwrap().clone() {
+                anyhow::bail!(error);
+            }
             Ok(self.installed.lock().unwrap().clone())
         }
         fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf> {
@@ -1976,11 +1986,24 @@ mod tests {
         let (registry, _pc, mut apps) = setup();
         // As every app switch reads (and the console's flagValue): true, "true", "1" and "yes"
         // are on, any other text is off, and any other value is the default, on.
-        for hidden in [json!(false), json!("false"), json!("0"), json!("off"), json!("TRUE")] {
+        for hidden in [
+            json!(false),
+            json!("false"),
+            json!("0"),
+            json!("off"),
+            json!("TRUE"),
+        ] {
             apps[1].extra.insert(ENTRY_KEY.into(), hidden.clone());
             assert!(registry.entries(&apps, "").is_empty(), "{hidden}");
         }
-        for shown in [json!(true), json!("true"), json!("1"), json!("yes"), json!(0), json!(null)] {
+        for shown in [
+            json!(true),
+            json!("true"),
+            json!("1"),
+            json!("yes"),
+            json!(0),
+            json!(null),
+        ] {
             apps[1].extra.insert(ENTRY_KEY.into(), shown.clone());
             assert_eq!(registry.entries(&apps, "").len(), 1, "{shown}");
         }

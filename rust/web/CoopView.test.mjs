@@ -13,6 +13,8 @@ const home = await server.ssrLoadModule('/src/lib/coop-view.ts');
 const CoopCard = (await server.ssrLoadModule('/src/components/overview/CoopCard.svelte')).default;
 const DeviceEditor = (await server.ssrLoadModule('/src/components/devices/DeviceEditor.svelte')).default;
 const { api, PERM } = await server.ssrLoadModule('/src/lib/api.ts');
+const { cardActions } = await server.ssrLoadModule('/src/components/overview/card-actions.ts');
+const { dialog } = await server.ssrLoadModule('/src/lib/feedback.svelte.ts');
 const access = await server.ssrLoadModule('/src/components/devices/access.ts');
 const { ACCESS_PERM } = access;
 
@@ -384,6 +386,50 @@ test('Remove, End co-op and Let join post the right bodies', async () => {
     { path: '/api/coop/kick', method: 'POST', body: { session: 7, slot: 1 } },
     { path: '/api/coop/end', method: 'POST', body: { session: 7 } },
     { path: '/api/clients/update', method: 'POST', body: { uuid: 'laptop', coop_join: true } },
+  ]);
+});
+
+test('the card’s Remove and End post nothing when the question is cancelled, and post once confirmed', async () => {
+  const posted = [];
+  globalThis.fetch = async (path, init) => {
+    if (path === '/api/csrf-token') return new Response('{"csrf_token":"t"}', { status: 200 });
+    posted.push({ path, body: JSON.parse(init.body) });
+    return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const ran = [];
+  const run = async (action, task) => {
+    ran.push(action);
+    await task();
+  };
+  const answer = async (pending, yes) => {
+    const before = posted.length;
+    // The question is up before anything is sent.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(dialog.current, 'asks first');
+    assert.equal(posted.length, before);
+    dialog.current.resolve(yes);
+    await pending;
+  };
+  try {
+    const actions = cardActions(() => running, run);
+    const tv = home.seats(running)[1];
+    await answer(actions.remove(tv), false);
+    await answer(actions.end(), false);
+    assert.deepEqual(posted, [], 'a cancelled question posts nothing');
+    assert.deepEqual(ran, []);
+    await answer(actions.remove(tv), true);
+    await answer(actions.end(), true);
+    // Let join asks nothing: it only allows the device.
+    await actions.letJoin({ uuid: 'deck', name: 'Steam Deck', canJoin: false });
+    assert.equal(dialog.current, null);
+  } finally {
+    delete globalThis.fetch;
+  }
+  assert.deepEqual(ran, ['remove:1', 'end', 'join:deck']);
+  assert.deepEqual(posted, [
+    { path: '/api/coop/kick', body: { session: 7, slot: 1 } },
+    { path: '/api/coop/end', body: { session: 7 } },
+    { path: '/api/clients/update', body: { uuid: 'deck', coop_join: true } },
   ]);
 });
 

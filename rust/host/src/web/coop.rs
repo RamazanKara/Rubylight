@@ -618,6 +618,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_up_and_open_answer_503_when_the_install_folder_is_refused() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        let why = r"C:\Nucleus is not owned by Administrators or SYSTEM";
+        *pc.installed_error.lock().unwrap() = Some(why.into());
+        f.host.nucleus.use_pc(pc.clone());
+        for path in ["/api/coop/open", "/api/coop/install"] {
+            let body = value(
+                request(&f, "POST", path, json!({})).await,
+                StatusCode::SERVICE_UNAVAILABLE,
+            )
+            .await;
+            assert_eq!(
+                body["error"],
+                format!("Nucleus Co-op is not ready: {why}"),
+                "{path}"
+            );
+        }
+        // Nothing opened, nothing downloaded over the refused folder.
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 0);
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["install"]["state"], "failed");
+    }
+
+    #[tokio::test]
     async fn set_up_and_open_are_refused_without_the_service() {
         let f = Fixture::new();
         let pc = Arc::new(fake::Pc::installed());

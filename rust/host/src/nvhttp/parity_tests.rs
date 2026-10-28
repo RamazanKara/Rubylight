@@ -1213,6 +1213,66 @@ async fn applist_lists_co_op_entries_after_the_apps() {
     assert_eq!(field(coop, "UUID"), "");
 }
 
+/// An app that hides its co-op entry (`coop-entry: false`) lists none, and
+/// the entry's id launches nothing: it is not found, as any unknown id.
+#[tokio::test]
+async fn a_hidden_co_op_entry_is_not_listed_and_its_id_cannot_be_launched() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    f.host
+        .nucleus
+        .use_pc(std::sync::Arc::new(crate::nucleus::fake::Pc::installed()));
+    let mut portal = App {
+        name: "Portal 2".into(),
+        cmd: format!("\"{}\"", crate::nucleus::fake::EXE),
+        working_dir: String::new(),
+        prep: Vec::new(),
+        computed_id: None,
+        aliases: Vec::new(),
+        extra: Default::default(),
+    };
+    f.host.apps.write().unwrap().push(portal.clone());
+    let apps = f.host.apps.read().unwrap().clone();
+    let id = f.host.nucleus.entries(&apps, "")[0].id();
+    let resolve = || {
+        resolve_launch_app(
+            &f.host,
+            &Args::new(),
+            &client,
+            id,
+            None,
+            remote::Owner::None,
+            false,
+        )
+    };
+    let titles = |list: &xmltree::Element| -> Vec<String> {
+        list.children
+            .iter()
+            .filter_map(xmltree::XMLNode::as_element)
+            .map(|entry| field(entry, "AppTitle"))
+            .collect()
+    };
+    // Shown, its id launches the co-op entry.
+    assert_eq!(resolve().unwrap().3.map(|coop| coop.id()), Some(id));
+    let shown = titles(&document(request(&f, true, "GET", "/applist").await).await);
+    assert!(shown.contains(&"Portal 2 (Co-op)".to_string()), "{shown:?}");
+    portal
+        .extra
+        .insert(crate::nucleus::ENTRY_KEY.into(), false.into());
+    *f.host.apps.write().unwrap().last_mut().unwrap() = portal;
+    let hidden = titles(&document(request(&f, true, "GET", "/applist").await).await);
+    assert_eq!(hidden.len(), shown.len() - 1);
+    assert!(
+        !hidden.contains(&"Portal 2 (Co-op)".to_string()),
+        "{hidden:?}"
+    );
+    assert_eq!(
+        resolve().unwrap_err().to_string(),
+        APPLICATION_NOT_FOUND,
+        "a hidden entry's id launches nothing"
+    );
+}
+
 #[tokio::test]
 async fn unpair_get_and_post_require_tls_and_stop_only_the_paired_device() {
     for method in ["GET", "POST"] {

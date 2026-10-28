@@ -6,7 +6,7 @@
   import LoadState from '../LoadState.svelte';
   import Panel from '../Panel.svelte';
   import { api, type CoopStatus } from '../../lib/api';
-  import { downloadText } from '../../lib/coop-view';
+  import { downloadText, sentence } from '../../lib/coop-view';
   import { failed } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
   import { installStates } from './coop';
@@ -74,16 +74,16 @@
         {/if}
       </dl>
       {#if !status.available && status.reason}
-        <Banner tone="warn" title="Co-op can’t run on this PC">{status.reason}</Banner>
+        <Banner tone="warn" title="Co-op can’t run on this PC">{sentence(status.reason)}</Banner>
       {/if}
       {#if status.install.state === 'failed' && status.install.error}
         <Banner tone="danger" title="Setting up co-op failed" live>
-          {status.install.error}
+          {sentence(status.install.error)}
           {#snippet actions()}<Button size="sm" busy={retrying} onclick={retry}>Try again</Button>{/snippet}
         </Banner>
       {/if}
       {#if status.catalog_error}
-        <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{status.catalog_error}</Banner>
+        <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{sentence(status.catalog_error)}</Banner>
       {/if}
       <ul class="hint">
         <li>{downloadText(status)} Its size and SHA-256 are checked; a download that doesn’t match is deleted and refused.</li>

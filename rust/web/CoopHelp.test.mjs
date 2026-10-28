@@ -56,7 +56,10 @@ test('a PC that can’t run co-op, a failed setup and handlers that didn’t loa
     }),
   );
   assert.match(out, /Co-op can’t run on this PC/);
-  assert.match(out, /the host does not run as the service/);
+  // The host's reasons are clauses: the panel ends them as sentences, once.
+  assert.match(out, /the host does not run as the service\./);
+  assert.match(out, /AppData folder failed\./);
+  assert.doesNotMatch(out, /SHA-256\.\./);
   assert.match(out, /Setting up co-op failed/);
   assert.match(out, /another SHA-256/);
   assert.match(out, /Try again/);

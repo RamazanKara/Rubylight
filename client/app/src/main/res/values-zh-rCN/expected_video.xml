@@ -18,4 +18,7 @@
     <string name="stream_hdr_vulkan_shown_as_sdr">%1$s 以 SDR 显示：屏幕拒绝了“通过 Vulkan 渲染”的 HDR。</string>
     <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision 需要关闭“通过 Vulkan 渲染”，因此视频流为 HDR10。</string>
     <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ 需要关闭“通过 Vulkan 渲染”，因此视频流为不含 HDR10+ 的 HDR10。</string>
+    <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision 需要 HEVC，因此 PyroWave 以 %1$s 串流。</string>
+    <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ 需要 HEVC 或 AV1，因此 PyroWave 串流不含 HDR10+ 的 HDR10。</string>
+    <string name="stream_hdr_pq_on_hlg_screen_host_update">此屏幕只能以 HLG 显示 HDR，但电脑通过 PyroWave 发送的是 HDR10，因此亮度和颜色可能不正确。更新电脑上的主机程序即可在 PyroWave 上使用 HLG。</string>
 </resources>

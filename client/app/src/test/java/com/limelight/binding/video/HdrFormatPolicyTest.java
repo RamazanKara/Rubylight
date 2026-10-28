@@ -115,6 +115,62 @@ public class HdrFormatPolicyTest {
     }
 
     @Test
+    public void pyroWaveDrawsHlgOnlyForAHostThatOffersItThere() {
+        int flagged = HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG;
+        assertEquals(HdrFormatPolicy.PYROWAVE_HLG & HdrFormatPolicy.ALL, 0);
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(flagged));
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.HLG | HdrFormatPolicy.PYROWAVE_HLG));
+        // A 3.0 rc host refuses HLG on PyroWave; the flag without HLG offers nothing.
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL));
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.PQ | HdrFormatPolicy.PYROWAVE_HLG));
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(0));
+
+        int[] hlgOnly = {HLG};
+        int surfaced = HdrFormatPolicy.pick(flagged, hlgOnly, true, HdrFormatPolicy.pyroWaveSurface(flagged));
+        assertEquals(HdrFormatPolicy.HLG, surfaced);
+        assertEquals(0, HdrFormatPolicy.pick(HdrFormatPolicy.ALL, hlgOnly, true,
+                HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL)));
+        // Never Dolby Vision, never the flag itself, and stock HDR10 on an HDR10 screen.
+        for (int[] types : new int[][] {TV, {DOLBY, HLG}, {DOLBY}, hlgOnly, {HDR10, HDR10_PLUS}}) {
+            int format = HdrFormatPolicy.pick(flagged, types, true, HdrFormatPolicy.pyroWaveSurface(flagged));
+            assertEquals(0, format & ~(HdrFormatPolicy.PQ | HdrFormatPolicy.HLG));
+        }
+        assertEquals(0, HdrFormatPolicy.pick(flagged, TV, true, HdrFormatPolicy.pyroWaveSurface(flagged)));
+    }
+
+    @Test
+    public void pyroWaveNamesDolbyVisionAndHdr10PlusItLeavesOut() {
+        int flagged = HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG;
+        assertEquals(HdrFormatPolicy.DrawnLimit.DOLBY_VISION, HdrFormatPolicy.pyroWaveLimit(flagged, TV, true, 0));
+        // With an HLG stream too: the Dolby Vision words then say HLG (Game).
+        assertEquals(HdrFormatPolicy.DrawnLimit.DOLBY_VISION,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {DOLBY, HLG}, true, HdrFormatPolicy.HLG));
+        // Without the device's Dolby Vision decoder HEVC would show HDR10 too: nothing to say.
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.pyroWaveLimit(flagged, TV, false, 0));
+        assertEquals(HdrFormatPolicy.DrawnLimit.HDR10_PLUS,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {HDR10, HDR10_PLUS}, false, 0));
+        // HLG carries no HDR10+, and a host without 3.0 HDR formats writes none.
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {HLG, HDR10_PLUS}, false, HdrFormatPolicy.HLG));
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE,
+                HdrFormatPolicy.pyroWaveLimit(0, new int[] {HDR10, HDR10_PLUS}, true, 0));
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {HDR10, HLG}, true, 0));
+    }
+
+    @Test
+    public void anHlgOnlyScreenOnPyroWaveNamesTheHostUpdateOnlyWhereItHelps() {
+        int[] hlgOnly = {HLG};
+        assertTrue(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, hlgOnly));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG,
+                hlgOnly));
+        // No HLG at all from this host, or a screen with HDR10: an update is not what is missing.
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.PQ, hlgOnly));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, new int[] {HDR10, HLG}));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, null));
+    }
+
+    @Test
     public void hlgAndProfile84DecodeWithTheHlgTransfer() {
         assertEquals(MediaFormat.COLOR_TRANSFER_HLG, HdrFormatPolicy.transfer(HdrFormatPolicy.HLG));
         assertEquals(MediaFormat.COLOR_TRANSFER_HLG, HdrFormatPolicy.transfer(HdrFormatPolicy.DV_84));

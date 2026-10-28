@@ -17,8 +17,8 @@ import android.view.Display;
  * </ul>
  * Never Dolby Vision when the client draws the picture itself (DrawnSurface): a Dolby Vision decoder
  * would map a picture that is not the one shown, and no API takes Dolby Vision with drawn buffers.
- * HLG only on the Vulkan renderer, whose surface takes it; packed full chroma and PyroWave draw
- * BT.2020/PQ only.
+ * HLG on the Vulkan renderer, whose surface takes it, and on PyroWave from a host that offers it
+ * there (PYROWAVE_HLG); packed full chroma draws BT.2020/PQ only.
  */
 public final class HdrFormatPolicy {
     private HdrFormatPolicy() {}
@@ -27,12 +27,15 @@ public final class HdrFormatPolicy {
     public enum DrawnSurface {
         /** The decoder itself: the picture reaches the screen as it was decoded. */
         NONE,
-        /** The client draws it on a BT.2020/PQ surface: packed full chroma, PyroWave. */
+        /**
+         * The client draws it on a BT.2020/PQ surface: packed full chroma, and PyroWave from a host
+         * without PYROWAVE_HLG.
+         */
         PQ_ONLY,
         /**
          * The Vulkan renderer, where its instance has VK_EXT_swapchain_colorspace
-         * (VulkanRendererBridge.drawsHlg): BT.2020 PQ or HLG, through the HDR colour spaces or the
-         * window dataspace.
+         * (VulkanRendererBridge.drawsHlg), and PyroWave from a host with PYROWAVE_HLG: BT.2020 PQ or
+         * HLG, through the HDR colour spaces or the window dataspace.
          */
         PQ_HLG
     }
@@ -52,11 +55,17 @@ public final class HdrFormatPolicy {
     public static final int DV_84 = 8;
     public static final int ALL = PQ | HLG | DV_81 | DV_84;
     public static final int DOLBY_VISION = DV_81 | DV_84;
+    /**
+     * Offer flag, never a format (rubylight_protocol::hdr::PYROWAVE_HLG): the host also takes HLG on
+     * PyroWave Main10 streams. Rubylight 3.0 rc hosts refuse HLG there.
+     */
+    public static final int PYROWAVE_HLG = 0x80;
+    public static final int OFFER_FLAGS = PYROWAVE_HLG;
 
     public static final String MIME_DOLBY_VISION = "video/dolby-vision";
 
     /**
-     * @param hostFormats  the host's HdrFormats bits (serverinfo), 0 when it lists none
+     * @param hostFormats  the host's HdrFormats bits and offer flags (serverinfo), 0 when it lists none
      * @param displayTypes the types from Display.getHdrCapabilities(), null when there are none
      * @param dolbyVisionDecoder a hardware decoder takes video/dolby-vision profile 8 (DvheSt)
      * @param surface      who draws the picture
@@ -92,6 +101,39 @@ public final class HdrFormatPolicy {
             return DrawnLimit.HDR10_PLUS;
         }
         return DrawnLimit.NONE;
+    }
+
+    /** What PyroWave draws on: PQ and HLG from a host that offers HLG on PyroWave, else PQ only. */
+    public static DrawnSurface pyroWaveSurface(int hostFormats) {
+        return (hostFormats & PYROWAVE_HLG) != 0 && (hostFormats & HLG) != 0 ? DrawnSurface.PQ_HLG :
+                DrawnSurface.PQ_ONLY;
+    }
+
+    /**
+     * What PyroWave leaves out that this screen would show from HEVC or AV1, said once per PC:
+     * Dolby Vision first (it needs the device's Dolby Vision decoder, so HEVC), then HDR10+ on a PQ
+     * stream (PyroWave carries no dynamic metadata; HLG carries none anyway).
+     * @param format what pick chose for PyroWave
+     */
+    public static DrawnLimit pyroWaveLimit(int hostFormats, int[] displayTypes, boolean dolbyVisionDecoder, int format) {
+        if (hostFormats == 0) return DrawnLimit.NONE;
+        if (dolbyVision(pick(hostFormats, displayTypes, dolbyVisionDecoder, DrawnSurface.NONE))) {
+            return DrawnLimit.DOLBY_VISION;
+        }
+        if (transfer(format) == MediaFormat.COLOR_TRANSFER_ST2084 &&
+                has(displayTypes, Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS)) {
+            return DrawnLimit.HDR10_PLUS;
+        }
+        return DrawnLimit.NONE;
+    }
+
+    /**
+     * A screen that shows HDR only as HLG gets HDR10 on PyroWave because the host offers HLG but not
+     * on PyroWave: updating the host would give it HLG.
+     */
+    public static boolean pyroWaveHlgNeedsHostUpdate(int hostFormats, int[] displayTypes) {
+        return (hostFormats & PYROWAVE_HLG) == 0 && !HdrPolicy.hasHdr10(displayTypes) &&
+                hlgInstead(hostFormats, displayTypes);
     }
 
     /** The screen can show an HLG stream from this host, which then stands in for HDR10. */

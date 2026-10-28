@@ -58,6 +58,7 @@ pub trait Launcher {
 pub struct Elevated;
 impl Launcher for Elevated {
     fn launch(&mut self, folder: &Path, guid: &str) -> Result<Box<dyn Nucleus>> {
+        require_administrator(crate::process::user_runs_elevated()?)?;
         let since = crate::process::now();
         let program = folder.join(EXECUTABLE);
         // Nucleus reads Settings.ini from its working folder, and its window
@@ -81,6 +82,7 @@ impl Launcher for Elevated {
 /// game. It runs outside the host's job, so the host ending does not close
 /// it; the [`Opened`] it returns closes it before a session starts.
 pub fn open(folder: &Path) -> Result<Opened> {
+    require_administrator(crate::process::user_runs_elevated()?)?;
     let program = folder.join(EXECUTABLE);
     let line = crate::process::quote(program.as_os_str())?;
     let process = crate::process::Process::spawn_command(
@@ -95,6 +97,18 @@ pub fn open(folder: &Path) -> Result<Opened> {
     .with_context(|| format!("starting {} elevated", program.display()))?;
     tracing::info!(pid = process.pid, folder = %folder.display(), "Nucleus Co-op opened for the user");
     Ok(Opened(process))
+}
+
+/// A standard user's Nucleus Co-op would run with standard rights: it can't
+/// write to its folder, which only administrators can change, and stops on
+/// its loading screen ("Microsoft Edge can't read and write to its data
+/// directory").
+fn require_administrator(elevated: bool) -> Result<()> {
+    ensure!(
+        elevated,
+        "Nucleus Co-op needs administrator rights, and the Windows account signed in on this PC is a standard user: sign in with an administrator account"
+    );
+    Ok(())
 }
 
 /// The Nucleus Co-op [`open`] started: the only one the host closes. It is
@@ -645,6 +659,16 @@ mod tests {
     use super::*;
     use butterpollo_core::nucleus::window::{Rect, Window};
     use butterpollo_core::steam::Process;
+
+    #[test]
+    fn a_standard_user_is_refused_before_nucleus_starts() {
+        // A standard user's Nucleus Co-op hung on its loading screen: it
+        // could not write its WebView2 cache into the Administrators-only folder.
+        assert!(require_administrator(true).is_ok());
+        let refused = format!("{:#}", require_administrator(false).unwrap_err());
+        assert!(refused.contains("standard user"), "{refused}");
+        assert!(refused.contains("administrator account"), "{refused}");
+    }
 
     /// A fake desktop the test changes while the session runs.
     #[derive(Clone)]

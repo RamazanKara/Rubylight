@@ -535,6 +535,15 @@ pub enum Target {
 pub fn elevated() -> Result<bool> {
     token_elevated(&token()?)
 }
+/// Whether a program started as `Target::User { elevated: true }` runs
+/// elevated. A standard user has no elevated token, so it gets the user's
+/// standard rights.
+pub fn user_runs_elevated() -> Result<bool> {
+    match target_token(&Target::User { elevated: true })? {
+        Some(token) => token_elevated(&token),
+        None => elevated(),
+    }
+}
 pub(crate) fn token_elevated(token: &OwnedHandle) -> Result<bool> {
     let mut info = TOKEN_ELEVATION::default();
     let mut bytes = 0;
@@ -3223,6 +3232,23 @@ mod tests {
                 std::env::var(name).ok().as_ref(),
                 "{name}: {text}"
             );
+        }
+    }
+    #[test]
+    fn user_elevation_is_the_elevated_targets_own() {
+        if is_system() {
+            return;
+        }
+        // Outside the service only an elevated host starts elevated programs.
+        match user_runs_elevated() {
+            Ok(runs) => assert!(runs && elevated().unwrap()),
+            Err(error) => {
+                assert!(!elevated().unwrap());
+                assert!(
+                    format!("{error:#}").contains("Windows service"),
+                    "{error:#}"
+                );
+            }
         }
     }
     #[test]

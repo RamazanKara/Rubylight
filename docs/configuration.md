@@ -359,8 +359,9 @@ A background stream:
   PC user's calls and music stay private. The game is still audible on the
   PC's speakers unless you route it to another playback device.
 
-Nucleus Co-op needs a handler for the game from its handler hub, and the host
-running as the Windows service; [Nucleus Co-op](nucleus-coop.md) has the
+Nucleus Co-op needs a handler for the game from its handler hub, the host
+running as the Windows service and an administrator account signed in on the
+PC; [Nucleus Co-op](nucleus-coop.md) has the
 install, the limits, and co-op for several devices at once. Two settings under
 **Settings → General → Background streaming** shape it:
 **Nucleus Co-op folder** (`nucleus_path`, empty: the host's own copy, which it

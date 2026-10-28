@@ -75,7 +75,9 @@ Rubylight once", do that on the PC and launch again.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs elevated as the signed-in user. A portable host refuses
-these launches and says why.
+these launches and says why. The Windows account signed in on the PC must be
+an administrator: a standard account can't run Nucleus Co-op elevated, so
+launches and **Open Nucleus Co-op on this PC** are refused and say so.
 
 ## Playing co-op
 

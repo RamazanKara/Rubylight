@@ -63,7 +63,7 @@ use gui::{Gui, Scale};
 use hosts::{Apps, Event as HostEvent, Hosts};
 use media::Hardware;
 use stream::present::{pacing, PacingMode};
-use stream::{Connecting, Display, Exit, LaunchPlan, Streaming};
+use stream::{ConnectFailed, Connecting, Display, Exit, LaunchPlan, Streaming};
 use strings::{tr, trf};
 use ui::{Command, ConnectingView, Dialog, Launcher, Screen, View};
 
@@ -121,6 +121,9 @@ struct App {
     waking: wol::Wakes,
     streaming: Option<(Streaming, TimerResolution)>,
     pending_launch: Option<(u64, i32)>,
+    /// The launch the PC refused until the user confirms closing the app it runs, while the
+    /// launcher asks (`Dialog::ConfirmReplace`).
+    pending_replace: Option<Box<LaunchPlan>>,
     /// The PC and game being quit because the player chose quit on leave for it.
     quitting_on_leave: Option<(u64, String)>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
@@ -369,6 +372,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         waking: wol::Wakes::default(),
         streaming: None,
         pending_launch: None,
+        pending_replace: None,
         quitting_on_leave: None,
         identity: None,
         shortcut_file: None,
@@ -736,6 +740,7 @@ impl App {
             }
         }
         self.wake_step();
+        self.replace_step();
         self.autostream_step();
         self.cli_step();
         if let Some(c) = &mut self.connecting {
@@ -751,10 +756,13 @@ impl App {
                     }
                 }
                 Ok(None) => {}
-                Err(e) => {
+                Err(failed) => {
                     self.connecting = None;
                     if !std::mem::take(&mut self.cancelled) {
-                        self.launcher.message(tr("The stream could not start"), e);
+                        match failed {
+                            ConnectFailed::Message(e) => self.launcher.message(tr("The stream could not start"), e),
+                            ConnectFailed::ConfirmReplace(plan) => self.ask_replace(plan),
+                        }
                     }
                 }
             }
@@ -849,6 +857,19 @@ impl App {
                         self.pending_launch = Some((host, app));
                         self.hosts.quit_app(host);
                     }
+                }
+            }
+            Command::ConfirmReplace => {
+                if let Some(mut plan) = self.pending_replace.take() {
+                    if self.connecting.is_some() || self.network_launch.is_some() {
+                        eprintln!("nightjar: another launch is under way; not launching app {} again", plan.app.id);
+                        return;
+                    }
+                    eprintln!("nightjar: launching app {} again, closing the running app as confirmed", plan.app.id);
+                    plan.confirm_replace = true;
+                    self.refresh_plan(&mut plan);
+                    self.cancelled = false;
+                    self.connecting = Some(Connecting::start(*plan, self.waker.clone()));
                 }
             }
             Command::Pair(host) => {
@@ -1169,6 +1190,31 @@ impl App {
         }
     }
 
+    /// A plan made earlier, with this moment's display and controllers.
+    fn refresh_plan(&mut self, plan: &mut LaunchPlan) {
+        plan.display = display_of(self.window);
+        plan.gamepad_mask = if plan.settings.controllers { u32::from(self.pads.active_mask()) } else { 0 };
+        plan.prepared_controllers = if plan.settings.controllers { self.pads.prepare(plan.settings.controller_motion) } else { String::new() };
+    }
+
+    /// The PC refused `plan` until the user confirms closing the app it runs: ask.
+    fn ask_replace(&mut self, plan: Box<LaunchPlan>) {
+        eprintln!("nightjar: the PC asks to confirm closing its running app for app {}", plan.app.id);
+        let running = self.hosts.get(plan.host_id).map_or_else(|| tr("the running app").into(), ui::running_name);
+        self.launcher.ask(Dialog::ConfirmReplace { app: plan.app.name.clone(), running });
+        self.pending_replace = Some(plan);
+    }
+
+    /// A replace prompt closed without the answer (Cancel, Escape, or another dialog over it)
+    /// cancels the launch.
+    fn replace_step(&mut self) {
+        if self.pending_replace.is_some() && !matches!(self.launcher.dialog, Dialog::ConfirmReplace { .. }) {
+            self.pending_replace = None;
+            eprintln!("nightjar: closing the running app was not confirmed; the launch is cancelled");
+            if let Some(cli) = self.cli.as_mut() { cli.cancel(); }
+        }
+    }
+
     /// Drives a `--host` start from the command line (see `cli`); does nothing otherwise.
     fn cli_step(&mut self) {
         let Some(cli) = self.cli.as_mut() else { return };
@@ -1189,6 +1235,7 @@ impl App {
             host: cli.host_seen(&self.hosts),
             message,
             busy: self.streaming.is_some() || self.connecting.is_some() || self.network_launch.is_some(),
+            confirming: self.pending_replace.is_some(),
         };
         match cli.next(&seen) {
             cli::Step::Wait => {}
@@ -1334,6 +1381,7 @@ impl App {
             bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,
             recovery: None,
+            confirm_replace: false,
         };
         self.cancelled = false;
         self.connecting = Some(Connecting::start(plan, self.waker.clone()));
@@ -1460,9 +1508,7 @@ impl App {
         }
         self.hosts.refresh_after_exit(host);
         if let Some(mut plan) = reconnect {
-            plan.display = display_of(self.window);
-            plan.gamepad_mask = if plan.settings.controllers { u32::from(self.pads.active_mask()) } else { 0 };
-            plan.prepared_controllers = if plan.settings.controllers { self.pads.prepare(plan.settings.controller_motion) } else { String::new() };
+            self.refresh_plan(&mut plan);
             self.cancelled = false;
             self.connecting = Some(Connecting::start(plan, self.waker.clone()));
         } else {

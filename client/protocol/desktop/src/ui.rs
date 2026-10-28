@@ -27,6 +27,8 @@ pub enum Command {
     ControlAction { host: u64, app: i32 },
     /// `named` is the app the prompt said would be closed; it is checked again before closing.
     QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
+    /// Start the app the PC refused again, closing the one it runs: the answer to its prompt.
+    ConfirmReplace,
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     Wake(u64),
@@ -136,6 +138,9 @@ pub enum Dialog {
     /// dialog can offer to carry on with it instead.
     ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String, resume: Option<i32>, named: Option<i32> },
     ConfirmAction { host: u64, app: i32, name: String },
+    /// The PC refused to start `app` until the user confirms closing `running`. Closing the
+    /// dialog any other way than confirming cancels the launch.
+    ConfirmReplace { app: String, running: String },
     ConfirmClose { host: u64, name: String },
     ProfileName { id: Option<u64>, name: String, settings: Overrides, error: Option<String> },
     DeleteProfile { id: u64, name: String },
@@ -649,6 +654,12 @@ impl Launcher {
     /// Gives the screen's first item focus again (after a stream or a dialog).
     pub fn refocus(&mut self) {
         self.focus_screen = true;
+    }
+
+    /// Opens `dialog` with focus on its first control.
+    pub fn ask(&mut self, dialog: Dialog) {
+        self.dialog = dialog;
+        self.focus_dialog = true;
     }
 
     pub fn message(&mut self, title: impl Into<String>, body: impl Into<String>) {
@@ -2861,6 +2872,30 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::ConfirmReplace { app, running } => {
+                egui::Modal::new(Id::unique("confirm-replace"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(trf("Close {} and start {}?", &[&running, &app])).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(tr("The PC asks before it closes the running app. Unsaved progress in it is lost.")).color(ON_SURFACE_VARIANT));
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            if primary_button(ui, "Close and start").clicked() {
+                                commands.push(Command::ConfirmReplace);
+                                close = true;
+                            }
+                            // The safe choice has focus, never the button that closes the game.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() { close = true; }
+                        });
+                    });
+            }
             Dialog::ConfirmAction { host, app, name } => {
                 egui::Modal::new(Id::unique("host-action"))
                     .frame(frame)
@@ -3507,7 +3542,7 @@ fn at_sentence_start(name: &str) -> String {
     chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
-fn running_name(host: &Host) -> String {
+pub fn running_name(host: &Host) -> String {
     let Some(running) = host.running_app() else {
         return tr("the running app").into();
     };
@@ -4321,6 +4356,7 @@ mod tests {
                 Dialog::ConfirmUnpair { host: id, name: "A long name for a gaming PC".into() },
                 Dialog::ConfirmClose { host: id, name: "A game with a rather long title".into() },
                 Dialog::ConfirmQuit { host: id, start: Some((8, "Another long game title".into())), running: "A game with a rather long title".into(), resume: Some(7), named: None },
+                Dialog::ConfirmReplace { app: "Another long game title".into(), running: "A game with a rather long title".into() },
                 Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
                 Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
                 Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },

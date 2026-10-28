@@ -95,6 +95,8 @@ pub struct LaunchRequest {
     /// offers them before the launch, and every host ignores a parameter it does not know,
     /// so this goes to any host; the stream's DESCRIBE says whether it took it.
     pub rate_change: bool,
+    /// The user confirmed closing the running app for this launch ([`CONFIRM_REPLACE`]).
+    pub confirm_replace: bool,
 }
 
 impl Default for LaunchRequest {
@@ -124,6 +126,7 @@ impl Default for LaunchRequest {
             persist_gamepads: false,
             fec: None,
             rate_change: false,
+            confirm_replace: false,
         }
     }
 }
@@ -131,6 +134,19 @@ impl Default for LaunchRequest {
 /// moonlight-common-c's LiGetLaunchUrlQueryParameters: video and control encryption (v0) and
 /// encrypted RTSP (v1).
 pub const CORE_LAUNCH_PARAMETERS: &str = "&corever=1";
+
+/// Rubylight's launch parameter: 1 on the launch that answers a confirmed replace prompt, 0 on
+/// every other, so a remembered launch or a retry never closes the running app by itself.
+pub const CONFIRM_REPLACE: &str = "rlConfirmReplace";
+
+/// The 410 a host that confirms replacement (Rubylight, Vibepollo) refuses a launch with while
+/// another app runs; any other 410 is not a prompt.
+const REPLACE_PROMPT: &str = "An app is already running. Launch this app again within 60 seconds to confirm that you want to close it.";
+
+/// Whether a refused launch asks the user to confirm closing the running app.
+pub fn asks_to_confirm_replace(error: &Error) -> bool {
+    matches!(error, Error::Status { code: 410, message } if message == REPLACE_PROMPT)
+}
 
 impl LaunchRequest {
     fn host_display_choice(&self, caps: &HostCapabilities) -> HostDisplay {
@@ -257,6 +273,12 @@ impl LaunchRequest {
         ));
         let persist = self.role != AppRole::RemoteMonitor && self.persist_gamepads;
         q.push_str(&format!("&gcpersist={}", u8::from(persist)));
+        if caps.family() == Family::Rubylight {
+            q.push_str(&format!(
+                "&{CONFIRM_REPLACE}={}",
+                u8::from(self.confirm_replace)
+            ));
+        }
         if let Some(fec) = self.fec.filter(|_| caps.has(Feature::ClientFec)) {
             q.push_str(&format!("&{LAUNCH_PARAMETER}={}", fec.as_param()));
         }
@@ -353,7 +375,7 @@ mod tests {
                  &clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1\
                  &clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0&localAudioPlayMode=1\
                  &surroundAudioInfo=104792072&rlControllers=0:dualsense&remoteControllersBitmap=3&gcmap=3\
-                 &gcpersist=1&corever=1"
+                 &gcpersist=1&rlConfirmReplace=0&corever=1"
             )
         );
         assert_eq!(request.stream_frame_rate_millihz(&rubylight(), 60), 59_940);
@@ -409,6 +431,46 @@ mod tests {
                     .replace("&corever=1", "&rlRateChange=1&corever=1")
             );
         }
+    }
+
+    #[test]
+    fn only_a_rubylight_host_hears_whether_the_launch_confirms_the_replace() {
+        let confirmed = LaunchRequest {
+            confirm_replace: true,
+            ..request()
+        };
+        let plain = request().query(&rubylight(), false);
+        assert!(
+            plain.contains("&gcpersist=0&rlConfirmReplace=0&corever=1"),
+            "{plain}"
+        );
+        assert_eq!(
+            confirmed.query(&rubylight(), false),
+            plain.replace("rlConfirmReplace=0", "rlConfirmReplace=1")
+        );
+        // Vibepollo and the rest keep their 60-second relaunch rule and today's query.
+        let caps = HostCapabilities::UNKNOWN;
+        assert_ne!(caps.family(), Family::Rubylight);
+        assert_eq!(confirmed.query(&caps, false), request().query(&caps, false));
+        assert!(!request().query(&caps, false).contains(CONFIRM_REPLACE));
+    }
+
+    #[test]
+    fn only_the_replace_prompt_asks_to_confirm() {
+        let status = |code, message: &str| Error::Status {
+            code,
+            message: message.into(),
+        };
+        assert!(asks_to_confirm_replace(&status(410, REPLACE_PROMPT)));
+        // 410 also reports finished actions; other codes are refusals.
+        assert!(!asks_to_confirm_replace(&status(
+            410,
+            "Application terminated"
+        )));
+        assert!(!asks_to_confirm_replace(&status(409, REPLACE_PROMPT)));
+        assert!(!asks_to_confirm_replace(&Error::NotFound(
+            REPLACE_PROMPT.into()
+        )));
     }
 
     #[test]

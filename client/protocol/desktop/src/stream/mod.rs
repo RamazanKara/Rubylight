@@ -104,6 +104,8 @@ pub struct LaunchPlan {
     pub pace: Option<crate::config::PaceCalibration>,
     pub host_link_mbps: u32,
     pub recovery: Option<recovery::Backoff>,
+    /// The user confirmed closing the running app for this launch (`rlConfirmReplace`).
+    pub confirm_replace: bool,
 }
 
 /// The stream's negotiated shape.
@@ -314,6 +316,15 @@ pub fn termination_text(code: i32) -> Option<String> {
     })
 }
 
+/// Why a launch ended without a stream.
+pub enum ConnectFailed {
+    /// What to tell the user.
+    Message(String),
+    /// The PC asks the user to confirm closing the running app; the plan launches again with
+    /// the answer.
+    ConfirmReplace(Box<LaunchPlan>),
+}
+
 /// A launch and session start running on a worker thread.
 pub struct Connecting {
     pub shared: Arc<Shared>,
@@ -381,8 +392,8 @@ impl Connecting {
         }
     }
 
-    /// Ok(Some) once streaming, Err with a message on failure.
-    pub fn poll(&mut self) -> Result<Option<(Session, Facts)>, String> {
+    /// Ok(Some) once streaming, Err on failure.
+    pub fn poll(&mut self) -> Result<Option<(Session, Facts)>, ConnectFailed> {
         let expired = self.plan.recovery.as_ref().is_some_and(|r| r.remaining(recovery::now_ms()) == 0);
         if expired { self.cancel(); }
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
@@ -408,15 +419,21 @@ impl Connecting {
                 if expired {
                     lock(&self.shared.roam_watch).take();
                     session.stop();
-                    Err("Automatic recovery stopped after one minute.".into())
+                    Err(ConnectFailed::Message("Automatic recovery stopped after one minute.".into()))
                 } else {
                     self.plan = plan;
                     Ok(Some((session, facts)))
                 }
             }
-            Ok(Err(e)) => Err(if expired { "Automatic recovery stopped after one minute.".into() } else { e.message }),
+            Ok(Err(e)) => Err(if expired {
+                ConnectFailed::Message("Automatic recovery stopped after one minute.".into())
+            } else if e.asks_replace {
+                ConnectFailed::ConfirmReplace(Box::new(self.plan.clone()))
+            } else {
+                ConnectFailed::Message(e.message)
+            }),
             Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("The connection attempt ended.".into()),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(ConnectFailed::Message("The connection attempt ended.".into())),
         }
     }
 
@@ -431,10 +448,12 @@ impl Connecting {
 struct ConnectError {
     message: String,
     retryable: bool,
+    /// The PC asks the user to confirm closing the running app.
+    asks_replace: bool,
 }
 
 impl From<String> for ConnectError {
-    fn from(message: String) -> Self { Self { message, retryable: false } }
+    fn from(message: String) -> Self { Self { message, retryable: false, asks_replace: false } }
 }
 
 impl From<&str> for ConnectError {
@@ -763,6 +782,27 @@ fn early_decode(setting: bool) -> bool {
     }
 }
 
+/// The plan that rejoins a stream of `role` that `plan` started: a resume of the running app,
+/// never the answer to a replace prompt. None when there is no app to resume.
+fn rejoin(mut plan: LaunchPlan, role: AppRole) -> Option<LaunchPlan> {
+    // Only the launch the user answered closes the running app; a reconnect never does.
+    plan.confirm_replace = false;
+    plan.resume = role == AppRole::Stream;
+    if plan.resume && plan.app.control != nightjar_core::http::AppControl::None {
+        if plan.info.current_game == 0 { return None; }
+        plan.app.id = plan.info.current_game;
+        plan.app.uuid = plan.info.current_game_uuid.clone().unwrap_or_default();
+        plan.app.control = nightjar_core::http::AppControl::None;
+    }
+    Some(plan)
+}
+
+/// Whether a refused launch of `plan` is the PC's prompt to close the running app, which the
+/// user answers. A launch that already confirmed is not asked again, nor is a resume.
+fn asks_replace(plan: &LaunchPlan, role: AppRole, error: &nightjar_core::http::Error) -> bool {
+    !plan.resume && !plan.confirm_replace && role == AppRole::Stream && nightjar_core::http::asks_to_confirm_replace(error)
+}
+
 fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     let settings = &plan.settings;
     let role = plan.app.role(plan.small_stream_input_only);
@@ -792,6 +832,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         ri_key_id,
         play_local_audio: settings.play_audio_on_host,
         gamepad_mask: plan.gamepad_mask,
+        confirm_replace: plan.confirm_replace,
         prepared_controllers: if role != AppRole::RemoteMonitor && plan.info.capabilities.has(Feature::ControllerPreparation) {
             plan.prepared_controllers.clone()
         } else { String::new() },
@@ -826,7 +867,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     }
     if plan.resume {
         plan.info = client.server_info_https().map_err(|e| ConnectError {
-            retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"),
+            retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"), asks_replace: false,
         })?;
         if !plan.info.paired || !plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref()) {
             return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
@@ -862,12 +903,16 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         } else { why.into() }
     };
     let launched = match launched {
+        // The answer goes out with a new launch that says it confirms.
+        Err(e) if asks_replace(plan, role, &e) => {
+            return Err(ConnectError { message: e.to_string(), retryable: false, asks_replace: true })
+        }
         Ok(Some(launched)) => launched,
         Ok(None) => return Err(refused("The PC declined to start the app.".into())),
         Err(nightjar_core::http::Error::Status { code, message }) => {
             return Err(refused(format!("The PC could not start the app ({code}: {message}).")))
         }
-        Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}") }),
+        Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}"), asks_replace: false }),
     };
     if interrupt.is_interrupted() {
         return Err("Cancelled.".into());
@@ -977,7 +1022,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         Arc::new(pipeline::Events { shared }),
         interrupt,
     )
-    .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}") })?;
+    .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch, outcome.host_roaming);
     let facts = Facts {
@@ -1505,14 +1550,7 @@ impl Streaming {
         if automatic && (!self.settings.auto_reconnect || !self.focused || self.facts.role != AppRole::Stream) {
             return None;
         }
-        let mut plan = self.plan.clone();
-        plan.resume = self.facts.role == AppRole::Stream;
-        if plan.resume && plan.app.control != nightjar_core::http::AppControl::None {
-            if plan.info.current_game == 0 { return None; }
-            plan.app.id = plan.info.current_game;
-            plan.app.uuid = plan.info.current_game_uuid.clone().unwrap_or_default();
-            plan.app.control = nightjar_core::http::AppControl::None;
-        }
+        let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
         plan.microphone_muted = self.microphone_muted;
         if automatic {
             let recovery = plan.recovery.get_or_insert_with(Default::default);
@@ -3824,6 +3862,105 @@ mod early_tests {
         let video = video_summary(3600, 12, 5);
         for part in ["3600 frames to the decoder", "12 dropped over the decoder queue", "5 replaced"] {
             assert!(video.contains(part), "{video}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod replace_tests {
+    use super::*;
+
+    fn launch_plan() -> LaunchPlan {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?><root status_code="200"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>7</currentgame><state>SUNSHINE_SERVER_BUSY</state><RustHostVersion>3.0.0</RustHostVersion></root>"#;
+        LaunchPlan {
+            host_id: 1,
+            record: Default::default(),
+            host_name: "PC".into(),
+            info: ServerInfo::parse(xml, 47989).expect("the answer parses"),
+            app: nightjar_core::http::App {
+                name: "Zelda".into(),
+                id: 9,
+                hdr_supported: false,
+                uuid: String::new(),
+                host_index: None,
+                art_version: String::new(),
+                control: nightjar_core::http::AppControl::None,
+                monitor_resume: false,
+            },
+            resume: false,
+            small_stream_input_only: false,
+            settings: Settings::default(),
+            identity: Arc::new(ClientIdentity::generate().expect("an identity")),
+            display: Display { width: 1920, height: 1080, refresh_hz: 60.0 },
+            hardware: Hardware::None,
+            gpu_decoder: None,
+            packed_modes: 0,
+            pacing: PacingMode::Immediate,
+            vrr: false,
+            gamepad_mask: 0,
+            prepared_controllers: String::new(),
+            microphone_muted: false,
+            bitrate_limit_kbps: 0,
+            network: Default::default(),
+            pace: None,
+            host_link_mbps: 0,
+            recovery: None,
+            confirm_replace: false,
+        }
+    }
+
+    #[test]
+    fn only_the_launch_the_user_answered_confirms_the_replace() {
+        use nightjar_core::http::Error;
+        let prompt = Error::Status {
+            code: 410,
+            message: "An app is already running. Launch this app again within 60 seconds to confirm that you want to close it.".into(),
+        };
+        let mut plan = launch_plan();
+        assert!(asks_replace(&plan, AppRole::Stream, &prompt));
+        // Another 410, a role that replaces nothing, or a resume is no prompt to answer.
+        assert!(!asks_replace(&plan, AppRole::Stream, &Error::Status { code: 410, message: "Gone".into() }));
+        assert!(!asks_replace(&plan, AppRole::InputOnly, &prompt));
+        // A launch that already confirmed is not asked again: the refusal is shown.
+        plan.confirm_replace = true;
+        assert!(!asks_replace(&plan, AppRole::Stream, &prompt));
+        // A reconnect resumes and never carries the answer.
+        let rejoined = rejoin(plan.clone(), AppRole::Stream).expect("a plan");
+        assert!(rejoined.resume && !rejoined.confirm_replace);
+        assert!(!asks_replace(&rejoined, AppRole::Stream, &prompt));
+        let monitor = rejoin(plan, AppRole::RemoteMonitor).expect("a plan");
+        assert!(!monitor.resume && !monitor.confirm_replace);
+    }
+
+    #[test]
+    fn a_replace_prompt_hands_back_the_plan_to_launch_again() {
+        for asks_replace in [true, false] {
+            let plan = launch_plan();
+            let (sender, result) = channel();
+            let mut connecting = Connecting {
+                shared: Shared::new(Arc::new(|| {}), 2),
+                interrupt: Interrupt::default(),
+                stage: String::new(),
+                app_name: plan.app.name.clone(),
+                host_name: plan.host_name.clone(),
+                host_id: plan.host_id,
+                pacing: plan.pacing,
+                settings: plan.settings.clone(),
+                plan,
+                result,
+            };
+            sender.send(Err(ConnectError { message: "refused".into(), retryable: false, asks_replace })).unwrap();
+            match connecting.poll() {
+                Err(ConnectFailed::ConfirmReplace(plan)) => {
+                    assert!(asks_replace);
+                    assert!(plan.app.id == 9 && !plan.resume && !plan.confirm_replace);
+                }
+                Err(ConnectFailed::Message(message)) => {
+                    assert!(!asks_replace);
+                    assert_eq!(message, "refused");
+                }
+                Ok(_) => panic!("the launch failed"),
+            }
         }
     }
 }

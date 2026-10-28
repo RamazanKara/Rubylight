@@ -25,8 +25,10 @@
   );
 </script>
 
-<Panel title="Host readiness" description={summary} flush>
+<!-- A failed check makes this Home's "Needs attention" block, with the way to Help. -->
+<Panel title={attention ? 'Needs attention' : 'Host readiness'} description={summary} flush>
   {#snippet actions()}
+    {#if attention}<Button size="sm" variant="ghost" icon="help" href="/maintenance">Help</Button>{/if}
     <Button size="sm" variant="ghost" icon="refresh" busy={checking} onclick={onrecheck}>Recheck</Button>
   {/snippet}
   {#if error}

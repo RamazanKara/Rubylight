@@ -97,10 +97,11 @@ public class AndroidAudioRendererTest {
         }
 
         private boolean late;
-        private final List<Integer> lateChecks = new ArrayList<>();
+        private final List<Integer> lateChecks = new ArrayList<>(), latePending = new ArrayList<>();
 
-        @Override boolean skipLateNativeAudio(int frames) {
+        @Override boolean skipLateNativeAudio(int frames, int pendingFrames) {
             lateChecks.add(frames);
+            latePending.add(pendingFrames);
             return late;
         }
 
@@ -162,8 +163,10 @@ public class AndroidAudioRendererTest {
         renderer.nativeWriteSucceeds = false;
         renderer.late = true;
         renderer.play();
-        // Asked per packet in frames; skipped before any write or fallback.
+        // Asked per packet in frames, with the network queue behind it in frames (130 ms at 48 kHz): those
+        // packets refill the reserve, so the native side skips only the excess. Skipped before any write or fallback.
         assertEquals(List.of(3), renderer.lateChecks);
+        assertEquals(List.of(6240), renderer.latePending);
         assertNull(renderer.fallbackReason);
         assertEquals(0, renderer.nextResult);
         assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));

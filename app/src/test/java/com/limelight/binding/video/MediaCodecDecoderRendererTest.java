@@ -195,29 +195,23 @@ public class MediaCodecDecoderRendererTest {
     }
 
     @Test
-    public void hdrMetadataAloneIsAParameterOnlyForDecodersThatTakeIt() {
+    public void hdrMetadataAloneIsAParameterOnEveryDecoder() {
         // The PC's first HDR report on the TCL C6K: HDR was assumed on, and the mastering metadata
-        // arrives. A stop() and configure() then left its decoder without input buffers.
+        // arrives. A stop() and configure() then left its decoder without input buffers. Other
+        // decoders take it the same way; one that ignores it restarts after HDR_STATIC_INFO_OUTPUTS.
         byte[] first = new byte[24];
         first[0] = 1;
         byte[] next = first.clone();
         next[23] = 2;
         int q = android.os.Build.VERSION_CODES.Q;
         assertEquals(MediaCodecDecoderRenderer.HdrChange.PARAMETERS,
-                MediaCodecDecoderRenderer.hdrChange(true, true, null, first, q, true));
+                MediaCodecDecoderRenderer.hdrChange(true, true, null, first, q));
         assertEquals(MediaCodecDecoderRenderer.HdrChange.PARAMETERS,
-                MediaCodecDecoderRenderer.hdrChange(true, true, first, next, q + 5, true));
-        // Every other decoder restarts, as before: an OMX decoder may take the parameter and ignore it.
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
-                MediaCodecDecoderRenderer.hdrChange(true, true, null, first, q, false));
-        assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
-                MediaCodecDecoderRenderer.hdrChange(true, true, first, next, q + 5, false));
-        for (boolean asParameter : new boolean[] {true, false}) {
-            assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
-                    MediaCodecDecoderRenderer.hdrChange(true, true, first, first.clone(), q, asParameter));
-            assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
-                    MediaCodecDecoderRenderer.hdrChange(false, false, null, null, q, asParameter));
-        }
+                MediaCodecDecoderRenderer.hdrChange(true, true, first, next, q + 5));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
+                MediaCodecDecoderRenderer.hdrChange(true, true, first, first.clone(), q));
+        assertEquals(MediaCodecDecoderRenderer.HdrChange.NONE,
+                MediaCodecDecoderRenderer.hdrChange(false, false, null, null, q));
     }
 
     @Test
@@ -226,28 +220,16 @@ public class MediaCodecDecoderRendererTest {
         int q = android.os.Build.VERSION_CODES.Q;
         // The colour keys change with the mode.
         assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
-                MediaCodecDecoderRenderer.hdrChange(false, true, null, metadata, q, true));
+                MediaCodecDecoderRenderer.hdrChange(false, true, null, metadata, q));
         assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
-                MediaCodecDecoderRenderer.hdrChange(false, true, null, null, q, true));
+                MediaCodecDecoderRenderer.hdrChange(false, true, null, null, q));
         assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
-                MediaCodecDecoderRenderer.hdrChange(true, false, metadata, null, q, true));
+                MediaCodecDecoderRenderer.hdrChange(true, false, metadata, null, q));
         // Before Android 10 setParameters does not take it, and it can't remove it.
         assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
-                MediaCodecDecoderRenderer.hdrChange(true, true, null, metadata, q - 1, true));
+                MediaCodecDecoderRenderer.hdrChange(true, true, null, metadata, q - 1));
         assertEquals(MediaCodecDecoderRenderer.HdrChange.RESTART,
-                MediaCodecDecoderRenderer.hdrChange(true, true, metadata, null, q, true));
-    }
-
-    @Test
-    public void onlyMediaTekCodec2DecodersTakeHdrMetadataAsAParameter() {
-        assertTrue(MediaCodecDecoderRenderer.takesHdrStaticInfoParameter("c2.mtk.dvhe.st.decoder"));
-        assertTrue(MediaCodecDecoderRenderer.takesHdrStaticInfoParameter("c2.mtk.av1.decoder"));
-        assertTrue(MediaCodecDecoderRenderer.takesHdrStaticInfoParameter("C2.MTK.hevc.decoder"));
-        for (String other : new String[] {"OMX.Nvidia.h265.decode", "OMX.MTK.VIDEO.DECODER.HEVC",
-                "c2.qti.hevc.decoder", "c2.exynos.hevc.decoder", "OMX.amlogic.hevc.decoder.awesome2",
-                "c2.android.hevc.decoder"}) {
-            assertFalse(other, MediaCodecDecoderRenderer.takesHdrStaticInfoParameter(other));
-        }
+                MediaCodecDecoderRenderer.hdrChange(true, true, metadata, null, q));
     }
 
     @Test

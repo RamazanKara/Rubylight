@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">Schowek hosta nie zawiera obrazu</string>
     <string name="stream_clipboard_image_received">Obraz z hosta skopiowany do schowka</string>
     <string name="clipboard_image_too_large">Obraz jest za duży dla schowka hosta</string>
+    <string name="clipboard_image_too_large_here">Obraz z hosta jest za duży, aby skopiować go na to urządzenie</string>
     <string name="clipboard_image_not_png">Nie udało się odczytać obrazu</string>
     <string name="clipboard_image_no_host">Ten host nie może udostępniać obrazów ze schowka</string>
     <string name="clipboard_image_forbidden">Host nie pozwala temu urządzeniu używać swojego schowka</string>

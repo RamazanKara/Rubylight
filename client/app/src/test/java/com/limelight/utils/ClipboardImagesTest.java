@@ -94,11 +94,23 @@ public class ClipboardImagesTest {
 
     @Test
     public void eachRefusalHasItsOwnMessage() {
-        Set<Integer> messages = new HashSet<>();
-        for (ClipboardImageException.Reason reason : ClipboardImageException.Reason.values()) {
-            messages.add(ClipboardImages.message(reason));
+        for (boolean send : new boolean[] {true, false}) {
+            Set<Integer> messages = new HashSet<>();
+            for (ClipboardImageException.Reason reason : ClipboardImageException.Reason.values()) {
+                messages.add(ClipboardImages.message(reason, send));
+            }
+            assertEquals(ClipboardImageException.Reason.values().length, messages.size());
         }
-        assertEquals(ClipboardImageException.Reason.values().length, messages.size());
+    }
+
+    @Test
+    public void anImageTooLargeIsNamedForTheWayItWasGoing() {
+        Context context = RuntimeEnvironment.getApplication();
+        String toHost = context.getString(ClipboardImages.message(ClipboardImageException.Reason.TOO_LARGE, true));
+        String toDevice = context.getString(ClipboardImages.message(ClipboardImageException.Reason.TOO_LARGE, false));
+        assertTrue(toHost, toHost.contains("host clipboard"));
+        assertTrue(toDevice, toDevice.contains("this device"));
+        assertFalse(toDevice, toDevice.contains("host clipboard"));
     }
 
     @Test

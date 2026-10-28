@@ -916,6 +916,22 @@ public class GameRecoveryTest {
     }
 
     @Test
+    public void aStreamStartedAgainDoesNotNameTheGameItsFirstStartReplaced() {
+        Game game = recoveryGame();
+        try {
+            game.setIntent(new Intent().putExtra(Game.EXTRA_REPLACED_APP_NAME, "Balatro"));
+            // By the reconnect another device's game may be running: its confirmation must not name Balatro.
+            Intent reconnect = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+            assertFalse(reconnect.hasExtra(Game.EXTRA_REPLACED_APP_NAME));
+            Intent resume = ReflectionHelpers.callInstanceMethod(game, "createStreamHandoffIntent",
+                    ReflectionHelpers.ClassParameter.from(String.class, com.limelight.utils.LaunchSource.RETURN));
+            assertFalse(resume.hasExtra(Game.EXTRA_REPLACED_APP_NAME));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void packedChromaFailureWhileTheStreamWaitsToResumeMarksTheResume() throws Exception {
         Game game = recoveryGame();

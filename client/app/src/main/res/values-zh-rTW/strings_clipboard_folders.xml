@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">主機剪貼簿中沒有圖片</string>
     <string name="stream_clipboard_image_received">已將主機圖片複製到剪貼簿</string>
     <string name="clipboard_image_too_large">圖片太大，主機剪貼簿無法容納</string>
+    <string name="clipboard_image_too_large_here">主機圖片太大，無法複製到此裝置</string>
     <string name="clipboard_image_not_png">無法讀取圖片</string>
     <string name="clipboard_image_no_host">此主機無法共用剪貼簿圖片</string>
     <string name="clipboard_image_forbidden">主機不允許此裝置使用其剪貼簿</string>

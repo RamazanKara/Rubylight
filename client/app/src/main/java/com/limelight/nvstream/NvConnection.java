@@ -885,6 +885,13 @@ public class NvConnection {
             context.negotiatedHdr = context.negotiated10Bit && !context.streamConfig.isSdr10Bit();
             context.hdrFormat = context.negotiatedHdr ? renderer.pickHdrFormat(details.caps.hdrFormats(),
                     context.negotiatedVideoFormats, context.streamConfig.isPacked444()) : 0;
+            int hdrFormatVideoFormats = renderer.videoFormatsForHdrFormat(context.hdrFormat, context.negotiatedVideoFormats);
+            if (hdrFormatVideoFormats != context.negotiatedVideoFormats) {
+                // Dolby Vision on the automatic codec: a codec that carries it (HEVC, not AV1), whose decoder
+                // sets the capabilities.
+                context.negotiatedVideoFormats = hdrFormatVideoFormats;
+                context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats);
+            }
             if (pyroWaveHdrLost(commonFormats, context.negotiatedVideoFormats)) {
                 // The host and this device both offer PyroWave HDR, but its output could not be
                 // created here; AV1 or HEVC HDR carries the stream instead. Say so once per PC.

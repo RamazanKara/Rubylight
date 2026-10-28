@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">Gli appunti dell’host non contengono immagini</string>
     <string name="stream_clipboard_image_received">Immagine dell’host copiata negli appunti</string>
     <string name="clipboard_image_too_large">L’immagine è troppo grande per gli appunti dell’host</string>
+    <string name="clipboard_image_too_large_here">L’immagine dell’host è troppo grande per essere copiata su questo dispositivo</string>
     <string name="clipboard_image_not_png">Impossibile leggere l’immagine</string>
     <string name="clipboard_image_no_host">Questo host non può condividere immagini degli appunti</string>
     <string name="clipboard_image_forbidden">L’host non consente a questo dispositivo di usare i suoi appunti</string>

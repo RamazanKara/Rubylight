@@ -364,6 +364,7 @@
     <string name="stream_end_input">結束輸入工作階段</string>
     <string name="launch_confirm_title">在這部裝置上確認</string>
     <string name="launch_confirm_replace">要結束執行中的應用程式並啟動這個應用程式嗎？\n請在 60 秒內確認。</string>
+    <string name="launch_confirm_replace_named">要結束 %1$s 並啟動 %2$s 嗎？\n請在 60 秒內確認。</string>
     <string name="launch_confirm_terminate">要結束應用程式嗎？\n監看/輸入用戶端會保持連線。\n請在 60 秒內確認。</string>
     <string name="launch_confirm">確認</string>
     <string name="summary_about">版本 %1$s · 以 Moonlight 為基礎 (GPL-3.0)</string>

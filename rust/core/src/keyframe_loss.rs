@@ -1702,4 +1702,76 @@ mod tests {
         loss.sending_at(41, false, first);
         assert!(loss.network_request(soon));
     }
+
+    /// Forty seconds of the October 28 scene-cut run: 200 Mbps HEVC at 60 fps
+    /// on an 800 Mbps route with 0.3 % random loss and no bottleneck, a scene
+    /// cut every two seconds. AMF does not hold the cut, an ordinary frame, to
+    /// the frame cap, so it leaves without parity and is lost; the recovery
+    /// keyframe answering it is as large as the cap allows. A frame is lost
+    /// when one of its blocks loses more packets than it has parity. Returns
+    /// the recovery keyframes lost and the guard.
+    fn lost_cut_recoveries(fec_whole: bool) -> (usize, KeyframeLoss) {
+        use crate::network_pacing::{fec_whole_frame_cap, recovery_frame_cap};
+        let packetizer = crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let (kbps, period) = (200_000, Duration::from_secs_f64(1. / 60.));
+        let mut cap = recovery_frame_cap(FAST, kbps, period, 20, 1392, false);
+        if fec_whole {
+            cap = fec_whole_frame_cap(cap, packetizer.fec_whole_payload_limit(), kbps, period);
+        }
+        let blocks = packetizer.block_layout(cap as usize);
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut lost_packet = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % 1000 < 3
+        };
+        let start = started_long_ago();
+        let mut loss = KeyframeLoss::new(true);
+        loss.sending_at(1, true, start);
+        let mut lost = 0;
+        for frame in 2..=2400u32 {
+            let at = start + period * frame;
+            if frame % 120 != 0 {
+                loss.sending_at(frame, false, at);
+                continue;
+            }
+            // The cut, reported two frames later; then the recovery keyframe.
+            loss.sending_at(frame, false, at);
+            loss.unrecoverable(frame, frame + 2, period, at + period * 2);
+            loss.loss_keyframe();
+            loss.sending_at(frame + 3, true, at + period * 3);
+            let whole = blocks.iter().all(|&(data, parity)| {
+                (0..data + parity).filter(|_| lost_packet()).count() <= parity
+            });
+            if !whole {
+                lost += 1;
+                loss.unrecoverable(frame + 3, frame + 5, period, at + period * 5);
+            }
+        }
+        (lost, loss)
+    }
+
+    #[test]
+    fn recovery_keyframes_within_full_fec_survive_random_loss_without_a_latch() {
+        // The automatic cap, about 2.6 MB, leaves no parity in four blocks:
+        // the first lost recovery keyframe latches the slow pace.
+        let (lost, loss) = lost_cut_recoveries(false);
+        assert!(lost >= 15, "{lost} of 20 recovery keyframes lost");
+        assert!(loss.latched());
+        // Held to full parity (about 1.17 MB) every one arrives, and the cut
+        // losses alone, one every two seconds, slow nothing.
+        let (lost, loss) = lost_cut_recoveries(true);
+        assert_eq!(lost, 0);
+        assert!(!loss.latched());
+        assert_eq!(loss.bps(FAST, SAFE), FAST);
+    }
 }

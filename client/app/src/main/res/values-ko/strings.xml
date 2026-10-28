@@ -364,6 +364,7 @@
     <string name="stream_end_input">입력 세션 종료</string>
     <string name="launch_confirm_title">이 기기에서 확인</string>
     <string name="launch_confirm_replace">실행 중인 앱을 종료하고 이 앱을 시작할까요?\n60초 안에 확인하세요.</string>
+    <string name="launch_confirm_replace_named">%1$s을(를) 종료하고 %2$s을(를) 시작할까요?\n60초 안에 확인하세요.</string>
     <string name="launch_confirm_terminate">앱을 종료할까요?\n모니터/입력 클라이언트는 연결된 상태로 유지됩니다.\n60초 안에 확인하세요.</string>
     <string name="launch_confirm">확인</string>
     <string name="summary_about">버전 %1$s · Moonlight 기반(GPL-3.0)</string>

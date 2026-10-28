@@ -38,7 +38,8 @@ static uint32_t audioQueueWrite(AudioQueue* queue, const int16_t* samples, uint3
     return count;
 }
 
-static void audioQueueRead(AudioQueue* queue, int16_t* samples, uint32_t frames) {
+// Fills samples with frames frames, silence where the queue has none; returns the queued frames played.
+static uint32_t audioQueueRead(AudioQueue* queue, int16_t* samples, uint32_t frames) {
     uint32_t read = atomic_load_explicit(&queue->readFrames, memory_order_relaxed);
     uint32_t written = atomic_load_explicit(&queue->writtenFrames, memory_order_acquire);
     uint32_t available = written - read;
@@ -48,7 +49,7 @@ static void audioQueueRead(AudioQueue* queue, int16_t* samples, uint32_t frames)
         // recurring gaps, even after the underrun policy increases the target.
         if (available < atomic_load(&queue->targetFrames)) {
             memset(samples, 0, frames * 2 * sizeof(int16_t));
-            return;
+            return 0;
         }
         queue->primed = true;
     }
@@ -65,4 +66,5 @@ static void audioQueueRead(AudioQueue* queue, int16_t* samples, uint32_t frames)
         queue->primed = false;
     }
     atomic_store_explicit(&queue->readFrames, read + count, memory_order_release);
+    return count;
 }

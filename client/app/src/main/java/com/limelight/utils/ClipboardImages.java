@@ -226,11 +226,14 @@ public final class ClipboardImages {
         }
     }
 
-    /** What to tell the user about a refusal of the image clipboard. */
+    /**
+     * What to tell the user about a refusal of the image clipboard, for an image going to the host when {@code send}
+     * and coming to this device when not.
+     */
     @StringRes
-    public static int message(ClipboardImageException.Reason reason) {
+    public static int message(ClipboardImageException.Reason reason, boolean send) {
         switch (reason) {
-            case TOO_LARGE: return R.string.clipboard_image_too_large;
+            case TOO_LARGE: return send ? R.string.clipboard_image_too_large : R.string.clipboard_image_too_large_here;
             case NOT_PNG: return R.string.clipboard_image_not_png;
             case UNSUPPORTED: return R.string.clipboard_image_unsupported;
             case FORBIDDEN: return R.string.clipboard_image_forbidden;

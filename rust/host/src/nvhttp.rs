@@ -38,7 +38,7 @@ use butterpollo_windows::clipboard;
 use parity_tests::clipboard;
 use serde_json::json;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     ops::ControlFlow,
     sync::Mutex,
     time::{Duration, Instant},
@@ -2639,6 +2639,68 @@ fn clipboard_limit(h: &Shared, kind: Option<ClipboardType>) -> usize {
         _ => 1024 * 1024,
     }
 }
+/// What a refused body of `kind` is called in the log.
+fn clipboard_what(kind: Option<ClipboardType>) -> &'static str {
+    match kind {
+        Some(ClipboardType::Png) => "an image",
+        _ => "a copy",
+    }
+}
+/// How often a device that isn't paired gets a refusal logged.
+const UNPAIRED_REFUSAL_LOG_INTERVAL: Duration = Duration::from_secs(60);
+/// How many addresses get a refusal logged in one interval.
+const UNPAIRED_REFUSAL_LOG_PEERS: usize = 64;
+/// Size refusals of devices that aren't paired, refused before they are
+/// authenticated: logged once per address in [`UNPAIRED_REFUSAL_LOG_INTERVAL`]
+/// (IPv6 per /64, as a device's privacy addresses rotate within it), for at
+/// most [`UNPAIRED_REFUSAL_LOG_PEERS`] addresses, so one on the network can't
+/// fill the log.
+struct RefusalLog(Mutex<BTreeMap<std::net::IpAddr, (Instant, u32)>>);
+static UNPAIRED_REFUSALS: RefusalLog = RefusalLog::new();
+impl RefusalLog {
+    const fn new() -> Self {
+        Self(Mutex::new(BTreeMap::new()))
+    }
+    /// Whether `peer`'s refusal at `now` is logged: with the count left
+    /// unlogged since its last line, or `None` while it is suppressed too.
+    fn admit(&self, peer: std::net::IpAddr, now: Instant) -> Option<u32> {
+        let peer = match peer.to_canonical() {
+            std::net::IpAddr::V6(v6) => {
+                std::net::IpAddr::V6((u128::from(v6) & (u128::MAX << 64)).into())
+            }
+            v4 => v4,
+        };
+        let mut logged = self.0.lock().unwrap();
+        if let Some((at, suppressed)) = logged.get_mut(&peer)
+            && now.saturating_duration_since(*at) < UNPAIRED_REFUSAL_LOG_INTERVAL
+        {
+            *suppressed = suppressed.saturating_add(1);
+            return None;
+        }
+        let suppressed = logged.remove(&peer).map_or(0, |(_, suppressed)| suppressed);
+        // Only addresses refused within the interval are held.
+        logged.retain(|_, (at, _)| {
+            now.saturating_duration_since(*at) < UNPAIRED_REFUSAL_LOG_INTERVAL
+        });
+        if logged.len() >= UNPAIRED_REFUSAL_LOG_PEERS {
+            return None;
+        }
+        logged.insert(peer, (now, 0));
+        Some(suppressed)
+    }
+}
+/// Whether `c` comes from a paired, enabled device, as [`authenticated`]
+/// finds it, without noting a request.
+fn paired_connection(h: &Shared, c: &Connection) -> bool {
+    c.tls
+        && c.certificate.as_deref().is_some_and(|der| {
+            h.paired
+                .read()
+                .unwrap()
+                .client_by_certificate(der)
+                .is_some()
+        })
+}
 /// Image clipboard requests take turns: each holds up to the image limit as
 /// its body or copy, and far more while it converts, so they would add up.
 /// A device asking again before its last image request has ended is
@@ -2777,7 +2839,18 @@ async fn clipboard_write(
         .headers()
         .get(header::CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok()?.trim().parse::<u64>().ok());
-    if declared.is_some_and(|length| length > limit as u64) {
+    if let Some(length) = declared.filter(|length| *length > limit as u64) {
+        let what = clipboard_what(clipboard_type(&args));
+        if paired_connection(&h, &c) {
+            tracing::warn!(
+                "Clipboard: refused {what} of {length} bytes by its Content-Length, over the limit of {limit} bytes"
+            );
+        } else if let Some(suppressed) = UNPAIRED_REFUSALS.admit(c.peer.ip(), Instant::now()) {
+            tracing::warn!(
+                "Clipboard: refused {what} of {length} bytes by its Content-Length from unpaired {}, over the limit of {limit} bytes ({suppressed} more from it unlogged)",
+                c.peer.ip().to_canonical()
+            );
+        }
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
     let Ok((kind, device)) = clipboard_client(&h, &c, 1 << 16, &args) else {
@@ -2796,7 +2869,15 @@ async fn clipboard_write(
     };
     let body = match body_within(request.into_body(), limit).await {
         Ok(body) => body,
-        Err(status) => return status.into_response(),
+        Err(status) => {
+            if status == StatusCode::PAYLOAD_TOO_LARGE {
+                tracing::warn!(
+                    "Clipboard: refused {} whose body passed the limit of {limit} bytes",
+                    clipboard_what(Some(kind))
+                );
+            }
+            return status.into_response();
+        }
     };
     if kind == ClipboardType::Png {
         let write = move || {
@@ -2847,7 +2928,9 @@ async fn body_within(mut body: axum::body::Body, limit: usize) -> Result<Vec<u8>
 fn clipboard_image_failure(doing: &str, error: &anyhow::Error, malformed: StatusCode) -> Response {
     use butterpollo_core::clipboard_image::ImageError;
     let status = match error.downcast_ref::<ImageError>() {
-        Some(ImageError::TooLarge) => StatusCode::PAYLOAD_TOO_LARGE,
+        Some(ImageError::TooLarge | ImageError::TooManyBytes { .. }) => {
+            StatusCode::PAYLOAD_TOO_LARGE
+        }
         Some(ImageError::Unsupported(_)) => StatusCode::UNSUPPORTED_MEDIA_TYPE,
         Some(ImageError::NotPng | ImageError::Malformed(_)) => malformed,
         None => StatusCode::INTERNAL_SERVER_ERROR,

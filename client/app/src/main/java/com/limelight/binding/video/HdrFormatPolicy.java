@@ -3,6 +3,8 @@ package com.limelight.binding.video;
 import android.media.MediaFormat;
 import android.view.Display;
 
+import com.limelight.nvstream.jni.MoonBridge;
+
 /**
  * The HDR format beyond stock HDR10 that this client asks a Rubylight 3.0 host for
  * (x-rl-video[0].hdrFormat), apart from the Android objects so it can be tested with made-up
@@ -60,6 +62,43 @@ public final class HdrFormatPolicy {
     /** The format goes through a video/dolby-vision decoder. */
     public static boolean dolbyVision(int format) {
         return (format & DOLBY_VISION) != 0;
+    }
+
+    /**
+     * The video formats that can carry {@code format}, 0 when every format can. Dolby Vision
+     * profile 8 (8.1 and 8.4) is HEVC Main10 with RPUs; a Dolby Vision format on AV1 (profile 10)
+     * would list its AV1 formats here, and videoFormats then keeps AV1 for it.
+     */
+    public static int carriers(int format) {
+        return dolbyVision(format) ? MoonBridge.VIDEO_FORMAT_H265_MAIN10 : 0;
+    }
+
+    /**
+     * The video formats to negotiate once {@code format} is picked: with the automatic codec
+     * choice, a codec that the host can carry the format on. The handshake takes AV1 before HEVC
+     * and the ANNOUNCE drops a format its codec can't carry (Dolby Vision on AV1 became AV1 HDR10),
+     * so each of AV1 and HEVC is left out when none of its formats can carry it, as long as one
+     * that can is left. H.264 stays: the handshake takes it only without HEVC and AV1. A codec the
+     * user chose stays.
+     */
+    public static int videoFormats(int format, int videoFormats, boolean automaticCodec) {
+        int carriers = carriers(format);
+        if (!automaticCodec || carriers == 0 || (videoFormats & carriers) == 0) {
+            return videoFormats;
+        }
+        for (int codec : new int[] {MoonBridge.VIDEO_FORMAT_MASK_AV1, MoonBridge.VIDEO_FORMAT_MASK_H265}) {
+            if ((videoFormats & codec & carriers) == 0) {
+                videoFormats &= ~codec;
+            }
+        }
+        return videoFormats;
+    }
+
+    /** "AV1", "HEVC" or "AV1 and HEVC" for the codecs that have formats in {@code formats}, for logs. */
+    public static String codecNames(int formats) {
+        boolean av1 = (formats & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0;
+        boolean hevc = (formats & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0;
+        return av1 && hevc ? "AV1 and HEVC" : av1 ? "AV1" : hevc ? "HEVC" : "nothing";
     }
 
     /** The MediaFormat colour transfer of an HDR stream in this format: HLG for HLG and 8.4, else PQ. */

@@ -12,14 +12,21 @@ host must be idle.
 usage: bottleneck.py --package DIR --work DIR --client EXE --codec CODEC [--mode 2560x1440x60]
                      [--seconds 20] [--bitrate 40000] [--rate-kbps 100000] [--queue-kib 64]
                      [--rfi] [--config KEY=VALUE]... [--label NAME] [--noise-height PIXELS]
+                     [--cut-ms MS [--fresh-rows ROWS]] [--hw-decoder TYPE] [--loss-percent PERCENT]
 Writes WORK/bottleneck-LABEL/result.json: the frames the host sent, the
 frames the receiver got whole (Moonlight hands the decoder complete frames
 only, and none while it waits for a keyframe), keyframe requests and the
-shaper's counters. It reports; it does not judge.
+shaper's counters. With --cut-ms the whole desktop is noise that changes every
+MS milliseconds (a scene cut), and the result adds stalls, picture age with and
+without the frames around each cut, and whether the host armed oversize pacing
+or the full Wi-Fi latch. It reports; it does not judge. At the first sign of an
+AMD video-engine hang (gpu_hang.py) it stops and exits with EXIT_GPU_HANG.
 """
 import argparse, csv, json, os, pathlib, re, shutil, subprocess, sys, time
 import requests
+from bottleneck_metrics import cut_metrics, latch_flags, nominal_frame_bytes
 from e2e_host import installed_idle, prepare, receiver_environment
+from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--package', required=True, type=pathlib.Path)
@@ -37,7 +44,15 @@ parser.add_argument('--config', action='append', default=[], metavar='KEY=VALUE'
 parser.add_argument('--label', help='output directory suffix; defaults to the codec, rate and queue')
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows: frames and keyframes as large as a busy game')
+parser.add_argument('--cut-ms', type=int, default=0, metavar='MS',
+                    help='full-screen noise that changes every MS milliseconds: a scene cut as large as the encoder cap allows')
+parser.add_argument('--fresh-rows', type=int, default=0, metavar='ROWS',
+                    help='with --cut-ms, rows above the bottom band with fresh noise every frame, sizing the frames between cuts')
+parser.add_argument('--hw-decoder', metavar='TYPE', help='the receiver decodes on the GPU, e.g. d3d11va')
+parser.add_argument('--loss-percent', type=float, default=0., metavar='PERCENT',
+                    help='random loss of video datagrams, with or without --rate-kbps: a lossy path with no bottleneck')
 args = parser.parse_args()
+assert not (args.cut_ms and args.noise_height), '--cut-ms and --noise-height are separate scenes'
 port = 48523
 shaper = args.shaper or args.client.parent / 'udp_shaper.exe'
 assert shaper.is_file(), 'build udp_shaper beside the receiver (cargo build -p butterpollo-windows --example udp_shaper)'
@@ -60,12 +75,19 @@ def spawn(command, name, **kw):
     f = (case / name).open('w')
     p = subprocess.Popen(command, stdout=f, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW, **kw)
     owned.append((p, f)); return p
+class Hang(Exception): pass
+guard = Guard(log)
+def watch():
+    evidence = guard.check()
+    if evidence: raise Hang(evidence)
+hang = None
 try:
     host = spawn([str(args.package / 'butterpollo.exe'), '--config-dir', str(profile), '--assets', str(args.package / 'assets' / 'web'),
                   '--bind', '127.0.0.1', '--no-tray'], 'host.stdout.log', cwd=case, env=env)
     deadline = time.monotonic() + 60
     while True:
         assert host.poll() is None, 'host exited'
+        watch()
         if log.exists() and 'encoder capability probe completed' in log.read_text(errors='replace'):
             try:
                 if plain.get(f'http://127.0.0.1:{port}/serverinfo', timeout=1).ok: break
@@ -74,11 +96,15 @@ try:
         time.sleep(.2)
     fixture_seconds = str(int(args.seconds) + 90)
     tone = spawn([str(args.client.parent / 'audio_probe.exe'), fixture_seconds, sink['id'], '--render-only'], 'tone.log', env=env)
-    strip = [str(args.noise_height), 'noise'] if args.noise_height else ['128']
+    if args.cut_ms:
+        strip = [str(display['height']), f'cuts:{args.cut_ms}:{args.fresh_rows}']
+    else:
+        strip = [str(args.noise_height), 'noise'] if args.noise_height else ['128']
     motion = spawn([str(args.client.parent / 'motion_probe.exe'), display['display_name'], fixture_seconds,
                     str(case / 'motion.json'), str(int(fps) * 2), *strip], 'motion.log', env=env)
     # Sunshine's port layout: video base+9, control base+10, audio base+11, RTSP base+21.
-    relay = spawn([str(shaper), '127.0.0.2', '127.0.0.1', str(args.rate_kbps), str(args.queue_kib * 1024), str(case / 'shaper.json'),
+    loss = ['--loss', str(args.loss_percent)] if args.loss_percent else []
+    relay = spawn([str(shaper), *loss, '127.0.0.2','127.0.0.1', str(args.rate_kbps), str(args.queue_kib * 1024), str(case / 'shaper.json'),
                    f'{port + 21}:tcp', f'{port + 9}:shape', str(port + 10), str(port + 11)], 'shaper.log')
     time.sleep(.5)
     assert tone.poll() is None and motion.poll() is None and relay.poll() is None, 'a fixture exited'
@@ -88,17 +114,37 @@ try:
         client_env.pop(key, None)
     client_env.update(BUTTERPOLLO_TEST_CLIENT_HOST='127.0.0.2', BUTTERPOLLO_TEST_TIMING_CSV=str(case / 'frames.csv'),
                       BUTTERPOLLO_TEST_RFI='1' if args.rfi else '0')
+    if args.hw_decoder:
+        client_env['BUTTERPOLLO_TEST_HW_DECODER'] = args.hw_decoder
     (case / 'receiver').mkdir()
     receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'],
                      'client.log', env=client_env)
-    rc = receiver.wait(timeout=int(args.seconds) + 120)
+    deadline = time.monotonic() + int(args.seconds) + 120
+    while receiver.poll() is None:
+        watch()
+        if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
+        time.sleep(.25)
+    rc = receiver.returncode
     time.sleep(.5)
+except Hang as error:
+    hang = str(error)
 finally:
     for p, f in reversed(owned):
         if p.poll() is None: p.terminate()
         try: p.wait(timeout=10)
-        except subprocess.TimeoutExpired: p.kill(); p.wait()
+        except subprocess.TimeoutExpired:
+            p.kill()
+            # A host blocked in the driver exits only once the GPU reset returns its call.
+            try: p.wait(timeout=120)
+            except subprocess.TimeoutExpired: print(f'{label}: process {p.pid} did not exit', file=sys.stderr)
         f.close()
+
+hang = hang or guard.check()
+if hang:
+    result = hang_result(label, args.codec, args.mode, False, hang)
+    (case / 'result.json').write_text(json.dumps(result, indent=2))
+    print(json.dumps(result))
+    sys.exit(EXIT_GPU_HANG)
 
 client = (case / 'client.log').read_text(errors='replace')
 host_log = log.read_text(errors='replace') if log.exists() else ''
@@ -133,7 +179,11 @@ result = dict(
     host_send_loss_recoveries=session.get('send_loss_recoveries'), host_encoder_bitrate_kbps=session.get('encoder_bitrate_kbps'),
     host_packet_pacing=session.get('packet_pacing'), pacing_bps=[int(p) for p in pacing],
     client_lost_frame_logs=len(re.findall(r'Network dropped', client)), client_idr_waits=len(re.findall(r'Waiting for IDR frame', client)),
-    shaper_video=video,
+    shaper_video=video, loss_percent=args.loss_percent, cut_ms=args.cut_ms, fresh_rows=args.fresh_rows, hw_decoder=args.hw_decoder, gpu_hang=None,
 )
+if frames:
+    encoder_kbps = result['host_encoder_bitrate_kbps'] or int(args.bitrate)
+    result.update(cut_metrics(case / 'frames.csv', frames, nominal_frame_bytes(encoder_kbps, int(fps))))
+result.update(latch_flags(host_log))
 (case / 'result.json').write_text(json.dumps(result, indent=2))
 print(json.dumps(result))

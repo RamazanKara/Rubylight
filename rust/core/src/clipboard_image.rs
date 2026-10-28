@@ -37,6 +37,8 @@ pub enum ImageError {
     NotPng,
     /// Larger than [`MAX_SIDE`] or [`MAX_PIXELS`].
     TooLarge,
+    /// A PNG of `bytes`, over the `max` it may have.
+    TooManyBytes { bytes: usize, max: usize },
     /// A bitmap this can't read, such as a palette or a compressed one.
     Unsupported(String),
     /// Cut short or inconsistent.
@@ -50,12 +52,22 @@ impl std::fmt::Display for ImageError {
                 f,
                 "the image is larger than {MAX_SIDE} pixels a side or {MAX_PIXELS} pixels"
             ),
+            Self::TooManyBytes { bytes, max } => write!(
+                f,
+                "the image is {bytes} bytes as PNG, over the limit of {max} bytes"
+            ),
             Self::Unsupported(what) => write!(f, "unsupported image: {what}"),
             Self::Malformed(what) => write!(f, "malformed image: {what}"),
         }
     }
 }
 impl std::error::Error for ImageError {}
+impl ImageError {
+    /// Over a limit, of pixels or of bytes, rather than broken.
+    pub fn too_large(&self) -> bool {
+        matches!(self, Self::TooLarge | Self::TooManyBytes { .. })
+    }
+}
 
 /// An image as 8-bit RGBA with straight alpha, top row first.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -662,6 +674,27 @@ mod tests {
         let crc = crc32fast::hash(&png[12..29]);
         png[29..33].copy_from_slice(&crc.to_be_bytes());
         assert_eq!(decode_png(&png), Err(ImageError::TooLarge));
+    }
+
+    #[test]
+    fn each_limit_is_named_by_what_went_over_it() {
+        let pixels = ImageError::TooLarge;
+        assert!(pixels.too_large());
+        assert!(
+            pixels.to_string().contains("16384 pixels a side"),
+            "{pixels}"
+        );
+        let bytes = ImageError::TooManyBytes {
+            bytes: 20_000_000,
+            max: 16 << 20,
+        };
+        assert!(bytes.too_large());
+        assert_eq!(
+            bytes.to_string(),
+            "the image is 20000000 bytes as PNG, over the limit of 16777216 bytes"
+        );
+        assert!(!ImageError::NotPng.too_large());
+        assert!(!ImageError::Malformed("cut short".into()).too_large());
     }
 
     #[test]

@@ -364,6 +364,7 @@
     <string name="stream_end_input">Zakończ sesję sterowania</string>
     <string name="launch_confirm_title">Potwierdź na tym urządzeniu</string>
     <string name="launch_confirm_replace">Zamknąć uruchomioną aplikację i uruchomić tę?\nPotwierdź w ciągu 60 sekund.</string>
+    <string name="launch_confirm_replace_named">Zamknąć %1$s i uruchomić %2$s?\nPotwierdź w ciągu 60 sekund.</string>
     <string name="launch_confirm_terminate">Zamknąć aplikację?\nKlienci monitora/sterowania pozostaną połączeni.\nPotwierdź w ciągu 60 sekund.</string>
     <string name="launch_confirm">Potwierdź</string>
     <string name="summary_about">Wersja %1$s · Oparte na Moonlight (GPL-3.0)</string>

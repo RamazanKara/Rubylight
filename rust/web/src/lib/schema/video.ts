@@ -677,7 +677,7 @@ const amd: Setting[] = [
     description:
       'Requests a size limit for every frame, including recovery keyframes. Tight limits can reduce picture quality.',
     details:
-      'Automatic budgets about two frame periods at the current network pace, between 2× and 8× one frame’s bitrate budget. Faster links allow larger recovery frames. A fixed value overrides Automatic; 0 keeps the driver default. Limits are best-effort: frames can exceed them, and an unsupported limit warns and keeps streaming.',
+      'Automatic budgets about two frame periods at the current network pace, between 2× and 8× one frame’s bitrate budget. Faster links allow larger recovery frames. With a fixed FEC percentage it also stays within the full parity Moonlight’s four FEC blocks carry (about 1.17 MB at 20% with 1392-byte packets), unless 2× is already larger. A fixed value overrides Automatic; 0 keeps the driver default. Limits are best-effort: frames can exceed them, and an unsupported limit warns and keeps streaming.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {

@@ -38,6 +38,9 @@ public class NvConnectionHostNoticeTest {
     private static boolean sessionPacked;
     // What the launch told the renderer about the PC's packed modes, null when it said nothing.
     private static Integer hostPackedModesSeen;
+    // The HDR format the renderer picks, and the formats its capabilities were asked for.
+    private static int pickedHdrFormat;
+    private static final List<Integer> capabilityFormats = Collections.synchronizedList(new ArrayList<>());
 
     private static int negotiatedFormats() {
         ConnectionContext context = ReflectionHelpers.getField(lastConnection, "context");
@@ -75,8 +78,19 @@ public class NvConnectionHostNoticeTest {
                 });
         lastConnection = connection;
         hostPackedModesSeen = null;
+        capabilityFormats.clear();
         connection.start(null, new VideoDecoderRenderer() {
             @Override public void setHostPacked444Modes(int modes) { hostPackedModesSeen = modes; }
+            @Override public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
+                return pickedHdrFormat;
+            }
+            @Override public int videoFormatsForHdrFormat(int hdrFormat, int videoFormats) {
+                return com.limelight.binding.video.HdrFormatPolicy.videoFormats(hdrFormat, videoFormats, true);
+            }
+            @Override public int getCapabilities(int negotiatedFormat) {
+                capabilityFormats.add(negotiatedFormat);
+                return 0;
+            }
             @Override public int setup(int format, int width, int height, int rate) { return -1; }
             @Override public void start() {}
             @Override public void stop() {}
@@ -263,6 +277,27 @@ public class NvConnectionHostNoticeTest {
         // Without the setting the 10-bit AV1 format is negotiated as before.
         stream(host, false, offered, false);
         assertNotEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_AV1_MAIN10);
+    }
+
+    @Test
+    public void dolbyVisionOnTheAutomaticCodecStreamsHevcWithItsCapabilities() throws Exception {
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10 |
+                MoonBridge.VIDEO_FORMAT_AV1_MAIN8 | MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        try {
+            // HDR10: AV1 stays, as before.
+            stream(SUNSHINE, false, offered, false);
+            assertNotEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_AV1_MAIN10);
+            assertEquals(1, capabilityFormats.size());
+            // Dolby Vision rides on HEVC Main10 only: AV1 goes, and the HEVC decoder sets the capabilities.
+            pickedHdrFormat = com.limelight.binding.video.HdrFormatPolicy.DV_81;
+            stream(SUNSHINE, false, offered, false);
+            assertEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_MASK_AV1);
+            assertNotEquals(0, negotiatedFormats() & MoonBridge.VIDEO_FORMAT_H265_MAIN10);
+            assertEquals(Integer.valueOf(negotiatedFormats()), capabilityFormats.get(capabilityFormats.size() - 1));
+            assertEquals(2, capabilityFormats.size());
+        } finally {
+            pickedHdrFormat = 0;
+        }
     }
 
     private static boolean hdrMode(String query, String value) {

@@ -286,6 +286,40 @@ pub fn recovery_frame_cap(
     (budget.floor() as u64).clamp(minimum, maximum)
 }
 
+/// [`recovery_frame_cap`]'s `cap` held to `fec_whole`, the largest frame that
+/// keeps its full parity within Moonlight's four FEC blocks
+/// ([`crate::packet::VideoPacketizer::fec_whole_payload_limit`]). A larger
+/// recovery keyframe leaves with less parity or none, so one lost packet on a
+/// clean route costs it, and losing it again latches the slow pace. Where two
+/// nominal frames, `recovery_frame_cap`'s floor, already pass `fec_whole`, no
+/// cap at the floor keeps full parity, so `cap` stays as it is.
+pub fn fec_whole_frame_cap(cap: u64, fec_whole: usize, bitrate_kbps: u32, period: Duration) -> u64 {
+    let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
+    if minimum > fec_whole as u64 {
+        cap
+    } else {
+        cap.min(fec_whole as u64)
+    }
+}
+
+/// The automatic frame cap a stream sends with: `cap` held by
+/// [`fec_whole_frame_cap`] when its FEC is a fixed percentage. Statistical FEC
+/// (`rlFecPercentage=auto`) and a stream without FEC keep `cap`, and
+/// `fec_whole` is not asked for then.
+pub fn fixed_fec_frame_cap(
+    cap: u64,
+    fec_percent: usize,
+    statistical: bool,
+    fec_whole: impl FnOnce() -> usize,
+    bitrate_kbps: u32,
+    period: Duration,
+) -> u64 {
+    if fec_percent == 0 || statistical {
+        return cap;
+    }
+    fec_whole_frame_cap(cap, fec_whole(), bitrate_kbps, period)
+}
+
 /// Time spent in the send call or waking late that still counts toward the
 /// batch's interval. It covers a typical 64 KB send (about 0.2 ms) plus timer
 /// lateness; a longer stall or idle gap earns no more than this.
@@ -426,6 +460,49 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn the_fec_whole_cap_keeps_recovery_frames_within_full_parity_above_two_frames() {
+        let period = Duration::from_secs_f64(1. / 60.);
+        let packetizer = crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let whole = packetizer.fec_whole_payload_limit();
+        // 200 Mbps at 60 fps on an 800 Mbps route: about 2.4 MB, no parity.
+        let cap = recovery_frame_cap(800_000_000, 200_000, period, 20, 1392, false);
+        assert!(packetizer.fec_limited(cap as usize));
+        let held = fec_whole_frame_cap(cap, whole, 200_000, period);
+        assert_eq!(held, whole as u64);
+        assert!(!packetizer.fec_limited(held as usize));
+        // A cap already within full parity is left as it is.
+        let slow = recovery_frame_cap(100_000_000, 200_000, period, 20, 1392, false);
+        assert_eq!(fec_whole_frame_cap(slow, whole, 200_000, period), slow);
+        // Two nominal frames already past full parity (1.67 MB at 400 Mbps): no
+        // cap at the floor keeps it, so the cap stays and the frame stays sharp.
+        let fast = recovery_frame_cap(800_000_000, 400_000, period, 20, 1392, false);
+        assert!((400_000. * 125. * period.as_secs_f64() * 2.).ceil() as u64 > whole as u64);
+        assert_eq!(fec_whole_frame_cap(fast, whole, 400_000, period), fast);
+        // Only a fixed FEC percentage holds the cap.
+        assert_eq!(
+            fixed_fec_frame_cap(cap, 20, false, || whole, 200_000, period),
+            whole as u64
+        );
+        let unasked = || -> usize { panic!("fec_whole asked for") };
+        assert_eq!(
+            fixed_fec_frame_cap(cap, 20, true, unasked, 200_000, period),
+            cap
+        );
+        assert_eq!(
+            fixed_fec_frame_cap(cap, 0, false, unasked, 200_000, period),
+            cap
+        );
+    }
+
     #[test]
     fn conventional_wire_budget_includes_framing_encryption_and_fec_rounding() {
         for ipv6 in [false, true] {

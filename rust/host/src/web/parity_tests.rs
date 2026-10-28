@@ -336,6 +336,66 @@ async fn sleep_is_granted_only_as_a_boolean() {
     assert!(!saved.clients[0].extra.contains_key("allow_sleep"));
 }
 
+/// A stream's launch copy of the device keeps what it was granted at launch;
+/// Host control and Sleep PC are not read from it. Each request reads the
+/// paired state, so turning one off in the console is not a revocation (the
+/// stream stays) and the very next request is refused all the same.
+#[tokio::test]
+async fn host_control_and_sleep_turned_off_in_the_console_stop_working_for_a_live_session() {
+    let f = Fixture::new();
+    f.client(u32::MAX);
+    let update = |data: Value| async {
+        let data = data;
+        let reply = value(
+            request(&f, "POST", "/api/clients/update", data).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(reply["disconnected"], false);
+    };
+    let uuid = f.host.paired.read().unwrap().clients[0].uuid.clone();
+    update(json!({"uuid":uuid,"host_control":true,"allow_sleep":true})).await;
+    let at_launch = f.host.paired.read().unwrap().clients[0].clone();
+    assert!(at_launch.allows_host_control() && at_launch.allows_sleep());
+    let live = f.session(at_launch, Role::Stream);
+    let status = |method: &'static str, path: &'static str| {
+        let app = crate::nvhttp::router(f.host.clone(), true)
+            .layer(axum::Extension(f.connection(true)))
+            .layer(axum::Extension(crate::tls::ConnectionEnd::default()));
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+        }
+    };
+    let close = || status("POST", "/api/native/v1/session/close-game");
+    let sleep = || {
+        status(
+            "POST",
+            "/power-actions/v1/sleep?token=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+    };
+    // Sleep PC is past the permission check while it is on, whatever else it answers.
+    assert_ne!(sleep().await, StatusCode::FORBIDDEN);
+    update(json!({"uuid":uuid,"host_control":false})).await;
+    assert_eq!(close().await, StatusCode::FORBIDDEN);
+    assert_ne!(sleep().await, StatusCode::FORBIDDEN, "Sleep PC is still on");
+    update(json!({"uuid":uuid,"allow_sleep":null})).await;
+    assert_eq!(sleep().await, StatusCode::FORBIDDEN);
+    assert!(!live.stopping(), "turning them off keeps the stream");
+    // The refusal came from the permission: with it back, Close game ends the stream.
+    update(json!({"uuid":uuid,"host_control":true})).await;
+    assert_ne!(close().await, StatusCode::FORBIDDEN);
+    assert!(live.stopping());
+}
+
 #[tokio::test]
 async fn usb_and_folder_grants_are_saved_only_in_their_shape() {
     let f = Fixture::new();

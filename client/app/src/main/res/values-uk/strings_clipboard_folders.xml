@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">У буфері обміну хоста немає зображення</string>
     <string name="stream_clipboard_image_received">Зображення з хоста скопійовано в буфер обміну</string>
     <string name="clipboard_image_too_large">Зображення завелике для буфера обміну хоста</string>
+    <string name="clipboard_image_too_large_here">Зображення з хоста завелике, щоб скопіювати його на цей пристрій</string>
     <string name="clipboard_image_not_png">Не вдалося прочитати зображення</string>
     <string name="clipboard_image_no_host">Цей хост не може передавати зображення через буфер обміну</string>
     <string name="clipboard_image_forbidden">Хост не дозволяє цьому пристрою користуватися його буфером обміну</string>

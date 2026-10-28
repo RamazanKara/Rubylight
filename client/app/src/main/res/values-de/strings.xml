@@ -364,6 +364,7 @@
     <string name="stream_end_input">Steuerung beenden</string>
     <string name="launch_confirm_title">Hier bestätigen</string>
     <string name="launch_confirm_replace">App beenden und neue starten?\nBestätige in 60 Sekunden.</string>
+    <string name="launch_confirm_replace_named">%1$s beenden und %2$s starten?\nBestätige in 60 Sekunden.</string>
     <string name="launch_confirm_terminate">App beenden? Zuschauen und Steuern bleiben aktiv.\nBestätige in 60 Sekunden.</string>
     <string name="launch_confirm">Bestätigen</string>
     <string name="summary_about">Version %1$s · Basiert auf Moonlight (GPL-3.0)</string>

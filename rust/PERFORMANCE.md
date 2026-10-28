@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Scene cuts on a clean route with 0.3% random loss: the automatic frame cap held within full four-block FEC, oversize-only pacing (not kept), freezes, recovery keyframes, end-to-end picture age | [October 28, lost scene cuts and recovery keyframes past four FEC blocks](#october-28-lost-scene-cuts-and-recovery-keyframes-past-four-fec-blocks) |
 | Audio passthrough: AC3 and E-AC3 encode time per packet against Opus, codec delay, and what the 32 ms frames cost end to end | [October 27, audio passthrough encode cost](#october-27-audio-passthrough-encode-cost) |
 | AV1 intra refresh on AMF: keyframes, frame sizes and recovery after a lost frame, against LTR invalidation and keyframes (refresh turned off) | [October 27, AV1 intra refresh and recovery after a lost frame](#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame) |
 | HDR10+ and HDR Vivid dynamic metadata: the units in real AMF HEVC and AV1 output, what a Moonlight client receives, CPU cost per frame, 4K60 encode stage on and off (ABBA) | [October 27, HDR10+ and HDR Vivid dynamic metadata](#october-27-hdr10-and-hdr-vivid-dynamic-metadata) |
@@ -51,6 +52,22 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 28: lost scene cuts and recovery keyframes past four FEC blocks
+
+A wired client at about 930 Mbps reported stutter at every scene change at 250 Mbps, with the host's `network_fec` warning ("FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit"). With the test client's 1024-byte packets and the default 20% FEC, Moonlight's four blocks carry full parity up to about 855 KB and no parity above about 1.03 MB (1.17 MB and 1.40 MB with 1392-byte packets); the automatic frame cap (two periods at 800 Mbps, 2–8 nominal frames) allowed 2.46 MB in this run. Fixture: `rust/release/bottleneck.py` on the RX 7900 XT, loopback with the Moonlight test client, HEVC 2560×1440 at 60 fps and 250 Mbps (199 Mbps to the encoder), `--rate-kbps 0 --loss-percent 0.3` (random loss on video datagrams, no bottleneck), `--rfi --cut-ms 2000 --fresh-rows 256 --hw-decoder d3d11va`, 45 s, one run per arm under the GPU lock. Calibration without loss: ordinary frames 385 KB (0.93 of the 415 KB nominal frame), cuts 1.74 MB (4.2 nominal), no freeze. "Freezes" are display gaps from `recovery_gaps.py`; "end to end" is the client's picture age (capture to presentation); "whole" is frames received over frames sent.
+
+| Arm | Freezes (over 100 ms) | Freeze length, ms | Whole | Recovery keyframes | Keyframe requests | Full latch | Bitrate cuts | End to end p50 / p95 / p99, ms |
+| --- | ---: | --- | ---: | ---: | ---: | --- | ---: | --- |
+| main (gate) | 16 (6) | | 98.98% | 17 | 30 | yes | 14 | 21.67 / 28.47 / 42.15 |
+| off | 17 (4) | 75–125 | 99.02% | 18 | 27 | yes | 11 | 20.26 / 26.19 / 29.51 |
+| S, oversize-only pacing (4 runs) | 16, 16, 16, 16 (5, 3, 5, 4) | | 99.02–99.25% | 17–18 | 26–27 | yes, all | 10–12 | 20.04–20.29 / 25.96–26.61 / 29.48–30.11 |
+| C, cap within full FEC | 15 (0) | 43–57 | 99.63% | 16 | 16 | no | 0 | 17.12 / 23.09 / 26.44 |
+| C+S | 16 (0) | 42–77 | 99.40% | 17 | 17 | no | 0 | 17.11 / 23.62 / 27.09 |
+
+Off and S lose each cut, then most of the recovery keyframes sent at the 2.46 MB cap with no parity; the lost keyframes latch the slow pace, the bitrate controller cuts the encoder from 199 to 161–193 Mbps, and freezes run to 125 ms. Arm C holds the automatic cap to the full-parity size at the recovery FEC percentage (855 KB with these packets): every recovery keyframe arrives, nothing latches, the pace stays at 800 Mbps, no freeze passes 100 ms, and picture age drops 3 ms at p50, p95 and p99 because the latch no longer slows every frame. The cut itself is still lost in every arm: AMF does not hold an ordinary P-frame of full-screen noise to the cap (the lost cuts were four blocks of about 433 shards, 1.74 MB, with no parity), so each cut costs one keyframe round trip, about 50 ms. S (pacing only frames over two budgets at the Wi-Fi rate after one is lost) measured the same as off, since random loss does not depend on the pace, and adds nothing to C.
+
+Decision: the automatic frame cap stays within the largest frame that keeps full parity in four blocks, but not below two nominal frames (so streams whose nominal frame already nears the limit, above about 280 Mbps at 60 fps with 1392-byte packets and 205 Mbps with 1024-byte ones, keep today's cap). It applies to H.264, HEVC and AV1 with a fixed FEC percentage, stock Moonlight and Nightjar alike; a Nightjar client with `rlFecPercentage=auto` keeps today's cap (not measured; its recovery keyframes face the same four blocks), as does a stream without FEC and PyroWave. Explicit `amd_max_frame_size` values are unchanged. S is not kept. Test: `keyframe_loss::tests::recovery_keyframes_within_full_fec_survive_random_loss_without_a_latch` models this run.
 
 ## October 27: audio passthrough encode cost
 

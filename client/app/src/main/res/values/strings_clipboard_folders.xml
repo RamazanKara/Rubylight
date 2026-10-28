@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">The host clipboard has no image</string>
     <string name="stream_clipboard_image_received">Host image copied to clipboard</string>
     <string name="clipboard_image_too_large">The image is too large for the host clipboard</string>
+    <string name="clipboard_image_too_large_here">The host\'s image is too large to copy to this device</string>
     <string name="clipboard_image_not_png">The image could not be read</string>
     <string name="clipboard_image_no_host">This host cannot share clipboard images</string>
     <string name="clipboard_image_forbidden">The host does not let this device use its clipboard</string>

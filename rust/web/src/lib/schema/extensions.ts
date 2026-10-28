@@ -98,13 +98,15 @@ export const settings: Setting[] = [
   },
   {
     key: 'qr_pairing',
-    label: 'Pair with a QR code (Experimental)',
-    description: 'Shows a QR code on the Devices page that Nightjar scans to pair, instead of typing a PIN. Experimental.',
+    label: 'Pair with a QR code',
+    description: 'Shows a QR code on Home and the Devices page that Nightjar scans to pair, instead of typing a PIN.',
     details: 'The code holds a one-time PIN and passphrase that work once and expire after 3 minutes, and the fingerprint of the host certificate, which Nightjar checks before pairing.',
     category: 'general',
     group: 'Pairing',
     control: switches,
-    default: false,
+    default: true,
+    // Always on: the pairing page shows the code. `qr_pairing = false` in the file still turns it off.
+    pending: true,
   },
   {
     key: 'dd_rotation_option',

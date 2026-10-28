@@ -16,7 +16,7 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("touch_gestures", "true"),
     ("client_cursor", "true"),
     ("webhooks", "[]"),
-    ("qr_pairing", "false"),
+    ("qr_pairing", "true"),
     ("dd_rotation_option", "disabled"),
     ("dd_manual_rotation", "0"),
     ("child_session_port", "48289"),
@@ -127,7 +127,7 @@ impl Config {
     }
     /// Pairing by QR code instead of a PIN (off by default).
     pub fn qr_pairing(&self) -> bool {
-        self.boolean("qr_pairing", false)
+        self.boolean("qr_pairing", true)
     }
     /// `dd_rotation_option`: `disabled` (the default), `auto` or `manual`.
     pub fn dd_rotation_option(&self) -> DisplayAdjust {
@@ -235,7 +235,7 @@ mod tests {
         assert!(c.touch_gestures() && c.client_cursor() && c.clipboard_image());
         assert_eq!(c.clipboard_image_max_bytes(), 16 * 1024 * 1024);
         assert!(c.shared_folders().is_empty() && c.webhooks().is_empty());
-        assert!(!c.qr_pairing());
+        assert!(c.qr_pairing());
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Disabled);
         assert_eq!(c.dd_manual_rotation(), 0);
         assert_eq!(c.child_session_port(), 48289);
@@ -358,7 +358,6 @@ mod tests {
         "touch_mode",
         "touch_sensitivity",
         "touch_gestures",
-        "qr_pairing",
     ];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line

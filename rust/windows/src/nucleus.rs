@@ -10,3 +10,4 @@ pub mod files;
 pub mod install;
 pub mod instances;
 pub mod pads;
+pub mod session;

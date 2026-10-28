@@ -25,7 +25,15 @@ pub const DOLBY_VISION_HEVC: u8 = DV_81 | DV_84;
 /// The Dolby Vision bits that need AV1 (profile 10).
 pub const DOLBY_VISION_AV1: u8 = DV_101;
 
-/// Serverinfo element: the formats the host can encode, decimal 0-31.
+/// Offer flag, not a format: HLG is also offered on PyroWave Main10 streams. Older hosts refuse
+/// HLG on PyroWave, and the codec is known only in the ANNOUNCE, after DESCRIBE, so a client
+/// learns it here first and still asks for [`HLG`]. Offer flags count down from the top bit and
+/// formats up from the bottom, so the two never meet.
+pub const PYROWAVE_HLG: u8 = 0x80;
+/// Every offer flag this version defines; never a format, so `hdrFormat` refuses them.
+pub const OFFER_FLAGS: u8 = PYROWAVE_HLG;
+
+/// Serverinfo element: the formats the host can encode and its offer flags, decimal 0-255.
 pub const SERVERINFO_FIELD: &str = "HdrFormats";
 /// DESCRIBE attribute: the formats this stream can use.
 pub const DESCRIBE_ATTRIBUTE: &str = "x-rl-video.hdrFormats";
@@ -60,5 +68,13 @@ mod tests {
         for mask in [0, 3, 5, 12, 15, 20, 31, 32, 0x80, 0xFF] {
             assert!(!single_bit(mask), "{mask}");
         }
+    }
+
+    #[test]
+    fn offer_flags_are_not_formats() {
+        assert_eq!(PYROWAVE_HLG, 0x80);
+        assert_eq!(OFFER_FLAGS & ALL, 0);
+        assert!(!single_bit(PYROWAVE_HLG));
+        assert!(!single_bit(PYROWAVE_HLG | HLG));
     }
 }

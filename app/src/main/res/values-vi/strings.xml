@@ -217,6 +217,7 @@
     <string name="pyrowave_missing_hdr">Không hỗ trợ: không có HDR</string>
     <string name="pyrowave_hdr_needs_android_15">cần Android 15 để xuất HDR</string>
     <string name="pyrowave_hdr_display_refused">màn hình hoặc trình điều khiển từ chối xuất HDR</string>
+    <string name="pyrowave_hlg_display_refused">màn hình hoặc trình điều khiển đã từ chối đầu ra HLG</string>
     <string name="pyrowave_check_failed">Không hỗ trợ: kiểm tra GPU thất bại</string>
     <string name="title_enable_hdr">HDR</string>
     <string name="summary_enable_hdr">Cần màn hình HDR trên thiết bị này và đã bật HDR cho màn hình của PC.</string>

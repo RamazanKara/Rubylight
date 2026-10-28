@@ -93,6 +93,31 @@ public class GameExpectedVideoTest {
         assertEquals(0, Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.NONE));
     }
 
+    @Test public void pyroWaveNamesWhatItLeavesOutAndTheHostUpdateForHlg() {
+        Game game = game();
+        assertEquals("Dolby Vision needs HEVC or AV1, so PyroWave streams HLG.", game.getString(
+                Game.pyroWaveHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.DOLBY_VISION), "HLG"));
+        assertEquals("Dolby Vision needs HEVC or AV1, so PyroWave streams HDR10.", game.getString(
+                Game.pyroWaveHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.DOLBY_VISION), "HDR10"));
+        assertEquals(R.string.stream_hdr_pyrowave_no_hdr10_plus,
+                Game.pyroWaveHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.HDR10_PLUS));
+        assertEquals(0, Game.pyroWaveHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.NONE));
+        assertEquals(R.string.stream_hdr_pq_on_hlg_screen_host_update,
+                Game.hdrStatusText(HdrPolicy.Status.PQ_ON_HLG_SCREEN, true, false));
+        assertEquals(R.string.stream_hdr_pq_on_hlg_screen,
+                Game.hdrStatusText(HdrPolicy.Status.PQ_ON_HLG_SCREEN, false, false));
+        // The update words replace only the HLG-screen text.
+        assertEquals(R.string.stream_hdr_host_sdr, Game.hdrStatusText(HdrPolicy.Status.HOST_SDR, true, false));
+        assertEquals(0, Game.hdrStatusText(HdrPolicy.Status.QUIET, true, false));
+    }
+
+    @Test public void anHlgOnlyScreenWhoseWindowRefusedHlgSaysSo() {
+        assertEquals(R.string.stream_hdr_pq_on_hlg_screen_display_refused,
+                Game.hdrStatusText(HdrPolicy.Status.PQ_ON_HLG_SCREEN, false, true));
+        assertEquals(R.string.stream_hdr_host_sdr, Game.hdrStatusText(HdrPolicy.Status.HOST_SDR, false, true));
+        assertEquals(0, Game.hdrStatusText(HdrPolicy.Status.QUIET, false, true));
+    }
+
     @Test public void theRefreshSwitchPollIsPostedOnConnectAndRemovedOnTeardown() {
         Game game = game();
         Handler handler = ReflectionHelpers.getField(game, "bitrateHandler");

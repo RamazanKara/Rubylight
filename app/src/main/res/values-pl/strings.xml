@@ -217,6 +217,7 @@
     <string name="pyrowave_missing_hdr">Nieobsługiwane: HDR niedostępny</string>
     <string name="pyrowave_hdr_needs_android_15">wymaga Androida 15 do wyjścia HDR</string>
     <string name="pyrowave_hdr_display_refused">wyświetlacz lub sterownik odrzucił wyjście HDR</string>
+    <string name="pyrowave_hlg_display_refused">ekran lub sterownik odrzucił wyjście HLG</string>
     <string name="pyrowave_check_failed">Nieobsługiwane: sprawdzanie GPU nie powiodło się</string>
     <string name="title_enable_hdr">HDR</string>
     <string name="summary_enable_hdr">Wymaga ekranu HDR na tym urządzeniu i włączonego HDR na ekranie komputera.</string>

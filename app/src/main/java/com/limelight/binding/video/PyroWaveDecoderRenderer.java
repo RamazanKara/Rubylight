@@ -81,12 +81,28 @@ public final class PyroWaveDecoderRenderer {
 
     /**
      * Android 13 and 14 list no HDR10 surface format; HDR is then sent through the window dataspace.
-     * Code 1 is no usable 10-bit format at all, 2 is the display or driver refusing that dataspace.
+     * Code 1 is no usable 10-bit format at all, 2 is the display or driver refusing that dataspace,
+     * 3 the same for an HLG stream, 4 an HLG window that no longer holds it after the first frame.
      */
     static int surfaceFailureSummary(int nativeFailure, int sdkInt) {
         if (nativeFailure == 1 && sdkInt < 35) return R.string.pyrowave_hdr_needs_android_15;
         if (nativeFailure == 2) return R.string.pyrowave_hdr_display_refused;
+        if (nativeFailure == 3 || nativeFailure == 4) return R.string.pyrowave_hlg_display_refused;
         return R.string.pyrowave_missing_swapchain;
+    }
+
+    /** Why the running stream's HDR output failed, 0 when it did not (a refused HDR10 or HLG dataspace). */
+    static int streamHdrFailure() {
+        if (!LIBRARY_LOADED) return 0;
+        int failure = nativeGetHdrSurfaceFailure();
+        return failure >= 2 && failure <= 4 ? surfaceFailureSummary(failure, Build.VERSION.SDK_INT) : 0;
+    }
+
+    /** The running HLG stream's window refused BT2020_HLG or no longer holds it (codes 3 and 4). */
+    static boolean hlgWindowLost() {
+        if (!LIBRARY_LOADED) return false;
+        int failure = nativeGetHdrSurfaceFailure();
+        return failure == 3 || failure == 4;
     }
 
     private static int failureSummary(int readiness) {
@@ -285,6 +301,11 @@ public final class PyroWaveDecoderRenderer {
         if (handle != 0) nativeSetHdrMode(handle, enabled, metadata);
     }
 
+    /** The stream's HDR transfer from its ANNOUNCE: HLG, else PQ. Before the first frame. */
+    synchronized void setTransfer(boolean hlg) {
+        if (handle != 0) nativeSetTransfer(handle, hlg);
+    }
+
     synchronized void cleanup() {
         cleanup(null);
     }
@@ -338,5 +359,6 @@ public final class PyroWaveDecoderRenderer {
     private static native String nativeGetPresentMode(long handle);
     private static native float nativeGetLastRecordLossPercent(long handle);
     private static native void nativeSetHdrMode(long handle, boolean enabled, byte[] metadata);
+    private static native void nativeSetTransfer(long handle, boolean hlg);
     private static native void nativeDestroy(long handle, FrameLatencyStats stats);
 }

@@ -7095,7 +7095,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     break;
 
                                 case MoonBridge.ML_ERROR_NO_VIDEO_FRAME:
-                                    message = getResources().getString(R.string.no_frame_received_error);
+                                    MediaCodecDecoderRenderer frames = decoderRenderer;
+                                    message = getResources().getString(frames != null && frames.isPyroWaveHlgLost() ?
+                                            R.string.stream_hdr_pyrowave_hlg_lost : R.string.no_frame_received_error);
                                     break;
 
                                 case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
@@ -7682,12 +7684,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer(),
                     decoderRenderer.getStreamTransfer(), HdrPolicy.hlgOnly(HdrPolicy.displayHdrTypes(getVideoDisplay()))),
                     decoderRenderer.isVulkanHdrToneMapped());
-            int res = hdrStatusText(status);
+            int res = hdrStatusText(status, decoderRenderer.isPyroWaveHlgNeedingHostUpdate(),
+                    decoderRenderer.isPyroWaveHlgRefusedByDisplay());
             if (status == HdrPolicy.Status.SHOWN_AS_SDR) {
                 text = getString(res, HdrFormatPolicy.baseLayerName(decoderRenderer.getAnnouncedHdrFormat()));
             } else if (res != 0) {
                 text = getString(res);
             }
+            // The window took HLG before the stream but does not show it as HLG (the renderer and
+            // MediaCodecDecoderRenderer log why).
+            if (decoderRenderer.isPyroWaveHlgLost()) text = getString(R.string.stream_hdr_pyrowave_hlg_lost);
             // Plain words, once per PC, for what the Vulkan renderer cannot show of this screen's HDR.
             int limit = vulkanHdrLimitText(decoderRenderer.takeVulkanHdrLimit());
             if (limit != 0) hostNotice(HostNotices.Notice.VULKAN_HDR_LIMIT, limit);
@@ -7696,6 +7702,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (decoderRenderer.takeVulkanHdr10PlusRefused()) {
                 LimeLog.warning("HDR10+ refused by the Vulkan renderer's window");
                 hostNotice(HostNotices.Notice.VULKAN_HDR10_PLUS_REFUSED, R.string.stream_hdr_vulkan_no_hdr10_plus);
+            }
+            // And for what PyroWave cannot carry; Dolby Vision names what the stream is instead.
+            int pyroWaveLimit = pyroWaveHdrLimitText(decoderRenderer.takePyroWaveHdrLimit());
+            if (pyroWaveLimit != 0) {
+                messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_HDR_LIMIT,
+                        getString(pyroWaveLimit, HdrFormatPolicy.baseLayerName(decoderRenderer.getAnnouncedHdrFormat())));
             }
             if (status != lastHdrStatus) {
                 lastHdrStatus = status;
@@ -7723,6 +7735,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     static int hdrStatusText(HdrPolicy.Status status) {
+        return hdrStatusText(status, false, false);
+    }
+
+    /**
+     * @param pyroWaveHostUpdate an HLG-only screen gets HDR10 on PyroWave because the host offers
+     *                           no HLG there (MediaCodecDecoderRenderer.isPyroWaveHlgNeedingHostUpdate)
+     * @param pyroWaveHlgRefused the same because this display's window refused HLG
+     *                           (MediaCodecDecoderRenderer.isPyroWaveHlgRefusedByDisplay)
+     */
+    static int hdrStatusText(HdrPolicy.Status status, boolean pyroWaveHostUpdate, boolean pyroWaveHlgRefused) {
+        if (status == HdrPolicy.Status.PQ_ON_HLG_SCREEN && pyroWaveHostUpdate) {
+            return R.string.stream_hdr_pq_on_hlg_screen_host_update;
+        }
+        if (status == HdrPolicy.Status.PQ_ON_HLG_SCREEN && pyroWaveHlgRefused) {
+            return R.string.stream_hdr_pq_on_hlg_screen_display_refused;
+        }
         switch (status) {
             case NOT_NEGOTIATED: return R.string.stream_hdr_not_negotiated;
             case HOST_SDR: return R.string.stream_hdr_host_sdr;
@@ -7737,6 +7765,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     static int vulkanHdrLimitText(HdrFormatPolicy.DrawnLimit limit) {
         switch (limit) {
             case DOLBY_VISION: return R.string.stream_hdr_vulkan_no_dolby_vision;
+            default: return 0;
+        }
+    }
+
+    /** The once-per-PC words for a PyroWave limit; the Dolby Vision text takes HDR10 or HLG. */
+    static int pyroWaveHdrLimitText(HdrFormatPolicy.DrawnLimit limit) {
+        switch (limit) {
+            case DOLBY_VISION: return R.string.stream_hdr_pyrowave_no_dolby_vision;
+            case HDR10_PLUS: return R.string.stream_hdr_pyrowave_no_hdr10_plus;
             default: return 0;
         }
     }

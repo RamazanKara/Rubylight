@@ -191,8 +191,8 @@ static void hdrFormat(void) {
     CHECK(hdrFormatSent(VIDEO_FORMAT_AV1_MAIN8, RL_HDR_DV_101, RL_HDR_ALL) == -1);
     CHECK(hdrFormatSent(VIDEO_FORMAT_H265, RL_HDR_HLG, RL_HDR_ALL) == -1);
     CHECK(hdrFormatSent(VIDEO_FORMAT_PYROWAVE, RL_HDR_HLG, RL_HDR_ALL) == -1);
-    // PyroWave's 10-bit formats are in VIDEO_FORMAT_MASK_10BIT but carry no HDR format: the host
-    // refuses one in the ANNOUNCE.
+    // PyroWave's 10-bit formats are in VIDEO_FORMAT_MASK_10BIT but carry no HDR format from a host
+    // without the PyroWave HLG offer flag (3.0 rc hosts refuse one in the ANNOUNCE).
     static const int pyroWave10[] = {VIDEO_FORMAT_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10_444};
     static const uint8_t bits[] = {RL_HDR_PQ, RL_HDR_HLG, RL_HDR_DV_81, RL_HDR_DV_84, RL_HDR_DV_101};
     for (int i = 0; i < 2; i++) {
@@ -201,7 +201,21 @@ static void hdrFormat(void) {
             CHECK(hdrFormatSent(pyroWave10[i], bits[bit], RL_HDR_ALL) == -1);
             CHECK(rlAnnouncedHdrFormat(bits[bit], RL_HDR_ALL, pyroWave10[i]) == 0);
         }
+        // With the flag, HLG and only HLG: PQ stays stock HDR, Dolby Vision needs HEVC or AV1.
+        const uint8_t flagged = RL_HDR_ALL | RL_HDR_PYROWAVE_HLG;
+        CHECK(hdrFormatSent(pyroWave10[i], RL_HDR_HLG, flagged) == 2);
+        CHECK(hdrFormatSent(pyroWave10[i], RL_HDR_HLG, RL_HDR_HLG | RL_HDR_PYROWAVE_HLG) == 2);
+        CHECK(hdrFormatSent(pyroWave10[i], RL_HDR_PQ, flagged) == -1);
+        CHECK(hdrFormatSent(pyroWave10[i], RL_HDR_DV_81, flagged) == -1);
+        CHECK(hdrFormatSent(pyroWave10[i], RL_HDR_DV_84, flagged) == -1);
+        // The flag is never a format, and HLG still has to be offered beside it.
+        CHECK(hdrFormatSent(pyroWave10[i], RL_HDR_PYROWAVE_HLG, flagged) == -1);
+        CHECK(hdrFormatSent(pyroWave10[i], RL_HDR_HLG, RL_HDR_PYROWAVE_HLG) == -1);
     }
+    // 8-bit PyroWave carries no HDR, the flag or not; on HEVC the flag changes nothing.
+    CHECK(hdrFormatSent(VIDEO_FORMAT_PYROWAVE, RL_HDR_HLG, RL_HDR_ALL | RL_HDR_PYROWAVE_HLG) == -1);
+    CHECK(hdrFormatSent(VIDEO_FORMAT_H265_MAIN10, RL_HDR_HLG, RL_HDR_ALL | RL_HDR_PYROWAVE_HLG) == 2);
+    CHECK(hdrFormatSent(VIDEO_FORMAT_H265_MAIN10, RL_HDR_PYROWAVE_HLG, RL_HDR_ALL | RL_HDR_PYROWAVE_HLG) == -1);
 
     // Only the one line differs from the plain description.
     hdrFormatSent(VIDEO_FORMAT_H265_MAIN10, 0, RL_HDR_ALL);
@@ -225,7 +239,10 @@ static void hdrFormatsOffer(void) {
     CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:5\r\n") == 5);
     CHECK(rlParseHdrFormats("v=0\r\na=x-rl-control:0x5531\r\na=x-rl-video.hdrFormats:15\r\n") == 15);
     CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:31\r\n") == 31);
-    CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:255\r\n") == 31);
+    // Unknown bits drop out; the PyroWave HLG offer flag stays, so the ANNOUNCE can check it.
+    CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:255\r\n") == (RL_HDR_ALL | RL_HDR_PYROWAVE_HLG));
+    CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:131\r\n") == 131);
+    CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:143\r\n") == 143);
     CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats: 2 \r\n") == 2);
     CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:2") == 2);
     static const char* const malformed[] = {

@@ -248,9 +248,10 @@ pub struct SdpParams<'a> {
     pub pyrowave_records_enabled: bool,
     /// The HDR format asked for (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit);
     /// 0 sends nothing and streams stock HDR. Sent only on a 10-bit (HDR) stream, Dolby Vision
-    /// 8.1 and 8.4 only on HEVC and 10.1 only on AV1, and only when `hdr_formats_offered` has it.
+    /// 8.1 and 8.4 only on HEVC and 10.1 only on AV1, HLG on PyroWave only with the host's
+    /// PyroWave HLG offer flag, and only when `hdr_formats_offered` has it.
     pub hdr_format: u8,
-    /// The host's `DescribeInfo::hdr_formats`.
+    /// The host's `DescribeInfo::hdr_formats`, its offer flags included.
     pub hdr_formats_offered: u8,
     /// The audio codec asked for (`x-rl-audio.codec`, one `audio_ext::CODEC_*` bit); 0 sends
     /// nothing and streams Opus. Sent only when `audio_codecs_offered` has it.
@@ -265,16 +266,22 @@ fn one_offered_bit(asked: u8, offered: u8) -> Option<u8> {
 }
 
 /// The HDR format the description asks for, if the stream can carry it: a 10-bit HEVC or AV1
-/// stream (PyroWave's 10-bit formats carry none), Dolby Vision 8.1 and 8.4 only on HEVC and
-/// 10.1 only on AV1.
+/// stream, Dolby Vision 8.1 and 8.4 only on HEVC and 10.1 only on AV1; on a 10-bit PyroWave
+/// stream only HLG, and only when the host offers
+/// [`hdr::PYROWAVE_HLG`](rubylight_protocol::hdr::PYROWAVE_HLG).
 fn announced_hdr_format(p: &SdpParams<'_>) -> Option<u8> {
-    use rubylight_protocol::hdr::{DOLBY_VISION_AV1, DOLBY_VISION_HEVC};
+    use rubylight_protocol::hdr;
     let format = p.negotiated_video_format;
-    one_offered_bit(p.hdr_format, p.hdr_formats_offered).filter(|&bit| {
+    let offered = p.hdr_formats_offered;
+    one_offered_bit(p.hdr_format, offered & hdr::ALL).filter(|&bit| {
         format & VIDEO_FORMAT_MASK_10BIT != 0
-            && format & (VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1) != 0
-            && (bit & DOLBY_VISION_HEVC == 0 || format & VIDEO_FORMAT_MASK_H265 != 0)
-            && (bit & DOLBY_VISION_AV1 == 0 || format & VIDEO_FORMAT_MASK_AV1 != 0)
+            && if format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+                bit == hdr::HLG && offered & hdr::PYROWAVE_HLG != 0
+            } else {
+                format & (VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1) != 0
+                    && (bit & hdr::DOLBY_VISION_HEVC == 0 || format & VIDEO_FORMAT_MASK_H265 != 0)
+                    && (bit & hdr::DOLBY_VISION_AV1 == 0 || format & VIDEO_FORMAT_MASK_AV1 != 0)
+            }
     })
 }
 

@@ -326,20 +326,76 @@ pub(crate) struct Shared {
     listener: Arc<dyn Listener>,
     stopping: AtomicBool,
     terminated: AtomicBool,
+    /// A termination that came while [`Session::start`] still ran, held until it returns: a
+    /// failed start reports only its stage failure, a started one reports the termination
+    /// after [`Listener::connection_started`].
+    start_gate: Mutex<StartGate>,
     /// "Prioritize stream traffic" ([`SessionConfig::network_priority`]).
     network_priority: bool,
 }
 
+enum StartGate {
+    Starting(Option<i32>),
+    Started,
+}
+
 impl Shared {
-    /// Reports a termination once, on its own thread, unless the session is stopping.
+    fn new(listener: Arc<dyn Listener>, network_priority: bool) -> Self {
+        Self {
+            listener,
+            stopping: AtomicBool::new(false),
+            terminated: AtomicBool::new(false),
+            start_gate: Mutex::new(StartGate::Starting(None)),
+            network_priority,
+        }
+    }
+
+    /// Reports a termination once, on its own thread, unless the session is stopping. While
+    /// the session starts it is held instead (see [`Shared::start_gate`]).
     pub(crate) fn terminate(&self, code: i32) {
         if self.stopping.load(Ordering::SeqCst) || self.terminated.swap(true, Ordering::SeqCst) {
             return;
         }
+        if let StartGate::Starting(held) =
+            &mut *self.start_gate.lock().unwrap_or_else(|p| p.into_inner())
+        {
+            *held = Some(code);
+            return;
+        }
+        self.report_terminated(code);
+    }
+
+    fn report_terminated(&self, code: i32) {
         let listener = self.listener.clone();
         let _ = std::thread::Builder::new()
             .name("AsyncTerm".into())
             .spawn(move || listener.connection_terminated(code));
+    }
+
+    /// The start succeeded: a termination held while it ran is reported now.
+    fn started(&self) {
+        let gate = std::mem::replace(
+            &mut *self.start_gate.lock().unwrap_or_else(|p| p.into_inner()),
+            StartGate::Started,
+        );
+        if let StartGate::Starting(Some(code)) = gate {
+            if !self.stopping.load(Ordering::SeqCst) {
+                self.report_terminated(code);
+            }
+        }
+    }
+
+    /// The start failed: nothing more is reported, and the termination held while it ran (if
+    /// any) is returned, so the caller can log it beside the stage failure.
+    fn start_failed(&self) -> Option<i32> {
+        self.stopping.store(true, Ordering::SeqCst);
+        match std::mem::replace(
+            &mut *self.start_gate.lock().unwrap_or_else(|p| p.into_inner()),
+            StartGate::Started,
+        ) {
+            StartGate::Starting(held) => held,
+            StartGate::Started => None,
+        }
     }
 
     pub(crate) fn log(&self, message: &str) {
@@ -481,12 +537,7 @@ impl Session {
         interrupt: &Interrupt,
     ) -> Result<Session, StartError> {
         let mut parts = Parts {
-            shared: Arc::new(Shared {
-                listener: listener.clone(),
-                stopping: AtomicBool::new(false),
-                terminated: AtomicBool::new(false),
-                network_priority: config.network_priority,
-            }),
+            shared: Arc::new(Shared::new(listener.clone(), config.network_priority)),
             remote: None,
             outcome: None,
             audio_socket: None,
@@ -515,8 +566,17 @@ impl Session {
             listener.as_ref(),
             interrupt,
         ) {
-            Ok(()) => Ok(Session { parts }),
+            Ok(()) => {
+                parts.shared.started();
+                Ok(Session { parts })
+            }
             Err(error) => {
+                // One report per attempt: the stage failure, never a termination beside it.
+                if let Some(code) = parts.shared.start_failed() {
+                    listener.log(&format!(
+                        "The stream ended ({code}) while it started; reporting the start failure"
+                    ));
+                }
                 listener.stage_failed(error.stage, error.code);
                 parts.teardown();
                 Err(error)
@@ -723,6 +783,21 @@ fn decide_location(location: Location, remote: IpAddr, stream: &mut StreamConfig
             }
         }
     };
+}
+
+/// The microphone's socket; a failure costs only the microphone, and the listener hears why.
+fn open_microphone_socket(
+    local: SocketAddr,
+    network_priority: bool,
+    listener: &dyn Listener,
+) -> Option<UdpSocket> {
+    match net::bind_udp(local, 0, Qos::Audio, network_priority, |m| listener.warn(m)) {
+        Ok(socket) => Some(socket),
+        Err(e) => {
+            listener.warn(&format!("Microphone: could not open the socket: {e}"));
+            None
+        }
+    }
 }
 
 fn start(
@@ -1095,10 +1170,8 @@ fn start(
     if outcome.mic_port != 0 {
         if outcome.encryption_enabled & sdp::SS_ENC_MICROPHONE == 0 {
             listener.log("Microphone: encryption was not negotiated; not sending");
-        } else if let Ok(socket) =
-            net::bind_udp(local, 0, Qos::Audio, config.network_priority, |m| {
-                listener.warn(m)
-            })
+        } else if let Some(socket) =
+            open_microphone_socket(local, config.network_priority, listener)
         {
             *parts.microphone.lock().unwrap_or_else(|p| p.into_inner()) = Some(Microphone {
                 socket,
@@ -1218,6 +1291,84 @@ mod tests {
             (stream.location, stream.packet_size),
             (StreamLocation::Local, 1392)
         );
+    }
+
+    /// Hears terminations and warnings.
+    struct Heard {
+        terminated: Mutex<std::sync::mpsc::Sender<i32>>,
+        warnings: Mutex<Vec<String>>,
+    }
+
+    impl Listener for Heard {
+        fn connection_terminated(&self, error: i32) {
+            let _ = self.terminated.lock().unwrap().send(error);
+        }
+
+        fn warn(&self, message: &str) {
+            self.warnings.lock().unwrap().push(message.to_owned());
+        }
+    }
+
+    fn heard() -> (Arc<Heard>, std::sync::mpsc::Receiver<i32>) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let heard = Arc::new(Heard {
+            terminated: Mutex::new(sender),
+            warnings: Mutex::new(Vec::new()),
+        });
+        (heard, receiver)
+    }
+
+    #[test]
+    fn a_termination_during_a_failed_start_is_not_reported_beside_the_failure() {
+        let (heard, terminated) = heard();
+        let shared = Shared::new(heard, false);
+        shared.terminate(7);
+        assert_eq!(shared.start_failed(), Some(7), "the held code is logged");
+        shared.terminate(8);
+        assert!(
+            terminated.recv_timeout(Duration::from_millis(200)).is_err(),
+            "only the stage failure reports a failed start, so no termination can reach a retry"
+        );
+    }
+
+    #[test]
+    fn a_termination_during_a_successful_start_is_reported_once_it_returns() {
+        let (heard, terminated) = heard();
+        let shared = Shared::new(heard, false);
+        shared.terminate(7);
+        assert!(terminated.recv_timeout(Duration::from_millis(100)).is_err());
+        shared.started();
+        assert_eq!(terminated.recv_timeout(Duration::from_secs(5)), Ok(7));
+        shared.terminate(8);
+        assert!(terminated.recv_timeout(Duration::from_millis(100)).is_err(), "reported once");
+    }
+
+    #[test]
+    fn a_termination_after_the_start_is_reported_at_once() {
+        let (heard, terminated) = heard();
+        let shared = Shared::new(heard, false);
+        shared.started();
+        shared.terminate(9);
+        assert_eq!(terminated.recv_timeout(Duration::from_secs(5)), Ok(9));
+        assert_eq!(shared.start_failed(), None);
+    }
+
+    #[test]
+    fn a_microphone_socket_that_does_not_open_is_warned_about() {
+        let (heard, _terminated) = heard();
+        // TEST-NET-1 is never this machine's address, so the bind fails.
+        let local: SocketAddr = "192.0.2.1:0".parse().unwrap();
+        assert!(open_microphone_socket(local, false, heard.as_ref()).is_none());
+        let warnings = heard.warnings.lock().unwrap();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.starts_with("Microphone: could not open the socket: ")),
+            "{warnings:?}"
+        );
+        drop(warnings);
+        let loopback: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        assert!(open_microphone_socket(loopback, false, heard.as_ref()).is_some());
     }
 
     #[test]

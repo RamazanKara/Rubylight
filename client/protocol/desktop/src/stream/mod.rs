@@ -542,7 +542,7 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
         match connect(plan, shared.clone(), interrupt) {
             Err(error) if error.retryable && plan.recovery.is_some() && !interrupt.is_interrupted() => {
                 lock(&shared.frames).clear();
-                lock(&shared.notices).clear();
+                shared.next_attempt();
             }
             result => return result,
         }
@@ -1081,7 +1081,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         session_config(settings, role, stream, location_override(), watch.is_some()),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
-        Arc::new(pipeline::Events { shared }),
+        Arc::new(pipeline::Events::new(shared)),
         interrupt,
     )
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;

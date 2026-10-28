@@ -143,6 +143,9 @@ pub struct Shared {
     /// The pacer's queue (`Pacer::with_backlog`), reachable from the decoder thread for `evict_oldest`.
     pub pacer_backlog: Arc<Mutex<VecDeque<super::present::Pending>>>,
     pub notices: Mutex<Vec<Notice>>,
+    /// The connect attempt whose listener may still end the stream; changed only with
+    /// `notices` locked, so a late termination of an earlier attempt is dropped, not queued.
+    attempt: AtomicU32,
     pub decoder_name: Mutex<String>,
     pub controller_audio: Mutex<Vec<std::sync::Weak<Mutex<crate::controller_audio::Playback>>>>,
     pub counters: Counters,
@@ -174,6 +177,7 @@ impl Shared {
             slices: Mutex::new(VecDeque::new()),
             pacer_backlog: Default::default(),
             notices: Mutex::new(Vec::new()),
+            attempt: AtomicU32::new(0),
             decoder_name: Mutex::new(String::new()),
             controller_audio: Mutex::new(Vec::new()),
             counters: Counters::default(),
@@ -229,6 +233,27 @@ impl Shared {
     pub fn notify(&self, notice: Notice) {
         lock(&self.notices).push(notice);
         self.wake();
+    }
+
+    /// A failed attempt is being retried: its notices are dropped, and so is anything its
+    /// listener sends from now on.
+    pub fn next_attempt(&self) {
+        let mut notices = lock(&self.notices);
+        self.attempt.fetch_add(1, Ordering::SeqCst);
+        notices.clear();
+    }
+
+    /// Queues `notice` if it comes from the current connect attempt; false if it was dropped.
+    fn notify_from(&self, attempt: u32, notice: Notice) -> bool {
+        {
+            let mut notices = lock(&self.notices);
+            if self.attempt.load(Ordering::SeqCst) != attempt {
+                return false;
+            }
+            notices.push(notice);
+        }
+        self.wake();
+        true
     }
 
     pub fn wake(&self) {
@@ -806,7 +831,17 @@ impl AudioRenderer for Audio {
 }
 
 pub struct Events {
-    pub shared: Arc<Shared>,
+    shared: Arc<Shared>,
+    /// The connect attempt this listener belongs to.
+    attempt: u32,
+}
+
+impl Events {
+    /// The listener of the current connect attempt.
+    pub fn new(shared: Arc<Shared>) -> Self {
+        let attempt = shared.attempt.load(Ordering::SeqCst);
+        Self { shared, attempt }
+    }
 }
 
 impl Listener for Events {
@@ -819,7 +854,9 @@ impl Listener for Events {
     }
 
     fn connection_terminated(&self, error: i32) {
-        self.shared.notify(Notice::Terminated(error));
+        if !self.shared.notify_from(self.attempt, Notice::Terminated(error)) {
+            eprintln!("nightjar: dropped the end ({error}) of an earlier connection attempt");
+        }
     }
 
     fn control_event(&self, event: ControlEvent) {
@@ -842,6 +879,19 @@ mod tests {
 
     fn notices(shared: &Shared) -> Vec<Notice> {
         std::mem::take(&mut *lock(&shared.notices))
+    }
+
+    #[test]
+    fn a_late_termination_of_a_failed_attempt_does_not_end_the_retry() {
+        let shared = Shared::new(Arc::new(|| {}), 8);
+        let failed = Events::new(shared.clone());
+        shared.next_attempt();
+        let retry = Events::new(shared.clone());
+        // The failed attempt's termination thread runs after the retry began.
+        failed.connection_terminated(5);
+        assert!(notices(&shared).is_empty(), "a stale termination is dropped");
+        retry.connection_terminated(6);
+        assert!(matches!(notices(&shared).as_slice(), [Notice::Terminated(6)]));
     }
 
     #[test]

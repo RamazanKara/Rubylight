@@ -17,8 +17,8 @@ What the desktop client (Windows and Linux, [protocol/desktop](../protocol/deskt
 | Settings per PC and per game, profiles by network | Same | |
 | H.264, HEVC, AV1 hardware decoding | Same | D3D11VA on Windows, VAAPI on Linux. Linux copies pictures through the CPU (no dmabuf import yet). |
 | HDR10 | Partial | Windows. Linux is Experimental and not checked on an HDR display yet. |
-| YUV 4:4:4 | Partial | Only the experimental packed full-chroma mode and PyroWave's chroma modes. |
-| 10-bit SDR | Missing | |
+| YUV 4:4:4 | Same | Experimental, off by default (Settings › Video): H.264, HEVC and AV1 4:4:4 where the decoder check passes and the PC encodes it; otherwise 4:2:0 with the reason in a toast. Software decoding draws it; hardware decoders that only give packed 4:4:4 surfaces are refused by name. Linux needs a restart after turning it on. |
+| 10-bit SDR | Same | Experimental, off by default (Settings › Video): HEVC or AV1 Main10 without HDR, from the hardware or the software decoder; 4:4:4 takes priority when the PC takes both. A refusal or an 8-bit answer is told in a toast. Linux needs a restart after turning it on. |
 | PyroWave | Partial | Decoding, bandwidth test and pace calibration. No PyroWave automatic bitrate. |
 | Automatic bitrate, automatic resolution and frame rate | Same | |
 | Frame pacing modes (Balanced, Smoothest, drop late) | Missing | V-Sync and VRR host-time pacing only. |

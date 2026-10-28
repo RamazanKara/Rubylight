@@ -302,7 +302,8 @@ Partial:
 - Controllers: rumble, trigger rumble, LEDs, motion, touchpad, battery, DualSense adaptive
   triggers and controller audio and haptics are wired to SDL's gamepad API but were not
   tried with physical controllers yet.
-- 4:4:4: only the experimental packed full chroma mode and PyroWave's chroma modes.
+- Prefer YUV 4:4:4: pictures a hardware decoder gives as packed 4:4:4 surfaces (AYUV, Y410)
+  are not drawn, so such a decoder is refused by name and the software decoder streams it.
 
 Missing compared with the Android app:
 

@@ -28,7 +28,7 @@ use butterpollo_windows::process::AudioProcess;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 /// A co-op library entry's name: the app's name, then this, so the entry
@@ -522,9 +522,15 @@ struct Entry {
 struct State {
     sessions: BTreeMap<u32, Entry>,
     next: u32,
-    /// The bytes downloaded while an install runs.
+    /// The bytes downloaded while an install runs, or is claimed to run.
     installing: Option<u64>,
     install_error: Option<String>,
+    /// Finished installs: a call waiting for one wakes when it moves.
+    installs: u64,
+    /// The last install's result, which its waiters share.
+    install_result: Option<Result<PathBuf, String>>,
+    /// Calls waiting for the install another one runs.
+    install_waiters: usize,
 }
 
 struct Cached {
@@ -540,6 +546,8 @@ pub struct Registry {
     /// game start one session.
     admit: Mutex<()>,
     state: Mutex<State>,
+    /// Signalled when an install finishes.
+    install_done: Condvar,
     catalog: Mutex<Option<Cached>>,
     /// The Nucleus Co-op the console opened: the only one the host closes,
     /// for a session or the user.
@@ -552,6 +560,7 @@ impl Registry {
             pc: RwLock::new(pc),
             admit: Mutex::new(()),
             state: Mutex::default(),
+            install_done: Condvar::new(),
             catalog: Mutex::new(None),
             opened: Mutex::new(None),
         }
@@ -662,28 +671,51 @@ impl Registry {
         }
     }
 
-    /// The Nucleus folder, installing it first; a failure is kept for the console.
+    /// The Nucleus folder, installing it first. One install runs at a time:
+    /// a launch while the console's Set up co-op (or another launch) installs
+    /// waits for it and shares its result, so there is one download, one
+    /// progress and one result. A failure is kept for the console.
     fn ensure(&self, pc: &dyn Pc, configured: &str) -> Result<PathBuf, Refusal> {
         if let Ok(Some(folder)) = pc.installed(configured) {
             return Ok(folder);
         }
-        self.lock().installing = Some(0);
-        let result = pc.ensure(configured, &|received| {
-            self.lock().installing = Some(received);
-        });
+        let mut state = self.lock();
+        if state.installing.is_some() {
+            let round = state.installs;
+            state.install_waiters += 1;
+            while state.installs == round {
+                state = self
+                    .install_done
+                    .wait(state)
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
+            state.install_waiters -= 1;
+            return match state.install_result.clone() {
+                Some(Ok(folder)) => Ok(folder),
+                Some(Err(message)) => Err(Refusal::unavailable(message)),
+                None => Err(Refusal::unavailable("Nucleus Co-op is not ready")),
+            };
+        }
+        state.installing = Some(0);
+        drop(state);
+        self.run_install(pc, configured)
+    }
+
+    /// Run the install this caller claimed (`installing` set), keep its
+    /// result and wake the calls waiting for it.
+    fn run_install(&self, pc: &dyn Pc, configured: &str) -> Result<PathBuf, Refusal> {
+        let result = pc
+            .ensure(configured, &|received| {
+                self.lock().installing = Some(received);
+            })
+            .map_err(|error| format!("Nucleus Co-op is not ready: {error:#}"));
         let mut state = self.lock();
         state.installing = None;
-        match result {
-            Ok(folder) => {
-                state.install_error = None;
-                Ok(folder)
-            }
-            Err(error) => {
-                let message = format!("Nucleus Co-op is not ready: {error:#}");
-                state.install_error = Some(message.clone());
-                Err(Refusal::unavailable(message))
-            }
-        }
+        state.installs += 1;
+        state.install_error = result.as_ref().err().cloned();
+        state.install_result = Some(result.clone());
+        self.install_done.notify_all();
+        result.map_err(Refusal::unavailable)
     }
 
     /// The console's Set up co-op: whether Nucleus Co-op is there, already
@@ -712,10 +744,9 @@ impl Registry {
     /// [`Self::install`], as a launch's does.
     pub fn install_now(&self, configured: &str) {
         let pc = self.pc();
-        let result = self.ensure(pc.as_ref(), configured);
-        // `ensure` found it installed after all: nothing downloads.
-        self.lock().installing = None;
-        match result {
+        // `set_up` claimed the install; `Pc::ensure` downloads nothing when
+        // it is there after all.
+        match self.run_install(pc.as_ref(), configured) {
             Ok(folder) => {
                 tracing::info!(folder = %folder.display(), "Nucleus Co-op: set up from the console")
             }
@@ -1530,6 +1561,9 @@ pub(crate) mod fake {
         /// What an install downloads, checked as the pinned release is;
         /// None installs without a download.
         pub archive: Mutex<Option<Vec<u8>>>,
+        /// While true an install waits in the download, until `release`.
+        pub hold: Mutex<bool>,
+        pub release: std::sync::Condvar,
         /// How often Nucleus Co-op's window was opened.
         pub opened: AtomicUsize,
         /// The windows opened, the last one last.
@@ -1557,6 +1591,8 @@ pub(crate) mod fake {
                 installed: Mutex::new(Some(PathBuf::from(r"C:\Nucleus"))),
                 install_error: Mutex::new(None),
                 archive: Mutex::new(None),
+                hold: Mutex::new(false),
+                release: std::sync::Condvar::new(),
                 opened: AtomicUsize::new(0),
                 windows: Mutex::new(Vec::new()),
                 foreign: Mutex::new(None),
@@ -1599,6 +1635,12 @@ pub(crate) mod fake {
                 return Ok(folder);
             }
             self.installs.fetch_add(1, Ordering::Relaxed);
+            progress(1);
+            let mut hold = self.hold.lock().unwrap();
+            while *hold {
+                hold = self.release.wait(hold).unwrap();
+            }
+            drop(hold);
             if let Some(error) = self.install_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
             }
@@ -1974,6 +2016,61 @@ mod tests {
             Install::Installed(PathBuf::from(r"C:\Nucleus"))
         );
         assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_launch_during_set_up_waits_for_that_install_and_shares_its_result() {
+        use std::sync::atomic::Ordering::Relaxed;
+        for error in [None, Some("the download failed")] {
+            let (registry, pc, apps) = setup();
+            let registry = Arc::new(registry);
+            let coop = registry.entries(&apps, "").remove(0);
+            *pc.installed.lock().unwrap() = None;
+            *pc.install_error.lock().unwrap() = error.map(String::from);
+            *pc.hold.lock().unwrap() = true;
+            assert_eq!(registry.set_up("").unwrap(), SetUp::Started);
+            let console = {
+                let registry = registry.clone();
+                std::thread::spawn(move || registry.install_now(""))
+            };
+            while pc.installs.load(Relaxed) == 0 {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let launch = {
+                let registry = registry.clone();
+                std::thread::spawn(move || {
+                    admit(&registry, &coop, "a", &client("A", false)).map(|_| ())
+                })
+            };
+            while registry.lock().install_waiters == 0 {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            // One download, one progress: the launch did not start its own.
+            assert_eq!(registry.install(""), Install::Installing(1));
+            *pc.hold.lock().unwrap() = false;
+            pc.release.notify_all();
+            console.join().unwrap();
+            let launched = launch.join().unwrap();
+            assert_eq!(pc.installs.load(Relaxed), 1, "{error:?}");
+            match error {
+                None => {
+                    launched.unwrap();
+                    assert_eq!(
+                        registry.install(""),
+                        Install::Installed(PathBuf::from(r"C:\Nucleus"))
+                    );
+                }
+                Some(error) => {
+                    let refused = launched.unwrap_err();
+                    let message = format!("Nucleus Co-op is not ready: {error}");
+                    assert_eq!(
+                        (refused.status, refused.message.as_str()),
+                        (503, message.as_str())
+                    );
+                    assert_eq!(registry.install(""), Install::Failed(message));
+                }
+            }
+        }
     }
 
     #[test]

@@ -68,6 +68,28 @@ public class RemoteSetupActivityTest {
         assertTrue("phones keep their text", text(R.string.remote_prepare, "de", false).contains("Das Telefon allein"));
     }
 
+    /**
+     * TV run follow-up: step 3 told a TV to "use mobile data". On a TV, Verify asks to move this device to another
+     * network in every language the guide has, and phones keep their mobile data hint.
+     */
+    @Test public void onATvVerifyNamesNoMobileData() {
+        java.io.File[] dirs = new java.io.File("src/main/res").listFiles((dir, name) ->
+                name.matches("values(-[a-z]{2}(-r[A-Z]{2})?)?") && new java.io.File(dir, name + "/strings_remote_setup.xml").exists());
+        assertNotNull(dirs);
+        assertEquals("the guide's languages", 15, dirs.length);
+        for (java.io.File dir : dirs) {
+            String qualifier = dir.getName().equals("values") ? "" : dir.getName().substring("values-".length());
+            String locale = qualifier.isEmpty() ? "en" : qualifier.replace("-r", "-");
+            assertNotEquals(locale + " TV text differs from the phone's",
+                    text(R.string.remote_verify, locale, false), text(R.string.remote_verify, locale, true));
+        }
+        assertFalse(text(R.string.remote_verify, "en", true).contains("mobile data"));
+        assertTrue(text(R.string.remote_verify, "en", true).contains("Disconnect this device"));
+        assertFalse(text(R.string.remote_verify, "de", true).contains("Mobilfunk"));
+        assertTrue("phones keep their text", text(R.string.remote_verify, "de", false).contains("nutze Mobilfunk"));
+        assertTrue("phones keep their text", text(R.string.remote_verify, "en", false).contains("use mobile data"));
+    }
+
     public static class OfflineActivity extends RemoteSetupActivity {
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) { return false; }
     }

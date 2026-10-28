@@ -1,6 +1,8 @@
 //! The launcher: PCs, pairing, the app library, settings, and the connecting card. It only
 //! draws and collects [`Command`]s; `main.rs` carries them out.
 
+pub mod files;
+
 use egui::{
     pos2, vec2, Align, Align2, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Pos2, Rect, Response,
     RichText, Sense, Stroke, StrokeKind, TextureHandle, Ui, UiBuilder, Vec2,
@@ -77,6 +79,10 @@ pub enum Command {
     CancelConnect,
     /// Star the game, or take its star off.
     ToggleFavourite(crate::config::Favourite),
+    /// Open a PC's Files page.
+    OpenFiles(u64),
+    /// Show the system's file dialog for files to send from the open Files page.
+    ChooseFiles,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +95,8 @@ pub enum Screen {
     Apps(u64),
     /// A PC's host software, web UI and remote access check.
     HostDetails(u64),
+    /// A PC's transfer folder: send, list, download (Experimental).
+    Files(u64),
     Settings,
     HostSettings(u64),
     AppSettings(u64),
@@ -165,6 +173,7 @@ pub enum HostOption {
     PairOtp,
     Wake,
     Sleep,
+    Files,
     Settings,
     Details,
     Rename,
@@ -184,6 +193,7 @@ impl HostOption {
             Self::PairOtp => en("Pair with one-time PIN"),
             Self::Wake => en("Wake up"),
             Self::Sleep => en("Sleep PC"),
+            Self::Files => en("Files (Experimental)"),
             Self::Settings => en("PC settings"),
             Self::Details => en("View details"),
             Self::Rename => en("Rename"),
@@ -219,6 +229,9 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     // Only where the PC offers it; listed but not selectable when it does not allow this device.
     if host.sleep_option().is_some() {
         options.push(HostOption::Sleep);
+    }
+    if files::offers_files(host) {
+        options.push(HostOption::Files);
     }
     options.push(HostOption::Settings);
     options.push(HostOption::Rename);
@@ -295,6 +308,8 @@ pub struct Launcher {
     pub remote: crate::host_page::RemoteAccess,
     /// The details page's shared folder browser.
     pub folders: crate::folders_page::SharedFolders,
+    /// The Files page and its transfers.
+    pub files: files::Files,
 }
 
 /// What the launcher shows, borrowed from the app each frame.
@@ -453,6 +468,7 @@ impl Launcher {
             look: None,
             remote: Default::default(),
             folders: Default::default(),
+            files: Default::default(),
         }
     }
 
@@ -523,7 +539,7 @@ impl Launcher {
             Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.go(Screen::Settings),
             // A library or game page is not a destination: Settings opens over it, and Back
             // returns to the page with its item focused.
-            Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) => self.open(Screen::Settings),
+            Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) | Screen::Files(_) => self.open(Screen::Settings),
             _ => self.switch(Screen::Settings),
         }
     }
@@ -654,7 +670,7 @@ impl Launcher {
                         self.pop(root);
                     }
                 }
-                Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) => {
+                Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) | Screen::Files(_) => {
                     let root = self.root();
                     self.pop(root);
                 }
@@ -697,6 +713,12 @@ impl Launcher {
         });
         self.remote.poll(page);
         self.folders.poll(page);
+        // Likewise a Files page that was left cancels its transfers.
+        let files = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {
+            Screen::Files(id) => Some(*id),
+            _ => None,
+        });
+        self.files.poll(files);
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
@@ -742,7 +764,8 @@ impl Launcher {
                 Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
                 Screen::HostDetails(id) => self.host_details(ui, &view, id, &mut commands),
-                Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
+                Screen::Files(id) => self.files_page(ui, &view, id, &mut commands),
+                Screen::Settings |Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
                 Screen::Profiles => self.profiles_page(ui, &mut commands),
                 Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
                 Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
@@ -796,7 +819,7 @@ impl Launcher {
                     let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
                     ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
                 }
-                Screen::HostDetails(id) => {
+                Screen::HostDetails(id) | Screen::Files(id) => {
                     if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
                     }
@@ -870,7 +893,7 @@ impl Launcher {
                                 commands.push(Command::HostSettings(id));
                             }
                         }
-                        Screen::HostDetails(_) | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
+                        Screen::HostDetails(_) | Screen::Files(_) | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
                     }
                     ui.min_rect().width()
                 })
@@ -3072,6 +3095,7 @@ impl Launcher {
                     return Some(Dialog::ConfirmSleep { host: id, ask, name, offer: None });
                 }
             }
+            HostOption::Files => commands.push(Command::OpenFiles(id)),
             HostOption::Settings => commands.push(Command::HostSettings(id)),
             HostOption::Details => self.open(Screen::HostDetails(id)),
             HostOption::Rename => return Some(Dialog::Rename { host: id, text: host.rename_prefill().to_owned() }),
@@ -4036,6 +4060,8 @@ mod tests {
             state("can sleep", record("Sleepy", true, false), Reach::Online, Some(sleep_answer(true)), Vec::new()),
             // Lists Sleep PC, not selectable, with the reason.
             state("sleep not allowed", record("Guarded", true, false), Reach::Online, Some(sleep_answer(false)), Vec::new()),
+            // Has Files.
+            state("native api", record("Native", true, false), Reach::Online, Some(files::tests::native_answer()), Vec::new()),
         ]
     }
 
@@ -4568,6 +4594,7 @@ mod tests {
                     HostOption::Sleep => {
                         said(|c| matches!(c, Command::SleepOffer { .. })) && matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. })
                     }
+                    HostOption::Files => said(|c| matches!(c, Command::OpenFiles(_))) && f.no_dialog(),
                     HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
                     HostOption::Details => matches!(f.l.screen, Screen::HostDetails(_)) && f.no_dialog(),
                     HostOption::CheckAgain => said(|c| matches!(c, Command::Refresh(_))),
@@ -4581,7 +4608,7 @@ mod tests {
             }
         }
         use HostOption::*;
-        for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
+        for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Files, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
             assert!(seen.contains(&option), "no state reaches {}", option.label());
         }
     }

@@ -107,6 +107,34 @@ pub fn choose_path(window: *mut SDL_Window, folder: bool) -> FileChoice {
     receiver
 }
 
+/// The files a callback gets from [`choose_files`]: none when the dialog was closed.
+pub type FilesChosen = Box<dyn FnOnce(Result<Vec<std::path::PathBuf>, String>) + Send>;
+
+/// Shows the system's dialog to open any number of files of any type. `done` gets them, on
+/// whatever thread SDL calls back on.
+pub fn choose_files(window: *mut SDL_Window, done: FilesChosen) {
+    unsafe extern "C" fn chosen(userdata: *mut std::ffi::c_void, files: *const *const c_char, _: i32) {
+        // SDL calls once: NULL on an error, else a NULL-terminated list (empty when closed).
+        let done = unsafe { Box::from_raw(userdata.cast::<FilesChosen>()) };
+        let result = if files.is_null() {
+            Err(error())
+        } else {
+            let mut paths = Vec::new();
+            let mut at = files;
+            // SAFETY: SDL's list ends with NULL and lives until this callback returns.
+            while let Some(file) = unsafe { (*at).as_ref() } {
+                paths.push(std::path::PathBuf::from(unsafe { CStr::from_ptr(file) }.to_string_lossy().into_owned()));
+                at = unsafe { at.add(1) };
+            }
+            Ok(paths)
+        };
+        done(result);
+    }
+    let request = Box::into_raw(Box::new(done));
+    // SAFETY: invoked on the UI thread; SDL owns the callback's lifetime.
+    unsafe { SDL_ShowOpenFileDialog(Some(chosen), request.cast(), window, std::ptr::null(), 0, std::ptr::null(), true) };
+}
+
 pub fn set_hint(name: *const c_char, value: &CStr) {
     // SAFETY: both are NUL-terminated strings.
     unsafe { SDL_SetHint(name, value.as_ptr()) };

@@ -42,6 +42,23 @@ impl ClipboardItem {
             Self::Png(png) => png.len(),
         }
     }
+
+    /// Whether both are the same copy. Texts compare with CRLF as LF: clipboards turn one
+    /// into the other on the way in or out, and the copy must not bounce for it.
+    fn same(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Text(a), Self::Text(b)) => {
+                a == b
+                    || (a.contains('\r') || b.contains('\r'))
+                        && a.replace("\r\n", "\n") == b.replace("\r\n", "\n")
+            }
+            _ => self == other,
+        }
+    }
+
+    fn is_last(&self, last: &Option<ClipboardItem>) -> bool {
+        last.as_ref().is_some_and(|last| last.same(self))
+    }
 }
 
 /// What to do with a copy on the device.
@@ -133,7 +150,7 @@ impl ClipboardSync {
             ClipboardItem::Text(text) => text.is_empty() || text.contains('\0'),
             ClipboardItem::Png(png) => png.is_empty() || !self.images,
         };
-        if empty || self.last.as_ref() == Some(&item) {
+        if empty || item.is_last(&self.last) {
             return Local::Skip;
         }
         if item.len() > MAX_PAYLOAD_BYTES {
@@ -187,7 +204,7 @@ impl ClipboardSync {
             KIND_REF => return Received::Refused(Refused::Reference),
             kind => return Received::Refused(Refused::Kind(kind)),
         };
-        if self.last.as_ref() == Some(&item) {
+        if item.is_last(&self.last) {
             return Received::Nothing;
         }
         self.last = Some(item.clone());
@@ -304,6 +321,22 @@ mod tests {
             Received::Nothing
         );
         assert!(matches!(sync.local(text("phone"), now), Local::Send(_)));
+    }
+
+    #[test]
+    fn line_endings_a_clipboard_changes_do_not_bounce_a_copy() {
+        let now = Instant::now();
+        let mut sync = ClipboardSync::new(false);
+        assert_eq!(
+            sync.received(from_host(KIND_TEXT, 1, b"a\r\nb"), now),
+            Received::Apply(text("a\r\nb"))
+        );
+        assert_eq!(sync.local(text("a\nb"), now), Local::Skip);
+        assert!(matches!(sync.local(text("a\n\nb"), now), Local::Send(_)));
+        assert_eq!(
+            sync.received(from_host(KIND_TEXT, 2, b"a\r\n\r\nb"), now),
+            Received::Nothing
+        );
     }
 
     #[test]

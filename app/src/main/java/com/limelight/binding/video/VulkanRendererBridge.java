@@ -15,6 +15,13 @@ public class VulkanRendererBridge {
     /** A present report's screen time when the screen could not tell (a front buffer, say). */
     public static final long NO_SCANOUT = -1;
 
+    /** {@link #getHdr10PlusState()}: no frame with HDR10+ was presented yet. */
+    public static final int HDR10_PLUS_NONE = 0;
+    /** HDR10+ reaches the output window. */
+    public static final int HDR10_PLUS_PASSED = 1;
+    /** The output window refused HDR10+, for the rest of the stream; HDR10's static metadata stays. */
+    public static final int HDR10_PLUS_REFUSED = 2;
+
     private static Boolean supported;
     private static boolean hdrColorSpaces;
     private static String unsupportedReason;
@@ -128,6 +135,22 @@ public class VulkanRendererBridge {
         if (handle != 0) {
             nativeNoteReceived(handle, hostPtsUs, receiveTimeUs, enqueueTimeUs, hostProcessingLatency);
         }
+    }
+
+    /**
+     * HDR10+ metadata for the frame queued to the decoder with this timestamp and the frames after
+     * it, until the next call: the T.35 payload from the country code on (Hdr10PlusSei). Call it only
+     * when the metadata changes, in decode order.
+     */
+    public synchronized void noteHdr10Plus(long hostPtsUs, byte[] t35) {
+        if (handle != 0) {
+            nativeNoteHdr10Plus(handle, hostPtsUs, t35);
+        }
+    }
+
+    /** One of HDR10_PLUS_NONE, HDR10_PLUS_PASSED and HDR10_PLUS_REFUSED. */
+    public synchronized int getHdr10PlusState() {
+        return handle != 0 ? nativeHdr10PlusState(handle) : HDR10_PLUS_NONE;
     }
 
     /**
@@ -274,6 +297,8 @@ public class VulkanRendererBridge {
     private static native void nativeNoteReceived(long handle, long hostPtsUs, long receiveTimeUs, long enqueueTimeUs,
                                                   char hostProcessingLatency);
     private static native void nativeSetHdrMode(long handle, boolean enabled, byte[] hdrMetadata);
+    private static native void nativeNoteHdr10Plus(long handle, long hostPtsUs, byte[] t35);
+    private static native int nativeHdr10PlusState(long handle);
     private static native void nativeSetJitterBuffer(long handle, int jitterBuffer);
     private static native void nativeSetVsyncOffset(long handle, long offsetNs);
     private static native int nativeTakePresentedFrames(long handle);

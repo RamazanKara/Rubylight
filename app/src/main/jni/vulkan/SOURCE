@@ -11,6 +11,7 @@ Differences from the fork, so a later sync is a diff against it rather than a co
   and are meant to be replaced by Nightjar's present scheduler later.
 - output_format.h and shaders/hlg.glsl are Nightjar's: the swapchain choice with the window
   dataspace route for HDR10 and HLG, and HLG tone mapping, tested on the host.
+- hdr10plus_window.h is Nightjar's: HDR10+ metadata on the output window, tested on the host.
 
 Regenerating shaders_spv.h: it is compiled from shaders/ and checked in. After editing
 video.vert, video.frag, video_common.glsl or hlg.glsl, run shaders/compile_shaders.sh (set GLSLC to the

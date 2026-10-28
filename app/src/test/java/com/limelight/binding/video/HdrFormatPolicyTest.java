@@ -75,21 +75,31 @@ public class HdrFormatPolicyTest {
     }
 
     @Test
-    public void theVulkanRendererNamesDolbyVisionAndHdr10PlusItLeavesOut() {
-        // The TV, its Dolby Vision decoder and a host offering Dolby Vision: Dolby Vision first.
+    public void theVulkanRendererNamesDolbyVisionItLeavesOut() {
+        // The TV, its Dolby Vision decoder and a host offering Dolby Vision.
         int[] tv = {DOLBY, HDR10, HLG, HDR10_PLUS};
-        assertEquals(HdrFormatPolicy.DrawnLimit.DOLBY_VISION, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, tv, true, 0));
-        // No decoder, or a host without Dolby Vision: HDR10+ for a PQ stream.
-        assertEquals(HdrFormatPolicy.DrawnLimit.HDR10_PLUS, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, tv, false, 0));
-        assertEquals(HdrFormatPolicy.DrawnLimit.HDR10_PLUS,
-                HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.PQ | HdrFormatPolicy.HLG, tv, true, 0));
-        // HLG carries no HDR10+, and a screen without either loses nothing.
+        assertEquals(HdrFormatPolicy.DrawnLimit.DOLBY_VISION, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, tv, true));
+        // No decoder, or a host without Dolby Vision: nothing, as HDR10+ goes to the window.
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, tv, false));
         assertEquals(HdrFormatPolicy.DrawnLimit.NONE,
-                HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, new int[] {HLG, HDR10_PLUS}, false, HdrFormatPolicy.HLG));
-        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, new int[] {HDR10, HLG}, true, 0));
-        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, null, true, 0));
-        // A host that lists no formats (every host but Rubylight 3.0) sends neither.
-        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.vulkanLimit(0, tv, true, 0));
+                HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.PQ | HdrFormatPolicy.HLG, tv, true));
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, new int[] {HDR10, HLG}, true));
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.vulkanLimit(HdrFormatPolicy.ALL, null, true));
+        // A host that lists no formats (every host but Rubylight 3.0) sends no Dolby Vision.
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.vulkanLimit(0, tv, true));
+    }
+
+    @Test
+    public void theVulkanRendererPassesHdr10PlusOnlyToAnHdr10PlusScreenWithAPqStream() {
+        int pq = MediaFormat.COLOR_TRANSFER_ST2084;
+        assertTrue(HdrFormatPolicy.passesHdr10Plus(new int[] {DOLBY, HDR10, HLG, HDR10_PLUS}, pq));
+        assertTrue(HdrFormatPolicy.passesHdr10Plus(new int[] {HDR10_PLUS}, pq));
+        // HLG streams carry no HDR10+, and a screen without it gets none.
+        assertFalse(HdrFormatPolicy.passesHdr10Plus(new int[] {HDR10, HLG, HDR10_PLUS}, MediaFormat.COLOR_TRANSFER_HLG));
+        assertFalse(HdrFormatPolicy.passesHdr10Plus(new int[] {DOLBY, HDR10, HLG}, pq));
+        assertFalse(HdrFormatPolicy.passesHdr10Plus(null, pq));
+        assertEquals(pq, HdrFormatPolicy.transfer(0));
+        assertEquals(MediaFormat.COLOR_TRANSFER_HLG, HdrFormatPolicy.transfer(HdrFormatPolicy.HLG));
     }
 
     @Test
@@ -129,6 +139,10 @@ public class HdrFormatPolicyTest {
     @Test
     public void theOverlaySaysWhatTheScreenGetsAndALostDolbyVisionDecoder() {
         assertEquals("HDR", HdrFormatPolicy.overlayWord(0, false));
+        // HDR10+ reaching the screen through the Vulkan renderer; never for HLG.
+        assertEquals("HDR10+", HdrFormatPolicy.overlayWord(0, false, true));
+        assertEquals("HDR", HdrFormatPolicy.overlayWord(0, false, false));
+        assertEquals("HLG", HdrFormatPolicy.overlayWord(HdrFormatPolicy.HLG, false, true));
         assertEquals("HLG", HdrFormatPolicy.overlayWord(HdrFormatPolicy.HLG, false));
         assertEquals("Dolby Vision 8.1", HdrFormatPolicy.overlayWord(HdrFormatPolicy.DV_81, true));
         assertEquals("Dolby Vision 8.4", HdrFormatPolicy.overlayWord(HdrFormatPolicy.DV_84, true));

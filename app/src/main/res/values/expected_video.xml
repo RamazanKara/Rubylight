@@ -17,5 +17,5 @@
     <string name="stream_hdr_pq_on_hlg_screen">This screen shows HDR only as HLG, but the PC sends HDR10, so brightness and colors may look wrong.</string>
     <string name="stream_hdr_vulkan_shown_as_sdr">%1$s shown as SDR: the display refused HDR from “Render through Vulkan”.</string>
     <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision needs “Render through Vulkan” off, so the stream is HDR10.</string>
-    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ needs “Render through Vulkan” off, so the stream is HDR10 without it.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ is not passed on with “Render through Vulkan” on this Android version, so the stream is HDR10 without it.</string>
 </resources>

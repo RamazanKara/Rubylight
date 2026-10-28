@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "frame_pacer.h"
+#include "hdr10plus_window.h"
 #include "ndk_api.h"
 #include "pacer_trace.h"
 #include "perf_hint.h"
@@ -69,6 +70,9 @@ struct VideoFrame {
 
     AImageCropRect crop {};
     FrameTiming timing;
+    // The frame's HDR10+ metadata (the T.35 payload from the country code on), or null without it:
+    // the last the decoder side was given for this frame or an earlier one (noteHdr10Plus())
+    std::shared_ptr<const std::vector<uint8_t>> hdr10Plus;
 };
 using FramePtr = std::shared_ptr<VideoFrame>;
 
@@ -109,6 +113,20 @@ public:
 
     // Network timing of a frame, for pacer traces and the capture latency statistics
     void noteReceived(int64_t hostPtsNs, int64_t receiveNs, int64_t enqueueNs, int64_t hostProcessingNs);
+
+    // HDR10+ metadata from the frame queued to the decoder with this timestamp on, until the next
+    // call: the T.35 payload of its HDR10+ SEI or metadata OBU, from the country code on. Passed to
+    // the output window with the first present of such a frame while HDR10 passes through
+    // (hdr10plus_window.h). Frames must be noted in decode order.
+    void noteHdr10Plus(int64_t hostPtsNs, const uint8_t* data, size_t size);
+
+    // Whether HDR10+ reaches the output window: kHdr10PlusNone until a frame carrying it is
+    // presented, then kHdr10PlusPassed, or kHdr10PlusRefused for good once the window refused it
+    // (an unknown window layout or an error from the platform; HDR10's static metadata stays).
+    static constexpr int kHdr10PlusNone = 0;
+    static constexpr int kHdr10PlusPassed = 1;
+    static constexpr int kHdr10PlusRefused = 2;
+    int hdr10PlusState() const { return hdr10PlusState_.load(); }
 
     // Stops presenting and lets go of the output surface. Safe to call more than once.
     void stop();
@@ -297,6 +315,9 @@ private:
     // Sets the window dataspace HDR goes through (0: none to set). False when the window refused it.
     bool applyWindowDataspace(int32_t dataspace);
     void applyHdrMetadata();
+    // Before a present: hands the frame's HDR10+ metadata to the output window if it differs from
+    // what the window holds, or clears it when HDR10 does not pass through. Under renderMutex_.
+    void passHdr10Plus(const VideoFrame& frame);
 
     const NdkApi* ndk_;
     const RendererConfig config_;
@@ -526,6 +547,20 @@ private:
 
     // Render thread copy of the HDR state
     bool hdrActive_ = false;
+
+    // HDR10+ on the output window, under renderMutex_: what it holds, and whether it has to be set
+    // again (a new swapchain). Cost of the calls, for the log when stopping.
+    Hdr10PlusWindow hdr10PlusWindow_;
+    std::shared_ptr<const std::vector<uint8_t>> hdr10PlusShown_;
+    bool hdr10PlusDirty_ = true;
+    uint32_t hdr10PlusCalls_ = 0;
+    int64_t hdr10PlusCallNs_ = 0;
+    int64_t hdr10PlusMaxCallNs_ = 0;
+    std::atomic<int> hdr10PlusState_ {kHdr10PlusNone};
+    // Decoder side, under latencyMutex_: metadata by the timestamp it starts at, and the latest
+    // a decoded frame took
+    std::map<int64_t, std::shared_ptr<const std::vector<uint8_t>>> hdr10PlusQueued_;
+    std::shared_ptr<const std::vector<uint8_t>> hdr10PlusDecoded_;
 
     std::atomic<uint32_t> presentedFrames_ {0};
     struct PresentReport {

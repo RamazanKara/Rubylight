@@ -13,7 +13,8 @@
 | This screen can't show HDR | No HDR10 in the screen's capabilities (or none reported at all, as on some old devices). |
 | This screen shows HDR only as HLG, which "Render through Vulkan" can't draw | The screen has HLG and no HDR10, the PC offers HLG, and the Vulkan renderer would present the stream on a PQ-only surface (no `VK_EXT_swapchain_colorspace`); the stream is SDR. |
 | HDR10 (or HLG) shown as SDR: the display refused HDR from "Render through Vulkan" | The PC sends HDR, but the window refused the HDR dataspace or the surface has no ten-bit format, so the Vulkan renderer tone maps it to SDR. The renderer line in the overlay says "(tone mapped)". |
-| Dolby Vision needs "Render through Vulkan" off / HDR10+ needs "Render through Vulkan" off | Once per PC: the screen (and for Dolby Vision, a decoder) has it, and the Vulkan renderer cannot carry it; the stream is HDR10. |
+| Dolby Vision needs "Render through Vulkan" off | Once per PC: the screen and a decoder have it, and the Vulkan renderer cannot carry it; the stream is HDR10. |
+| HDR10+ is not passed on with "Render through Vulkan" on this Android version | The screen has HDR10+, and the Vulkan renderer hands each frame's HDR10+ metadata to its window through Android's internal call for it (the one its video decoders use), but this Android does not have that call or refused it. Said once per stream on the status line and once per PC as a message; the picture stays HDR10 with its static metadata. The overlay says "HDR10+" while it reaches the screen. |
 | This screen mode can't show HDR | Android 14+: the current mode has no HDR10, but another mode of the screen lists it. |
 | HDR needs Android 7 / This device can't play HDR video | The Android version or the decoders rule it out. |
 | The PC sent no HDR video | HDR was asked for and the negotiated format is 8-bit. |

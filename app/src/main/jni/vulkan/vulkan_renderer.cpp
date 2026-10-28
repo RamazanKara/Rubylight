@@ -395,6 +395,7 @@ VulkanRenderer::VulkanRenderer(const NdkApi* ndk, const RendererConfig& config)
 bool VulkanRenderer::init(ANativeWindow* output) {
     ANativeWindow_acquire(output);
     outputWindow_ = output;
+    hdr10PlusWindow_ = Hdr10PlusWindow(output);
 
     if (!vk_.loadGlobal() || !createInstance() || !pickDevice() || !createDevice() ||
             !createFrameResources() || !createShaderModules()) {
@@ -952,6 +953,15 @@ void VulkanRenderer::stop() {
         releaseOutput();
     }
     if (outputWindow_) {
+        // The surface outlives the renderer, and a stream after this one may be SDR
+        if (hdr10PlusWindow_.holds()) {
+            hdr10PlusWindow_.set(nullptr, 0);
+        }
+        if (hdr10PlusCalls_ != 0) {
+            ALOGI("HDR10+ metadata set %u times, %.1f us per call on average, %.1f us at most", hdr10PlusCalls_,
+                  hdr10PlusCallNs_ / 1e3 / hdr10PlusCalls_, hdr10PlusMaxCallNs_ / 1e3);
+        }
+        hdr10PlusWindow_ = Hdr10PlusWindow();
         ANativeWindow_release(outputWindow_);
         outputWindow_ = nullptr;
     }
@@ -1915,6 +1925,7 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
             }
         }
     }
+    passHdr10Plus(*frame);
     int64_t presentCallNs = 0;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
@@ -2117,8 +2128,26 @@ void VulkanRenderer::noteReceived(int64_t hostPtsNs, int64_t receiveNs, int64_t 
     trace_.received(hostPtsNs, receiveNs, enqueueNs, queuedNs, commonToLocalNs, hostProcessingNs, rttMs);
 }
 
+void VulkanRenderer::noteHdr10Plus(int64_t hostPtsNs, const uint8_t* data, size_t size) {
+    auto blob = size != 0 ? std::make_shared<const std::vector<uint8_t>>(data, data + size) : nullptr;
+    std::lock_guard<std::mutex> lock(latencyMutex_);
+    hdr10PlusQueued_[hostPtsNs] = std::move(blob);
+    // Only changes are noted, but a decoder that drops its input never decodes them
+    while (hdr10PlusQueued_.size() > 64) {
+        hdr10PlusQueued_.erase(hdr10PlusQueued_.begin());
+    }
+}
+
 void VulkanRenderer::noteDecoded(VideoFrame& frame) {
     std::lock_guard<std::mutex> lock(latencyMutex_);
+    // The metadata noted last at or before this frame, which frames keep until it changes
+    auto hdr10PlusEnd = hdr10PlusQueued_.upper_bound(frame.timing.hostPtsNs);
+    if (hdr10PlusEnd != hdr10PlusQueued_.begin()) {
+        hdr10PlusDecoded_ = std::prev(hdr10PlusEnd)->second;
+        hdr10PlusQueued_.erase(hdr10PlusQueued_.begin(), hdr10PlusEnd);
+    }
+    frame.hdr10Plus = hdr10PlusDecoded_;
+
     auto it = origins_.find(frame.timing.hostPtsNs);
     if (it == origins_.end()) {
         return;
@@ -2303,6 +2332,7 @@ bool VulkanRenderer::createSwapchain() {
     // The loader set the window dataspace from the swapchain's colour space just now, so the HDR one
     // goes on after every (re)creation, before the first present
     outputHdr_ = hdrActive_ && !choice.toneMapToSdr && applyWindowDataspace(choice.dataspaceOverride);
+    hdr10PlusDirty_ = true;
     outputDataspace_ = outputHdr_ ? choice.dataspaceOverride : 0;
     hdrToneMapped_ = hdrActive_ && !outputHdr_;
     outputBits_ = chosen.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ? 10 : 8;
@@ -2481,6 +2511,47 @@ void VulkanRenderer::applyHdrMetadata() {
     else {
         ALOGW("No HDR metadata from the host; the compositor will assume a default peak");
     }
+}
+
+void VulkanRenderer::passHdr10Plus(const VideoFrame& frame) {
+    // HDR10+ describes PQ pictures only
+    const bool pq = outputHdr_ && config_.hdrTransfer == kHdrTransferPq;
+    const std::shared_ptr<const std::vector<uint8_t>> wanted = pq ? frame.hdr10Plus : nullptr;
+    if (hdr10PlusWindow_.refused() || (wanted == hdr10PlusShown_ && !hdr10PlusDirty_)) {
+        return;
+    }
+    hdr10PlusDirty_ = false;
+    hdr10PlusShown_ = wanted;
+    const int64_t startNs = nowNs();
+    const Hdr10PlusResult result = hdr10PlusWindow_.set(wanted ? wanted->data() : nullptr, wanted ? wanted->size() : 0);
+    const int64_t callNs = nowNs() - startNs;
+    switch (result) {
+        case Hdr10PlusResult::kUnchanged:
+            return;
+        case Hdr10PlusResult::kSet:
+        case Hdr10PlusResult::kCleared:
+            if (hdr10PlusCalls_++ == 0) {
+                ALOGI("HDR10+ metadata passed to the output window (%zu bytes, %.1f us)", wanted ? wanted->size() : 0,
+                      callNs / 1e3);
+            }
+            hdr10PlusCallNs_ += callNs;
+            hdr10PlusMaxCallNs_ = std::max(hdr10PlusMaxCallNs_, callNs);
+            if (result == Hdr10PlusResult::kSet) {
+                hdr10PlusState_ = kHdr10PlusPassed;
+            }
+            return;
+        case Hdr10PlusResult::kUnsupported:
+            ALOGE("HDR10+ not passed on: the output window is not the ANativeWindow this build knows (magic 0x%x, "
+                  "version %d, expected %zu); HDR10 static metadata stays", static_cast<uint32_t>(hdr10PlusWindow_.magic()),
+                  hdr10PlusWindow_.version(), sizeof(NativeWindowMirror));
+            break;
+        case Hdr10PlusResult::kFailed:
+            ALOGE("HDR10+ not passed on: the output window refused it (%d%s); HDR10 static metadata stays",
+                  hdr10PlusWindow_.error(), hdr10PlusWindow_.error() == -ENOENT ? ", unknown to this Android" : "");
+            break;
+    }
+    hdr10PlusShown_ = nullptr;
+    hdr10PlusState_ = kHdr10PlusRefused;
 }
 
 bool VulkanRenderer::ensureConversion(const ConversionKey& key) {

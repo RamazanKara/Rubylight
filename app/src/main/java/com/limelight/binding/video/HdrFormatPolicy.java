@@ -41,9 +41,7 @@ public final class HdrFormatPolicy {
     public enum DrawnLimit {
         NONE,
         /** A Dolby Vision screen and decoder: the stream is HDR10 instead. */
-        DOLBY_VISION,
-        /** An HDR10+ screen: the stream's dynamic metadata does not reach it. */
-        HDR10_PLUS
+        DOLBY_VISION
     }
 
     public static final int PQ = 1;
@@ -78,20 +76,26 @@ public final class HdrFormatPolicy {
 
     /**
      * What the Vulkan renderer leaves out that this screen would show from the decoder's own output,
-     * said once per PC: Dolby Vision first, then HDR10+ (Rubylight hosts write its dynamic metadata
-     * into PQ streams; HLG carries none).
-     * @param format what pick chose for the Vulkan renderer
+     * said once per PC: Dolby Vision. HDR10+ is not left out: the renderer hands it to its window
+     * (passesHdr10Plus), and says so if the window refuses it.
      */
-    public static DrawnLimit vulkanLimit(int hostFormats, int[] displayTypes, boolean dolbyVisionDecoder, int format) {
+    public static DrawnLimit vulkanLimit(int hostFormats, int[] displayTypes, boolean dolbyVisionDecoder) {
         if (hostFormats == 0) return DrawnLimit.NONE;
         if (dolbyVision(pick(hostFormats, displayTypes, dolbyVisionDecoder, DrawnSurface.NONE))) {
             return DrawnLimit.DOLBY_VISION;
         }
-        if (transfer(format) == MediaFormat.COLOR_TRANSFER_ST2084 &&
-                has(displayTypes, Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS)) {
-            return DrawnLimit.HDR10_PLUS;
-        }
         return DrawnLimit.NONE;
+    }
+
+    /**
+     * Whether the Vulkan renderer takes the HDR10+ metadata out of each frame and hands it to its
+     * output window: only for a screen that reports HDR10+ and a PQ stream (HDR10+ describes PQ
+     * pictures only, and HLG streams carry none). Any host's HDR10+ SEI or metadata OBU counts.
+     * @param transfer the stream's MediaFormat colour transfer (transfer())
+     */
+    public static boolean passesHdr10Plus(int[] displayTypes, int transfer) {
+        return transfer == MediaFormat.COLOR_TRANSFER_ST2084 &&
+                has(displayTypes, Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS);
     }
 
     /** The screen can show an HLG stream from this host, which then stands in for HDR10. */
@@ -115,6 +119,12 @@ public final class HdrFormatPolicy {
      * @param dolbyVisionDecoding the stream goes through the Dolby Vision decoder (false after a fallback)
      */
     public static String overlayWord(int format, boolean dolbyVisionDecoding) {
+        return overlayWord(format, dolbyVisionDecoding, false);
+    }
+
+    /** As above; hdr10Plus: the stream's HDR10+ metadata reaches the screen through the Vulkan renderer. */
+    public static String overlayWord(int format, boolean dolbyVisionDecoding, boolean hdr10Plus) {
+        if (hdr10Plus && !dolbyVision(format) && transfer(format) == MediaFormat.COLOR_TRANSFER_ST2084) return "HDR10+";
         if (dolbyVision(format)) {
             return dolbyVisionDecoding ? name(format) : baseLayerName(format) + " (Dolby Vision decoder failed)";
         }

@@ -392,6 +392,7 @@
     <string name="vulkan_overrides_upscaling">Le rendu Vulkan est activé, la mise à l’échelle n’est donc pas utilisée.</string>
     <string name="upscaling_vulkan_short">Désactivée avec le rendu Vulkan</string>
     <string name="vulkan_renderer_failed">Le moteur de rendu Vulkan a cessé de fonctionner : %1$s\n\nDésactivez « Rendu via Vulkan » dans les réglages vidéo, puis relancez le stream.</string>
+    <string name="stream_vulkan_behind">« Rendu via Vulkan » ne suit pas sur cet écran. Désactivez-le dans les réglages vidéo pour une image fluide.</string>
     <string name="vulkan_failure_unknown">erreur inconnue</string>
     <string name="upscaling_fallback">Mise à l’échelle : sortie directe. %1$s</string>
     <string name="upscaling_hdr">Le HDR/10 bits conserve la sortie directe pour préserver les couleurs et la précision.</string>

@@ -15,4 +15,7 @@
     <string name="stream_hdr_output_not_pq">HDR jest włączony, ale dekoder tego urządzenia zgłasza wyjście bez HDR, więc kolory mogą wyglądać blado.</string>
     <string name="stream_hdr_hlg_needs_direct_output">Ten ekran pokazuje HDR tylko jako HLG, którego „Renderowanie przez Vulkan” nie potrafi narysować, więc strumień jest w SDR.</string>
     <string name="stream_hdr_pq_on_hlg_screen">Ten ekran pokazuje HDR tylko jako HLG, ale PC wysyła HDR10, więc jasność i kolory mogą wyglądać źle.</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s jest pokazywany jako SDR: ekran odrzucił HDR z „Renderowania przez Vulkan”.</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision wymaga wyłączenia „Renderowania przez Vulkan”, więc strumień jest w HDR10.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ wymaga wyłączenia „Renderowania przez Vulkan”, więc strumień jest w HDR10 bez HDR10+.</string>
 </resources>

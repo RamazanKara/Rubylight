@@ -15,4 +15,7 @@
     <string name="stream_hdr_output_not_pq">HDR은 켜져 있지만 이 기기의 디코더가 HDR이 아닌 출력을 보고해 색이 바래 보일 수 있습니다.</string>
     <string name="stream_hdr_hlg_needs_direct_output">이 화면은 HDR을 HLG로만 표시하며 ‘Vulkan으로 렌더링’은 HLG를 그릴 수 없어 스트림은 SDR입니다.</string>
     <string name="stream_hdr_pq_on_hlg_screen">이 화면은 HDR을 HLG로만 표시하지만 PC가 HDR10을 보내고 있어 밝기와 색이 잘못 보일 수 있습니다.</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s이(가) SDR로 표시됩니다. 화면이 ‘Vulkan으로 렌더링’의 HDR을 거부했습니다.</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision은 ‘Vulkan으로 렌더링’을 꺼야 하므로 스트림은 HDR10입니다.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+는 ‘Vulkan으로 렌더링’을 꺼야 하므로 스트림은 HDR10+ 없는 HDR10입니다.</string>
 </resources>

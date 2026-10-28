@@ -392,6 +392,7 @@
     <string name="vulkan_overrides_upscaling">已开启 Vulkan 渲染，因此不使用超分辨率。</string>
     <string name="upscaling_vulkan_short">Vulkan 渲染时关闭</string>
     <string name="vulkan_renderer_failed">Vulkan 渲染器已停止工作：%1$s\n\n请在视频设置中关闭“通过 Vulkan 渲染”，然后重新开始串流。</string>
+    <string name="stream_vulkan_behind">“通过 Vulkan 渲染”在此屏幕上跟不上。请在视频设置中关闭它，让画面流畅。</string>
     <string name="vulkan_failure_unknown">未知错误</string>
     <string name="upscaling_fallback">放大：直接输出。%1$s</string>
     <string name="upscaling_hdr">HDR/10 位视频保持直接输出，以保留色彩和精度。</string>

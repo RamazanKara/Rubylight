@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { createTestServer } from './test-server.mjs';
 
 globalThis.location = new URL('http://localhost/');
@@ -490,6 +491,16 @@ test('the co-op switch lands back on the stored value, follows Launch apps when 
   // Stored on: back on keeps it, off is false.
   assert.equal(coopJoinAfterSwitch(true, true), true);
   assert.equal(coopJoinAfterSwitch(false, true), false);
+});
+
+test('the device editor’s preset and switch go through those transitions', () => {
+  // The editor's handlers can't be clicked in SSR: pin that they apply the tested rules.
+  const editor = readFileSync(new URL('./src/components/devices/DeviceEditor.svelte', import.meta.url), 'utf8');
+  const chooseAccess = editor.slice(editor.indexOf('function chooseAccess('), editor.indexOf('const launches'));
+  assert.match(chooseAccess, /draft\.coop_join = coopJoinAfterAccess\(draft\.coop_join, draft\.perm\);/);
+  assert.equal(chooseAccess.match(/draft\.coop_join =/g).length, 1);
+  const setJoins = editor.slice(editor.indexOf('function setJoins('));
+  assert.match(setJoins, /^function setJoins\(next: boolean\) \{\s+draft\.coop_join = coopJoinAfterSwitch\(next, saved\.coop_join\);\s+\}/);
 });
 
 test('every co-op text names the permission the way the device page does', () => {

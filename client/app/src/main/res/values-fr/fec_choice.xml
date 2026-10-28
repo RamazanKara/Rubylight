@@ -4,6 +4,6 @@
     <string name="summary_fec_choice">Quantité de données de récupération qu’un PC Rubylight ajoute à la vidéo. Automatique suit les pertes de cet appareil. Les autres PC utilisent leur propre réglage.</string>
     <string name="fec_choice_host">Réglage du PC</string>
     <string name="fec_choice_auto">Automatique</string>
-    <string name="title_link_probe">Test de connexion avant le premier débit (expérimental)</string>
+    <string name="title_link_probe">Test de connexion avant le premier débit</string>
     <string name="summary_link_probe">Un nouveau flux au débit automatique teste d’abord la connexion avec un PC Rubylight et ne démarre pas au-dessus de ce qu’elle supporte.</string>
 </resources>

@@ -55,7 +55,9 @@ public class SettingsStructureTest {
         return screen.getFragmentManager().findFragmentById(R.id.stream_settings);
     }
 
+    /** Opens a section with its More row open, so every row shows (SettingsTiersTest covers the fold). */
     static StreamSettings.SettingsFragment open(StreamSettings screen, String section) {
+        screen.moreOpen.add(section);
         screen.showSection(section);
         settle(screen);
         return (StreamSettings.SettingsFragment) shown(screen);
@@ -142,15 +144,16 @@ public class SettingsStructureTest {
             StreamSettings screen = controller.get();
             PreferenceScreen controls = open(screen, "input").getPreferenceScreen();
             assertEquals(Arrays.asList("category_gamepad_settings", "category_usb_controllers", "category_input_settings",
-                    "category_onscreen_controls", "category_keyboard_shortcuts"), keys(controls));
+                    "category_onscreen_controls", "category_keyboard_shortcuts", "category_more_input"), keys(controls));
             assertEquals(Arrays.asList("checkbox_usb_driver", "checkbox_usb_bind_all", "checkbox_usb_dualsense",
                     "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro", "checkbox_usb_forwarding"),
                     keys((PreferenceGroup) controls.getPreference(1)));
             PreferenceGroup image = (PreferenceGroup) open(screen, "display").getPreferenceScreen().findPreference("category_upscaling");
             assertTrue(keys(image).contains("checkbox_yuv444"));
             PreferenceScreen advanced = open(screen, "advanced").getPreferenceScreen();
-            assertEquals(Arrays.asList(StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY),
-                    keys((PreferenceGroup) advanced.getPreference(0)));
+            // The engine leads Advanced, then the decoding switches.
+            assertEquals(Arrays.asList(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, StreamSettings.LOW_LATENCY_DECODING_KEY,
+                    StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY), keys((PreferenceGroup) advanced.getPreference(0)));
         }
     }
 

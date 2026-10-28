@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Включить автоматический битрейт</string>
-    <string name="stream_auto_bitrate_disable">Выключить автоматический битрейт</string>
+    <string name="stream_auto_bitrate_enable">Включить «Устройство управляет битрейтом»</string>
+    <string name="stream_auto_bitrate_disable">Выключить «Устройство управляет битрейтом»</string>
     <string name="stream_auto_bitrate_help">Подстраивать битрейт под подключение.\nСохраняется для этого ПК; ручное изменение отключает функцию.</string>
     <string name="stream_pyrowave_bitrate_help">Автонастройка PyroWave для этого ПК.\nРучной битрейт отключает функцию.</string>
     <string name="stream_auto_bitrate_failed">Временная ошибка изменения битрейта. Повтор выполняется автоматически.</string>
-    <string name="stream_auto_bitrate_unavailable">Этот ПК не сообщает битрейт трансляции. Автоматический битрейт для этой трансляции выключен.</string>
-    <string name="stream_auto_bitrate_status">Автоматический битрейт: %1$.1f Мбит/с</string>
+    <string name="stream_auto_bitrate_unavailable">Этот ПК не сообщает битрейт трансляции. «Устройство управляет битрейтом» для этой трансляции выключено.</string>
+    <string name="stream_auto_bitrate_status">Устройство управляет битрейтом: %1$.1f Мбит/с</string>
     <string name="stream_bitrate_busy">Хост занят. Повторите попытку чуть позже.</string>
-    <string name="title_auto_bitrate">Автоматический битрейт</string>
+    <string name="title_auto_bitrate">Устройство управляет битрейтом</string>
     <string name="dialog_auto_bitrate">Снижает битрейт, когда соединение или устройство не справляется, и возвращает его, когда всё налаживается. Выше битрейта трансляции он не поднимается. Это значение по умолчанию для всех ПК; в меню трансляции его можно изменить для одного ПК.</string>
 </resources>

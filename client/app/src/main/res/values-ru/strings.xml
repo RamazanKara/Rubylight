@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Изменить разрешения можно в настройках или веб-интерфейсе хоста.</string>
     <string name="stream_input_denied">ПК блокирует ввод с этого устройства. Разрешите его в настройках или веб-интерфейсе хоста.</string>
     <string name="stream_bitrate">Битрейт</string>
-    <string name="stream_bitrate_help">Задайте Мбит/с для этого сеанса.\nЭто отключит автоматический битрейт.</string>
+    <string name="stream_bitrate_help">Задайте Мбит/с для этого сеанса.\nЭто отключит «Устройство управляет битрейтом».</string>
     <string name="stream_bitrate_invalid">Введите битрейт от 0,5 до 2000 Мбит/с</string>
     <string name="stream_bitrate_applied">Хост применил %1$.1f Мбит/с</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Мбит/с ниже минимума PyroWave в %2$d Мбит/с для %3$d×%4$d, %5$d FPS. Изображение будет рассыпаться.</string>

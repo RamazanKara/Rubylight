@@ -51,5 +51,4 @@
     <string name="folders_save_lost">저장 대화상자가 열려 있는 동안 저장할 파일 정보가 사라졌습니다. 아무것도 저장되지 않았습니다.</string>
     <string name="folders_partial_left">%1$s 일부만 받은 파일이 %2$s에 남아 있습니다.</string>
     <string name="folders_bad_path">Nightjar가 열 수 없는 경로입니다: %1$s</string>
-    <string name="host_menu_folders_note">실험적</string>
 </resources>

@@ -791,6 +791,13 @@ public class MoonBridge {
     }
     private static native int cGetPendingAudioDuration();
 
+    /** The engine's Opus concealer for the AAudio callback, a C function pointer (aaudio_output.c). */
+    public static long audioConcealer() {
+        return rustStream ? RustBridge.audioConcealer() : cAudioConcealer();
+    }
+
+    private static native long cAudioConcealer();
+
     public static int getPendingVideoFrames() {
         return rustStream ? RustBridge.getPendingVideoFrames() : cGetPendingVideoFrames();
     }

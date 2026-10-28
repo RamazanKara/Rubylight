@@ -96,6 +96,14 @@ public class AndroidAudioRendererTest {
             return queuedFrames;
         }
 
+        private boolean late;
+        private final List<Integer> lateChecks = new ArrayList<>();
+
+        @Override boolean skipLateNativeAudio(int frames) {
+            lateChecks.add(frames);
+            return late;
+        }
+
         void play() {
             playDecodedAudio(new short[6], 6);
         }
@@ -144,6 +152,37 @@ public class AndroidAudioRendererTest {
         renderer.play();
         assertEquals(0, renderer.nextResult);
         assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+    }
+
+    @Test public void aStallsConcealedPacketsAreSkippedNotWrittenOrCountedAsDrops() {
+        ScriptedRenderer renderer = afterAStall(6);
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(864, 6912, 1728, 0, 0));
+        ReflectionHelpers.setField(renderer, "lastBufferCheckMs", Long.MAX_VALUE);
+        renderer.nativeWriteSucceeds = false;
+        renderer.late = true;
+        renderer.play();
+        // Asked per packet in frames; skipped before any write or fallback.
+        assertEquals(List.of(3), renderer.lateChecks);
+        assertNull(renderer.fallbackReason);
+        assertEquals(0, renderer.nextResult);
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+        // A packet in time is written as before.
+        renderer.late = false;
+        renderer.nativeWriteSucceeds = true;
+        renderer.play();
+        assertNull(renderer.fallbackReason);
+        assertEquals(List.of(3, 3), renderer.lateChecks);
+        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
+    }
+
+    @Test public void theAudioTrackPathNeverAsksForLatePackets() {
+        ScriptedRenderer renderer = afterAStall(6);
+        renderer.late = true;
+        renderer.play();
+        assertTrue(renderer.lateChecks.isEmpty());
+        assertEquals(1, renderer.nextResult);
     }
 
     @Test public void aaudioReserveStarvationDoesNotSwitchToAudioTrack() {

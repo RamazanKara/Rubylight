@@ -7,9 +7,9 @@ final class AudioBufferPolicy {
     private static final int HEADROOM_STEPS = 6;
     // Audio may wait this long beyond the output's reserve before a decoded packet is dropped.
     static final int LATE_BOUND_MS = 40;
-    // The most a reserve grows for network jitter. The TCL C6K's Wi-Fi stalls for up to 130 ms every
-    // 1.2 s; its AAudio callback takes 18 ms at a time on top of that.
-    static final int MAX_RESERVE_MS = 200;
+    // The most a reserve grows for network jitter. A longer stall, such as the TCL C6K's Wi-Fi going quiet
+    // for up to 130 ms every 1.2 s, is concealed (aaudio_output.c) rather than buffered for.
+    static final int MAX_RESERVE_MS = 60;
 
     private final int burst;
     private final int minimum;
@@ -47,11 +47,11 @@ final class AudioBufferPolicy {
 
     /**
      * AAudio jitter reserve in the ring ahead of the stream: two bursts, growing a burst at a time on
-     * starvation up to eight bursts or MAX_RESERVE_MS, whichever is more, within the ring.
+     * starvation up to eight bursts, or fewer where that is over MAX_RESERVE_MS, within the ring.
      */
     static AudioBufferPolicy forReserve(int burst, int capacity, int initial, int underruns, long nowMs,
                                         int sampleRate) {
-        int limit = Math.max(8 * burst, maxReserveFrames(sampleRate) / burst * burst);
+        int limit = Math.min(8 * burst, Math.max(2 * burst, maxReserveFrames(sampleRate) / burst * burst));
         return new AudioBufferPolicy(burst, Math.min(capacity, Math.max(burst * 2, initial)), initial, underruns,
                 nowMs, Math.min(capacity / burst * burst, limit));
     }

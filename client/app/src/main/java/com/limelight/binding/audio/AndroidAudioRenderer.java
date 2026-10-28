@@ -72,12 +72,13 @@ public class AndroidAudioRenderer implements AudioRenderer {
     // A passthrough output that cannot be rebuilt says so once per stream, not once a second.
     private boolean encodedFailureShown;
 
-    private static native long nativeOpenAudio(int sampleRate);
+    private static native long nativeOpenAudio(int sampleRate, long concealer);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
     private static native int[] nativeAudioStats(long handle);
     private static native int nativeAudioBuffer(long handle, int frames);
     private static native int nativeAudioReserve(long handle, int frames);
     private static native int nativeAudioQueued(long handle);
+    private static native boolean nativeAudioSkipLate(long handle, int frames);
     private static native void nativeCloseAudio(long handle);
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
@@ -164,7 +165,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
         LimeLog.info("Audio channel config: "+String.format("0x%X", channelConfig));
 
         if (AudioBufferPolicy.useAAudio(Build.VERSION.SDK_INT, channels, enableAudioFx, sampleRate, nativeRate)) {
-            nativeAudio = nativeOpenAudio(sampleRate);
+            nativeAudio = nativeOpenAudio(sampleRate, MoonBridge.audioConcealer());
             if (nativeAudio != 0) {
                 int[] stats = nativeAudioStats(nativeAudio);
                 long now = SystemClock.uptimeMillis();
@@ -343,6 +344,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
         // Only queue up to 40 ms of audio beyond the output's reserve. The output's own level counts: after a
         // network stall drained it, the burst that follows refills it instead of being dropped.
+        // A stall's packets whose time Opus already concealed: playing them would keep latency up by the stall.
+        if (nativeAudio != 0 && channels > 0 && skipLateNativeAudio(length / channels)) return;
         int pendingMs = pendingAudioMs();
         int queuedFrames = outputQueuedFrames();
         if (!AudioBufferPolicy.dropLate(pendingMs, queuedFrames, reserveFrames, sampleRate)) {
@@ -390,7 +393,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
         String output;
         if (nativeAudio != 0) {
             int[] stats = nativeAudioStats(nativeAudio);
-            output = "AAudio, underruns " + stats[6] + ", xruns " + stats[5] + ", device buffer " + stats[4];
+            output = "AAudio, underruns " + stats[6] + ", xruns " + stats[5] + ", device buffer " + stats[4] +
+                    ", concealed " + framesToMs(stats[9]) + " ms, skipped late " + framesToMs(stats[10]) + " ms";
         } else if (track != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             output = "AudioTrack, underruns " + track.getUnderrunCount();
         } else if (track != null) {
@@ -405,6 +409,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private void setReserve(int frames) {
         reserveFrames = Math.max(0, frames);
         largestReserveFrames = Math.max(largestReserveFrames, reserveFrames);
+    }
+
+    /** Whether this packet's time already went to Opus concealment during a stall (aaudio_output.c). */
+    boolean skipLateNativeAudio(int frames) {
+        return nativeAudioSkipLate(nativeAudio, frames);
     }
 
     /** Frames the output holds that are not played yet: the AAudio ring, or the track past its playback head. */
@@ -640,7 +649,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 // Loud, but no switch: AudioTrack would starve on the same late audio.
                 reserveStarvationShown = true;
                 LimeLog.warning("AAudio reserve starves at its " + framesToMs(reservePolicy.limit()) +
-                        " ms limit: audio arrives too late from the network");
+                        " ms limit: audio arrives too late from the network, its gaps are concealed");
             }
             reportNativeAudio(stats);
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

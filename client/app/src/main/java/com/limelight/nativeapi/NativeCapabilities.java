@@ -24,6 +24,8 @@ public final class NativeCapabilities {
     public static final String CLIPBOARD_IMAGE = "clipboard.image";
     /** GET /folders lists the folders the PC shares while it shares one; this device's grants decide which. */
     public static final String FOLDERS = "folders";
+    /** GET /coop lists the PC's Nucleus Co-op sessions and POST /coop/join seats this device in one. */
+    public static final String COOP = "coop";
 
     public final int apiVersion;
     public final String hostName;

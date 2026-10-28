@@ -462,6 +462,7 @@ mod tests {
         };
         for (status, code, expected) in [
             (403, "folders_disabled", FileRefusal::FoldersDisabled),
+            (403, "folder_unreadable", FileRefusal::FolderUnreadable),
             (403, "forbidden", FileRefusal::Forbidden),
             (404, "not_found", FileRefusal::NotFound),
             (400, "invalid_name", FileRefusal::InvalidName),

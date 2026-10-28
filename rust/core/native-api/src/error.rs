@@ -45,6 +45,9 @@ pub enum ErrorCode {
     UsbLimit,
     /// Shared folders are off on the host.
     FoldersDisabled,
+    /// Windows denies the signed-in user reading a shared folder, or a
+    /// folder or file in it.
+    FolderUnreadable,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -62,7 +65,8 @@ impl ErrorCode {
             | Self::Forbidden
             | Self::FileTransferDisabled
             | Self::UsbDisabled
-            | Self::FoldersDisabled => 403,
+            | Self::FoldersDisabled
+            | Self::FolderUnreadable => 403,
             Self::NotFound => 404,
             Self::InvalidRequest | Self::InvalidName | Self::IncompleteUpload => 400,
             Self::LengthRequired => 411,

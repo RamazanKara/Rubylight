@@ -37,6 +37,7 @@
     <string name="folders_failed">A solicitação falhou: %1$s</string>
     <string name="folders_local_failed">Este dispositivo não conseguiu ler ou gravar o arquivo: %1$s</string>
     <string name="folders_forbidden">Este dispositivo não tem acesso a esta pasta.</string>
+    <string name="folders_unreadable">O PC não consegue ler esta pasta: o Windows nega o acesso ao usuário conectado. Verifique as permissões da pasta no PC.</string>
     <string name="folders_upload_forbidden">Este dispositivo só pode baixar desta pasta.</string>
     <string name="folders_not_found">Não está mais no PC.</string>
     <string name="folders_invalid_name">O PC não aceita este nome de arquivo.</string>

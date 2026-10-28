@@ -32,6 +32,9 @@ public class FolderBrowserActivityTest {
         assertNotEquals(FolderBrowserActivity.refusalMessage(SharedFolders.Refusal.FORBIDDEN, false),
                 FolderBrowserActivity.refusalMessage(SharedFolders.Refusal.FORBIDDEN, true));
         assertEquals(R.string.folders_busy, FolderBrowserActivity.refusalMessage(SharedFolders.Refusal.TRANSFER_BUSY, true));
+        // A folder Windows denies the PC's user is named, not a generic host failure.
+        assertEquals(R.string.folders_unreadable,
+                FolderBrowserActivity.refusalMessage(SharedFolders.Refusal.FOLDER_UNREADABLE, false));
     }
 
     @Test

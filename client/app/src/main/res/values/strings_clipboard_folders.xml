@@ -37,6 +37,7 @@
     <string name="folders_failed">Request failed: %1$s</string>
     <string name="folders_local_failed">This device could not read or write the file: %1$s</string>
     <string name="folders_forbidden">This device has no access to this folder.</string>
+    <string name="folders_unreadable">The PC can’t read this folder: Windows denies its signed-in user access. Check the folder’s permissions on the PC.</string>
     <string name="folders_upload_forbidden">This device may only download from this folder.</string>
     <string name="folders_not_found">It is no longer on the PC.</string>
     <string name="folders_invalid_name">The PC does not take this file name.</string>

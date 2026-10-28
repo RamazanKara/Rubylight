@@ -521,6 +521,9 @@ pub fn folder_error(error: &FileError) -> String {
                 "This device has no grant for this folder, or may only read it.",
             )),
             FileRefusal::FoldersDisabled => Some(en("The PC shares no folders.")),
+            FileRefusal::FolderUnreadable => Some(en(
+                "The PC can't read this folder: Windows denies its signed-in user access. Check the folder's permissions on the PC.",
+            )),
             FileRefusal::NoConsoleUser => Some(en(
                 "Nobody is signed in on the PC. Shared folders open as the signed-in Windows user.",
             )),
@@ -933,5 +936,18 @@ pub(crate) mod tests {
         assert_eq!(size_text(1500), "1.5 KB");
         assert_eq!(size_text(2_400_000), "2.4 MB");
         assert_eq!(size_text(5_000_000_000_000_000), "5000.0 TB");
+    }
+
+    #[test]
+    fn a_folder_windows_denies_says_the_pc_cannot_read_it() {
+        let error = folder_error(&FileError::Refused {
+            refusal: FileRefusal::FolderUnreadable,
+            status: 403,
+            message: "denied".into(),
+        });
+        assert!(
+            error.starts_with("The PC can't read this folder: Windows denies"),
+            "{error}"
+        );
     }
 }

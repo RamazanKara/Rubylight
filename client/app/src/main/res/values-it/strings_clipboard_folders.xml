@@ -37,6 +37,7 @@
     <string name="folders_failed">Richiesta non riuscita: %1$s</string>
     <string name="folders_local_failed">Questo dispositivo non è riuscito a leggere o scrivere il file: %1$s</string>
     <string name="folders_forbidden">Questo dispositivo non ha accesso a questa cartella.</string>
+    <string name="folders_unreadable">Il PC non può leggere questa cartella: Windows nega l’accesso all’utente connesso. Controlla le autorizzazioni della cartella sul PC.</string>
     <string name="folders_upload_forbidden">Questo dispositivo può solo scaricare da questa cartella.</string>
     <string name="folders_not_found">Non è più sul PC.</string>
     <string name="folders_invalid_name">Il PC non accetta questo nome di file.</string>

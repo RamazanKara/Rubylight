@@ -449,6 +449,7 @@ A device sees a folder only with a grant for it: `"shared_folders": {"<folder id
 |---|---|---|
 | 403 | `folders_disabled` | The host shares no folders |
 | 403 | `forbidden` | The device has no grant for the folder (or for any, on `GET /folders`), or only `read` for a PUT |
+| 403 | `folder_unreadable` | Windows denies the signed-in user reading the folder, or a folder or file in it (`entries`, `content`) |
 | 404 | `not_found` | The host no longer shares the granted folder, or the path isn't in it |
 
 ## The host control permission

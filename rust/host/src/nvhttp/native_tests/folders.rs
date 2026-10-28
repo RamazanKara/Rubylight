@@ -284,6 +284,62 @@ async fn a_folder_is_browsed_folders_first_and_its_files_downloaded_exactly() {
     }
 }
 
+/// Denies everyone reading `path` (a folder's listing or a file's data, not
+/// what is below it) until dropped. The test's own folders stay its to fix.
+struct Denied(PathBuf);
+impl Denied {
+    fn new(path: &std::path::Path) -> Self {
+        icacls(path, "/deny");
+        Self(path.into())
+    }
+}
+impl Drop for Denied {
+    fn drop(&mut self) {
+        icacls(&self.0, "/remove:d");
+    }
+}
+fn icacls(path: &std::path::Path, change: &str) {
+    let mut command = std::process::Command::new("icacls");
+    command.arg(path).arg(change);
+    command.arg(if change == "/deny" {
+        "*S-1-1-0:(RD)"
+    } else {
+        "*S-1-1-0"
+    });
+    let status = command
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "icacls {change} failed");
+}
+
+#[tokio::test]
+async fn what_windows_denies_is_a_named_403_not_a_host_error() {
+    let f = Folders::new();
+    f.grant(serde_json::json!({"games": "read"}));
+    let unreadable = |reply: Reply| {
+        reply.assert_error(403, "folder_unreadable");
+        assert!(
+            reply.text().contains("can't read this folder"),
+            "{}",
+            reply.text()
+        );
+    };
+    {
+        let _saves = Denied::new(&f.games.join("saves"));
+        unreadable(f.entries("games", "saves").await);
+        // The rest of the folder still reads.
+        assert_eq!(f.entries("games", "").await.status, StatusCode::OK);
+    }
+    {
+        let _file = Denied::new(&f.games.join("readme.txt"));
+        unreadable(f.content("games", "readme.txt").await);
+    }
+    let _root = Denied::new(&f.games);
+    unreadable(f.entries("games", "").await);
+    unreadable(f.content("games", "readme.txt").await);
+}
+
 #[tokio::test]
 async fn no_path_leaves_the_folder() {
     let f = Folders::new();

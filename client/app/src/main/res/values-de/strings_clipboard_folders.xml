@@ -37,6 +37,7 @@
     <string name="folders_failed">Anfrage fehlgeschlagen: %1$s</string>
     <string name="folders_local_failed">Dieses Gerät konnte die Datei nicht lesen oder schreiben: %1$s</string>
     <string name="folders_forbidden">Dieses Gerät hat keinen Zugriff auf diesen Ordner.</string>
+    <string name="folders_unreadable">Der PC kann diesen Ordner nicht lesen: Windows verweigert dem angemeldeten Benutzer den Zugriff. Prüfe die Berechtigungen des Ordners auf dem PC.</string>
     <string name="folders_upload_forbidden">Dieses Gerät darf aus diesem Ordner nur herunterladen.</string>
     <string name="folders_not_found">Es ist nicht mehr auf dem PC.</string>
     <string name="folders_invalid_name">Der PC nimmt diesen Dateinamen nicht an.</string>

@@ -37,6 +37,7 @@
     <string name="folders_failed">Запит не виконано: %1$s</string>
     <string name="folders_local_failed">Цьому пристрою не вдалося прочитати або записати файл: %1$s</string>
     <string name="folders_forbidden">Цей пристрій не має доступу до цієї папки.</string>
+    <string name="folders_unreadable">ПК не може прочитати цю папку: Windows забороняє доступ користувачу, який увійшов. Перевірте дозволи папки на ПК.</string>
     <string name="folders_upload_forbidden">Цей пристрій може лише завантажувати з цієї папки.</string>
     <string name="folders_not_found">Цього вже немає на ПК.</string>
     <string name="folders_invalid_name">ПК не приймає таку назву файлу.</string>

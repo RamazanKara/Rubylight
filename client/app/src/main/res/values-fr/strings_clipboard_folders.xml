@@ -37,6 +37,7 @@
     <string name="folders_failed">La requête a échoué : %1$s</string>
     <string name="folders_local_failed">Cet appareil n’a pas pu lire ou écrire le fichier : %1$s</string>
     <string name="folders_forbidden">Cet appareil n’a pas accès à ce dossier.</string>
+    <string name="folders_unreadable">Le PC ne peut pas lire ce dossier : Windows en refuse l’accès à l’utilisateur connecté. Vérifiez les autorisations du dossier sur le PC.</string>
     <string name="folders_upload_forbidden">Cet appareil peut seulement télécharger depuis ce dossier.</string>
     <string name="folders_not_found">Il n’est plus sur le PC.</string>
     <string name="folders_invalid_name">Le PC n’accepte pas ce nom de fichier.</string>

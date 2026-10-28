@@ -830,6 +830,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Could not start the request: {}", "Die Anfrage konnte nicht gestartet werden: {}"),
     ("This device has no grant for this folder, or may only read it.", "Dieses Gerät hat keine Freigabe für diesen Ordner oder darf ihn nur lesen."),
     ("The PC shares no folders.", "Der PC gibt keine Ordner frei."),
+    ("The PC can't read this folder: Windows denies its signed-in user access. Check the folder's permissions on the PC.", "Der PC kann diesen Ordner nicht lesen: Windows verweigert dem angemeldeten Benutzer den Zugriff. Prüfe die Berechtigungen des Ordners auf dem PC."),
     ("Nobody is signed in on the PC. Shared folders open as the signed-in Windows user.", "Am PC ist niemand angemeldet. Freigegebene Ordner öffnen sich als der angemeldete Windows-Benutzer."),
     ("The file or folder is no longer there.", "Die Datei oder der Ordner ist nicht mehr da."),
     ("The file is larger than the PC takes.", "Die Datei ist größer, als der PC annimmt."),

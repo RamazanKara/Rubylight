@@ -37,6 +37,7 @@
     <string name="folders_failed">Yêu cầu thất bại: %1$s</string>
     <string name="folders_local_failed">Thiết bị này không đọc hoặc ghi được tệp: %1$s</string>
     <string name="folders_forbidden">Thiết bị này không có quyền truy cập thư mục này.</string>
+    <string name="folders_unreadable">PC không đọc được thư mục này: Windows từ chối quyền truy cập của người dùng đang đăng nhập. Hãy kiểm tra quyền của thư mục trên PC.</string>
     <string name="folders_upload_forbidden">Thiết bị này chỉ được tải xuống từ thư mục này.</string>
     <string name="folders_not_found">Mục này không còn trên PC.</string>
     <string name="folders_invalid_name">PC không nhận tên tệp này.</string>

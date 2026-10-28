@@ -179,7 +179,20 @@ fn not_found() -> Failure {
         "There is no such file or folder in this shared folder.",
     )
 }
-/// Runs `work` on the folder's root on a blocking thread.
+/// [`failure`] for a read: what Windows denies the signed-in user is
+/// `folder_unreadable`, the administrator's to fix, not a host bug.
+fn read_failure(what: &str, error: UserFolderError) -> Failure {
+    match error {
+        UserFolderError::Io(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            Failure::new(
+                ErrorCode::FolderUnreadable,
+                "The PC can't read this folder: Windows denies the signed-in user access to it. Check the folder's permissions on the PC.",
+            )
+        }
+        error => failure(what, error),
+    }
+}
+/// Runs `work`, a read, on the folder's root on a blocking thread.
 async fn in_folder<T: Send + 'static>(
     what: &'static str,
     folder: &SharedFolderConfig,
@@ -189,7 +202,7 @@ async fn in_folder<T: Send + 'static>(
     tokio::task::spawn_blocking(move || work(&open_root(&folder)?))
         .await
         .map_err(|error| Failure::internal(what, error))?
-        .map_err(|error| failure(what, error))
+        .map_err(|error| read_failure(what, error))
 }
 
 /// `GET /folders`: the folders shared with this device, in the host's

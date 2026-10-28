@@ -119,3 +119,13 @@ test('a default says what it does, never just "Default"', () => {
   }
   assert.equal(describeDefault(settings.get('amd_vbaq')).text, 'Off for H.264, on for HEVC and AV1');
 });
+
+test('the wake status never spins silently: a slow first check says why, and the request has a deadline', async () => {
+  const panel = await source('components/maintenance/PowerPanel.svelte');
+  assert.match(panel, /<LoadState error=\{loadError\} what="the wake status" slow="[^"]+half a minute\."/);
+  const state = await source('components/LoadState.svelte');
+  assert.match(state, /setTimeout\(\(\) => \(lingering = true\), 3000\)/);
+  // An explicit space: Svelte trims one at the start of an {#if} block.
+  assert.match(state, /\{#if lingering\}\{' '\}\{slow\}\{\/if\}/);
+  assert.match(await source('lib/api.ts'), /status: \(refresh = false\) => get<PowerStatus>\(`[^`]*`, ACTION_TIMEOUT_MS\)/);
+});

@@ -1,13 +1,22 @@
 <script lang="ts">
   import Button from './Button.svelte';
 
-  let { error, what, stale = false, onretry }: {
+  /** `slow`: why a first load can take a while, shown once it has run past a few seconds. */
+  let { error, what, stale = false, slow, onretry }: {
     error: string;
     what: string;
     stale?: boolean;
+    slow?: string;
     onretry: () => Promise<void>;
   } = $props();
   let retrying = $state(false);
+  let lingering = $state(false);
+  $effect(() => {
+    lingering = false;
+    if (error || !slow) return;
+    const timer = setTimeout(() => (lingering = true), 3000);
+    return () => clearTimeout(timer);
+  });
 
   async function retry() {
     if (retrying) return;
@@ -26,7 +35,7 @@
     <Button size="sm" busy={retrying} onclick={retry}>Retry<span class="visually-hidden"> {what}</span></Button>
   </div>
 {:else}
-  <p class="muted loading" role="status">Loading {what}…</p>
+  <p class="muted loading" role="status">Loading {what}…{#if lingering}{' '}{slow}{/if}</p>
 {/if}
 
 <style>

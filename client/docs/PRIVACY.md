@@ -1,6 +1,6 @@
 # Nightjar privacy
 
-Describes the Nightjar for Android source prepared for 0.4.6.
+Describes the Nightjar for Android source prepared for 4.0.0.
 
 Nightjar streams your PC's desktop, apps, video and audio directly to your
 Android device. Your controls and any clipboard text you choose to send go to
@@ -45,6 +45,24 @@ for microphone access and, during a stream, sends your microphone, encrypted, to
 that PC only. It is not recorded or stored on your device, and it stops when you
 mute it in the stream menu or the stream ends. Pairing exchanges identity information with that PC. Host
 discovery also uses your local network.
+
+**Scan QR code** in Add PC asks for camera access only when you tap it. The
+camera reads the pairing code on your PC's screen; no picture is saved or
+sent. Without the access, type the PC's address instead.
+
+**Clipboard sync** (off by default) reads this device's clipboard while the
+stream is in front and sends copied text to the PC you stream from, and puts
+the PC's copied text on this device's clipboard. Clipboard images, **Files**,
+**Shared folders** and **USB devices** move only what you pick, and only
+between this device and that PC, over the paired connection. Downloaded files
+are saved where you choose or in Downloads; Nightjar keeps no copy of them.
+See [sharing](sharing.md).
+
+**Check for updates automatically** (not in the Google Play build) asks
+GitHub's public API for Nightjar's latest release when the app opens, at most
+twice a day, and Nightjar can ask the same API for the latest Rubylight release
+to tell you that your PC's host has an update. GitHub receives your public IP
+address. Nothing is installed without your choice.
 
 If you enable **Send hardware metrics to client** on a host that supports it
 (currently Rubylight), Nightjar can request host CPU usage and available AMD GPU readings, including

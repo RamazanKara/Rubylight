@@ -1,15 +1,25 @@
-Stream your PC with low latency. Nightjar works with Sunshine, Apollo, Vibepollo, Rubylight, GeForce Experience and other Moonlight-compatible hosts.
+Stream your PC games and desktop to your Android phone, handheld, tablet or TV. Nightjar works with Sunshine, Apollo, Vibepollo, Rubylight, GeForce Experience and other Moonlight-compatible hosts.
 
-Bring your desktop and apps to your Android phone, tablet or TV. Pair your PC, open your library and start a stream. Use touch controls, a controller, or a keyboard and mouse.
+Your library
+Home brings favourites, Continue playing and the games of every PC together, with covers kept on your device. On a TV, every store gets its own row: Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and Xbox. Each game has a page with the PC and the exact stream settings it will use. Pick a sleeping PC's game and Nightjar wakes the PC and starts it. Starting a game while another runs asks first and names both.
 
-Choose the Native preset to stream at your screen's resolution and refresh rate, or Battery saver to keep that resolution at 30 fps and use less power. Save separate settings for each PC.
+The picture
+H.264, HEVC and AV1 hardware decoding, tuned for low latency on Snapdragon, MediaTek, Tegra, Exynos, Google Tensor and Amlogic decoders. HDR10, HDR10+, HLG and Dolby Vision where your screen shows them, 10-bit SDR and full-colour 4:4:4. Upscaling with FSR or Snapdragon GSR, adaptive refresh that follows the game, picture-in-picture and portrait streams. On a Retroid Pocket 6 the median picture reached the screen 7 ms after the PC captured it (HEVC 1080p60, our measurement of 2026-10-23).
 
-Turn on the performance overlay for one line with frame rate, round-trip time and frame loss, next to a dot that turns amber or red when the stream struggles. Switch it to Statistics for detailed measurements. While you play, open the stream menu: its Input, Display, Quality and Host sections cover touch and mouse modes, on-screen controls, picture-in-picture, bitrate and host commands.
+Controls
+Up to 16 controllers with mapping per model, DualSense over USB with adaptive triggers, lightbar and haptics, and built-in Xbox and Switch Pro USB drivers. Touch as a trackpad, direct mouse or multi-touch, on-screen controls in the Classic or Modern style, per-game touch layouts, a full PC keyboard with F-keys and shortcuts, pen, mouse and keyboard. Send your microphone to the PC with echo cancellation and noise suppression.
 
-Built-in help shows you how to connect and pair your PC, use the controls and fix common problems.
+Stream quality
+Automatic bitrate follows loss and your decoder's headroom, automatic quality adapts resolution and frame rate, interrupted streams recover on their own, and short network drops are ridden out. Presets start you at your screen's resolution and refresh rate, or save battery. Settings per PC, per game and per network.
 
-Extras such as the PyroWave codec, PC display modes and host performance readings work on hosts that support them (currently Rubylight).
+With a Rubylight PC
+Pair by scanning a QR code. Share the clipboard, send and download files, browse shared folders and hand a USB device such as a drawing tablet to the PC. Join a free seat in a Nucleus Co-op split-screen game. Change bitrate and frame rate during a stream, choose the error correction, pass PCM or Dolby audio to your receiver, use the PyroWave codec and a display of its own on the PC, and see the PC's CPU and GPU readings in the overlay.
 
-Nightjar is free and open source. No ads or in-app purchases.
+See what's happening
+The performance overlay shows frame rate, round-trip time and frame loss in one line, or detailed Statistics and Debug views. Stream health names the likely cause of a stutter and can try a reversible fix. A connection test, an input latency measurement and problem reports that stay on your device until you share them.
+
+Made for a TV remote and a controller as much as touch, in 15 languages, with high contrast, reduced motion and help that works offline. Nightjar also runs on Windows and Linux; get it from the project's releases.
+
+Nightjar is free and open source. No ads, no account and no in-app purchases.
 
 Licensed under GPL-3.0. Based on Moonlight, with thanks to its contributors.

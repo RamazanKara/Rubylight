@@ -6,12 +6,12 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f8f9fd" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#14161f" media="(prefers-color-scheme: dark)">
-  <title>Download for Android · Nightjar</title>
-  <meta name="description" content="Download Nightjar for Android. Verify the SHA-256 checksum and start your first stream.">
+  <title>Download · Nightjar</title>
+  <meta name="description" content="Download Nightjar for Android, Windows and Linux. Verify the SHA-256 checksum and start your first stream.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Nightjar">
-  <meta property="og:title" content="Download for Android · Nightjar">
-  <meta property="og:description" content="Download Nightjar for Android. Verify the SHA-256 checksum and start your first stream.">
+  <meta property="og:title" content="Download · Nightjar">
+  <meta property="og:description" content="Download Nightjar for Android, Windows and Linux. Verify the SHA-256 checksum and start your first stream.">
   <meta property="og:image" content="assets/og.png">
   <meta property="og:image:alt" content="Nightjar — Stream your PC to Android.">
   <meta property="og:image:width" content="1200">
@@ -44,9 +44,9 @@
     <section class="page-heading wrap download-heading">
       <img class="download-mark" src="assets/launcher.png" alt="" width="80" height="80">
       <h1>Your next stream<br><span>starts here.</span></h1>
-      <p class="lead">Nightjar for Android. Your PC in your hands.</p>
+      <p class="lead">Nightjar for Android, Windows and Linux. Your PC in your hands.</p>
       <a class="button" href="https://github.com/RamazanKara/nightjar/releases/latest"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>Get the latest release</a>
-      <p class="fine-print">Android 5.0+ · APK · Free and open source</p>
+      <p class="fine-print">Android 5.0+ APK · Windows and Linux archives · Free and open source</p>
     </section>
     <div class="wrap reading-layout">
       <aside class="page-aside"><p class="small-heading">Get started</p><nav aria-label="On this page"><a href="#install">Install</a><a href="#verify">Verify the checksum</a><a href="index.html#setup">Connect to your PC</a></nav></aside>
@@ -57,12 +57,13 @@
             <li>Open the latest release and download the APK.</li>
             <li>Verify the file using the commands below. Open the APK on your Android device.</li>
             <li>Allow installation from your browser or file manager when Android asks. Install Nightjar.</li>
+            <li>On Windows, download <code>nightjar-desktop-&lt;version&gt;-windows-x86_64.zip</code>, unzip it and run <code>nightjar.exe</code>. On Linux, download <code>nightjar-desktop-&lt;version&gt;-linux-x86_64.tar.gz</code>, unpack it and run <code>./nightjar</code>.</li>
             <li>Start your PC’s streaming host, for example <a href="https://github.com/ClassicOldSong/Apollo">Apollo</a>, <a href="https://github.com/RamazanKara/Rubylight">Rubylight</a>, <a href="https://github.com/LizardByte/Sunshine">Sunshine</a> or <a href="https://github.com/Nonary/Vibepollo">Vibepollo</a>. Then follow the <a href="index.html#setup">four-step setup</a>.</li>
           </ol>
         </section>
         <section id="verify" aria-labelledby="verify-title">
           <h2 id="verify-title">Check your download.</h2>
-          <p>Open a terminal in the folder containing the APK. Calculate its SHA-256 hash with the command for your system.</p>
+          <p>Open a terminal in the folder containing the download. Calculate its SHA-256 hash with the command for your system.</p>
           <div class="command"><h3>Windows · PowerShell</h3><pre tabindex="0" aria-label="PowerShell verification command"><code>Get-FileHash .\*.apk -Algorithm SHA256</code></pre></div>
           <div class="command"><h3>Linux</h3><pre tabindex="0" aria-label="Linux verification command"><code>sha256sum ./*.apk</code></pre></div>
           <div class="command"><h3>macOS</h3><pre tabindex="0" aria-label="macOS verification command"><code>shasum -a 256 ./*.apk</code></pre></div>
@@ -76,7 +77,7 @@
   <footer class="site-footer wrap">
     <div><a class="brand" href="index.html">NIGHTJAR</a><p>Your PC. Your stream.</p></div>
     <nav aria-label="Footer navigation"><a href="docs.html">Documentation</a><a href="devices.html">Device results</a><a href="privacy.html">Privacy</a><a href="https://github.com/RamazanKara/nightjar">Source code</a></nav>
-    <p class="footer-note">Built for Android. Free and open source.</p>
+    <p class="footer-note">For Android, Windows and Linux. Free and open source.</p>
   </footer>
 </body>
 </html>

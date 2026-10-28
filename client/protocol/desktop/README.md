@@ -4,9 +4,10 @@ The desktop client: a Moonlight-protocol game-streaming client on the shared Rus
 (`nightjar-core`). Like the Android app it works with Sunshine, Apollo, Vibepollo, Rubylight
 and GeForce Experience; host-specific extras follow the host's capabilities.
 
-Status: Experimental. It pairs, lists and launches apps, and streams with
-hardware decoding, VRR pacing, audio, keyboard, mouse and controllers. See
-[What works](#what-works) for the details and the gaps.
+It pairs, lists and launches apps, and streams with hardware decoding, HDR10,
+10-bit SDR and 4:4:4, VRR pacing, audio, keyboard, mouse and controllers. See
+[What works](#what-works) for the details and the gaps, and
+[Android and desktop](../../docs/CLIENT-PARITY.md) for a feature-by-feature comparison.
 
 ## Building
 
@@ -288,7 +289,7 @@ Done, on Windows and Linux unless noted:
   leaves. Saved key chords are sent from the stream menu and import and export in the
   Android app's shortcut format.
 
-Experimental:
+Not yet checked on our hardware:
 
 - HDR on Linux: the SDL GPU renderer asks the compositor for an HDR swap chain. Not checked
   on an HDR display yet.
@@ -304,18 +305,19 @@ Partial:
 - Controllers: rumble, trigger rumble, LEDs, motion, touchpad, battery, DualSense adaptive
   triggers and controller audio and haptics are wired to SDL's gamepad API but were not
   tried with physical controllers yet.
-- Prefer YUV 4:4:4: pictures a hardware decoder gives as packed 4:4:4 surfaces (AYUV, Y410)
-  are not drawn, so such a decoder is refused by name and the software decoder streams it.
+- Prefer YUV 4:4:4 and 10-bit color (SDR) are offered per codec after a test decode on this
+  device's decoder; a codec the decoder can't return as 4:4:4 or 10-bit pictures is streamed
+  in 4:2:0 or 8-bit with the reason. Pictures a hardware decoder gives as packed 4:4:4
+  surfaces (AYUV, Y410) are not drawn yet, so such a decoder streams 4:2:0; the software
+  decoder draws 4:4:4.
 
 Missing compared with the Android app:
 
-- PyroWave automatic bitrate, the network path and remote access check, and the delay
-  test in the connection test.
-- Host family and version in the PC's details, and a button for the host's web UI.
+- PyroWave automatic bitrate, and the delay test in the connection test.
 - Problem reports and crash records (the logs folder is there).
-- Frame pacing modes (Balanced, Smoothest, drop late) and 10-bit SDR.
-- Touch trackpad mode and on-screen controls, a command line for frontends, a screen reader,
-  settings search, presets, a PIN lock, more languages, and an updater on Windows.
+- Frame pacing modes (Balanced, Smoothest, drop late).
+- Touch trackpad mode and on-screen controls, a screen reader, settings search, presets, a
+  PIN lock, more languages, and an updater on Windows.
 - A dedicated D3D11 renderer with a waitable swap chain (moonlight-qt's d3d11va/VRR pacer
   design) for frame-latency control beyond what SDL's renderer offers.
 

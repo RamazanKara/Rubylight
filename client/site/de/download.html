@@ -6,12 +6,12 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f8f9fd" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#14161f" media="(prefers-color-scheme: dark)">
-  <title>Download für Android · Nightjar</title>
-  <meta name="description" content="Lade Nightjar für Android herunter. Prüfe die SHA-256-Prüfsumme und starte deinen ersten Stream.">
+  <title>Download · Nightjar</title>
+  <meta name="description" content="Lade Nightjar für Android, Windows und Linux herunter. Prüfe die SHA-256-Prüfsumme und starte deinen ersten Stream.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Nightjar">
-  <meta property="og:title" content="Download für Android · Nightjar">
-  <meta property="og:description" content="Lade Nightjar für Android herunter. Prüfe die SHA-256-Prüfsumme und starte deinen ersten Stream.">
+  <meta property="og:title" content="Download · Nightjar">
+  <meta property="og:description" content="Lade Nightjar für Android, Windows und Linux herunter. Prüfe die SHA-256-Prüfsumme und starte deinen ersten Stream.">
   <meta property="og:image" content="../assets/og.png">
   <meta property="og:image:alt" content="Nightjar — Stream your PC to Android.">
   <meta property="og:image:width" content="1200">
@@ -44,9 +44,9 @@
     <section class="page-heading wrap download-heading">
       <img class="download-mark" src="../assets/launcher.png" alt="" width="80" height="80">
       <h1>Dein nächster Stream<br><span>beginnt hier.</span></h1>
-      <p class="lead">Nightjar für Android. Dein PC in deiner Hand.</p>
+      <p class="lead">Nightjar für Android, Windows und Linux. Dein PC in deiner Hand.</p>
       <a class="button" href="https://github.com/RamazanKara/nightjar/releases/latest"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>Aktuellen Release öffnen</a>
-      <p class="fine-print">Android 5.0+ · APK · Frei und quelloffen</p>
+      <p class="fine-print">Android-5.0+-APK · Archive für Windows und Linux · Frei und quelloffen</p>
     </section>
     <div class="wrap reading-layout">
       <aside class="page-aside"><p class="small-heading">Loslegen</p><nav aria-label="Auf dieser Seite"><a href="#install">Installieren</a><a href="#verify">Prüfsumme prüfen</a><a href="index.html#setup">Mit dem PC verbinden</a></nav></aside>
@@ -57,12 +57,13 @@
             <li>Öffne den aktuellen Release und lade die APK herunter.</li>
             <li>Prüfe die Datei mit den Befehlen unten. Öffne die APK auf deinem Android-Gerät.</li>
             <li>Erlaube deinem Browser oder Dateimanager die Installation, wenn Android danach fragt. Installiere Nightjar.</li>
+            <li>Unter Windows lädst du <code>nightjar-desktop-&lt;version&gt;-windows-x86_64.zip</code>, entpackst es und startest <code>nightjar.exe</code>. Unter Linux lädst du <code>nightjar-desktop-&lt;version&gt;-linux-x86_64.tar.gz</code>, entpackst es und startest <code>./nightjar</code>.</li>
             <li>Starte den Streaming-Host auf deinem PC, zum Beispiel <a href="https://github.com/ClassicOldSong/Apollo">Apollo</a>, <a href="https://github.com/RamazanKara/Rubylight">Rubylight</a>, <a href="https://github.com/LizardByte/Sunshine">Sunshine</a> oder <a href="https://github.com/Nonary/Vibepollo">Vibepollo</a>. Folge dann der <a href="index.html#setup">Einrichtung in vier Schritten</a>.</li>
           </ol>
         </section>
         <section id="verify" aria-labelledby="verify-title">
           <h2 id="verify-title">Prüfe deinen Download.</h2>
-          <p>Öffne ein Terminal im Ordner mit der APK. Berechne den SHA-256-Hash mit dem Befehl für dein System.</p>
+          <p>Öffne ein Terminal im Ordner mit dem Download. Berechne den SHA-256-Hash mit dem Befehl für dein System.</p>
           <div class="command"><h3>Windows · PowerShell</h3><pre tabindex="0" aria-label="PowerShell-Prüfbefehl"><code>Get-FileHash .\*.apk -Algorithm SHA256</code></pre></div>
           <div class="command"><h3>Linux</h3><pre tabindex="0" aria-label="Linux-Prüfbefehl"><code>sha256sum ./*.apk</code></pre></div>
           <div class="command"><h3>macOS</h3><pre tabindex="0" aria-label="macOS-Prüfbefehl"><code>shasum -a 256 ./*.apk</code></pre></div>
@@ -76,7 +77,7 @@
   <footer class="site-footer wrap">
     <div><a class="brand" href="index.html">NIGHTJAR</a><p>Dein PC. Dein Stream.</p></div>
     <nav aria-label="Weitere Links"><a href="../docs.html">Dokumentation (EN)</a><a href="../devices.html">Geräteergebnisse (EN)</a><a href="../privacy.html">Datenschutz (EN)</a><a href="https://github.com/RamazanKara/nightjar">Quellcode</a></nav>
-    <p class="footer-note">Für Android. Frei und quelloffen.</p>
+    <p class="footer-note">Für Android, Windows und Linux. Frei und quelloffen.</p>
   </footer>
 </body>
 </html>

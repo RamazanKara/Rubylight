@@ -469,7 +469,7 @@ The idea: with the host sending each row of blocks with the data it depends on (
 decode the picture in slices while it is still on the wire and present each slice before the display's
 beam reaches its rows, so a high PyroWave bitrate stops costing the time a whole frame takes to arrive.
 It was built in three pieces and measured against presenting whole pictures. It missed its default-on
-gate on loopback, so it ships as an experimental opt-in: the `beam_race` setting (off by default) or
+gate on loopback, so it ships as an opt-in: the `beam_race` setting (off by default) or
 `NIGHTJAR_BEAM_RACE=1`. Off, it costs nothing: no row order is asked of the host, no scan line probe
 runs, no slice is decoded or handed over, frames decode and present as without it
 ([beam-racing.md](beam-racing.md)). On, a stream that cannot race says why in the log and on the stats
@@ -531,6 +531,6 @@ number to beat on that link is the same rule.
 Decision: kept as an opt-in, off by default, not shipped as the default. The median picture age
 gains 1.4 ms at pace 900 and 0.7 ms at pace 2100, which is less than the rule asked for, and the p95
 gains little. The wired NUC legs (3, 4 and 7), where the idea is meant to pay, are not run: until they
-are, the setting is labelled experimental and nothing recommends it. To try it, set `beam_race` in the
+are, the setting stays off by default and nothing recommends it. To try it, set `beam_race` in the
 settings file or run with `NIGHTJAR_BEAM_RACE=1`; `NIGHTJAR_BEAM_RACE_PRESENT=0` keeps the probe and the
 slices but presents whole pictures (the measurement's "whole" side).

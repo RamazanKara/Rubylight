@@ -16,10 +16,12 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 mod clipboard_sync_tests;
+mod control_fuzz_tests;
 mod extension_tests;
 mod interop_tests;
 mod rate_change_tests;
 mod roaming_tests;
+mod session_end_tests;
 mod webrtc_tests;
 
 const CLOSED: u32 = 0x8003_0023;

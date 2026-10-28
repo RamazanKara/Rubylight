@@ -3013,4 +3013,24 @@ mod tests {
             assert!(stream_key_id(invalid).is_err(), "{invalid}");
         }
     }
+
+    mod properties {
+        use super::stream_key_id;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// `rikeyid` is any 32-bit decimal, signed or unsigned, and nothing else.
+            #[test]
+            fn stream_key_ids_are_32_bit_decimals(value in r"[+-]?[0-9]{0,11}|\PC{0,12}") {
+                let wide = value.parse::<i64>().ok().filter(|n| (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(n));
+                prop_assert_eq!(stream_key_id(&value).ok(), wide.map(|n| n as u32));
+            }
+
+            #[test]
+            fn signed_and_unsigned_ids_agree(id in any::<u32>()) {
+                prop_assert_eq!(stream_key_id(&id.to_string()).unwrap(), id);
+                prop_assert_eq!(stream_key_id(&(id as i32).to_string()).unwrap(), id);
+            }
+        }
+    }
 }

@@ -56,6 +56,8 @@ pub mod extensions;
 pub mod fec_status;
 pub mod file_transfer;
 pub mod framegen;
+#[cfg(test)]
+mod fuzz;
 pub mod haptics;
 pub mod hdr;
 pub mod hdr_dynamic;

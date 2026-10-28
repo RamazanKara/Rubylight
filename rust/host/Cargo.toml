@@ -59,6 +59,8 @@ embed-resource = "3.0.12"
 butterpollo-windows = { path = "../windows", features = ["test-folder"] }
 # Nightjar's client engine, for the interop tests against this host (stream/reconnect_tests/interop_tests.rs).
 nightjar-core = { path = "../../client/protocol/client" }
+# Property tests over the query fields and bodies peers send.
+proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

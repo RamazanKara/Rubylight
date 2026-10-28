@@ -76,6 +76,15 @@ impl Source {
 pub struct Settings {
     pub epic: bool,
     pub gog: bool,
+    pub battlenet: bool,
+    pub ea: bool,
+    pub ubisoft: bool,
+    pub microsoft: bool,
+    /// `library_auto_sync`: keep every installed game of the launchers that are on in the
+    /// library, as `steam_auto_sync` does for Steam.
+    pub auto_sync: bool,
+    /// `library_autosync_remove_uninstalled`: a synced game that is no longer installed leaves.
+    pub remove_uninstalled: bool,
     /// Folders whose subfolders are games, one game per subfolder.
     pub local_folders: Vec<PathBuf>,
     /// Game folders the folder scan leaves out, by folder name or full path.
@@ -91,6 +100,12 @@ impl Settings {
         Self {
             epic: config.boolean("library_epic_enabled", true),
             gog: config.boolean("library_gog_enabled", true),
+            battlenet: config.boolean("library_battlenet_enabled", true),
+            ea: config.boolean("library_ea_enabled", true),
+            ubisoft: config.boolean("library_ubisoft_enabled", true),
+            microsoft: config.boolean("library_microsoft_enabled", true),
+            auto_sync: config.boolean("library_auto_sync", true),
+            remove_uninstalled: config.boolean("library_autosync_remove_uninstalled", true),
             local_folders: config
                 .list("library_local_folders")
                 .into_iter()
@@ -108,8 +123,12 @@ impl Settings {
         match source {
             Source::Epic => self.epic,
             Source::Gog => self.gog,
+            Source::Battlenet => self.battlenet,
+            Source::Ea => self.ea,
+            Source::Ubisoft => self.ubisoft,
+            Source::Microsoft => self.microsoft,
             Source::Local => !self.local_folders.is_empty(),
-            _ => true,
+            Source::Steam => true,
         }
     }
     /// Whether the folder scan leaves out the game folder `folder`.
@@ -350,6 +369,97 @@ pub fn import(apps: &mut Vec<Value>, games: &[Game], selected: &[Selection]) -> 
             result
         })
         .collect()
+}
+
+/// The app field that marks an app the launcher sync added and keeps in step, as
+/// `steam-managed` does for Steam's sync.
+pub const MANAGED: &str = "launcher-managed";
+/// The app document's list of synced games deleted from the library (`source:id`), so the
+/// sync does not bring them back. An import of the game takes it off the list.
+pub const DISMISSED: &str = "launcher-dismissed";
+
+/// How a game is named in [`DISMISSED`].
+pub fn dismissed_key(source: Source, id: &str) -> String {
+    format!("{}:{id}", source.key())
+}
+
+/// The game a synced app was made from, as [`dismissed_key`] names it.
+pub fn managed_key(app: &Value) -> Option<String> {
+    (app[MANAGED].as_str() == Some("auto"))
+        .then(|| {
+            Some(format!(
+                "{}:{}",
+                app["launcher-source"].as_str()?,
+                app["launcher-id"].as_str()?
+            ))
+        })
+        .flatten()
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SyncChange {
+    pub added: usize,
+    pub removed: usize,
+}
+impl SyncChange {
+    pub fn changed(&self) -> bool {
+        self.added + self.removed > 0
+    }
+}
+
+/// The launcher sync (`library_auto_sync`): Steam's sync for every other launcher. Each
+/// installed game of a launcher that is on becomes an app marked `launcher-managed: auto`,
+/// unless an app already has the game (an import, or Playnite's or Steam's copy), the
+/// launcher cannot start it, or it was deleted from the library (`dismissed`). With
+/// `remove_uninstalled`, a synced app whose game a clean read of its launcher (`read`) no
+/// longer finds leaves. Apps added by hand or imported are never changed. Steam keeps its
+/// own sync and is skipped here.
+pub fn reconcile(
+    apps: &mut Vec<Value>,
+    games: &[Game],
+    settings: &Settings,
+    read: &[Source],
+    dismissed: &[String],
+) -> SyncChange {
+    let mut change = SyncChange::default();
+    if !settings.auto_sync {
+        return change;
+    }
+    if settings.remove_uninstalled {
+        let before = apps.len();
+        apps.retain(|app| {
+            let Some(source) = app["launcher-source"]
+                .as_str()
+                .and_then(|key| Source::ALL.into_iter().find(|source| source.key() == key))
+            else {
+                return true;
+            };
+            managed_key(app).is_none()
+                || source == Source::Steam
+                || !read.contains(&source)
+                || !settings.enabled(source)
+                || games.iter().any(|game| {
+                    game.source == source && app["launcher-id"].as_str() == Some(&game.id)
+                })
+        });
+        change.removed = before - apps.len();
+    }
+    for game in games {
+        if game.source == Source::Steam
+            || !settings.enabled(game.source)
+            || game.unavailable_reason.is_some()
+            || dismissed.contains(&dismissed_key(game.source, &game.id))
+            || apps.iter().any(|app| game.matches(app))
+        {
+            continue;
+        }
+        if let Ok(mut app) = game.app() {
+            app[MANAGED] = json!("auto");
+            apps.push(app);
+            change.added += 1;
+        }
+    }
+    change
 }
 
 fn identifier(value: &str) -> Result<&str> {

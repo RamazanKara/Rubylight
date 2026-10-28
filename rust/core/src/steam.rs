@@ -545,8 +545,8 @@ impl Settings {
     pub fn from_config(config: &Config) -> Self {
         let count = |key: &str, default: i64| config.integer(key, default).max(0) as u64;
         Self {
-            enabled: config.boolean("steam_enabled", false),
-            auto_sync: config.boolean("steam_auto_sync", false),
+            enabled: config.boolean("steam_enabled", true),
+            auto_sync: config.boolean("steam_auto_sync", true),
             sync_all_installed: config.boolean("steam_sync_all_installed", false),
             recent_games: count("steam_recent_games", 10) as usize,
             recent_max_age_days: count("steam_recent_max_age_days", 30),

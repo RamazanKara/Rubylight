@@ -856,6 +856,9 @@ export const api = {
     discovery: () => get<LibraryDiscovery>('/api/library/discovery', ACTION_TIMEOUT_MS),
     import: (games: { source: LibrarySource; id: string }[]) =>
       post<{ status: true; results: LibraryImportResult[] }>('/api/library/import', { games }, ACTION_TIMEOUT_MS),
+    /** The launcher sync now: every installed game of the launchers that are on. */
+    sync: () =>
+      post<{ status: true; added: number; removed: number; playnite: boolean }>('/api/library/sync', {}, SLOW_TIMEOUT_MS),
   },
   steam: {
     status: () => get<SteamStatus>('/api/steam/status'),

@@ -15,7 +15,7 @@ function on(values: Values, key: string, fallback: boolean): boolean {
   return fallback;
 }
 
-const steam = (values: Values) => on(values, 'steam_enabled', false);
+const steam = (values: Values) => on(values, 'steam_enabled', true);
 const recent = (values: Values) => steam(values) && !on(values, 'steam_sync_all_installed', false);
 const playnite = (values: Values) => on(values, 'playnite_enabled', true);
 const playniteSync = (values: Values) => playnite(values) && on(values, 'playnite_auto_sync', true);
@@ -245,7 +245,7 @@ export const settings: Setting[] = [
     category: 'library',
     group: 'Steam',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
   },
   {
     key: 'steam_auto_sync',
@@ -254,7 +254,7 @@ export const settings: Setting[] = [
     category: 'library',
     group: 'Steam',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
     visibleWhen: steam,
   },
@@ -331,20 +331,76 @@ export const settings: Setting[] = [
   {
     key: 'library_epic_enabled',
     label: 'Epic Games',
-    description: 'Lists games installed with the Epic Games Launcher in Library › Add games. They start through the launcher.',
+    description: 'Adds the games installed with the Epic Games Launcher to the library, with their covers, and ends a stream when the game exits.',
     category: 'library',
-    group: 'Other launchers',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_battlenet_enabled',
+    label: 'Battle.net',
+    description: 'Adds the games installed with Battle.net to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_ea_enabled',
+    label: 'EA app',
+    description: 'Adds the games installed with the EA app to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_ubisoft_enabled',
+    label: 'Ubisoft Connect',
+    description: 'Adds the games installed with Ubisoft Connect to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
     control: { kind: 'toggle' },
     default: true,
   },
   {
     key: 'library_gog_enabled',
     label: 'GOG',
-    description: 'Lists GOG games in Library › Add games, including installs without GOG Galaxy. They start through Galaxy when it is installed.',
+    description: 'Adds the games installed with GOG Galaxy or the GOG installer to the library, with their covers, and ends a stream when the game exits.',
     category: 'library',
-    group: 'Other launchers',
+    group: 'Launchers',
     control: { kind: 'toggle' },
     default: true,
+  },
+  {
+    key: 'library_microsoft_enabled',
+    label: 'Xbox and Microsoft Store',
+    description: 'Adds the games installed with the Xbox app or the Microsoft Store to the library, with their covers, and ends a stream when the game exits.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_auto_sync',
+    label: 'Sync automatically',
+    description: 'Keeps every installed game of the launchers above in the library, like the Steam sync. Games you delete from the library stay deleted.',
+    details: 'Checked every five minutes and when these settings change. While Playnite syncs your library, Playnite adds these games instead.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_autosync_remove_uninstalled',
+    label: 'Remove uninstalled games',
+    description: 'Removes a synced game once its launcher no longer lists it. Games you added by hand stay.',
+    category: 'library',
+    group: 'Launchers',
+    control: { kind: 'toggle' },
+    default: true,
+    visibleWhen: (values) => on(values, 'library_auto_sync', true),
   },
   {
     key: 'library_local_folders',

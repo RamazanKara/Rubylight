@@ -472,6 +472,14 @@ pub fn watch(h: &Shared) {
 }
 
 /// `/api/playnite/status`.
+/// Whether Playnite keeps the library in step: on, syncing automatically and with its
+/// plugin installed. The launcher sync then leaves the other launchers' games to it.
+pub fn syncs_launchers(h: &Shared) -> bool {
+    let settings = Settings::from_config(&h.config.read().unwrap());
+    settings.enabled
+        && settings.auto_sync
+        && installed_plugin().is_some_and(|t| PLUGIN_FILES.iter().all(|f| t.join(f).is_file()))
+}
 pub fn status(h: &Shared) -> Value {
     let settings = Settings::from_config(&h.config.read().unwrap());
     let target = installed_plugin();

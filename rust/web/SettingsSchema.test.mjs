@@ -403,6 +403,25 @@ test('Epic and GOG scans default on, game folders default empty and their exclus
   }
 });
 
+test('every launcher has the same on switch and sync as Steam, all on by default', () => {
+  // The host's defaults: core/src/library.rs Settings::from_config and core/src/steam.rs.
+  const launchers = ['epic', 'battlenet', 'ea', 'ubisoft', 'gog', 'microsoft'].map(id => `library_${id}_enabled`);
+  for (const key of [...launchers, 'library_auto_sync', 'library_autosync_remove_uninstalled', 'steam_enabled', 'steam_auto_sync']) {
+    const setting = settings.get(key);
+    assert.equal(setting.default, true, key);
+    assert.equal(setting.control.kind, 'toggle', key);
+    assert.equal(setting.category, 'library', key);
+  }
+  for (const key of launchers) {
+    assert.equal(settings.get(key).group, 'Launchers', key);
+    assert.match(settings.get(key).description, /^Adds the games installed with .+ to the library, with their covers/, key);
+  }
+  const remove = settings.get('library_autosync_remove_uninstalled');
+  assert.equal(remove.visibleWhen({}), true);
+  assert.equal(remove.visibleWhen({ library_auto_sync: false }), false);
+  assert.equal(settings.get('steam_auto_sync').visibleWhen({}), true);
+});
+
 test('integer tuning steps reject fractions without forcing multiples of the arrow increment', () => {
   // Both are Config::integer inputs, in host/src/stream.rs and host/src/state.rs.
   for (const key of ['capture_poll_interval_us', 'dd_config_revert_delay']) {
@@ -521,7 +540,6 @@ const live = [
   'touch_mode',
   'touch_sensitivity',
   'touch_gestures',
-  'qr_pairing',
 ];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
@@ -548,12 +566,11 @@ test('touch profiles are Experimental and their options show only as a mouse or 
   }
 });
 
-test('QR pairing is Experimental, off by default and on the Pairing group', () => {
-  const setting = settings.get('qr_pairing');
-  assert.match(setting.label, /\(Experimental\)$/);
-  assert.match(setting.description, / Experimental\.$/);
-  assert.equal(setting.default, false);
-  assert.equal(setting.group, 'Pairing');
+test('QR pairing is always on: no console toggle, on by default, no Experimental label', () => {
+  const setting = pending.find(item => item.key === 'qr_pairing');
+  assert.equal(settings.has('qr_pairing'), false);
+  assert.equal(setting.default, true);
+  assert.doesNotMatch(setting.label + setting.description, /Experimental/);
 });
 
 test('7.1.4 surround is Experimental and says the heights need a 7.1.4 device', () => {

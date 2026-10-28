@@ -402,14 +402,24 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();
     let before = next.len();
+    let mut deleted = vec![];
     next.retain(|a| {
-        a.extra.get("uuid").and_then(Value::as_str) != Some(id) && a.id().to_string() != id
+        let keep =
+            a.extra.get("uuid").and_then(Value::as_str) != Some(id) && a.id().to_string() != id;
+        if !keep {
+            deleted.push(serde_json::to_value(a));
+        }
+        keep
     });
     if next.len() == before {
         anyhow::bail!("application not found");
     }
     h.assign_apps(&mut next)?;
     let mut doc = h.app_document.read().unwrap().clone();
+    // A game the launcher sync added stays deleted.
+    for app in deleted {
+        crate::library::dismiss(&mut doc, &app?);
+    }
     doc["apps"] = serde_json::to_value(&next)?;
     state::write_json(&h.apps_path, &doc)?;
     *apps = next;
@@ -425,6 +435,7 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
         ("GET", "discovery") => {
             tokio::task::spawn_blocking(move || crate::library::discovery(&h)).await
         }
+        ("POST", "sync") => tokio::task::spawn_blocking(move || crate::library::sync(&h)).await,
         ("POST", "import") => {
             let selected: Vec<butterpollo_core::library::Selection> =
                 match serde_json::from_value(data["games"].clone()) {

@@ -369,17 +369,25 @@ impl Session {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Admit {
     Start,
-    /// Join the running co-op session of the same game.
+    /// Join the running co-op session of the same game, or return to the
+    /// device's own background stream of it.
     Join(u32),
     /// Another session holds Nucleus; the text says which.
     Busy(String),
 }
 
-pub fn admit(current: Option<&Session>, game: &str, kind: Kind) -> Admit {
+/// `device` is the launching device: the owner of a background stream
+/// returns to it, nobody else does.
+pub fn admit(current: Option<&Session>, game: &str, kind: Kind, device: &str) -> Admit {
     let Some(session) = current.filter(|s| !s.ended()) else {
         return Admit::Start;
     };
-    if kind == Kind::Coop && session.kind == Kind::Coop && session.game == game {
+    let returns = match (kind, session.kind) {
+        (Kind::Coop, Kind::Coop) => true,
+        (Kind::Background, Kind::Background) => session.slot_of(device).is_some(),
+        _ => false,
+    };
+    if returns && session.game == game {
         return Admit::Join(session.id);
     }
     let what = match session.kind {
@@ -572,23 +580,51 @@ mod tests {
     #[test]
     fn nucleus_runs_one_game_and_only_co_op_of_the_same_game_joins() {
         let s = coop(&[0, 1]);
-        assert_eq!(admit(None, "Racer", Kind::Coop), Admit::Start);
-        assert_eq!(admit(Some(&s), "Racer", Kind::Coop), Admit::Join(1));
-        let busy = admit(Some(&s), "Shooter", Kind::Coop);
+        assert_eq!(admit(None, "Racer", Kind::Coop, "tv"), Admit::Start);
+        assert_eq!(admit(Some(&s), "Racer", Kind::Coop, "tv"), Admit::Join(1));
+        let busy = admit(Some(&s), "Shooter", Kind::Coop, "tv");
         assert!(
             matches!(&busy, Admit::Busy(text) if text.starts_with("Nucleus Co-op is running Racer for a co-op session")),
             "{busy:?}"
         );
         assert!(matches!(
-            admit(Some(&s), "Racer", Kind::Background),
+            admit(Some(&s), "Racer", Kind::Background, "owner"),
             Admit::Busy(_)
         ));
         let mut ended = coop(&[0]);
         ended.end(End::Ended);
         assert_eq!(
-            admit(Some(&ended), "Shooter", Kind::Background),
+            admit(Some(&ended), "Shooter", Kind::Background, "owner"),
             Admit::Start
         );
+    }
+
+    #[test]
+    fn only_the_owner_returns_to_a_background_stream() {
+        let s = Session::new(
+            1,
+            Kind::Background,
+            "Racer",
+            "Racer",
+            &[0],
+            ("owner", "Phone"),
+        )
+        .unwrap();
+        assert_eq!(
+            admit(Some(&s), "Racer", Kind::Background, "owner"),
+            Admit::Join(1)
+        );
+        for (game, kind, device) in [
+            ("Racer", Kind::Background, "tv"),
+            ("Racer", Kind::Coop, "owner"),
+            ("Shooter", Kind::Background, "owner"),
+        ] {
+            let busy = admit(Some(&s), game, kind, device);
+            assert!(
+                matches!(&busy, Admit::Busy(text) if text.contains("for a background stream")),
+                "{game} {kind:?} {device}: {busy:?}"
+            );
+        }
     }
 
     #[test]

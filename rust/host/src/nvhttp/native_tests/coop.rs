@@ -1,7 +1,7 @@
 //! `GET /coop`, `POST /coop/join`, the `coop` feature and the co-op library
 //! entries through the router, with the fake Nucleus Co-op PC.
 use super::*;
-use crate::nucleus::{Admission, fake};
+use crate::nucleus::{Admission, Game, fake};
 use butterpollo_core::{native_api::coop::Coop, state::App};
 
 async fn join(s: &Setup, connection: &Connection, body: &str) -> Reply {
@@ -70,7 +70,7 @@ fn launch(s: &Setup, index: usize, launch: &str) -> butterpollo_core::session::S
         .admit(Admission {
             launch,
             client: &client,
-            coop: &coop,
+            game: Game::Coop(&coop),
             size: (1920, 1080),
             config: &Default::default(),
             warnings: Default::default(),

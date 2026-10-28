@@ -2214,50 +2214,110 @@ async fn reliable_messages_sent_in_an_outage_arrive_when_it_ends() -> Result<()>
     h.finish().await
 }
 
+/// A device's `background_stream` launch of an app runs in Nucleus Co-op, a
+/// private session of one player: the host's own app is neither replaced,
+/// started nor kept, the stream is a Nucleus player's, its owner returns to
+/// it and another device is refused, by the app and by its co-op entry.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn background_resume_preserves_the_owner_and_rejects_mode_changes() -> Result<()> {
-    let h = Harness::new(10_000, 2).await?;
+async fn background_launches_run_in_nucleus_and_only_their_owner_returns() -> Result<()> {
+    let (h, pc, entry) = coop_harness().await?;
+    let portal = h.h.apps.read().unwrap().last().unwrap().id();
     for client in &mut h.h.paired.write().unwrap().clients {
         client.extra.insert("background_stream".into(), true.into());
     }
-    let generation = {
-        let mut current = h.h.current_app.lock().unwrap();
-        let app = current.as_mut().unwrap();
-        app.owner = "0".into();
-        app.background = true;
-        app.generation.clone()
-    };
-    let launch = h.launch(0, false).await?;
-    let (old, client) = h.play(&launch).await?;
-    let rejected = h.launch_response(1, true).await?;
-    assert!(rejected.contains("status_code=\"409\""), "{rejected}");
-    assert!(rejected.contains("another device"), "{rejected}");
-    assert!(!old.stopping());
-    h.counts(1, 0).await?;
-
-    h.h.paired.write().unwrap().clients[0]
-        .extra
-        .remove("background_stream");
-    let rejected = h.launch_response(0, true).await?;
-    assert!(rejected.contains("status_code=\"409\""), "{rejected}");
-    assert!(rejected.contains("changing background"), "{rejected}");
-    assert!(!old.stopping());
-    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 1);
-    h.h.paired.write().unwrap().clients[0]
-        .extra
-        .insert("background_stream".into(), true.into());
-
-    drop(client);
-    let resumed = h.launch(0, true).await?;
-    assert!(old.stopping());
-    assert_eq!(old.termination_reason(), CLOSED);
+    let generation =
+        h.h.current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .generation
+            .clone();
+    let first = launch_app(&h, 0, portal).await?;
+    assert!(first.contains("status_code=\"200\""), "{first}");
+    let launch = pending_of(&h, 0).unwrap();
+    let seat = launch.nucleus.unwrap();
+    assert_eq!(seat.slot, 0);
+    assert_eq!((launch.background, launch.app_id), (Some(true), portal));
+    let listed = h.h.nucleus.sessions();
+    assert_eq!(
+        listed[0].session.kind,
+        butterpollo_core::nucleus::coop::Kind::Background
+    );
+    assert_eq!(
+        (listed[0].session.slots.len(), listed[0].app_id),
+        (1, portal)
+    );
+    assert_eq!(h.fixture.apps_prepared.load(Ordering::Acquire), 0);
+    assert_eq!(h.fixture.resources_retained.load(Ordering::Acquire), 0);
     assert_eq!(
         h.h.current_app.lock().unwrap().as_ref().unwrap().generation,
         generation
     );
-    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 1);
-    let (session, client) = h.play(&resumed).await?;
-    h.end(&session, client).await?;
+    let config = crate::stream::effective_config(&h.h, &launch)?;
+    assert!(crate::nucleus::player(&config));
+    assert!(!butterpollo_core::background::enabled(&config));
+    let refused = launch_app(&h, 1, portal).await?;
+    assert!(refused.contains("status_code=\"409\""), "{refused}");
+    assert!(
+        refused.contains("Portal 2 can&apos;t stream in the background")
+            || refused.contains("Portal 2 can't stream in the background"),
+        "{refused}"
+    );
+    assert!(refused.contains("for a background stream"), "{refused}");
+    assert!(pending_of(&h, 1).is_none());
+    let by_entry = launch_app(&h, 1, entry).await?;
+    assert!(by_entry.contains("status_code=\"409\""), "{by_entry}");
+    // The owner's next launch returns to its own slot of the same session.
+    let again = launch_app(&h, 0, portal).await?;
+    assert!(again.contains("status_code=\"200\""), "{again}");
+    let relaunch = pending_of(&h, 0).unwrap();
+    assert_eq!(relaunch.nucleus, Some(seat));
+    assert_eq!(pc.started.lock().unwrap().len(), 1);
+    drop(launch);
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&relaunch.id);
+    drop(canceled);
+    h.h.nucleus.leave(seat, &relaunch.id);
+    drop(relaunch);
+    // The harness's last launch is a normal one.
+    for client in &mut h.h.paired.write().unwrap().clients {
+        client.extra.remove("background_stream");
+    }
+    h.finish().await
+}
+
+/// A background launch Nucleus Co-op can't run is refused with the reason
+/// and streams nothing: no display, no app, nothing pending. An app's own
+/// `background-stream` asks for one as the device's setting does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_background_launch_nucleus_cannot_run_streams_nothing() -> Result<()> {
+    let (h, pc, _) = coop_harness().await?;
+    let mut notepad = h.h.apps.read().unwrap().last().unwrap().clone();
+    notepad.name = "Notepad".into();
+    notepad.cmd = r"C:\Windows\notepad.exe".into();
+    notepad
+        .extra
+        .insert("background-stream".into(), true.into());
+    let id = notepad.id();
+    h.h.apps.write().unwrap().push(notepad);
+    let missing = launch_app(&h, 0, id).await?;
+    assert!(missing.contains("status_code=\"404\""), "{missing}");
+    assert!(
+        missing.contains("No Nucleus Co-op handler for notepad.exe"),
+        "{missing}"
+    );
+    assert!(missing.contains("stream in the background"), "{missing}");
+    assert!(pending_of(&h, 0).is_none());
+    // Where Nucleus Co-op can't run at all, 503 and why.
+    h.h.nucleus
+        .use_pc(Arc::new(crate::nucleus::fake::Pc::unavailable()));
+    let unavailable = launch_app(&h, 0, id).await?;
+    assert!(unavailable.contains("status_code=\"503\""), "{unavailable}");
+    assert!(unavailable.contains("not on this test PC"), "{unavailable}");
+    h.counts(0, 0).await?;
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 0);
+    assert_eq!(h.fixture.apps_prepared.load(Ordering::Acquire), 0);
+    assert!(pc.started.lock().unwrap().is_empty());
     h.finish().await
 }
 

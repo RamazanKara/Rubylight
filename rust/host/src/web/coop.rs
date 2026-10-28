@@ -164,7 +164,7 @@ async fn blocking(
 #[cfg(test)]
 mod tests {
     use super::super::parity_tests::{request, value};
-    use crate::nucleus::{Admission, Held, fake};
+    use crate::nucleus::{Admission, Game, Held, fake};
     use crate::state::{Session, test_support::Fixture};
     use axum::http::StatusCode;
     use butterpollo_core::{
@@ -213,7 +213,7 @@ mod tests {
                 .admit(Admission {
                     launch: &launch.id,
                     client: &launch.client,
-                    coop: &entry,
+                    game: Game::Coop(&entry),
                     size: (1920, 1080),
                     config: &Config::default(),
                     warnings: Default::default(),

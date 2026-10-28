@@ -2,7 +2,8 @@
 //! handlers and games it offers as co-op library entries, and the one
 //! session Nucleus runs at a time.
 //!
-//! A launch of a co-op entry is admitted here ([`Registry::admit`]) and
+//! A launch of a co-op entry, or of an app a device streams in the
+//! background, is admitted here ([`Registry::admit`], [`Game`]) and
 //! carries its [`Seat`] (`Launch::nucleus`) and its [`Held`] slot
 //! (`Launch::held`). Its stream reaches the session's [`Instance`] through
 //! [`Registry::instance`]; the launch's last copy gives the slot back with
@@ -16,6 +17,7 @@ use butterpollo_core::input::Input;
 use butterpollo_core::input_policy::Policy;
 use butterpollo_core::nucleus::coop::{self, Admit, End, Kind, Phase, Refused};
 use butterpollo_core::nucleus::handler::{Catalog, Handler, Missing};
+use butterpollo_core::nucleus::mode;
 use butterpollo_core::session::{Seat, Warnings};
 use butterpollo_core::state::{App, Client};
 use butterpollo_windows::input::PadReport;
@@ -331,12 +333,43 @@ pub enum Install {
     Failed(String),
 }
 
-/// A co-op launch asking for a slot.
+/// What a launch asks Nucleus Co-op to run.
+#[derive(Clone, Copy)]
+pub enum Game<'a> {
+    /// A co-op entry: a slot of its game's co-op session.
+    Coop(&'a CoopApp),
+    /// An app a device streams in the background (`background_stream`,
+    /// `background-stream`): a private session of one player.
+    Background(&'a App),
+}
+impl Game<'_> {
+    fn app(&self) -> &App {
+        match self {
+            Self::Coop(coop) => &coop.app,
+            Self::Background(app) => app,
+        }
+    }
+    /// The id the lists show the session under.
+    fn app_id(&self) -> u32 {
+        match self {
+            Self::Coop(coop) => coop.id(),
+            Self::Background(app) => app.id(),
+        }
+    }
+    fn kind(&self) -> Kind {
+        match self {
+            Self::Coop(_) => Kind::Coop,
+            Self::Background(_) => Kind::Background,
+        }
+    }
+}
+
+/// A launch asking for a slot.
 pub struct Admission<'a> {
     /// The launch's id, which holds the slot until its stream ends.
     pub launch: &'a str,
     pub client: &'a Client,
-    pub coop: &'a CoopApp,
+    pub game: Game<'a>,
     /// The stream's size, at which a new session parks the first window.
     pub size: (u32, u32),
     pub config: &'a Config,
@@ -537,14 +570,41 @@ impl Registry {
         }
     }
 
-    /// Admit a co-op launch: start a session of its game, or seat the device
-    /// in the running one. The launch then holds its slot until
-    /// [`leave`](Self::leave).
+    /// Admit a launch: start a session of its game, or seat the device in
+    /// the running one. The launch then holds its slot until
+    /// [`leave`](Self::leave). A background stream's refusal names the app
+    /// and why it can't stream in the background; it never runs another way.
     pub fn admit(&self, request: Admission) -> Result<Seat, Refusal> {
+        let game = request.game;
+        if game.kind() == Kind::Coop {
+            return self.admit_game(request);
+        }
+        log_background_mapping();
+        let mode = mode::decide(request.config.get(mode::KEY, ""));
+        let admitted = if mode.mode == mode::Mode::Unavailable {
+            Err(Refusal::unavailable(format!(
+                "{}: {}",
+                mode.label, mode.reason
+            )))
+        } else {
+            self.admit_game(request)
+        };
+        admitted.map_err(|refusal| Refusal {
+            message: format!(
+                "{} can't stream in the background: {}",
+                game.app().name,
+                refusal.message
+            ),
+            ..refusal
+        })
+    }
+
+    fn admit_game(&self, request: Admission) -> Result<Seat, Refusal> {
         let pc = self.pc();
         if let Some(why) = pc.unavailable() {
             return Err(Refusal::unavailable(why));
         }
+        let kind = request.game.kind();
         let _one = self.admit.lock().unwrap_or_else(PoisonError::into_inner);
         let folder = self.ensure(pc.as_ref(), &configured(request.config))?;
         let catalog = self.catalog(&folder, true).map_err(|error| {
@@ -552,7 +612,7 @@ impl Registry {
                 "Nucleus Co-op's handlers and games did not load: {error}"
             ))
         })?;
-        let app = &request.coop.app;
+        let app = request.game.app();
         let found = catalog
             .find(&app.name, executable(app))
             .map_err(|missing| Refusal::missing(&missing))?;
@@ -564,17 +624,14 @@ impl Registry {
                 .sessions
                 .values()
                 .find_map(|entry| entry.instance.session(|s| (!s.ended()).then(|| s.clone())));
-            coop::admit(current.as_ref(), &found.handler.guid, Kind::Coop)
+            coop::admit(current.as_ref(), &found.handler.guid, kind, &client.uuid)
         };
         match decision {
             Admit::Busy(text) => Err(Refusal::busy(text)),
             Admit::Join(id) => {
                 let mut state = self.lock();
                 let entry = state.sessions.get_mut(&id).ok_or_else(|| {
-                    Refusal::busy(format!(
-                        "The {} co-op session ended: launch it again",
-                        app.name
-                    ))
+                    Refusal::busy(format!("The {} session ended: launch it again", app.name))
                 })?;
                 let slot = entry
                     .instance
@@ -585,7 +642,7 @@ impl Registry {
                     Refusal::unavailable(format!("the session has no slot {slot}"))
                 })?;
                 *holder = Some(request.launch.into());
-                tracing::info!(session = id, slot, client = %client.name, title = %app.name, "Nucleus Co-op: a player joined");
+                tracing::info!(session = id, ?kind, slot, client = %client.name, title = %app.name, "Nucleus Co-op: a player joined");
                 Ok(Seat { session: id, slot })
             }
             Admit::Start => {
@@ -594,11 +651,14 @@ impl Registry {
                         "Nucleus Co-op could not count the free controller slots: {error:#}"
                     ))
                 })?;
-                let players = coop::players(
-                    found.handler.max_players,
-                    request.config.nucleus_coop_players(),
-                    free,
-                )
+                let players = match kind {
+                    Kind::Coop => coop::players(
+                        found.handler.max_players,
+                        request.config.nucleus_coop_players(),
+                        free,
+                    ),
+                    Kind::Background => coop::players(1, 1, free),
+                }
                 .map_err(Refusal::unavailable)?;
                 let policy = Policy::resolve(request.config)
                     .map_err(|error| Refusal::unavailable(format!("{error:#}")))?;
@@ -609,7 +669,7 @@ impl Registry {
                 };
                 let start = Start {
                     id,
-                    kind: Kind::Coop,
+                    kind,
                     folder: &folder,
                     handler: &found.handler,
                     title: &app.name,
@@ -632,13 +692,13 @@ impl Registry {
                     id,
                     Entry {
                         instance,
-                        app_id: request.coop.id(),
+                        app_id: request.game.app_id(),
                         holders,
                         feedback: (0..players).map(|_| Vec::new()).collect(),
                         ended: None,
                     },
                 );
-                tracing::info!(session = id, players, game = %found.handler.guid, client = %client.name, title = %app.name, "Nucleus Co-op: co-op session started");
+                tracing::info!(session = id, ?kind, players, game = %found.handler.guid, client = %client.name, title = %app.name, "Nucleus Co-op: session started");
                 Ok(Seat {
                     session: id,
                     slot: 0,
@@ -804,6 +864,17 @@ impl Registry {
         });
         stopping
     }
+}
+
+/// The first background stream says once that `background_stream` and
+/// `background-stream` now run in Nucleus Co-op.
+fn log_background_mapping() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        tracing::info!(
+            "Nucleus Co-op: background_stream (device) and background-stream (app) now run background streams in Nucleus Co-op, which needs a handler for the game"
+        );
+    });
 }
 
 fn stop(instances: Vec<Arc<dyn Instance>>) {
@@ -1347,7 +1418,7 @@ mod tests {
         registry.admit(Admission {
             launch,
             client,
-            coop,
+            game: Game::Coop(coop),
             size: (1920, 1080),
             config: &Config::default(),
             warnings: Default::default(),
@@ -1463,6 +1534,118 @@ mod tests {
         pc.last().show();
         assert_eq!(instance.capture_target(1, "d").unwrap(), "window:101@d");
         assert!(registry.instance(2).is_none());
+    }
+
+    fn background(
+        registry: &Registry,
+        app: &App,
+        launch: &str,
+        client: &Client,
+        config: &Config,
+    ) -> Result<Seat, Refusal> {
+        registry.admit(Admission {
+            launch,
+            client,
+            game: Game::Background(app),
+            size: (1280, 720),
+            config,
+            warnings: Default::default(),
+        })
+    }
+
+    #[test]
+    fn a_background_stream_is_a_private_session_its_owner_returns_to() {
+        let (registry, pc, apps) = setup();
+        let owner = client("A", true);
+        let config = Config::default();
+        let seat = background(&registry, &apps[1], "a", &owner, &config).unwrap();
+        assert_eq!(
+            seat,
+            Seat {
+                session: 1,
+                slot: 0
+            }
+        );
+        let listed = registry.sessions();
+        assert_eq!(listed[0].session.kind, Kind::Background);
+        // One player whatever the handler allows, listed under the app.
+        assert_eq!(listed[0].session.slots.len(), 1);
+        assert_eq!(listed[0].app_id, apps[1].id());
+        assert_eq!(pc.last().sizes.lock().unwrap()[..], [(1280, 720)]);
+        // Nobody else joins it, by the app or by its co-op entry.
+        let other = background(&registry, &apps[1], "b", &client("B", true), &config).unwrap_err();
+        assert_eq!(other.status, 409);
+        assert!(
+            other
+                .message
+                .starts_with("Portal 2 can't stream in the background: Nucleus Co-op is running Portal 2 for a background stream"),
+            "{}",
+            other.message
+        );
+        let coop = registry.entries(&apps, "").remove(0);
+        assert_eq!(
+            admit(&registry, &coop, "c", &client("B", true))
+                .unwrap_err()
+                .status,
+            409
+        );
+        // Its owner returns to its own slot of the same session.
+        registry.leave(seat, "a");
+        assert_eq!(
+            background(&registry, &apps[1], "d", &owner, &config).unwrap(),
+            seat
+        );
+        assert_eq!(pc.started.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_background_stream_nucleus_cannot_run_is_refused_with_the_reason() {
+        let (registry, pc, apps) = setup();
+        let owner = client("A", false);
+        let config = Config::default();
+        // No handler for the program, or no program at all.
+        let notepad = app("Notepad", r"C:\Windows\notepad.exe");
+        let missing = background(&registry, &notepad, "a", &owner, &config).unwrap_err();
+        assert_eq!(missing.status, 404);
+        assert_eq!(
+            missing.message,
+            "Notepad can't stream in the background: No Nucleus Co-op handler for notepad.exe: add one in Nucleus Co-op's handler hub"
+        );
+        let desktop = background(&registry, &apps[0], "a", &owner, &config).unwrap_err();
+        assert_eq!(desktop.status, 404);
+        assert!(
+            desktop.message.starts_with(
+                "Desktop can't stream in the background: Nucleus Co-op starts games by their .exe"
+            ),
+            "{}",
+            desktop.message
+        );
+        // A background_mode that is no mode runs none.
+        let bad = Config::parse("background_mode = rdp\n").unwrap();
+        let refused = background(&registry, &apps[1], "a", &owner, &bad).unwrap_err();
+        assert_eq!(refused.status, 503);
+        assert!(
+            refused
+                .message
+                .contains("background_mode = rdp is not a mode"),
+            "{}",
+            refused.message
+        );
+        // Values earlier builds wrote run in Nucleus Co-op.
+        for old in ["auto", "child_session", "virtual_display"] {
+            let config = Config::parse(&format!("background_mode = {old}\n")).unwrap();
+            let seat = background(&registry, &apps[1], old, &owner, &config).unwrap();
+            assert!(registry.end(seat.session), "{old}");
+        }
+        // Where Nucleus Co-op can't run, the reason.
+        registry.use_pc(Arc::new(fake::Pc::unavailable()));
+        let unavailable = background(&registry, &apps[1], "a", &owner, &config).unwrap_err();
+        assert_eq!(unavailable.status, 503);
+        assert_eq!(
+            unavailable.message,
+            "Portal 2 can't stream in the background: not on this test PC"
+        );
+        assert_eq!(pc.started.lock().unwrap().len(), 3);
     }
 
     #[test]

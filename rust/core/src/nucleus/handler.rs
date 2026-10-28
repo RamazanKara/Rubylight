@@ -197,11 +197,11 @@ impl std::fmt::Display for Missing {
         match self {
             Self::NoExecutable { app } => write!(
                 f,
-                "Nucleus Co-op starts games by their .exe, and {app} does not name one: set the app's command to the game's .exe, or use a child session"
+                "Nucleus Co-op starts games by their .exe, and {app} does not name one: set the app's command to the game's .exe"
             ),
             Self::NoHandler { executable } => write!(
                 f,
-                "No Nucleus Co-op handler for {executable}: add one in Nucleus Co-op's handler hub, or use a child session"
+                "No Nucleus Co-op handler for {executable}: add one in Nucleus Co-op's handler hub"
             ),
             Self::NotAdded {
                 executable,
@@ -440,7 +440,7 @@ Game.SupportsKeyboard = true; // { not a block
             .unwrap_err();
         assert_eq!(
             none.to_string(),
-            "No Nucleus Co-op handler for Puzzle.exe: add one in Nucleus Co-op's handler hub, or use a child session"
+            "No Nucleus Co-op handler for Puzzle.exe: add one in Nucleus Co-op's handler hub"
         );
         let not_added = c.find("Shooter", Some("C:\\Shooter.exe")).unwrap_err();
         assert_eq!(

@@ -458,13 +458,13 @@
   <details class="override"><summary>Play in the background</summary>
   <section>
     <Toggle
-      label="Stream in the background"
-      hint="Lets this device play while someone keeps using the PC. Its games open on a virtual display away from your monitors, take no focus and stream only their own sound. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
+      label="Stream in the background (Experimental)"
+      hint="Lets this device play while someone keeps using the PC. Nucleus Co-op runs its games in their own window, away from your monitors, and only their own sound streams. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
       bind:checked={draft.background_stream}
     />
     <p class="note">
-      The PC keeps the real focus; Rubylight tells the game it is active so it keeps its sound and frame rate. Games
-      that check focus directly, exclusive fullscreen and Steam Input do not work this way.
+      Nucleus Co-op tells the game it has the focus, so the PC keeps its own. A game needs a Nucleus Co-op handler;
+      without one the launch is refused and says why. Exclusive fullscreen and Steam Input do not work this way.
     </p>
   </section>
   </details>

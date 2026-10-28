@@ -1438,8 +1438,8 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         butterpollo_core::extensions::fec_choice(&launch.options)?;
         // So does a refused `rlRateChange`, rather than a stream without 0x553C.
         butterpollo_core::rate_change::launch_choice(&launch.options)?;
-        // A co-op game runs in Nucleus Co-op's own session, never in the
-        // background session.
+        // A co-op launch is no background stream; a background stream runs
+        // in a Nucleus Co-op session of its own ([`launch_back_half`]).
         launch.background = Some(coop.is_none() && validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
@@ -1466,8 +1466,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
 /// Moonlight and a WebRTC launch: end the sessions it replaces, wait for their resources, begin
 /// the session state, queue the launch, prepare the display, controllers and app, and keep the
 /// app. The caller holds `launch_transition`. The launch stays queued until its transport starts it.
-/// A co-op launch (`coop`) takes a slot of Nucleus Co-op's session instead: the game it streams
-/// is Nucleus's, so the host's own app is neither replaced, started nor kept.
+/// A co-op launch (`coop`) takes a slot of Nucleus Co-op's session instead, and a background
+/// launch (`Launch::background`) a private session of its app: the game it streams is
+/// Nucleus's, so the host's own app is neither replaced, started nor kept.
 #[allow(
     clippy::too_many_arguments,
     reason = "the launch's parts, as both transports parse them"
@@ -1512,13 +1513,22 @@ fn launch_back_half(
     // reply returns it to what it was.
     let mut session =
         (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
-    match &coop {
-        Some(coop) => {
+    let game = match (&coop, launch.background == Some(true)) {
+        (Some(coop), _) => Some(crate::nucleus::Game::Coop(coop)),
+        // A background stream runs only in Nucleus Co-op: an app it can't
+        // run is refused, never streamed from the PC's displays.
+        (None, true) => Some(crate::nucleus::Game::Background(
+            app.as_ref().context(APPLICATION_NOT_FOUND)?,
+        )),
+        (None, false) => None,
+    };
+    match game {
+        Some(game) => {
             let config = crate::stream::effective_config(h, &launch)?;
             let seat = h.nucleus.admit(crate::nucleus::Admission {
                 launch: &id,
                 client: &launch.client,
-                coop,
+                game,
                 size: launch_size(args, &config)?,
                 config: &config,
                 warnings: launch.warnings.clone(),
@@ -1574,10 +1584,11 @@ fn launch_back_half(
     if let Some(session) = &session {
         session.app_starting();
     }
-    let prepared_app = match coop {
+    let prepared_app = if launch.nucleus.is_some() {
         // Nucleus Co-op started the game when it admitted the launch.
-        Some(_) => Ok(None),
-        None => prepare_launch_app(h, args, app.as_ref(), &launch),
+        Ok(None)
+    } else {
+        prepare_launch_app(h, args, app.as_ref(), &launch)
     };
     let prepared_app = match prepared_app {
         Ok(prepared_app) => prepared_app,

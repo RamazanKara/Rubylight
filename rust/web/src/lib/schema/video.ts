@@ -247,9 +247,9 @@ const video: Setting[] = [
     key: 'hdr_dolby_vision',
     label: 'Dolby Vision',
     description:
-      'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, to devices that ask for it on HEVC HDR streams.',
+      'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, on HEVC HDR streams and profile 10.1 on AV1 HDR streams, to devices that ask for it.',
     details:
-      'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10 (8.1) or HLG (8.4). Packed 4:4:4 streams carry static HDR10 instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
+      'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10 (8.1 and 10.1) or HLG (8.4). Packed 4:4:4 streams carry static HDR10 instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },
@@ -677,7 +677,7 @@ const amd: Setting[] = [
     description:
       'Requests a size limit for every frame, including recovery keyframes. Tight limits can reduce picture quality.',
     details:
-      'Automatic budgets about two frame periods at the current network pace, between 2× and 8× one frame’s bitrate budget. Faster links allow larger recovery frames. With a fixed FEC percentage it also stays within the full parity Moonlight’s four FEC blocks carry (about 1.17 MB at 20% with 1392-byte packets), unless 2× is already larger. A fixed value overrides Automatic; 0 keeps the driver default. Limits are best-effort: frames can exceed them, and an unsupported limit warns and keeps streaming.',
+      'Automatic budgets about two frame periods at the current network pace, between 2× and 8× one frame’s bitrate budget. Faster links allow larger recovery frames. It also stays within what Moonlight’s four FEC blocks carry with full parity (about 1.17 MB at 20% with 1392-byte packets, or 1.40 MB without FEC), unless 2× is already larger. A fixed value overrides Automatic; 0 keeps the driver default. Limits are best-effort: frames can exceed them, and an unsupported limit warns and keeps streaming.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -775,8 +775,8 @@ const amd: Setting[] = [
     key: 'amd_ltr_frames',
     label: 'Long-term reference frames',
     description:
-      'Frames the encoder keeps as long-term references, so a client that lost packets recovers with a small frame instead of a full keyframe. AV1 only.',
-    details: 'H.264 and HEVC always recover with a keyframe. 0 turns it off.',
+      'Frames the encoder keeps as long-term references, so a client that lost packets recovers with a small frame instead of a full keyframe. H.264, HEVC and AV1.',
+    details: 'The host still sends a keyframe when that would be the smaller frame. 0 turns it off.',
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 4, step: 1, unit: 'frames' },

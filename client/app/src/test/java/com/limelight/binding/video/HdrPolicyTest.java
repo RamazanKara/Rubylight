@@ -141,22 +141,75 @@ public class HdrPolicyTest {
 
     @Test
     public void hlgDoesNotStandInForHdr10WhenTheVulkanRendererDrawsPqOnly() {
-        // The Vulkan renderer's surface is BT.2020/PQ: an HLG-only screen would get HDR10.
+        // Without VK_EXT_swapchain_colorspace the Vulkan renderer's surface is BT.2020/PQ: an
+        // HLG-only screen would get HDR10.
+        HdrFormatPolicy.DrawnSurface pqOnly = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
         assertEquals(Refusal.HLG_NEEDS_DIRECT_OUTPUT, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null,
-                HdrFormatPolicy.ALL, true));
+                HdrFormatPolicy.ALL, pqOnly));
         assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null,
-                HdrFormatPolicy.ALL, false));
+                HdrFormatPolicy.ALL, HdrFormatPolicy.DrawnSurface.NONE));
         // A screen with HDR10 does not care what draws the picture.
         assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(33, true, new int[] {HDR10, HLG}, null,
-                HdrFormatPolicy.ALL, true));
+                HdrFormatPolicy.ALL, pqOnly));
         // Without HLG on offer the screen has no HDR at all, whatever the renderer.
         assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null,
-                HdrFormatPolicy.PQ, true));
+                HdrFormatPolicy.PQ, pqOnly));
         // A mode with HDR10 is still the better advice.
         assertEquals(Refusal.MODE_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, new int[] {HLG},
-                new int[] {HDR10, HLG}, HdrFormatPolicy.ALL, true));
+                new int[] {HDR10, HLG}, HdrFormatPolicy.ALL, pqOnly));
         assertEquals(Refusal.SETTING_OFF, HdrPolicy.displayRefusal(33, false, new int[] {HLG}, null,
-                HdrFormatPolicy.ALL, true));
+                HdrFormatPolicy.ALL, pqOnly));
+    }
+
+    @Test
+    public void theVulkanRendererWithHdrColorSpacesTakesAnHlgOnlyScreen() {
+        HdrFormatPolicy.DrawnSurface vulkan = HdrFormatPolicy.DrawnSurface.PQ_HLG;
+        for (int sdk : new int[] {29, 33, 34, 35}) {
+            assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(sdk, true, new int[] {HLG}, null,
+                    HdrFormatPolicy.ALL, vulkan));
+            assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(sdk, true, new int[] {DOLBY, HLG}, null,
+                    HdrFormatPolicy.HLG, vulkan));
+        }
+        // Nothing else changes: no HLG on offer is still no HDR.
+        assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null,
+                HdrFormatPolicy.PQ, vulkan));
+    }
+
+    @Test
+    public void hdrTheVulkanRendererToneMapsIsNamedOverAQuietStatus() {
+        assertEquals(Status.SHOWN_AS_SDR, HdrPolicy.drawnStatus(Status.QUIET, true));
+        assertEquals(Status.SHOWN_AS_SDR, HdrPolicy.drawnStatus(Status.NO_METADATA, true));
+        // What the PC or the negotiation says comes first, and nothing changes without tone mapping.
+        for (Status status : new Status[] {Status.WAITING, Status.HOST_SDR, Status.NOT_NEGOTIATED,
+                Status.PQ_ON_HLG_SCREEN, Status.OUTPUT_NOT_PQ}) {
+            assertEquals(status, HdrPolicy.drawnStatus(status, true));
+        }
+        for (Status status : Status.values()) {
+            assertEquals(status, HdrPolicy.drawnStatus(status, false));
+        }
+    }
+
+    @Test
+    public void theHlgOnlyDebugHookCountsOnlyInADebugBuild() {
+        int[] tv = {DOLBY, HDR10, HLG, HDR10_PLUS};
+        try {
+            HdrPolicy.setDebugHlgOnly(false, true);
+            assertSame(tv, HdrPolicy.effectiveHdrTypes(tv));
+            HdrPolicy.setDebugHlgOnly(true, false);
+            assertSame(tv, HdrPolicy.effectiveHdrTypes(tv));
+
+            HdrPolicy.setDebugHlgOnly(true, true);
+            int[] hlgOnly = HdrPolicy.effectiveHdrTypes(tv);
+            assertArrayEquals(new int[] {HLG}, hlgOnly);
+            assertTrue(HdrPolicy.hlgOnly(hlgOnly));
+            assertArrayEquals(new int[] {HLG}, HdrPolicy.effectiveHdrTypes(new int[] {HDR10}));
+            // A screen without HDR stays without it.
+            assertSame(NO_TYPES, HdrPolicy.effectiveHdrTypes(NO_TYPES));
+            assertNull(HdrPolicy.effectiveHdrTypes(null));
+            assertArrayEquals(new int[] {DOLBY}, HdrPolicy.effectiveHdrTypes(new int[] {DOLBY}));
+        } finally {
+            HdrPolicy.setDebugHlgOnly(false, false);
+        }
     }
 
     @Test

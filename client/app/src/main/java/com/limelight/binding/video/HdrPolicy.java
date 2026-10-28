@@ -4,11 +4,13 @@ import android.media.MediaFormat;
 import android.os.Build;
 import android.view.Display;
 
+import com.limelight.LimeLog;
+
 /**
  * The decisions around an HDR10 stream, apart from the Android objects so they can be tested with
  * made-up capabilities. HDR is asked for only when the setting is on and the screen reports HDR10
- * (not just Dolby Vision; HLG only when the host streams HLG and the decoder draws the picture, see
- * HdrFormatPolicy); from Android 14 the capabilities follow the mode the screen is in,
+ * (not just Dolby Vision; HLG only when the host streams HLG and the decoder or the Vulkan renderer
+ * puts the picture on the screen, see HdrFormatPolicy); from Android 14 the capabilities follow the mode the screen is in,
  * so a mode without HDR10 is refused, with its own reason when another mode has it; a decoder
  * with a Main10 HDR10 profile is needed too. Whatever is asked for and not granted, or granted and then not delivered, is named
  * rather than left to look like SDR. Nothing here has run on an HDR panel; see
@@ -28,8 +30,9 @@ public final class HdrPolicy {
         MODE_WITHOUT_HDR10,
         DECODER_WITHOUT_HDR10,
         /**
-         * The screen shows HDR only as HLG, but the client would draw the picture itself (the
-         * Vulkan renderer) on a BT.2020/PQ surface, so the stream could only be HDR10.
+         * The screen shows HDR only as HLG, but the client would draw the picture itself on a
+         * BT.2020/PQ surface (the Vulkan renderer without VK_EXT_swapchain_colorspace), so the
+         * stream could only be HDR10.
          */
         HLG_NEEDS_DIRECT_OUTPUT
     }
@@ -52,30 +55,49 @@ public final class HdrPolicy {
      */
     public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] anyModeTypes,
                                          int hostHdrFormats) {
-        return displayRefusal(sdk, enabled, displayTypes, anyModeTypes, hostHdrFormats, false);
+        return displayRefusal(sdk, enabled, displayTypes, anyModeTypes, hostHdrFormats,
+                HdrFormatPolicy.DrawnSurface.NONE);
     }
 
     /**
-     * @param pqSurface the client will draw the picture itself on a BT.2020/PQ surface (the Vulkan
-     *                  renderer, as MediaCodecDecoderRenderer.vulkanPresents predicts it), so HLG
-     *                  cannot stand in for HDR10
+     * @param surface who will put the picture on the screen (the Vulkan renderer as
+     *                MediaCodecDecoderRenderer.vulkanSurface predicts it): HLG cannot stand in for
+     *                HDR10 on a PQ-only surface
      */
     public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] anyModeTypes,
-                                         int hostHdrFormats, boolean pqSurface) {
+                                         int hostHdrFormats, HdrFormatPolicy.DrawnSurface surface) {
         if (!enabled) return Refusal.SETTING_OFF;
         if (sdk < 24) return Refusal.ANDROID_TOO_OLD;
         if (hasHdr10(displayTypes)) return Refusal.NONE;
         boolean hlg = HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes);
-        if (hlg && !pqSurface) return Refusal.NONE;
+        if (hlg && surface != HdrFormatPolicy.DrawnSurface.PQ_ONLY) return Refusal.NONE;
         if (sdk >= 34 && hasHdr10(anyModeTypes)) return Refusal.MODE_WITHOUT_HDR10;
         return hlg ? Refusal.HLG_NEEDS_DIRECT_OUTPUT : Refusal.DISPLAY_WITHOUT_HDR10;
+    }
+
+    // The hidden debug_hdr_hlg_only preference (debug builds only, no UI): an HDR screen counts as
+    // HLG-only, so a screen with HDR10 asks for HLG. For testing HLG on screens that also have HDR10.
+    private static volatile boolean debugHlgOnly;
+
+    /** Takes the debug_hdr_hlg_only preference, which counts only in a debug build. */
+    public static void setDebugHlgOnly(boolean debugBuild, boolean hlgOnly) {
+        debugHlgOnly = debugBuild && hlgOnly;
+        if (debugHlgOnly) LimeLog.warning("debug_hdr_hlg_only: HDR screens count as HLG-only");
+    }
+
+    /** The screen's types as the policy sees them: HLG alone for an HDR screen under debug_hdr_hlg_only. */
+    static int[] effectiveHdrTypes(int[] types) {
+        if (!debugHlgOnly || !(hasHdr10(types) || HdrFormatPolicy.has(types, Display.HdrCapabilities.HDR_TYPE_HLG))) {
+            return types;
+        }
+        return new int[] {Display.HdrCapabilities.HDR_TYPE_HLG};
     }
 
     /** The screen's HDR types, null when Android gives none (before Android 7, and a few devices return null). */
     public static int[] displayHdrTypes(Display display) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null;
         Display.HdrCapabilities capabilities = display.getHdrCapabilities();
-        return capabilities == null ? null : capabilities.getSupportedHdrTypes();
+        return capabilities == null ? null : effectiveHdrTypes(capabilities.getSupportedHdrTypes());
     }
 
     /** The types any of the screen's modes offers; null before Android 14, which has no per-mode list. */
@@ -90,12 +112,13 @@ public final class HdrPolicy {
         int[] all = new int[types.size()];
         int i = 0;
         for (int type : types) all[i++] = type;
-        return all;
+        return effectiveHdrTypes(all);
     }
 
-    public static Refusal displayRefusal(Display display, boolean enabled, int hostHdrFormats, boolean pqSurface) {
+    public static Refusal displayRefusal(Display display, boolean enabled, int hostHdrFormats,
+                                         HdrFormatPolicy.DrawnSurface surface) {
         return displayRefusal(Build.VERSION.SDK_INT, enabled, displayHdrTypes(display), anyModeHdrTypes(display),
-                hostHdrFormats, pqSurface);
+                hostHdrFormats, surface);
     }
 
     /** HDR10 PQ is what the PC encodes; HLG and Dolby Vision on the panel do not stand in for it. */
@@ -162,7 +185,18 @@ public final class HdrPolicy {
          * PQ only (packed full chroma, PyroWave), or the PC did not offer HLG for this stream, or
          * the codec carries none.
          */
-        PQ_ON_HLG_SCREEN
+        PQ_ON_HLG_SCREEN,
+        /** The PC sends HDR, but the Vulkan renderer's surface refused it, so it is tone mapped to SDR. */
+        SHOWN_AS_SDR
+    }
+
+    /**
+     * The status with what the Vulkan renderer reports: HDR the PC sends and the renderer tone maps
+     * replaces a quiet status, and the missing metadata that no longer matters.
+     * @param toneMapped VulkanRendererBridge.isHdrToneMapped, false without the Vulkan renderer
+     */
+    public static Status drawnStatus(Status status, boolean toneMapped) {
+        return toneMapped && (status == Status.QUIET || status == Status.NO_METADATA) ? Status.SHOWN_AS_SDR : status;
     }
 
     /**

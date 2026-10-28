@@ -1,11 +1,14 @@
-//! Dolby Vision profiles 8.1 and 8.4: one RPU (reference processing unit) per
-//! frame, as the HEVC NAL unit of type 62 that ends the access unit. Profile
-//! 8.1 is an HDR10 stream (HEVC Main10, PQ, BT.2020) and profile 8.4 an HLG one
-//! (HEVC Main10, ARIB STD-B67, BT.2020), each with an RPU beside every frame,
-//! so a decoder without Dolby Vision plays the same bytes as HDR10 or HLG.
+//! Dolby Vision profiles 8.1, 8.4 and 10.1: one RPU (reference processing
+//! unit) per frame, as the HEVC NAL unit of type 62 that ends the access unit
+//! (profile 8), or in an AV1 ITU-T T.35 metadata OBU before the frame (profile
+//! 10). Profile 8.1 is an HDR10 stream (HEVC Main10, PQ, BT.2020), profile 8.4
+//! an HLG one (HEVC Main10, ARIB STD-B67, BT.2020) and profile 10.1 an AV1 HDR10
+//! one (AV1 Main10, PQ, BT.2020), each with an RPU beside every frame, so a
+//! decoder without Dolby Vision plays the same bytes as HDR10 or HLG.
 //!
-//! A profile 8.1 RPU maps the base layer onto itself (an identity polynomial:
-//! the picture is the Dolby Vision signal). A profile 8.4 RPU maps the HLG base
+//! A profile 8.1 or 10.1 RPU maps the base layer onto itself (an identity
+//! polynomial: the picture is the Dolby Vision signal); both carry the same RPU
+//! bytes, only the carriage differs. A profile 8.4 RPU maps the HLG base
 //! layer onto the PQ Dolby Vision signal with a fixed reshaping (polynomial
 //! luma, MMR chroma) for a 1000-nit source display, the HLG reference peak.
 //! Both carry the standard PQ display-management matrices and three CM v2.9
@@ -19,14 +22,19 @@
 //! `rpu/vdr_dm_data.rs`, `rpu/profiles/profile81.rs`,
 //! `rpu/profiles/profile84.rs`, `rpu/extension_metadata/blocks`), Copyright
 //! (c) 2026 quietvoid, MIT. FFmpeg's `libavcodec/dovi_rpudec.c` reads the same
-//! syntax.
+//! syntax. The AV1 carriage (the T.35 header and the EMDF container around the
+//! RPU) follows the same crate's `av1/mod.rs` and `av1/emdf.rs`, and FFmpeg's
+//! `libavcodec/dovi_rpuenc.c` (`FF_DOVI_WRAP_T35`) writes the same bytes.
 use crate::hdr::Metadata;
-use crate::hdr_dynamic::{FrameStats, Smoothed, escape, nits_to_pq};
+use crate::hdr_dynamic::{FrameStats, Smoothed, av1_t35_obu, escape, nits_to_pq};
 
 /// HEVC NAL unit type 62 (unspecified), layer 0, TemporalId 0.
 const NAL_HEADER: [u8; 2] = [62 << 1, 0x01];
 const RPU_PREFIX: u8 = 0x19;
 const RPU_FINAL_BYTE: u8 = 0x80;
+/// The T.35 header of a profile 10 RPU: country US (0xB5), provider Dolby
+/// (0x003B), provider-oriented code 0x00000800.
+const AV1_T35_HEADER: [u8; 7] = [0xB5, 0x00, 0x3B, 0x00, 0x00, 0x08, 0x00];
 
 /// L1 limits of CM v2.9, as dovi_tool clamps measured statistics.
 const L1_MIN_PQ_MAX: u16 = 12;
@@ -47,12 +55,14 @@ const YCC_TO_RGB: [i16; 9] = [9574, 0, 13802, 9574, -1540, -5348, 9574, 17610, 0
 const YCC_TO_RGB_OFFSETS: [u32; 3] = [16_777_216, 134_217_728, 134_217_728];
 const RGB_TO_LMS: [i16; 9] = [7222, 8771, 390, 2654, 12430, 1300, 0, 422, 15962];
 
-/// The two profiles: 8.1 over an HDR10 base layer, 8.4 over an HLG one.
+/// The profiles: 8.1 over an HDR10 base layer and 8.4 over an HLG one on
+/// HEVC, 10.1 over an HDR10 base layer on AV1.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Profile {
     #[default]
     P81,
     P84,
+    P101,
 }
 
 /// The profile 8.4 source display (dovi_tool's `Profile84::dm_data`): 0.005 to
@@ -61,16 +71,18 @@ const P84_SOURCE_MIN_PQ: u16 = 62;
 const P84_SOURCE_MAX_PQ: u16 = 3079;
 
 /// The RPU profile a negotiated stream carries: HDR HEVC whose client picked
-/// Dolby Vision 8.1 or 8.4 (`x-rl-video[0].hdrFormat`). Stock clients pick no
-/// format, so their streams stay byte for byte HDR10.
+/// Dolby Vision 8.1 or 8.4, or HDR AV1 whose client picked 10.1
+/// (`x-rl-video[0].hdrFormat`). Stock clients pick no format, so their streams
+/// stay byte for byte HDR10.
 pub fn negotiated(stream: &crate::rtsp::Negotiated) -> Option<Profile> {
     use rubylight_protocol::hdr;
-    if !stream.hdr || stream.codec != 1 {
+    if !stream.hdr {
         return None;
     }
-    match stream.hdr_format {
-        hdr::DV_81 => Some(Profile::P81),
-        hdr::DV_84 => Some(Profile::P84),
+    match (stream.codec, stream.hdr_format) {
+        (1, hdr::DV_81) => Some(Profile::P81),
+        (1, hdr::DV_84) => Some(Profile::P84),
+        (2, hdr::DV_101) => Some(Profile::P101),
         _ => None,
     }
 }
@@ -157,7 +169,7 @@ impl Frame {
         let mut bits = Bits::with_prefix(RPU_PREFIX);
         header(&mut bits);
         match self.profile {
-            Profile::P81 => mapping(&mut bits),
+            Profile::P81 | Profile::P101 => mapping(&mut bits),
             Profile::P84 => mapping_84(&mut bits),
         }
         self.dm_data(&mut bits);
@@ -177,6 +189,50 @@ impl Frame {
         nal.extend_from_slice(&NAL_HEADER);
         escape(&rpu, &mut nal);
         nal
+    }
+
+    /// The RPU as an AV1 metadata OBU (ITU-T T.35, with a size field): the
+    /// RPU without its prefix byte in an EMDF container after Dolby's T.35
+    /// header, padded with one bits to a whole byte. What goes before the
+    /// frame's first frame OBU.
+    pub fn obu(&self) -> Vec<u8> {
+        let rpu = self.rpu();
+        let payload = &rpu[1..];
+        let mut bits = Bits {
+            bytes: Vec::with_capacity(AV1_T35_HEADER.len() + payload.len() + 8),
+            used: 0,
+        };
+        bits.bytes.extend_from_slice(&AV1_T35_HEADER);
+        bits.put(2, 0); // emdf_version
+        bits.put(3, 6); // key_id
+        bits.put(5, 31); // emdf_payload_id: 31 and an extension
+        bits.variable(5, 225); // emdf_payload_id 256, the Dolby Vision RPU
+        bits.put(1, 0); // smploffste
+        bits.put(1, 0); // duratione
+        bits.put(1, 0); // groupide
+        bits.put(1, 0); // codecdatae
+        bits.put(1, 1); // discard_unknown_payload
+        bits.variable(8, payload.len() as u64); // emdf_payload_size
+        for &byte in payload {
+            bits.put(8, byte.into());
+        }
+        bits.put(5, 0); // emdf_payload_id: the end of the payloads
+        bits.put(2, 1); // protection_length_primary
+        bits.put(2, 0); // protection_length_secondary
+        bits.put(8, 0); // protection_bits_primary
+        while bits.used != 0 {
+            bits.put(1, 1);
+        }
+        av1_t35_obu(&bits.bytes)
+    }
+
+    /// The RPU in its profile's carriage: [`Frame::nal`] for profile 8,
+    /// [`Frame::obu`] for profile 10.
+    pub fn unit(&self) -> Vec<u8> {
+        match self.profile {
+            Profile::P81 | Profile::P84 => self.nal(),
+            Profile::P101 => self.obu(),
+        }
     }
 
     fn dm_data(&self, bits: &mut Bits) {
@@ -202,7 +258,7 @@ impl Frame {
         bits.put(2, 0); // signal_chroma_format: 4:2:0
         bits.put(2, 1); // signal_full_range_flag
         let (source_min_pq, source_max_pq) = match self.profile {
-            Profile::P81 => (
+            Profile::P81 | Profile::P101 => (
                 nits_pq12(f32::from(metadata.minimum) / 10_000.),
                 nits_pq12(f32::from(metadata.maximum_nits)),
             ),
@@ -443,7 +499,7 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// Profile 8.1 RPUs; [`Writer::with_profile`] picks 8.4.
+    /// Profile 8.1 RPUs; [`Writer::with_profile`] picks 8.4 or 10.1.
     pub fn new(target_nits: u16) -> Self {
         Self {
             profile: Profile::P81,
@@ -550,6 +606,24 @@ impl Bits {
         let length = 64 - coded.leading_zeros();
         self.put(length - 1, 0);
         self.put(length, coded);
+    }
+
+    /// EMDF variable_bits(`count`): groups of `count` bits, each but the last
+    /// followed by a read_more one bit, every group after the first adding
+    /// one to the value before it is shifted.
+    fn variable(&mut self, count: u32, mut value: u64) {
+        let mask = (1 << count) - 1;
+        let mut groups = vec![value & mask];
+        value >>= count;
+        while value > 0 {
+            value -= 1;
+            groups.push(value & mask);
+            value >>= count;
+        }
+        for (index, &group) in groups.iter().rev().enumerate() {
+            self.put(count, group);
+            self.put(1, u64::from(index + 1 < groups.len())); // read_more
+        }
     }
 
     /// Exp-Golomb se(v).

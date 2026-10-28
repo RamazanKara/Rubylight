@@ -6,7 +6,9 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
-| Scene cuts on a clean route with 0.3% random loss: the automatic frame cap held within full four-block FEC, oversize-only pacing (not kept), freezes, recovery keyframes, end-to-end picture age | [October 28, lost scene cuts and recovery keyframes past four FEC blocks](#october-28-lost-scene-cuts-and-recovery-keyframes-past-four-fec-blocks) |
+| Scene cuts AMF encodes past the full-FEC bound, encoded again as keyframes: lost cuts, freezes, keyframe requests, end-to-end picture age, encode time (ABBA) | [October 28, oversize scene cuts encoded again as keyframes](#october-28-oversize-scene-cuts-encoded-again-as-keyframes) |
+| LTR recovery on H.264 and HEVC with header rewrites: repair against keyframe bytes per gap (1 to 130) and codec, scrolling and static, decodes, the size estimate's choices, rewrite cost in a 60 s stream (ABBA) | [October 28, LTR recovery with header rewrites](#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default) |
+| Scene cuts on a clean route with 0.3% random loss: the automatic frame cap held within full four-block FEC (fixed, automatic and no FEC), oversize-only pacing (not kept), freezes, recovery keyframes, end-to-end picture age | [October 28, lost scene cuts and recovery keyframes past four FEC blocks](#october-28-lost-scene-cuts-and-recovery-keyframes-past-four-fec-blocks) |
 | Audio passthrough: AC3 and E-AC3 encode time per packet against Opus, codec delay, and what the 32 ms frames cost end to end | [October 27, audio passthrough encode cost](#october-27-audio-passthrough-encode-cost) |
 | AV1 intra refresh on AMF: keyframes, frame sizes and recovery after a lost frame, against LTR invalidation and keyframes (refresh turned off) | [October 27, AV1 intra refresh and recovery after a lost frame](#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame) |
 | HDR10+ and HDR Vivid dynamic metadata: the units in real AMF HEVC and AV1 output, what a Moonlight client receives, CPU cost per frame, 4K60 encode stage on and off (ABBA) | [October 27, HDR10+ and HDR Vivid dynamic metadata](#october-27-hdr10-and-hdr-vivid-dynamic-metadata) |
@@ -53,6 +55,19 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
+## October 28: oversize scene cuts encoded again as keyframes
+
+The cuts the frame cap above could not save: AMF picks each frame's QP from the frames before and never encodes again, so after steady 385 KB frames a cut comes out as an inter frame of about 2.4 MB, past the 1.17 MB that keeps full parity in four blocks, and is lost. A keyframe of the same picture lands at the cap (855 KB). Now an inter frame larger than the stream's full-FEC bound (the same bound the cap is held to: `network_pacing::fec_whole_frame_limit`; none where two nominal frames already pass it, as in the cap's decision below, which these runs at about 830 KB for two frames are not) is not sent: its converted input goes back to AMF once as a keyframe at the same wire frame, and that keyframe is sent. There is no lookahead and no added frame of delay; the second encode happens only on such frames. Same fixture as the section below (HEVC 1440p60, 250 Mbps, 0.3% random loss, a cut every 2 s, `--fresh-rows 256`, 45 s), C = the cap within full FEC with LTR repair on (the merged branch), R = C plus the re-encode; two pairs, C then R and R then C, one binary each.
+
+| Arm | Lost cuts | Re-encoded | Freezes (over 100 ms) | Whole | Keyframe requests | Reference invalidations | End to end p50 / p95 / p99, ms | Encode mean / p99, ms | Cut keyframe picture age p50 / max, ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
+| C, run 1 | 16 | 0 | 15 (0) | 99.81% | 15 | 19 | 20.09 / 36.67 / 71.85 | 4.04 / 4.76 | 44.5 / 115.0 (recovery) |
+| R, run 1 | 0 | 14 | 0 (0) | 100.38% | 1 | 0 | 19.19 / 23.91 / 34.09 | 4.00 / 4.63 | 37.2 / 89.0 |
+| R, run 2 | 0 | 14 | 0 (0) | 100.07% | 1 | 0 | 18.33 / 20.69 / 29.37 | 4.02 / 4.77 | 35.4 / 51.6 |
+| C, run 2 | 15 | 0 | 15 (0) | 99.93% | 16 | 17 | 17.98 / 20.92 / 30.06 | 3.96 / 4.74 | 41.7 / 68.6 (recovery) |
+
+"Lost cuts" are the client's unrecoverable frames; "whole" is the harness's frames received over frames sent, as it reports them. Encode is the mean of the 5 s `stream timings` windows. Of about 22 cuts a run, 14 came out past the bound and were encoded again; the rest (inter frames up to 950 KB) kept full parity and went as they were. Every freeze is gone with them, and with them the keyframe requests (15–16 to 1, the startup one) and the reference invalidations. The overall encode time did not move: the second encode falls on 14 of about 2,700 frames. The host does not time a re-encoded frame on its own, so the encode time on cut frames is not measured; the cut keyframe arrives 5–7 ms sooner (picture age p50) than C's recovery keyframe, and 2.4 MB at 800 Mbps would take about 24 ms to send against about 9 ms for the 855 KB keyframe. No re-encode failed. End to end p99 was 34.1 against 71.9 ms and 29.4 against 30.1 ms. A re-encode happens only when nothing submitted later references the inter frame, never while an input waits on a full AMF queue, and never with slice delivery (the frame's first slices may have left). The keyframe resets the long-term references, so a later LTR repair names only the keyframe or frames after it (`ltr::tests::a_keyframe_re_encoding_an_accepted_frame_drops_every_older_reference`); `amf::tests::native_an_oversize_scene_cut_goes_out_once_as_a_keyframe_at_its_own_index` checks H.264, HEVC and AV1 on the GPU (one output a frame, keyframes at 1 and the cut, one re-encode, a repair after it). Explicit `amd_max_frame_size` values keep AMF's output as it is. Kept.
+
 ## October 28: lost scene cuts and recovery keyframes past four FEC blocks
 
 A wired client at about 930 Mbps reported stutter at every scene change at 250 Mbps, with the host's `network_fec` warning ("FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit"). With the test client's 1024-byte packets and the default 20% FEC, Moonlight's four blocks carry full parity up to about 855 KB and no parity above about 1.03 MB (1.17 MB and 1.40 MB with 1392-byte packets); the automatic frame cap (two periods at 800 Mbps, 2–8 nominal frames) allowed 2.46 MB in this run. Fixture: `rust/release/bottleneck.py` on the RX 7900 XT, loopback with the Moonlight test client, HEVC 2560×1440 at 60 fps and 250 Mbps (199 Mbps to the encoder), `--rate-kbps 0 --loss-percent 0.3` (random loss on video datagrams, no bottleneck), `--rfi --cut-ms 2000 --fresh-rows 256 --hw-decoder d3d11va`, 45 s, one run per arm under the GPU lock. Calibration without loss: ordinary frames 385 KB (0.93 of the 415 KB nominal frame), cuts 1.74 MB (4.2 nominal), no freeze. "Freezes" are display gaps from `recovery_gaps.py`; "end to end" is the client's picture age (capture to presentation); "whole" is frames received over frames sent.
@@ -67,7 +82,19 @@ A wired client at about 930 Mbps reported stutter at every scene change at 250 M
 
 Off and S lose each cut, then most of the recovery keyframes sent at the 2.46 MB cap with no parity; the lost keyframes latch the slow pace, the bitrate controller cuts the encoder from 199 to 161–193 Mbps, and freezes run to 125 ms. Arm C holds the automatic cap to the full-parity size at the recovery FEC percentage (855 KB with these packets): every recovery keyframe arrives, nothing latches, the pace stays at 800 Mbps, no freeze passes 100 ms, and picture age drops 3 ms at p50, p95 and p99 because the latch no longer slows every frame. The cut itself is still lost in every arm: AMF does not hold an ordinary P-frame of full-screen noise to the cap (the lost cuts were four blocks of about 433 shards, 1.74 MB, with no parity), so each cut costs one keyframe round trip, about 50 ms. S (pacing only frames over two budgets at the Wi-Fi rate after one is lost) measured the same as off, since random loss does not depend on the pace, and adds nothing to C.
 
-Decision: the automatic frame cap stays within the largest frame that keeps full parity in four blocks, but not below two nominal frames (so streams whose nominal frame already nears the limit, above about 280 Mbps at 60 fps with 1392-byte packets and 205 Mbps with 1024-byte ones, keep today's cap). It applies to H.264, HEVC and AV1 with a fixed FEC percentage, stock Moonlight and Nightjar alike; a Nightjar client with `rlFecPercentage=auto` keeps today's cap (not measured; its recovery keyframes face the same four blocks), as does a stream without FEC and PyroWave. Explicit `amd_max_frame_size` values are unchanged. S is not kept. Test: `keyframe_loss::tests::recovery_keyframes_within_full_fec_survive_random_loss_without_a_latch` models this run.
+Decision: the automatic frame cap stays within the largest frame that keeps full parity in four blocks, but not below two nominal frames (so streams whose nominal frame already nears the limit, above about 280 Mbps at 60 fps with 1392-byte packets and 205 Mbps with 1024-byte ones, keep today's cap). It applies to H.264, HEVC and AV1 for every client. With a fixed percentage it is the limit at the recovery percentage. Under `rlFecPercentage=auto` it is the largest frame whose own statistical percentage (at least the configured recovery share) still fits in full, found once a second. Without FEC it is the four-block packet limit (1020 packets, about 1.40 MB at 1392 bytes), so a lost cut exposes as few packets as it can. Explicit `amd_max_frame_size` values are unchanged. S is not kept. Test: `keyframe_loss::tests::recovery_keyframes_within_full_fec_survive_random_loss_without_a_latch` models this run.
+
+The other paths, on the same fixture (45 s, one run per arm unless noted, off = main, C = the extended cap):
+
+| Path | Arm | Freezes (over 100 ms) | Whole | Recovery keyframes | Encoder bitrate at the end | End to end p50 / p95 / p99, ms |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| No FEC (`fec_percentage=0`), 0.3% loss | off | 58 (3) | 95.22% | 59 | 2.4 Mbps | 16.65 / 20.58 / 41.08 |
+| | C | 266 (119) | 45.91% | 268 | 249 Mbps | 14.44 / 35.37 / 44.16 |
+| | C, second run | 64 (3) | 95.74% | 65 | 2.9 Mbps | 16.22 / 20.22 / 40.09 |
+| No FEC, 0.05% loss | off | 45 (2) | 97.84% | 47 | 8.2 Mbps | 16.91 / 19.24 / 38.26 |
+| | C | 48 (1) | 97.91% | 49 | 7.3 Mbps | 16.94 / 19.74 / 37.82 |
+
+Without FEC, 0.3% loss loses about half of the 375 KB ordinary frames in any arm, and the bitrate controller decides the run: it took off to 2.4 Mbps, but the first C run probed back to 249 Mbps, where ordinary frames died. The second C run followed off down (2.9 Mbps) and matched it, so the first was the controller's path, not the cap; at 0.05% loss the arms match. This client uses 1024-byte packets, so the four-block limit (1.03 MB) sits just under two nominal frames (1.04 MB). These runs held such a stream at the floor: C held recovery keyframes to 1.04 MB where off sent up to 2.95 MB. Kept: not worse. The shipped cap follows the decision above instead and leaves a stream whose two nominal frames already pass the limit at today's cap, so on this fixture without FEC it sends as off did; streams below the limit (1392-byte packets up to about 337 Mbps at 60 fps) get the four-block packet limit. `rlFecPercentage=auto` could not run on this fixture: the Moonlight test client does not choose FEC at launch or send FEC reports, and linkspeed.py (Nightjar on the NUC) has no scene-cut or random-loss arm. Covered by `session::tests::auto_fec_finds_the_largest_recovery_frame_its_own_percentage_covers_in_full`: on a lossy link the average frame's share rises to 40%, but a large recovery frame still fits its 20% in full, so the cap is the 20% limit, not the tighter 40% one. PyroWave needs no cap and has none: its rate control gives every picture, a cut included, at most one frame's budget (`pyrowave::tests::a_scene_cut_gets_no_more_than_one_frame_budget_so_it_needs_no_frame_cap`), below the two-frame floor, and the test client cannot decode PyroWave ("Unknown codec: pyrowave").
 
 ## October 27: audio passthrough encode cost
 
@@ -8239,6 +8266,92 @@ the recovery frame to the end on every arm, with no decoder errors. The slowest 
 Not run: decodes on the NUC and the laptop. On the stock stream (before any loss), ffmpeg's
 d3d12va decoder failed with "No space for new Reference frame" after about 17 frames, Vulkan with
 `VK_ERROR_OUT_OF_DEVICE_MEMORY`, and `h264_amf` exited nonzero with no message, so those were left out.
+
+## October 28: LTR recovery on H.264 and HEVC with header rewrites (on by default)
+
+Moonlight and Nightjar drop every frame from a loss until the repair, so the repair always follows a gap.
+The October 27 freezes came from that gap: HEVC's four-bit POC LSB puts the repair 16 too low after more
+than 8 dropped frames, and FFmpeg's d3d11va and dxva2 H.264 decoders mishandle any frame_num gap. On a
+stream with long-term references the host now rewrites AMF's headers for a client that skipped the lost
+frames: HEVC gets an 8-bit POC LSB, every slice POC rewritten and explicit MSB cycles for its long-term
+entries (repairs up to 128 frames after the last one shown, a keyframe beyond); H.264's frame_num is
+renumbered to leave out the skipped frames. A stream without long-term references sends AMF's bytes
+untouched. The host repairs only when its estimate (mean inter frame bytes times the anchor's age) is
+under the last keyframe's size.
+
+Same ignored native test as October 27, release build of branch `rl-ltr`, RX 7900 XT, 2560x1440 at
+120 fps, 50 Mbps, 480 frames, frames from 264 on not shown for the gap. Two contents: the scrolling
+texture (16 px a frame) and "static", the texture held still with a 64 px square crossing it 32 px a
+frame. The full stream is AMF's own bytes, the lossy one the rewritten bytes without the gap. Decoded
+with ffmpeg 9.0.2 software and d3d11va, frames compared by hash. Bytes are the recovery frame, forced
+to repair (`-Force`) against the keyframe of a stream without long-term references.
+
+Scrolling:
+
+| Gap | H.264 IDR | H.264 repair | HEVC IDR | HEVC repair | AV1 keyframe | AV1 repair |
+|---|---|---|---|---|---|---|
+| 1 | 82,238 | 58,293 (0.71) | 91,319 | 50,700 (0.56) | 102,781 | 53,922 (0.52) |
+| 2 | 82,240 | 79,971 (0.97) | 90,775 | 66,524 (0.73) | 101,678 | 57,822 (0.57) |
+| 4 | 82,274 | 121,630 (1.48) | 90,719 | 93,115 (1.03) | 101,617 | 86,723 (0.85) |
+| 8 | 82,235 | 215,735 (2.62) | 90,731 | 243,494 (2.68) | 101,555 | 247,386 (2.44) |
+| 16 | 82,280 | 225,548 (2.74) | 90,758 | 233,271 (2.57) | 101,171 | 101,145 (1.00) |
+| 64 | 82,251 | 236,916 (2.88) | 90,814 | 239,696 (2.64) | 100,366 | 100,340 (1.00) |
+| 130 | 82,240 | 236,498 (2.88) | 91,000 | IDR, 91,056 (past 128 frames) | 99,157 | 99,131 (1.00) |
+
+Static:
+
+| Gap | H.264 IDR | H.264 repair | HEVC IDR | HEVC repair | AV1 keyframe | AV1 repair |
+|---|---|---|---|---|---|---|
+| 1 | 82,245 | 55,869 (0.68) | 90,787 | 52,703 (0.58) | 101,775 | 51,792 (0.51) |
+| 2 | 82,294 | 46,816 (0.57) | 90,741 | 49,130 (0.54) | 101,780 | 48,255 (0.47) |
+| 4 | 82,235 | 48,119 (0.59) | 90,805 | 57,076 (0.63) | 101,749 | 49,280 (0.48) |
+| 8 | 82,237 | 53,331 (0.65) | 90,830 | 57,358 (0.63) | 101,618 | 59,826 (0.59) |
+| 16 | 82,219 | 211,875 (2.58) | 90,885 | 236,050 (2.60) | 101,419 | 101,393 (1.00) |
+| 64 | 82,270 | 215,780 (2.62) | 91,129 | 246,287 (2.70) | 99,161 | 99,135 (1.00) |
+| 130 | 82,294 | 223,590 (2.72) | 91,194 | IDR, 91,196 (past 128 frames) | 99,163 | 99,137 (1.00) |
+
+Decodes: all 84 forced arms and all 42 policy arms showed the full stream's pictures from the recovery
+frame to the end on software and d3d11va, with no decoder errors (the first forced H.264 run compared
+against the rewritten stream as its reference, which itself drops frames, and was rerun against AMF's
+bytes). The offline streams of the morning, rewritten from recorded AMF output, also decoded identically
+on d3d11va and dxva2: HEVC gap 8 111/111 and gap 11 108/108 frames after the recovery, H.264 gap 1
+118/118, gap 8 111/111 and gap 11 108/108.
+
+Policy run (no `-Force`, both contents): on every codec the estimate repaired at gaps 1 and 2 and sent a
+keyframe from gap 4 on, so no repair it chose was bigger than the keyframe. It passed up smaller repairs
+on static content at gaps 4 and 8 (0.48 to 0.65 of the keyframe) and AV1 scrolling at gap 4 (0.85). Over
+the 14 gap and content cells per codec the policy sent 0.92 (H.264), 0.89 (HEVC) and 0.86 (AV1) of the
+keyframe bytes, and 0.52, 0.62 and 0.97 of what repairing every gap would have. AV1 repaired every gap
+before the estimate; its 3% saving here is a mix of avoiding the 2.4x repair at scrolling gap 8 and
+missing the static ones. So long-term references are on by default for H.264 and HEVC as for AV1
+(`amd_ltr_frames`, default 4), and the launch parameter `rlLtrRecovery` no longer changes anything.
+
+Cost of the rewrite. Offline, release build (core ignored test `rewrite_time_per_frame`,
+`BUTTERPOLLO_TEST_REWRITE`): rewrite p50 10 to 14 us, p99 37 to 62 us, against the copy the encoder already makes (p50
+2.6 to 3.9 us, p99 19 to 44 us): about +9 us p50 per frame, only on streams with long-term references. In
+a real stream, `rust/release/e2e.py` with the moonlight-common-c receiver, HEVC 2560x1440x120 at
+50 Mbps, d3d11va decode, 60 s per side with the first 5 s left out, release host at `80221f3db`; the LTR
+side asked with `rlLtrRecovery=1` (the rewrite on every frame), the other side was the stock stream, as
+on main. ABBA, one stream each:
+
+| Stream | Host processing, median of 5 s means | Median of 5 s p99 | Record host total median / p99 | End to end median / p99 |
+|---|---|---|---|---|
+| stock 1 | 0.483 ms | 1.218 ms | 3.401 / 4.787 ms | 5.445 / 6.843 ms |
+| LTR 1 | 0.621 ms | 0.929 ms | 3.384 / 4.284 ms | 5.451 / 6.382 ms |
+| LTR 2 | 0.616 ms | 0.948 ms | 3.414 / 3.737 ms | 5.497 / 5.891 ms |
+| stock 2 | 0.627 ms | 0.945 ms | 3.400 / 3.721 ms | 5.475 / 5.883 ms |
+
+The first stock stream's host processing rose to the others' level (0.62 to 0.65 ms) in its last three
+windows; the second pair differs by 11 us in the mean and 3 us in the p99, and the record's host total
+by 14 us in the median. The rewrite adds no latency we can measure in a stream. The 5 s line carries a
+mean, p95 and p99, no median. All four streams held 120 fps with no decode failures; no loss was injected,
+so no repair was sent in them.
+
+Not run: decoders other than FFmpeg's on this PC (Android MediaCodec, Apple VideoToolbox, the NUC and
+the laptop). A separate NUC run, HEVC with LTR, repaired 40 ms bursts and decoded 2215/2215 frames. Limits:
+HEVC repairs only within 128 frames of the last one shown; the skipped-frame history keeps 64 repairs
+per IDR; the size estimate is linear; the rewriters have mutation tests (3000 per codec), not a fuzz
+harness. Android MediaCodec checked in the rc.4 hardware pass.
 
 ## Hardware covered
 

@@ -294,30 +294,16 @@ pub fn recovery_frame_cap(
 /// nominal frames, `recovery_frame_cap`'s floor, already pass `fec_whole`, no
 /// cap at the floor keeps full parity, so `cap` stays as it is.
 pub fn fec_whole_frame_cap(cap: u64, fec_whole: usize, bitrate_kbps: u32, period: Duration) -> u64 {
-    let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
-    if minimum > fec_whole as u64 {
-        cap
-    } else {
-        cap.min(fec_whole as u64)
-    }
+    fec_whole_frame_limit(fec_whole, bitrate_kbps, period).map_or(cap, |limit| cap.min(limit))
 }
 
-/// The automatic frame cap a stream sends with: `cap` held by
-/// [`fec_whole_frame_cap`] when its FEC is a fixed percentage. Statistical FEC
-/// (`rlFecPercentage=auto`) and a stream without FEC keep `cap`, and
-/// `fec_whole` is not asked for then.
-pub fn fixed_fec_frame_cap(
-    cap: u64,
-    fec_percent: usize,
-    statistical: bool,
-    fec_whole: impl FnOnce() -> usize,
-    bitrate_kbps: u32,
-    period: Duration,
-) -> u64 {
-    if fec_percent == 0 || statistical {
-        return cap;
-    }
-    fec_whole_frame_cap(cap, fec_whole(), bitrate_kbps, period)
+/// The bound [`fec_whole_frame_cap`] holds a cap to: `fec_whole`, or none
+/// where two nominal frames already pass it. An encoded frame above it loses
+/// parity, so the encoder re-encodes an inter frame that large as a keyframe;
+/// with no bound, a keyframe at the cap would lose it as well, so none is.
+pub fn fec_whole_frame_limit(fec_whole: usize, bitrate_kbps: u32, period: Duration) -> Option<u64> {
+    let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
+    (minimum <= fec_whole as u64).then_some(fec_whole as u64)
 }
 
 /// Time spent in the send call or waking late that still counts toward the
@@ -487,20 +473,43 @@ mod tests {
         let fast = recovery_frame_cap(800_000_000, 400_000, period, 20, 1392, false);
         assert!((400_000. * 125. * period.as_secs_f64() * 2.).ceil() as u64 > whole as u64);
         assert_eq!(fec_whole_frame_cap(fast, whole, 400_000, period), fast);
-        // Only a fixed FEC percentage holds the cap.
+        // The re-encode bound for scene cuts is the same: full parity where the
+        // cap keeps it, none where a keyframe at the cap would lose it too.
         assert_eq!(
-            fixed_fec_frame_cap(cap, 20, false, || whole, 200_000, period),
-            whole as u64
+            fec_whole_frame_limit(whole, 200_000, period),
+            Some(whole as u64)
         );
-        let unasked = || -> usize { panic!("fec_whole asked for") };
-        assert_eq!(
-            fixed_fec_frame_cap(cap, 20, true, unasked, 200_000, period),
-            cap
-        );
-        assert_eq!(
-            fixed_fec_frame_cap(cap, 0, false, unasked, 200_000, period),
-            cap
-        );
+        assert_eq!(fec_whole_frame_limit(whole, 400_000, period), None);
+    }
+
+    #[test]
+    fn without_fec_the_cap_is_the_four_block_packet_limit() {
+        let period = Duration::from_secs_f64(1. / 60.);
+        let packetizer = crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 0,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        // 255 data shards in each of four blocks: about 1.40 MB.
+        let whole = packetizer.fec_whole_payload_limit();
+        assert_eq!(whole, 4 * 255 * 1376 - 8);
+        // The automatic cap, about 3.1 MB without parity, puts over 2,000
+        // packets of a recovery frame at risk; held, it has 1,020.
+        let cap = recovery_frame_cap(800_000_000, 200_000, period, 0, 1392, false);
+        let held = fec_whole_frame_cap(cap, whole, 200_000, period);
+        let packets = |payload: u64| {
+            packetizer
+                .block_layout(payload as usize)
+                .iter()
+                .map(|(data, parity)| data + parity)
+                .sum::<usize>()
+        };
+        assert!(packets(cap) > 2000, "{}", packets(cap));
+        assert_eq!(packets(held), 4 * 255);
     }
 
     #[test]

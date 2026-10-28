@@ -135,6 +135,22 @@ public class HostCapabilitiesTest {
         assertEquals(0, TestHosts.fixture("rubylight-30-refused-serverinfo.xml").hdrFormats());
         assertEquals(0, TestHosts.rubylight().hdrFormats());
         assertEquals(0, TestHosts.fixture("sunshine-serverinfo.xml").hdrFormats());
+        // An AV1 host adds Dolby Vision 10.1 (16); bits past it are not this client's, but for the
+        // PyroWave HLG offer flag (128).
+        String host = "<RustHostVersion>3.1.0</RustHostVersion><PairStatus>1</PairStatus>";
+        assertEquals(31, caps(host + "<HdrFormats>31</HdrFormats>").hdrFormats());
+        assertEquals(17, caps(host + "<HdrFormats>17</HdrFormats>").hdrFormats());
+        assertEquals(31 | 128, caps(host + "<HdrFormats>255</HdrFormats>").hdrFormats());
+    }
+
+    @Test
+    public void hdrFormatsKeepThePyroWaveHlgOfferFlag() {
+        String xml = TestHosts.serverInfo("rubylight-30-serverinfo.xml");
+        assertEquals(143, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>143<")).hdrFormats());
+        assertEquals(131, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>131<")).hdrFormats());
+        // Unknown bits drop out, Dolby Vision 10.1 (16) and the flag stay; the flag alone is no HDR offer.
+        assertEquals(159, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>255<")).hdrFormats());
+        assertEquals(0, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>128<")).hdrFormats());
     }
 
     @Test
@@ -370,7 +386,7 @@ public class HostCapabilitiesTest {
         String host = "<RustHostVersion>3.1.0</RustHostVersion><PairStatus>1</PairStatus>"
                 + "<NativeApiVersion>1</NativeApiVersion>";
         Object[][] cases = {
-                {"HdrFormats", DOLBY_VISION, new String[] {"4", "8"}, new String[] {"3", "x", ""}},
+                {"HdrFormats", DOLBY_VISION, new String[] {"4", "8", "16"}, new String[] {"3", "x", ""}},
                 {"HdrFormats", HLG, new String[] {"2"}, new String[] {"13", "256"}},
                 {"AudioCodecs", AUDIO_PASSTHROUGH, new String[] {"2", "4", "8"}, new String[] {"1"}},
                 {"AudioLayouts", SURROUND_714, new String[] {"8"}, new String[] {"7"}},

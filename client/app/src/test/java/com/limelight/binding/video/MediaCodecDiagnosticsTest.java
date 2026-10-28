@@ -100,7 +100,9 @@ public class MediaCodecDiagnosticsTest {
             ReflectionHelpers.setField(renderer, "videoFormat", com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10);
             java.util.concurrent.atomic.AtomicInteger recovery = ReflectionHelpers.getField(renderer, "codecRecoveryType");
             byte[] metadata = new byte[26];
-            // The host reports HDR as soon as the 10-bit stream starts; the decoder restarts once for it.
+            // The PC's display goes from SDR to HDR during the 10-bit stream; the decoder restarts once
+            // for it (metadata alone on a running HDR stream is a parameter instead).
+            ReflectionHelpers.setField(renderer, "currentHdrMode", Boolean.FALSE);
             renderer.setHdrMode(true, metadata);
             assertEquals("restart", 2, recovery.get());
             assertTrue(com.limelight.LimeLog.getRedactedLog().contains("Decoder restart requested: HDR metadata"));

@@ -1314,6 +1314,95 @@ fn gpu_hlg_matches_the_cpu_reference_in_every_converter() -> Result<()> {
     Ok(())
 }
 
+/// PyroWave's compute conversion (`pyrowave::ComputePlanes`) of an HLG stream:
+/// the R16 luma plane holds code / 1023 and matches `color::hlg`.
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn pyrowave_planes_hlg_matches_the_cpu_reference() -> Result<()> {
+    use windows::Win32::Graphics::Direct3D12::{D3D12_FENCE_FLAG_NONE, ID3D12Fence};
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    // Grey at 0, 80, 203, 1000 and 2000 nits.
+    let colours = [[0.; 3], [1.; 3], [203. / 80.; 3], [12.5; 3], [25.; 3]];
+    let image = GpuImage::upload(&gpu, &make_image(&colours, 64, 64))?;
+    // SAFETY: `compute.device` is a live D3D12 device.
+    let fence: ID3D12Fence = unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
+    let width = image.width as usize;
+    for (value, yuv444) in [(1, false), (2, true)] {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: image.width,
+            height: image.height,
+            codec: 3,
+            hdr: true,
+            // rubylight_protocol::hdr::HLG
+            hdr_format: 2,
+            yuv444,
+            ..Default::default()
+        };
+        let source = (image.width, image.height, image.pixel);
+        let outputs = PlanarConverter::new(&gpu, &config, source)?;
+        let mut converter = crate::compute::Converter::new(
+            compute.clone(),
+            config.width,
+            config.height,
+            config.ten_bit(),
+        )?;
+        // As `ComputePlanes::convert`.
+        converter.values = constants(&config, source, [100., 1.], None);
+        converter.values[11] = u32::from(config.yuv444);
+        let planes = crate::compute::Planes {
+            planes: [
+                compute.open(&outputs.textures[0])?,
+                compute.open(&outputs.textures[1])?,
+                compute.open(&outputs.textures[2])?,
+            ],
+            format: DXGI_FORMAT_R16_UNORM,
+            fence: fence.clone(),
+            after: value - 1,
+            done: value,
+        };
+        converter.convert_planes(
+            &compute.open(&image.texture)?,
+            crate::compute::format(image.pixel),
+            None,
+            None,
+            &planes,
+            Some(&image),
+        )?;
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        // SAFETY: `fence` is a live D3D12 fence.
+        while unsafe { fence.GetCompletedValue() } < value {
+            assert!(
+                Instant::now() < deadline,
+                "the compute conversion did not finish"
+            );
+            std::thread::yield_now();
+        }
+        let luma: Vec<u16> = plane_bytes(&gpu, &outputs.textures[0])?
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| (f64::from(u16::from_le_bytes(*pair)) * 1023. / 65535.).round() as u16)
+            .collect();
+        let code = |patch: usize| luma[32 * width + patch * 64 + 32];
+        for (patch, colour) in colours.iter().enumerate() {
+            let rgb = crate::color::hlg(colour.map(f64::from));
+            let y = 0.2627 * rgb[0] + 0.6780 * rgb[1] + 0.0593 * rgb[2];
+            let expected = (64. + 876. * y).round().clamp(0., 1023.);
+            assert!(
+                (f64::from(code(patch)) - expected).abs() <= 1.,
+                "4:4:4 {yuv444} patch {patch}: luma {}, wanted {expected}",
+                code(patch)
+            );
+        }
+        // HLG's peak and BT.2408's reference white, in codes.
+        assert!(code(3).abs_diff(940) <= 1, "4:4:4 {yuv444}: {}", code(3));
+        assert!(code(2).abs_diff(721) <= 1, "4:4:4 {yuv444}: {}", code(2));
+    }
+    Ok(())
+}
+
 #[test]
 #[ignore = "requires a D3D11 GPU with native P010 render views"]
 fn gpu_hdr_preserves_absolute_luminance_gamut_and_linear_resize() -> Result<()> {

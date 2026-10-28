@@ -88,6 +88,20 @@ impl Encoder {
             _ => None,
         }
     }
+    /// The largest inter frame sent as encoded; AMF encodes a larger one again
+    /// as a keyframe. PyroWave holds every picture to its budget.
+    pub fn set_cut_limit(&mut self, bytes: u64) {
+        if let Self::Amf(encoder) = self {
+            encoder.set_cut_limit(bytes);
+        }
+    }
+    /// Inter frames encoded again as keyframes since the encoder opened.
+    pub fn reencoded_cuts(&self) -> u64 {
+        match self {
+            Self::Amf(encoder) => encoder.reencoded_cuts(),
+            _ => 0,
+        }
+    }
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         if let Self::Amf(encoder) = self {
             encoder.set_hdr_metadata(metadata);
@@ -141,6 +155,13 @@ impl Encoder {
         warnings.clear("hdr_dynamic_metadata");
         require_amd(&image.gpu)?;
         if config.codec == 3 {
+            if config.hdr {
+                // The colour conversion (`gpu_color::constants`) encodes this curve.
+                tracing::info!(
+                    transfer = if config.hlg() { "HLG" } else { "PQ" },
+                    "PyroWave HDR stream"
+                );
+            }
             if config.hdr && tuning.hdr_dynamic_metadata() {
                 tracing::info!(
                     "PyroWave stream: no HDR dynamic metadata (HDR10+, HDR Vivid) is sent"

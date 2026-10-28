@@ -368,7 +368,7 @@ fn wireless_route_is_flagged_for_every_codec_and_never_sent_as_zero() {
 #[test]
 fn hdr_format_and_audio_codec_are_sent_only_when_asked_for_and_offered() {
     use rubylight_protocol::audio_ext::{CODECS_ALL, CODEC_AC3, CODEC_PCM};
-    use rubylight_protocol::hdr::{ALL, DV_81, DV_84, HLG, PQ};
+    use rubylight_protocol::hdr::{ALL, DV_101, DV_81, DV_84, HLG, PQ, PYROWAVE_HLG};
     const HDR: &str = rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE;
     const CODEC: &str = rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE;
     let config = StreamConfig::default();
@@ -407,21 +407,41 @@ fn hdr_format_and_audio_codec_are_sent_only_when_asked_for_and_offered() {
         assert_eq!(sent(format, (0, 0), (CODEC_PCM, CODECS_ALL)), (None, pcm.clone()));
     }
 
-    // An HDR format needs a 10-bit HEVC or AV1 stream, and Dolby Vision HEVC.
+    // An HDR format needs a 10-bit HEVC or AV1 stream, Dolby Vision 8.1 and 8.4 HEVC and
+    // 10.1 AV1.
     let hdr = |format: u32, bit: u8| sent(format, (bit, ALL), (0, 0)).0;
     assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, DV_84), dv);
     assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, HLG), Some("a=x-rl-video[0].hdrFormat:2".into()));
     assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, HLG), Some("a=x-rl-video[0].hdrFormat:2".into()));
     assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, DV_84), None);
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, DV_81), None);
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, DV_101), Some("a=x-rl-video[0].hdrFormat:16".into()));
+    assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, DV_101), None);
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN8, DV_101), None);
     assert_eq!(hdr(VIDEO_FORMAT_H265, HLG), None);
     assert_eq!(hdr(VIDEO_FORMAT_PYROWAVE, HLG), None);
-    // PyroWave's 10-bit formats are in the 10-bit mask but carry no HDR format: the host refuses
-    // one in the ANNOUNCE.
+    // PyroWave's 10-bit formats are in the 10-bit mask but carry no HDR format from a host without
+    // the PyroWave HLG offer flag: a 3.0 rc host refuses one in the ANNOUNCE.
+    let flagged = |format: u32, bit: u8, offered: u8| sent(format, (bit, offered), (0, 0)).0;
+    let hlg = Some("a=x-rl-video[0].hdrFormat:2".to_owned());
     for format in [VIDEO_FORMAT_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10_444] {
-        for bit in [PQ, HLG, DV_81, DV_84] {
+        for bit in [PQ, HLG, DV_81, DV_84, DV_101] {
             assert_eq!(hdr(format, bit), None, "{format:#x} {bit}");
         }
+        // With the flag, HLG and only HLG: PQ stays stock HDR, Dolby Vision needs HEVC.
+        assert_eq!(flagged(format, HLG, ALL | PYROWAVE_HLG), hlg, "{format:#x}");
+        assert_eq!(flagged(format, HLG, HLG | PYROWAVE_HLG), hlg, "{format:#x}");
+        for bit in [PQ, DV_81, DV_84] {
+            assert_eq!(flagged(format, bit, ALL | PYROWAVE_HLG), None, "{format:#x} {bit}");
+        }
+        // The flag is never a format, and HLG still has to be offered beside it.
+        assert_eq!(flagged(format, PYROWAVE_HLG, ALL | PYROWAVE_HLG), None);
+        assert_eq!(flagged(format, HLG, PYROWAVE_HLG), None);
     }
+    // 8-bit PyroWave carries no HDR, the flag or not; on HEVC the flag changes nothing.
+    assert_eq!(flagged(VIDEO_FORMAT_PYROWAVE, HLG, ALL | PYROWAVE_HLG), None);
+    assert_eq!(flagged(VIDEO_FORMAT_H265_MAIN10, HLG, ALL | PYROWAVE_HLG), hlg);
+    assert_eq!(flagged(VIDEO_FORMAT_H265_MAIN10, PYROWAVE_HLG, ALL | PYROWAVE_HLG), None);
 
     // Only the two lines differ from the plain description.
     let plain = generate(&params(&config, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_H265_MAIN10)).text;

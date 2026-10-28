@@ -22,6 +22,8 @@ struct NdkApi {
     void (*AHardwareBuffer_release)(AHardwareBuffer* buffer);
     void (*AHardwareBuffer_describe)(const AHardwareBuffer* buffer, AHardwareBuffer_Desc* outDesc);
     jobject (*ANativeWindow_toSurface)(JNIEnv* env, ANativeWindow* window);
+    // Optional (API 28): HDR on a swapchain whose colour space the loader cannot list
+    int32_t (*ANativeWindow_setBuffersDataSpace)(ANativeWindow* window, int32_t dataSpace);
 
     // libmediandk.so (API 24-26)
     media_status_t (*AImageReader_newWithUsage)(int32_t width, int32_t height, int32_t format,

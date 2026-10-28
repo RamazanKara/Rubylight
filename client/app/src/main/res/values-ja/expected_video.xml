@@ -15,4 +15,12 @@
     <string name="stream_hdr_output_not_pq">HDRはオンですが、この端末のデコーダーがHDRではない出力を報告しているため、色が薄く見える場合があります。</string>
     <string name="stream_hdr_hlg_needs_direct_output">この画面はHDRをHLGでしか表示できず、「Vulkanで描画」はHLGを描画できないため、ストリームはSDRです。</string>
     <string name="stream_hdr_pq_on_hlg_screen">この画面はHDRをHLGでしか表示できませんが、PCはHDR10を送っているため、明るさや色が正しく見えない場合があります。</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$sはSDRで表示されています。画面が「Vulkanで描画」からのHDRを受け付けませんでした。</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Visionには「Vulkanで描画」をオフにする必要があるため、ストリームはHDR10です。</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+には「Vulkanで描画」をオフにする必要があるため、ストリームはHDR10+なしのHDR10です。</string>
+    <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby VisionにはHEVCかAV1が必要なため、PyroWaveは%1$sでストリーミングします。</string>
+    <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+にはHEVCかAV1が必要なため、PyroWaveはHDR10+なしのHDR10でストリーミングします。</string>
+    <string name="stream_hdr_pq_on_hlg_screen_host_update">この画面はHDRをHLGでしか表示できませんが、PCはPyroWaveでHDR10を送っているため、明るさや色が正しく見えない場合があります。PCのホストを更新するとPyroWaveでHLGが使えます。</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">この画面はHDRをHLGでしか表示できませんが、PyroWaveのHLGを拒否したため、PCはHDR10を送っており、明るさや色が正しく見えない場合があります。</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">この画面はストリーム開始前にPyroWaveのHLGを受け入れましたが、ストリームをHLGで表示しませんでした。</string>
 </resources>

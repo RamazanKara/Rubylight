@@ -94,6 +94,33 @@ public class PadLayoutTest {
         }
     }
 
+    /** Small phones (800x360 dp at 2x, either way up) and the smallest scale: every control still takes a 48 dp touch, apart. */
+    @Test public void everyDefaultControlTakesAFullTouchOnASmallPhone() {
+        float density = 2;
+        float[][] surfaces = {{1600, 720}, {720, 1600}, {1280, 800}};
+        PadLayout.Control[] controls = PadLayout.Control.values();
+        float[] a = new float[4], b = new float[4];
+        for (float[] surface : surfaces) {
+            PadLayout layout = new PadLayout();
+            for (PadLayout.Control control : controls) {
+                layout.bounds(control, surface[0], surface[1], density, a);
+                String where = control + " on " + surface[0] + "x" + surface[1];
+                assertTrue(where + " is " + a[2] / density + " dp wide", a[2] >= 48 * density - .01f);
+                assertTrue(where + " is " + a[3] / density + " dp tall", a[3] >= 48 * density - .01f);
+                if (control.shape == PadLayout.Shape.PILL) assertTrue(where + " pill", a[2] >= 72 * density - .01f);
+                for (PadLayout.Control other : controls) {
+                    if (other.ordinal() <= control.ordinal()) continue;
+                    layout.bounds(other, surface[0], surface[1], density, b);
+                    boolean overlap = a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+                    assertFalse(where + " overlaps " + other, overlap);
+                }
+            }
+            layout.setScale(PadLayout.Control.HOME, PadLayout.MIN_SCALE);
+            layout.bounds(PadLayout.Control.HOME, surface[0], surface[1], density, a);
+            assertTrue("Shrinking stops at a full touch", a[2] >= 48 * density - .01f);
+        }
+    }
+
     @Test public void aTabletsControlsStopGrowingAtTheUnitCap() {
         float tablet = PadLayout.unit(2560, 1600, 2);
         assertEquals(PadLayout.MAX_UNIT_DP * 2, tablet, 0);

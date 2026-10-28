@@ -1817,7 +1817,8 @@ impl Encoder {
             };
             self.frame_bytes += sent.len();
             if last {
-                self.references.encoded(idr, std::mem::take(&mut self.frame_bytes));
+                self.references
+                    .encoded(idr, std::mem::take(&mut self.frame_bytes));
             }
             let bytes: &[u8] = &sent;
             if self.slice_blocks > 0 {

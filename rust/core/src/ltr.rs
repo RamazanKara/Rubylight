@@ -32,9 +32,7 @@ impl Counter {
     pub fn follows(self, shown: u64, recovery: u64) -> bool {
         match self {
             Self::Explicit => true,
-            Self::PictureOrder => {
-                recovery.saturating_sub(shown) <= crate::bitstream::ORDER_WINDOW
-            }
+            Self::PictureOrder => recovery.saturating_sub(shown) <= crate::bitstream::ORDER_WINDOW,
         }
     }
 }
@@ -108,7 +106,9 @@ impl References {
         }
     }
     fn skipped_now(&self) -> u64 {
-        self.skipped.back().map_or(self.skipped_base.1, |&(_, skipped)| skipped)
+        self.skipped
+            .back()
+            .map_or(self.skipped_base.1, |&(_, skipped)| skipped)
     }
     /// The frames skipped before the client decoded wire frame `frame`,
     /// unless that is older than the history kept.
@@ -384,7 +384,10 @@ mod tests {
         assert!(references.invalidate(242, 252));
         let recovery = references.plan(253, false);
         assert!(recovery.after_invalidation);
-        assert_eq!(recovery.reference.and_then(|slot| references.slots[slot]), Some(1));
+        assert_eq!(
+            recovery.reference.and_then(|slot| references.slots[slot]),
+            Some(1)
+        );
         // The window counts from the last frame shown: 128 frames on still
         // order, 129 don't, whatever was lost before.
         assert!(submitted(Counter::PictureOrder, 368).invalidate(242, 368));
@@ -464,7 +467,10 @@ mod tests {
             references.accepted(frame, &plan);
         }
         assert!(references.invalidate(31, 32));
-        assert!(references.invalidate(32, 32), "a second report before the repair");
+        assert!(
+            references.invalidate(32, 32),
+            "a second report before the repair"
+        );
         let repair = references.plan(33, false);
         assert_eq!(repair.skipped, 12);
         references.accepted(33, &repair);

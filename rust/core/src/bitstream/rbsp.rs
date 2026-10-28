@@ -261,12 +261,17 @@ mod tests {
         let rbsp = [0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 7, 0, 0];
         let mut escaped = Vec::new();
         escape(&rbsp, &mut escaped);
-        assert_eq!(escaped, [0, 0, 3, 0, 0, 3, 1, 0, 0, 3, 2, 0, 0, 3, 3, 7, 0, 0]);
+        assert_eq!(
+            escaped,
+            [0, 0, 3, 0, 0, 3, 1, 0, 0, 3, 2, 0, 0, 3, 3, 7, 0, 0]
+        );
         assert_eq!(unescape(&escaped, usize::MAX).0, rbsp);
         let (prefix, from) = unescape(&escaped, 5);
         assert_eq!(prefix, [0, 0, 0, 0, 1]);
         assert_eq!(from, [0, 1, 3, 4, 6]);
-        let stream = [0, 0, 0, 1, 0x40, 1, 0, 0, 1, 0x42, 1, 9, 0, 0, 0, 0, 1, 0x26];
+        let stream = [
+            0, 0, 0, 1, 0x40, 1, 0, 0, 1, 0x42, 1, 9, 0, 0, 0, 0, 1, 0x26,
+        ];
         assert_eq!(units(&stream), [(4, 6), (9, 12), (17, 18)]);
         // Long runs without a zero, and start codes at every alignment of
         // the eight-byte skip.

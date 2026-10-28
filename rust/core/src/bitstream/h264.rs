@@ -135,7 +135,11 @@ fn sequence_parameter_set(rbsp: &[u8]) -> Result<(usize, (u32, bool))> {
     reader.skip(16)?;
     let id = reader.ue_max(31, "SPS id")? as usize;
     let mut separate_colour_plane = false;
-    if [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135, 144].contains(&profile) {
+    if [
+        100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135, 144,
+    ]
+    .contains(&profile)
+    {
         let chroma = reader.ue_max(3, "chroma format")?;
         if chroma == 3 {
             separate_colour_plane = reader.flag()?;
@@ -215,20 +219,36 @@ mod tests {
     fn renumbering_lowers_frame_num_by_the_skipped_frames_and_nothing_else() {
         let original = frame_numbers(STREAM);
         assert_eq!(original.len(), 250);
-        assert!(original.iter().enumerate().all(|(index, &(_, number))| number == index as u32 % 16));
+        assert!(
+            original
+                .iter()
+                .enumerate()
+                .all(|(index, &(_, number))| number == index as u32 % 16)
+        );
         // Nothing skipped, or whole periods: AMF's stream as it was.
         for skipped in [0, 16, 32] {
             assert_eq!(FrameNumbers::default().rewrite(STREAM, skipped), Ok(None));
         }
         for skipped in [1, 5, 15, 130] {
-            let rewritten = FrameNumbers::default().rewrite(STREAM, skipped).unwrap().unwrap();
+            let rewritten = FrameNumbers::default()
+                .rewrite(STREAM, skipped)
+                .unwrap()
+                .unwrap();
             let numbers = frame_numbers(&rewritten);
-            for (index, (&(kind, before), &(_, after))) in original.iter().zip(&numbers).enumerate() {
-                let expected = if kind == 5 { before } else { (before + 16 - skipped as u32 % 16) % 16 };
+            for (index, (&(kind, before), &(_, after))) in original.iter().zip(&numbers).enumerate()
+            {
+                let expected = if kind == 5 {
+                    before
+                } else {
+                    (before + 16 - skipped as u32 % 16) % 16
+                };
                 assert_eq!(after, expected, "frame {index} skipped {skipped}");
             }
             // Only frame_num moved: the rest of every unit comes back.
-            let back = FrameNumbers::default().rewrite(&rewritten, 16 - skipped % 16).unwrap().unwrap();
+            let back = FrameNumbers::default()
+                .rewrite(&rewritten, 16 - skipped % 16)
+                .unwrap()
+                .unwrap();
             assert_eq!(back, STREAM, "skipped {skipped}");
         }
         // Frame by frame, as AMF returns them, gives the same stream.
@@ -240,9 +260,17 @@ mod tests {
         let mut frames = Vec::new();
         for cut in cuts.windows(2) {
             let frame = &STREAM[cut[0]..cut[1]];
-            frames.extend(numbers.rewrite(frame, 3).unwrap().unwrap_or_else(|| frame.to_vec()));
+            frames.extend(
+                numbers
+                    .rewrite(frame, 3)
+                    .unwrap()
+                    .unwrap_or_else(|| frame.to_vec()),
+            );
         }
-        assert_eq!(Some(frames), FrameNumbers::default().rewrite(STREAM, 3).unwrap());
+        assert_eq!(
+            Some(frames),
+            FrameNumbers::default().rewrite(STREAM, 3).unwrap()
+        );
     }
 
     #[test]
@@ -255,7 +283,10 @@ mod tests {
         );
         let mut disposable = STREAM.to_vec();
         disposable[units[3].0] &= !0x60;
-        assert_eq!(numbers(&disposable), Err(Unsupported("non-reference H.264 frame")));
+        assert_eq!(
+            numbers(&disposable),
+            Err(Unsupported("non-reference H.264 frame"))
+        );
         // POC type 0 counts its own low bits; a gap would break those too.
         let mut sps = Writer::default();
         sps.bits(24, 66 << 16 | 40);

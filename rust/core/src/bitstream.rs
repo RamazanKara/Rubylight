@@ -236,7 +236,10 @@ mod tests {
             assert!(matches!(sent, Cow::Borrowed(bytes) if std::ptr::eq(bytes, stream)));
         }
         let mut hevc = RepairHeaders::for_codec(1);
-        assert!(matches!(repaired(hevc.as_mut(), stream, 0), Ok(Cow::Owned(_))));
+        assert!(matches!(
+            repaired(hevc.as_mut(), stream, 0),
+            Ok(Cow::Owned(_))
+        ));
         let mut h264 = RepairHeaders::for_codec(0);
         let stream: &[u8] = include_bytes!("bitstream/fixtures/amf-h264-ltr.bin");
         let sent = repaired(h264.as_mut(), stream, 0).unwrap();
@@ -291,7 +294,9 @@ mod tests {
                 copies.push(started.elapsed());
                 drop(copy);
                 let started = std::time::Instant::now();
-                let sent = repaired(Some(&mut headers), frame, skipped).unwrap().into_owned();
+                let sent = repaired(Some(&mut headers), frame, skipped)
+                    .unwrap()
+                    .into_owned();
                 times.push(started.elapsed());
                 output.extend_from_slice(&sent);
             }

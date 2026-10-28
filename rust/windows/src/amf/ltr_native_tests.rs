@@ -228,7 +228,11 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
         let arms = gaps
             .iter()
             .flat_map(|&gap| [(false, gap), (true, gap)])
-            .filter(|&(asked, _)| wanted.iter().any(|arm| arm == if asked { "ltr" } else { "keyframe" }));
+            .filter(|&(asked, _)| {
+                wanted
+                    .iter()
+                    .any(|arm| arm == if asked { "ltr" } else { "keyframe" })
+            });
         for (asked, gap) in arms {
             let name = format!(
                 "{content}-{format}-{}-gap{gap}",
@@ -260,7 +264,11 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             anyhow::ensure!(
                 encoder.repair_headers.is_some() == (asked && codec <= 1),
                 "{name}: header rewrite {}",
-                if asked { "missing" } else { "without long-term references" }
+                if asked {
+                    "missing"
+                } else {
+                    "without long-term references"
+                }
             );
             let read: serde_json::Map<_, _> = properties
                 .iter()
@@ -331,8 +339,7 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             // ORDER_WINDOW frames on, H.264 and AV1 at any distance.
             let repairable = asked
                 && (codec != 1
-                    || recovery - (LOST - 1)
-                        <= butterpollo_core::bitstream::ORDER_WINDOW as usize);
+                    || recovery - (LOST - 1) <= butterpollo_core::bitstream::ORDER_WINDOW as usize);
             let keyframes: Vec<usize> = frames
                 .iter()
                 .filter(|frame| frame.0)

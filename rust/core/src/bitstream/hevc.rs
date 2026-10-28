@@ -288,7 +288,11 @@ impl PictureOrder {
                 resolved.push((lt_lsb, full));
             }
             let mut known: Vec<i64> = std::iter::once(poc)
-                .chain(short_term.deltas().map(|(delta, _)| poc + i64::from(*delta)))
+                .chain(
+                    short_term
+                        .deltas()
+                        .map(|(delta, _)| poc + i64::from(*delta)),
+                )
                 .chain(resolved.iter().map(|(_, full)| *full))
                 .collect();
             let sub_layer_non_reference = kind <= 14 && kind % 2 == 0;
@@ -527,7 +531,9 @@ fn sequence_parameter_set(rbsp: &[u8]) -> Result<(usize, Sps, (usize, usize))> {
     }
     let temporal_mvp = reader.flag()?;
     let size = |samples: u32| samples.div_ceil(1 << ctb);
-    let ctbs = size(width).checked_mul(size(height)).ok_or(Unsupported("picture size"))?;
+    let ctbs = size(width)
+        .checked_mul(size(height))
+        .ok_or(Unsupported("picture size"))?;
     let sps = Sps {
         lsb_bits,
         separate_colour_plane,
@@ -594,8 +600,12 @@ fn picture_parameter_set(rbsp: &[u8]) -> Result<(usize, Pps)> {
     reader.ue()?;
     let header_extension = reader.flag()?;
     if reader.flag()? {
-        let (range, _multilayer, _three_d, screen_content) =
-            (reader.flag()?, reader.flag()?, reader.flag()?, reader.flag()?);
+        let (range, _multilayer, _three_d, screen_content) = (
+            reader.flag()?,
+            reader.flag()?,
+            reader.flag()?,
+            reader.flag()?,
+        );
         if range || screen_content {
             return Err(Unsupported("PPS range or screen content extension"));
         }
@@ -841,7 +851,11 @@ mod tests {
         assert_eq!(repair(&original).1, 233);
         assert_eq!(repair(&wide).1, 249);
         assert_eq!(repair(&wide).2[0], Some(239));
-        assert!(derived(&wide, lossy).iter().all(|(index, poc, _)| *poc == *index as i64));
+        assert!(
+            derived(&wide, lossy)
+                .iter()
+                .all(|(index, poc, _)| *poc == *index as i64)
+        );
         // The window: 128 frames after the last one shown still order, 129
         // land 256 too low.
         for (last, ordered) in [(101, true), (100, false)] {

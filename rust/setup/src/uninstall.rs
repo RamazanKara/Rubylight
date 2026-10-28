@@ -1580,20 +1580,26 @@ mod tests {
     fn the_saved_child_session_passwords_go_without_a_record() {
         // No record anywhere: a restore can have removed it and left the password.
         let root = tempfile::tempdir().unwrap();
+        // By its long name: the temp folder can be an 8.3 short one (CI's
+        // C:\Users\RUNNER~1), which the wipe's link check refuses as leading
+        // elsewhere. ProfileList and the known folders give long names.
+        let base = std::fs::canonicalize(root.path()).unwrap();
+        let base = base.to_str().unwrap();
+        let base = PathBuf::from(base.strip_prefix(r"\\?\").unwrap_or(base));
         let folder = |profile: &Path| {
             profile
                 .join("AppData")
                 .join("Local")
                 .join(CHILD_SESSION_PASSWORD_FOLDER)
         };
-        let profiles = [root.path().join("ramaz"), root.path().join("guest")];
+        let profiles = [base.join("ramaz"), base.join("guest")];
         for profile in &profiles {
             for name in CHILD_SESSION_PASSWORD_FILES {
                 write(&folder(profile).join(name), "DPAPI blob");
             }
         }
         write(&folder(&profiles[1]).join("other.txt"), "kept");
-        let kept = root.path().join("kept");
+        let kept = base.join("kept");
         write(
             &folder(&kept).join(CHILD_SESSION_PASSWORD_FILES[0]),
             "DPAPI blob",
@@ -1616,7 +1622,7 @@ mod tests {
                 profiles[0].clone(),
                 profiles[1].clone(),
                 PathBuf::from("relative"),
-                root.path().join("x").join("..").join("kept"),
+                base.join("x").join("..").join("kept"),
             ],
             // The console user's own AppData\Local, here the guest's again: once.
             &[profiles[1].join("AppData").join("Local")],

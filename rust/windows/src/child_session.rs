@@ -646,12 +646,18 @@ mod tests {
     #[test]
     fn a_wiped_file_is_zeroed_flushed_and_gone_and_a_missing_one_is_no_error() {
         let folder = tempfile::tempdir().unwrap();
-        let path = folder.path().join("child-session-password.bin");
+        // By its long name: the temp folder can be an 8.3 short one (CI's
+        // C:\Users\RUNNER~1), which the wipe's link check refuses as leading
+        // elsewhere. ProfileList and the known folders give long names.
+        let long = std::fs::canonicalize(folder.path()).unwrap();
+        let long = long.to_str().unwrap();
+        let long = std::path::PathBuf::from(long.strip_prefix(r"\\?\").unwrap_or(long));
+        let path = long.join("child-session-password.bin");
         std::fs::write(&path, vec![7u8; 100_000]).unwrap();
         assert!(super::wipe_file(&path).unwrap());
         assert!(!path.exists());
         assert!(!super::wipe_file(&path).unwrap());
-        assert!(!super::wipe_file(&folder.path().join("none").join("x.bin")).unwrap());
+        assert!(!super::wipe_file(&long.join("none").join("x.bin")).unwrap());
         // A folder of that name is refused, and stays.
         std::fs::create_dir(&path).unwrap();
         assert!(super::wipe_file(&path).is_err());

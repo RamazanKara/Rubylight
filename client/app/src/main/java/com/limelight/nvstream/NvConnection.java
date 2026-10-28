@@ -116,6 +116,8 @@ public class NvConnection {
             com.limelight.binding.audio.MicProcessing.DEFAULT;
     private final java.util.concurrent.atomic.AtomicReference<java.util.List<com.limelight.binding.audio.MicProcessing.Effect>>
             micNotice = new java.util.concurrent.atomic.AtomicReference<>();
+    // Set when the microphone failed on its own and was muted, until the stream screen says so.
+    private final java.util.concurrent.atomic.AtomicBoolean micFailed = new java.util.concurrent.atomic.AtomicBoolean();
     private static final class ControllerMicrophoneState {
         final boolean allowed, ready, hostMuted;
         ControllerMicrophoneState(boolean allowed, boolean ready, boolean hostMuted) {
@@ -270,15 +272,28 @@ public class NvConnection {
                     (fallback && (micMuted || !microphoneCapturePermitted()))) {
                 return;
             }
-            microphone = createMicrophoneCapture(micMuted);
+            microphone = createMicrophoneCapture(micMuted, this::microphoneFailed);
             microphone.start();
         }
     }
 
     // Package-visible factory keeps route transitions testable without an audio device.
-    MicrophoneCapture createMicrophoneCapture(boolean muted) {
+    MicrophoneCapture createMicrophoneCapture(boolean muted, MicrophoneCapture.FailureListener failed) {
         return new MicrophoneCapture(MoonBridge::sendMicrophonePcm, muted, micProcessing,
-                new com.limelight.binding.audio.MicRoute(appContext), this::noteMissingMicrophoneEffects);
+                new com.limelight.binding.audio.MicRoute(appContext), this::noteMissingMicrophoneEffects, failed);
+    }
+
+    // A capture that failed by itself (another app holds the microphone, a reopen or a read failed) has
+    // released itself. Drop it and mute, so unmuting or the USB-mic fallback opens a fresh one, and say so.
+    private void microphoneFailed(MicrophoneCapture capture) {
+        synchronized (this) {
+            if (microphone != capture) return;
+            microphone = null;
+            micMuted = true;
+        }
+        micFailed.set(true);
+        Runnable listener = micNoticeListener;
+        if (listener != null) listener.run();
     }
 
     void noteMissingMicrophoneEffects(java.util.List<com.limelight.binding.audio.MicProcessing.Effect> effects) {
@@ -289,15 +304,23 @@ public class NvConnection {
 
     private volatile Runnable micNoticeListener;
 
-    /** Runs, on the capture thread, when {@link #takeMicrophoneNotice} has something new; the stream screen shows it. */
+    /**
+     * Runs, on the capture thread, when {@link #takeMicrophoneNotice} or {@link #takeMicrophoneFailure}
+     * has something new; the stream screen shows it.
+     */
     public void setMicrophoneNoticeListener(Runnable listener) {
         micNoticeListener = listener;
-        if (listener != null && micNotice.get() != null) listener.run();
+        if (listener != null && (micNotice.get() != null || micFailed.get())) listener.run();
     }
 
     /** Effects the microphone settings ask for that this device lacks, once; null when there is nothing new. */
     public java.util.List<com.limelight.binding.audio.MicProcessing.Effect> takeMicrophoneNotice() {
         return micNotice.getAndSet(null);
+    }
+
+    /** Whether the microphone failed, and was muted for it, since the last call. */
+    public boolean takeMicrophoneFailure() {
+        return micFailed.getAndSet(false);
     }
 
     private void stopMicrophone() {

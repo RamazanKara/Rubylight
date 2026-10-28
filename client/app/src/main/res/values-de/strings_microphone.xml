@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">Mikrofontaste ausblenden</string>
     <string name="mic_effects_missing">Auf diesem Gerät nicht vorhanden: %1$s. Das Mikrofon wird ohne diese Verarbeitung gesendet.</string>
     <string name="mic_effect_not_on_device">Auf diesem Gerät nicht vorhanden</string>
+    <string name="mic_failed">Das Mikrofon funktioniert nicht mehr und ist jetzt stumm. Heb die Stummschaltung auf, um es erneut zu versuchen.</string>
 </resources>

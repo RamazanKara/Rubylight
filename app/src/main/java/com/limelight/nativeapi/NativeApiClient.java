@@ -20,7 +20,10 @@ public final class NativeApiClient {
 
     public NativeCapabilities capabilities() throws NativeApiException {
         try {
-            return NativeCapabilities.parse(call("capabilities", ""));
+            JSONObject json = call("capabilities", "");
+            NativeCapabilities capabilities = NativeCapabilities.parse(json);
+            KnownCapabilities.record(host.hostUuid, json.toString());
+            return capabilities;
         } catch (JSONException e) {
             throw malformed("capabilities", e);
         }
@@ -151,6 +154,30 @@ public final class NativeApiClient {
      */
     public PowerReply sleep(String token) throws NativeApiException {
         return parsePower(call("power.sleep", token));
+    }
+
+    /**
+     * The PC's Nucleus Co-op sessions (GET /coop). Only for a host that advertises {@link NativeCapabilities#COOP};
+     * {@link NativeCoop.Problem#of} says what a failure means.
+     */
+    public NativeCoop coop() throws NativeApiException {
+        try {
+            return NativeCoop.parse(call("coop", ""));
+        } catch (JSONException e) {
+            throw malformed("co-op", e);
+        }
+    }
+
+    /**
+     * Seats this device in a co-op session, or back in its own slot (POST /coop/join). The host holds the slot for two
+     * minutes, until this device launches {@link NativeCoop.Joined#appId} the normal way, which streams that slot.
+     */
+    public NativeCoop.Joined joinCoop(int session) throws NativeApiException {
+        try {
+            return NativeCoop.Joined.parse(call("coop.join", Integer.toUnsignedString(session)));
+        } catch (JSONException e) {
+            throw malformed("co-op join", e);
+        }
     }
 
     /** One answer of Sleep PC's routes, as power.rs parses it. */

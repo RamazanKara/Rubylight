@@ -49,6 +49,7 @@
     "pen_barrel_roll": "supported",
     "pipeline_rates": "supported",
     "image_clipboard": "unsupported:clipboard_permission",
-    "shared_folders": "unsupported:folder_permission"
+    "shared_folders": "unsupported:folder_permission",
+    "coop": "unsupported"
   }
 }

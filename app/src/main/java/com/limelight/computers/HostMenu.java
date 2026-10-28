@@ -2,8 +2,10 @@ package com.limelight.computers;
 
 import android.app.Activity;
 
+import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.grid.PcGridAdapter;
+import com.limelight.nativeapi.KnownCapabilities;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -13,10 +15,12 @@ import com.limelight.ui.ActionSheet;
 
 import com.google.android.material.button.MaterialButton;
 
+import org.json.JSONException;
+
 import java.util.function.IntConsumer;
 
 /**
- * A PC's options, one list for the PCs screen and for Home. In this order: Open library, Resume and Quit,
+ * A PC's options, one list for the PCs screen and for Home. In this order: Open library, Resume and Quit, Join co-op,
  * Shared folders, Pair, one-time PIN, Wake or Sleep, Files, PC settings, Rename, Unpair or Pairing help, then Remove PC
  * last. The screen that shows it decides what each action does; this class only knows what is offered for which
  * state.
@@ -42,6 +46,7 @@ public final class HostMenu {
     public static final int SLEEP = 16;
     public static final int SHARED_FOLDERS = 17;
     public static final int FILES = 18;
+    public static final int COOP = 19;
 
     private HostMenu() {
     }
@@ -66,6 +71,13 @@ public final class HostMenu {
                         ? activity.getString(R.string.pc_menu_quit_game, runningGame)
                         : activity.getString(R.string.applist_menu_quit));
             }
+        }
+        if (offersCoop(details, state)) {
+            sheet.addAction(R.drawable.ic_gamepad, activity.getString(R.string.host_menu_coop),
+                    activity.getString(R.string.host_menu_coop_note)).setOnClickListener(v -> {
+                        sheet.dismiss();
+                        onAction.accept(COOP);
+                    });
         }
         if (hasSharedFolders(details, state)) {
             sheet.addAction(R.drawable.ic_folder, activity.getString(R.string.folders_title),
@@ -134,6 +146,25 @@ public final class HostMenu {
             return SleepEntry.ENABLED;
         }
         return sleep.reason == HostCapabilities.Reason.SLEEP_PERMISSION ? SleepEntry.DISABLED : SleepEntry.HIDDEN;
+    }
+
+    /**
+     * Join co-op on a paired PC whose host listed {@code coop} the last time its native capabilities were read in this
+     * process (the computer manager reads them when a poll first finds the PC online). Hidden until then, and on every
+     * other host: whether this device may take a free slot is per session, so the co-op sheet says that.
+     */
+    static boolean offersCoop(ComputerDetails details, PcGridAdapter.RowState state) {
+        boolean ready = state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY;
+        String known = ready ? KnownCapabilities.of(details.uuid) : null;
+        if (known == null) {
+            return false;
+        }
+        try {
+            return details.caps.withNativeCapabilities(known).has(HostCapabilities.Feature.COOP);
+        } catch (JSONException e) {
+            LimeLog.warning("Unreadable native capabilities of " + details.uuid + ": " + e.getMessage());
+            return false;
+        }
     }
 
     /**

@@ -17,3 +17,6 @@ pub mod session;
 pub mod timing_record;
 pub mod usb;
 pub mod video;
+
+#[cfg(test)]
+mod fuzz_tests;

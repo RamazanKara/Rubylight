@@ -39,3 +39,5 @@ libc = "0.2"
 [dev-dependencies]
 # The Rubylight host's protocol code, for interop tests (control, input, SDP, DESCRIBE, pairing).
 butterpollo-core = { version = "3.0.0-alpha.1", git = "https://github.com/RamazanKara/Rubylight", rev = "682aa119bc181d94652b65009f471eb5015e3c8a", package = "butterpollo-core" }
+# Property tests over the host replies, control stream and USB/IP server (fuzz_tests.rs).
+proptest = { version = "1", default-features = false, features = ["std"] }

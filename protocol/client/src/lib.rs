@@ -2,6 +2,7 @@
 //! The plan and status are in internal/RUST_CORE.md.
 
 pub mod audio;
+pub mod color;
 pub mod control;
 pub mod crypto;
 pub mod fec;

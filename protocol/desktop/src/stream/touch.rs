@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use nightjar_core::input::{packets::touch_event, InputQueue};
+use rubylight_protocol::pen::ROLL_UNKNOWN;
 use sdl3_sys::everything::*;
 
 #[derive(Default)]
@@ -16,9 +17,19 @@ struct Pen {
     pressure: f32,
     distance: f32,
     tilt: [Option<f32>; 2],
-    rotation: u16,
+    /// Barrel roll, degrees 0-359 clockwise, or `ROLL_UNKNOWN`.
+    roll: u16,
     sent: bool,
     down: bool,
+}
+
+/// SDL's x and y tilt as Moonlight's tilt direction (degrees clockwise, the host's inverse of
+/// it gives the x and y tilt back) and tilt from upright; both unknown without both axes.
+fn tilt(tilt: [Option<f32>; 2]) -> (u16, u8) {
+    let [Some(x), Some(y)] = tilt else { return (u16::MAX, u8::MAX) };
+    let (x, y) = (x.to_radians().tan(), y.to_radians().tan());
+    let rotation = (-x).atan2(y).to_degrees().rem_euclid(360.0).round() as u16 % 360;
+    (rotation, x.hypot(y).atan().to_degrees().round().clamp(0.0, 90.0) as u8)
 }
 
 fn position(x: f32, y: f32, rect: SDL_FRect, clamp: bool) -> Option<(f32, f32)> {
@@ -31,18 +42,15 @@ fn position(x: f32, y: f32, rect: SDL_FRect, clamp: bool) -> Option<(f32, f32)> 
 impl Pen {
     fn new(id: SDL_PenID) -> Self {
         Self { id, position: (0.0, 0.0), state: SDL_PenInputFlags(0), pressure: 0.0,
-            distance: 0.0, tilt: [None, None], rotation: u16::MAX, sent: false, down: false }
+            distance: 0.0, tilt: [None, None], roll: ROLL_UNKNOWN, sent: false, down: false }
     }
 
     fn send(&mut self, event: u8, queue: &mut InputQueue) {
         let tool = if self.state & SDL_PEN_INPUT_ERASER_TIP != SDL_PenInputFlags(0) { 2 } else { 1 };
         let buttons = ((self.state.0 >> 1) & 7) as u8;
-        let tilt = match self.tilt {
-            [Some(x), Some(y)] => x.to_radians().tan().hypot(y.to_radians().tan()).atan().to_degrees().round().clamp(0.0, 90.0) as u8,
-            _ => u8::MAX,
-        };
+        let (rotation, tilt) = tilt(self.tilt);
         if queue.send_pen(event, tool, buttons, self.position.0, self.position.1,
-            if self.down { self.pressure } else { self.distance }, 0.0, 0.0, self.rotation, tilt).is_ok() { self.sent = true; }
+            if self.down { self.pressure } else { self.distance }, 0.0, 0.0, rotation, tilt, self.roll).is_ok() { self.sent = true; }
     }
 }
 
@@ -119,7 +127,8 @@ impl Touch {
                     SDL_PEN_AXIS_DISTANCE => pen.distance = value.clamp(0.0, 1.0),
                     SDL_PEN_AXIS_XTILT => pen.tilt[0] = Some(value.clamp(-90.0, 90.0)),
                     SDL_PEN_AXIS_YTILT => pen.tilt[1] = Some(value.clamp(-90.0, 90.0)),
-                    SDL_PEN_AXIS_ROTATION => pen.rotation = value.rem_euclid(360.0).round() as u16 % 360,
+                    // SDL's rotation is the barrel roll, -180 to 180 clockwise from up.
+                    SDL_PEN_AXIS_ROTATION => pen.roll = value.rem_euclid(360.0).round() as u16 % 360,
                     _ => return,
                 }
             }
@@ -201,5 +210,37 @@ mod tests {
         assert_eq!(packets[packets.len() - 2].data[8], touch_event::CANCEL);
         assert_eq!(packets.last().unwrap().data[8], touch_event::HOVER_LEAVE);
         assert!(touch.pen.is_none());
+    }
+
+    /// SDL's rotation axis is the barrel roll: it goes as 0x5500000B to a host that takes it
+    /// and is never sent as the tilt's direction, which comes from the x and y tilt.
+    #[test]
+    fn pen_rotation_is_the_barrel_roll_and_tilt_keeps_its_direction() {
+        let packet = |offered: bool| {
+            let mut touch = Touch::default();
+            let mut q = InputQueue::new(&HostCapabilities { feature_flags: 1, ..Default::default() });
+            q.set_pen_barrel_roll(offered);
+            for (axis, value) in [(SDL_PEN_AXIS_XTILT, 20.0), (SDL_PEN_AXIS_YTILT, -10.0), (SDL_PEN_AXIS_ROTATION, -90.0)] {
+                let event = SDL_PenAxisEvent { r#type: SDL_EVENT_PEN_AXIS, which: SDL_PenID(7), x: 50.0, y: 50.0, axis, value, ..Default::default() };
+                touch.handle(&SDL_Event { paxis: event }, letterbox((100, 100), (100, 100)), (100, 100), 1.0, &mut q);
+            }
+            let mut packets = Vec::new();
+            q.drain(std::time::Instant::now(), false, &mut packets);
+            packets.pop().unwrap().data
+        };
+        let stock = packet(false);
+        assert_eq!(stock.len(), 36);
+        let rolled = packet(true);
+        let rolled = rubylight_protocol::pen::PenBarrelRoll::decode(&rolled).expect("0x5500000B");
+        assert_eq!(rolled.roll(), 270);
+        assert_eq!(rolled.pen()[..], stock[..]);
+        // The host turns the direction and tilt back into Windows' x and y tilt.
+        let rotation = f32::from(u16::from_le_bytes([stock[24], stock[25]])).to_radians();
+        let angle = f32::from(stock[26]).to_radians();
+        let x = ((-rotation).sin() * angle.sin()).atan2(angle.cos()).to_degrees();
+        let y = ((-rotation).cos() * angle.sin()).atan2(angle.cos()).to_degrees();
+        assert!((x.to_radians().tan() / y.to_radians().tan() - 20f32.to_radians().tan() / -10f32.to_radians().tan()).abs() < 0.05, "{x} {y}");
+        assert!(x > 0.0 && y < 0.0, "{x} {y}");
+        assert_eq!(tilt(super::Pen::new(SDL_PenID(1)).tilt), (u16::MAX, u8::MAX));
     }
 }

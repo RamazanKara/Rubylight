@@ -331,6 +331,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendPenEvent(
             contact_minor,
             rotation as u16,
             tilt as u8,
+            // Android's MotionEvent has no barrel roll axis: pens go as the stock packet.
+            rubylight_protocol::pen::ROLL_UNKNOWN,
         )
     })
 }

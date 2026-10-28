@@ -6,6 +6,8 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use rubylight_protocol::pen;
+
 use super::packets::{button, capability, motion_type, touch_event, InputEvent, MAX_CONTROLLERS};
 use crate::control::negotiation::{feature, HostCapabilities};
 use crate::control::wire::Delivery;
@@ -139,6 +141,7 @@ pub struct InputQueue {
     absolute_dirty: bool,
     sensors: [[SensorState; MAX_MOTION_TYPES]; MAX_CONTROLLERS as usize],
     pen_buttons: u8,
+    pen_barrel_roll: bool,
     scroll_accumulator: i32,
     position: (f32, f32),
     last_mouse: Option<Instant>,
@@ -166,6 +169,7 @@ impl InputQueue {
             absolute_dirty: false,
             sensors: [[SensorState::default(); MAX_MOTION_TYPES]; MAX_CONTROLLERS as usize],
             pen_buttons: 0,
+            pen_barrel_roll: false,
             scroll_accumulator: 0,
             position: (0.5, 0.5),
             last_mouse: None,
@@ -197,6 +201,13 @@ impl InputQueue {
     /// the queue behind other packets.
     pub fn set_unbatched(&mut self, unbatched: bool) {
         self.unbatched = unbatched;
+    }
+
+    /// Sends a pen's known barrel roll as 0x5500000B (`rubylight_protocol::pen`). Only for a
+    /// host with both `PenBarrelRollVersion` and `x-ss-general.penBarrelRoll`; otherwise the
+    /// roll is dropped and pens go as the stock 0x55000003.
+    pub fn set_pen_barrel_roll(&mut self, offered: bool) {
+        self.pen_barrel_roll = offered;
     }
 
     fn motion_interval(&self) -> Duration {
@@ -611,6 +622,8 @@ impl InputQueue {
         })
     }
 
+    /// `rotation` is the tilt's direction (stock), `roll` the barrel roll in degrees 0-359
+    /// clockwise or [`pen::ROLL_UNKNOWN`]; the roll goes only to a host that takes it.
     #[allow(clippy::too_many_arguments)]
     pub fn send_pen(
         &mut self,
@@ -624,6 +637,7 @@ impl InputQueue {
         contact_minor: f32,
         rotation: u16,
         tilt: u8,
+        roll: u16,
     ) -> Result<(), InputError> {
         self.check()?;
         if self.feature_flags & feature::PEN_TOUCH_EVENTS == 0 {
@@ -647,6 +661,11 @@ impl InputQueue {
             contact_minor,
             rotation,
             tilt,
+            roll: if self.pen_barrel_roll && roll < 360 {
+                roll
+            } else {
+                pen::ROLL_UNKNOWN
+            },
         };
         self.offer(Entry::Event(Pending {
             channel: event.channel(),
@@ -1279,12 +1298,31 @@ mod tests {
         assert_eq!(out[1].delivery, Delivery::Reliable);
     }
 
+    /// A pen's roll goes as 0x5500000B only to a host that takes it; otherwise, and for a
+    /// roll out of range, the pen packet stays the stock one.
+    #[test]
+    fn the_barrel_roll_goes_only_where_it_is_offered() {
+        let magics = |offered: bool, roll: u16| {
+            let mut q = queue(&sunshine());
+            q.set_pen_barrel_roll(offered);
+            q.send_pen(touch_event::DOWN, 1, 0, 0.5, 0.5, 0.5, 0., 0., 0, 0, roll).unwrap();
+            let mut out = Vec::new();
+            q.poll(Instant::now(), false, &mut out);
+            assert_eq!(out.len(), 1);
+            (u32::from_le_bytes(out[0].data[4..8].try_into().unwrap()), out[0].data.len())
+        };
+        assert_eq!(magics(false, 90), (0x5500_0003, 36));
+        assert_eq!(magics(true, pen::ROLL_UNKNOWN), (0x5500_0003, 36));
+        assert_eq!(magics(true, 360), (0x5500_0003, 36));
+        assert_eq!(magics(true, 90), (pen::PEN_BARREL_ROLL_MAGIC, 40));
+    }
+
     #[test]
     fn pen_moves_collapse_and_button_changes_go_reliably() {
         let mut q = queue(&sunshine());
         let t0 = Instant::now();
         let pen = |q: &mut InputQueue, event, buttons, x| {
-            q.send_pen(event, 1, buttons, x, 0.5, 0.5, 0., 0., 0, 0)
+            q.send_pen(event, 1, buttons, x, 0.5, 0.5, 0., 0., 0, 0, pen::ROLL_UNKNOWN)
         };
         pen(&mut q, touch_event::DOWN, 0, 0.1).unwrap();
         pen(&mut q, touch_event::MOVE, 0, 0.2).unwrap();

@@ -1011,6 +1011,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     if facts.early_without_records {
         eprintln!("{EARLY_NO_RECORDS}");
     }
+    // A pen's barrel roll goes only to a host with both the serverinfo element and the
+    // DESCRIBE attribute; other Sunshine-family hosts may send the attribute alone.
+    let pen_barrel_roll = plan.info.capabilities.has(Feature::PenBarrelRoll) && session.outcome().host_pen_barrel_roll;
+    session.input(|q| q.set_pen_barrel_roll(pen_barrel_roll));
     Ok((session, facts))
 }
 

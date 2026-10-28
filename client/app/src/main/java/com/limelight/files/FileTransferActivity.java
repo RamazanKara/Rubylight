@@ -5,6 +5,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.ProviderInfo;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -15,6 +16,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.text.format.Formatter;
 import android.util.TypedValue;
@@ -25,6 +27,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -60,7 +63,8 @@ import java.util.concurrent.Executors;
 /**
  * File transfer (Experimental) with one PC: send files (from a picker or another app's share sheet), see the
  * PC's file transfer folder and download from it, with progress, cancel and try again. Opened from the PC
- * menu and the stream menu with {@link #EXTRA_PC_UUID}; a share without a PC asks which one first.
+ * menu and the stream menu with {@link #EXTRA_PC_UUID}; a share always asks which PC first, and sends only
+ * another app's files.
  *
  * <p>Transfers run while the screen exists, also in the background; leaving it cancels what has not finished.
  */
@@ -133,8 +137,16 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         super.onCreate(state);
         FrameLayout content = TopAppBar.setUpPage(this, R.string.files_title, this::finish);
         content.addView(buildPage());
-        uuid = getIntent().getStringExtra(EXTRA_PC_UUID);
-        waiting.addAll(sharedUris(getIntent()));
+        uuid = chosenPc(getIntent());
+        int refused = 0;
+        for (Uri uri : sharedUris(getIntent())) {
+            if (sendable(uri, getPackageName(), providerPackage(uri))) waiting.add(uri);
+            else refused++;
+        }
+        if (refused > 0) {
+            LimeLog.warning("File transfer: refused " + refused + " shared items that are not another app's files");
+            Toast.makeText(this, getString(R.string.files_share_refused, refused), Toast.LENGTH_LONG).show();
+        }
         engine = FileTransferEngine.jni();
         if (engine != null) {
             bound = bindService(new Intent(this, ComputerManagerService.class), service, BIND_AUTO_CREATE);
@@ -146,6 +158,32 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     /** Opens the screen for one PC, from the PC menu or the stream menu. */
     public static Intent forPc(Context context, String pcUuid) {
         return new Intent(context, FileTransferActivity.class).putExtra(EXTRA_PC_UUID, pcUuid);
+    }
+
+    /**
+     * The PC the screen is for, or null to ask. Only Nightjar's menus name one: a share always asks, so another
+     * app cannot have files sent to a PC without the user choosing it.
+     */
+    static String chosenPc(Intent intent) {
+        String action = intent.getAction();
+        boolean share = Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action);
+        return share ? null : intent.getStringExtra(EXTRA_PC_UUID);
+    }
+
+    /**
+     * Whether a shared file may be sent: a content URI that Nightjar's own providers do not serve. A file path or
+     * one of Nightjar's providers would let any app have Nightjar send its private files (keys, settings).
+     */
+    static boolean sendable(Uri uri, String ownPackage, String providerPackage) {
+        return ContentResolver.SCHEME_CONTENT.equals(uri.getScheme()) && !TextUtils.isEmpty(uri.getAuthority())
+                && !ownPackage.equals(providerPackage);
+    }
+
+    /** The app whose provider serves {@code uri}, or null when none does (then the file fails to open). */
+    private String providerPackage(Uri uri) {
+        if (TextUtils.isEmpty(uri.getAuthority())) return null;
+        ProviderInfo provider = getPackageManager().resolveContentProvider(uri.getAuthority(), 0);
+        return provider == null ? null : provider.packageName;
     }
 
     /** The files of an ACTION_SEND or ACTION_SEND_MULTIPLE, in the order shared. */

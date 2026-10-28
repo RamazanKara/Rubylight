@@ -185,6 +185,11 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
         .map(|codec| codec.parse::<u8>())
         .collect::<Result<Vec<_>, _>>()?;
     let contents = list("BUTTERPOLLO_TEST_LTR_CONTENT", "scrolling");
+    let wanted = list("BUTTERPOLLO_TEST_LTR_ARMS", "keyframe,ltr");
+    anyhow::ensure!(
+        wanted.iter().all(|arm| arm == "keyframe" || arm == "ltr"),
+        "arms: keyframe, ltr"
+    );
     let forced = std::env::var("BUTTERPOLLO_TEST_LTR_FORCE").as_deref() == Ok("1");
     let without = butterpollo_core::config::Config::parse("amd_ltr_frames=0\n")?;
     let with = butterpollo_core::config::Config::default();
@@ -218,8 +223,12 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             2 => ("obu", &["Av1MaxNumLTRFrames", "Av1LTRMode"]),
             _ => bail!("codec {codec}: H.264 (0), HEVC (1) or AV1 (2)"),
         };
-        // (long-term references, gap): the keyframe, then the repair.
-        let arms = gaps.iter().flat_map(|&gap| [(false, gap), (true, gap)]);
+        // (long-term references, gap): the keyframe, then the repair;
+        // `BUTTERPOLLO_TEST_LTR_ARMS=ltr` runs only the repairs.
+        let arms = gaps
+            .iter()
+            .flat_map(|&gap| [(false, gap), (true, gap)])
+            .filter(|&(asked, _)| wanted.iter().any(|arm| arm == if asked { "ltr" } else { "keyframe" }));
         for (asked, gap) in arms {
             let name = format!(
                 "{content}-{format}-{}-gap{gap}",

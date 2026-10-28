@@ -801,6 +801,7 @@ mod tests {
             supports_keyboard: false,
             hides_taskbar: false,
             own: false,
+            admin: Vec::new(),
         }
     }
 

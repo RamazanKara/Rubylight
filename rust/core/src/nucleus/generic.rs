@@ -52,49 +52,28 @@ pub struct Setup {
     pub exe_path: String,
     /// The app's name, which Nucleus shows.
     pub name: String,
-    /// The game's folder, relative to which the .exe sits in
-    /// [`Setup::binaries`]; Nucleus links all of it into its instance.
+    /// The game's folder, which [`anti_cheat`] looks through: its Steam
+    /// install folder, an Unreal game's folder above `Binaries`, else the
+    /// .exe's.
     pub root: String,
-    /// The .exe's folder below `root`, or None when it is `root`.
-    pub binaries: Option<String>,
-    pub steam_app: Option<u32>,
 }
 
 impl Setup {
-    /// The setup for `exe_path`. `steam` is the game's Steam app and install
-    /// folder, when Steam installed it.
-    pub fn new(exe_path: &str, name: &str, steam: Option<(u32, &str)>) -> Self {
+    /// The setup for `exe_path`; `install` is the folder Steam installed the
+    /// game to, when it did.
+    pub fn new(exe_path: &str, name: &str, install: Option<&str>) -> Self {
         let exe_path = normalized(exe_path);
         let exe_folder = parent(&exe_path).to_string();
-        let steam_root = steam.and_then(|(_, folder)| {
-            let folder = normalized(folder);
-            below(&exe_path, &folder).map(|_| folder)
-        });
-        let root = steam_root
+        let root = install
+            .map(normalized)
+            .filter(|folder| below(&exe_path, folder).is_some())
+            .map(|folder| folder.trim_end_matches('\\').to_string())
             .or_else(|| unreal_root(&exe_folder))
-            .unwrap_or_else(|| exe_folder.clone());
-        let binaries = below(&exe_folder, &root)
-            .filter(|rel| !rel.is_empty())
-            .map(str::to_string);
-        // Nucleus finds the root by cutting the first occurrence of
-        // `BinariesFolder` out of the exe's folder (StringUtil
-        // .ReplaceCaseInsensitive); where that would cut elsewhere, the
-        // instance gets the exe's folder alone.
-        let (root, binaries) = match binaries {
-            Some(rel)
-                if exe_folder.to_lowercase().find(&rel.to_lowercase())
-                    == Some(exe_folder.len() - rel.len()) =>
-            {
-                (root, Some(rel))
-            }
-            _ => (exe_folder, None),
-        };
+            .unwrap_or(exe_folder);
         Self {
             exe_path,
             name: name.trim().to_string(),
             root,
-            binaries,
-            steam_app: steam.map(|(app, _)| app),
         }
     }
 
@@ -131,55 +110,37 @@ impl Setup {
         } else {
             &self.name
         };
-        let mut lines = vec![
+        let head = [
             format!(
                 "{MARKER} v{VERSION}: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place."
             ),
             format!("Game.GUID = {};", js(&self.guid())),
             format!("Game.GameName = {};", js(name)),
-            format!(
-                "Game.ExecutableName = {};",
-                js(file_name(&self.exe_path))
-            ),
-            "Game.MaxPlayers = 1;".into(),
-            "Game.MaxPlayersOneMonitor = 1;".into(),
-            "// The slot's pad only: keyboard and mouse stay with the person at the PC, and so does the taskbar.".into(),
-            "Game.SupportsKeyboard = false;".into(),
-            "Game.HideTaskbar = false;".into(),
-            "// The instance runs from links in Nucleus' content folder, so the game's own folder stays as it is.".into(),
-            "Game.SymlinkGame = true;".into(),
-            "Game.SymlinkExe = false;".into(),
+            format!("Game.ExecutableName = {};", js(file_name(&self.exe_path))),
         ];
-        if let Some(binaries) = &self.binaries {
-            lines.push(format!("Game.BinariesFolder = {};", js(binaries)));
-        }
-        if let Some(app) = self.steam_app {
-            lines.push(
-                "// steam_appid.txt beside the linked .exe keeps the game from restarting through Steam."
-                    .into(),
-            );
-            lines.push(format!("Game.SteamID = {};", js(&app.to_string())));
-            lines.push("Game.CreateSteamAppIdByExe = true;".into());
-        }
-        lines.extend(
-            [
-                "// The game keeps running and reading its pad without focus, and never sees the PC's keyboard or moves its cursor.",
-                "Game.FakeFocus = true;",
-                "Game.Hook.CustomDllEnabled = false;",
-                "Game.ProtoInput.InjectStartup = false;",
-                "Game.ProtoInput.InjectRuntime_EasyHookMethod = true;",
-                "Game.ProtoInput.FocusHooks = true;",
-                "Game.ProtoInput.XinputHook = true;",
-                "Game.ProtoInput.UseOpenXinput = true;",
-                "Game.ProtoInput.GetKeyStateHook = true;",
-                "Game.ProtoInput.GetAsyncKeyStateHook = true;",
-                "Game.ProtoInput.GetKeyboardStateHook = true;",
-                "Game.ProtoInput.GetCursorPosHook = true;",
-                "Game.ProtoInput.SetCursorPosHook = true;",
-                "Game.ProtoInput.ClipCursorHook = true;",
-            ]
-            .map(String::from),
-        );
+        let options = [
+            "Game.MaxPlayers = 1;",
+            "Game.MaxPlayersOneMonitor = 1;",
+            "// The slot's pad only: keyboard and mouse stay with the person at the PC, and so does the taskbar.",
+            "Game.SupportsKeyboard = false;",
+            "Game.HideTaskbar = false;",
+            "// The game runs from its own folder and nothing is written there: no links, copies, DLLs or tools that need administrator rights.",
+            "Game.Hook.CustomDllEnabled = false;",
+            "// The game keeps running and reading its pad without focus, and never sees the PC's keyboard or moves its cursor.",
+            "Game.FakeFocus = true;",
+            "Game.ProtoInput.InjectStartup = false;",
+            "Game.ProtoInput.InjectRuntime_EasyHookMethod = true;",
+            "Game.ProtoInput.FocusHooks = true;",
+            "Game.ProtoInput.XinputHook = true;",
+            "Game.ProtoInput.UseOpenXinput = true;",
+            "Game.ProtoInput.GetKeyStateHook = true;",
+            "Game.ProtoInput.GetAsyncKeyStateHook = true;",
+            "Game.ProtoInput.GetKeyboardStateHook = true;",
+            "Game.ProtoInput.GetCursorPosHook = true;",
+            "Game.ProtoInput.SetCursorPosHook = true;",
+            "Game.ProtoInput.ClipCursorHook = true;",
+        ];
+        let lines: Vec<&str> = head.iter().map(String::as_str).chain(options).collect();
         let mut text = lines.join("\r\n");
         text.push_str("\r\n");
         text
@@ -404,7 +365,7 @@ mod tests {
         Setup::new(
             r"D:\SteamLibrary\steamapps\common\Black Flag\bin\AC4BFSP.exe",
             "Assassin's Creed \"IV\"",
-            Some((242050, r"D:\SteamLibrary\steamapps\common\Black Flag")),
+            Some(r"D:\SteamLibrary\steamapps\common\Black Flag"),
         )
     }
 
@@ -423,11 +384,10 @@ mod tests {
         assert!(!h.supports_keyboard);
         assert!(!h.hides_taskbar);
         assert!(h.own);
+        // A Nucleus Co-op that is not elevated runs it without a prompt.
+        assert!(!handler::needs_admin(&h), "{:?}", h.admin);
         for line in [
-            r#"Game.BinariesFolder = "bin";"#,
-            r#"Game.SteamID = "242050";"#,
-            "Game.CreateSteamAppIdByExe = true;",
-            "Game.SymlinkGame = true;",
+            "Game.Hook.CustomDllEnabled = false;",
             "Game.FakeFocus = true;",
             "Game.ProtoInput.FocusHooks = true;",
             "Game.ProtoInput.XinputHook = true;",
@@ -436,8 +396,18 @@ mod tests {
         ] {
             assert!(text.lines().any(|l| l == line), "{line} in\n{text}");
         }
-        // Nothing beyond one instance on one screen.
+        // Nothing beyond one instance on one screen, and nothing written
+        // beside the game.
         assert!(!text.contains("Game.HideTaskbar = true"));
+        for option in [
+            "Symlink",
+            "Hardlink",
+            "Hardcopy",
+            "SteamAppId",
+            "BinariesFolder",
+        ] {
+            assert!(!text.contains(option), "{option}");
+        }
         assert!(
             text.lines()
                 .skip(1)
@@ -458,45 +428,28 @@ mod tests {
     }
 
     #[test]
-    fn nucleus_links_the_whole_game_folder() {
-        let steam = steam_game();
-        assert_eq!(steam.root, r"D:\SteamLibrary\steamapps\common\Black Flag");
-        assert_eq!(steam.binaries.as_deref(), Some("bin"));
+    fn the_games_folder_is_its_steam_or_unreal_folder_or_the_exes() {
+        assert_eq!(
+            steam_game().root,
+            r"D:\SteamLibrary\steamapps\common\Black Flag"
+        );
         let plain = Setup::new(r"C:\Games\Puzzle\Puzzle.exe", "Puzzle", None);
         assert_eq!(plain.root, r"C:\Games\Puzzle");
-        assert_eq!(plain.binaries, None);
-        assert!(!plain.handler().contains("BinariesFolder"));
-        assert!(!plain.handler().contains("SteamID"));
         let unreal = Setup::new(
             r"D:\Epic\Hero\HeroGame\Binaries\Win64\Hero.exe",
             "Hero",
             None,
         );
         assert_eq!(unreal.root, r"D:\Epic\Hero");
-        assert_eq!(unreal.binaries.as_deref(), Some(r"HeroGame\Binaries\Win64"));
-        assert!(
-            unreal
-                .handler()
-                .contains(r#"Game.BinariesFolder = "HeroGame\\Binaries\\Win64";"#)
-        );
-        // Nucleus would cut "bin" out of "binaries": the exe's folder alone.
-        let ambiguous = Setup::new(
-            r"D:\binaries\Game\bin\Game.exe",
-            "Game",
-            Some((1, r"D:\binaries\Game")),
-        );
-        assert_eq!(
-            (ambiguous.root.as_str(), ambiguous.binaries),
-            (r"D:\binaries\Game\bin", None)
-        );
         // A Steam folder the exe is not in does not count.
-        let elsewhere = Setup::new(
-            r"C:\Other\Game.exe",
-            "Game",
-            Some((7, r"D:\Steam\common\Game")),
-        );
+        let elsewhere = Setup::new(r"C:\Other\Game.exe", "Game", Some(r"D:\Steam\common\Game\"));
         assert_eq!(elsewhere.root, r"C:\Other");
-        assert_eq!(elsewhere.steam_app, Some(7));
+        let inside = Setup::new(
+            r"D:\Steam\common\Game\Game.exe",
+            "Game",
+            Some(r"D:\Steam\common\Game\"),
+        );
+        assert_eq!(inside.root, r"D:\Steam\common\Game");
     }
 
     #[test]

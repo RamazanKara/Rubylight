@@ -2,7 +2,8 @@
 //! handlers and the user's added games, `Settings.ini`, and the game profile
 //! titled "Rubylight" that starts the session's players.
 use anyhow::{Context, Result, bail, ensure};
-use butterpollo_core::nucleus::handler::{self, Catalog};
+use butterpollo_core::nucleus::generic::{self, Setup};
+use butterpollo_core::nucleus::handler::{self, Catalog, Handler};
 use butterpollo_core::nucleus::profile::{self, Player};
 use butterpollo_core::nucleus::window::Rect;
 use std::path::{Path, PathBuf};
@@ -61,6 +62,73 @@ pub fn catalog(folder: &Path, appdata: Option<&Path>) -> Result<Catalog> {
 fn read_text(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     String::from_utf8(bytes).with_context(|| format!("{} is not UTF-8 text", path.display()))
+}
+
+/// The file's text, or None when there is no file.
+fn read_existing(path: &Path) -> Result<Option<String>> {
+    match std::fs::metadata(path) {
+        Ok(_) => read_text(path).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+/// Write Rubylight's one-player handler for `setup` into the Nucleus Co-op
+/// at `folder` and add its game to the signed-in user's game list in
+/// `appdata` (their roaming folder, which release builds read), as the
+/// user. Call it only while Nucleus Co-op is not running: it would not read
+/// them, and its own save would drop the game. A handler file Rubylight did
+/// not write is never overwritten; one it did is rewritten when the template
+/// changed. Returns the handler as Nucleus reads it.
+pub fn write_own(folder: &Path, appdata: &Path, setup: &Setup) -> Result<Handler> {
+    let file = setup.file();
+    let text = setup.handler();
+    let handler = handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
+    let handlers = folder.join("handlers");
+    std::fs::create_dir_all(&handlers)
+        .with_context(|| format!("creating {}", handlers.display()))?;
+    let path = handlers.join(&file);
+    match read_existing(&path)? {
+        Some(old) if old == text => {}
+        Some(old) if !generic::owns(&old) => bail!(
+            "{} is not Rubylight's handler, so Rubylight leaves it as it is: move it out of Nucleus Co-op's handlers folder",
+            path.display()
+        ),
+        _ => {
+            std::fs::write(&path, &text).with_context(|| format!("writing {}", path.display()))?;
+            tracing::info!(
+                file,
+                exe = setup.exe_path,
+                "Nucleus Co-op: Rubylight's one-player handler written"
+            );
+        }
+    }
+    let profile = appdata.join("Nucleus Coop").join("userprofile.json");
+    crate::user_folder::as_session_user(|| add_game(&profile, setup))
+        .context("acting as the signed-in user")??;
+    Ok(handler)
+}
+
+/// Add `setup`'s game to the game list at `path`, replacing the file whole
+/// so Nucleus never reads half of it.
+fn add_game(path: &Path, setup: &Setup) -> Result<()> {
+    let old = read_existing(path)?;
+    let Some(new) = generic::add_game(old.as_deref(), &setup.guid(), &setup.exe_path)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| path.display().to_string())?
+    else {
+        return Ok(());
+    };
+    let parent = path.parent().context("the game list has no folder")?;
+    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let temporary = path.with_extension("json.rubylight");
+    std::fs::write(&temporary, new).with_context(|| format!("writing {}", temporary.display()))?;
+    std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))?;
+    tracing::info!(
+        guid = setup.guid(),
+        "Nucleus Co-op: game added to the user's game list"
+    );
+    Ok(())
 }
 
 /// Set what the host's profile needs in Nucleus' `Settings.ini` (read from
@@ -243,6 +311,76 @@ Game.MaxPlayers = 4;
         std::fs::write(empty.path().join("content").join("userprofile.json"), "{").unwrap();
         let error = format!("{:#}", super::catalog(empty.path(), None).unwrap_err());
         assert!(error.contains("userprofile.json"), "{error}");
+    }
+
+    #[test]
+    fn rubylights_handler_is_written_and_its_game_added_beside_the_users() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let appdata = tempfile::tempdir().unwrap();
+        let handlers = nucleus.path().join("handlers");
+        std::fs::create_dir_all(&handlers).unwrap();
+        std::fs::write(handlers.join("Borderlands 2.js"), HANDLER).unwrap();
+        let list = appdata.path().join("Nucleus Coop").join("userprofile.json");
+        std::fs::create_dir_all(list.parent().unwrap()).unwrap();
+        let users = "{\r\n  \"Games\": [\r\n    {\r\n      \"GameGuid\": \"Borderlands 2\",\r\n      \"ExePath\": \"D:\\\\BL2\\\\Borderlands2.exe\"\r\n    }\r\n  ]\r\n}";
+        std::fs::write(&list, users).unwrap();
+        let setup = Setup::new(r"D:\Puzzle\Puzzle.exe", "Puzzle", None);
+
+        let handler = write_own(nucleus.path(), appdata.path(), &setup).unwrap();
+        assert_eq!(handler.guid, setup.guid());
+        assert!(handler.own);
+        let file = handlers.join(setup.file());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), setup.handler());
+        assert_eq!(
+            std::fs::read_to_string(handlers.join("Borderlands 2.js")).unwrap(),
+            HANDLER
+        );
+        let written = std::fs::read_to_string(&list).unwrap();
+        // The user's game, byte for byte, then ours.
+        let end = users.len() - "\r\n  ]\r\n}".len();
+        assert!(written.starts_with(&users[..end]), "{written}");
+        assert!(written[end..].starts_with(",\r\n    {"), "{written}");
+        // Nucleus reads both, and co-op still has only the hub's handler.
+        let catalog = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        assert_eq!(catalog.games.len(), 2);
+        assert!(catalog.handlers.iter().any(|h| h.own));
+        assert!(catalog.find("Puzzle", Some(&setup.exe_path)).is_err());
+
+        // Again: nothing changes. A changed template is rewritten.
+        write_own(nucleus.path(), appdata.path(), &setup).unwrap();
+        assert_eq!(std::fs::read_to_string(&list).unwrap(), written);
+        std::fs::write(&file, format!("{}\r\n// v0", generic::MARKER)).unwrap();
+        write_own(nucleus.path(), appdata.path(), &setup).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), setup.handler());
+        assert_eq!(std::fs::read_to_string(&list).unwrap(), written);
+
+        // A file with our name that someone else wrote stays as it is.
+        std::fs::write(&file, HANDLER).unwrap();
+        let error = write_own(nucleus.path(), appdata.path(), &setup)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("is not Rubylight's handler"), "{error}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), HANDLER);
+
+        // A game list the host cannot read is left alone, loudly.
+        std::fs::write(&list, "{").unwrap();
+        std::fs::remove_file(&file).unwrap();
+        let error = format!(
+            "{:#}",
+            write_own(nucleus.path(), appdata.path(), &setup).unwrap_err()
+        );
+        assert!(error.contains("not readable"), "{error}");
+        assert_eq!(std::fs::read_to_string(&list).unwrap(), "{");
+
+        // No game list yet: Nucleus' folder and file are made.
+        let fresh = tempfile::tempdir().unwrap();
+        write_own(nucleus.path(), fresh.path(), &setup).unwrap();
+        let games = handler::user_games(
+            &std::fs::read_to_string(fresh.path().join("Nucleus Coop").join("userprofile.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(games[0].guid, setup.guid());
     }
 
     #[test]

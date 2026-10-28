@@ -25,6 +25,42 @@ pub struct Handler {
     /// Rubylight's own one-player handler ([`super::generic`]), which only
     /// background streams use.
     pub own: bool,
+    /// The settings it uses that need Nucleus Co-op to run as administrator
+    /// ([`needs_admin`]).
+    pub admin: Vec<&'static str>,
+}
+
+/// Settings with which Nucleus Co-op 2.4.2 refuses to run without
+/// administrator rights (`CheckGameRequirements`), or runs `mklink` or a
+/// tool's DLL copy through `CmdUtil.ExecuteCommand`, which asks for `runas`
+/// by default (`FolderUtil`, `WinDirectoryUtil`, `Tools\*`). HardlinkGame
+/// still links folders; HardcopyGame alone copies without it.
+const ADMIN_FLAGS: [&str; 16] = [
+    "SymlinkGame",
+    "HardlinkGame",
+    "RequiresAdmin",
+    "LaunchAsDifferentUsers",
+    "LaunchAsDifferentUsersAlt",
+    "ChangeIPPerInstance",
+    "ChangeIPPerInstanceAlt",
+    "UseX360ce",
+    "UseDI8CoopLvlUnlocker",
+    "UseNemirtingasGalaxyEmu",
+    "UseNemirtingasEpicEmu",
+    "UseSteamStubDRMPatcher",
+    "UseGoldberg",
+    "UseGoldbergNoOGSteamDlls",
+    "NeedsSteamEmulation",
+    "Hook.SDL2Enabled",
+];
+/// Lists and texts whose assignment alone does: files to link, the
+/// XInputPlus DLLs and a Flawless Widescreen fix to copy.
+const ADMIN_VALUES: [&str; 3] = ["SymlinkFiles", "XInputPlusDll", "FlawlessWidescreen"];
+
+/// Whether `handler` needs Nucleus Co-op to run as administrator: without
+/// it Nucleus would refuse the game or ask for elevation mid-start.
+pub fn needs_admin(handler: &Handler) -> bool {
+    !handler.admin.is_empty()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +68,8 @@ enum Literal {
     Text(String),
     Number(f64),
     Bool(bool),
+    /// Anything else: a list, an object, a variable.
+    Other,
 }
 
 fn assignment() -> &'static Regex {
@@ -40,6 +78,12 @@ fn assignment() -> &'static Regex {
         Regex::new(r#"^\s*Game\.([A-Za-z0-9_.]+)\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?[0-9]+(?:\.[0-9]+)?|true|false)\s*;?\s*(?://.*)?$"#)
             .unwrap()
     })
+}
+
+/// Any assignment to a `Game.*` setting.
+fn any_assignment() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^\s*Game\.([A-Za-z0-9_.]+)\s*=(?:[^=]|$)").unwrap())
 }
 
 fn unquote(text: &str) -> String {
@@ -83,8 +127,9 @@ fn depth_change(line: &str) -> i32 {
     change
 }
 
-/// The top-level `Game.X = literal` assignments. Those inside functions run
-/// only when Nucleus calls them.
+/// The top-level `Game.X = value` assignments; a value that is no literal is
+/// [`Literal::Other`]. Those inside functions run only when Nucleus calls
+/// them.
 fn literals(text: &str) -> Vec<(String, Literal)> {
     let mut out = Vec::new();
     let mut in_comment = false;
@@ -103,7 +148,13 @@ fn literals(text: &str) -> Vec<(String, Literal)> {
         }
         let top = depth == 0;
         depth = (depth + depth_change(line)).max(0);
-        let Some(found) = assignment().captures(line).filter(|_| top) else {
+        if !top {
+            continue;
+        }
+        let Some(found) = assignment().captures(line) else {
+            if let Some(other) = any_assignment().captures(line) {
+                out.push((other[1].to_string(), Literal::Other));
+            }
             continue;
         };
         let value = &found[2];
@@ -111,10 +162,7 @@ fn literals(text: &str) -> Vec<(String, Literal)> {
             "true" => Literal::Bool(true),
             "false" => Literal::Bool(false),
             v if v.starts_with('"') || v.starts_with('\'') => Literal::Text(unquote(v)),
-            v => match v.parse() {
-                Ok(n) => Literal::Number(n),
-                Err(_) => continue,
-            },
+            v => v.parse().map_or(Literal::Other, Literal::Number),
         };
         out.push((found[1].to_string(), literal));
     }
@@ -125,7 +173,14 @@ fn literals(text: &str) -> Vec<(String, Literal)> {
 pub fn parse(file: &str, text: &str) -> Result<Handler, String> {
     let values = literals(text);
     // The last assignment wins, as when the script runs.
-    let get = |key: &str| values.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v);
+    let last = |key: &str| values.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v);
+    let get = |key: &str| {
+        values
+            .iter()
+            .rev()
+            .find(|(k, v)| k == key && *v != Literal::Other)
+            .map(|(_, v)| v)
+    };
     let text_of = |key: &str| match get(key) {
         Some(Literal::Text(t)) if !t.trim().is_empty() => Some(t.trim().to_string()),
         _ => None,
@@ -148,6 +203,12 @@ pub fn parse(file: &str, text: &str) -> Result<Handler, String> {
         supports_keyboard: flag("SupportsKeyboard"),
         hides_taskbar: flag("HideTaskbar"),
         own: super::generic::owns(text),
+        // A value the script works out may be true.
+        admin: ADMIN_FLAGS
+            .into_iter()
+            .filter(|key| matches!(last(key), Some(Literal::Bool(true) | Literal::Other)))
+            .chain(ADMIN_VALUES.into_iter().filter(|key| last(key).is_some()))
+            .collect(),
     })
 }
 
@@ -354,6 +415,47 @@ Game.SupportsKeyboard = true; // { not a block
         assert_eq!(h.max_players, 4);
         assert!(h.supports_keyboard);
         assert!(!h.hides_taskbar);
+    }
+
+    #[test]
+    fn a_handler_needs_administrator_rights_for_links_users_and_elevated_tools() {
+        let with = |body: &str| {
+            parse(
+                "x.js",
+                &format!("Game.GUID='A'\nGame.ExecutableName='a.exe'\n{body}"),
+            )
+            .unwrap()
+        };
+        assert!(!needs_admin(&with("")));
+        // Copies alone, and settings turned off again, need no rights.
+        assert!(!needs_admin(&with(
+            "Game.HardcopyGame = true;\nGame.SymlinkGame = true;\nGame.SymlinkGame = false;"
+        )));
+        for flag in ADMIN_FLAGS {
+            let h = with(&format!("Game.{flag} = true;"));
+            assert_eq!(h.admin, [flag], "{flag}");
+            assert!(needs_admin(&h));
+            // A value the script works out may be true.
+            assert!(
+                needs_admin(&with(&format!("Game.{flag} = enabled;"))),
+                "{flag}"
+            );
+        }
+        // Lists and texts count by their assignment.
+        let h = with(
+            "Game.SymlinkFiles = [\"a.dll\",\n  \"b.dll\"];\nGame.XInputPlusDll = [ \"xinput1_3.dll\" ];\nGame.FlawlessWidescreen = \"Fix\";",
+        );
+        assert_eq!(h.admin, ADMIN_VALUES);
+        // Inside a function, in a comment, or only compared: not set.
+        let h = with(
+            "Game.Play = function() {\n    Game.RequiresAdmin = true;\n};\n// Game.UseGoldberg = true;\nif (Game.UseX360ce == true) {}",
+        );
+        assert!(!needs_admin(&h), "{:?}", h.admin);
+        // A setting set to a variable leaves the others as they were.
+        assert_eq!(
+            with("Game.MaxPlayers = 4;\nGame.MaxPlayers = players;").max_players,
+            4
+        );
     }
 
     #[test]

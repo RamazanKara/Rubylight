@@ -4,6 +4,8 @@
 //! in one buffer, and Opus is decoded here so Java receives PCM. Passthrough PCM goes on as
 //! shorts the same way; AC3 and E-AC3 frames go to `bridgeArPlayEncoded` as bytes.
 
+use std::sync::{Mutex, MutexGuard, TryLockError};
+
 use jni::objects::{GlobalRef, JShortArray};
 
 use nightjar_core::session::{
@@ -157,9 +159,38 @@ enum AudioMode {
 /// The largest AC3 or E-AC3 frame: E-AC3's 11-bit `frmsiz` counts up to 2048 16-bit words.
 const MAX_ENCODED_FRAME: usize = 4096;
 
+/// The stream's Opus decoder and its channel count. The decode thread decodes with it; the
+/// AAudio callback conceals a stall with it ([`conceal`]) while that thread waits for packets.
+static DECODER: Mutex<Option<(opus::Decoder, usize)>> = Mutex::new(None);
+
+fn shared_decoder() -> MutexGuard<'static, Option<(opus::Decoder, usize)>> {
+    DECODER.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Opus packet loss concealment of `frames` stereo frames into `pcm`, for the AAudio callback
+/// when the network stalls: the frames concealed, or 0 when there is no stereo decoder or the
+/// decode thread holds it (the callback must not wait). `frames` is a multiple of 2.5 ms.
+///
+/// # Safety
+/// `pcm` holds `frames * 2` samples.
+pub unsafe extern "C" fn conceal(pcm: *mut i16, frames: i32) -> i32 {
+    let mut guard = match DECODER.try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::Poisoned(p)) => p.into_inner(),
+        Err(TryLockError::WouldBlock) => return 0,
+    };
+    let Some((decoder, 2)) = guard.as_mut() else {
+        return 0;
+    };
+    if pcm.is_null() || frames <= 0 {
+        return 0;
+    }
+    let pcm = std::slice::from_raw_parts_mut(pcm, frames as usize * 2);
+    decoder.decode(None, pcm, frames as usize).max(0)
+}
+
 pub struct Audio {
     bridge: &'static Bridge,
-    decoder: Option<opus::Decoder>,
     mode: AudioMode,
     /// The passthrough codecs this stream asked for, to say so when the stream plays Opus.
     passthrough: u8,
@@ -175,7 +206,6 @@ impl Audio {
     pub fn new(bridge: &'static Bridge, passthrough: u8) -> Self {
         Self {
             bridge,
-            decoder: None,
             mode: AudioMode::Opus,
             passthrough,
             pcm: Vec::new(),
@@ -226,6 +256,7 @@ impl AudioRenderer for Audio {
     fn init(&mut self, setup: &AudioSetup) -> Result<(), i32> {
         use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_OPUS, CODEC_PCM};
         let b = self.bridge;
+        *shared_decoder() = None;
         let configuration = bridge::int(audio_configuration_to_int(setup.configuration));
         self.mode = match setup.codec {
             CODEC_OPUS => AudioMode::Opus,
@@ -296,7 +327,7 @@ impl AudioRenderer for Audio {
                 }
             };
             self.channels = usize::from(opus_config.channel_count);
-            self.decoder = Some(decoder);
+            *shared_decoder() = Some((decoder, self.channels));
         }
         self.samples_per_frame = setup.samples_per_frame as usize;
         self.pcm = vec![0; self.channels * self.samples_per_frame];
@@ -344,10 +375,12 @@ impl AudioRenderer for Audio {
             }
             AudioMode::Pcm => pcm_s16le(packet, &mut self.pcm),
             AudioMode::Opus => {
-                let Some(decoder) = self.decoder.as_mut() else {
-                    return;
+                let decoded = match shared_decoder().as_mut() {
+                    Some((decoder, _)) => {
+                        decoder.decode(packet, &mut self.pcm, self.samples_per_frame)
+                    }
+                    None => return,
                 };
-                let decoded = decoder.decode(packet, &mut self.pcm, self.samples_per_frame);
                 if decoded <= 0 {
                     return;
                 }
@@ -372,7 +405,7 @@ impl AudioRenderer for Audio {
     }
 
     fn cleanup(&mut self) {
-        self.decoder = None;
+        *shared_decoder() = None;
         self.array = None;
         self.bridge.post(self.bridge.m.ar_cleanup, &[]);
     }

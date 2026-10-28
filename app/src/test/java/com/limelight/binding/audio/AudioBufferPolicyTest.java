@@ -91,11 +91,11 @@ public class AudioBufferPolicyTest {
         assertEquals(2886, policy.sample(0, 1000));
         assertEquals(3126, policy.sample(5, 2000));
         assertEquals(3366, policy.sample(9, 3000));
-        // Growth past six steps above the floor, up to the capacity it was given (below 200 ms).
+        // Growth up to six steps above the floor, as before: 60 ms is less than that.
         int frames = 0;
         for (int i = 1; i < 50; i++) frames = policy.sample(10 + i, 3000 + i * 1000L);
-        assertEquals(ODIN_CAPACITY, frames);
-        assertTrue(frames >= 2886 + 6 * 240);
+        assertEquals(2886 + 6 * 240, frames);
+        assertTrue(frames <= ODIN_CAPACITY);
         policy.applied(3366);
         assertEquals(3366, policy.sample(59, 60000));
         assertEquals(3126, policy.sample(59, 83000));
@@ -192,28 +192,30 @@ public class AudioBufferPolicyTest {
         assertFalse(AudioBufferPolicy.dropLate(29, 960, 480, 48000));
     }
 
-    @Test public void aaudioReserveGrowsPastEightBurstsUpTo200Milliseconds() {
-        // TV: 18 ms bursts in a 16384-frame ring. Eight bursts (144 ms) cannot hold a 130 ms stall plus a callback.
+    @Test public void aaudioReserveStaysWithinEightBurstsAndSixtyMilliseconds() {
+        // TV: 18 ms bursts. Eight (144 ms) would hold its 130 ms stalls but add their latency to every
+        // stream; three (54 ms) is the most, and a longer stall is concealed instead.
         AudioBufferPolicy tv = AudioBufferPolicy.forReserve(864, 16384, 1728, 0, 0, 48000);
-        assertEquals(11 * 864, tv.limit());
-        assertTrue(tv.limit() <= 9600);
+        assertEquals(3 * 864, tv.limit());
         assertEquals(1728, tv.sample(0, 1000));
         int frames = 0;
         for (int i = 1; i < 30; i++) frames = tv.sample(i, 1000 + i * 1000L);
-        assertEquals(11 * 864, frames);
+        assertEquals(3 * 864, frames);
         // A clean 30 s gives back a burst at a time.
-        assertEquals(10 * 864, tv.sample(29, 60000));
+        assertEquals(2 * 864, tv.sample(29, 60000));
 
-        // Phone: a 2 ms burst starts at 4 ms and grows only while it starves.
+        // Phones keep the eight bursts they had: a 4 ms burst (Retroid) up to 32 ms, a 2 ms one up to 16 ms.
+        assertEquals(8 * 192, AudioBufferPolicy.forReserve(192, 3072, 384, 0, 0, 48000).limit());
         AudioBufferPolicy phone = AudioBufferPolicy.forReserve(96, 16384, 192, 0, 0, 48000);
-        assertEquals(9600, phone.limit());
+        assertEquals(8 * 96, phone.limit());
         assertEquals(192, phone.sample(0, 1000));
         for (long t = 2000; t < 600000; t += 1000) assertEquals(192, phone.sample(0, t));
         assertEquals(288, phone.sample(1, 601000));
 
-        // The ring bounds it, in whole bursts.
-        assertEquals(4032, AudioBufferPolicy.forReserve(192, 4096, 384, 0, 0, 48000).limit());
-        assertEquals(9600, AudioBufferPolicy.maxReserveFrames(48000));
+        // The ring bounds it, in whole bursts; a burst over 30 ms still gets its two.
+        assertEquals(5 * 192, AudioBufferPolicy.forReserve(192, 1000, 384, 0, 0, 48000).limit());
+        assertEquals(2 * 2400, AudioBufferPolicy.forReserve(2400, 38400, 4800, 0, 0, 48000).limit());
+        assertEquals(2880, AudioBufferPolicy.maxReserveFrames(48000));
     }
 
     @Test public void fastTrackHoldsAtLeastOneOutputBurstAndAPacket() {
@@ -227,14 +229,14 @@ public class AudioBufferPolicyTest {
         assertEquals(2928, AudioBufferPolicy.trackFloorFrames(34, AudioBufferPolicy.PERF_NONE, true, 240, 2928, 864));
     }
 
-    @Test public void trackBufferMayGrowTo200MillisecondsWhereItsCapacityAllows() {
+    @Test public void trackBufferMayGrowTo60MillisecondsWhereItsCapacityAllows() {
         int max = AudioBufferPolicy.maxReserveFrames(48000);
-        // TV: the 9840-frame capacity it asks for holds the whole 200 ms.
+        // TV: six steps above its 1104-frame floor are 53 ms; its 9840-frame capacity holds 60 ms.
         AudioBufferPolicy tv = AudioBufferPolicy.forTrack(240, 9840, 1104, 1104, 0, 0, max);
-        assertEquals(9600, tv.limit());
+        assertEquals(2880, tv.limit());
         // A phone's 1920-frame fast track stays at its eight packets.
         assertEquals(1920, AudioBufferPolicy.forTrack(240, 1920, 480, 480, 0, 0, max).limit());
-        // Without a 200 ms bound the six steps above the floor remain.
+        // Without a 60 ms bound the six steps above the floor remain.
         assertEquals(480 + 6 * 240, AudioBufferPolicy.forTrack(240, 9840, 480, 480, 0, 0, 0).limit());
     }
 

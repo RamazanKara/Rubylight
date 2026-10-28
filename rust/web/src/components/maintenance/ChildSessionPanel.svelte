@@ -98,7 +98,7 @@
 </script>
 
 <Panel
-  title="Background child session (Experimental)"
+  title="Background child session"
   level={3}
   description="Streams a second desktop of your own account while you keep using this one."
 >

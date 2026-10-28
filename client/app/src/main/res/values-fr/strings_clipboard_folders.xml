@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Envoyer l’image du presse-papiers à l’hôte (expérimental)</string>
-    <string name="stream_clipboard_image_receive">Copier l’image du presse-papiers de l’hôte (expérimental)</string>
+    <string name="stream_clipboard_image_send">Envoyer l’image du presse-papiers à l’hôte</string>
+    <string name="stream_clipboard_image_receive">Copier l’image du presse-papiers de l’hôte</string>
     <string name="stream_clipboard_image_empty">Le presse-papiers ne contient aucune image</string>
     <string name="stream_clipboard_image_sent">Image du presse-papiers envoyée à l’hôte</string>
     <string name="stream_clipboard_image_none">Le presse-papiers de l’hôte ne contient aucune image</string>

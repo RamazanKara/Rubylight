@@ -329,7 +329,7 @@ fn refusal_text(refusal: &color::Refusal) -> String {
     use color::Refusal;
     match refusal {
         Refusal::Off | Refusal::Hdr => String::new(),
-        Refusal::Packed444 => tr("experimental full chroma is on and has its own 4:4:4 and 10-bit handling.").into(),
+        Refusal::Packed444 => tr("full chroma is on and has its own 4:4:4 and 10-bit handling.").into(),
         Refusal::PyroWave => tr("PyroWave is chosen, and it has its own 4:4:4 and 10-bit modes.").into(),
         Refusal::Decoder(why) => trf("this device can’t decode or draw it ({}).", &[why]),
         Refusal::Host => tr("the PC doesn’t encode it for this codec.").into(),
@@ -3888,7 +3888,7 @@ mod tests {
         let packed = offered_formats(&Settings { experimental_packed_444: true, prefer_yuv444: true, ..hevc.clone() }, COLOR_SCM, &decodes_all());
         assert_eq!(packed.formats, video_formats(CodecPreference::Hevc, false, 0));
         assert_eq!(color_notice(&packed, VIDEO_FORMAT_H265).as_deref(),
-            Some("YUV 4:4:4 unavailable; using 4:2:0: experimental full chroma is on and has its own 4:4:4 and 10-bit handling."));
+            Some("YUV 4:4:4 unavailable; using 4:2:0: full chroma is on and has its own 4:4:4 and 10-bit handling."));
         // Both on: 4:4:4 wins and 10-bit says why.
         let both = offered_formats(&Settings { prefer_yuv444: true, sdr_10bit: true, ..hevc }, COLOR_SCM, &decodes_all());
         assert_eq!(color_notice(&both, VIDEO_FORMAT_H265_REXT8_444).as_deref(),

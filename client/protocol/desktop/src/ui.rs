@@ -204,7 +204,7 @@ impl HostOption {
             Self::PairOtp => en("Pair with one-time PIN"),
             Self::Wake => en("Wake up"),
             Self::Sleep => en("Sleep PC"),
-            Self::Files => en("Files (Experimental)"),
+            Self::Files => en("Files"),
             Self::Settings => en("PC settings"),
             Self::Details => en("View details"),
             Self::Rename => en("Rename"),
@@ -1715,7 +1715,7 @@ impl Launcher {
     fn shared_folders(&mut self, ui: &mut Ui, id: u64, commands: &mut Vec<Command>) {
         use crate::folders_page::{size_text, Place};
         use nightjar_core::http::EntryKind;
-        section(ui, "Shared folders (Experimental)");
+        section(ui, "Shared folders");
         let Some(open) = self.folders.state_for(id) else {
             let button = row(ui, "Shared folders", "Browse the folders this PC shares with this device, download files from them and, with a write grant, upload to them. The PC opens them as the user signed in on it.", |ui| {
                 quiet_button(ui, "Browse")
@@ -2145,10 +2145,10 @@ impl Launcher {
                 "Streams 10-bit HDR to an HDR-enabled display. Enable HDR in the operating system first.",
                 |ui, s| toggle(ui, &mut s.hdr),
             );
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["prefer_yuv444"], "Prefer YUV 4:4:4 (Experimental)",
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["prefer_yuv444"], "Prefer YUV 4:4:4",
                 "Sharper colored text when the PC and this device support it. HDR takes priority. Restart Nightjar after changing this setting on Linux.",
                 |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave() && !s.experimental_packed_444, |ui| toggle(ui, &mut s.prefer_yuv444)).inner);
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["sdr_10bit"], "10-bit color (SDR, Experimental)",
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["sdr_10bit"], "10-bit color (SDR)",
                 "Streams SDR in 10-bit HEVC or AV1 to reduce banding. Needs a Main10 decoder on this device; the PC’s display must be in SDR. Restart Nightjar after changing this setting on Linux.",
                 |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave() && !s.experimental_packed_444, |ui| toggle(ui, &mut s.sdr_10bit)).inner);
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["full_range"], "Full color range", "Request the full RGB range from the host.", |ui, s| toggle(ui, &mut s.full_range));
@@ -2333,7 +2333,7 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio_passthrough"], "Audio passthrough (Experimental)", "Ask a Rubylight PC for uncompressed PCM audio instead of Opus: lossless, at 1.5 Mbps for stereo up to 6 Mbps for 7.1. Other PCs keep Opus.", |ui, s| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio_passthrough"], "Audio passthrough", "Ask a Rubylight PC for uncompressed PCM audio instead of Opus: lossless, at 1.5 Mbps for stereo up to 6 Mbps for 7.1. Other PCs keep Opus.", |ui, s| {
                 toggle(ui, &mut s.audio_passthrough)
             });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["play_audio_on_host"], "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui, s| {
@@ -2383,7 +2383,7 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["link_probe"], "Link test before the first bitrate (Experimental)", "A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.", |ui, s| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["link_probe"], "Link test before the first bitrate", "A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.", |ui, s| {
                 toggle(ui, &mut s.link_probe)
             });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
@@ -2395,7 +2395,7 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["client_roaming"], "Client roaming (Experimental)", "Keep the stream running when this device changes networks. Works with Rubylight PCs that support it.", |ui, s| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["client_roaming"], "Client roaming", "Keep the stream running when this device changes networks. Works with Rubylight PCs that support it.", |ui, s| {
                 toggle(ui, &mut s.client_roaming)
             });
             if s.client_roaming {
@@ -2406,7 +2406,7 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["clipboard_sync"], "Clipboard sync", "Text copied here goes on the PC's clipboard, and text copied on the PC comes here. The PC must allow this device to read and write its clipboard.", |ui, s| {
                 toggle(ui, &mut s.clipboard_sync)
             });
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["usb_forwarding"], "USB forwarding (Experimental)", "Attach USB devices plugged into this computer to the PC from the stream controls. The PC must allow USB devices for this client. On Windows a device needs the WinUSB driver.", |ui, s| {
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["usb_forwarding"], "USB forwarding", "Attach USB devices plugged into this computer to the PC from the stream controls. The PC must allow USB devices for this client. On Windows a device needs the WinUSB driver.", |ui, s| {
                 toggle(ui, &mut s.usb_forwarding)
             });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["unbatched_input"], "Instant mouse and pen input", "Send mouse and pen movements immediately.", |ui, s| {
@@ -2478,7 +2478,7 @@ impl Launcher {
                 });
             }
             section_at(ui, "Advanced", &mut jump);
-            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["experimental_packed_444"], "Experimental full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["experimental_packed_444"], "Full chroma", "Requires the host option and HEVC or AV1. Restart Nightjar after changing this setting on Linux.",
                 |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| toggle(ui, &mut s.experimental_packed_444)).inner);
             ui.add_space(18.0);
             ui.label(
@@ -2698,7 +2698,7 @@ impl Launcher {
                         ui.set_width(440.0);
                         ui.label(RichText::new(trf("Put {} to sleep?", &[&name])).font(semibold(text::SECTION)));
                         ui.label(
-                            RichText::new(tr("Experimental. The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
+                            RichText::new(tr("The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
                                 .color(ON_SURFACE_VARIANT),
                         );
                         ui.add_space(12.0);
@@ -4583,13 +4583,13 @@ mod tests {
             f.l.settings.client_roaming = true;
             f.l.go(screen);
             f.settle();
-            assert!(shown(&f, "Netzwerkwechsel (Experimentell)"), "{screen:?}: the roaming row is drawn in German");
+            assert!(shown(&f, "Netzwerkwechsel"), "{screen:?}: the roaming row is drawn in German");
             assert!(shown(&f, "Über mobile Daten fortsetzen"), "{screen:?}: mobile data shows while roaming is on");
             assert_fits(&f, &format!("{screen:?} with roaming"), false);
             if global {
                 f.l.settings.client_roaming = false;
                 f.settle();
-                assert!(shown(&f, "Netzwerkwechsel (Experimentell)"));
+                assert!(shown(&f, "Netzwerkwechsel"));
                 assert!(!shown(&f, "Über mobile Daten fortsetzen"), "mobile data hides while roaming is off");
             }
         }

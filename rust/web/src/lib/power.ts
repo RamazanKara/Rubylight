@@ -33,7 +33,7 @@ export function checkState(check: WakeCheck): { word: string; tone: Tone } {
 const TARGET_STATES: Record<string, { status: Pill; label: string }> = {
   ready: { status: 'ready', label: 'Ready' },
   needs_setup: { status: 'warning', label: 'Needs setup' },
-  experimental: { status: 'idle', label: 'Experimental' },
+  experimental: { status: 'idle', label: 'Depends on Wi-Fi' },
 };
 
 export function targetState(target: WakeTarget): { status: Pill; label: string } {
@@ -68,7 +68,7 @@ export function readiness(power: PowerStatus): Readiness {
     case 'needs_setup':
       return { status: 'warning', label: 'Needs setup', tone: 'warn', text: `A wake setting of ${name} is off. Apply the changes below to turn it on.` };
     case 'experimental':
-      return { status: 'idle', label: 'Experimental', tone: 'neutral', text: `Devices wake this PC through ${name}. Waking through Wi-Fi depends on the adapter and the access point (Experimental).` };
+      return { status: 'idle', label: 'Depends on Wi-Fi', tone: 'neutral', text: `Devices wake this PC through ${name}. Waking through Wi-Fi depends on the adapter and the access point.` };
     default:
       return { status: 'warning', label: 'Unknown', tone: 'warn', text: `The wake settings of ${name} could not be read. Check again, or look at the adapter in Device Manager.` };
   }

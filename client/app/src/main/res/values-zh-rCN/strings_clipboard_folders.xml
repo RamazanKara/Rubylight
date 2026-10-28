@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">将剪贴板图片发送到主机（实验性）</string>
-    <string name="stream_clipboard_image_receive">复制主机剪贴板图片（实验性）</string>
+    <string name="stream_clipboard_image_send">将剪贴板图片发送到主机</string>
+    <string name="stream_clipboard_image_receive">复制主机剪贴板图片</string>
     <string name="stream_clipboard_image_empty">剪贴板中没有图片</string>
     <string name="stream_clipboard_image_sent">剪贴板图片已发送到主机</string>
     <string name="stream_clipboard_image_none">主机剪贴板中没有图片</string>

@@ -48,16 +48,16 @@ test('every viewer phase is spelled out, with a failure in danger', () => {
   assert.equal(phases.connected.tone, 'ok');
 });
 
-test('the panel is labelled Experimental and loads with a skeleton', () => {
+test('the panel is unlabelled and loads with a skeleton', () => {
   const out = render(Panel, { props: {} }).body;
-  assert.match(out, /Background child session \(Experimental\)/);
+  assert.doesNotMatch(out, /Experimental/);
   assert.doesNotMatch(out, /untested|Expected/i);
 });
 
 test('child sessions stay off by default and their display settings show only when used', () => {
   const mode = settings.find((setting) => setting.key === 'background_mode');
   assert.equal(mode.default, 'virtual_display');
-  assert.match(mode.label, /Experimental/);
+  assert.doesNotMatch(mode.label, /Experimental/);
   const resolution = settings.find((setting) => setting.key === 'child_session_resolution');
   assert.equal(resolution.visibleWhen({}), false);
   assert.equal(resolution.visibleWhen({ background_mode: 'auto' }), true);

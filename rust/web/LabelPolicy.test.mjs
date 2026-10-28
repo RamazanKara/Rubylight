@@ -1,18 +1,19 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
-// The label policy (ux/direction.md 2.5, decided in ux/labels.md): "(Experimental)" stays only on what our
-// devices can't verify or whose hardware check failed or is still open. A feature with a hw-queue PASS, a
-// measurement or a shipped release without an open bug, and every established-fork port, ships unlabelled.
+// The label policy (ux/labels.md): no setting, page or badge says Experimental; features ship plainly and keep
+// their keys. Identifiers such as experimental_packed_444, amdvce_experimental or a wake target's
+// 'experimental' state are not text, and comments are not shown.
 const server = await createTestServer({ configFile: false });
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const { settings: pending } = await server.ssrLoadModule('/src/lib/schema/extensions.ts');
 const { PERMISSION_GROUPS } = await server.ssrLoadModule('/src/components/devices/device.ts');
 await server.close();
 
-const all = [...schema.settings, ...pending.filter(item => !schema.settings.some(setting => setting.key === item.key))];
+const all = [...schema.settings, ...pending];
 const texts = setting => [
   setting.label,
   setting.description,
@@ -21,51 +22,28 @@ const texts = setting => [
   ...(setting.control?.options ?? []).map(option => option.label),
 ].filter(text => typeof text === 'string');
 
-const KEPT = [
-  '7.1.4 surround (Experimental)',
-  'Adapt bitrate on the host (Experimental)',
-  'Adaptive packet pacing (Experimental)',
-  'Background mode (Experimental)',
-  'Client roaming (Experimental)',
-  'Device-drawn cursor (Experimental)',
-  'Dolby Vision (Experimental)',
-  'Encoder focus (Experimental)',
-  'Haptics from game audio (Experimental)',
-  'Keep monitors off while paused (Experimental)',
-  'Pen barrel roll (Experimental)',
-  'Rotate the display (Experimental)',
-  'Rotation (Experimental)',
-  'Send the text around the cursor (Experimental)',
-  'Touch (Experimental)',
-  'USB forwarding (Experimental)',
-  'Windows HDR Calibration on virtual displays (Experimental)',
-];
-
-test('the Experimental settings are exactly the policy list, each with the label in its title', () => {
-  const labelled = all.filter(setting => texts(setting).some(text => text.includes('Experimental')));
-  for (const setting of labelled) assert.match(setting.label, / \(Experimental\)$/, setting.key);
-  assert.deepEqual([...new Set(labelled.map(setting => setting.label))].sort(), [...KEPT].sort());
+const files = dir => readdirSync(dir).flatMap(name => {
+  const path = join(dir, name);
+  return statSync(path).isDirectory() ? files(path) : /\.(svelte|ts)$/.test(name) ? [path] : [];
 });
+const IDENTIFIER = /\w+_experimental\w*|experimental_\w+|\.experimental\b|\bexperimental:|'experimental'/gi;
+const shown = source => source
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/<!--[\s\S]*?-->/g, '')
+  .replace(/(^|[^:])\/\/.*$/gm, '$1')
+  .replace(IDENTIFIER, '');
 
-test('nothing says (experimental) in lowercase', () => {
-  const files = [
-    'src/components/devices/DeviceEditor.svelte',
-    'src/components/devices/UsbDevices.svelte',
-    'src/components/maintenance/ChildSessionPanel.svelte',
-    'src/pages/Stream.svelte',
-  ].map(file => readFileSync(new URL(file, import.meta.url), 'utf8'));
-  const strings = [...all.flatMap(texts), ...PERMISSION_GROUPS.flatMap(group => group.items.map(item => item.label)), ...files];
-  for (const text of strings) assert.doesNotMatch(text, /\(experimental\)|experimental\)/, text.slice(0, 80));
-});
-
-test('dropped labels stay dropped: established, measured and shipped features', () => {
-  for (const key of ['webrtc_server', 'file_transfer', 'shared_folders', 'clipboard_image', 'keyboard_follows_focus',
-    'keyboard_layout', 'experimental_packed_444', 'audio_passthrough']) {
-    const setting = all.find(item => item.key === key);
-    assert(setting, key);
-    assert.doesNotMatch(texts(setting).join(' '), /Experimental/, key);
+test('no setting text says Experimental, in any case', () => {
+  for (const setting of all) {
+    for (const text of texts(setting)) assert.doesNotMatch(text, /experiment/i, `${setting.key}: ${text}`);
   }
-  for (const item of PERMISSION_GROUPS.flatMap(group => group.items)) assert.doesNotMatch(item.label, /Experimental/);
+  for (const item of PERMISSION_GROUPS.flatMap(group => group.items)) assert.doesNotMatch(item.label, /experiment/i);
+});
+
+test('no page, component or badge of the console says Experimental', () => {
+  const src = new URL('./src', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+  const labelled = files(src).filter(path => /experiment/i.test(shown(readFileSync(path, 'utf8'))));
+  assert.deepEqual(labelled, []);
 });
 
 test('no fork or credit names in setting text; Moonlight alone is the client', () => {

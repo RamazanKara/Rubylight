@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">클립보드 이미지를 호스트로 보내기(실험적)</string>
-    <string name="stream_clipboard_image_receive">호스트 클립보드 이미지 복사(실험적)</string>
+    <string name="stream_clipboard_image_send">클립보드 이미지를 호스트로 보내기</string>
+    <string name="stream_clipboard_image_receive">호스트 클립보드 이미지 복사</string>
     <string name="stream_clipboard_image_empty">클립보드에 이미지가 없습니다</string>
     <string name="stream_clipboard_image_sent">클립보드 이미지를 호스트로 보냈습니다</string>
     <string name="stream_clipboard_image_none">호스트 클립보드에 이미지가 없습니다</string>

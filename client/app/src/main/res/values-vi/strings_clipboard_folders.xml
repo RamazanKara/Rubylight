@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Gửi hình ảnh trong bảng nhớ tạm đến máy chủ (Thử nghiệm)</string>
-    <string name="stream_clipboard_image_receive">Sao chép hình ảnh trong bảng nhớ tạm của máy chủ (Thử nghiệm)</string>
+    <string name="stream_clipboard_image_send">Gửi hình ảnh trong bảng nhớ tạm đến máy chủ</string>
+    <string name="stream_clipboard_image_receive">Sao chép hình ảnh trong bảng nhớ tạm của máy chủ</string>
     <string name="stream_clipboard_image_empty">Bảng nhớ tạm không có hình ảnh</string>
     <string name="stream_clipboard_image_sent">Đã gửi hình ảnh trong bảng nhớ tạm đến máy chủ</string>
     <string name="stream_clipboard_image_none">Bảng nhớ tạm của máy chủ không có hình ảnh</string>

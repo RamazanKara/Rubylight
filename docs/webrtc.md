@@ -11,7 +11,7 @@ The first part is for people who stream. The second part is for people who write
 ### Turn it on
 
 1. Open the console, then **Settings**, and find the **WebRTC** group under Network.
-2. Switch on **WebRTC server (Experimental)**.
+2. Switch on **WebRTC server**.
 3. Save, and restart Rubylight. The setting needs a restart.
 
 If another program already holds a port, the console shows a `webrtc_server` warning, the log names the error and the server does not run. Rubylight never moves to another port on its own. Pick a free **WebRTC signalling port** instead.

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">轉送 USB 裝置（實驗性）</string>
+    <string name="title_usb_forwarding">轉送 USB 裝置</string>
     <string name="summary_usb_forwarding">在串流選單中加入 USB 裝置：插在本裝置上的繪圖板或安全金鑰等裝置隨後可在電腦上使用。需要電腦提供 USB 轉送。</string>
     <string name="stream_usb_devices">USB 裝置</string>
     <string name="usb_forwarding_pick_title">轉送 USB 裝置</string>

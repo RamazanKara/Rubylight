@@ -261,7 +261,7 @@ const general: Setting[] = [
   },
   {
     key: 'usb_forwarding',
-    label: 'USB forwarding (Experimental)',
+    label: 'USB forwarding',
     description:
       'Let the devices you allow attach their USB devices to this PC during a stream. Each device also needs Allow USB devices.',
     details: 'Needs the usbip-win2 driver on this PC. A device is detached when its stream ends.',
@@ -488,9 +488,9 @@ const network: Setting[] = [
   },
   {
     key: 'client_roaming',
-    label: 'Client roaming (Experimental)',
+    label: 'Client roaming',
     description:
-      'Let a device whose network address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream instead of reconnecting. Experimental.',
+      'Let a device whose network address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream instead of reconnecting.',
     details:
       'Only devices that support it, such as Nightjar, use it. The device proves the new address with the stream key before the host sends anything there, and the host then drops what still arrives from the old one. Moonlight clients that do not support it stream as before. Turning it off stops roaming at once; turning it on applies from the next stream.',
     category: 'network',
@@ -856,9 +856,9 @@ const input: Setting[] = [
   },
   {
     key: 'text_input_surrounding_text',
-    label: 'Send the text around the cursor (Experimental)',
+    label: 'Send the text around the cursor',
     description:
-      "Send the text around the cursor to the device's keyboard for its suggestions, never from password fields. Experimental.",
+      "Send the text around the cursor to the device's keyboard for its suggestions, never from password fields.",
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'toggle' },
@@ -968,7 +968,7 @@ const input: Setting[] = [
   },
   {
     key: 'audio_haptics',
-    label: 'Haptics from game audio (Experimental)',
+    label: 'Haptics from game audio',
     description:
       "A DualSense on the device feels the game's bass and impacts when the game sends it no vibration of its own. Changes apply during a stream.",
     details:

@@ -1816,8 +1816,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
                     });
                     if s.facts.image_clipboard {
-                        if ui.button(tr("Send image to PC (Experimental)")).clicked() { s.clipboard_image(true); }
-                        if ui.button(tr("Copy PC image here (Experimental)")).clicked() { s.clipboard_image(false); }
+                        if ui.button(tr("Send image to PC")).clicked() { s.clipboard_image(true); }
+                        if ui.button(tr("Copy PC image here")).clicked() { s.clipboard_image(false); }
                     }
                     if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
                         egui::CollapsingHeader::new(tr("Keyboard shortcuts")).id_salt("keyboard-shortcuts").show(ui, |ui| {

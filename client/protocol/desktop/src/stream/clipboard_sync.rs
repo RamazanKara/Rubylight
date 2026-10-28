@@ -135,7 +135,7 @@ impl<C: Clipboard> Sync<C> {
         };
         eprintln!("nightjar: clipboard sync: refused the PC's copy: {}", refused.reason());
         let toast = if refused == Refused::Images {
-            self.tell(TOLD_IMAGE, tr("The PC copied an image. Clipboard sync carries text; use Copy PC image here (Experimental)."))
+            self.tell(TOLD_IMAGE, tr("The PC copied an image. Clipboard sync carries text; use Copy PC image here."))
         } else {
             self.tell(TOLD_REFUSED, tr("Clipboard sync could not use a copy from the PC."))
         };

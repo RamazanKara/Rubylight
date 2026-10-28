@@ -247,7 +247,7 @@ public class SettingsTiersTest {
             assertEquals(java.util.Arrays.asList("checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
                     "checkbox_link_probe"), SettingsStructureTest.keys(diagnostics).subList(0, 3));
             assertEquals("Link test before the first bitrate", String.valueOf(diagnostics.findPreference("checkbox_link_probe").getTitle()));
-            assertEquals("USB Switch Pro driver (Experimental)", screen.getString(R.string.title_usb_switch_pro));
+            assertEquals("USB Switch Pro driver", screen.getString(R.string.title_usb_switch_pro));
         }
     }
 
@@ -312,12 +312,12 @@ public class SettingsTiersTest {
     }
 
     @Test
-    public void germanLabelsSayExperimentellAndTheLinkTestHasNone() {
+    public void germanLabelsSayNoExperimentell() {
         Context german = context().createConfigurationContext(configuration("de"));
-        assertEquals("Switch Pro per USB (Experimentell)", german.getString(R.string.title_usb_switch_pro));
-        assertFalse(german.getString(R.string.title_link_probe).contains("xperiment"));
-        for (int id : new int[] {R.string.title_client_roaming, R.string.title_usb_forwarding, R.string.files_menu}) {
-            assertTrue(german.getString(id), german.getString(id).endsWith("(Experimentell)"));
+        assertEquals("Switch Pro per USB", german.getString(R.string.title_usb_switch_pro));
+        for (int id : new int[] {R.string.title_link_probe, R.string.title_client_roaming, R.string.title_usb_forwarding,
+                R.string.files_menu, R.string.settings_category_experimental}) {
+            assertFalse(german.getString(id), german.getString(id).contains("xperiment"));
         }
     }
 

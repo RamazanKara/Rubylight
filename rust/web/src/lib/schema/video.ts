@@ -245,9 +245,9 @@ const video: Setting[] = [
   },
   {
     key: 'hdr_dolby_vision',
-    label: 'Dolby Vision (Experimental)',
+    label: 'Dolby Vision',
     description:
-      'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, to devices that ask for it on HEVC HDR streams. Experimental.',
+      'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, to devices that ask for it on HEVC HDR streams.',
     details:
       'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10 (8.1) or HLG (8.4). Packed 4:4:4 streams carry HDR10 and HDR10+ instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
     category: 'video',
@@ -355,7 +355,7 @@ const video: Setting[] = [
   },
   {
     key: 'host_adaptive_bitrate',
-    label: 'Adapt bitrate on the host (Experimental)',
+    label: 'Adapt bitrate on the host',
     description:
       'Lowers the bitrate when a Moonlight device reports video loss, then slowly raises it again while traffic is sustained and latency is stable.',
     details:
@@ -435,7 +435,7 @@ const video: Setting[] = [
   },
   {
     key: 'host_adaptive_pacing',
-    label: 'Adaptive packet pacing (Experimental)',
+    label: 'Adaptive packet pacing',
     description:
       'Starts with slower packet delivery, then tries faster rates and backs off when the device reports loss.',
     details:
@@ -838,9 +838,9 @@ const amd: Setting[] = [
   },
   {
     key: 'encoder_focus',
-    label: 'Encoder focus (Experimental)',
+    label: 'Encoder focus',
     description:
-      'Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. Experimental.',
+      'Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion.',
     details:
       'Off unless you choose a mode. The stream stays a normal video stream for every client. Still areas and centre also favors the middle of the screen and the cursor. Runs on H.264, HEVC and AV1 when the startup encoder check verified it on this GPU; otherwise the stream shows a warning and focus stays off.',
     category: 'encoders',

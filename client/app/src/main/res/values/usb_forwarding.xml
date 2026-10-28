@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">Forward USB devices (Experimental)</string>
+    <string name="title_usb_forwarding">Forward USB devices</string>
     <string name="summary_usb_forwarding">Adds USB devices to the stream menu: a device plugged into this one, such as a drawing tablet or a security key, then works on the PC. Needs a PC that offers USB forwarding.</string>
     <string name="stream_usb_devices">USB devices</string>
     <string name="usb_forwarding_pick_title">Forward a USB device</string>

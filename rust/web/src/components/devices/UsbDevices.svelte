@@ -23,7 +23,7 @@
 </script>
 
 <Panel
-  title="USB devices (Experimental)"
+  title="USB devices"
   description="USB devices your paired devices attach to this PC during their streams. Each device needs USB devices in its permissions."
   flush
 >

@@ -12,7 +12,6 @@
     <string name="host_unpair_message">Komputer zapomni to urządzenie, a zapisana biblioteka zostanie tu wyczyszczona. Aby strumieniować, trzeba będzie sparować ponownie. Komputer zostaje na liście.</string>
     <string name="host_wake_needs_pairing">Sparuj komputer raz, gdy jest włączony, aby móc go wybudzać</string>
     <string name="host_menu_sleep">Uśpij komputer</string>
-    <string name="host_menu_sleep_note">Eksperymentalne</string>
     <string name="host_sleep_title">Uśpić %1$s?</string>
     <string name="host_sleep_message">Najpierw trzeba zamknąć gry i transmisje na komputerze. Wake-on-LAN może go ponownie wybudzić.</string>
     <string name="host_sleep_asking">Pytanie komputera…</string>

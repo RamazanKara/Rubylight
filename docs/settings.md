@@ -123,11 +123,14 @@ These tables include every preference, including actions, grouped as the Setting
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Show on-screen controls<br>`checkbox_show_onscreen_controls` | Off | On; Off | Enable a touchscreen gamepad. The group is hidden on devices without a touchscreen. |
+| Controller style<br>`list_osc_style` | Classic | Classic; Modern | Pick Modern for analog sticks that follow your thumb, face buttons you can press two at a time and a layout you edit in place (stream menu → Edit controller layout), kept for all games or for one game. Classic keeps the original controller and its layout. Both send the same gamepad. Requires Show on-screen controls On. |
+| Modern controller sticks<br>`list_osc_stick_mode` | Floating | Floating; Fixed | Floating centers a stick where your thumb lands, so you need not hit it exactly; pick Fixed if you prefer to aim at the drawn stick. Shown only with Controller style Modern. Requires Show on-screen controls On. |
+| Modern controller stick deadzone<br>`seekbar_osc_stick_deadzone` | 8% | 0%–30%; step 1% | Raise if a resting thumb drifts the camera or character; lower for finer aim. 8% suits most phones. Shown only with Controller style Modern. Requires Show on-screen controls On. |
 | Vibrate on press<br>`checkbox_vibrate_osc` | On | On; Off | Enable feedback when pressing virtual buttons. Requires Show on-screen controls On. |
 | Only show L3 and R3<br>`checkbox_only_show_L3R3` | Off | On; Off | Enable when another controller supplies everything except stick clicks. Requires Show on-screen controls On. |
 | Show Guide button<br>`checkbox_show_guide_button` | On | On; Off | Enable to expose the virtual Guide/Home button. Requires Show on-screen controls On. |
 | Opacity<br>`seekbar_osc_opacity` | 90% | 0%–100%; step 1% | Lower to see more of the game beneath the controls. Requires Show on-screen controls On. |
-| Reset controls layout<br>`reset_osc` | No stored default | Action | Confirm to restore virtual button sizes and positions. This layout is kept separately from a global settings reset. |
+| Reset controls layout<br>`reset_osc` | No stored default | Action | Confirm to restore virtual button sizes and positions, for the classic and the modern controller, including layouts kept for one game. This layout is kept separately from a global settings reset. |
 
 #### Keyboard
 
@@ -148,6 +151,7 @@ These tables include every preference, including actions, grouped as the Setting
 | Surround sound<br>`list_audio_config` | Stereo | Stereo; 5.1 Surround Sound; 7.1 Surround Sound | Choose 5.1 or 7.1 for a matching audio output and host configuration; use stereo for headphones or two speakers. |
 | Play audio on the host PC<br>`checkbox_host_audio` | Off | On; Off | Enable to hear audio on the PC as well as Android. |
 | Send microphone to the PC<br>`checkbox_enable_mic` | Off | On; Off | Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending. |
+| Microphone button<br>`checkbox_mic_button` | On | On; Off | Leave on for a round button on the stream that mutes and unmutes with one tap; drag it anywhere and it stays there. Shown only while the PC takes the microphone. Turn off to mute from the stream menu only; the menu's Input section can show or hide it during a stream. Requires Send microphone to the PC On. |
 | Echo cancellation<br>`list_mic_echo_cancel` | Automatic | Automatic; On; Off | Leave on Automatic: it cancels echo with the speaker and turns off with headphones or a Bluetooth headset, following a switch during the stream. Pick On if the PC hears its own game sound through a headset. Requires Send microphone to the PC On. |
 | Noise suppression<br>`checkbox_mic_noise_suppression` | On | On; Off | Enable to filter fans and other steady noise out of the microphone. Requires Send microphone to the PC On. |
 | Automatic gain<br>`checkbox_mic_auto_gain` | Off | On; Off | Enable when your voice swings between quiet and loud. Some devices level speech on their own. Requires Send microphone to the PC On. |

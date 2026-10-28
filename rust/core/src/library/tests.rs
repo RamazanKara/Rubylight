@@ -798,3 +798,151 @@ fn a_game_folder_import_starts_its_program_from_its_folder() {
     assert_eq!(app["working-dir"], r"D:\Games\Hades");
     assert!(hades.matches(app));
 }
+
+fn sync_settings(extra: &str) -> Settings {
+    Settings::from_config(&crate::config::Config::parse(extra).unwrap())
+}
+fn mirage() -> Game {
+    ubisoft("13504", Path::new("F:/Games/Mirage"), "Mirage").unwrap()
+}
+
+#[test]
+fn every_launcher_is_on_and_synced_by_default_like_steam() {
+    let defaults = Settings::default();
+    for source in [
+        Source::Epic,
+        Source::Battlenet,
+        Source::Ea,
+        Source::Ubisoft,
+        Source::Gog,
+        Source::Microsoft,
+    ] {
+        assert!(defaults.enabled(source), "{source:?}");
+    }
+    assert!(defaults.auto_sync && defaults.remove_uninstalled);
+    let off = sync_settings(
+        "library_battlenet_enabled = false\nlibrary_ea_enabled = false\nlibrary_ubisoft_enabled = false\nlibrary_microsoft_enabled = false\nlibrary_auto_sync = false\n",
+    );
+    for source in [
+        Source::Battlenet,
+        Source::Ea,
+        Source::Ubisoft,
+        Source::Microsoft,
+    ] {
+        assert!(!off.enabled(source), "{source:?}");
+    }
+    assert!(!off.auto_sync && off.enabled(Source::Epic));
+}
+
+#[test]
+fn the_launcher_sync_adds_installed_games_once_and_leaves_steam_imports_and_dismissed_games() {
+    let settings = Settings::default();
+    let epic = epic_game();
+    let mut broken = mirage();
+    broken.id = "999".into();
+    broken.name = "Broken".into();
+    broken.unavailable_reason = Some("Install or repair Ubisoft Connect.".into());
+    let mut dismissed = mirage();
+    dismissed.id = "777".into();
+    dismissed.name = "Deleted by the user".into();
+    let steam = Game::new(
+        Source::Steam,
+        "570".into(),
+        "Dota 2".into(),
+        Path::new("C:/Steam/dota"),
+        Some(Launch::Uri {
+            uri: "steam://rungameid/570".into(),
+        }),
+    );
+    let games = vec![epic.clone(), mirage(), broken, dismissed, steam];
+    let mut apps = vec![json!({"name": "Desktop", "uuid": "d"})];
+    let change = reconcile(
+        &mut apps,
+        &games,
+        &settings,
+        &Source::ALL,
+        &["ubisoft:777".into()],
+    );
+    assert_eq!(
+        change,
+        SyncChange {
+            added: 2,
+            removed: 0
+        }
+    );
+    let synced: Vec<&str> = apps
+        .iter()
+        .filter_map(|app| managed_key(app).map(|_| app["name"].as_str().unwrap()))
+        .collect();
+    assert_eq!(synced, [epic.name.as_str(), "Mirage"]);
+    assert!(apps.iter().all(|app| app["launcher-source"] != "steam"));
+    // Idempotent.
+    assert_eq!(
+        reconcile(
+            &mut apps,
+            &games,
+            &settings,
+            &Source::ALL,
+            &["ubisoft:777".into()]
+        ),
+        SyncChange::default()
+    );
+    // A game imported by hand is not synced twice.
+    let mut manual = vec![];
+    import(&mut manual, &games, &[selected(&epic)]);
+    assert_eq!(
+        reconcile(&mut manual, &games[..1], &settings, &Source::ALL, &[]),
+        SyncChange::default()
+    );
+    // Off: nothing changes.
+    let off = sync_settings("library_auto_sync = false\n");
+    let mut none = vec![];
+    assert!(!reconcile(&mut none, &games, &off, &Source::ALL, &[]).changed() && none.is_empty());
+    // A launcher that is off syncs nothing.
+    let no_ubisoft = sync_settings("library_ubisoft_enabled = false\n");
+    let mut epic_only = vec![];
+    reconcile(&mut epic_only, &games, &no_ubisoft, &Source::ALL, &[]);
+    assert_eq!(epic_only.len(), 1);
+}
+
+#[test]
+fn an_uninstalled_synced_game_leaves_only_after_a_clean_read_and_manual_apps_stay() {
+    let settings = Settings::default();
+    let games = vec![epic_game(), mirage()];
+    let mut apps = vec![];
+    reconcile(&mut apps, &games, &settings, &Source::ALL, &[]);
+    let mut kept = mirage();
+    kept.id = "1".into();
+    kept.name = "Imported by hand".into();
+    import(&mut apps, &[kept.clone()], &[selected(&kept)]);
+    assert_eq!(apps.len(), 3);
+    // Ubisoft's read failed: its games stay although the scan has none.
+    let read: Vec<Source> = Source::ALL
+        .into_iter()
+        .filter(|s| *s != Source::Ubisoft)
+        .collect();
+    assert_eq!(
+        reconcile(&mut apps, &games[..1], &settings, &read, &[]).removed,
+        0
+    );
+    // A clean read without Mirage removes the synced copy, never the import.
+    let change = reconcile(&mut apps, &games[..1], &settings, &Source::ALL, &[]);
+    assert_eq!(
+        change,
+        SyncChange {
+            added: 0,
+            removed: 1
+        }
+    );
+    assert!(apps.iter().any(|app| app["name"] == "Imported by hand"));
+    assert!(!apps.iter().any(|app| app["name"] == "Mirage"));
+    // Without remove-uninstalled the synced copy stays.
+    let keep = sync_settings("library_autosync_remove_uninstalled = false\n");
+    let mut apps = vec![];
+    reconcile(&mut apps, &games, &keep, &Source::ALL, &[]);
+    assert_eq!(
+        reconcile(&mut apps, &[], &keep, &Source::ALL, &[]).removed,
+        0
+    );
+    assert_eq!(apps.len(), 2);
+}

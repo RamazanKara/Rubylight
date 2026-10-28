@@ -67,17 +67,25 @@ fn sync_catalog(h: &Shared, settings: &Settings, games: &[Game]) -> Result<Outco
 }
 /// Change the app library as JSON and save it when `change` reports a change.
 pub fn update_apps(h: &Shared, change: impl FnOnce(&mut Vec<Value>) -> bool) -> Result<bool> {
+    update_library(h, |apps, _| change(apps))
+}
+/// [`update_apps`] that may also change the app document's other fields, such as the launcher
+/// sync's list of deleted games. Its `apps` field is replaced by the changed list.
+pub fn update_library(
+    h: &Shared,
+    change: impl FnOnce(&mut Vec<Value>, &mut Value) -> bool,
+) -> Result<bool> {
     let mut apps = h.apps.write().unwrap();
+    let mut document = h.app_document.read().unwrap().clone();
     let mut values = match serde_json::to_value(&*apps)? {
         Value::Array(values) => values,
         _ => vec![],
     };
-    if !change(&mut values) {
+    if !change(&mut values, &mut document) {
         return Ok(false);
     }
     let mut next: Vec<App> = serde_json::from_value(Value::Array(values))?;
     h.assign_apps(&mut next)?;
-    let mut document = h.app_document.read().unwrap().clone();
     document["apps"] = serde_json::to_value(&next)?;
     butterpollo_core::state::write_json(&h.apps_path, &document)?;
     *apps = next;

@@ -900,6 +900,7 @@ fn each_stop_names_its_reason_and_only_client_stops_name_a_client() {
         (AppStop::Terminate("b"), "terminate", Some("b")),
         (AppStop::WebRtc("c"), "webrtc", Some("c")),
         (AppStop::CloseGame("d"), "close game", Some("d")),
+        (AppStop::Replaced("e"), "replaced", Some("e")),
         (AppStop::WebUi, "web ui", None),
         (AppStop::Tray, "tray", None),
         (AppStop::Exited, "exited", None),

@@ -2045,7 +2045,7 @@ fn replace_launch_app(
         drop(canceled);
         // Stopping the app waits for it to exit, never under the lock
         // that every serverinfo and app list request takes.
-        drop(previous);
+        h.end_app(previous, AppStop::Replaced(&launch.client.uuid));
         let audio = h.app_audio.lock().unwrap().take();
         let displays = std::mem::take(&mut *h.app_display.lock().unwrap());
         drop((audio, displays));
@@ -2665,6 +2665,40 @@ mod tests {
             crate::process::RunningApp::with_environment(&app, Default::default()).unwrap();
         running.owner = owner.into();
         *f.host.current_app.lock().unwrap() = Some(running);
+    }
+    #[test]
+    fn a_launch_that_replaces_the_game_logs_the_stop_and_who_launched() {
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::{remote::Owner, session::Role};
+        let f = Fixture::new();
+        running_app(&f, "owner");
+        let mut launch = f.launch(f.client(u32::MAX), Role::Stream);
+        launch.app_id = f.host.current_app.lock().unwrap().as_ref().unwrap().id + 1;
+        let path = f.host.directory.join("replace.log");
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            // The host asks first: nothing stops yet.
+            assert!(super::replace_launch_app(&f.host, &launch, false, Owner::None).is_err());
+            assert!(f.host.current_app.lock().unwrap().is_some());
+            // The same launch again confirms it.
+            super::replace_launch_app(&f.host, &launch, false, Owner::None).unwrap();
+        });
+        assert!(f.host.current_app.lock().unwrap().is_none());
+        let log = std::fs::read_to_string(path).unwrap();
+        let stops: Vec<&str> = log
+            .lines()
+            .filter(|line| line.contains("stopping the application"))
+            .collect();
+        assert_eq!(stops.len(), 1, "{log}");
+        for field in ["reason=\"replaced\"", "by=\"parity-device\"", "owner=owner"] {
+            assert!(stops[0].contains(field), "{field} missing: {log}");
+        }
     }
     #[test]
     fn stopping_streams_does_not_wait_for_remote_sessions_it_leaves_running() {

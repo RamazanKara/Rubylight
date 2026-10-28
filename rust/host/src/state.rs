@@ -238,6 +238,8 @@ pub enum AppStop<'a> {
     WebRtc(&'a str),
     /// Close game from the session controls.
     CloseGame(&'a str),
+    /// A client's launch of another app (confirmed, when the host asks).
+    Replaced(&'a str),
     /// Close in the web UI.
     WebUi,
     /// Quit app in the tray.
@@ -258,6 +260,7 @@ impl<'a> AppStop<'a> {
             Self::Terminate(_) => "terminate",
             Self::WebRtc(_) => "webrtc",
             Self::CloseGame(_) => "close game",
+            Self::Replaced(_) => "replaced",
             Self::WebUi => "web ui",
             Self::Tray => "tray",
             Self::Exited => "exited",
@@ -273,7 +276,8 @@ impl<'a> AppStop<'a> {
             Self::Cancel(client)
             | Self::Terminate(client)
             | Self::WebRtc(client)
-            | Self::CloseGame(client) => Some(client),
+            | Self::CloseGame(client)
+            | Self::Replaced(client) => Some(client),
             _ => None,
         }
     }
@@ -284,6 +288,15 @@ impl Host {
         // Stopping the app waits for it to exit, up to its exit timeout and
         // undo commands: never under the lock every serverinfo request takes.
         let app = self.current_app.lock().unwrap().take();
+        self.end_app(app, why);
+        let audio = self.app_audio.lock().unwrap().take();
+        let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
+        drop((audio, displays));
+        drop(teardown);
+    }
+    /// Stops `app`, taken out of `current_app`: logs why, waits for it to
+    /// exit and raises app.stopped. Never under the `current_app` lock.
+    pub fn end_app(&self, app: Option<crate::process::RunningApp>, why: AppStop<'_>) {
         let mut stopped = None;
         if let Some(app) = &app {
             tracing::info!(
@@ -309,10 +322,6 @@ impl Host {
                 }),
             );
         }
-        let audio = self.app_audio.lock().unwrap().take();
-        let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
-        drop((audio, displays));
-        drop(teardown);
     }
     pub fn reap_paused_display(&self) {
         let audio = {

@@ -328,6 +328,17 @@ public class MediaCodecHelper {
     }
 
     /**
+     * Whether a decoder gets the vendor low-latency keys. Not a MediaTek decoder whose frames the
+     * Vulkan renderer draws: on the TCL C6K (MT9689, Mali-G52) the GPU detiles its tuned output, and
+     * after one to four frames the decoder takes no more input ("Dequeue input buffer ran long: 5000
+     * ms", then DecoderHungException), in SDR and HDR, HEVC and AV1, mailbox and FIFO. Without the
+     * keys the same stream ran its 45 s with no hang. Direct output keeps them.
+     */
+    static boolean usesVendorLowLatency(boolean vendorLowLatency, String decoderName, boolean vulkanOutput) {
+        return vendorLowLatency && !(vulkanOutput && isDecoderInList(mediaTekDecoderPrefixes, decoderName));
+    }
+
+    /**
      * Decoders whose vendor keys follow Artemis and the derflacco fork but were never run on
      * MediaTek, NVIDIA, Amlogic, Exynos or Tensor hardware by us; the stream log marks them Experimental.
      */

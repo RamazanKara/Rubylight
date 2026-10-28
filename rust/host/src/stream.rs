@@ -5724,6 +5724,30 @@ mod tests {
         assert_eq!(reopen_on(false, false, &mut missing, back), ReopenOn::Wait);
     }
     #[test]
+    fn a_game_window_target_reopens_on_itself_never_the_primary_display() {
+        // A Nucleus Co-op player's window: closed, on a missing display or
+        // malformed, the reopen reports it instead of showing the PC's screen.
+        let start = Instant::now();
+        for target in [
+            r"window:12@\\.\NO_SUCH_DISPLAY",
+            r"window:0@\\.\DISPLAY1",
+            "window:garbage",
+        ] {
+            let present = butterpollo_windows::capture::display_present(target);
+            let mut missing = None;
+            for background in [false, true] {
+                for elapsed in [Duration::ZERO, DISPLAY_RETURN_WAIT, Duration::from_secs(61)] {
+                    assert_eq!(
+                        reopen_on(present, background, &mut missing, start + elapsed),
+                        ReopenOn::Stream,
+                        "{target}"
+                    );
+                }
+            }
+            assert_eq!(missing, None, "{target}");
+        }
+    }
+    #[test]
     fn background_capture_never_recovers_onto_the_primary_display() {
         let start = Instant::now();
         let mut missing = None;

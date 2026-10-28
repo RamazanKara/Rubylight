@@ -22,6 +22,9 @@ pub struct Handler {
     /// The handler hides the Windows taskbar, which the person at the PC
     /// would lose while the game runs.
     pub hides_taskbar: bool,
+    /// Rubylight's own one-player handler ([`super::generic`]), which only
+    /// background streams use.
+    pub own: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -144,6 +147,7 @@ pub fn parse(file: &str, text: &str) -> Result<Handler, String> {
         max_players,
         supports_keyboard: flag("SupportsKeyboard"),
         hides_taskbar: flag("HideTaskbar"),
+        own: super::generic::owns(text),
     })
 }
 
@@ -191,6 +195,11 @@ pub enum Missing {
         executable: String,
         handler: String,
     },
+    /// The game ships anti-cheat, which Nucleus Co-op's hooks would trip.
+    AntiCheat {
+        executable: String,
+        anti_cheat: String,
+    },
 }
 impl std::fmt::Display for Missing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -209,6 +218,13 @@ impl std::fmt::Display for Missing {
             } => write!(
                 f,
                 "Nucleus Co-op has the handler {handler} for {executable}, but the game is not added: open Nucleus Co-op and add it once"
+            ),
+            Self::AntiCheat {
+                executable,
+                anti_cheat,
+            } => write!(
+                f,
+                "{executable} uses {anti_cheat}, and Rubylight never hooks a game with anti-cheat"
             ),
         }
     }
@@ -236,13 +252,16 @@ pub struct Catalog {
     pub games: Vec<Game>,
 }
 impl Catalog {
+    /// A hub or user handler: Rubylight's own are for background streams
+    /// alone, and never stand in for one.
     fn handler(&self, guid: &str) -> Option<&Handler> {
-        self.handlers.iter().find(|h| h.guid == guid)
+        self.handlers.iter().find(|h| h.guid == guid && !h.own)
     }
 
     /// The Nucleus game for an app starting `exe` (a path or a file name).
     /// The user's added game with that exact path wins; otherwise the one
-    /// added game with that file name.
+    /// added game with that file name. Rubylight's own handlers do not
+    /// count: without a hub handler the game has none.
     pub fn find(&self, app: &str, exe: Option<&str>) -> Result<Match, Missing> {
         let Some(exe) = exe.map(str::trim).filter(|e| !e.is_empty()) else {
             return Err(Missing::NoExecutable { app: app.into() });
@@ -273,7 +292,7 @@ impl Catalog {
         match self
             .handlers
             .iter()
-            .find(|h| h.executable.eq_ignore_ascii_case(name))
+            .find(|h| !h.own && h.executable.eq_ignore_ascii_case(name))
         {
             Some(handler) => Err(Missing::NotAdded {
                 executable: name.into(),
@@ -463,6 +482,51 @@ Game.SupportsKeyboard = true; // { not a block
             c.find("x", Some("  ")),
             Err(Missing::NoExecutable { .. })
         ));
+        let anti_cheat = Missing::AntiCheat {
+            executable: "Shooter.exe".into(),
+            anti_cheat: "BattlEye".into(),
+        };
+        assert_eq!(
+            anti_cheat.to_string(),
+            "Shooter.exe uses BattlEye, and Rubylight never hooks a game with anti-cheat"
+        );
+    }
+
+    #[test]
+    fn rubylights_own_handler_never_stands_in_for_a_hub_handler() {
+        let ours = super::super::generic::Setup::new(r"C:\Puzzle\Puzzle.exe", "Puzzle", None);
+        let mut c = catalog();
+        c.handlers
+            .push(parse(&ours.file(), &ours.handler()).unwrap());
+        c.games.push(Game {
+            guid: ours.guid(),
+            exe_path: ours.exe_path.clone(),
+        });
+        // Added with ours alone, the game has no handler for co-op.
+        assert!(matches!(
+            c.find("Puzzle", Some(r"C:\Puzzle\Puzzle.exe")),
+            Err(Missing::NoHandler { .. })
+        ));
+        assert!(c.playable().iter().all(|m| !m.handler.own));
+        // A hub handler wins once the user adds the game with it.
+        c.handlers.push(
+            parse(
+                "Puzzle.js",
+                "Game.GUID='Puzzle'\nGame.ExecutableName='puzzle.exe'",
+            )
+            .unwrap(),
+        );
+        assert!(matches!(
+            c.find("Puzzle", Some(r"C:\Puzzle\Puzzle.exe")),
+            Err(Missing::NotAdded { .. })
+        ));
+        c.games.push(Game {
+            guid: "Puzzle".into(),
+            exe_path: r"C:\Puzzle\Puzzle.exe".into(),
+        });
+        let found = c.find("Puzzle", Some(r"c:\puzzle\puzzle.exe")).unwrap();
+        assert_eq!(found.handler.guid, "Puzzle");
+        assert!(!found.handler.own);
     }
 
     #[test]

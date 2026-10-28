@@ -1681,6 +1681,7 @@ pub(crate) mod fake {
                         max_players: 2,
                         supports_keyboard: false,
                         hides_taskbar: false,
+                        own: false,
                     }],
                     games: vec![Game {
                         guid: GUID.into(),

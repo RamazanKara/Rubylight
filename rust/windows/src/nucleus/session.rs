@@ -800,6 +800,7 @@ mod tests {
             max_players: 4,
             supports_keyboard: false,
             hides_taskbar: false,
+            own: false,
         }
     }
 

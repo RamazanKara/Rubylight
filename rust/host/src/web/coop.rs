@@ -182,6 +182,7 @@ fn status(h: &Shared) -> Value {
                         Missing::NoExecutable { .. } => "no_executable",
                         Missing::NoHandler { .. } => "no_handler",
                         Missing::NotAdded { .. } => "not_added",
+                        Missing::AntiCheat { .. } => "anti_cheat",
                     };
                     (status, Some(missing.to_string()), None, None)
                 }

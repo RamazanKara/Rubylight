@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Only requested when the user turns on "Send microphone to the PC" -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Only requested when the user taps Scan QR code in Add PC, to read the PC's pairing code. -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA"/>
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA"/>
 
@@ -50,6 +52,16 @@
         android:required="false" />
     <uses-feature
         android:name="android.software.leanback"
+        android:required="false" />
+    <!-- The camera permission would otherwise make app stores hide Nightjar on TVs and other devices without one. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.any"
         android:required="false" />
     <uses-feature
         android:name="android.hardware.sensor.accelerometer"
@@ -252,6 +264,15 @@
             android:enableOnBackInvokedCallback="true"
             android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
             android:label="@string/controller_test_title" />
+        <!-- Recreated on rotation and resize, so the camera binds again for the new orientation. -->
+        <activity
+            android:name=".preferences.QrScanActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:resizeableActivity="true"
+            android:enableOnBackInvokedCallback="true"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|layoutDirection"
+            android:label="@string/qr_scan_title" />
         <activity
             android:name=".preferences.AddComputerManually"
             android:theme="@style/AppTheme"

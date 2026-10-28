@@ -437,6 +437,12 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:5.5.0'
     implementation 'org.jmdns:jmdns:3.6.3'
     implementation 'com.github.cgutman:ShieldControllerExtensions:1.0.1'
+    // Scan QR code in Add PC (Experimental). ZXing core decodes; CameraX 1.4 is the last line that runs on
+    // minSdk 21 (1.5 needs 23).
+    implementation 'com.google.zxing:core:3.5.4'
+    implementation 'androidx.camera:camera-camera2:1.4.2'
+    implementation 'androidx.camera:camera-lifecycle:1.4.2'
+    implementation 'androidx.camera:camera-view:1.4.2'
 
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }

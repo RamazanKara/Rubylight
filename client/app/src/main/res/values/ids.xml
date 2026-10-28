@@ -9,6 +9,7 @@
     <item name="settings_back" type="id" />
     <item name="library_back" type="id" />
     <item name="add_pc_back" type="id" />
+    <item name="qr_scan_back" type="id" />
     <item name="host_profile_back" type="id" />
     <item name="gpu_driver_back" type="id" />
 </resources>

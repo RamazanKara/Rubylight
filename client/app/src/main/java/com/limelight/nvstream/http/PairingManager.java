@@ -30,7 +30,9 @@ public class PairingManager {
         PAIRED,
         PIN_WRONG,
         FAILED,
-        ALREADY_IN_PROGRESS
+        ALREADY_IN_PROGRESS,
+        /** The host's certificate is not the one a pairing link names: nothing was trusted. */
+        CERT_MISMATCH
     }
     
     public PairingManager(NvHTTP http, LimelightCryptoProvider cryptoProvider) {
@@ -195,6 +197,20 @@ public class PairingManager {
     }
 
     public PairState pair(String serverInfo, String pin, String passphrase) throws IOException, XmlPullParserException {
+        return pair(serverInfo, pin, passphrase, null);
+    }
+
+    /**
+     * Pairs with a QR pairing link's one-time PIN and passphrase, refusing the host with
+     * {@link PairState#CERT_MISMATCH} before it is trusted when its certificate does not hash to the
+     * link's fingerprint.
+     */
+    public PairState pair(String serverInfo, PairingLink link) throws IOException, XmlPullParserException {
+        return pair(serverInfo, link.otp, link.passphrase, link.certSha256());
+    }
+
+    private PairState pair(String serverInfo, String pin, String passphrase, byte[] certSha256)
+            throws IOException, XmlPullParserException {
         PairingHashAlgorithm hashAlgo;
 
         int serverMajorVersion = http.getServerMajorVersion(serverInfo);
@@ -232,6 +248,12 @@ public class PairingManager {
                 // Attempting to pair while another device is pairing will cause GFE
                 // to give an empty cert in the response.
                 return PairState.ALREADY_IN_PROGRESS;
+            }
+            if (certSha256 != null && !PairingLink.matches(certSha256, serverCert)) {
+                // Not the PC that showed the link: refuse it before trusting its certificate.
+                LimeLog.warning("Pairing refused: the host certificate does not match the pairing link");
+                serverCert = null;
+                return PairState.CERT_MISMATCH;
             }
 
             // Require this cert for TLS to this host

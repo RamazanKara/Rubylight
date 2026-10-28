@@ -69,6 +69,13 @@ public class PreferenceConfiguration {
     static final String MIC_NOISE_PREF_STRING = "checkbox_mic_noise_suppression";
     static final String MIC_AUTO_GAIN_PREF_STRING = "checkbox_mic_auto_gain";
     static final String MIC_GAIN_PREF_STRING = "seekbar_mic_gain";
+    public static final String MIC_BUTTON_PREF_STRING = "checkbox_mic_button";
+    public static final String OSC_STYLE_PREF_STRING = "list_osc_style";
+    public static final String OSC_STICK_MODE_PREF_STRING = "list_osc_stick_mode";
+    public static final String OSC_STICK_DEADZONE_PREF_STRING = "seekbar_osc_stick_deadzone";
+    public static final String OSC_STYLE_CLASSIC = "classic", OSC_STYLE_MODERN = "modern";
+    public static final String OSC_STICK_FLOATING = "floating", OSC_STICK_FIXED = "fixed";
+    public static final int DEFAULT_OSC_STICK_DEADZONE = 8, MAX_OSC_STICK_DEADZONE = 30;
     private static final String DEADZONE_PREF_STRING = "seekbar_deadzone";
     private static final String OSC_OPACITY_PREF_STRING = "seekbar_osc_opacity";
     static final String LANGUAGE_PREF_STRING = "list_languages";
@@ -254,6 +261,12 @@ public class PreferenceConfiguration {
     public String micEcho = MicProcessing.Echo.AUTO.key;
     public boolean micNoiseSuppression = true, micAutoGain;
     public int micGainPercent = MicGain.DEFAULT_PERCENT;
+    // The on-screen microphone button, shown while the host takes the microphone.
+    public boolean micButton = true;
+    // Which on-screen controller draws (OSC_STYLE_*), and how the modern one's sticks follow a thumb.
+    public String oscStyle = OSC_STYLE_CLASSIC;
+    public boolean oscFloatingSticks = true;
+    public int oscStickDeadzone = DEFAULT_OSC_STICK_DEADZONE;
     public String language;
     public boolean smallIconMode, multiController, usbDriver, usbDualSense, usbDualSenseHaptics, usbSwitchPro, flipFaceButtons;
     // Forward USB devices to a host that offers it during a stream (Rust engine only).
@@ -708,6 +721,16 @@ public class PreferenceConfiguration {
     /** The microphone processing these settings ask for. */
     public MicProcessing micProcessing() {
         return new MicProcessing(MicProcessing.Echo.of(micEcho), micNoiseSuppression, micAutoGain, micGainPercent);
+    }
+
+    /** Whether the modern on-screen controller draws instead of the classic one. */
+    public boolean modernOnscreenController() {
+        return OSC_STYLE_MODERN.equals(oscStyle);
+    }
+
+    /** The stored controller style; anything but "modern" is the classic controller. */
+    public static String oscStyle(String stored) {
+        return OSC_STYLE_MODERN.equals(stored) ? OSC_STYLE_MODERN : OSC_STYLE_CLASSIC;
     }
 
     public static PreferenceConfiguration readPreferences(Context context, String hostUuid) {
@@ -1245,6 +1268,11 @@ public class PreferenceConfiguration {
         config.micNoiseSuppression = prefs.getBoolean(MIC_NOISE_PREF_STRING, true);
         config.micAutoGain = prefs.getBoolean(MIC_AUTO_GAIN_PREF_STRING, false);
         config.micGainPercent = MicGain.clampPercent(prefs.getInt(MIC_GAIN_PREF_STRING, MicGain.DEFAULT_PERCENT));
+        config.micButton = prefs.getBoolean(MIC_BUTTON_PREF_STRING, true);
+        config.oscStyle = oscStyle(prefs.getString(OSC_STYLE_PREF_STRING, null));
+        config.oscFloatingSticks = !OSC_STICK_FIXED.equals(prefs.getString(OSC_STICK_MODE_PREF_STRING, null));
+        config.oscStickDeadzone = Math.max(0, Math.min(MAX_OSC_STICK_DEADZONE,
+                prefs.getInt(OSC_STICK_DEADZONE_PREF_STRING, DEFAULT_OSC_STICK_DEADZONE)));
         config.smallIconMode = prefs.getBoolean(SMALL_ICONS_PREF_STRING, getDefaultSmallMode(context));
         config.multiController = prefs.getBoolean(MULTI_CONTROLLER_PREF_STRING, DEFAULT_MULTI_CONTROLLER);
         config.usbDriver = prefs.getBoolean(USB_DRIVER_PREF_SRING, DEFAULT_USB_DRIVER);

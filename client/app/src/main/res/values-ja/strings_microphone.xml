@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">小さい声と大きい声をデバイスがそろえます。下のマイクゲインはその上に適用されます。</string>
     <string name="title_seekbar_mic_gain">マイクゲイン</string>
     <string name="summary_seekbar_mic_gain">送信前にマイクを小さくまたは大きくします。大きなピークは音割れせず丸められます。</string>
+    <string name="title_checkbox_mic_button">マイクボタン</string>
+    <string name="summary_checkbox_mic_button">ストリーム上にマイクのミュートと解除を切り替えるボタンを表示します。ドラッグで移動できます。</string>
+    <string name="mic_button_mute">マイクをミュート</string>
+    <string name="mic_button_unmute">マイクのミュートを解除</string>
+    <string name="stream_mic_button_show">マイクボタンを表示</string>
+    <string name="stream_mic_button_hide">マイクボタンを非表示</string>
+    <string name="mic_effects_missing">このデバイスにはありません: %1$s。マイクはこの処理なしで送信されます。</string>
+    <string name="mic_effect_not_on_device">このデバイスにはありません</string>
 </resources>

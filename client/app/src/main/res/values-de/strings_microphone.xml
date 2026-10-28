@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">Lässt das Gerät leise und laute Sprache angleichen. Die Mikrofonverstärkung darunter wirkt zusätzlich.</string>
     <string name="title_seekbar_mic_gain">Mikrofonverstärkung</string>
     <string name="summary_seekbar_mic_gain">Macht das Mikrofon vor dem Senden leiser oder lauter. Laute Spitzen werden abgerundet statt übersteuert.</string>
+    <string name="title_checkbox_mic_button">Mikrofontaste</string>
+    <string name="summary_checkbox_mic_button">Zeigt im Stream eine Taste, die das Mikrofon stumm- und wieder einschaltet. Zum Verschieben ziehen.</string>
+    <string name="mic_button_mute">Mikrofon stummschalten</string>
+    <string name="mic_button_unmute">Mikrofon einschalten</string>
+    <string name="stream_mic_button_show">Mikrofontaste einblenden</string>
+    <string name="stream_mic_button_hide">Mikrofontaste ausblenden</string>
+    <string name="mic_effects_missing">Auf diesem Gerät nicht vorhanden: %1$s. Das Mikrofon wird ohne diese Verarbeitung gesendet.</string>
+    <string name="mic_effect_not_on_device">Auf diesem Gerät nicht vorhanden</string>
 </resources>

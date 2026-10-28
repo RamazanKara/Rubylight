@@ -28,7 +28,7 @@ import java.util.function.Supplier;
 public final class StreamMenu {
     public enum Item {
         KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE,
-        TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, KEYBOARD_KEYS,
+        TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
@@ -59,6 +59,8 @@ public final class StreamMenu {
         public final ComputerDetails host;
         public boolean canSendInput = true;
         public boolean microphoneOffered, microphoneMuted;
+        /** The stream's microphone button shows (its setting is on). */
+        public boolean micButtonShown;
         public boolean overlayShown;
         public String overlayMode = PerformanceOverlay.MODE_COMPACT;
         /** The corner the overlay sits in, as stored under {@code performance_overlay_position}. */
@@ -164,6 +166,10 @@ public final class StreamMenu {
                     R.string.stream_controls_hide : R.string.stream_controls_show, R.drawable.ic_gamepad));
             if (o.onscreenControls) {
                 entries.add(action(Section.INPUT, Item.CONTROLS_LAYOUT, R.string.stream_controls_layout, R.drawable.ic_edit));
+            }
+            if (o.microphoneOffered) {
+                entries.add(action(Section.INPUT, Item.MIC_BUTTON, o.micButtonShown ?
+                        R.string.stream_mic_button_hide : R.string.stream_mic_button_show, R.drawable.ic_mic_button));
             }
             if (o.gameControls) {
                 entries.add(action(Section.INPUT, Item.GAME_CONTROLS, R.string.touch_layout_title, R.drawable.ic_touch_controls));
@@ -393,7 +399,8 @@ public final class StreamMenu {
         if ((activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
                 == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
             entries.removeIf(entry -> entry.item == Item.TOUCH_MODE || entry.item == Item.ONSCREEN_CONTROLS ||
-                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.GAME_CONTROLS || entry.item == Item.ZOOM);
+                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.MIC_BUTTON || entry.item == Item.GAME_CONTROLS ||
+                    entry.item == Item.ZOOM);
         }
         LinearLayout quickRow = null;
         Section section = null;

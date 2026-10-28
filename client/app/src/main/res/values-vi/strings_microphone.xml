@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">Để thiết bị cân bằng giọng nói nhỏ và lớn. Mức tăng micrô bên dưới được áp dụng thêm.</string>
     <string name="title_seekbar_mic_gain">Mức tăng micrô</string>
     <string name="summary_seekbar_mic_gain">Làm micrô nhỏ hoặc to hơn trước khi gửi. Đỉnh âm lớn được làm tròn thay vì bị vỡ.</string>
+    <string name="title_checkbox_mic_button">Nút micrô</string>
+    <string name="summary_checkbox_mic_button">Hiện một nút trên luồng để tắt và bật lại micrô. Kéo để di chuyển.</string>
+    <string name="mic_button_mute">Tắt micrô</string>
+    <string name="mic_button_unmute">Bật lại micrô</string>
+    <string name="stream_mic_button_show">Hiện nút micrô</string>
+    <string name="stream_mic_button_hide">Ẩn nút micrô</string>
+    <string name="mic_effects_missing">Không có trên thiết bị này: %1$s. Micrô được gửi mà không có xử lý này.</string>
+    <string name="mic_effect_not_on_device">Không có trên thiết bị này</string>
 </resources>

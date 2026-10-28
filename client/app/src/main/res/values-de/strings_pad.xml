@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_osc_style">Controller-Stil</string>
+    <string name="summary_list_osc_style">Klassisch ist das ursprüngliche Bildschirm-Gamepad. Modern hat Analogsticks, die dem Daumen folgen, Aktionstasten, die dazwischen zwei auf einmal drücken, und einen Layout-Editor, der für jedes Spiel ein eigenes Layout behalten kann.</string>
+    <string name="osc_style_classic">Klassisch</string>
+    <string name="osc_style_modern">Modern</string>
+    <string name="title_list_osc_stick_mode">Sticks des modernen Controllers</string>
+    <string name="summary_list_osc_stick_mode">Schwebend setzt die Mitte eines Sticks dorthin, wo der Daumen aufsetzt; Fest lässt ihn, wo er gezeichnet ist.</string>
+    <string name="osc_stick_floating">Schwebend</string>
+    <string name="osc_stick_fixed">Fest</string>
+    <string name="title_seekbar_osc_stick_deadzone">Totzone der modernen Sticks</string>
+    <string name="summary_seekbar_osc_stick_deadzone">Wie weit sich ein Daumen bewegt, bevor ein Stick des modernen Controllers reagiert</string>
+    <string name="pad_edit_title">Controller-Layout bearbeiten</string>
+    <string name="pad_edit_all">Alle Tasten</string>
+    <string name="pad_edit_hidden">%1$s (ausgeblendet)</string>
+    <string name="pad_edit_hint">Zum Verschieben ziehen, zum Ändern der Größe zusammenziehen, antippen, um nur diese zu ändern.</string>
+    <string name="pad_edit_smaller">Kleiner</string>
+    <string name="pad_edit_larger">Größer</string>
+    <string name="pad_edit_size">Größe</string>
+    <string name="pad_edit_this_game">Nur für dieses Spiel</string>
+    <string name="pad_edit_hide">Ausblenden</string>
+    <string name="pad_edit_show">Einblenden</string>
+    <string name="pad_edit_reset">Zurücksetzen</string>
+    <string name="pad_edit_done">Fertig</string>
+    <string name="pad_left_stick">Linker Stick</string>
+    <string name="pad_right_stick">Rechter Stick</string>
+    <string name="pad_dpad">Steuerkreuz</string>
+    <string name="pad_face">Aktionstasten</string>
+    <string name="pad_view">Ansicht</string>
+    <string name="pad_menu">Menü</string>
+    <string name="pad_home">Home</string>
+</resources>

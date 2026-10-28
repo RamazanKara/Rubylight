@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">Urządzenie wyrównuje cichą i głośną mowę. Wzmocnienie mikrofonu poniżej działa dodatkowo.</string>
     <string name="title_seekbar_mic_gain">Wzmocnienie mikrofonu</string>
     <string name="summary_seekbar_mic_gain">Ścisza lub podgłaśnia mikrofon przed wysłaniem. Głośne szczyty są zaokrąglane zamiast przesterowania.</string>
+    <string name="title_checkbox_mic_button">Przycisk mikrofonu</string>
+    <string name="summary_checkbox_mic_button">Pokazuje na strumieniu przycisk, który wycisza i włącza mikrofon. Przeciągnij, aby go przesunąć.</string>
+    <string name="mic_button_mute">Wycisz mikrofon</string>
+    <string name="mic_button_unmute">Włącz mikrofon</string>
+    <string name="stream_mic_button_show">Pokaż przycisk mikrofonu</string>
+    <string name="stream_mic_button_hide">Ukryj przycisk mikrofonu</string>
+    <string name="mic_effects_missing">Brak na tym urządzeniu: %1$s. Mikrofon jest wysyłany bez tego przetwarzania.</string>
+    <string name="mic_effect_not_on_device">Brak na tym urządzeniu</string>
 </resources>

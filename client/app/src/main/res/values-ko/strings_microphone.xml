@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">기기가 작은 목소리와 큰 목소리를 고르게 맞춥니다. 아래 마이크 게인이 추가로 적용됩니다.</string>
     <string name="title_seekbar_mic_gain">마이크 게인</string>
     <string name="summary_seekbar_mic_gain">보내기 전에 마이크를 작게 또는 크게 합니다. 큰 피크는 찢어지지 않고 부드럽게 다듬어집니다.</string>
+    <string name="title_checkbox_mic_button">마이크 버튼</string>
+    <string name="summary_checkbox_mic_button">스트림 위에 마이크를 음소거하고 해제하는 버튼을 표시합니다. 드래그해서 옮길 수 있습니다.</string>
+    <string name="mic_button_mute">마이크 음소거</string>
+    <string name="mic_button_unmute">마이크 음소거 해제</string>
+    <string name="stream_mic_button_show">마이크 버튼 표시</string>
+    <string name="stream_mic_button_hide">마이크 버튼 숨기기</string>
+    <string name="mic_effects_missing">이 기기에 없음: %1$s. 마이크는 이 처리 없이 전송됩니다.</string>
+    <string name="mic_effect_not_on_device">이 기기에 없음</string>
 </resources>

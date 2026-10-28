@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">Laisse l\'appareil égaliser la voix faible et forte. Le gain du micro ci-dessous s\'ajoute.</string>
     <string name="title_seekbar_mic_gain">Gain du micro</string>
     <string name="summary_seekbar_mic_gain">Rend le micro plus faible ou plus fort avant l\'envoi. Les pics forts sont arrondis au lieu de saturer.</string>
+    <string name="title_checkbox_mic_button">Bouton du micro</string>
+    <string name="summary_checkbox_mic_button">Affiche sur le stream un bouton qui coupe et rétablit le micro. Faites-le glisser pour le déplacer.</string>
+    <string name="mic_button_mute">Couper le micro</string>
+    <string name="mic_button_unmute">Rétablir le micro</string>
+    <string name="stream_mic_button_show">Afficher le bouton du micro</string>
+    <string name="stream_mic_button_hide">Masquer le bouton du micro</string>
+    <string name="mic_effects_missing">Absent de cet appareil : %1$s. Le micro est envoyé sans ce traitement.</string>
+    <string name="mic_effect_not_on_device">Absent de cet appareil</string>
 </resources>

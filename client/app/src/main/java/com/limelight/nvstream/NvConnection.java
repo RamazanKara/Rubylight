@@ -275,6 +275,16 @@ public class NvConnection {
 
     void noteMissingMicrophoneEffects(java.util.List<com.limelight.binding.audio.MicProcessing.Effect> effects) {
         micNotice.set(effects);
+        Runnable listener = micNoticeListener;
+        if (listener != null) listener.run();
+    }
+
+    private volatile Runnable micNoticeListener;
+
+    /** Runs, on the capture thread, when {@link #takeMicrophoneNotice} has something new; the stream screen shows it. */
+    public void setMicrophoneNoticeListener(Runnable listener) {
+        micNoticeListener = listener;
+        if (listener != null && micNotice.get() != null) listener.run();
     }
 
     /** Effects the microphone settings ask for that this device lacks, once; null when there is nothing new. */

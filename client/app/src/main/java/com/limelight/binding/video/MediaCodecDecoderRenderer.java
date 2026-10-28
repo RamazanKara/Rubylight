@@ -130,6 +130,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // The renderer's Lowest latency jitter buffer, which only matters to its host-timed pacing
     private static final int VULKAN_JITTER_BUFFER = 3;
     private volatile VulkanRendererBridge vulkanRenderer;
+    // The renderer hands each frame's HDR10+ metadata to its window (HdrFormatPolicy.passesHdr10Plus):
+    // the last payload noted, so only changes cross to native code, and whether its refusal was said
+    private boolean vulkanHdr10Plus;
+    private byte[] vulkanHdr10PlusNoted;
+    private volatile boolean vulkanHdr10PlusRefusalTaken;
     // Set once the renderer reports it gave up; the stream is then ended with a dialog that says so
     private volatile String vulkanFailure;
     // The screen tells the renderer when frames are shown, so frames wait for that report to count
@@ -1060,6 +1065,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate(),
                 vulkanCodecName(), videoDecoder.getName(), null, false);
         if (renderer != null) {
+            vulkanHdr10Plus = HdrFormatPolicy.passesHdr10Plus(HdrPolicy.displayHdrTypes(outputDisplay),
+                    getStreamTransfer());
+            vulkanHdr10PlusNoted = null;
             vulkanPresentReports = renderer.reportsPresentTimes();
             LimeLog.info("Using Vulkan renderer; the screen " + (vulkanPresentReports ?
                     "reports when frames are shown" : "does not report when frames are shown"));
@@ -1753,8 +1761,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoder != null, surface);
         if (vulkan) {
             // Game says it once per PC (takeVulkanHdrLimit).
-            vulkanHdrLimit = HdrFormatPolicy.vulkanLimit(hostHdrFormats, displayTypes, dolbyVisionDecoder != null,
-                    format);
+            vulkanHdrLimit = HdrFormatPolicy.vulkanLimit(hostHdrFormats, displayTypes, dolbyVisionDecoder != null);
         }
         LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +
                 HdrFormatPolicy.name(format) + (drawer != null ? " (" + drawer + " draws " +
@@ -1810,9 +1817,29 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return vulkan != null && vulkan.isHdrToneMapped();
     }
 
+    /** The Vulkan renderer hands this stream's HDR10+ metadata to the screen. */
+    private boolean vulkanPassesHdr10Plus() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        return vulkan != null && vulkan.getHdr10PlusState() == VulkanRendererBridge.HDR10_PLUS_PASSED;
+    }
+
     /**
-     * What the Vulkan renderer leaves out of this screen's HDR (Dolby Vision, HDR10+), once the
-     * renderer runs; NONE after the first call for the stream.
+     * The Vulkan renderer's window refused the stream's HDR10+ metadata, which is then left out (HDR10's
+     * static metadata stays): true once per stream, for the status line.
+     */
+    public boolean takeVulkanHdr10PlusRefused() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        if (vulkan == null || vulkanHdr10PlusRefusalTaken ||
+                vulkan.getHdr10PlusState() != VulkanRendererBridge.HDR10_PLUS_REFUSED) {
+            return false;
+        }
+        vulkanHdr10PlusRefusalTaken = true;
+        return true;
+    }
+
+    /**
+     * What the Vulkan renderer leaves out of this screen's HDR (Dolby Vision), once the renderer
+     * runs; NONE after the first call for the stream.
      */
     public HdrFormatPolicy.DrawnLimit takeVulkanHdrLimit() {
         if (vulkanRenderer == null) return HdrFormatPolicy.DrawnLimit.NONE;
@@ -3616,7 +3643,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" :
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
             String color = Boolean.TRUE.equals(currentHdrMode) ?
-                    HdrFormatPolicy.overlayWord(announcedHdrFormat, dolbyVisionActive) :
+                    HdrFormatPolicy.overlayWord(announcedHdrFormat, dolbyVisionActive, vulkanPassesHdr10Plus()) :
                     Sdr10Policy.overlayColor((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, sdr10, currentHdrMode);
             String stream = streamWidth + "×" + streamHeight + " · " + codec + " · " + color
                     + " · " + StreamEngine.label();
@@ -4136,6 +4163,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         VulkanRendererBridge vulkan = vulkanRenderer;
         if (vulkan != null) {
             vulkan.noteFrameReceived(timestampUs, receiveTimeUs, enqueueTimeUs, frameHostProcessingLatency);
+            if (vulkanHdr10Plus && Boolean.TRUE.equals(currentHdrMode)) {
+                noteVulkanHdr10Plus(vulkan, timestampUs, decodeUnitData, decodeUnitLength);
+            }
         }
 
         // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
@@ -4146,6 +4176,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         return MoonBridge.DR_OK;
+    }
+
+    // The frame's HDR10+ payload, when it differs from the last one: a frame without one keeps it.
+    private void noteVulkanHdr10Plus(VulkanRendererBridge vulkan, long timestampUs, byte[] data, int length) {
+        byte[] t35 = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? Hdr10PlusSei.av1(data, length) :
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? Hdr10PlusSei.hevc(data, length) : null;
+        if (t35 == null || Arrays.equals(t35, vulkanHdr10PlusNoted)) return;
+        if (vulkanHdr10PlusNoted == null) LimeLog.info("HDR10+ metadata in the stream (" + t35.length + " bytes)");
+        vulkanHdr10PlusNoted = t35;
+        vulkan.noteHdr10Plus(timestampUs, t35);
     }
 
     private boolean replaySps() {

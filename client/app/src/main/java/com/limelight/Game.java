@@ -7642,6 +7642,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // Plain words, once per PC, for what the Vulkan renderer cannot show of this screen's HDR.
             int limit = vulkanHdrLimitText(decoderRenderer.takeVulkanHdrLimit());
             if (limit != 0) hostNotice(HostNotices.Notice.VULKAN_HDR_LIMIT, limit);
+            // Once per stream on the status line (and once per PC as a message): the output window
+            // refused HDR10+, so the picture keeps HDR10's static metadata alone.
+            if (decoderRenderer.takeVulkanHdr10PlusRefused()) {
+                LimeLog.warning("HDR10+ refused by the Vulkan renderer's window");
+                hostNotice(HostNotices.Notice.VULKAN_HDR10_PLUS_REFUSED, R.string.stream_hdr_vulkan_no_hdr10_plus);
+            }
             if (status != lastHdrStatus) {
                 lastHdrStatus = status;
                 if (res != 0) LimeLog.warning("HDR requested but " + status);
@@ -7682,7 +7688,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     static int vulkanHdrLimitText(HdrFormatPolicy.DrawnLimit limit) {
         switch (limit) {
             case DOLBY_VISION: return R.string.stream_hdr_vulkan_no_dolby_vision;
-            case HDR10_PLUS: return R.string.stream_hdr_vulkan_no_hdr10_plus;
             default: return 0;
         }
     }

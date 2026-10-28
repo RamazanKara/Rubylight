@@ -138,6 +138,27 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeNoteReceived(
     }
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeNoteHdr10Plus(
+        JNIEnv* env, jclass, jlong handle, jlong hostPtsUs, jbyteArray t35) {
+    VulkanRenderer* renderer = fromHandle(handle);
+    if (!renderer) {
+        return;
+    }
+    // Called only when the metadata changes
+    std::vector<uint8_t> bytes(t35 ? static_cast<size_t>(env->GetArrayLength(t35)) : 0);
+    if (!bytes.empty()) {
+        env->GetByteArrayRegion(t35, 0, static_cast<jsize>(bytes.size()), reinterpret_cast<jbyte*>(bytes.data()));
+    }
+    renderer->noteHdr10Plus(hostPtsUs * 1000, bytes.data(), bytes.size());
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeHdr10PlusState(JNIEnv*, jclass, jlong handle) {
+    VulkanRenderer* renderer = fromHandle(handle);
+    return renderer ? renderer->hdr10PlusState() : VulkanRenderer::kHdr10PlusNone;
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeTakePresentedFrames(JNIEnv*, jclass, jlong handle) {
     VulkanRenderer* renderer = fromHandle(handle);

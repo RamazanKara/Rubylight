@@ -17,5 +17,5 @@
     <string name="stream_hdr_pq_on_hlg_screen">Dieser Bildschirm zeigt HDR nur als HLG, aber der PC sendet HDR10, daher können Helligkeit und Farben falsch wirken.</string>
     <string name="stream_hdr_vulkan_shown_as_sdr">%1$s wird als SDR gezeigt: Der Bildschirm hat HDR von „Über Vulkan rendern“ abgelehnt.</string>
     <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision braucht „Über Vulkan rendern“ aus, daher läuft der Stream in HDR10.</string>
-    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ braucht „Über Vulkan rendern“ aus, daher läuft der Stream in HDR10 ohne HDR10+.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ wird mit „Über Vulkan rendern“ auf dieser Android-Version nicht weitergegeben, daher läuft der Stream in HDR10 ohne HDR10+.</string>
 </resources>

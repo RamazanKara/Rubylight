@@ -87,8 +87,9 @@ public class GameExpectedVideoTest {
                 game.getString(Game.hdrStatusText(HdrPolicy.Status.SHOWN_AS_SDR), "HLG"));
         assertEquals(R.string.stream_hdr_vulkan_no_dolby_vision,
                 Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.DOLBY_VISION));
-        assertEquals(R.string.stream_hdr_vulkan_no_hdr10_plus,
-                Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.HDR10_PLUS));
+        // HDR10+ is left out only when the window refuses it (Game.checkHdrStatus).
+        assertEquals("HDR10+ is not passed on with “Render through Vulkan” on this Android version, so the stream is "
+                + "HDR10 without it.", game.getString(R.string.stream_hdr_vulkan_no_hdr10_plus));
         assertEquals(0, Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.NONE));
     }
 

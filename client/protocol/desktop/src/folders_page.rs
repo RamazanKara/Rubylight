@@ -24,6 +24,7 @@ pub trait FolderSource: Send + Sync {
         &self,
         id: &str,
         path: &str,
+        listed: u64,
         dir: &Path,
         progress: &mut dyn FnMut(u64, u64),
         stop: &TransferCancel,
@@ -54,11 +55,12 @@ impl FolderSource for HostClient {
         &self,
         id: &str,
         path: &str,
+        listed: u64,
         dir: &Path,
         progress: &mut dyn FnMut(u64, u64),
         stop: &TransferCancel,
     ) -> Result<PathBuf, FileError> {
-        self.save_folder_file(id, path, dir, progress, stop)
+        self.save_folder_file(id, path, listed, dir, progress, stop)
     }
 
     fn upload(
@@ -314,7 +316,7 @@ impl SharedFolders {
     /// Downloads the file `name` of the directory `at` into `dir`. `at` is where the browser was
     /// when the file was picked; it may have moved on while the folder here was chosen. False
     /// when the browser of `host` is closed, so the page that chose it is gone.
-    pub fn download(&mut self, host: u64, at: &Place, name: &str, dir: PathBuf) -> bool {
+    pub fn download(&mut self, host: u64, at: &Place, name: &str, size: u64, dir: PathBuf) -> bool {
         let Some(open) = self.for_host(host) else {
             return false;
         };
@@ -335,7 +337,7 @@ impl SharedFolders {
                       progress: &mut dyn FnMut(u64, u64),
                       stop: &TransferCancel| {
                     source
-                        .save(&folder.id, &remote, &dir, progress, stop)
+                        .save(&folder.id, &remote, size, &dir, progress, stop)
                         .map(|saved| (trf("Saved to {}", &[&saved.display()]), false))
                 },
             ),
@@ -622,6 +624,7 @@ pub(crate) mod tests {
             &self,
             id: &str,
             path: &str,
+            listed: u64,
             dir: &Path,
             progress: &mut dyn FnMut(u64, u64),
             _: &TransferCancel,
@@ -629,7 +632,7 @@ pub(crate) mod tests {
             self.calls
                 .lock()
                 .unwrap()
-                .push(format!("save {id} {path:?}"));
+                .push(format!("save {id} {path:?} {listed}"));
             self.refused()?;
             progress(3, 3);
             Ok(dir.join(nightjar_core::http::file_name(path)))
@@ -744,7 +747,7 @@ pub(crate) mod tests {
         folders.enter_dir(7, "Slot 1");
         settle(&mut folders, 7);
         let dir = std::env::temp_dir();
-        folders.download(7, &picked, "a.txt", dir.clone());
+        folders.download(7, &picked, "a.txt", 3, dir.clone());
         assert!(folders
             .state_for(7)
             .unwrap()
@@ -775,7 +778,7 @@ pub(crate) mod tests {
         assert_eq!(
             calls(&fake)[3..],
             [
-                "save saves \"a.txt\"".to_owned(),
+                "save saves \"a.txt\" 3".to_owned(),
                 format!("upload saves {name:?} 3"),
                 "entries saves \"Slot 1\"".into()
             ]
@@ -888,7 +891,7 @@ pub(crate) mod tests {
         folders.open(7, refusing, waker());
         settle(&mut folders, 7);
         let listing = folders.state_for(7).unwrap().error.clone().unwrap();
-        assert!(folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        assert!(folders.download(7, &saves(), "a.txt", 3, std::env::temp_dir()));
         settle(&mut folders, 7);
         let open = folders.state_for(7).unwrap();
         assert_eq!(open.error.as_ref(), Some(&listing));
@@ -899,7 +902,7 @@ pub(crate) mod tests {
         folders.open(7, fake, waker());
         settle(&mut folders, 7);
         folders.transfer_refused(7, "earlier".into());
-        assert!(folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        assert!(folders.download(7, &saves(), "a.txt", 3, std::env::temp_dir()));
         settle(&mut folders, 7);
         let open = folders.state_for(7).unwrap();
         assert_eq!(
@@ -915,7 +918,7 @@ pub(crate) mod tests {
         let mut folders = SharedFolders::default();
         folders.open(7, fake.clone(), waker());
         settle(&mut folders, 7);
-        assert!(folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        assert!(folders.download(7, &saves(), "a.txt", 3, std::env::temp_dir()));
         let local = std::env::temp_dir().join("nightjar-second-transfer.txt");
         assert!(folders.upload(7, &saves(), local.clone()));
         let said = folders.state_for(7).unwrap().transfer_error.clone();
@@ -925,7 +928,7 @@ pub(crate) mod tests {
 
         // Leaving the page closes the browser: what was chosen for it is not started.
         folders.poll(None);
-        assert!(!folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        assert!(!folders.download(7, &saves(), "a.txt", 3, std::env::temp_dir()));
         assert!(!folders.upload(7, &saves(), local));
         assert_eq!(calls(&fake).len(), 2, "{:?}", calls(&fake));
     }

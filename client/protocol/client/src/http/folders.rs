@@ -13,10 +13,11 @@
 //! starts again from the first byte and nothing short or mixed is ever left under the real name.
 
 use super::files::{
-    decode, downloaded, uploaded, FileError, Local, TransferCancel, Uploaded, MAX_JSON_BYTES,
+    decode, download_listed, uploaded, FileError, Local, TransferCancel, Uploaded, MAX_JSON_BYTES,
     MAX_LIST_BYTES, TRANSFER_TIMEOUT,
 };
 use super::native_api::PREFIX;
+use super::transfers::{discard_partial, move_partial};
 use super::transport::{self, encode_query, Upload};
 use super::{Error, HostClient, READ_TIMEOUT};
 use serde::Deserialize;
@@ -232,19 +233,6 @@ fn create_part(dir: &Path, name: &str) -> std::io::Result<(PathBuf, PathBuf, std
     ))
 }
 
-/// Deletes the `.part` file of a failed download and returns `error`, or, when the file stays,
-/// an error that names it beside `error`.
-fn discard_part(part: &Path, error: FileError) -> FileError {
-    match std::fs::remove_file(part) {
-        Ok(()) => error,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => error,
-        Err(e) => FileError::Local(std::io::Error::new(
-            e.kind(),
-            format!("{error}; the partial file {} is left, it could not be deleted: {e}", part.display()),
-        )),
-    }
-}
-
 impl HostClient {
     /// `api/native/v1/folders[/{id}{route}]` and the request target with `path`.
     fn folders_target(
@@ -286,41 +274,45 @@ impl HostClient {
         decode(transport::get(&request, &self.cancel)?, &location, 200)
     }
 
-    /// Downloads the file `path` of the folder `id` into `sink` and returns its length,
-    /// reporting progress at 0, at most every 256 KiB and 100 ms, and at the end. A body
-    /// shorter or longer than its Content-Length is an error, as is cancelling `stop`; the
-    /// caller then discards what `sink` got.
+    /// Downloads the file `path` of the folder `id`, which its directory listed at `listed`
+    /// bytes, into `sink` and returns its length, reporting progress at 0, at most every
+    /// 256 KiB and 100 ms, and at the end. A body shorter or longer than its Content-Length is
+    /// an error, as is one longer than `listed` or cancelling `stop`; the caller then discards
+    /// what `sink` got.
     pub fn download_folder_file(
         &self,
         id: &str,
         path: &str,
+        listed: u64,
         sink: &mut dyn Write,
         progress: &mut dyn FnMut(u64, u64),
         stop: &TransferCancel,
     ) -> Result<u64, FileError> {
         let (location, target) = self.folders_target(Some(id), "/content", Some(path))?;
         let request = self.files_request(&target, MAX_JSON_BYTES, TRANSFER_TIMEOUT)?;
-        let mut sink = Local::new(sink);
-        let mut length = 0;
-        let mut counted = |done, total| {
-            length = done;
-            progress(done, total);
-        };
-        match transport::download(&request, &self.cancel, &mut sink, &mut counted, &stop.0) {
-            Ok(response) => downloaded(response, &location, length),
-            Err(error) => Err(sink.or(error)),
-        }
+        download_listed(
+            &request,
+            &self.cancel,
+            &location,
+            listed,
+            sink,
+            progress,
+            stop,
+        )
     }
 
     /// Downloads the file `path` of the folder `id` into the directory `dir`: into
     /// `<name>.part`, renamed to `name`, or `name (n)` when that is taken, once every byte
-    /// arrived. On any failure the `.part` file is deleted; one that can't be is named in the
-    /// error. A name that isn't a plain file name here (`C:x`, `a:b`, `CON` on Windows) is
-    /// refused before anything is written. Returns where the file is now.
+    /// arrived. A file that takes the name during the download is not replaced: the download
+    /// fails instead. On any failure the `.part` file is deleted; one that can't be is named in
+    /// the error. A name that isn't a plain file name here (`C:x`, `a:b`, `CON` on Windows) is
+    /// refused before anything is written. `listed` is the size the directory listed. Returns
+    /// where the file is now.
     pub fn save_folder_file(
         &self,
         id: &str,
         path: &str,
+        listed: u64,
         dir: &Path,
         progress: &mut dyn FnMut(u64, u64),
         stop: &TransferCancel,
@@ -330,25 +322,19 @@ impl HostClient {
         let (target, part, file) = create_part(dir, name).map_err(FileError::Local)?;
         let mut sink = std::io::BufWriter::new(file);
         let result = self
-            .download_folder_file(id, path, &mut sink, progress, stop)
+            .download_folder_file(id, path, listed, &mut sink, progress, stop)
             .and_then(|_| {
                 let file = sink
                     .into_inner()
                     .map_err(|e| FileError::Local(e.into_error()))?;
                 file.sync_all().map_err(FileError::Local)?;
                 drop(file);
-                if target.exists() {
-                    return Err(FileError::Local(std::io::Error::new(
-                        std::io::ErrorKind::AlreadyExists,
-                        format!("{} appeared during the download", target.display()),
-                    )));
-                }
-                std::fs::rename(&part, &target).map_err(FileError::Local)
+                move_partial(&part, &target).map_err(FileError::Local)
             });
         match result {
             Ok(()) => Ok(target),
             // The download failed; a `.part` file left behind would only confuse.
-            Err(error) => Err(discard_part(&part, error)),
+            Err(error) => Err(discard_partial(&part, error)),
         }
     }
 
@@ -590,12 +576,12 @@ mod tests {
         // Deleted, or already gone: the download's own error.
         let part = dir.join("a.txt.part");
         std::fs::write(&part, b"half").unwrap();
-        assert!(matches!(discard_part(&part, failed()), FileError::Host(Error::Cancelled)));
+        assert!(matches!(discard_partial(&part, failed()), FileError::Host(Error::Cancelled)));
         assert!(!part.exists());
-        assert!(matches!(discard_part(&part, failed()), FileError::Host(Error::Cancelled)));
+        assert!(matches!(discard_partial(&part, failed()), FileError::Host(Error::Cancelled)));
         // A `.part` that can't be deleted (here a directory) is reported, with the cause.
         std::fs::create_dir(&part).unwrap();
-        match discard_part(&part, failed()) {
+        match discard_partial(&part, failed()) {
             FileError::Local(e) => {
                 let text = e.to_string();
                 assert!(text.contains("a.txt.part") && text.contains("could not be deleted"), "{text}");

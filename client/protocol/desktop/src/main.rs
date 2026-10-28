@@ -102,7 +102,7 @@ impl Drop for TimerResolution {
 /// then.
 enum FolderPick {
     /// The folder to save the PC's file `name` in.
-    Download { host: u64, at: folders_page::Place, name: String },
+    Download { host: u64, at: folders_page::Place, name: String, size: u64 },
     /// The file to upload.
     Upload { host: u64, at: folders_page::Place },
 }
@@ -1032,9 +1032,9 @@ impl App {
                     folders_page::start(&mut self.launcher.folders, self.hosts.identity(), host, self.waker.clone());
                 }
             }
-            Command::FolderDownload { host, name } => {
+            Command::FolderDownload { host, name, size } => {
                 let window = self.window;
-                start_folder_pick(&mut self.folder_pick, &mut self.launcher.folders, host, |at| FolderPick::Download { host, at, name }, || sdl::choose_path(window, true));
+                start_folder_pick(&mut self.folder_pick, &mut self.launcher.folders, host, |at| FolderPick::Download { host, at, name, size }, || sdl::choose_path(window, true));
             }
             Command::FolderUpload(host) => {
                 let window = self.window;
@@ -2193,7 +2193,7 @@ fn finish_folder_pick(
         Ok(Some(chosen)) => chosen,
     };
     let taken = match pick {
-        FolderPick::Download { host, at, name } => folders.download(host, &at, &name, chosen),
+        FolderPick::Download { host, at, name, size } => folders.download(host, &at, &name, size, chosen),
         FolderPick::Upload { host, at } => folders.upload(host, &at, chosen),
     };
     (!taken).then(|| {
@@ -2303,7 +2303,7 @@ mod tests {
 
         let (pick, _) = slot.take().unwrap();
         assert_eq!(finish_folder_pick(&mut folders, pick, Ok(None)), None, "cancelled");
-        let pick = FolderPick::Download { host: 7, at: folders_page::Place::Folders, name: "a.txt".into() };
+        let pick = FolderPick::Download { host: 7, at: folders_page::Place::Folders, name: "a.txt".into(), size: 3 };
         let (title, body) = finish_folder_pick(&mut folders, pick, Err("no portal".into())).unwrap();
         assert_eq!((title.as_str(), body.as_str()), ("File dialog unavailable", "no portal"));
 

@@ -18,7 +18,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Response, RichText, Ui};
-use nightjar_core::http::transfers::{upload_name, Direction, Problem, Start, State, Transfer, Transfers};
+use nightjar_core::http::transfers::{partial_path, upload_name, Direction, Problem, Start, State, Transfer, Transfers};
 use nightjar_core::http::{
     Availability, ClientIdentity, Error, Feature, FileError, FileList, HostCapabilities, HostClient, NativeCapabilities, Reason,
     RemoteFile, TransferCancel, Uploaded,
@@ -40,7 +40,7 @@ pub trait FileHost: Send + Sync + 'static {
     fn capabilities(&self) -> Result<NativeCapabilities, Error>;
     fn list(&self) -> Result<FileList, FileError>;
     fn upload(&self, name: &str, file: &mut dyn Read, length: u64, progress: &mut dyn FnMut(u64, u64), stop: &TransferCancel) -> Result<Uploaded, FileError>;
-    fn download(&self, name: &str, dest: &Path, progress: &mut dyn FnMut(u64, u64), stop: &TransferCancel) -> Result<u64, FileError>;
+    fn download(&self, name: &str, listed: u64, dest: &Path, progress: &mut dyn FnMut(u64, u64), stop: &TransferCancel) -> Result<u64, FileError>;
 }
 
 impl FileHost for HostClient {
@@ -56,8 +56,8 @@ impl FileHost for HostClient {
         self.upload_file(name, file, length, progress, stop)
     }
 
-    fn download(&self, name: &str, dest: &Path, progress: &mut dyn FnMut(u64, u64), stop: &TransferCancel) -> Result<u64, FileError> {
-        self.download_to_path(name, dest, progress, stop)
+    fn download(&self, name: &str, listed: u64, dest: &Path, progress: &mut dyn FnMut(u64, u64), stop: &TransferCancel) -> Result<u64, FileError> {
+        self.download_to_path(name, listed, dest, progress, stop)
     }
 }
 
@@ -291,7 +291,7 @@ impl Page {
             let result = if dest.exists() {
                 Err(FileError::Local(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{} already exists", dest.display()))))
             } else {
-                api.download(&start.name, &dest, &mut progress, &start.cancel)
+                api.download(&start.name, start.size, &dest, &mut progress, &start.cancel)
             };
             Event::Downloaded { id: start.id, result }
         }
@@ -418,13 +418,16 @@ fn downloads_folder() -> Result<PathBuf, String> {
 }
 
 /// `name`, or `name (2)`, `name (3)`, ... before its extension: the first that no file in
-/// `folder` has and no download in `taken` is going to.
+/// `folder` has, as itself or as its `.part` file, and no download in `taken` is going to.
 fn free_name(folder: &Path, name: &str, taken: &[&str]) -> String {
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => name.split_at(dot),
         _ => (name, ""),
     };
-    let free = |candidate: &str| !taken.iter().any(|t| t.eq_ignore_ascii_case(candidate)) && !folder.join(candidate).exists();
+    let free = |candidate: &str| {
+        let path = folder.join(candidate);
+        !taken.iter().any(|t| t.eq_ignore_ascii_case(candidate)) && !path.exists() && !partial_path(&path).exists()
+    };
     if free(name) {
         return name.to_owned();
     }
@@ -769,8 +772,11 @@ pub(crate) mod tests {
             Ok(Uploaded { name: stored, size: length })
         }
 
-        fn download(&self, name: &str, dest: &Path, progress: &mut dyn FnMut(u64, u64), stop: &TransferCancel) -> Result<u64, FileError> {
+        fn download(&self, name: &str, listed: u64, dest: &Path, progress: &mut dyn FnMut(u64, u64), stop: &TransferCancel) -> Result<u64, FileError> {
             let data = self.files.lock().unwrap().iter().find(|(n, _)| n == name).map(|(_, d)| d.clone());
+            if data.as_ref().is_some_and(|d| d.len() as u64 != listed) {
+                return Err(FileError::Host(Error::Malformed(format!("the page asked for {listed} bytes, not the listed size"))));
+            }
             nightjar_core::http::transfers::download_into(dest, |sink| {
                 let data = data.ok_or_else(|| refused(nightjar_core::http::FileRefusal::NotFound))?;
                 let half = data.len() / 2;
@@ -1113,6 +1119,9 @@ pub(crate) mod tests {
         assert_eq!(free_name(&downloads.0, "b.txt", &["B.TXT"]), "b (2).txt", "a download on its way takes its name");
         assert_eq!(free_name(&downloads.0, ".profile", &[]), ".profile");
         assert_eq!(free_name(&downloads.0, "notes", &["notes"]), "notes (2)");
+        // Another program's download in progress keeps its name too.
+        std::fs::write(downloads.0.join("movie.mkv.part"), b"a browser's").unwrap();
+        assert_eq!(free_name(&downloads.0, "movie.mkv", &[]), "movie (2).mkv");
         assert_eq!(size(0), "0 B");
         assert_eq!(size(999), "999 B");
         assert_eq!(size(1_500), "1.5 kB");

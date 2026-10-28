@@ -270,7 +270,7 @@ impl Settings {
         Self {
             enabled: config.boolean("playnite_enabled", true),
             auto_sync: config.boolean("playnite_auto_sync", true),
-            sync_all_installed: config.boolean("playnite_sync_all_installed", false),
+            sync_all_installed: config.boolean("playnite_sync_all_installed", true),
             recent_games: count("playnite_recent_games", 10) as usize,
             recent_max_age_days: count("playnite_recent_max_age_days", 30),
             delete_after_days: count("playnite_autosync_delete_after_days", 14),
@@ -862,9 +862,25 @@ mod tests {
         }
     }
     #[test]
+    fn a_steam_game_in_the_export_does_not_duplicate_the_steam_app() {
+        let settings = Settings::from_config(&Config::default());
+        let mut dota = game("aa", "Dota 2", None);
+        dota.plugin_id = "cb91dfc9-b977-43bf-8e70-55f46e410fab".into();
+        dota.plugin_name = "Steam".into();
+        let mut apps = vec![
+            json!({"name":"Dota 2","cmd":"steam://rungameid/570","steam-id":"570","steam-managed":"auto","synced-by":"steam"}),
+        ];
+        reconcile(&mut apps, &[dota, game("bb", "Kart", None)], &settings, 0, &Artwork::new(), true, &[]);
+        let names: Vec<_> = apps.iter().map(|a| field(a, "name")).collect();
+        assert_eq!(names, ["Dota 2", "Kart"], "every installed game, Dota 2 once");
+        assert_eq!(apps[0]["synced-by"], "steam");
+    }
+    #[test]
     fn sync_selects_recent_games_and_keeps_user_apps() {
         let now = 100 * 86400;
         let mut settings = Settings::from_config(&Config::default());
+        assert!(settings.sync_all_installed, "every installed game, as for Steam");
+        settings.sync_all_installed = false;
         settings.recent_games = 2;
         let games = vec![
             game("aa", "Old", Some(now - 40 * 86400)),
@@ -998,7 +1014,7 @@ mod tests {
     fn exclusions_categories_ttl_and_the_fullscreen_entry() {
         let now = 1000 * 86400;
         let mut settings = Settings::from_config(
-            &Config::parse("playnite_recent_games = 0\nplaynite_sync_categories = [{\"id\":\"1\",\"name\":\"Couch\"}]\nplaynite_exclude_games = [\"bb\"]\n").unwrap(),
+            &Config::parse("playnite_sync_all_installed = false\nplaynite_recent_games = 0\nplaynite_sync_categories = [{\"id\":\"1\",\"name\":\"Couch\"}]\nplaynite_exclude_games = [\"bb\"]\n").unwrap(),
         );
         assert_eq!(settings.sync_categories, ["Couch"]);
         let mut couch = game("aa", "Kart", None);

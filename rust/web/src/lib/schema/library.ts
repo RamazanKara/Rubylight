@@ -16,10 +16,10 @@ function on(values: Values, key: string, fallback: boolean): boolean {
 }
 
 const steam = (values: Values) => on(values, 'steam_enabled', true);
-const recent = (values: Values) => steam(values) && !on(values, 'steam_sync_all_installed', false);
+const recent = (values: Values) => steam(values) && !on(values, 'steam_sync_all_installed', true);
 const playnite = (values: Values) => on(values, 'playnite_enabled', true);
 const playniteSync = (values: Values) => playnite(values) && on(values, 'playnite_auto_sync', true);
-const playniteRecent = (values: Values) => playniteSync(values) && !on(values, 'playnite_sync_all_installed', false);
+const playniteRecent = (values: Values) => playniteSync(values) && !on(values, 'playnite_sync_all_installed', true);
 
 const playniteSettings: Setting[] = [
   {
@@ -49,11 +49,11 @@ const playniteSettings: Setting[] = [
   {
     key: 'playnite_sync_all_installed',
     label: 'Every installed game',
-    description: 'Adds every installed game. When off, the recently played games and the categories and plugins below are added.',
+    description: 'Adds every installed game, as every launcher does. When off, the recently played games and the categories and plugins below are added.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     inactiveHint: "Turn on Playnite and Add games automatically to use this setting.",
     visibleWhen: playniteSync,
   },
@@ -243,7 +243,7 @@ export const settings: Setting[] = [
     description:
       'Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits. In Library, select Sync now beside Steam to add them now.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
     default: true,
   },
@@ -252,7 +252,7 @@ export const settings: Setting[] = [
     label: 'Sync automatically',
     description: 'Checks Steam every 30 seconds and updates the Steam apps when games are installed, removed or played.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
     default: true,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
@@ -261,11 +261,11 @@ export const settings: Setting[] = [
   {
     key: 'steam_sync_all_installed',
     label: 'Every installed game',
-    description: 'Adds every installed game. When off, only the games played most recently are added.',
+    description: 'Adds every installed game, as every launcher does. When off, only the games played most recently are added.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
     visibleWhen: steam,
   },
@@ -274,7 +274,7 @@ export const settings: Setting[] = [
     label: 'Recent games',
     description: 'How many of the most recently played games to add.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'number', min: 0, max: 100, step: 1 },
     default: 10,
     inactiveHint: "Turn on Steam library and turn off Every installed game to configure the recent-games list.",
@@ -285,7 +285,7 @@ export const settings: Setting[] = [
     label: 'Played within',
     description: 'Leaves out games not played for this many days. 0 adds them however long ago they were played.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'number', min: 0, max: 3650, step: 1, unit: 'days' },
     default: 30,
     inactiveHint: "Turn on Steam library and turn off Every installed game to configure the recent-games list.",
@@ -297,7 +297,7 @@ export const settings: Setting[] = [
     description:
       'Removes a Steam app when its game is uninstalled. With recent games only, apps that fall out of the list are always removed.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
     default: true,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
@@ -308,7 +308,7 @@ export const settings: Setting[] = [
     label: 'Include tools',
     description: 'Also adds tools, runtimes, redistributables and DLC that Steam lists as installed.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'toggle' },
     default: false,
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
@@ -321,7 +321,7 @@ export const settings: Setting[] = [
     description:
       'A JSON list of games the sync never adds, by Steam app ID or name: ["570", {"name": "Dota 2"}]. Their Steam apps are removed.',
     category: 'library',
-    group: 'Steam',
+    group: 'Steam options',
     control: { kind: 'json' },
     default: [],
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",

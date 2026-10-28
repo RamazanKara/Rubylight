@@ -665,3 +665,17 @@ test('haptics from game audio are off by default, Experimental, and their option
   assert.deepEqual(sent, draft);
   assert.deepEqual(computeChanges(settings, draft, sent), {});
 });
+
+test('Steam and Playnite add every installed game unless set to false, and fold their recent-games mode', () => {
+  for (const prefix of ['steam', 'playnite']) {
+    const all = settings.get(`${prefix}_sync_all_installed`);
+    assert.equal(all.default, true, prefix);
+    assert.equal(all.advanced, true, prefix);
+    const recent = settings.get(`${prefix}_recent_games`);
+    assert.equal(recent.advanced, true, prefix);
+    assert.equal(recent.visibleWhen({}), false, `${prefix}: an absent key means every installed game`);
+    assert.equal(recent.visibleWhen({ [`${prefix}_sync_all_installed`]: false }), true, prefix);
+  }
+  assert.equal(settings.get('steam_exclude_games').advanced, true);
+  assert.equal(settings.get('steam_enabled').group, 'Steam options');
+});

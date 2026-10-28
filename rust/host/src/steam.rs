@@ -42,7 +42,22 @@ pub fn catalog(settings: &Settings) -> Result<(Vec<PathBuf>, Vec<Game>)> {
 pub fn sync(h: &Shared) -> Result<Outcome> {
     let settings = Settings::from_config(&h.config.read().unwrap());
     let (_, games) = catalog(&settings)?;
-    sync_catalog(h, &settings, &games)
+    sync_beside(h, &settings, &games, crate::playnite::syncs_launchers(h))
+}
+/// While Playnite syncs the library its export brings the Steam games too, so the Steam
+/// sync stands aside as the other launchers' does and no game is added twice.
+fn sync_beside(h: &Shared, settings: &Settings, games: &[Game], playnite: bool) -> Result<Outcome> {
+    if playnite {
+        return Ok(Outcome {
+            changed: false,
+            games: games.len(),
+            importable: games
+                .iter()
+                .filter(|g| steam::importable(g, settings.include_tools))
+                .count(),
+        });
+    }
+    sync_catalog(h, settings, games)
 }
 fn sync_catalog(h: &Shared, settings: &Settings, games: &[Game]) -> Result<Outcome> {
     let selected = steam::select(games, settings, now());
@@ -436,6 +451,26 @@ mod tests {
     }
 
     #[test]
+    fn steam_sync_stands_aside_while_playnite_syncs_the_library() {
+        let f = Fixture::new();
+        let games = [Game {
+            appid: 570,
+            name: "Dota 2".into(),
+            app_type: "Game".into(),
+            installed: true,
+            portrait_path: Some(portrait(&f)),
+            ..Default::default()
+        }];
+        let settings = Settings::from_config(&Config::parse("steam_enabled=true").unwrap());
+        let before = f.host.apps.read().unwrap().len();
+        let aside = sync_beside(&f.host, &settings, &games, true).unwrap();
+        assert!(!aside.changed);
+        assert_eq!((aside.games, aside.importable), (1, 1));
+        assert_eq!(f.host.apps.read().unwrap().len(), before);
+        assert!(sync_beside(&f.host, &settings, &games, false).unwrap().changed);
+        assert_eq!(f.host.apps.read().unwrap().len(), before + 1);
+    }
+    #[test]
     fn steam_sync_converts_local_covers_persists_apps_and_is_idempotent() {
         let f = Fixture::new();
         let cover = portrait(&f);
@@ -574,7 +609,7 @@ mod tests {
         std::fs::write(&manifest, "changed size").unwrap();
         let changed = fingerprint(&settings, &roots);
         assert_ne!(changed, first);
-        settings.sync_all_installed = true;
+        settings.sync_all_installed = !settings.sync_all_installed;
         assert_ne!(fingerprint(&settings, &roots), changed);
     }
 }

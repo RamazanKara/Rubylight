@@ -16,7 +16,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
     Ok(match (method, path) {
         ("GET", "/api/apps") => {
             let mut d = h.app_document.read().unwrap().clone();
-            d["apps"] = serde_json::to_value(&*h.apps.read().unwrap())?;
+            d["apps"] = apps_with_install_state(h)?;
             d["status"] = json!(true);
             d
         }
@@ -41,6 +41,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             // Only a sync stamps an app. A synced app saved here becomes the user's, so no sync
             // renames or removes it again.
             app.extra.remove(butterpollo_core::library::SYNCED_BY);
+            app.extra.remove(butterpollo_core::native::NOT_INSTALLED);
             if let Some(sync) = next
                 .iter()
                 .find(|a| a.extra.get("uuid") == Some(&uuid))
@@ -470,11 +471,71 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
     }
 }
 
+/// The apps, each whose launcher game the last scan read and did not find marked
+/// `not-installed`, so the console can offer to remove it.
+fn apps_with_install_state(h: &Shared) -> anyhow::Result<Value> {
+    let scan = crate::library::installed(h);
+    let apps = h.apps.read().unwrap();
+    let mut values = Vec::with_capacity(apps.len());
+    for app in apps.iter() {
+        let mut value = serde_json::to_value(app)?;
+        if scan
+            .as_ref()
+            .and_then(|scan| butterpollo_core::native::installed(app, scan))
+            == Some(false)
+        {
+            value[butterpollo_core::native::NOT_INSTALLED] = json!(true);
+        }
+        values.push(value);
+    }
+    Ok(Value::Array(values))
+}
+
 #[cfg(test)]
 mod tests {
     use super::handle;
     use crate::state::test_support::Fixture;
     use serde_json::json;
+
+    #[test]
+    fn apps_list_marks_only_known_uninstalled_launcher_games_and_never_stores_it() {
+        let f = Fixture::new();
+        for app in [
+            json!({"name": "Dota 2", "uuid": "dota", "steam-id": "570"}),
+            json!({"name": "Gone", "uuid": "gone", "steam-id": "999"}),
+            json!({"name": "Fortnite", "uuid": "fn", "launcher-source": "epic", "launcher-id": "x"}),
+            json!({"name": "Tool", "uuid": "tool", "steam-id": "1007"}),
+        ] {
+            handle(&f.host, "POST", "/api/apps", &app).unwrap();
+        }
+        crate::library::seed(
+            &f.host,
+            butterpollo_core::native::Scan::new(["steam:570".into()])
+                .adding(["steam:1007".into()])
+                .skipping([butterpollo_core::library::Source::Epic]),
+        );
+        let list = handle(&f.host, "GET", "/api/apps", &json!({})).unwrap();
+        let flagged: Vec<&str> = list["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|app| app["not-installed"] == json!(true))
+            .map(|app| app["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(flagged, ["Gone"]);
+        let mut gone = list["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|app| app["name"] == "Gone")
+            .unwrap()
+            .clone();
+        gone["name"] = json!("Gone (renamed)");
+        handle(&f.host, "POST", "/api/apps", &gone).unwrap();
+        let stored = f.host.apps.read().unwrap();
+        let renamed = stored.iter().find(|app| app.name == "Gone (renamed)").unwrap();
+        assert!(!renamed.extra.contains_key("not-installed"));
+    }
 
     #[test]
     fn an_app_cannot_save_a_preset_the_host_does_not_know() {

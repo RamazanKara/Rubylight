@@ -46,7 +46,15 @@ fn settings(h: &Shared) -> library::Settings {
 #[cfg(not(test))]
 fn scan_installed(settings: library::Settings) -> Scan {
     let discovery = butterpollo_windows::library::discover(&settings);
+    // The launcher scan leaves Steam's tools out; an app for one is still installed.
+    let steam = butterpollo_core::steam::discover(&butterpollo_windows::steam::roots());
     Scan::from_games(&discovery.games)
+        .adding(
+            steam
+                .iter()
+                .filter(|game| game.installed)
+                .map(|game| format!("steam:{}", game.appid)),
+        )
         .skipping(discovery.skipped())
         .reading(settings)
 }

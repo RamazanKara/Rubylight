@@ -548,7 +548,7 @@ impl Settings {
         Self {
             enabled: config.boolean("steam_enabled", true),
             auto_sync: config.boolean("steam_auto_sync", true),
-            sync_all_installed: config.boolean("steam_sync_all_installed", false),
+            sync_all_installed: config.boolean("steam_sync_all_installed", true),
             recent_games: count("steam_recent_games", 10) as usize,
             recent_max_age_days: count("steam_recent_max_age_days", 30),
             remove_uninstalled: config.boolean("steam_autosync_remove_uninstalled", true),
@@ -1226,6 +1226,15 @@ mod tests {
         }
     }
     #[test]
+    fn every_installed_game_is_the_default_and_an_explicit_false_keeps_recent() {
+        assert!(Settings::from_config(&Config::default()).sync_all_installed);
+        assert_eq!(Settings::from_config(&Config::default()).source(), "installed");
+        let recent =
+            Settings::from_config(&Config::parse("steam_sync_all_installed = false").unwrap());
+        assert!(!recent.sync_all_installed);
+        assert_eq!(recent.source(), "recent");
+    }
+    #[test]
     fn selection_and_identity_follow_vibepollo() {
         assert_eq!(canonical_uuid(570), "53544541-4d00-5000-8000-00000000023a");
         assert_eq!(app_id_of(&json!({"uuid": canonical_uuid(570)})), Some(570));
@@ -1241,6 +1250,7 @@ mod tests {
             },
         ];
         let mut settings = Settings::from_config(&Config::default());
+        settings.sync_all_installed = false;
         settings.recent_max_age_days = 0;
         let ids = |s: &Settings| {
             select(&games, s, 1000)
@@ -1316,6 +1326,7 @@ mod tests {
         let mut excluded = installed.clone();
         excluded.exclusions = id_names(&appid.to_string());
         let mut recent = Settings::from_config(&Config::default());
+        recent.sync_all_installed = false;
         recent.recent_games = 1;
         for (case, settings, selected) in [
             ("installed", &installed, vec![&portal]),
@@ -1402,6 +1413,7 @@ mod tests {
         assert!(apps.is_empty(), "uninstalled");
         // In recent mode a game that left the window takes only the stamped app with it.
         let mut recent = Settings::from_config(&Config::default());
+        recent.sync_all_installed = false;
         recent.recent_games = 1;
         let stamped = json!({"name":"Dota 2","uuid":canonical_uuid(570),"steam-id":"570",
             "steam-managed":"auto","synced-by":"steam"});

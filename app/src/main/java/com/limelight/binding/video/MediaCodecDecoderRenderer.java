@@ -1743,7 +1743,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (hostHdrFormats == 0) return 0;
         int[] displayTypes = HdrPolicy.displayHdrTypes(outputDisplay);
         // Packed full chroma draws a BT.2020/PQ surface, the Vulkan renderer PQ or HLG, PyroWave PQ
-        // or HLG where the host offers HLG on it (HdrFormatPolicy).
+        // or HLG where the host offers HLG on it and Android is 14 or later (HdrFormatPolicy).
         String drawer = null;
         HdrFormatPolicy.DrawnSurface surface = HdrFormatPolicy.DrawnSurface.NONE;
         boolean vulkan = false;
@@ -1753,7 +1753,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             surface = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
         } else if ((videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             drawer = "PyroWave";
-            surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats);
+            surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats, Build.VERSION.SDK_INT);
             pyroWave = true;
         } else if (vulkanPresents(prefs)) {
             drawer = "the Vulkan renderer";
@@ -1768,7 +1768,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         } else if (pyroWave) {
             pyroWaveHdrLimit = HdrFormatPolicy.pyroWaveLimit(hostHdrFormats, displayTypes, dolbyVisionDecoder != null,
                     format);
-            pyroWaveHlgNeedsHostUpdate = HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(hostHdrFormats, displayTypes);
+            pyroWaveHlgNeedsHostUpdate = HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(hostHdrFormats, displayTypes,
+                    Build.VERSION.SDK_INT);
         }
         HdrFormatPolicy.DrawnLimit limit = vulkan ? vulkanHdrLimit : pyroWaveHdrLimit;
         LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +

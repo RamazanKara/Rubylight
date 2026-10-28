@@ -4079,6 +4079,7 @@ mod replace_tests {
             hardware: Hardware::None,
             gpu_decoder: None,
             packed_modes: 0,
+            color_decodable: (0, String::new()),
             pacing: PacingMode::Immediate,
             vrr: false,
             gamepad_mask: 0,

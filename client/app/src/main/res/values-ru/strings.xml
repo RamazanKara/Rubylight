@@ -391,6 +391,7 @@
     <string name="vulkan_overrides_upscaling">Рендеринг через Vulkan включён, поэтому масштабирование не используется.</string>
     <string name="upscaling_vulkan_short">Отключено при рендеринге через Vulkan</string>
     <string name="vulkan_renderer_failed">Рендерер Vulkan перестал работать: %1$s\n\nОтключите «Рендеринг через Vulkan» в настройках видео и запустите трансляцию заново.</string>
+    <string name="stream_vulkan_behind">«Рендеринг через Vulkan» не успевает на этом экране. Отключите его в настройках видео, чтобы изображение шло плавно.</string>
     <string name="vulkan_failure_unknown">неизвестная ошибка</string>
     <string name="upscaling_fallback">Масштабирование: прямой вывод. %1$s</string>
     <string name="upscaling_hdr">Для HDR/10 бит используется прямой вывод, чтобы сохранить цвет и точность.</string>

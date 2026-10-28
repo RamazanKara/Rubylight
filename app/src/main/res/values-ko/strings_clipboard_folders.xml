@@ -37,6 +37,7 @@
     <string name="folders_failed">요청 실패: %1$s</string>
     <string name="folders_local_failed">이 기기에서 파일을 읽거나 쓰지 못했습니다: %1$s</string>
     <string name="folders_forbidden">이 기기는 이 폴더에 접근할 수 없습니다.</string>
+    <string name="folders_unreadable">PC가 이 폴더를 읽을 수 없습니다. Windows가 로그인한 사용자의 접근을 거부합니다. PC에서 폴더 권한을 확인하세요.</string>
     <string name="folders_upload_forbidden">이 기기는 이 폴더에서 다운로드만 할 수 있습니다.</string>
     <string name="folders_not_found">더 이상 PC에 없습니다.</string>
     <string name="folders_invalid_name">PC가 이 파일 이름을 받지 않습니다.</string>

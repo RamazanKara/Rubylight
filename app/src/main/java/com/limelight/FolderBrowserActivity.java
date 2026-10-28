@@ -301,6 +301,7 @@ public final class FolderBrowserActivity extends NightjarActivity {
         switch (refusal) {
             case FORBIDDEN: return upload ? R.string.folders_upload_forbidden : R.string.folders_forbidden;
             case FOLDERS_DISABLED: return R.string.folders_disabled;
+            case FOLDER_UNREADABLE: return R.string.folders_unreadable;
             case NOT_FOUND: return R.string.folders_not_found;
             case INVALID_NAME: return R.string.folders_invalid_name;
             case INCOMPLETE_UPLOAD:

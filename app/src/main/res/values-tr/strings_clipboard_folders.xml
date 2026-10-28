@@ -37,6 +37,7 @@
     <string name="folders_failed">İstek başarısız oldu: %1$s</string>
     <string name="folders_local_failed">Bu cihaz dosyayı okuyamadı veya yazamadı: %1$s</string>
     <string name="folders_forbidden">Bu cihazın bu klasöre erişimi yok.</string>
+    <string name="folders_unreadable">PC bu klasörü okuyamıyor: Windows oturum açmış kullanıcının erişimini reddediyor. PC’de klasörün izinlerini kontrol edin.</string>
     <string name="folders_upload_forbidden">Bu cihaz bu klasörden yalnızca indirme yapabilir.</string>
     <string name="folders_not_found">Artık PC\'de değil.</string>
     <string name="folders_invalid_name">PC bu dosya adını kabul etmiyor.</string>

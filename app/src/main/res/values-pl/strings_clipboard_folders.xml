@@ -37,6 +37,7 @@
     <string name="folders_failed">Żądanie nie powiodło się: %1$s</string>
     <string name="folders_local_failed">To urządzenie nie mogło odczytać ani zapisać pliku: %1$s</string>
     <string name="folders_forbidden">To urządzenie nie ma dostępu do tego folderu.</string>
+    <string name="folders_unreadable">Komputer nie może odczytać tego folderu: Windows odmawia dostępu zalogowanemu użytkownikowi. Sprawdź uprawnienia folderu na komputerze.</string>
     <string name="folders_upload_forbidden">To urządzenie może z tego folderu tylko pobierać.</string>
     <string name="folders_not_found">Nie ma tego już na komputerze.</string>
     <string name="folders_invalid_name">Komputer nie przyjmuje tej nazwy pliku.</string>

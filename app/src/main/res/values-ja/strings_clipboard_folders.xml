@@ -37,6 +37,7 @@
     <string name="folders_failed">リクエストに失敗しました: %1$s</string>
     <string name="folders_local_failed">このデバイスでファイルを読み書きできませんでした: %1$s</string>
     <string name="folders_forbidden">このデバイスはこのフォルダーにアクセスできません。</string>
+    <string name="folders_unreadable">PC はこのフォルダーを読み取れません。Windows がサインイン中のユーザーのアクセスを拒否しています。PC でフォルダーのアクセス許可を確認してください。</string>
     <string name="folders_upload_forbidden">このデバイスはこのフォルダーからダウンロードのみできます。</string>
     <string name="folders_not_found">PC 上にもうありません。</string>
     <string name="folders_invalid_name">PC はこのファイル名を受け付けません。</string>

@@ -37,6 +37,7 @@
     <string name="folders_failed">要求失敗：%1$s</string>
     <string name="folders_local_failed">此裝置無法讀取或寫入該檔案：%1$s</string>
     <string name="folders_forbidden">此裝置無權存取此資料夾。</string>
+    <string name="folders_unreadable">電腦無法讀取此資料夾：Windows 拒絕了已登入使用者的存取。請在電腦上檢查該資料夾的權限。</string>
     <string name="folders_upload_forbidden">此裝置只能從此資料夾下載。</string>
     <string name="folders_not_found">它已不在電腦上。</string>
     <string name="folders_invalid_name">電腦不接受此檔名。</string>

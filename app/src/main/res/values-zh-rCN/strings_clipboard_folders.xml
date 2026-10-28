@@ -37,6 +37,7 @@
     <string name="folders_failed">请求失败：%1$s</string>
     <string name="folders_local_failed">此设备无法读取或写入该文件：%1$s</string>
     <string name="folders_forbidden">此设备无权访问此文件夹。</string>
+    <string name="folders_unreadable">电脑无法读取此文件夹：Windows 拒绝了已登录用户的访问。请在电脑上检查该文件夹的权限。</string>
     <string name="folders_upload_forbidden">此设备只能从此文件夹下载。</string>
     <string name="folders_not_found">它已不在电脑上。</string>
     <string name="folders_invalid_name">电脑不接受此文件名。</string>

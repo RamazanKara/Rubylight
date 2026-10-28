@@ -100,6 +100,8 @@ public final class SharedFolders {
         FORBIDDEN(403, "forbidden"),
         /** 403 {@code folders_disabled}: the host shares no folders. */
         FOLDERS_DISABLED(403, "folders_disabled"),
+        /** 403 {@code folder_unreadable}: Windows denies the PC's signed-in user reading the folder or file. */
+        FOLDER_UNREADABLE(403, "folder_unreadable"),
         /** 404 {@code not_found}: no such folder, directory or file. */
         NOT_FOUND(404, "not_found"),
         /** 400 {@code invalid_name}. */

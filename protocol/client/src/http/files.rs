@@ -98,10 +98,13 @@ pub enum FileRefusal {
     NotFound,
     /// 403 `folders_disabled`: the host shares no folders.
     FoldersDisabled,
+    /// 403 `folder_unreadable`: Windows denies the host's signed-in user reading the shared
+    /// folder, or a folder or file in it.
+    FolderUnreadable,
 }
 
 impl FileRefusal {
-    const ALL: [(u16, &'static str, FileRefusal); 11] = [
+    const ALL: [(u16, &'static str, FileRefusal); 12] = [
         (403, "forbidden", FileRefusal::Forbidden),
         (
             403,
@@ -121,6 +124,7 @@ impl FileRefusal {
         (409, "transfer_busy", FileRefusal::TransferBusy),
         (404, "not_found", FileRefusal::NotFound),
         (403, "folders_disabled", FileRefusal::FoldersDisabled),
+        (403, "folder_unreadable", FileRefusal::FolderUnreadable),
     ];
 
     fn from_answer(status: u16, code: &str) -> Option<Self> {
@@ -409,7 +413,7 @@ mod tests {
     }
 
     /// The design's error tables, Files and Shared folders, row by row.
-    const TABLE: [(u16, &str, FileRefusal); 11] = [
+    const TABLE: [(u16, &str, FileRefusal); 12] = [
         (403, "forbidden", FileRefusal::Forbidden),
         (
             403,
@@ -429,6 +433,7 @@ mod tests {
         (409, "transfer_busy", FileRefusal::TransferBusy),
         (404, "not_found", FileRefusal::NotFound),
         (403, "folders_disabled", FileRefusal::FoldersDisabled),
+        (403, "folder_unreadable", FileRefusal::FolderUnreadable),
     ];
 
     #[test]

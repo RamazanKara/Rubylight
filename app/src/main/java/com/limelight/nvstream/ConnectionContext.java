@@ -34,6 +34,8 @@ public class ConnectionContext {
     public String preparedControllers = "";
     // The video FEC to ask for; null leaves it to the host and sends nothing
     public FecChoice fecChoice;
+    // Ask for mid-stream rate changes (rlRateChange=1, control message 0x553C)
+    public boolean rateChange;
     // The bitrate the stream starts at: the configured one, or lower after a link test
     public int startBitrateKbps;
 

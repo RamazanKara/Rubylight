@@ -29,6 +29,7 @@ public class StreamConfiguration {
     private HostDisplayChoice hostDisplay;
     // The video FEC to ask a PC that lets the client choose; null sends nothing.
     private FecChoice fecChoice;
+    private boolean rateChange;
     private int bitrate;
     // The bitrate is the automatic one: a new stream may time the link and start lower.
     private boolean probeFirstBitrate;
@@ -110,6 +111,12 @@ public class StreamConfiguration {
 
         public StreamConfiguration.Builder setFecChoice(FecChoice choice) {
             config.fecChoice = choice;
+            return this;
+        }
+
+        /** Asks for mid-stream rate changes (0x553C), which only the Rust engine sends. */
+        public StreamConfiguration.Builder setRateChange(boolean rateChange) {
+            config.rateChange = rateChange;
             return this;
         }
 
@@ -257,6 +264,10 @@ public class StreamConfiguration {
 
     public FecChoice getFecChoice() {
         return fecChoice;
+    }
+
+    public boolean getRateChange() {
+        return rateChange;
     }
 
     public int getMaxPacketSize() {

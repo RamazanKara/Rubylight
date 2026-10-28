@@ -103,6 +103,8 @@ public class NvHTTP {
     static final int MAX_APP_LIST_BYTES = 4 * 1024 * 1024;
     // Every request to the host names this build, like the Rust transport does.
     static final String USER_AGENT = "Nightjar/" + BuildConfig.VERSION_NAME;
+    // Asks for mid-stream rate changes (control message 0x553C); rubylight_protocol::rate_change::LAUNCH_PARAMETER.
+    public static final String RATE_CHANGE_LAUNCH_PARAMETER = "rlRateChange";
 
     // Print URL and content to logcat on debug builds
     private static boolean verbose = BuildConfig.DEBUG;
@@ -1429,7 +1431,10 @@ public class NvHTTP {
             "&gcmap=" + gamepads +
             "&gcpersist="+(role != NvApp.Role.REMOTE_MONITOR && context.streamConfig.getPersistGamepadsAfterDisconnect() ? 1 : 0) +
             (context.fecChoice == null || !caps.has(HostCapabilities.Feature.CLIENT_FEC) ? "" :
-                    "&" + FecChoice.LAUNCH_PARAMETER + "=" + context.fecChoice.wireValue);
+                    "&" + FecChoice.LAUNCH_PARAMETER + "=" + context.fecChoice.wireValue) +
+            // No host offers rate changes before the launch and every host ignores a parameter it
+            // does not know, so this goes to any host; the stream's DESCRIBE says whether it took it.
+            (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "");
     }
 
     public boolean launchApp(ConnectionContext context, String verb, int appId, boolean enableHdr) throws IOException, XmlPullParserException {

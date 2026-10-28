@@ -352,6 +352,7 @@ public class NvConnection {
         this.context.streamConfig = config;
         this.context.serverCert = serverCert;
         this.context.fecChoice = config.getFecChoice();
+        this.context.rateChange = config.getRateChange();
         this.context.startBitrateKbps = config.getBitrate();
 
         // This is unique per connection

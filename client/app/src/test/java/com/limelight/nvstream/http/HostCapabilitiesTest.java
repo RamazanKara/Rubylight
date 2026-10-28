@@ -143,6 +143,16 @@ public class HostCapabilitiesTest {
     }
 
     @Test
+    public void hdrFormatsKeepThePyroWaveHlgOfferFlag() {
+        String xml = TestHosts.serverInfo("rubylight-30-serverinfo.xml");
+        assertEquals(143, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>143<")).hdrFormats());
+        assertEquals(131, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>131<")).hdrFormats());
+        // Unknown bits drop out, the flag stays; the flag alone is no HDR offer.
+        assertEquals(143, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>255<")).hdrFormats());
+        assertEquals(0, TestHosts.caps(xml.replace("<HdrFormats>15<", "<HdrFormats>128<")).hdrFormats());
+    }
+
+    @Test
     public void currentRubylightSupportsEverythingButCursorShapesTheNativeApiSleepAndFiles() {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());

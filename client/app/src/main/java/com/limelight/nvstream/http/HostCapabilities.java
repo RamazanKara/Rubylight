@@ -204,6 +204,8 @@ public final class HostCapabilities {
     static final int HDR_DOLBY_VISION = 4 | 8 | 16;
     /** Every HdrFormats bit this client knows: PQ, HLG and Dolby Vision 8.1, 8.4 and 10.1. */
     static final int HDR_ALL = 1 | HDR_HLG | HDR_DOLBY_VISION;
+    /** Offer flags, never formats: PYROWAVE_HLG. */
+    static final int HDR_OFFER_FLAGS = 0x80;
     static final int AUDIO_CODEC_PCM = 2;
     static final int AUDIO_CODEC_AC3 = 4;
     static final int AUDIO_CODEC_EAC3 = 8;
@@ -277,11 +279,12 @@ public final class HostCapabilities {
     }
 
     /**
-     * The HdrFormats bits (rubylight_protocol::hdr) this host can encode, 0 when it lists none; this
-     * stream's DESCRIBE still has to offer the one the client asks for.
+     * The HdrFormats bits (rubylight_protocol::hdr) this host can encode and its offer flags
+     * (PyroWave HLG), 0 when it lists none; this stream's DESCRIBE still has to offer the one the
+     * client asks for.
      */
     public int hdrFormats() {
-        return has(Feature.DOLBY_VISION) || has(Feature.HLG) ? evidence.hdrFormats & HDR_ALL : 0;
+        return has(Feature.DOLBY_VISION) || has(Feature.HLG) ? evidence.hdrFormats & (HDR_ALL | HDR_OFFER_FLAGS) : 0;
     }
 
     /** Feature bits for the native stream, which has no other way to learn them. */

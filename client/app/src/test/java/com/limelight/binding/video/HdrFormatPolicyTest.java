@@ -172,6 +172,139 @@ public class HdrFormatPolicyTest {
     }
 
     @Test
+    public void pyroWaveDrawsHlgOnlyForAHostThatOffersItThere() {
+        int flagged = HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG;
+        assertEquals(HdrFormatPolicy.PYROWAVE_HLG & HdrFormatPolicy.ALL, 0);
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(flagged));
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.HLG | HdrFormatPolicy.PYROWAVE_HLG));
+        // A 3.0 rc host refuses HLG on PyroWave; the flag without HLG offers nothing.
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL));
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.PQ | HdrFormatPolicy.PYROWAVE_HLG));
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(0));
+
+        int[] hlgOnly = {HLG};
+        int surfaced = HdrFormatPolicy.pick(flagged, hlgOnly, TV_DECODERS, TV_FORMATS, HdrFormatPolicy.pyroWaveSurface(flagged));
+        assertEquals(HdrFormatPolicy.HLG, surfaced);
+        assertEquals(0, HdrFormatPolicy.pick(HdrFormatPolicy.ALL, hlgOnly, TV_DECODERS, TV_FORMATS,
+                HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL)));
+        // Never Dolby Vision, never the flag itself, and stock HDR10 on an HDR10 screen.
+        for (int[] types : new int[][] {TV, {DOLBY, HLG}, {DOLBY}, hlgOnly, {HDR10, HDR10_PLUS}}) {
+            int format = HdrFormatPolicy.pick(flagged, types, TV_DECODERS, TV_FORMATS, HdrFormatPolicy.pyroWaveSurface(flagged));
+            assertEquals(0, format & ~(HdrFormatPolicy.PQ | HdrFormatPolicy.HLG));
+        }
+        assertEquals(0, HdrFormatPolicy.pick(flagged, TV, TV_DECODERS, TV_FORMATS, HdrFormatPolicy.pyroWaveSurface(flagged)));
+    }
+
+    @Test
+    public void pyroWaveNamesDolbyVisionAndHdr10PlusItLeavesOut() {
+        int flagged = HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG;
+        assertEquals(HdrFormatPolicy.DrawnLimit.DOLBY_VISION, HdrFormatPolicy.pyroWaveLimit(flagged, TV, TV_DECODERS, 0));
+        // Profile 10.1 alone counts: AV1 would carry it, whatever this PyroWave stream negotiates.
+        assertEquals(HdrFormatPolicy.DrawnLimit.DOLBY_VISION, HdrFormatPolicy.pyroWaveLimit(
+                HdrFormatPolicy.PQ | HdrFormatPolicy.DV_101 | HdrFormatPolicy.PYROWAVE_HLG, TV,
+                HdrFormatPolicy.DOLBY_VISION_AV1, 0));
+        // With an HLG stream too: the Dolby Vision words then say HLG (Game).
+        assertEquals(HdrFormatPolicy.DrawnLimit.DOLBY_VISION,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {DOLBY, HLG}, TV_DECODERS, HdrFormatPolicy.HLG));
+        // Without the device's Dolby Vision decoder HEVC would show HDR10 too: nothing to say.
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE, HdrFormatPolicy.pyroWaveLimit(flagged, TV, 0, 0));
+        assertEquals(HdrFormatPolicy.DrawnLimit.HDR10_PLUS,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {HDR10, HDR10_PLUS}, 0, 0));
+        // HLG carries no HDR10+, and a host without 3.0 HDR formats writes none.
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {HLG, HDR10_PLUS}, 0, HdrFormatPolicy.HLG));
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE,
+                HdrFormatPolicy.pyroWaveLimit(0, new int[] {HDR10, HDR10_PLUS}, TV_DECODERS, 0));
+        assertEquals(HdrFormatPolicy.DrawnLimit.NONE,
+                HdrFormatPolicy.pyroWaveLimit(flagged, new int[] {HDR10, HLG}, TV_DECODERS, 0));
+    }
+
+    @Test
+    public void anHlgOnlyScreenOnPyroWaveNamesTheHostUpdateOnlyWhereItHelps() {
+        int[] hlgOnly = {HLG};
+        assertTrue(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, hlgOnly));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG,
+                hlgOnly));
+        // No HLG at all from this host, or a screen with HDR10: an update is not what is missing.
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.PQ, hlgOnly));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, new int[] {HDR10, HLG}));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, null));
+    }
+
+    // PyroWave asks the host for HLG only where this display's window took BT2020_HLG
+    // (WindowDataspace.probeHlg), whatever the Android version.
+    private static final int FLAGGED = HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG;
+    private static final int[] HLG_ONLY = {HLG};
+
+    @Test
+    public void theWindowIsAskedOnlyWherePyroWaveWouldAskForHlg() {
+        assertTrue(HdrFormatPolicy.pyroWaveNeedsHlgProbe(FLAGGED, HLG_ONLY));
+        // An HDR10 screen streams PQ, a host without HLG on PyroWave gets PQ: nothing to ask.
+        assertFalse(HdrFormatPolicy.pyroWaveNeedsHlgProbe(FLAGGED, TV));
+        assertFalse(HdrFormatPolicy.pyroWaveNeedsHlgProbe(FLAGGED, new int[] {HDR10}));
+        assertFalse(HdrFormatPolicy.pyroWaveNeedsHlgProbe(HdrFormatPolicy.ALL, HLG_ONLY));
+        assertFalse(HdrFormatPolicy.pyroWaveNeedsHlgProbe(FLAGGED, null));
+    }
+
+    @Test
+    public void theProbesAnswerIsTheWindowsHlg() {
+        assertEquals(HdrFormatPolicy.HlgWindow.PUBLIC, HdrFormatPolicy.HlgWindow.of(WindowDataspace.CALL_PUBLIC));
+        assertEquals(HdrFormatPolicy.HlgWindow.PERFORM, HdrFormatPolicy.HlgWindow.of(WindowDataspace.CALL_PERFORM));
+        assertEquals(HdrFormatPolicy.HlgWindow.REFUSED, HdrFormatPolicy.HlgWindow.of(WindowDataspace.CALL_NONE));
+    }
+
+    @Test
+    public void aPublicAcceptAsksForHlg() {
+        HdrFormatPolicy.HlgWindow window = HdrFormatPolicy.HlgWindow.PUBLIC;
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(FLAGGED, window));
+        assertEquals(HdrFormatPolicy.HLG, HdrFormatPolicy.pick(FLAGGED, HLG_ONLY, TV_DECODERS, TV_FORMATS,
+                HdrFormatPolicy.pyroWaveSurface(FLAGGED, window)));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgRefusedByDisplay(FLAGGED, HLG_ONLY, window));
+        // A host without HLG on PyroWave still gets PQ.
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL, window));
+    }
+
+    @Test
+    public void aPublicRefusalThatPerformTakesAsksForHlg() {
+        // The Retroid Pocket 6 (Android 13): ANativeWindow_setBuffersDataSpace refuses BT2020_HLG (-22).
+        HdrFormatPolicy.HlgWindow window = HdrFormatPolicy.HlgWindow.PERFORM;
+        assertTrue(window.accepted());
+        assertEquals(HdrFormatPolicy.HLG, HdrFormatPolicy.pick(FLAGGED, HLG_ONLY, TV_DECODERS, TV_FORMATS,
+                HdrFormatPolicy.pyroWaveSurface(FLAGGED, window)));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgRefusedByDisplay(FLAGGED, HLG_ONLY, window));
+    }
+
+    @Test
+    public void aWindowThatRefusesBothCallsGetsHdr10AndSaysSo() {
+        HdrFormatPolicy.HlgWindow window = HdrFormatPolicy.HlgWindow.REFUSED;
+        assertFalse(window.accepted());
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(FLAGGED, window));
+        assertEquals(0, HdrFormatPolicy.pick(FLAGGED, HLG_ONLY, TV_DECODERS, TV_FORMATS, HdrFormatPolicy.pyroWaveSurface(FLAGGED, window)));
+        assertTrue(HdrFormatPolicy.pyroWaveHlgRefusedByDisplay(FLAGGED, HLG_ONLY, window));
+        // Not the host update: this host already offers HLG on PyroWave.
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(FLAGGED, HLG_ONLY));
+        // Said only where HLG would have been asked for.
+        assertFalse(HdrFormatPolicy.pyroWaveHlgRefusedByDisplay(FLAGGED, TV, window));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgRefusedByDisplay(HdrFormatPolicy.ALL, HLG_ONLY, window));
+    }
+
+    @Test
+    public void anAcceptedWindowThatDoesNotShowHlgFailsLoudly() {
+        for (HdrFormatPolicy.HlgWindow window : new HdrFormatPolicy.HlgWindow[] {
+                HdrFormatPolicy.HlgWindow.PUBLIC, HdrFormatPolicy.HlgWindow.PERFORM}) {
+            // The window no longer holds BT2020_HLG after the first frame, or the frames stopped.
+            assertTrue(HdrFormatPolicy.pyroWaveHlgLost(HdrFormatPolicy.HLG, window, false, false));
+            assertTrue(HdrFormatPolicy.pyroWaveHlgLost(HdrFormatPolicy.HLG, window, true, true));
+            assertFalse(HdrFormatPolicy.pyroWaveHlgLost(HdrFormatPolicy.HLG, window, true, false));
+            // A PQ stream is not an HLG loss.
+            assertFalse(HdrFormatPolicy.pyroWaveHlgLost(0, window, false, true));
+        }
+        // No probe, or a refusal (the stream is PQ then): nothing was promised.
+        assertFalse(HdrFormatPolicy.pyroWaveHlgLost(HdrFormatPolicy.HLG, null, false, true));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgLost(HdrFormatPolicy.HLG, HdrFormatPolicy.HlgWindow.REFUSED, false, true));
+    }
+
+    @Test
     public void hlgAndProfile84DecodeWithTheHlgTransfer() {
         assertEquals(MediaFormat.COLOR_TRANSFER_HLG, HdrFormatPolicy.transfer(HdrFormatPolicy.HLG));
         assertEquals(MediaFormat.COLOR_TRANSFER_HLG, HdrFormatPolicy.transfer(HdrFormatPolicy.DV_84));

@@ -308,9 +308,9 @@ Each is absent until the host offers it.
 
 | Where | Name | Meaning |
 | --- | --- | --- |
-| serverinfo | `HdrFormats` | HDR formats as bits: 1 PQ, 2 HLG, 4 Dolby Vision 8.1, 8 Dolby Vision 8.4, 16 Dolby Vision 10.1 |
-| `DESCRIBE` | `a=x-rl-video.hdrFormats:{bits}` | the formats this stream can carry |
-| `ANNOUNCE` | `x-rl-video[0].hdrFormat:{bit}` | one format; 0 or absent is Moonlight's HDR (PQ). It needs HDR on; Dolby Vision 8.1 and 8.4 need HEVC, 10.1 needs AV1. |
+| serverinfo | `HdrFormats` | HDR formats as bits: 1 PQ, 2 HLG, 4 Dolby Vision 8.1, 8 Dolby Vision 8.4, 16 Dolby Vision 10.1; and offer flags, which are not formats: 128 HLG is also offered on PyroWave Main10 streams |
+| `DESCRIBE` | `a=x-rl-video.hdrFormats:{bits}` | the formats this stream can carry, with the same offer flags |
+| `ANNOUNCE` | `x-rl-video[0].hdrFormat:{bit}` | one format; 0 or absent is Moonlight's HDR (PQ). It needs HDR on; Dolby Vision 8.1 and 8.4 need HEVC, 10.1 needs AV1, and HLG needs HEVC or AV1, or PyroWave when flag 128 was offered. An offer flag is never a format. |
 | serverinfo | `AudioCodecs` | audio codecs as bits: 1 Opus (always set), 2 PCM, 4 AC-3, 8 E-AC-3 |
 | `DESCRIBE` | `a=x-rl-audio.codecs:{bits}` | the codecs of this stream |
 | `ANNOUNCE` | `x-rl-audio.codec:{bit}` | one codec; 0, 1 or absent is Opus |

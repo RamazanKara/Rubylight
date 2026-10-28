@@ -141,6 +141,13 @@ impl Encoder {
         warnings.clear("hdr_dynamic_metadata");
         require_amd(&image.gpu)?;
         if config.codec == 3 {
+            if config.hdr {
+                // The colour conversion (`gpu_color::constants`) encodes this curve.
+                tracing::info!(
+                    transfer = if config.hlg() { "HLG" } else { "PQ" },
+                    "PyroWave HDR stream"
+                );
+            }
             if config.hdr && tuning.hdr_dynamic_metadata() {
                 tracing::info!(
                     "PyroWave stream: no HDR dynamic metadata (HDR10+, HDR Vivid) is sent"

@@ -1,5 +1,7 @@
 #include <cassert>
 #include <cmath>
+#include <string>
+#include <vector>
 #include "../../main/jni/pyrowave-renderer/presentation.h"
 
 // Compile the actual shared GLSL UV mapping as C++ with its small vector type.
@@ -115,42 +117,104 @@ static void swapchainFormatSelection() {
         {PYRO_FORMAT_A2B10G10R10, 0}, {PYRO_FORMAT_A2B10G10R10, 1000104013}, {PYRO_FORMAT_A2B10G10R10, 1000104001},
     };
     const size_t androidCount = sizeof(android13) / sizeof(android13[0]);
-    auto ten = pyroSelectSwapchainFormat(android13, androidCount, true);
-    assert(ten.format == PYRO_FORMAT_A2B10G10R10 && ten.dataspaceOverride);
-    auto eight = pyroSelectSwapchainFormat(android13, androidCount, false);
-    assert(eight.format == PYRO_FORMAT_R8G8B8A8 && !eight.dataspaceOverride);
+    for (bool hlg : {false, true}) {
+        // Android 13 and 14 list no HDR colour space: PQ and HLG both go through the window dataspace.
+        auto ten = pyroSelectSwapchainFormat(android13, androidCount, true, hlg);
+        assert(ten.format == PYRO_FORMAT_A2B10G10R10 && ten.dataspaceOverride);
+        assert(!pyroNativeHdr(android13, androidCount, PYRO_FORMAT_A2B10G10R10, hlg));
+        auto eight = pyroSelectSwapchainFormat(android13, androidCount, false, hlg);
+        assert(eight.format == PYRO_FORMAT_R8G8B8A8 && !eight.dataspaceOverride);
+    }
 
-    // Android 15 and later list HDR10_ST2084 for the same format: the native path stays.
+    // Android 15 and later list HDR10_ST2084 and HDR10_HLG for the same format: the native path stays.
     const PyroSurfaceFormat android15[] = {
         {37, 0}, {PYRO_FORMAT_A2B10G10R10, 0}, {PYRO_FORMAT_A2B10G10R10, PYRO_COLORSPACE_HDR10_ST2084},
+        {PYRO_FORMAT_A2B10G10R10, PYRO_COLORSPACE_HDR10_HLG},
     };
-    ten = pyroSelectSwapchainFormat(android15, 3, true);
+    auto ten = pyroSelectSwapchainFormat(android15, 4, true, false);
     assert(ten.format == PYRO_FORMAT_A2B10G10R10 && !ten.dataspaceOverride);
+    ten = pyroSelectSwapchainFormat(android15, 4, true, true);
+    assert(ten.format == PYRO_FORMAT_A2B10G10R10 && !ten.dataspaceOverride);
+    assert(pyroNativeHdr(android15, 4, PYRO_FORMAT_A2B10G10R10, true));
+    assert(pyroHdrColorSpace(false) == 1000104008);  // VK_COLOR_SPACE_HDR10_ST2084_EXT
+    assert(pyroHdrColorSpace(true) == 1000104010);   // VK_COLOR_SPACE_HDR10_HLG_EXT
+
+    // A list with HDR10_ST2084 alone: PQ is native, HLG rides on the window dataspace of the same format.
+    const PyroSurfaceFormat pqOnly[] = {
+        {PYRO_FORMAT_A2B10G10R10, 0}, {PYRO_FORMAT_A2B10G10R10, PYRO_COLORSPACE_HDR10_ST2084},
+    };
+    ten = pyroSelectSwapchainFormat(pqOnly, 2, true, true);
+    assert(ten.format == PYRO_FORMAT_A2B10G10R10 && ten.dataspaceOverride);
+    assert(pyroNativeHdr(pqOnly, 2, PYRO_FORMAT_A2B10G10R10, false));
+    assert(!pyroNativeHdr(pqOnly, 2, PYRO_FORMAT_A2B10G10R10, true));
 
     // A native pair on the second ten-bit format beats an override on the first.
     const PyroSurfaceFormat mixed[] = {
         {PYRO_FORMAT_A2B10G10R10, 0},
         {PYRO_FORMAT_A2R10G10B10, 0}, {PYRO_FORMAT_A2R10G10B10, PYRO_COLORSPACE_HDR10_ST2084},
     };
-    ten = pyroSelectSwapchainFormat(mixed, 3, true);
+    ten = pyroSelectSwapchainFormat(mixed, 3, true, false);
     assert(ten.format == PYRO_FORMAT_A2R10G10B10 && !ten.dataspaceOverride);
 
     // HDR10_ST2084 alone, without the SRGB_NONLINEAR pair, is not enough: host HDR-off needs both.
     const PyroSurfaceFormat hdrOnly[] = {{37, 0}, {PYRO_FORMAT_A2B10G10R10, PYRO_COLORSPACE_HDR10_ST2084}};
-    assert(pyroSelectSwapchainFormat(hdrOnly, 2, true).format == 0);
+    assert(pyroSelectSwapchainFormat(hdrOnly, 2, true, false).format == 0);
 
     // No ten-bit format at all: ten-bit fails, eight-bit still works.
     const PyroSurfaceFormat eightOnly[] = {{37, 0}, {44, 0}};
-    assert(pyroSelectSwapchainFormat(eightOnly, 2, true).format == 0);
-    assert(pyroSelectSwapchainFormat(eightOnly, 2, false).format == 37);
-    assert(pyroSelectSwapchainFormat(nullptr, 0, false).format == 0);
+    assert(pyroSelectSwapchainFormat(eightOnly, 2, true, false).format == 0);
+    assert(pyroSelectSwapchainFormat(eightOnly, 2, false, false).format == 37);
+    assert(pyroSelectSwapchainFormat(nullptr, 0, false, false).format == 0);
 
-    assert(pyroWindowDataspace(true) == 163971072);   // ADATASPACE_BT2020_PQ
-    assert(pyroWindowDataspace(false) == 142671872);  // ADATASPACE_SRGB
+    assert(pyroWindowDataspace(true, false) == 163971072);  // ADATASPACE_BT2020_PQ
+    assert(pyroWindowDataspace(true, true) == 168165376);   // ADATASPACE_BT2020_HLG
+    assert(pyroWindowDataspace(false, false) == 142671872); // ADATASPACE_SRGB
+    assert(pyroWindowDataspace(false, true) == 142671872);
+}
+
+// The dataspace setter is searched by library handle, never through RTLD_DEFAULT (null on Android 13).
+static void dataspaceSymbolLookup() {
+    static int nativewindow, android, setter, other;
+    std::vector<std::string> opened;
+    std::string has;  // the library that exports the symbol
+    auto open = [&](const char *library) -> void * {
+        opened.push_back(library);
+        const std::string name = library;
+        return name == "libnativewindow.so" ? (void *)&nativewindow : name == "libandroid.so" ? (void *)&android : nullptr;
+    };
+    auto lookup = [&](void *handle, const char *symbol) -> void * {
+        assert(handle != nullptr);
+        if (std::string(symbol) != "ANativeWindow_setBuffersDataSpace") return &other;
+        const std::string library = handle == &nativewindow ? "libnativewindow.so" : "libandroid.so";
+        return library == has ? (void *)&setter : nullptr;
+    };
+    const char *name = "ANativeWindow_setBuffersDataSpace";
+
+    has = "libnativewindow.so";
+    assert(pyroFindSymbol(name, open, lookup) == &setter);
+    assert(opened == std::vector<std::string>{"libnativewindow.so"});
+
+    opened.clear();
+    has = "libandroid.so";
+    assert(pyroFindSymbol(name, open, lookup) == &setter);
+    assert((opened == std::vector<std::string>{"libnativewindow.so", "libandroid.so"}));
+
+    opened.clear();
+    has.clear();
+    assert(pyroFindSymbol(name, open, lookup) == nullptr);
+    assert(opened.size() == 2);
+
+    // A library that does not open is skipped, not searched.
+    auto noNativewindow = [&](const char *library) -> void * {
+        return std::string(library) == "libandroid.so" ? (void *)&android : nullptr;
+    };
+    has = "libandroid.so";
+    assert(pyroFindSymbol(name, noNativewindow, lookup) == &setter);
 }
 
 int main() {
     swapchainFormatSelection();
+    dataspaceSymbolLookup();
     rotationMapping();
     rotatedFitAndUpscaling();
     assert(pyroSurfaceDimension(1920, 1280, 64, 4096) == 1920);

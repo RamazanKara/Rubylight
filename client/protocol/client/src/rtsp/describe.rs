@@ -36,7 +36,7 @@ pub struct DescribeInfo {
     /// The host takes client roaming probes (`a=x-rl-roaming`, version 1 or later).
     pub roaming: bool,
     /// The HDR formats this stream offers (`a=x-rl-video.hdrFormats`, `rubylight_protocol::hdr`
-    /// bits); 0 for stock HDR only.
+    /// bits) and the host's offer flags (`hdr::OFFER_FLAGS`); 0 for stock HDR only.
     pub hdr_formats: u8,
     /// The audio codecs the host sends (`a=x-rl-audio.codecs`, `audio_ext::CODEC_*` bits); 0
     /// when it names none, which is Opus only.
@@ -202,7 +202,7 @@ impl DescribeInfo {
             control_messages: parse_control_messages(sdp),
             microphone: microphone_offer(sdp),
             roaming: offers_roaming(sdp),
-            hdr_formats: attribute_bits(sdp, hdr::DESCRIBE_ATTRIBUTE, hdr::ALL),
+            hdr_formats: attribute_bits(sdp, hdr::DESCRIBE_ATTRIBUTE, hdr::ALL | hdr::OFFER_FLAGS),
             audio_codecs: attribute_bits(
                 sdp,
                 audio_ext::CODECS_DESCRIBE_ATTRIBUTE,
@@ -494,8 +494,16 @@ mod tests {
             DescribeInfo::parse(&offered)
         );
         // Unknown bits are dropped; malformed values are no offer.
-        assert_eq!(with("a=x-rl-video.hdrFormats:255\r\n").hdr_formats, 31);
+        assert_eq!(
+            with("a=x-rl-video.hdrFormats:255\r\n").hdr_formats,
+            hdr::ALL | hdr::OFFER_FLAGS
+        );
         assert_eq!(with("a=x-rl-video.hdrFormats:31\r\n").hdr_formats, 31);
+        // The host's offer flags (PyroWave HLG) stay: the ANNOUNCE asks HLG on PyroWave only
+        // with it, and never asks for a flag (sdp::announced_hdr_format).
+        assert_eq!(with("a=x-rl-video.hdrFormats:131\r\n").hdr_formats, 131);
+        assert_eq!(with("a=x-rl-video.hdrFormats:143\r\n").hdr_formats, 143);
+        assert_eq!(with("a=x-rl-video.hdrFormats:128\r\n").hdr_formats, 128);
         assert_eq!(with("a=x-rl-video.hdrFormats: 2 \r\n").hdr_formats, 2);
         for line in [
             "a=x-rl-video.hdrFormats:256",

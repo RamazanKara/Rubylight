@@ -110,6 +110,7 @@ constexpr int32_t PYRO_FORMAT_R8G8B8A8 = 37;
 constexpr int32_t PYRO_FORMAT_B8G8R8A8 = 44;
 constexpr int32_t PYRO_COLORSPACE_SRGB_NONLINEAR = 0;
 constexpr int32_t PYRO_COLORSPACE_HDR10_ST2084 = 1000104008;
+constexpr int32_t PYRO_COLORSPACE_HDR10_HLG = 1000104010;
 
 struct PyroSurfaceFormat {
     int32_t format, colorSpace;
@@ -122,40 +123,74 @@ struct PyroSwapchainChoice {
     bool dataspaceOverride;
 };
 
-// Ten-bit output needs a native HDR10_ST2084 pair next to the SRGB_NONLINEAR one, so host HDR-off
-// transitions keep their precision. The Android loader of releases 13 and 14 never advertises
-// HDR10_ST2084 (only 15 and later list it), so a ten-bit SRGB_NONLINEAR format is the second
-// choice and HDR goes through ANativeWindow_setBuffersDataSpace(BT2020_PQ).
-inline PyroSwapchainChoice pyroSelectSwapchainFormat(const PyroSurfaceFormat *formats, size_t count, bool tenBit) {
+// The native colour space of an HDR stream: HDR10_HLG for an HLG stream, else HDR10_ST2084.
+inline int32_t pyroHdrColorSpace(bool hlg) {
+    return hlg ? PYRO_COLORSPACE_HDR10_HLG : PYRO_COLORSPACE_HDR10_ST2084;
+}
+
+inline bool pyroListsColorSpace(const PyroSurfaceFormat *formats, size_t count, int32_t format, int32_t colorSpace) {
+    for (size_t i = 0; i < count; ++i) {
+        if (formats[i].format == format && formats[i].colorSpace == colorSpace) return true;
+    }
+    return false;
+}
+
+// The format lists the stream's native HDR colour space next to SRGB_NONLINEAR. Otherwise HDR on
+// that format goes through the window dataspace.
+inline bool pyroNativeHdr(const PyroSurfaceFormat *formats, size_t count, int32_t format, bool hlg) {
+    return pyroListsColorSpace(formats, count, format, PYRO_COLORSPACE_SRGB_NONLINEAR) &&
+           pyroListsColorSpace(formats, count, format, pyroHdrColorSpace(hlg));
+}
+
+// Ten-bit output needs a native HDR10_ST2084 (HDR10_HLG for an HLG stream) pair next to the
+// SRGB_NONLINEAR one, so host HDR-off transitions keep their precision. The Android loader of
+// releases 13 and 14 never advertises either HDR colour space (only 15 and later list them), so a
+// ten-bit SRGB_NONLINEAR format is the second choice and HDR goes through
+// ANativeWindow_setBuffersDataSpace(BT2020_PQ or BT2020_HLG).
+inline PyroSwapchainChoice pyroSelectSwapchainFormat(const PyroSurfaceFormat *formats, size_t count, bool tenBit,
+                                                     bool hlg) {
     const int32_t tenBitCandidates[] = {PYRO_FORMAT_A2B10G10R10, PYRO_FORMAT_A2R10G10B10};
     const int32_t eightBitCandidates[] = {PYRO_FORMAT_R8G8B8A8, PYRO_FORMAT_B8G8R8A8};
-    auto has = [&](int32_t format, int32_t colorSpace) {
-        for (size_t i = 0; i < count; ++i) {
-            if (formats[i].format == format && formats[i].colorSpace == colorSpace) return true;
-        }
-        return false;
-    };
     if (!tenBit) {
         for (int32_t candidate : eightBitCandidates) {
-            if (has(candidate, PYRO_COLORSPACE_SRGB_NONLINEAR)) return {candidate, false};
+            if (pyroListsColorSpace(formats, count, candidate, PYRO_COLORSPACE_SRGB_NONLINEAR)) return {candidate, false};
         }
         return {0, false};
     }
     for (int32_t candidate : tenBitCandidates) {
-        if (has(candidate, PYRO_COLORSPACE_SRGB_NONLINEAR) && has(candidate, PYRO_COLORSPACE_HDR10_ST2084)) {
-            return {candidate, false};
-        }
+        if (pyroNativeHdr(formats, count, candidate, hlg)) return {candidate, false};
     }
     for (int32_t candidate : tenBitCandidates) {
-        if (has(candidate, PYRO_COLORSPACE_SRGB_NONLINEAR)) return {candidate, true};
+        if (pyroListsColorSpace(formats, count, candidate, PYRO_COLORSPACE_SRGB_NONLINEAR)) return {candidate, true};
     }
     return {0, false};
 }
 
-// Values of ADATASPACE_SRGB and ADATASPACE_BT2020_PQ (API 28 headers; the renderer asserts them).
+// Values of ADATASPACE_SRGB, ADATASPACE_BT2020_PQ and ADATASPACE_BT2020_HLG (API 28 headers; the
+// renderer asserts them).
 constexpr int32_t PYRO_DATASPACE_SRGB = 142671872;
 constexpr int32_t PYRO_DATASPACE_BT2020_PQ = 163971072;
+constexpr int32_t PYRO_DATASPACE_BT2020_HLG = 168165376;
 
-inline int32_t pyroWindowDataspace(bool hdr) {
-    return hdr ? PYRO_DATASPACE_BT2020_PQ : PYRO_DATASPACE_SRGB;
+inline int32_t pyroWindowDataspace(bool hdr, bool hlg) {
+    if (!hdr) return PYRO_DATASPACE_SRGB;
+    return hlg ? PYRO_DATASPACE_BT2020_HLG : PYRO_DATASPACE_BT2020_PQ;
+}
+
+// Where ANativeWindow_setBuffersDataSpace (API 28) lives. dlsym(RTLD_DEFAULT) searches only the
+// app's own linker namespace, which holds neither library, so it found nothing on Android 13 and
+// every dataspace HDR stream fell back to SDR. Each library is opened and searched by handle, as
+// the Vulkan renderer's ndk_api.cpp does.
+constexpr const char *PYRO_DATASPACE_LIBRARIES[] = {"libnativewindow.so", "libandroid.so"};
+
+// The first library in PYRO_DATASPACE_LIBRARIES that opens and has the symbol; open(library) and
+// lookup(handle, name) are dlopen and dlsym.
+template <typename Open, typename Lookup>
+void *pyroFindSymbol(const char *name, Open open, Lookup lookup) {
+    for (const char *library : PYRO_DATASPACE_LIBRARIES) {
+        void *handle = open(library);
+        if (handle == nullptr) continue;
+        if (void *symbol = lookup(handle, name)) return symbol;
+    }
+    return nullptr;
 }

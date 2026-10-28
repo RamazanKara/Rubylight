@@ -23,6 +23,7 @@
 #include <android/looper.h>
 
 #include "output_format.h"
+#include "../window-dataspace/window_dataspace.h"
 #include "shaders_spv.h"
 
 #include <sys/system_properties.h>
@@ -2481,13 +2482,23 @@ bool VulkanRenderer::applyWindowDataspace(int32_t dataspace) {
     if (dataspace == 0) {
         return true;
     }
-    const int32_t result = ndk_->ANativeWindow_setBuffersDataSpace ?
-            ndk_->ANativeWindow_setBuffersDataSpace(outputWindow_, dataspace) : -1;
-    if (result != 0) {
+    // HLG goes through perform where the public call refuses it, as the window probe that let Java
+    // ask for HLG did (window_dataspace.h); PQ keeps the public call, whose refusal means no HDR here.
+    auto* setDataSpace = ndk_->ANativeWindow_setBuffersDataSpace;
+    const nwds::DataspaceOutcome outcome = nwds::setDataspace(
+            outputWindow_, dataspace, [setDataSpace](void* window, int32_t value) {
+                return setDataSpace ? setDataSpace(static_cast<ANativeWindow*>(window), value) : nwds::kMissing;
+            }, dataspace == kDataspaceBt2020Hlg);
+    if (!outcome.accepted()) {
         // Shown as SDR then, and said on the status line (hdrToneMapped())
-        ALOGE("Window dataspace 0x%x was refused (%d%s); tone mapping HDR to SDR", static_cast<uint32_t>(dataspace),
-              result, ndk_->ANativeWindow_setBuffersDataSpace ? "" : ", ANativeWindow_setBuffersDataSpace missing");
+        ALOGE("Window dataspace 0x%x was refused (ANativeWindow_setBuffersDataSpace %d%s, perform %d); tone mapping "
+              "HDR to SDR", static_cast<uint32_t>(dataspace), outcome.publicResult,
+              setDataSpace ? "" : " missing", outcome.performResult);
         return false;
+    }
+    if (outcome.call == nwds::DataspaceCall::kPerform) {
+        ALOGI("Window dataspace 0x%x set through ANativeWindow::perform (the public call returned %d)",
+              static_cast<uint32_t>(dataspace), outcome.publicResult);
     }
     return true;
 }

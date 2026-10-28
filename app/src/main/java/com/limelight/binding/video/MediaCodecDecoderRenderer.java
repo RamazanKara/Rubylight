@@ -1787,12 +1787,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         pyroWaveHlgLostSaid.set(false);
         if (hostHdrFormats == 0) return 0;
         int[] displayTypes = HdrPolicy.displayHdrTypes(outputDisplay);
-        // Packed full chroma draws a BT.2020/PQ surface, the Vulkan renderer PQ or HLG, PyroWave PQ
-        // or HLG where the host offers HLG on it and this display's window takes it (HdrFormatPolicy).
+        // Packed full chroma draws a BT.2020/PQ surface, the Vulkan renderer PQ or HLG where this
+        // display's window takes HLG, PyroWave PQ or HLG where the host offers HLG on it and the
+        // window takes it (HdrFormatPolicy).
         String drawer = null;
         HdrFormatPolicy.DrawnSurface surface = HdrFormatPolicy.DrawnSurface.NONE;
         boolean vulkan = false;
         boolean pyroWave = false;
+        boolean vulkanHlgRefused = false;
         if (packed444) {
             drawer = "packed full chroma";
             surface = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
@@ -1809,6 +1811,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         } else if (vulkanPresents(prefs)) {
             drawer = "the Vulkan renderer";
             surface = vulkanSurface(prefs);
+            if (HdrFormatPolicy.vulkanNeedsHlgProbe(hostHdrFormats, displayTypes, surface)) {
+                HdrFormatPolicy.HlgWindow window = displayHlgWindow();
+                surface = HdrFormatPolicy.vulkanSurface(surface, window);
+                vulkanHlgRefused = !window.accepted();
+            }
             vulkan = true;
         }
         int dolbyVisionDecoders = (dolbyVisionDecoder != null ? HdrFormatPolicy.DOLBY_VISION_HEVC : 0) |
@@ -1834,7 +1841,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // Game names it on the status line (HdrPolicy.Status.PQ_ON_HLG_SCREEN).
             LimeLog.warning("The screen reports HLG and no HDR10, but " + drawer +
                     " draws PQ only" + (pyroWaveHlgNeedsHostUpdate ? " from this PC (HLG on PyroWave needs a host update)" :
-                    pyroWaveHlgRefused ? " here (this display's window refused HLG)" : "") + ": this stream is HDR10");
+                    pyroWaveHlgRefused || vulkanHlgRefused ? " here (this display's window refused HLG)" : "") +
+                    ": this stream is HDR10");
         }
         return format;
     }

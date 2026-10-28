@@ -605,6 +605,25 @@ mod tests {
     }
 
     #[test]
+    fn a_later_bitrate_is_answered_before_a_rate_with_the_bitrate_set_then() {
+        // The order clients see: a rate's answer waits for its switch and keeps the bitrate
+        // decided with it, so they take a bitrate only from the newest serial
+        // (rubylight_protocol::rate_change).
+        let mut session = Session::new();
+        session.ask(1, 30_000, 120);
+        session.ask(2, 40_000, 0);
+        let bitrates = |session: &mut Session| -> Vec<(u32, u32, Outcome)> {
+            std::iter::from_fn(|| session.changes.take())
+                .map(|result| (result.serial, result.bitrate_kbps, result.bitrate))
+                .collect()
+        };
+        assert_eq!(bitrates(&mut session), [(2, 40_000, Outcome::APPLIED)]);
+        session.take().unwrap();
+        session.ran(mode(1920, 1080, 120));
+        assert_eq!(bitrates(&mut session), [(1, 30_000, Outcome::APPLIED)]);
+    }
+
+    #[test]
     fn a_switch_the_encoder_cannot_make_is_refused_with_the_rate_kept() {
         let mut session = Session::new();
         session.ask(1, 0, 120);

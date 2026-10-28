@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">Cihaz alçak ve yüksek sesli konuşmayı dengeler. Aşağıdaki mikrofon kazancı buna ek olarak uygulanır.</string>
     <string name="title_seekbar_mic_gain">Mikrofon kazancı</string>
     <string name="summary_seekbar_mic_gain">Mikrofonu göndermeden önce kısar veya yükseltir. Yüksek tepeler bozulmak yerine yumuşatılır.</string>
+    <string name="title_checkbox_mic_button">Mikrofon düğmesi</string>
+    <string name="summary_checkbox_mic_button">Yayında mikrofonu susturan ve açan bir düğme gösterir. Taşımak için sürükleyin.</string>
+    <string name="mic_button_mute">Mikrofonu sustur</string>
+    <string name="mic_button_unmute">Mikrofonu aç</string>
+    <string name="stream_mic_button_show">Mikrofon düğmesini göster</string>
+    <string name="stream_mic_button_hide">Mikrofon düğmesini gizle</string>
+    <string name="mic_effects_missing">Bu cihazda yok: %1$s. Mikrofon bu işlem olmadan gönderilir.</string>
+    <string name="mic_effect_not_on_device">Bu cihazda yok</string>
 </resources>

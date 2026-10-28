@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The modern controller's layout editor panel. PadEditor fills in the texts and states. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="400dp"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_pad_editor_panel"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/space_l"
+    android:paddingTop="@dimen/space_m"
+    android:paddingEnd="@dimen/space_l"
+    android:paddingBottom="@dimen/space_s">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/pad_editor_selection"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAppearance="@style/TextAppearance.Nightjar.Title"
+            android:textColor="@color/night_on_surface" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/pad_editor_smaller"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/pad_edit_smaller"
+            app:icon="@drawable/ic_pad_smaller"
+            app:iconTint="@color/night_on_surface" />
+
+        <TextView
+            android:id="@+id/pad_editor_size"
+            android:layout_width="56dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textAppearance="@style/TextAppearance.Nightjar.Label"
+            android:textColor="@color/night_on_surface" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/pad_editor_larger"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/pad_edit_larger"
+            app:icon="@drawable/ic_pad_larger"
+            app:iconTint="@color/night_on_surface" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/pad_editor_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/pad_edit_hint"
+        android:textAppearance="@style/TextAppearance.Nightjar.Caption"
+        android:textColor="@color/night_on_surface_variant" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_xs"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/title_osc_opacity"
+            android:textAppearance="@style/TextAppearance.Nightjar.Label"
+            android:textColor="@color/night_on_surface_variant" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/pad_editor_opacity"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:contentDescription="@string/title_osc_opacity"
+            android:stepSize="5"
+            android:valueFrom="10"
+            android:valueTo="100"
+            app:labelBehavior="gone"
+            app:thumbColor="@color/night_primary"
+            app:trackColorActive="@color/night_primary"
+            app:trackColorInactive="@color/night_outline_variant" />
+    </LinearLayout>
+
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/pad_editor_this_game"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="@string/pad_edit_this_game"
+        android:textAppearance="@style/TextAppearance.Nightjar.Body"
+        android:textColor="@color/night_on_surface" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/pad_editor_hide"
+            style="@style/Widget.Nightjar.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/pad_edit_hide"
+            app:icon="@drawable/ic_visibility_off" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/pad_editor_reset"
+            style="@style/Widget.Nightjar.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/pad_edit_reset"
+            app:icon="@drawable/ic_refresh" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/pad_editor_cancel"
+            style="@style/Widget.Nightjar.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@android:string/cancel" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/pad_editor_done"
+            style="@style/Widget.Nightjar.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_xs"
+            android:text="@string/pad_edit_done" />
+    </LinearLayout>
+</LinearLayout>

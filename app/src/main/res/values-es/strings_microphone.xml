@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">Deja que el dispositivo iguale la voz baja y alta. La ganancia del micrófono de abajo se aplica además.</string>
     <string name="title_seekbar_mic_gain">Ganancia del micrófono</string>
     <string name="summary_seekbar_mic_gain">Baja o sube el micrófono antes de enviarlo. Los picos fuertes se suavizan en lugar de saturar.</string>
+    <string name="title_checkbox_mic_button">Botón de micrófono</string>
+    <string name="summary_checkbox_mic_button">Muestra en la transmisión un botón que silencia y activa el micrófono. Arrástralo para moverlo.</string>
+    <string name="mic_button_mute">Silenciar micrófono</string>
+    <string name="mic_button_unmute">Activar micrófono</string>
+    <string name="stream_mic_button_show">Mostrar botón de micrófono</string>
+    <string name="stream_mic_button_hide">Ocultar botón de micrófono</string>
+    <string name="mic_effects_missing">No disponible en este dispositivo: %1$s. El micrófono se envía sin este procesamiento.</string>
+    <string name="mic_effect_not_on_device">No disponible en este dispositivo</string>
 </resources>

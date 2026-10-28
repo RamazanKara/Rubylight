@@ -413,6 +413,32 @@
             android:key="checkbox_show_onscreen_controls"
             android:title="@string/title_checkbox_show_onscreen_controls"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_osc_style"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_list_osc_style"
+            android:dialogMessage="@string/summary_list_osc_style"
+            android:entries="@array/osc_style_names"
+            android:entryValues="@array/osc_style_values"
+            android:defaultValue="classic" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_osc_stick_mode"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_list_osc_stick_mode"
+            android:dialogMessage="@string/summary_list_osc_stick_mode"
+            android:entries="@array/osc_stick_mode_names"
+            android:entryValues="@array/osc_stick_mode_values"
+            android:defaultValue="floating" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_osc_stick_deadzone"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_seekbar_osc_stick_deadzone"
+            android:dialogMessage="@string/summary_seekbar_osc_stick_deadzone"
+            seekbar:min="0"
+            seekbar:step="1"
+            android:max="30"
+            android:defaultValue="8"
+            android:text="%" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_vibrate_osc"
             android:dependency="checkbox_show_onscreen_controls"
@@ -510,6 +536,12 @@
             android:summary="@string/settings_needs_host_support"
             android:dialogMessage="@string/summary_checkbox_enable_mic"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_mic_button"
+            android:dependency="checkbox_enable_mic"
+            android:title="@string/title_checkbox_mic_button"
+            android:dialogMessage="@string/summary_checkbox_mic_button"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_mic_echo_cancel"
             android:dependency="checkbox_enable_mic"

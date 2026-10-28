@@ -21,4 +21,12 @@
     <string name="summary_seekbar_mic_gain">Makes the microphone quieter or louder before it is sent. Loud peaks are rounded off instead of clipping.</string>
     <string-array name="mic_echo_names"><item>@string/mic_echo_auto</item><item>@string/mic_echo_on</item><item>@string/mic_echo_off</item></string-array>
     <string-array name="mic_echo_values" translatable="false"><item>auto</item><item>on</item><item>off</item></string-array>
+    <string name="title_checkbox_mic_button">Microphone button</string>
+    <string name="summary_checkbox_mic_button">Shows a button on the stream that mutes and unmutes the microphone. Drag it to move it.</string>
+    <string name="mic_button_mute">Mute microphone</string>
+    <string name="mic_button_unmute">Unmute microphone</string>
+    <string name="stream_mic_button_show">Show microphone button</string>
+    <string name="stream_mic_button_hide">Hide microphone button</string>
+    <string name="mic_effects_missing">Not on this device: %1$s. The microphone is sent without this processing.</string>
+    <string name="mic_effect_not_on_device">Not on this device</string>
 </resources>

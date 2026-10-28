@@ -312,6 +312,10 @@ public class SettingsKeysTest {
         reads.put("checkbox_mic_noise_suppression", new Read(true, false, c -> c.micNoiseSuppression));
         reads.put("checkbox_mic_auto_gain", new Read(false, true, c -> c.micAutoGain));
         reads.put("seekbar_mic_gain", new Read(100, 150, c -> c.micGainPercent));
+        reads.put("checkbox_mic_button", new Read(true, false, c -> c.micButton));
+        reads.put("list_osc_style", new Read("classic", "modern", c -> c.oscStyle));
+        reads.put("list_osc_stick_mode", new Read("floating", "fixed", c -> c.oscFloatingSticks ? "floating" : "fixed"));
+        reads.put("seekbar_osc_stick_deadzone", new Read(8, 15, c -> c.oscStickDeadzone));
         reads.put("checkbox_enable_audiofx", new Read(false, true, c -> c.enableAudioFx));
         reads.put("checkbox_audio_passthrough", new Read(false, true, c -> c.audioPassthrough));
         reads.put("checkbox_enable_perf_overlay", new Read(false, true, c -> c.enablePerfOverlay));

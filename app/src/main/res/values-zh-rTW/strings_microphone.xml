@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">讓裝置平衡小聲和大聲的說話。下方的麥克風增益會在此之上套用。</string>
     <string name="title_seekbar_mic_gain">麥克風增益</string>
     <string name="summary_seekbar_mic_gain">在傳送前調低或調高麥克風。響亮的峰值會被圓滑處理而不會削波。</string>
+    <string name="title_checkbox_mic_button">麥克風按鈕</string>
+    <string name="summary_checkbox_mic_button">在串流畫面上顯示一個用來靜音和取消靜音麥克風的按鈕。拖曳即可移動。</string>
+    <string name="mic_button_mute">將麥克風靜音</string>
+    <string name="mic_button_unmute">取消麥克風靜音</string>
+    <string name="stream_mic_button_show">顯示麥克風按鈕</string>
+    <string name="stream_mic_button_hide">隱藏麥克風按鈕</string>
+    <string name="mic_effects_missing">此裝置不支援：%1$s。麥克風會在沒有這些處理的情況下傳送。</string>
+    <string name="mic_effect_not_on_device">此裝置不支援</string>
 </resources>

@@ -1214,6 +1214,9 @@ public class StreamSettings extends NightjarActivity {
             setShown(PreferenceConfiguration.AUDIO_PASSTHROUGH_PREF_STRING,
                     SettingRules.audioPassthroughApplies(prefs, Build.VERSION.SDK_INT));
             setShown(PreferenceConfiguration.USB_FORWARDING_PREF_STRING, SettingRules.usbForwardingApplies(prefs));
+            boolean modern = SettingRules.modernControllerApplies(prefs);
+            setShown(PreferenceConfiguration.OSC_STICK_MODE_PREF_STRING, modern);
+            setShown(PreferenceConfiguration.OSC_STICK_DEADZONE_PREF_STRING, modern);
             boolean open = customizeOpen();
             for (String key : LOW_LATENCY_CUSTOMIZED) {
                 if (open) folded.remove(key);
@@ -1277,6 +1280,11 @@ public class StreamSettings extends NightjarActivity {
                     continue;
                 } else if ("stream_profiles".equals(pref.getKey())) {
                     value = profilesSummary(getActivity());
+                } else if (SettingRules.micEffect(pref.getKey()) != null && !(pref instanceof ListPreference)) {
+                    // The switches have no value line; it says when the device lacks the effect.
+                    pref.setSummary(SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects()) ?
+                            getString(R.string.mic_effect_not_on_device) : null);
+                    continue;
                 } else if ("gpu_driver".equals(pref.getKey())) {
                     GpuDriverStore.Driver driver = GpuDriverStore.selected(getActivity());
                     value = driver == null ? getString(R.string.gpu_driver_system) : driver.name;
@@ -1300,10 +1308,28 @@ public class StreamSettings extends NightjarActivity {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_tenbit_short));
                     }
                 }
+                if (value != null && SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects())) {
+                    value = getString(R.string.settings_joined, value, getString(R.string.mic_effect_not_on_device));
+                }
                 if (value != null) {
                     pref.setSummary(pref instanceof ListPreference ? value.toString().replace("%", "%%") : value);
                 }
             }
+        }
+
+        private com.limelight.binding.audio.MicProcessing.Availability micEffects;
+
+        /** What this device offers, asked once: Android answers the same until it updates. */
+        private com.limelight.binding.audio.MicProcessing.Availability micEffects() {
+            if (micEffects == null) {
+                java.util.EnumMap<com.limelight.binding.audio.MicProcessing.Effect, Boolean> has =
+                        new java.util.EnumMap<>(com.limelight.binding.audio.MicProcessing.Effect.class);
+                for (com.limelight.binding.audio.MicProcessing.Effect effect : com.limelight.binding.audio.MicProcessing.Effect.values()) {
+                    has.put(effect, com.limelight.binding.audio.MicEffects.DEVICE.has(effect));
+                }
+                micEffects = effect -> Boolean.TRUE.equals(has.get(effect));
+            }
+            return micEffects;
         }
 
         private boolean hasMicPermission() {

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The modern on-screen controller and its layout editor. -->
+<resources>
+    <string name="title_list_osc_style">Controller style</string>
+    <string name="summary_list_osc_style">Classic is the original on-screen gamepad. Modern has analog sticks that follow your thumb, face buttons that press two at once between them, and a layout editor that can keep a layout for each game.</string>
+    <string name="osc_style_classic">Classic</string>
+    <string name="osc_style_modern">Modern</string>
+    <string name="title_list_osc_stick_mode">Modern controller sticks</string>
+    <string name="summary_list_osc_stick_mode">Floating centers a stick where your thumb lands; Fixed keeps it where it is drawn.</string>
+    <string name="osc_stick_floating">Floating</string>
+    <string name="osc_stick_fixed">Fixed</string>
+    <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
+    <string name="summary_seekbar_osc_stick_deadzone">How far a thumb moves before a modern controller stick answers</string>
+    <string name="pad_edit_title">Edit controller layout</string>
+    <string name="pad_edit_all">All controls</string>
+    <string name="pad_edit_hidden">%1$s (hidden)</string>
+    <string name="pad_edit_hint">Drag a control to move it, pinch it to resize it, tap it to change only that one.</string>
+    <string name="pad_edit_smaller">Smaller</string>
+    <string name="pad_edit_larger">Larger</string>
+    <string name="pad_edit_size">Size</string>
+    <string name="pad_edit_this_game">Only for this game</string>
+    <string name="pad_edit_hide">Hide</string>
+    <string name="pad_edit_show">Show</string>
+    <string name="pad_edit_reset">Reset</string>
+    <string name="pad_edit_done">Done</string>
+    <string name="pad_left_stick">Left stick</string>
+    <string name="pad_right_stick">Right stick</string>
+    <string name="pad_dpad">D-pad</string>
+    <string name="pad_face">Face buttons</string>
+    <string name="pad_view">View</string>
+    <string name="pad_menu">Menu</string>
+    <string name="pad_home">Home</string>
+    <string-array name="osc_style_names"><item>@string/osc_style_classic</item><item>@string/osc_style_modern</item></string-array>
+    <string-array name="osc_style_values" translatable="false"><item>classic</item><item>modern</item></string-array>
+    <string-array name="osc_stick_mode_names"><item>@string/osc_stick_floating</item><item>@string/osc_stick_fixed</item></string-array>
+    <string-array name="osc_stick_mode_values" translatable="false"><item>floating</item><item>fixed</item></string-array>
+</resources>

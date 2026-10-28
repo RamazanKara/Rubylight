@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">Пристрій вирівнює тиху й гучну мову. Підсилення мікрофона нижче застосовується додатково.</string>
     <string name="title_seekbar_mic_gain">Підсилення мікрофона</string>
     <string name="summary_seekbar_mic_gain">Робить мікрофон тихішим або гучнішим перед надсиланням. Гучні піки згладжуються, а не перевантажуються.</string>
+    <string name="title_checkbox_mic_button">Кнопка мікрофона</string>
+    <string name="summary_checkbox_mic_button">Показує поверх трансляції кнопку, яка вимикає та вмикає мікрофон. Перетягніть, щоб перемістити.</string>
+    <string name="mic_button_mute">Вимкнути мікрофон</string>
+    <string name="mic_button_unmute">Увімкнути мікрофон</string>
+    <string name="stream_mic_button_show">Показати кнопку мікрофона</string>
+    <string name="stream_mic_button_hide">Сховати кнопку мікрофона</string>
+    <string name="mic_effects_missing">Немає на цьому пристрої: %1$s. Мікрофон передається без цієї обробки.</string>
+    <string name="mic_effect_not_on_device">Немає на цьому пристрої</string>
 </resources>

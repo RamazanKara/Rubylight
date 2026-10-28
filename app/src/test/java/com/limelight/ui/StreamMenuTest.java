@@ -176,7 +176,7 @@ public class StreamMenuTest {
             if (entry.section != StreamMenu.Section.OVERLAY_STYLE && entry.section != StreamMenu.Section.OVERLAY_POSITION) entries.add(entry);
         }
         assertTrue(items(entries).containsAll(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT,
-                GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
+                MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
                 OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST, USB_DEVICES, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE)));
         Map<Integer, StreamMenu.Item> seen = new LinkedHashMap<>();
         for (StreamMenu.Entry entry : entries) {
@@ -283,6 +283,31 @@ public class StreamMenuTest {
         assertEquals(Boolean.FALSE, mic.checked);
         assertEquals(R.drawable.ic_mic_off, mic.icon);
         assertTrue(mic.keepsMenuOpen());
+    }
+
+    @Test
+    public void theMicrophoneButtonToggleFollowsTheHostAndTheSetting() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse("No microphone, no button to show", items(StreamMenu.mainPage(options)).contains(MIC_BUTTON));
+        options.microphoneOffered = true;
+        options.micButtonShown = true;
+        StreamMenu.Entry hide = entry(StreamMenu.mainPage(options), MIC_BUTTON);
+        assertEquals(StreamMenu.Section.INPUT, hide.section);
+        assertEquals(R.string.stream_mic_button_hide, hide.label);
+        assertFalse("Showing or hiding the button closes the menu", hide.keepsMenuOpen());
+        options.micButtonShown = false;
+        assertEquals(R.string.stream_mic_button_show, entry(StreamMenu.mainPage(options), MIC_BUTTON).label);
+        // It is a touch control: nothing to tap without input.
+        options.canSendInput = false;
+        assertFalse(items(StreamMenu.mainPage(options)).contains(MIC_BUTTON));
+        assertTrue(items(StreamMenu.mainPage(options)).contains(MICROPHONE));
+    }
+
+    private static StreamMenu.Entry entry(List<StreamMenu.Entry> entries, StreamMenu.Item item) {
+        for (StreamMenu.Entry entry : entries) {
+            if (entry.item == item) return entry;
+        }
+        throw new AssertionError(item + " is missing");
     }
 
     @Test

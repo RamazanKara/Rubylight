@@ -2,6 +2,8 @@ package com.limelight.preferences;
 
 import android.content.SharedPreferences;
 
+import com.limelight.binding.audio.MicProcessing;
+
 /**
  * Which settings apply given the others, so the Settings screens can disable or hide the ones that
  * would do nothing. The stream configuration enforces the same overrides when it reads the settings
@@ -72,5 +74,37 @@ final class SettingRules {
     static boolean roamingMeteredApplies(SharedPreferences prefs) {
         return clientRoamingApplies(prefs) &&
                 prefs.getBoolean(PreferenceConfiguration.CLIENT_ROAMING_PREF_STRING, true);
+    }
+
+    /** The stick settings belong to the modern controller only. */
+    static boolean modernControllerApplies(SharedPreferences prefs) {
+        return PreferenceConfiguration.OSC_STYLE_MODERN.equals(
+                PreferenceConfiguration.oscStyle(prefs.getString(PreferenceConfiguration.OSC_STYLE_PREF_STRING, null)));
+    }
+
+    /** The audio effect a microphone setting turns on, or null for every other setting. */
+    static MicProcessing.Effect micEffect(String key) {
+        if (PreferenceConfiguration.MIC_ECHO_PREF_STRING.equals(key)) return MicProcessing.Effect.ECHO_CANCELER;
+        if (PreferenceConfiguration.MIC_NOISE_PREF_STRING.equals(key)) return MicProcessing.Effect.NOISE_SUPPRESSOR;
+        if (PreferenceConfiguration.MIC_AUTO_GAIN_PREF_STRING.equals(key)) return MicProcessing.Effect.AUTOMATIC_GAIN;
+        return null;
+    }
+
+    /**
+     * Whether the setting asks for an effect this device does not have, so its row says so: echo
+     * cancellation unless it is off, the switches while on. The stream says the same when the
+     * microphone opens.
+     */
+    static boolean micEffectMissing(String key, SharedPreferences prefs, MicProcessing.Availability device) {
+        MicProcessing.Effect effect = micEffect(key);
+        if (effect == null || device.has(effect)) return false;
+        switch (effect) {
+            case ECHO_CANCELER:
+                return MicProcessing.Echo.of(prefs.getString(key, null)) != MicProcessing.Echo.OFF;
+            case NOISE_SUPPRESSOR:
+                return prefs.getBoolean(key, true);
+            default:
+                return prefs.getBoolean(key, false);
+        }
     }
 }

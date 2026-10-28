@@ -237,6 +237,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private MouseDeltaAccumulator desktopScrollV = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopScrollH = new MouseDeltaAccumulator();
     private VirtualController virtualController;
+    // The modern on-screen controller, used instead of the classic one when the settings ask for it.
+    private com.limelight.binding.input.pad.ModernController modernController;
+    private com.limelight.ui.MicButton micButton;
 
     private PreferenceConfiguration prefConfig;
     private SharedPreferences tombstonePrefs;
@@ -1424,6 +1427,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         restoreMicrophoneMute();
+        conn.setMicrophoneNoticeListener(() -> runOnUiThread(this::showMicrophoneNotice));
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
         updateInputPollingRate();
@@ -1461,12 +1465,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         if (prefConfig.onscreenController && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
-            // create virtual onscreen controller
-            virtualController = new VirtualController(controllerHandler,
-                    (FrameLayout)streamView.getParent(),
-                    this);
-            virtualController.refreshLayout();
-            virtualController.show();
+            showOnscreenController();
+        }
+        if (prefConfig.enableMic && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
+            micButton = new com.limelight.ui.MicButton(this, new com.limelight.ui.MicButton.Host() {
+                @Override public boolean offered() { return conn != null && conn.getMicrophoneStatus().canMute(); }
+                @Override public boolean muted() { return conn != null && conn.isMicrophoneMuted(); }
+                @Override public void setMuted(boolean muted) { if (conn != null) conn.setMicrophoneMuted(muted); }
+                @Override public float topRowBottom() {
+                    return modernController != null && prefConfig.onscreenController ? modernController.topRowBottom() : Float.NaN;
+                }
+            });
+            ((FrameLayout) streamView.getParent()).addView(micButton, micButton.layoutParams());
+            updateMicButton();
         }
 
         if ((prefConfig.usbDriver || prefConfig.usbDualSense || prefConfig.usbSwitchPro) && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
@@ -1733,6 +1744,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // Refresh layout of OSC for possible new screen size
             virtualController.refreshLayout();
         }
+        // The modern controller and the microphone button follow their frame's size by themselves.
 
         applyVideoScaling();
 
@@ -1748,6 +1760,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (virtualController != null) {
                     virtualController.hide();
                 }
+                if (modernController != null) {
+                    modernController.finishEditing(false);
+                    modernController.hide();
+                }
+                updateMicButton();
                 if (keyboardOverlay != null) {
                     hideKeyboardOverlay();
                 }
@@ -1783,6 +1800,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (virtualController != null && prefConfig.onscreenController && canSendInput) {
                     virtualController.show();
                 }
+                if (modernController != null && prefConfig.onscreenController && canSendInput) {
+                    modernController.show();
+                }
+                updateMicButton();
 
                 if (prefConfig.enablePerfOverlay && app.getRole() != NvApp.Role.INPUT_ONLY) {
                     performanceOverlayScroll.setVisibility(View.VISIBLE);
@@ -1961,6 +1982,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             releaseMouseButtons();
             if (virtualController != null) {
                 virtualController.releaseInput();
+            }
+            if (modernController != null) {
+                modernController.releaseInput();
             }
         }
         if (controllerHandler != null) {
@@ -2760,6 +2784,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (virtualController != null) {
             virtualController.hide();
         }
+        if (modernController != null) {
+            modernController.finishEditing(false);
+            modernController.hide();
+        }
+        if (micButton != null) micButton.setSuppressed(true);
 
         if (conn != null) {
             int videoFormat = decoderRenderer.getActiveVideoFormat();
@@ -2831,7 +2860,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void onBackPressed() {
-        if (connected && isPcKeyboardVisible()) {
+        if (modernController != null && modernController.isEditing()) {
+            // Back leaves the layout editor without keeping its changes, as Cancel does.
+            modernController.finishEditing(false);
+        } else if (connected && isPcKeyboardVisible()) {
             hidePcKeyboard();
         } else if (connected) {
             showStreamMenu();
@@ -2960,6 +2992,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.imageClipboard = conn.hasImageClipboard();
         options.microphoneOffered = conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = conn.isMicrophoneMuted();
+        options.micButtonShown = micButton != null && prefConfig.micButton;
         options.overlayShown = prefConfig.enablePerfOverlay;
         options.overlayMode = overlayMode;
         options.overlayPosition = overlayCorner.key;
@@ -3006,6 +3039,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case MOUSE_CURSOR: action = this::toggleCursorVisibility; break;
             case ONSCREEN_CONTROLS: action = () -> setOnscreenControlsEnabled(!prefConfig.onscreenController); break;
             case CONTROLS_LAYOUT: action = this::showControllerLayoutDialog; break;
+            case MIC_BUTTON: action = () -> setMicButtonShown(!prefConfig.micButton); break;
             case GAME_CONTROLS: action = gameTouchControls == null ? null : gameTouchControls::showMenu; break;
             case KEYBOARD_KEYS: action = this::toggleKeyboardOverlay; break;
             case VIDEO_SCALING: action = this::showVideoScalingDialog; break;
@@ -3211,9 +3245,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (read) com.limelight.ui.StreamMenuHint.markSeen(this);
     }
 
+    private String shownMicrophoneNotice;
+
+    // The microphone settings ask for processing this device lacks: say so in the stream, once per difference.
+    private void showMicrophoneNotice() {
+        if (conn == null || isFinishing() || isDestroyed()) return;
+        String text = com.limelight.binding.audio.MicNotice.text(this, conn.takeMicrophoneNotice());
+        if (text == null || text.equals(shownMicrophoneNotice)) return;
+        shownMicrophoneNotice = text;
+        messages.alert(text, Toast.LENGTH_LONG);
+    }
+
     private void toggleMicrophoneMute() {
         if (conn == null) return;
         conn.setMicrophoneMuted(!conn.isMicrophoneMuted());
+        if (micButton != null) micButton.refresh();
     }
 
     private boolean latencyTestRunning;
@@ -3600,6 +3646,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void collectOverlayObstacles(java.util.List<Rect> out) {
         View parent = (View) performanceOverlayScroll.getParent();
         if (virtualController != null && prefConfig.onscreenController) virtualController.collectVisibleBounds(out);
+        if (modernController != null && prefConfig.onscreenController) modernController.collectVisibleBounds(out);
+        if (micButton != null) com.limelight.ui.OverlayPlacement.addVisible(micButton, parent, out);
         if (gameTouchControls != null) gameTouchControls.collectVisibleBounds(parent, out);
         if (isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(keyboardOverlay, parent, out);
         if (isPcKeyboardVisible()) com.limelight.ui.OverlayPlacement.addVisible(pcKeyboard, parent, out);
@@ -3877,22 +3925,75 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         prefConfig.onscreenController = enabled;
         if (enabled) {
-            if (virtualController == null) {
-                virtualController = new VirtualController(controllerHandler, (FrameLayout) streamView.getParent(), this);
+            showOnscreenController();
+        } else {
+            if (virtualController != null) {
+                virtualController.setControllerMode(VirtualController.ControllerMode.Active);
+                virtualController.hide();
             }
-            virtualController.refreshLayout();
-            virtualController.show();
-        } else if (virtualController != null) {
-            virtualController.setControllerMode(VirtualController.ControllerMode.Active);
-            virtualController.hide();
+            if (modernController != null) {
+                modernController.finishEditing(false);
+                modernController.hide();
+            }
         }
+        // The microphone button's default place follows the modern controller's top row.
+        if (micButton != null) micButton.place();
         PreferenceManager.getDefaultSharedPreferences(this).edit()
                 .putBoolean("checkbox_show_onscreen_controls", enabled).apply();
         // Hiding controls changes no layout by itself; ask for one so the overlay can move back.
         performanceOverlayScroll.requestLayout();
     }
 
+    // Creates the on-screen controller the settings ask for, or brings the existing one back.
+    private void showOnscreenController() {
+        if (prefConfig.modernOnscreenController()) {
+            if (modernController == null) {
+                String game = com.limelight.binding.input.TouchLayout.profileKey(getIntent().getStringExtra(EXTRA_PC_UUID),
+                        app.getAppUuid(), app.getAppId());
+                modernController = new com.limelight.binding.input.pad.ModernController(this,
+                        (FrameLayout) streamView.getParent(), new com.limelight.binding.input.HeldInputState.Sink() {
+                            @Override public void key(int key, boolean down) { }
+                            @Override public void mouse(int button, boolean down) { }
+                            @Override public void gamepad(int buttons, short leftX, short leftY, short rightX, short rightY,
+                                                          byte leftTrigger, byte rightTrigger) {
+                                // The same on-screen gamepad report as the classic controller.
+                                if (controllerHandler != null) controllerHandler.reportOscState(buttons,
+                                        leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
+                            }
+                        }, prefConfig, game);
+                modernController.refreshLayout();
+            }
+            modernController.show();
+            return;
+        }
+        if (virtualController == null) {
+            virtualController = new VirtualController(controllerHandler, (FrameLayout) streamView.getParent(), this);
+        }
+        virtualController.refreshLayout();
+        virtualController.show();
+    }
+
+    // Shows the microphone button when its setting is on, the host takes the microphone and input is allowed.
+    private void updateMicButton() {
+        if (micButton == null) return;
+        micButton.setSuppressed(!prefConfig.micButton || isHidingOverlays || conn == null || !conn.canSendInput());
+        micButton.place();
+    }
+
+    private void setMicButtonShown(boolean shown) {
+        prefConfig.micButton = shown;
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putBoolean(com.limelight.preferences.PreferenceConfiguration.MIC_BUTTON_PREF_STRING, shown).apply();
+        updateMicButton();
+        performanceOverlayScroll.requestLayout();
+    }
+
     private void showControllerLayoutDialog() {
+        if (modernController != null) {
+            // The modern controller edits in place: drag, pinch and the panel instead of modes.
+            modernController.startEditing();
+            return;
+        }
         showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.stream_controls_layout)
                 .setItems(R.array.stream_control_layout_actions, (dialog, which) -> {
                     VirtualController.ControllerMode[] modes = {
@@ -4784,6 +4885,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             releaseMouseButtons();
             if (virtualController != null) {
                 virtualController.releaseInput();
+            }
+            if (modernController != null) {
+                modernController.releaseInput();
             }
             inputCaptureProvider.disableCapture();
         }
@@ -6112,9 +6216,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // This case is for fingers
             else
             {
-                if (virtualController != null &&
+                if ((virtualController != null &&
                         (virtualController.getControllerMode() == VirtualController.ControllerMode.MoveButtons ||
-                         virtualController.getControllerMode() == VirtualController.ControllerMode.ResizeButtons)) {
+                         virtualController.getControllerMode() == VirtualController.ControllerMode.ResizeButtons)) ||
+                        (modernController != null && modernController.isEditing())) {
                     // Ignore presses when the virtual controller is being configured
                     return true;
                 }
@@ -6786,6 +6891,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     if (virtualController != null) {
                         virtualController.hide();
                     }
+                    if (modernController != null) modernController.hide();
+                    if (micButton != null) micButton.setSuppressed(true);
                     controllerHandler.stop();
                     setInputGrabState(false);
                 }

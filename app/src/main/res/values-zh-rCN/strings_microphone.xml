@@ -19,4 +19,12 @@
     <string name="summary_checkbox_mic_auto_gain">让设备平衡小声和大声的说话。下方的麦克风增益会在此基础上应用。</string>
     <string name="title_seekbar_mic_gain">麦克风增益</string>
     <string name="summary_seekbar_mic_gain">在发送前调低或调高麦克风。响亮的峰值会被圆滑处理而不会削波。</string>
+    <string name="title_checkbox_mic_button">麦克风按钮</string>
+    <string name="summary_checkbox_mic_button">在串流画面上显示一个用于静音和取消静音麦克风的按钮。拖动即可移动。</string>
+    <string name="mic_button_mute">静音麦克风</string>
+    <string name="mic_button_unmute">取消静音麦克风</string>
+    <string name="stream_mic_button_show">显示麦克风按钮</string>
+    <string name="stream_mic_button_hide">隐藏麦克风按钮</string>
+    <string name="mic_effects_missing">此设备不支持：%1$s。麦克风将不经过这些处理直接发送。</string>
+    <string name="mic_effect_not_on_device">此设备不支持</string>
 </resources>

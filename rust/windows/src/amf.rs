@@ -208,6 +208,8 @@ struct Submitted {
     idr: bool,
     after_invalidation: bool,
     frame_cap_bytes: Option<u64>,
+    /// Frames since the IDR the client never decoded (`ltr::Plan::skipped`).
+    skipped: u64,
 }
 struct Submission {
     pts: i64,
@@ -217,6 +219,7 @@ struct Submission {
     idr: bool,
     after_invalidation: bool,
     frame_cap_bytes: Option<u64>,
+    skipped: u64,
     _capture: Option<GpuImage>,
     _converted: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D>>,
 }
@@ -272,6 +275,14 @@ pub struct Encoder {
     rate_control: rate_control::State,
     frame_cap: rate_control::FrameCap,
     references: butterpollo_core::ltr::References,
+    /// AMF's H.264 and HEVC headers as a client that dropped frames until a
+    /// long-term reference repair needs them: only on a stream with LTR.
+    repair_headers: Option<butterpollo_core::bitstream::RepairHeaders>,
+    /// A header rewrite failed: outputs are dropped until the keyframe it
+    /// asked for, as their headers no longer match what the client has.
+    repair_dropping: bool,
+    /// The bytes of a frame whose slices are still coming.
+    frame_bytes: usize,
     ownership: Box<gpu::Ownership>,
     pub(crate) luminance: [f32; 2],
     /// The couch menu's panel, drawn by the conversion while set.
@@ -606,6 +617,9 @@ impl Encoder {
                 rate_control: rate_control::State::new(config.bitrate_kbps, scale_frame_cap),
                 frame_cap: rate_control::FrameCap::new(automatic_frame_cap),
                 references: Default::default(),
+                repair_headers: None,
+                repair_dropping: false,
+                frame_bytes: 0,
                 ownership: gpu::Ownership::new(),
                 luminance: [100., 1.],
                 overlay: None,
@@ -1582,6 +1596,8 @@ impl Encoder {
                     count,
                     butterpollo_core::ltr::Counter::for_codec(self.codec),
                 );
+                self.repair_headers =
+                    butterpollo_core::bitstream::RepairHeaders::for_codec(self.codec);
                 tracing::info!(count, "AMF long-term reference recovery enabled");
             }
             Err(error) => {
@@ -1738,6 +1754,7 @@ impl Encoder {
                     idr: s.idr,
                     after_invalidation: s.after_invalidation,
                     frame_cap_bytes: s.frame_cap_bytes,
+                    skipped: s.skipped,
                 }
             });
             if let Some(position) = position.filter(|_| last) {
@@ -1751,6 +1768,7 @@ impl Encoder {
             let requested_idr = submission.as_ref().is_some_and(|s| s.idr);
             let frame_cap_bytes = submission.as_ref().and_then(|s| s.frame_cap_bytes);
             let after_invalidation = submission.is_some_and(|s| s.after_invalidation);
+            let skipped = submission.map_or(0, |s| s.skipped);
             let v = &*(*buffer).pVtbl;
             let size = (v.GetSize.unwrap())(buffer);
             let raw = (v.GetNative.unwrap())(buffer) as *const u8;
@@ -1777,7 +1795,25 @@ impl Encoder {
                 // or the GOP) settles the rate control as a requested one.
                 self.focus.keyframe_out();
             }
-            let bytes = std::slice::from_raw_parts(raw, size as usize);
+            let Some(sent) = self.repaired(
+                std::slice::from_raw_parts(raw, size as usize),
+                skipped,
+                idr && requested_idr,
+            ) else {
+                (v.Release.unwrap())(buffer);
+                if self.slice_blocks > 0 {
+                    self.units.forget(pts);
+                }
+                if last {
+                    self.frame_completed(timing, false);
+                }
+                return Ok(output);
+            };
+            self.frame_bytes += sent.len();
+            if last {
+                self.references.encoded(idr, std::mem::take(&mut self.frame_bytes));
+            }
+            let bytes: &[u8] = &sent;
             if self.slice_blocks > 0 {
                 let streamable = !self.slices_joined
                     && !idr
@@ -1859,7 +1895,7 @@ impl Encoder {
                     frame_cap_bytes,
                     idr,
                 );
-                (spliced.unwrap_or_else(|| bytes.to_vec()), cap)
+                (spliced.unwrap_or_else(|| sent.into_owned()), cap)
             };
             (v.Release.unwrap())(buffer);
             self.frame_completed(timing, !bytes.is_empty());
@@ -1922,6 +1958,35 @@ impl Encoder {
                     limit = self.backlog.limit(),
                     "AMF application backlog learned"
                 );
+            }
+        }
+    }
+    /// AMF's bytes as the client must get them ([`RepairHeaders`]), or
+    /// `None` to drop them: after a rewrite fails, every output until the
+    /// requested keyframe, which brings AMF's own headers back.
+    ///
+    /// [`RepairHeaders`]: butterpollo_core::bitstream::RepairHeaders
+    fn repaired<'a>(
+        &mut self,
+        bytes: &'a [u8],
+        skipped: u64,
+        requested_keyframe: bool,
+    ) -> Option<std::borrow::Cow<'a, [u8]>> {
+        if self.repair_dropping {
+            if !requested_keyframe {
+                return None;
+            }
+            self.repair_dropping = false;
+        }
+        match butterpollo_core::bitstream::repaired(self.repair_headers.as_mut(), bytes, skipped) {
+            Ok(bytes) => Some(bytes),
+            Err(error) => {
+                tracing::error!(%error, codec = self.codec, "AMF output has headers the long-term reference repair cannot rewrite; dropping frames until a keyframe, then recovering with keyframes for the rest of the session. Report this with the host log.");
+                self.repair_headers = None;
+                self.references.disable();
+                self.recover = true;
+                self.repair_dropping = true;
+                None
             }
         }
     }
@@ -2268,6 +2333,7 @@ impl Encoder {
                 idr,
                 after_invalidation: plan.after_invalidation,
                 frame_cap_bytes: self.frame_cap.effective(),
+                skipped: plan.skipped,
                 _capture: self.compute.is_none().then(|| image.clone()),
                 _converted: converted,
             });

@@ -76,6 +76,8 @@ public class NvConnectionNativeActionsTest {
         final List<String> arguments = new CopyOnWriteArrayList<>();
         final CountDownLatch called = new CountDownLatch(1);
         volatile boolean hostControl = true;
+        /** The capabilities' permissions.usb, as JSON; empty leaves it out. */
+        volatile String usb = "";
         /** The answer to Close game, when it is not the session. */
         volatile String closeReply;
         /** The capabilities' feature list, as JSON. */
@@ -87,7 +89,8 @@ public class NvConnectionNativeActionsTest {
             if (op.equals("capabilities")) {
                 called.countDown();
                 return "{\"ok\":{\"api_version\":1,\"host\":{\"name\":\"PC\",\"version\":\"3.0.0\"},\"features\":[" + features + "],"
-                        + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":" + hostControl + "}}}";
+                        + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":" + hostControl
+                        + (usb.isEmpty() ? "" : ",\"usb\":" + usb) + "}}}";
             }
             if (op.equals("couch_menu")) {
                 arguments.add(argument);
@@ -229,6 +232,38 @@ public class NvConnectionNativeActionsTest {
         } catch (IOException expected) {
             // Told to the user like any other refusal.
         }
+    }
+
+    /** The stream menu's USB devices row: the host's {@code usb} feature and this device's USB permission. */
+    @Test
+    public void usbForwardingNeedsTheHostsFeatureAndThisDevicesPermission() throws Exception {
+        Http[] http = new Http[1];
+        Recording transport = new Recording();
+        transport.features = "\"usb\"";
+        transport.usb = "true";
+        NvConnection connection = connection(NATIVE, http, transport);
+        assertFalse("Nothing is offered before the capabilities answer", connection.offersUsbForwarding());
+        assertUsbForwarding(connection, true);
+
+        transport.features = "";
+        assertUsbForwarding(connection, false);
+        transport.features = "\"usb\"";
+        assertUsbForwarding(connection, true);
+        transport.usb = "false";
+        assertUsbForwarding(connection, false);
+        transport.usb = "true";
+        assertUsbForwarding(connection, true);
+        // A host that leaves the permission out refuses it.
+        transport.usb = "";
+        assertUsbForwarding(connection, false);
+    }
+
+    private static void assertUsbForwarding(NvConnection connection, boolean expected) throws InterruptedException {
+        connection.refreshNativeHostControl();
+        for (int i = 0; i < 100 && connection.offersUsbForwarding() != expected; i++) {
+            Thread.sleep(20);
+        }
+        assertEquals(expected, connection.offersUsbForwarding());
     }
 
     @Test

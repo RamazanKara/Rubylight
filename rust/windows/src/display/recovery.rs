@@ -543,6 +543,7 @@ fn lease_hdr(
 /// stay: a physical display that is gone gets its settings back when it
 /// returns (Windows remembers them per display), and recovery retries a
 /// failed restore.
+#[allow(clippy::too_many_arguments)] // One restore step per leased setting, so tests can stand in for each.
 fn restore_settings(
     settings: &Settings,
     identity: &str,

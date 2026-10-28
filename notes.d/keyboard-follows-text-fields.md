@@ -1,3 +1,0 @@
-## en
-- Keyboard follows text fields (Experimental): on a Rubylight PC, the keyboard opens when you tap, click or type into a text field in the stream, fitting the field (digits for numbers, no suggestions for passwords), and closes after. A field a game focuses by itself leaves it closed, and once you close it, it stays closed for that field. The stream moves up so the field stays above the keyboard. Off in Settings. Desktop does the same where the system has an on-screen keyboard.
-- Nightjar tells a Rubylight PC its keyboard layout, so games that read raw keys get the keys on your keyboard, German included.

@@ -1,3 +1,0 @@
-## en
-- PyroWave HDR: a screen that shows HDR only as HLG now gets HLG on PyroWave too, from a Rubylight PC with this update. Nightjar checks on each device before the stream whether its display takes HLG; one that refuses it gets HDR10, and the status line says so. On our Android 13 Retroid Pocket 6 the standard Android call refuses HLG and the window's own call takes it, so it streams HLG. With an older Rubylight 3.0 PC the stream stays HDR10, and the overlay says that updating the PC's host adds HLG.
-- Dolby Vision needs HEVC or AV1 and the device's own Dolby Vision decoder, so PyroWave streams HDR10 or HLG on a Dolby Vision screen. HDR10+ needs HEVC or AV1. Nightjar says so once per PC.

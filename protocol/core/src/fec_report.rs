@@ -15,7 +15,7 @@
 //! | 2 | u16 | reserved, 0 |
 //! | 4 | u32 | seq: 0 for the stream's first report, then +1 |
 //! | 8 | u32 | data shards of the FEC blocks finished in the interval |
-//! | 12 | u32 | parity shards of those blocks |
+//! | 12 | u32 | parity shards of those blocks up to their last arrival (0 on a clean link) |
 //! | 16 | u32 | shards of those blocks that never arrived |
 //! | 20 | u16 | blocks with more missing shards than parity |
 //! | 22 | u16 | measured interval in ms, 250-5000 |

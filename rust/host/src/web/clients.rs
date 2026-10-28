@@ -93,10 +93,10 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .iter_mut()
                 .find(|c| c.uuid == text("uuid"))
                 .ok_or_else(|| anyhow::anyhow!("client not found"))?;
-            // Host control, Sleep PC and USB forwarding are granted only here,
-            // and only as a real boolean (null clears it). Anything else is
-            // refused before any change.
-            for key in ["host_control", "allow_sleep", "allow_usb"] {
+            // Host control, Sleep PC, USB forwarding and Join co-op are granted
+            // only here, and only as a real boolean (null clears it). Anything
+            // else is refused before any change.
+            for key in ["host_control", "allow_sleep", "allow_usb", "coop_join"] {
                 if data
                     .get(key)
                     .is_some_and(|v| !v.is_boolean() && !v.is_null())
@@ -477,6 +477,31 @@ mod tests {
         ));
         assert!(disconnects(json!({"shared_folders": null})));
         assert!(!disconnects(json!({"shared_folders": null})));
+    }
+
+    #[test]
+    fn join_co_op_is_granted_only_as_a_boolean() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let update = |value: serde_json::Value| {
+            handle(
+                &f.host,
+                "POST",
+                "/api/clients/update",
+                &json!({"uuid": client.uuid, "coop_join": value}),
+            )
+        };
+        let allowed = || f.host.paired.read().unwrap().clients[0].allows_coop_join();
+        let error = update(json!("yes")).unwrap_err();
+        assert_eq!(error.to_string(), "coop_join must be true, false or null");
+        assert!(!allowed());
+        update(json!(true)).unwrap();
+        assert!(allowed());
+        update(json!(false)).unwrap();
+        assert!(!allowed());
+        update(json!(true)).unwrap();
+        update(serde_json::Value::Null).unwrap();
+        assert!(!allowed());
     }
 
     #[test]

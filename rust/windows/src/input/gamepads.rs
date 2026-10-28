@@ -489,6 +489,16 @@ impl Gamepads {
             .copied()
             .collect();
         let active = ids.iter().fold(0, |mask, id| mask | (1 << id));
+        // A VHF pad that never got a state or a touch holds nothing. The
+        // driver refused the neutral report to one a launch's controller
+        // preparation had plugged a millisecond earlier (0x80070016). It
+        // stays in `active`, which would otherwise unplug it.
+        let untouched = |id: &u16| {
+            self.active.contains_key(id)
+                && !self.states.contains_key(id)
+                && !self.pointers.keys().any(|(pad, _)| u16::from(*pad) == *id)
+        };
+        let ids: Vec<_> = ids.into_iter().filter(|id| !untouched(id)).collect();
         let mut failure = None;
         for id in ids {
             for event in [
@@ -1074,5 +1084,43 @@ mod tests {
         let cancel_contact = submit_touch(&mut pointers, 6, 3, &touch(3, 0, 6, 17)).unwrap();
         assert_eq!(&cancel_contact[12..14], &[0, 4]);
         assert!(pointers.is_empty());
+    }
+    #[test]
+    fn release_skips_a_pad_that_holds_nothing_and_stays_loud_for_one_that_does() {
+        // A backend without a driver handle: every report to it fails.
+        let mut pads = Gamepads::open_options(
+            butterpollo_core::input_policy::USBIP_DUALSENSE,
+            butterpollo_core::input_policy::Policy::resolve(&Default::default()).unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+        pads.profile = 0;
+        // Plugged by a launch's controller preparation, then released at park.
+        pads.active.insert(0, 15);
+        pads.profiles.insert(0, 1);
+        pads.release_all().unwrap();
+        assert_eq!(pads.active.get(&0), Some(&15), "still plugged");
+
+        let neutral = Event::Controller {
+            id: 0,
+            active: 1,
+            buttons: 0,
+            left_trigger: 0,
+            right_trigger: 0,
+            sticks: [0; 4],
+        };
+        pads.states.insert(0, (neutral, Default::default()));
+        assert!(
+            pads.release_all().is_err(),
+            "a pad with a state is released"
+        );
+        pads.states.clear();
+        pads.pointers.insert((0, 17), 0);
+        assert!(
+            pads.release_all().is_err(),
+            "a pad with a touch is released"
+        );
+        // Drop would unplug through the missing handle and free slot 15.
+        pads.active.clear();
     }
 }

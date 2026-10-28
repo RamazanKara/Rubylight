@@ -51,5 +51,4 @@
     <string name="folders_save_lost">El archivo que se iba a guardar se perdió mientras el diálogo de guardado estaba abierto. No se guardó nada.</string>
     <string name="folders_partial_left">%1$s Queda un archivo parcial en %2$s.</string>
     <string name="folders_bad_path">Nightjar no puede abrir esta ruta: %1$s</string>
-    <string name="host_menu_folders_note">Experimental</string>
 </resources>

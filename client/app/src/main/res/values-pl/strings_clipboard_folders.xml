@@ -51,5 +51,4 @@
     <string name="folders_save_lost">Plik do zapisania został utracony, gdy okno zapisu było otwarte. Nic nie zapisano.</string>
     <string name="folders_partial_left">%1$s Niepełny plik pozostał w %2$s.</string>
     <string name="folders_bad_path">Nightjar nie może otworzyć tej ścieżki: %1$s</string>
-    <string name="host_menu_folders_note">Eksperymentalne</string>
 </resources>

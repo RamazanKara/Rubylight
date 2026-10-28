@@ -51,5 +51,4 @@
     <string name="folders_save_lost">Tệp cần lưu đã bị mất khi hộp thoại lưu đang mở. Chưa lưu gì.</string>
     <string name="folders_partial_left">%1$s Một tệp chưa hoàn tất vẫn còn ở %2$s.</string>
     <string name="folders_bad_path">Nightjar không mở được đường dẫn này: %1$s</string>
-    <string name="host_menu_folders_note">Thử nghiệm</string>
 </resources>

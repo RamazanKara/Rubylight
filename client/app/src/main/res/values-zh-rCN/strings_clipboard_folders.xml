@@ -51,5 +51,4 @@
     <string name="folders_save_lost">保存对话框打开期间，要保存的文件信息丢失了。未保存任何内容。</string>
     <string name="folders_partial_left">%1$s 不完整的文件仍留在 %2$s。</string>
     <string name="folders_bad_path">Nightjar 无法打开此路径：%1$s</string>
-    <string name="host_menu_folders_note">实验性</string>
 </resources>

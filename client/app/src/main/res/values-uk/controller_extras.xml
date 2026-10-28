@@ -52,7 +52,7 @@
     <string name="controller_test_needs_android_12">Потрібен Android 12 або новіший.</string>
 
     <!-- USB Switch Pro driver -->
-    <string name="title_usb_switch_pro">Драйвер Switch Pro через USB</string>
+    <string name="title_usb_switch_pro">Драйвер Switch Pro через USB (експериментально)</string>
     <string name="summary_usb_switch_pro">Експериментально. Зчитує дротовий Nintendo Switch Pro Controller напряму: датчики руху, вібрація, Home і Capture.</string>
     <string name="usb_switch_pro_denied">Немає доступу до USB; Switch Pro Controller працює через введення Android.\nПерепідключіть кабель, щоб повторити.</string>
 </resources>

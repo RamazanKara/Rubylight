@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="files_title">Dateien auf dem PC</string>
-    <string name="files_menu">Dateien (experimentell)</string>
+    <string name="files_menu">Dateien (Experimentell)</string>
     <string name="files_share_label">An PC senden</string>
     <string name="files_open">Öffnen</string>
     <string name="files_stream_leaves">Dateien öffnet eine eigene Seite und verlässt den Stream; das Spiel läuft auf dem PC weiter.</string>

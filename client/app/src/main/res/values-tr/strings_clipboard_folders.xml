@@ -51,5 +51,4 @@
     <string name="folders_save_lost">Kaydetme penceresi açıkken kaydedilecek dosya kayboldu. Hiçbir şey kaydedilmedi.</string>
     <string name="folders_partial_left">%1$s Yarım kalan bir dosya %2$s konumunda duruyor.</string>
     <string name="folders_bad_path">Nightjar bu yolu açamıyor: %1$s</string>
-    <string name="host_menu_folders_note">Deneysel</string>
 </resources>

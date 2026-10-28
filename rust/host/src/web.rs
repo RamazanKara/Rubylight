@@ -620,19 +620,6 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
             "initial credentials must be set from this computer",
         );
     }
-    // The child session's host runs as SYSTEM beside the user's programs: it
-    // only takes the main console's sign-in, never a first one from any of them.
-    if fresh_password
-        && h.config
-            .read()
-            .unwrap()
-            .boolean(butterpollo_core::child_session::CHILD_HOST_KEY, false)
-    {
-        return error(
-            StatusCode::FORBIDDEN,
-            "the child session's host uses the main console's sign-in: set it there and start the child session again",
-        );
-    }
     if path.starts_with("/api/")
         && !public
         && !fresh_password
@@ -828,10 +815,9 @@ pub(crate) async fn api(
     body: Bytes,
 ) -> Response {
     let path = uri.path();
-    // Before the body becomes a Value: a child-session start carries the
-    // Windows password, which must not be copied into one.
+    // What is left of the removed child sessions takes no body.
     if path == "/api/child-session" || path.starts_with("/api/child-session/") {
-        return child_session::handle(&h, &method, path, body).await;
+        return child_session::handle(&h, &method, path).await;
     }
     let data: Value = if body.is_empty() {
         json!({})

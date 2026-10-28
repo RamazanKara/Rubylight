@@ -329,14 +329,15 @@ fn a_setup_whose_record_is_gone_turns_rdp_off_then_removes_its_rule() {
         key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
         0,
     );
-    assert!(enforce_unrecorded(&mut own).unwrap().is_empty());
+    assert_eq!(enforce_unrecorded(&mut own).unwrap(), Unrecorded::default());
     assert_eq!(own.rdp(), Some(0));
     assert!(own.log.borrow().is_empty());
     // Set up, then the record went: setup's block rule says so, RDP goes off, then the rule.
     let mut fake = Fake::new();
     set_up(&mut fake);
     assert_eq!(fake.rdp(), Some(0));
-    let found = enforce_unrecorded(&mut fake).unwrap();
+    let Unrecorded { found, left } = enforce_unrecorded(&mut fake).unwrap();
+    assert!(!left);
     assert_eq!(fake.rdp(), Some(1));
     assert!(fake.machine.block_rules.is_empty());
     assert!(
@@ -357,14 +358,19 @@ fn a_setup_whose_record_is_gone_turns_rdp_off_then_removes_its_rule() {
     // RDP off already: only the rule goes.
     let mut off = Fake::new();
     off.machine.block_rules.insert(BLOCK_RULE.into());
-    let found = enforce_unrecorded(&mut off).unwrap();
-    assert_eq!((off.rdp(), found.len()), (Some(1), 2), "{found:?}");
+    let Unrecorded { found, left } = enforce_unrecorded(&mut off).unwrap();
+    assert_eq!(
+        (off.rdp(), found.len(), left),
+        (Some(1), 2, false),
+        "{found:?}"
+    );
     assert!(off.machine.block_rules.is_empty());
     // One that cannot turn it off says so, and keeps the rule.
     let mut stuck = Fake::new();
     set_up(&mut stuck);
     stuck.fail_writes.insert("fDenyTSConnections".into());
-    let found = enforce_unrecorded(&mut stuck).unwrap();
+    let Unrecorded { found, left } = enforce_unrecorded(&mut stuck).unwrap();
+    assert!(left, "the block rule stays");
     assert_eq!(stuck.rdp(), Some(0));
     assert!(stuck.machine.block_rules.contains(BLOCK_RULE));
     assert!(

@@ -269,19 +269,29 @@ pub fn restore(
     }
 }
 
+/// What [`enforce_unrecorded`] found and did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Unrecorded {
+    /// What was found and done, for the log; empty without the block rule.
+    pub found: Vec<String>,
+    /// The block rule is still there: Remote Desktop could not be turned
+    /// off, or the rule could not be removed.
+    pub left: bool,
+}
+
 /// On a PC with no setup record: when setup's block rule is still there
 /// (the record is gone), child sessions were set up here, so Remote Desktop
-/// is turned off and, once it reads back off, the rule is removed. Empty
-/// without the rule: RDP, on or off, is then the user's own. Otherwise what
-/// was found and done, for the log. Err when the rule could not be looked
-/// for, with nothing changed.
-pub fn enforce_unrecorded(system: &mut dyn SystemSettings) -> Result<Vec<String>> {
+/// is turned off and, once it reads back off, the rule is removed. Nothing
+/// found without the rule: RDP, on or off, is then the user's own. Err when
+/// the rule could not be looked for, with nothing changed.
+pub fn enforce_unrecorded(system: &mut dyn SystemSettings) -> Result<Unrecorded> {
     if !system
         .block_rule_present(BLOCK_RULE)
         .context("looking for the firewall rule child-session setup added")?
     {
-        return Ok(Vec::new());
+        return Ok(Unrecorded::default());
     }
+    let mut left = true;
     let mut done = vec![format!(
         "the firewall rule \"{BLOCK_RULE}\" that child-session setup added is still there"
     )];
@@ -300,7 +310,10 @@ pub fn enforce_unrecorded(system: &mut dyn SystemSettings) -> Result<Vec<String>
     };
     match off {
         Ok(()) => done.push(match system.remove_rule(BLOCK_RULE) {
-            Ok(()) => format!("the firewall rule \"{BLOCK_RULE}\" was removed"),
+            Ok(()) => {
+                left = false;
+                format!("the firewall rule \"{BLOCK_RULE}\" was removed")
+            }
             Err(error) => format!(
                 "removing the firewall rule \"{BLOCK_RULE}\" failed ({error:#}); it only blocks Remote Desktop, so remove it in Windows Defender Firewall"
             ),
@@ -309,7 +322,7 @@ pub fn enforce_unrecorded(system: &mut dyn SystemSettings) -> Result<Vec<String>
             "the firewall rule \"{BLOCK_RULE}\" stays, as Remote Desktop may still be on ({error:#})"
         )),
     }
-    Ok(done)
+    Ok(Unrecorded { found: done, left })
 }
 
 /// Turn Remote Desktop off (`fDenyTSConnections = 1`), read it back, and

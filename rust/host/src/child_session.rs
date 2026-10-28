@@ -1,36 +1,26 @@
-//! Background streaming in a Windows child session (Experimental; no
-//! background mode picks it now, Nucleus Co-op is the only one). The console
-//! sets the PC up and restores it, a viewer started as the signed-in user
-//! attaches the child session's desktop (`--child-session-viewer`), and a
-//! second host streams that desktop from inside the child session with its
-//! own ports and name. The rules are `butterpollo_core::child_session`,
-//! ported from Annex (MIT).
+//! What is left of background streaming in a Windows child session, which
+//! Rubylight removed: Windows signs a child session in only with a Windows
+//! password, and a Microsoft account that uses only Windows Hello has none.
+//! Development builds set it up on some PCs, so at every start the host puts
+//! back the Windows settings that setup changed, deletes the password those
+//! builds saved and the child host's profile ([`retire_at_startup`]); the
+//! console's Restore again does the same ([`restore_again`]), and so does
+//! `--child-session-restore`, which the uninstaller runs. The rules are
+//! `butterpollo_core::child_session`, ported from Annex (MIT).
 use crate::state::Shared;
 use anyhow::{Context, Result, bail};
-use butterpollo_core::nucleus::mode::KEY;
-use butterpollo_core::{
-    child_session::{
-        self as logic, DisplaySettings, LineReader, Mode, ModeDecision, Phase, Registry,
-        SetupState, SystemSettings, ViewerCommand, ViewerStatus,
-    },
-    config::Config,
-    state::{Credentials, ProfileFiles, load_json, write_json},
-};
-use butterpollo_windows::{
-    child_session as native,
-    process::{PipedChild, Process, Target},
-};
+use butterpollo_core::child_session::{self as logic, SetupState, SystemSettings, Unrecorded};
+use butterpollo_windows::child_session as native;
 use serde_json::{Value, json};
 use std::{
-    ffi::OsString,
     fs::File,
     io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, PoisonError},
-    time::Instant,
 };
 
-/// The child-session host's own profile, inside this host's.
+/// The removed child session's own host kept its profile here, inside this
+/// host's.
 const CHILD_PROFILE: &str = "child-session";
 
 /// The PC's one record of what setup changed ([`logic::setup_record`]),
@@ -45,8 +35,8 @@ struct Record {
     /// SYSTEM and Administrators their only owner and writers from the start;
     /// AlreadyExists when anything has the name, which is left as it is.
     /// Users may read both: they hold nothing secret, and a host without
-    /// administrator rights reads the record to say why child sessions are
-    /// unavailable in it ([`unverified`]).
+    /// administrator rights reads the record to say that it is still there.
+    /// Only restore saves it now, to note what is back already.
     create_folder: fn(&Path) -> std::io::Result<()>,
     create_file: fn(&Path) -> std::io::Result<File>,
     /// Err unless SYSTEM or Administrators own the open file or folder, which
@@ -56,8 +46,7 @@ struct Record {
     /// is made in (`%ProgramData%\Butterpollo`), which `path` names, and alone
     /// may write it, and it is no link elsewhere.
     trusted_root: fn(&File, &Path) -> Result<()>,
-    /// Whether this process has administrator rights, which setup and
-    /// restore need.
+    /// Whether this process has administrator rights, which restore needs.
     elevated: fn() -> Result<bool>,
 }
 impl Record {
@@ -246,7 +235,7 @@ fn administrators_own(file: &File, path: &Path) -> Result<()> {
         .with_context(|| format!("reading the owner of {}", path.display()))?;
     if !matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544") {
         return foreign(format!(
-            "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
+            "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may have written it; Rubylight does not use it. Delete it, and turn Remote Desktop off if you don't use it",
             path.display()
         ));
     }
@@ -257,7 +246,7 @@ fn administrators_own(file: &File, path: &Path) -> Result<()> {
         .find(|sid| !matches!(sid.as_str(), "S-1-5-18" | "S-1-5-32-544"))
     {
         return foreign(format!(
-            "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
+            "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may have written it; Rubylight does not use it. Delete it, and turn Remote Desktop off if you don't use it",
             path.display()
         ));
     }
@@ -283,7 +272,7 @@ fn administrators_own_root(file: &File, path: &Path) -> Result<()> {
         .with_context(|| format!("reading the owner of {}", path.display()))?;
     if !matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544") {
         bail!(
-            "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may control it; Rubylight does not keep its child-session record in it and nothing was changed. Run Rubylight's setup again, which gives it to Administrators, then set up child sessions again",
+            "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may control it; Rubylight does not keep its child-session record in it and nothing was changed. Run Rubylight's setup again, which gives it to Administrators, then restore again",
             path.display()
         );
     }
@@ -294,214 +283,272 @@ fn administrators_own_root(file: &File, path: &Path) -> Result<()> {
         .find(|sid| !matches!(sid.as_str(), "S-1-5-18" | "S-1-5-32-544"))
     {
         bail!(
-            "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may make its own folders in it; Rubylight does not keep its child-session record in it and nothing was changed. Run Rubylight's setup again, which leaves it to Administrators, then set up child sessions again",
+            "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may make its own folders in it; Rubylight does not keep its child-session record in it and nothing was changed. Run Rubylight's setup again, which leaves it to Administrators, then restore again",
             path.display()
         );
     }
     Ok(())
 }
 
-/// Which background mode this host runs and why: Nucleus Co-op. A
-/// `background_mode` the file holds but that is not a mode runs none, and
-/// says why.
-pub(crate) fn decision(config: &Config) -> ModeDecision {
-    logic::decide(
-        config.get(KEY, ""),
-        config.boolean(logic::CHILD_HOST_KEY, false),
-    )
-}
-
-/// The startup line naming the background mode. The child session's own host
-/// also says which GPU renders its desktop, loudly when it can't be encoded.
-pub(crate) fn log_mode(config: &Config) {
-    if let Some(line) = butterpollo_core::nucleus::mode::legacy(config.get(KEY, "")) {
-        tracing::warn!("{line}");
-    }
-    let decision = decision(config);
-    if decision.mode == Mode::Unavailable {
-        tracing::error!(reason = %decision.reason, "{}", decision.label);
-    } else {
-        tracing::info!(mode = ?decision.mode, reason = %decision.reason, "{}", decision.label);
-    }
-    if decision.mode != Mode::InsideChildSession {
-        return;
-    }
-    match native::adapters() {
-        Ok((all, render)) => {
-            let verdict = logic::gpu_verdict(render.as_ref(), &all);
-            match logic::gpu_problem(&verdict) {
-                Some(problem) => tracing::error!(?verdict, "{problem}"),
-                None => tracing::info!(?verdict, "the child session renders on this GPU"),
-            }
-        }
-        Err(error) => tracing::error!(
-            error = format!("{error:#}"),
-            "the child-session host could not read its GPUs"
-        ),
-    }
-}
-
-/// From the host's start on, every [`WATCH_EVERY`], when child sessions are
-/// set up here: RDP stays on until restore, so a firewall that no longer
-/// keeps it on this PC turns RDP off and is said loudly (and [`start`]
-/// refuses until setup runs again). Without a record, setup's traces are
-/// looked for at the start and once after a record goes.
-pub(crate) fn check_at_startup() {
-    let record = Record::new();
-    let elevated = elevated();
+/// Child sessions were removed: once, at the host's start, on a thread off
+/// every stream's path, [`retire`] what their setup left on this PC. Nothing
+/// retries on a timer: the next start does, or Restore again under
+/// Maintenance ([`restore_again`]).
+pub(crate) fn retire_at_startup(config_dir: PathBuf) {
     std::thread::spawn(move || {
-        let mut watched = Watched::default();
-        loop {
-            watch(
-                &record,
-                &mut watched,
-                elevated,
-                native_enforce,
-                native_unrecorded,
-                std::thread::sleep,
-                report,
-            );
-            std::thread::sleep(WATCH_EVERY);
-        }
+        let left = retire(&Record::new(), &config_dir, &Native);
+        *left_over() = left;
     });
 }
-/// How often the host checks the firewall while child sessions are set up:
-/// one firewall read, off any stream's path.
-const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
-/// What [`watch`] keeps from one round to the next.
-#[derive(Default)]
-struct Watched {
-    /// What the last round said, so what stays is said once.
-    last: Option<String>,
-    /// Whether setup's traces were looked for since the record was last
-    /// there: one firewall read when the host starts without a record, and
-    /// one after a record goes, not one every round on a PC never set up.
-    traced: bool,
+/// Restore again, from Maintenance: [`retire`] once more, now.
+pub(crate) fn restore_again(h: &Shared) {
+    let left = retire(&Record::new(), &h.directory, &Native);
+    *left_over() = left;
 }
-/// One [`secure_rdp`] round of [`check_at_startup`]: a problem is reported
-/// when it is new (`watched` holds the one before), not every round it
-/// stays. Without a record, [`secure_unrecorded`] through `unrecorded`, once
-/// until a record is there again. A host that is not `elevated` checks
-/// nothing and changes nothing; while setup ran here it says once that child
-/// sessions are unavailable in it.
-fn watch(
-    record: &Record,
-    watched: &mut Watched,
-    elevated: bool,
-    enforce: impl FnMut(Option<u16>, bool) -> Result<Vec<String>>,
-    unrecorded: impl FnOnce() -> Result<Vec<String>>,
-    wait: impl FnMut(std::time::Duration),
-    mut report: impl FnMut(String),
-) {
-    if let Some(reason) = unverified(record, elevated) {
-        if watched.last.as_ref() != Some(&reason) {
-            tracing::warn!("{reason}");
-        }
-        watched.last = Some(reason);
-        return;
-    }
-    let problem = match secure_rdp(record, enforce, wait) {
-        None if elevated && !watched.traced && !record.may_exist() => {
-            match secure_unrecorded(record, unrecorded) {
-                Ok(found) => {
-                    watched.traced = true;
-                    found
-                }
-                // Tried again next round: Windows Firewall may not be up yet.
-                Err(error) => {
-                    let warning = format!(
-                        "could not check whether child sessions were set up on this PC without a record: {error:#}"
-                    );
-                    if watched.last.as_ref() != Some(&warning) {
-                        tracing::warn!("{warning}");
-                    }
-                    watched.last = Some(warning);
-                    return;
-                }
-            }
-        }
-        problem => {
-            if record.may_exist() {
-                watched.traced = false;
-            }
-            problem
-        }
-    };
-    if let Some(problem) = &problem
-        && watched.last.as_ref() != Some(problem)
-    {
-        report(problem.clone());
-    }
-    watched.last = problem;
+/// What the console shows: whether Windows settings the removed feature's
+/// setup changed are still changed (its record is there, or its block rule
+/// stayed), and why the last try failed.
+pub(crate) fn status() -> Value {
+    status_with(&Record::new(), &left_over())
 }
-/// When there is no record, [`logic::enforce_unrecorded`] through
-/// `unrecorded`, under the settings locks: a setup saves its record before
-/// it adds the block rule, so one running meanwhile is not taken for a setup
-/// whose record is gone. The problem for the log and the console, None when
-/// setup's block rule is not in effect or there is a record now. Err when
-/// that could not be told, with nothing changed.
-fn secure_unrecorded(
-    record: &Record,
-    unrecorded: impl FnOnce() -> Result<Vec<String>>,
-) -> Result<Option<String>> {
-    let _settings = settings_lock()?;
-    if record.may_exist() {
-        return Ok(None);
-    }
-    let found = unrecorded()?;
-    Ok((!found.is_empty()).then(|| {
-        format!(
-            "child sessions were set up on this PC, but Rubylight's record of that setup ({}) is gone, so nothing checked that the firewall keeps Remote Desktop on this PC: {}. Remove the firewall rule \"{}\", then set up child sessions again; without the record, the settings from before setup can't be restored.",
-            record.path.display(),
-            found.join("; "),
-            logic::BLOCK_RULE
-        )
-    }))
-}
-/// [`secure_unrecorded`]'s `unrecorded` on this PC.
-fn native_unrecorded() -> Result<Vec<String>> {
-    logic::enforce_unrecorded(&mut native::NativeSettings::new()?)
-}
-
-/// Whether this host has administrator rights; when that can't be told, as
-/// if it had, so [`secure_rdp`] checks and fails closed.
-fn elevated() -> bool {
-    butterpollo_windows::process::elevated().unwrap_or_else(|error| {
-        tracing::warn!(
-            "could not tell whether this host is elevated, so it checks the firewall: {error:#}"
-        );
-        true
+fn status_with(record: &Record, left: &Left) -> Value {
+    json!({
+        "pending": left.block_rule || record.may_exist(),
+        "problem": (!left.problems.is_empty()).then(|| left.problems.join(" ")),
     })
 }
-/// Why child sessions are unavailable in a host that is not `elevated` while
-/// setup ran here (or that can't be told): it can't take the settings locks,
-/// check the firewall or turn Remote Desktop off. None when it is elevated,
-/// or setup never ran. Never a failure: the service, or a host run as
-/// administrator, checks the firewall and starts them.
-fn unverified(record: &Record, elevated: bool) -> Option<String> {
-    if elevated || !record.may_exist() {
-        return None;
-    }
-    let found = match record.load() {
-        Ok(None) => return None,
-        Ok(Some(_)) => "child sessions are set up on this PC".to_owned(),
-        Err(error) => format!("Rubylight's child-session record could not be read ({error:#})"),
-    };
-    Some(format!(
-        "{found}, but this host runs without administrator rights, so it can't check that the firewall keeps Remote Desktop on this PC: child sessions are unavailable in this host. The Rubylight service, or a host run as administrator, checks it and starts them."
-    ))
+
+/// What [`retire`] could not clean, for the console.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Left {
+    /// Setup's block rule is still there, without a record.
+    block_rule: bool,
+    /// Each failure, with what to do about it.
+    problems: Vec<String>,
+}
+static LEFT: Mutex<Left> = Mutex::new(Left {
+    block_rule: false,
+    problems: Vec::new(),
+});
+fn left_over() -> MutexGuard<'static, Left> {
+    LEFT.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Setup, restore and the firewall checks change the same Windows settings,
-/// one at a time: a check that turned RDP off between restore's write of the
-/// original value and its read-back would lose the user's own value. The
-/// viewer's start holds it too, so no restore runs between its checks and the
-/// viewer it starts.
+/// What [`retire`] changes on this PC; the tests fake it.
+trait Leftovers {
+    /// [`restore_saved`] through Windows' settings.
+    fn restore(&self, record: &Record) -> Result<bool>;
+    /// [`logic::turn_rdp_off`], after a restore that failed.
+    fn rdp_off(&self) -> String;
+    /// [`logic::enforce_unrecorded`].
+    fn unrecorded(&self) -> Result<Unrecorded>;
+    /// Every folder a saved password can be in ([`logic::password_folders`]),
+    /// and why some could not be listed.
+    fn password_folders(&self) -> (Vec<PathBuf>, Vec<String>);
+    /// [`native::wipe_file`].
+    fn wipe(&self, path: &Path) -> std::io::Result<bool>;
+    /// [`native::remove_empty_folder`].
+    fn remove_empty(&self, path: &Path) -> std::io::Result<()>;
+    /// The child session still signed in, if any.
+    fn child_session(&self) -> Option<u32>;
+}
+/// [`Leftovers`] on this PC.
+struct Native;
+impl Leftovers for Native {
+    fn restore(&self, record: &Record) -> Result<bool> {
+        restore_saved(record, native::NativeSettings::new)
+    }
+    fn rdp_off(&self) -> String {
+        logic::turn_rdp_off(&mut native::NativeRegistry)
+    }
+    fn unrecorded(&self) -> Result<Unrecorded> {
+        logic::enforce_unrecorded(&mut native::NativeSettings::new()?)
+    }
+    fn password_folders(&self) -> (Vec<PathBuf>, Vec<String>) {
+        let mut problems = Vec::new();
+        let profiles = native::profile_folders().unwrap_or_else(|error| {
+            problems.push(format!(
+                "The profile folders could not be listed, so a child-session password Rubylight had saved in one may be left: {error:#}."
+            ));
+            Vec::new()
+        });
+        let local: Vec<PathBuf> = native::console_local_app_data()
+            .unwrap_or_else(|error| {
+                problems.push(format!(
+                    "AppData\\Local of the account signed in at this PC's screen could not be read, so a child-session password Rubylight had saved there may be left: {error:#}."
+                ));
+                None
+            })
+            .into_iter()
+            .collect();
+        (logic::password_folders(&profiles, &local), problems)
+    }
+    fn wipe(&self, path: &Path) -> std::io::Result<bool> {
+        native::wipe_file(path)
+    }
+    fn remove_empty(&self, path: &Path) -> std::io::Result<()> {
+        native::remove_empty_folder(path)
+    }
+    fn child_session(&self) -> Option<u32> {
+        native::child_session_id()
+    }
+}
+
+/// One cleanup of what the removed child-session feature left on this PC,
+/// each step logged and each failure kept for the console. Without
+/// administrator rights it changes nothing and says once that a record is
+/// still there. With them: the restore when there is a record
+/// ([`restore_with`]), else setup's traces ([`secure_unrecorded`]); the
+/// saved passwords in every profile ([`delete_saved_passwords`]); the child
+/// host's profile in `config_dir` ([`remove_child_profile`]); and a child
+/// session still signed in is said, never signed out, which would close its
+/// apps without saving. Run again, with nothing left, it logs nothing.
+fn retire(record: &Record, config_dir: &Path, pc: &dyn Leftovers) -> Left {
+    let mut left = Left::default();
+    let problem = |left: &mut Left, problem: String| {
+        tracing::error!("{problem}");
+        left.problems.push(problem);
+    };
+    if matches!((record.elevated)(), Ok(false)) {
+        let reason = match record.load() {
+            Ok(None) => return left,
+            Ok(Some(_)) => NOT_ELEVATED.to_owned(),
+            Err(error) => format!(
+                "{NOT_ELEVATED} (Rubylight's record of that setup could not be read here: {error:#})"
+            ),
+        };
+        tracing::warn!("{reason}");
+        left.problems.push(reason);
+        return left;
+    }
+    if record.may_exist() {
+        if let Err(failed) = restore_with(record, |record| pc.restore(record), || pc.rdp_off()) {
+            problem(&mut left, failed);
+        }
+    } else {
+        match secure_unrecorded(record, || pc.unrecorded()) {
+            Ok(Unrecorded { found, .. }) if found.is_empty() => {}
+            Ok(Unrecorded { found, left: false }) => tracing::warn!(
+                "Child sessions were removed from Rubylight; their setup's record ({}) was gone, but not its traces: {}.",
+                record.path.display(),
+                found.join("; ")
+            ),
+            Ok(Unrecorded { found, left: true }) => {
+                left.block_rule = true;
+                problem(
+                    &mut left,
+                    format!(
+                        "Child sessions were removed from Rubylight, and their setup's firewall rule \"{}\" is still on this PC: {}. Restore again under Maintenance.",
+                        logic::BLOCK_RULE,
+                        found.join("; ")
+                    ),
+                );
+            }
+            Err(error) => problem(
+                &mut left,
+                format!(
+                    "Child sessions were removed from Rubylight, and whether their setup's firewall rule \"{}\" is still on this PC could not be told: {error:#}. Nothing was changed; restart the Rubylight service to check again.",
+                    logic::BLOCK_RULE
+                ),
+            ),
+        }
+    }
+    for failed in delete_saved_passwords(pc) {
+        problem(&mut left, failed);
+    }
+    if let Err(failed) = remove_child_profile(config_dir) {
+        problem(&mut left, failed);
+    }
+    if let Some(session) = pc.child_session() {
+        tracing::warn!(
+            "A child session from the removed feature is still signed in (session {session}); its apps keep running until you sign it out in Task Manager › Users."
+        );
+    }
+    left
+}
+/// What a host without administrator rights says while setup's record is
+/// there: it can't restore.
+const NOT_ELEVATED: &str = "Windows settings from the removed child-session feature are still changed; the Rubylight service restores them at its next start, or run butterpollo.exe --child-session-restore as administrator.";
+
+/// [`logic::delete_passwords`] in every folder a saved password can be in,
+/// each deleted file logged (its path, never what it held); the failures.
+fn delete_saved_passwords(pc: &dyn Leftovers) -> Vec<String> {
+    let (folders, mut problems) = pc.password_folders();
+    let cleanup =
+        logic::delete_passwords(&folders, |path| pc.wipe(path), |path| pc.remove_empty(path));
+    for path in &cleanup.deleted {
+        tracing::info!(
+            "Deleted the child-session password Rubylight had saved (DPAPI-encrypted) at {}.",
+            path.display()
+        );
+    }
+    problems.extend(cleanup.failed);
+    problems
+}
+
+/// The removed child session's own host kept its profile in
+/// `<config_dir>\child-session\`, with a copy of the console's sign-in:
+/// deleted, and logged, but only when its `sunshine.conf` says it is that
+/// host's (`child_session_host = true`). Read as text: the setting is no
+/// longer one, so [`butterpollo_core::config::Config`] drops it. Ok(false)
+/// when there is none.
+fn remove_child_profile(config_dir: &Path) -> Result<bool, String> {
+    let profile = config_dir.join(CHILD_PROFILE);
+    let conf = profile.join("sunshine.conf");
+    let text = match std::fs::read_to_string(&conf) {
+        Ok(text) => text,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "{} could not be read, so the profile of the removed child session's host, which holds a copy of the console's sign-in, may be left: {error}.",
+                conf.display()
+            ));
+        }
+    };
+    let child_host = text.lines().any(|line| {
+        line.split_once('=').is_some_and(|(key, value)| {
+            key.trim() == "child_session_host" && value.trim().eq_ignore_ascii_case("true")
+        })
+    });
+    if !child_host {
+        return Ok(false);
+    }
+    std::fs::remove_dir_all(&profile).map_err(|error| {
+        format!(
+            "The profile of the removed child session's host at {} holds a copy of the console's sign-in and could not be deleted: {error}; delete it by hand.",
+            profile.display()
+        )
+    })?;
+    tracing::info!(
+        "Deleted the profile of the removed child session's host at {}, which held a copy of the console's sign-in.",
+        profile.display()
+    );
+    Ok(true)
+}
+
+/// When there is no record, [`logic::enforce_unrecorded`] through
+/// `unrecorded`, under the settings locks: a restore running meanwhile is not
+/// taken for a setup whose record is gone. Nothing found when there is a
+/// record now. Err when that could not be told, with nothing changed.
+fn secure_unrecorded(
+    record: &Record,
+    unrecorded: impl FnOnce() -> Result<Unrecorded>,
+) -> Result<Unrecorded> {
+    let _settings = settings_lock()?;
+    if record.may_exist() {
+        return Ok(Unrecorded::default());
+    }
+    unrecorded()
+}
+
+/// Restore and the unrecorded check change the same Windows settings, one at
+/// a time: a check that turned RDP off between restore's write of the
+/// original value and its read-back would lose the user's own value.
 ///
 /// Two locks, always taken in this order and let go of in reverse, so neither
 /// waits on the other: the cross-process [`native::lock::setup_lock`] (the
 /// uninstaller's `--child-session-restore`, another host), then this process's
-/// own [`SETTINGS`]. [`RUNNING`] is only ever taken after both, or alone.
+/// own [`SETTINGS`].
 static SETTINGS: Mutex<()> = Mutex::new(());
 /// Both settings locks; the fields drop in their order, so [`SETTINGS`] first.
 struct SettingsLock {
@@ -526,153 +573,30 @@ fn settings_lock() -> Result<SettingsLock> {
     })
 }
 
-/// How often [`secure_rdp`] tries a check that could not run (Windows
-/// Firewall or its rule script failing, as while Windows starts), and how long
-/// it waits in between; the last try fails closed.
-const CHECK_TRIES: u32 = 3;
-const CHECK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// When child sessions are set up here, [`logic::enforce_firewall`] for the
-/// port setup recorded, through `enforce(port, last)`. A check that could not
-/// run (`Err`, nothing changed) is tried again after `wait`, up to
-/// [`CHECK_TRIES`]; on the last try it turns RDP off instead. What a check
-/// finds is never tried again: it turns RDP off at once. It fails closed: a
-/// record that cannot be read turns RDP off too (`enforce(None, _)`), and so
-/// does a settings lock another process holds too long. A record folder
-/// setup never made ([`Foreign`]) changes nothing and is said, and so does a
-/// record a restore left after putting RDP back
-/// ([`SetupState::rdp_restored`]). The problem
-/// for the log and the console, None when there is none or setup never ran.
-fn secure_rdp(
-    record: &Record,
-    mut enforce: impl FnMut(Option<u16>, bool) -> Result<Vec<String>>,
-    mut wait: impl FnMut(std::time::Duration),
-) -> Option<String> {
-    // Setup never ran here: nothing to check, and no lock to take, which an unelevated host may
-    // not be allowed to. A setup that runs meanwhile is as if it ran right after this check.
-    if !record.may_exist() {
-        return None;
-    }
-    let mut found = Vec::new();
-    for attempt in 1..=CHECK_TRIES {
-        let last = attempt == CHECK_TRIES;
-        // Only the try that ends this reports.
-        found.clear();
-        // Its wait was long enough not to try again. It fails closed: RDP goes off, as without
-        // a record, even though a restore holding the lock may then lose the user's own value.
-        let settings = match settings_lock() {
-            Ok(settings) => settings,
-            Err(error) => {
-                found.push(format!("the firewall could not be checked ({error:#})"));
-                match enforce(None, true) {
-                    Ok(done) => found.extend(done),
-                    Err(error) => found.push(format!("{error:#}")),
-                }
-                break;
-            }
-        };
-        let port = match record.load() {
-            Ok(None) => return None,
-            // RDP and its firewall rules are back as before setup, so RDP is the user's own: a
-            // check would find the block rule gone and turn it off.
-            Ok(Some(state)) if state.rdp_restored => {
-                return Some(
-                    "child sessions are partly restored: Remote Desktop and its firewall rules are back as they were before setup, the rest is not. Choose Restore Windows settings again to finish, or set up child sessions again; the child session does not start until then.".into(),
-                );
-            }
-            Ok(Some(state)) => Some(state.rdp_port),
-            // Setup never made that folder, so no setup of Rubylight's turned RDP on: turned off
-            // for it, any user who makes one would turn an administrator's own RDP off.
-            Err(error) if foreign_folder(&error) => {
-                return Some(format!(
-                    "{error:#}. Setup makes that folder for SYSTEM and Administrators alone, so it holds no setup of Rubylight's: Remote Desktop is left as it is, and the child session does not start until the folder is gone."
-                ));
-            }
-            Err(error) => {
-                found.push(format!("{error:#}"));
-                None
-            }
-        };
-        match enforce(port, last) {
-            Ok(done) => {
-                found.extend(done);
-                break;
-            }
-            Err(error) if !last => {
-                // Setup and restore can run while this waits.
-                drop(settings);
-                tracing::warn!(
-                    attempt,
-                    "the child-session firewall check could not run, trying again in {} s: {error:#}",
-                    CHECK_WAIT.as_secs()
-                );
-                wait(CHECK_WAIT);
-            }
-            Err(error) => found.push(format!("the firewall could not be checked ({error:#})")),
-        }
-    }
-    (!found.is_empty()).then(|| {
-        format!(
-            "child sessions are set up, but the firewall may no longer keep Remote Desktop on this PC: {}. Fix that, then set up child sessions again (or choose Restore Windows settings); the child session does not start until then.",
-            found.join("; ")
-        )
-    })
+/// What a restore of the PC's record came to.
+enum Restored {
+    /// Everything is back, and the record is gone.
+    Done,
+    /// Setup never ran here.
+    Never,
+    /// It failed after it had put Remote Desktop back as it was before setup
+    /// ([`SetupState::rdp_restored`]): RDP is the user's own again, and left.
+    Partly(anyhow::Error),
+    /// The record's folder is not one setup made ([`Foreign`]), so it holds
+    /// no setup of Rubylight's: RDP is left as it is.
+    Foreign(anyhow::Error),
+    /// It failed; `off` is what was done to turn Remote Desktop off.
+    Failed { error: anyhow::Error, off: String },
 }
-/// [`secure_rdp`]'s `enforce` on this PC.
-fn native_enforce(port: Option<u16>, last: bool) -> Result<Vec<String>> {
-    enforce_with(
-        port,
-        last,
-        native::NativeSettings::new,
-        &mut native::NativeRegistry,
-    )
-}
-/// [`logic::check_firewall`] through the settings `open` makes; Err when it
-/// could not run and this is not the `last` try. It fails closed: without a
-/// record (`None`), RDP goes off at once, and on the last try a check that
-/// cannot run turns it off too, through `registry` alone when those settings
-/// (Windows Firewall) can't be opened.
-fn enforce_with<S: SystemSettings>(
-    port: Option<u16>,
-    last: bool,
-    open: impl FnOnce() -> Result<S>,
-    registry: &mut dyn Registry,
-) -> Result<Vec<String>> {
-    let Some(port) = port else {
-        return Ok(vec![logic::turn_rdp_off(registry)]);
-    };
-    match open() {
-        Ok(mut system) if last => Ok(logic::enforce_firewall(&mut system, port)),
-        Ok(mut system) => logic::check_firewall(&mut system, port),
-        Err(error) if last => Ok(vec![
-            format!(
-                "Windows Firewall could not be opened ({error:#}), so Remote Desktop could not be checked"
-            ),
-            logic::turn_rdp_off(registry),
-        ]),
-        Err(error) => Err(error.context("opening Windows Firewall")),
-    }
-}
-
-/// `butterpollo.exe --child-session-restore`, which the uninstaller runs: put
-/// back the Windows settings child-session setup changed. 0 when they are back
-/// or setup never ran here, 1 with the reason on stderr. It fails closed, as
-/// [`secure_rdp`] does: a restore that failed, or could not get the settings
-/// lock, turns RDP off, without the lock. Unless the record says RDP is back
-/// as before setup already ([`SetupState::rdp_restored`]): then RDP is left
-/// as it is, and the code is [`logic::RESTORE_PARTLY_EXIT`].
-pub(crate) fn restore_exit_code() -> i32 {
-    restore_exit_code_with(
-        &Record::new(),
-        |record| restore_saved(record, native::NativeSettings::new),
-        || logic::turn_rdp_off(&mut native::NativeRegistry),
-    )
-}
-fn restore_exit_code_with(
+/// Restore the PC's record through `restore` ([`restore_saved`]) under the
+/// settings locks. It fails closed: a restore that failed, or could not get
+/// the settings lock, turns RDP off through `rdp_off`, without the lock,
+/// unless RDP is back as before setup already or the folder is not setup's.
+fn restore_outcome(
     record: &Record,
     restore: impl FnOnce(&Record) -> Result<bool>,
     rdp_off: impl FnOnce() -> String,
-) -> i32 {
+) -> Restored {
     let restored = if record.may_exist() {
         restore_locked(record, restore)
     } else {
@@ -680,28 +604,103 @@ fn restore_exit_code_with(
         Ok(false)
     };
     match restored {
-        Ok(true) => {
-            println!("Restored the Windows settings child-session setup changed.");
-            0
-        }
-        Ok(false) => {
-            println!("Child sessions were not set up by Rubylight here; nothing to restore.");
-            0
-        }
+        Ok(true) => Restored::Done,
+        Ok(false) => Restored::Never,
         // Remote Desktop is back as it was before setup (this restore or an earlier one put
         // it back): it is the user's own again, and a later restore skips it, so turning it
         // off now would lose it for good.
         Err(error) if matches!(record.load(), Ok(Some(state)) if state.rdp_restored) => {
+            Restored::Partly(error)
+        }
+        // Setup never made that folder, so no setup of Rubylight's turned RDP on: turned off
+        // for it, any user who makes one would turn an administrator's own RDP off.
+        Err(error) if foreign_folder(&error) => Restored::Foreign(error),
+        Err(error) => Restored::Failed {
+            error,
+            off: rdp_off(),
+        },
+    }
+}
+/// [`restore_outcome`] at the host's start or from Maintenance, logged: the
+/// problem for the console when anything is left to restore.
+fn restore_with(
+    record: &Record,
+    restore: impl FnOnce(&Record) -> Result<bool>,
+    rdp_off: impl FnOnce() -> String,
+) -> Result<(), String> {
+    let not_restored = |error: &anyhow::Error, rdp: &str| {
+        format!(
+            "Child sessions were removed from Rubylight, and the Windows settings their setup changed were not restored: {error:#}. {rdp}. Restore again under Maintenance, or run butterpollo.exe {} as administrator.",
+            logic::RESTORE_FLAG
+        )
+    };
+    match restore_outcome(record, restore, rdp_off) {
+        Restored::Done => {
+            tracing::info!(
+                "Child sessions were removed from Rubylight; the Windows settings their setup changed are restored (Remote Desktop, its firewall rules, the session frame rate, child sessions)."
+            );
+            Ok(())
+        }
+        Restored::Never => Ok(()),
+        Restored::Partly(error) => Err(not_restored(
+            &error,
+            "Remote Desktop and its firewall rules are back as they were before setup, so Remote Desktop was left as it is",
+        )),
+        Restored::Foreign(error) => Err(format!(
+            "{error:#}. Setup makes that folder for SYSTEM and Administrators alone, so it holds no setup of Rubylight's: Remote Desktop is left as it is. Delete the folder."
+        )),
+        Restored::Failed { error, off } => Err(not_restored(&error, &off)),
+    }
+}
+
+/// `butterpollo.exe --child-session-restore`, which the uninstaller runs: put
+/// back the Windows settings child-session setup changed, then delete the
+/// passwords it saved. 0 when the settings are back or setup never ran here,
+/// 1 with the reason on stderr, after which RDP is off
+/// ([`restore_outcome`]); [`logic::RESTORE_PARTLY_EXIT`] when RDP was left
+/// as it is because it is back as before setup. A password that could not be
+/// deleted is said on stderr; the uninstaller deletes them too.
+pub(crate) fn restore_exit_code() -> i32 {
+    let code = restore_exit_code_with(
+        &Record::new(),
+        |record| restore_saved(record, native::NativeSettings::new),
+        || logic::turn_rdp_off(&mut native::NativeRegistry),
+    );
+    for failed in delete_saved_passwords(&Native) {
+        eprintln!("{failed}");
+    }
+    code
+}
+fn restore_exit_code_with(
+    record: &Record,
+    restore: impl FnOnce(&Record) -> Result<bool>,
+    rdp_off: impl FnOnce() -> String,
+) -> i32 {
+    match restore_outcome(record, restore, rdp_off) {
+        Restored::Done => {
+            println!("Restored the Windows settings child-session setup changed.");
+            0
+        }
+        Restored::Never => {
+            println!("Child sessions were not set up by Rubylight here; nothing to restore.");
+            0
+        }
+        Restored::Partly(error) => {
             eprintln!(
-                "The Windows settings child-session setup changed were partly restored: {error:#}. Remote Desktop and its firewall rules are back as they were before setup, so Remote Desktop was left as it is. Rubylight keeps its record, so restoring again (Restore Windows settings in the console, or butterpollo.exe {}) puts back the rest.",
+                "The Windows settings child-session setup changed were partly restored: {error:#}. Remote Desktop and its firewall rules are back as they were before setup, so Remote Desktop was left as it is. Rubylight keeps its record, so restoring again (Restore again under Maintenance, or butterpollo.exe {}) puts back the rest.",
                 logic::RESTORE_FLAG
             );
             logic::RESTORE_PARTLY_EXIT
         }
-        Err(error) => {
-            let off = rdp_off();
+        Restored::Foreign(error) => {
             eprintln!(
-                "The Windows settings child-session setup changed were not restored: {error:#}. {off}. Rubylight keeps its record, so restoring again (Restore Windows settings in the console, or butterpollo.exe {}) puts back the rest.",
+                "The Windows settings child-session setup changed were not restored: {error:#}. Setup makes that folder for SYSTEM and Administrators alone, so it holds no setup of Rubylight's; Remote Desktop was left as it is."
+            );
+            1
+        }
+        Restored::Failed { error, off } => {
+            eprintln!(
+                "The Windows settings child-session setup changed were not restored: {error:#}. {off}. Rubylight keeps its record, so restoring again (Restore again under Maintenance, or butterpollo.exe {}) puts back the rest.",
                 logic::RESTORE_FLAG
             );
             1
@@ -716,9 +715,9 @@ fn restore_locked(record: &Record, restore: impl FnOnce(&Record) -> Result<bool>
     let _settings = settings_lock()?;
     restore(record)
 }
-/// Err unless this process has administrator rights, as `what` (setup,
-/// restore) needs: without them it would make the record's folder with the
-/// permissions it inherits. Not knowing is a refusal too.
+/// Err unless this process has administrator rights, as restore needs:
+/// without them it would make the record's folder with the permissions it
+/// inherits. Not knowing is a refusal too.
 fn require_elevated(record: &Record, what: &str) -> Result<()> {
     match (record.elevated)() {
         Ok(true) => Ok(()),
@@ -745,558 +744,16 @@ fn restore_saved<S: SystemSettings>(
     Ok(true)
 }
 
-/// The viewer and the child session's host while they run.
-struct Running {
-    viewer: Process,
-    commands: File,
-    status: Option<ViewerStatus>,
-    /// The child session the host streams, and that host.
-    host: Option<(u32, Process)>,
-    /// A child session whose host could not start; it is not tried again.
-    refused: Option<u32>,
-}
-static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
-/// The last failure, for the console.
-static PROBLEM: Mutex<Option<String>> = Mutex::new(None);
-
-fn running() -> MutexGuard<'static, Option<Running>> {
-    RUNNING.lock().unwrap_or_else(PoisonError::into_inner)
-}
-fn report(problem: String) {
-    tracing::error!("{problem}");
-    *PROBLEM.lock().unwrap_or_else(PoisonError::into_inner) = Some(problem);
-}
-
-/// Set up child sessions for the account signed in at this PC's screen. Only
-/// the main host in child-session mode does; the child session's own host
-/// never touches the PC's settings.
-pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
-    let config = h
-        .config
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    refuse_inside(&config)?;
-    let decision = decision(&config);
-    if decision.mode != Mode::ChildSession {
-        bail!(
-            "{}: {}. Child sessions no longer run, Nucleus Co-op is the background mode; nothing was changed.",
-            decision.label,
-            decision.reason
-        );
-    }
-    let user = native::console_user()?;
-    let state = setup_in(&Record::new(), &user, native::NativeSettings::new);
-    // Even a setup that failed may have changed some.
-    RULES.forget();
-    let state = state?;
-    tracing::info!("child sessions are set up; restore puts the Windows settings back");
-    Ok(state)
-}
-/// [`logic::setup`] for `user` through the settings `open` makes, under the
-/// settings locks; refused without administrator rights.
-fn setup_in<S: SystemSettings>(
-    record: &Record,
-    user: &str,
-    open: impl FnOnce() -> Result<S>,
-) -> Result<SetupState> {
-    require_elevated(record, "setting up child sessions")?;
-    let _settings = settings_lock()?;
-    let saved = record.load()?;
-    logic::setup(
-        &mut open()?,
-        saved,
-        user,
-        |state| record.save(state),
-        std::thread::sleep,
-    )
-}
-/// The child session's own host sets nothing up and restores nothing: the
-/// record is the PC's, and the main host's.
-fn refuse_inside(config: &Config) -> Result<()> {
-    if config.boolean(logic::CHILD_HOST_KEY, false) {
-        bail!(
-            "this is the child session's host: set up and restore child sessions in the main host's console"
-        );
-    }
-    Ok(())
-}
-
-/// Stop the viewer and the child session's host, then put back what setup
-/// changed. False when setup never ran here. Both under the settings locks,
-/// so no start comes in between.
-pub(crate) fn restore(h: &Shared) -> Result<bool> {
-    refuse_inside(&h.config.read().unwrap_or_else(PoisonError::into_inner))?;
-    let restored = restore_locked(&Record::new(), |record| {
-        quit();
-        restore_saved(record, native::NativeSettings::new)
-    });
-    // Even a restore that failed may have put some back.
-    RULES.forget();
-    let restored = restored?;
-    if restored {
-        tracing::info!("the Windows settings child-session setup changed are restored");
-    }
-    Ok(restored)
-}
-
-/// Attach the child session's desktop, starting the viewer when it is not
-/// running. `password` is a newly entered Windows password; None uses the
-/// saved one.
-pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
-    let config = h
-        .config
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    let decision = decision(&config);
-    if decision.mode != Mode::ChildSession {
-        bail!("{}: {}", decision.label, decision.reason);
-    }
-    let display = DisplaySettings::parse(
-        config.get(logic::RESOLUTION_KEY, ""),
-        config.get(logic::SCALE_KEY, ""),
-    )?;
-    // The port setup recorded, which RDP and the block rule must still match;
-    // on a mismatch, or a check that cannot run, RDP goes off.
-    let record = Record::new();
-    if let Some(reason) = unverified(&record, elevated()) {
-        bail!("{reason}");
-    }
-    if let Some(problem) = secure_rdp(&record, native_enforce, std::thread::sleep) {
-        report(problem.clone());
-        bail!("{problem}");
-    }
-    // From the settings check to the viewer's command: no setup or restore in between.
-    let _settings = settings_lock()?;
-    let system = native::NativeSettings::new()?;
-    let user = native::console_user()?;
-    let missing = match record.load()? {
-        Some(_) => logic::settings_missing(&system, &user)?,
-        None => logic::missing(&system, &user, None)?,
-    };
-    if !missing.is_empty() {
-        bail!("set up child sessions first: {}", missing.join("; "));
-    }
-    let command = start_command(&record, display, password)?;
-    let mut running = running();
-    let alive = running
-        .as_ref()
-        .is_some_and(|running| matches!(running.viewer.exit_code(), Ok(None)));
-    if !alive {
-        if let Some(mut gone) = running.take() {
-            stop_host(&mut gone);
-        }
-        *running = Some(spawn_viewer(h)?);
-    }
-    *PROBLEM.lock().unwrap_or_else(PoisonError::into_inner) = None;
-    let running = running
-        .as_mut()
-        .context("the child-session viewer is not running")?;
-    running.refused = None;
-    send_to(running, &command)
-}
-/// The viewer connects to the RDP port setup recorded, so a PC whose RDP
-/// listens elsewhere is not left to the client's default.
-fn start_command(
-    record: &Record,
-    display: DisplaySettings,
-    password: Option<logic::Secret>,
-) -> Result<ViewerCommand> {
-    let state = record
-        .load()?
-        .context("set up child sessions first: Rubylight has no record of the setup here")?;
-    Ok(ViewerCommand::Start {
-        display,
-        rdp_port: state.rdp_port,
-        password,
-    })
-}
-
-/// Send a command to the running viewer.
-pub(crate) fn send(command: ViewerCommand) -> Result<()> {
-    let mut running = running();
-    let running = running
-        .as_mut()
-        .context("the child-session viewer is not running; start the child session first")?;
-    send_to(running, &command)
-}
-fn send_to(running: &mut Running, command: &ViewerCommand) -> Result<()> {
-    // The line can hold the password: it is wiped when dropped and never logged.
-    let line = command.line()?;
-    running
-        .commands
-        .write_all(line.as_bytes())
-        .and_then(|()| running.commands.flush())
-        .context("the child-session viewer did not take the command")
-}
-
-/// Quit the viewer and stop the child session's host; the child session
-/// itself keeps running until it is signed out.
-pub(crate) fn quit() {
-    let Some(mut gone) = running().take() else {
-        return;
-    };
-    let _ = send_to(&mut gone, &ViewerCommand::Quit);
-    stop_host(&mut gone);
-    // Dropping the viewer ends it if it has not quit by then.
-    std::thread::spawn(move || {
-        let _ = gone.viewer.wait(std::time::Duration::from_secs(5));
-    });
-}
-
-fn spawn_viewer(h: &Shared) -> Result<Running> {
-    let program = std::env::current_exe()?;
-    let PipedChild {
-        process,
-        stdin,
-        stdout,
-        stderr,
-    } = Process::spawn_piped(
-        &program,
-        &[OsString::from("--child-session-viewer")],
-        Target::User { elevated: false },
-    )
-    .context("starting the child-session viewer as the signed-in user")?;
-    let pid = process.pid;
-    let commands = stdin.context("the child-session viewer has no command pipe")?;
-    let output = stdout.context("the child-session viewer has no status pipe")?;
-    if let Some(errors) = stderr {
-        std::thread::spawn(move || read_errors(pid, errors));
-    }
-    let h = h.clone();
-    std::thread::spawn(move || read_status(&h, pid, output));
-    tracing::info!(
-        pid,
-        "started the child-session viewer as the signed-in user"
-    );
-    Ok(Running {
-        viewer: process,
-        commands,
-        status: None,
-        host: None,
-        refused: None,
-    })
-}
-
-/// The viewer's standard error, line by line into the log.
-fn read_errors(pid: u32, errors: impl Read) {
-    let mut lines = LineReader::new(errors, logic::STATUS_LINE_CAP);
-    loop {
-        match lines.read_line() {
-            Ok(Some(line)) => {
-                tracing::warn!(viewer = pid, "{}", String::from_utf8_lossy(line));
-            }
-            Ok(None) => break,
-            // Nothing of the line itself: only that it was too long.
-            Err(error) if error.kind() == ErrorKind::InvalidData => {
-                tracing::warn!(viewer = pid, %error, "the child-session viewer wrote a line that is not logged");
-            }
-            Err(error) => {
-                tracing::warn!(viewer = pid, %error, "the child-session viewer's error pipe failed");
-                break;
-            }
-        }
-    }
-}
-
-fn read_status(h: &Shared, pid: u32, output: File) {
-    let mut lines = LineReader::new(output, logic::STATUS_LINE_CAP);
-    loop {
-        let line = match lines.read_line() {
-            Ok(Some(line)) => line,
-            Ok(None) => break,
-            Err(error) if error.kind() == ErrorKind::InvalidData => {
-                tracing::warn!(%error, "the child-session viewer sent a line that is not a status");
-                continue;
-            }
-            Err(error) => {
-                tracing::warn!(%error, "the child-session viewer's status pipe failed");
-                break;
-            }
-        };
-        let status: ViewerStatus = match serde_json::from_slice(line) {
-            Ok(status) => status,
-            Err(error) => {
-                tracing::warn!(%error, "the child-session viewer sent a line that is not a status");
-                continue;
-            }
-        };
-        let mut running = running();
-        let Some(current) = running.as_mut().filter(|r| r.viewer.pid == pid) else {
-            return;
-        };
-        if current.status.as_ref().map(|s| (s.phase, s.child)) != Some((status.phase, status.child))
-        {
-            tracing::info!(phase = ?status.phase, child = status.child, "child session: {}", status.message);
-        }
-        if let Some(notice) = &status.notice {
-            tracing::warn!("child session: {notice}");
-        }
-        follow(h, current, &status);
-        current.status = Some(status);
-    }
-    let mut running = running();
-    if let Some(mut gone) = running.take_if(|r| r.viewer.pid == pid) {
-        stop_host(&mut gone);
-        report("the child-session viewer exited; start the child session again".into());
-    }
-}
-
-/// Start the child session's host once the viewer has its desktop attached;
-/// stop it when the desktop is gone or another child session is attached.
-fn follow(h: &Shared, running: &mut Running, status: &ViewerStatus) {
-    let attached =
-        matches!(status.phase, Phase::Connected | Phase::Reconnecting) && status.child != 0;
-    if running
-        .host
-        .as_ref()
-        .is_some_and(|(child, _)| !attached || *child != status.child)
-    {
-        stop_host(running);
-    }
-    if status.phase != Phase::Connected
-        || status.child == 0
-        || running.host.is_some()
-        || running.refused == Some(status.child)
-    {
-        return;
-    }
-    match start_host(h, status.child, running.viewer.pid) {
-        Ok(process) => {
-            tracing::info!(
-                child = status.child,
-                pid = process.pid,
-                "started the child session's host"
-            );
-            running.host = Some((status.child, process));
-        }
-        Err(error) => {
-            running.refused = Some(status.child);
-            report(format!("the child session's host did not start: {error:#}"));
-        }
-    }
-}
-
-/// The child session's host: SYSTEM in that session, as the service runs the
-/// main host, only after the session is checked to be the console user's own,
-/// reported by the viewer at this PC's screen.
-fn start_host(h: &Shared, child: u32, viewer: u32) -> Result<Process> {
-    native::verify_child_owner(child, viewer)?;
-    let (name, port) = {
-        let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
-        (config.get("sunshine_name", "").to_owned(), config.port()?)
-    };
-    let credentials = h
-        .credentials
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    let profile = h.directory.join(CHILD_PROFILE);
-    write_child_profile(&profile, &name, port, credentials.as_ref())?;
-    let program = std::env::current_exe()?;
-    let args = [
-        OsString::from("--config-dir"),
-        profile.into_os_string(),
-        OsString::from("--no-tray"),
-    ];
-    Process::spawn_host(
-        &program,
-        &args,
-        program.parent(),
-        Target::SystemSession(child),
-    )
-    .with_context(|| format!("starting the host in child session {child}"))
-}
-
-/// The child host's settings over whatever its profile already holds, and the
-/// main console's sign-in: a child host without one would let any program on
-/// this PC claim its console (it runs as SYSTEM), so it never starts without.
-fn write_child_profile(
-    profile: &Path,
-    name: &str,
-    port: u16,
-    credentials: Option<&Credentials>,
-) -> Result<()> {
-    let credentials = credentials
-        .context("set the console's sign-in first: the child session's host uses the same one")?;
-    std::fs::create_dir_all(profile).with_context(|| format!("creating {}", profile.display()))?;
-    let file = profile.join("sunshine.conf");
-    let mut config = if file.is_file() {
-        Config::load(&file)?
-    } else {
-        Config::default()
-    };
-    for (key, value) in logic::child_host_config(name, port) {
-        config.values.insert(key.to_owned(), value);
-    }
-    std::fs::write(&file, config.text()).with_context(|| format!("writing {}", file.display()))?;
-    // Into whichever file the child profile keeps its sign-in in, beside what
-    // that file holds (it can be the paired-devices file too).
-    let path = ProfileFiles::new(&config, profile).credentials;
-    let mut document = load_json(&path, json!({}))?;
-    let Value::Object(fields) = serde_json::to_value(credentials)? else {
-        bail!("the console's sign-in is not an object");
-    };
-    for (key, value) in fields {
-        document[key] = value;
-    }
-    write_json(&path, &document)
-}
-
-fn stop_host(running: &mut Running) {
-    let Some((child, host)) = running.host.take() else {
-        return;
-    };
-    tracing::info!(child, pid = host.pid, "stopping the child session's host");
-    std::thread::spawn(move || {
-        if let Err(error) = host.shutdown_host() {
-            tracing::warn!(
-                child,
-                error = format!("{error:#}"),
-                "the child session's host did not stop"
-            );
-        }
-    });
-}
-
-/// How long [`status`] keeps the firewall rules it read: each read starts
-/// Windows PowerShell twice, and the console asks every few seconds.
-const RULES_FOR: std::time::Duration = std::time::Duration::from_secs(30);
-/// The firewall rules [`status`] read last, and when; setup and restore,
-/// which change them, forget them.
-struct RulesCache(Mutex<Option<(Instant, logic::FirewallRules)>>);
-impl RulesCache {
-    const fn new() -> Self {
-        Self(Mutex::new(None))
-    }
-    /// The rules read less than [`RULES_FOR`] before `now`, or those `read`
-    /// reads now. Held while reading, so status asked twice at once reads
-    /// once. A read that fails is not kept.
-    fn get(
-        &self,
-        now: Instant,
-        read: impl FnOnce() -> Result<logic::FirewallRules>,
-    ) -> Result<logic::FirewallRules> {
-        let mut kept = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some((at, rules)) = kept.as_ref()
-            && now.saturating_duration_since(*at) < RULES_FOR
-        {
-            return Ok(rules.clone());
-        }
-        *kept = None;
-        let rules = read()?;
-        *kept = Some((now, rules.clone()));
-        Ok(rules)
-    }
-    fn forget(&self) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = None;
-    }
-}
-static RULES: RulesCache = RulesCache::new();
-
-/// What the console shows.
-pub(crate) fn status(h: &Shared) -> Value {
-    let record = Record::new();
-    status_with(h, &record, elevated(), || {
-        let rdp_port = record.load()?.map(|state| state.rdp_port);
-        let system = native::NativeSettings::new()?;
-        let rules = RULES.get(Instant::now(), || logic::FirewallRules::read(&system))?;
-        logic::missing_with(&system, &native::console_user()?, rdp_port, &rules)
-    })
-}
-/// [`status`] for `record` in a host that is `elevated` or not, `missing`
-/// reading what setup still has to change. `unavailable` is why a host
-/// without administrator rights starts no child session ([`unverified`]).
-fn status_with(
-    h: &Shared,
-    record: &Record,
-    elevated: bool,
-    missing: impl FnOnce() -> Result<Vec<String>>,
-) -> Value {
-    let config = h
-        .config
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    let decision = decision(&config);
-    let missing = missing();
-    let display = DisplaySettings::parse(
-        config.get(logic::RESOLUTION_KEY, ""),
-        config.get(logic::SCALE_KEY, ""),
-    );
-    let mut running = running();
-    if let Some(current) = running.as_mut()
-        && let Some((child, host)) = &current.host
-        && let Ok(Some(code)) = host.exit_code()
-    {
-        let child = *child;
-        current.host = None;
-        current.refused = Some(child);
-        report(format!(
-            "the child session's host exited with code {code}; its log is in {}",
-            h.directory.join(CHILD_PROFILE).join("logs").display()
-        ));
-    }
-    let viewer = running.as_ref().map(|current| {
-        json!({
-            "status": current.status,
-            "host_child": current.host.as_ref().map(|(child, _)| *child),
-        })
-    });
-    let port = config.port().ok().and_then(|port| {
-        logic::child_host_config("", port)
-            .into_iter()
-            .find(|(key, _)| *key == "port")
-            .and_then(|(_, value)| value.parse::<u16>().ok())
-    });
-    json!({
-        "mode": decision.mode,
-        "label": decision.label,
-        "reason": decision.reason,
-        "setting": config.get(KEY, ""),
-        "edition": native::edition_id(),
-        "missing": missing.as_ref().ok(),
-        "missing_error": missing.as_ref().err().map(|error| format!("{error:#}")),
-        "unavailable": unverified(record, elevated),
-        "set_up": record.path.is_file(),
-        "display": display.as_ref().ok(),
-        "display_error": display.as_ref().err().map(|error| format!("{error:#}")),
-        "viewer": viewer,
-        "host_port": port,
-        "problem": *PROBLEM.lock().unwrap_or_else(PoisonError::into_inner),
-        "limits": logic::LIMITS,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use butterpollo_core::child_session::Registry;
+    use std::cell::Cell;
 
     thread_local! {
         /// [`settings_wait`] on this test thread, when not the host's.
         pub(super) static SETTINGS_WAIT: std::cell::Cell<Option<std::time::Duration>> =
             const { std::cell::Cell::new(None) };
-    }
-
-    #[test]
-    fn the_mode_is_always_nucleus_and_a_bad_value_runs_none() {
-        let config = |text: &str| Config::parse(text).unwrap();
-        assert_eq!(decision(&config("")).mode, Mode::Nucleus);
-        for old in ["virtual_display", "auto", "child_session"] {
-            assert_eq!(
-                decision(&config(&format!("background_mode = {old}\n"))).mode,
-                Mode::Nucleus,
-                "{old}"
-            );
-        }
-        let bad = decision(&config("background_mode = rdp\n"));
-        assert_eq!(bad.mode, Mode::Unavailable);
-        assert!(bad.reason.contains("is not a mode"), "{}", bad.reason);
-        let inside = decision(&config(
-            "background_mode = rdp\nchild_session_host = true\n",
-        ));
-        assert_eq!(inside.mode, Mode::InsideChildSession);
     }
 
     #[test]
@@ -1351,7 +808,7 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
-    /// The Windows settings setup changes, shared by every [`Pc`] handle as
+    /// The Windows settings setup changed, shared by every [`Pc`] handle as
     /// one PC's are by every host on it.
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
     struct Machine {
@@ -1359,7 +816,7 @@ mod tests {
         child_sessions: bool,
         /// Rule ID -> enabled, all in the Remote Desktop group.
         rules: std::collections::BTreeMap<String, bool>,
-        block_rules: std::collections::BTreeMap<String, Vec<u16>>,
+        block_rules: std::collections::BTreeSet<String>,
         /// Turning child sessions on or off fails.
         child_sessions_fail: bool,
     }
@@ -1368,14 +825,7 @@ mod tests {
     impl Pc {
         fn new() -> Self {
             let mut machine = Machine::default();
-            machine.values.insert(
-                (
-                    "LocalMachine".into(),
-                    logic::TERMINAL_SERVER.into(),
-                    "fDenyTSConnections".into(),
-                ),
-                1,
-            );
+            machine.values.insert(deny(), 1);
             machine
                 .rules
                 .insert("RemoteDesktop-UserMode-In-TCP".into(), true);
@@ -1388,6 +838,16 @@ mod tests {
             let pc = self.clone();
             move || Ok(pc)
         }
+        fn rdp(&self) -> Option<u32> {
+            self.0.borrow().values.get(&deny()).copied()
+        }
+    }
+    fn deny() -> (String, String, String) {
+        hive_key(
+            &logic::Hive::LocalMachine,
+            logic::TERMINAL_SERVER,
+            "fDenyTSConnections",
+        )
     }
     fn hive_key(hive: &logic::Hive, path: &str, name: &str) -> (String, String, String) {
         let hive = match hive {
@@ -1436,44 +896,16 @@ mod tests {
             machine.child_sessions = enabled;
             Ok(())
         }
-        fn firewall_problem(&self) -> Result<Option<String>> {
-            Ok(None)
+        fn block_rule_present(&self, name: &str) -> Result<bool> {
+            Ok(self.0.borrow().block_rules.contains(name))
         }
-        fn active_firewall(&self, group: &str, block_rule: &str) -> Result<logic::ActiveFirewall> {
-            let ports = self.0.borrow().block_rules.get(block_rule).cloned();
-            Ok(logic::ActiveFirewall {
-                allowed: self.enabled_rules(group)?,
-                blocks: ports
-                    .map(|ports| logic::BlockRule::added(block_rule, &ports))
-                    .unwrap_or_default(),
-                overriding: Vec::new(),
-                unprotected: Vec::new(),
-            })
-        }
-        fn enabled_rules(&self, _: &str) -> Result<Vec<String>> {
-            Ok(self
-                .0
-                .borrow()
-                .rules
-                .iter()
-                .filter(|(_, enabled)| **enabled)
-                .map(|(id, _)| id.clone())
-                .collect())
-        }
-        fn set_rule_enabled(&mut self, _: &str, id: &str, enabled: bool) -> Result<()> {
+        fn enable_rule(&mut self, _: &str, id: &str) -> Result<()> {
             *self
                 .0
                 .borrow_mut()
                 .rules
                 .get_mut(id)
-                .context("no such rule")? = enabled;
-            Ok(())
-        }
-        fn add_block_rule(&mut self, name: &str, ports: &[u16]) -> Result<()> {
-            self.0
-                .borrow_mut()
-                .block_rules
-                .insert(name.into(), ports.to_vec());
+                .context("no such rule")? = true;
             Ok(())
         }
         fn remove_rule(&mut self, name: &str) -> Result<()> {
@@ -1486,50 +918,36 @@ mod tests {
         fn unload_user_hive(&mut self, _: &str) -> Result<()> {
             Ok(())
         }
-        fn rdp_listeners(&self) -> Result<logic::RdpListeners> {
-            Ok(logic::RdpListeners {
-                shared: false,
-                listeners: vec![logic::ServiceListener {
-                    port: 3389,
-                    owner: None,
-                }],
-            })
-        }
     }
-    const USER: &str = "S-1-5-21-1";
 
-    #[test]
-    fn two_profiles_share_one_record_and_restore_leaves_rdp_off() {
-        // Profile B (a host started by hand) sets up, then A (the service), then B restores,
-        // then A. With a record per profile, A's held B's changes as the originals, and A's
-        // restore turned RDP back on for good.
-        let directory = scratch();
-        let pc = Pc::new();
-        let before = pc.now();
-        let b = record_in(&directory.join("b"));
-        // Every profile's host has the PC's record.
-        let a = b.clone();
-        let first = setup_in(&b, USER, pc.open()).unwrap();
-        assert_eq!(first.deny_ts_connections, Some(1));
-        let set_up = pc.now();
-        assert_ne!(set_up, before);
-        // A finds the PC's record: a repair that keeps B's originals.
-        assert_eq!(setup_in(&a, USER, pc.open()).unwrap(), first);
-        assert_eq!(pc.now(), set_up);
-        assert!(restore_saved(&b, pc.open()).unwrap());
-        assert_eq!(pc.now(), before);
-        assert!(!b.path.exists() && !a.path.exists());
-        assert!(!restore_saved(&a, pc.open()).unwrap());
-        assert_eq!(pc.now(), before, "RDP stays off");
-        // A record of its own elsewhere (another data folder) is refused, not filled with B's.
-        let own = record_in(&directory.join("own"));
-        setup_in(&b, USER, pc.open()).unwrap();
-        let error = format!("{:#}", setup_in(&own, USER, pc.open()).unwrap_err());
-        assert!(error.contains("restore it there"), "{error}");
-        assert!(!own.path.exists());
-        assert!(restore_saved(&b, pc.open()).unwrap());
-        assert_eq!(pc.now(), before);
-        std::fs::remove_dir_all(directory).unwrap();
+    /// What the removed setup recorded in `record` and changed on `pc`: RDP
+    /// on behind its block rule, the frame interval, child sessions on.
+    fn set_up(pc: &Pc, record: &Record) {
+        let mut machine = pc.0.borrow_mut();
+        let state = SetupState {
+            remote_desktop_rule_ids: machine
+                .rules
+                .iter()
+                .filter(|(_, on)| **on)
+                .map(|(id, _)| id.clone())
+                .collect(),
+            ..recorded()
+        };
+        record.save(&state).unwrap();
+        machine.values.insert(deny(), 0);
+        machine.values.insert(
+            hive_key(
+                &logic::Hive::LocalMachine,
+                logic::WINSTATIONS,
+                "DWMFRAMEINTERVAL",
+            ),
+            8,
+        );
+        for on in machine.rules.values_mut() {
+            *on = false;
+        }
+        machine.block_rules.insert(logic::BLOCK_RULE.into());
+        machine.child_sessions = true;
     }
 
     #[test]
@@ -1538,7 +956,7 @@ mod tests {
         let record = record_in(&directory);
         let pc = Pc::new();
         let before = pc.now();
-        setup_in(&record, USER, pc.open()).unwrap();
+        set_up(&pc, &record);
         // Child sessions, the last step, fail: RDP and the firewall are back, and the record
         // says so.
         pc.0.borrow_mut().child_sessions_fail = true;
@@ -1547,25 +965,14 @@ mod tests {
         let saved = record.load().unwrap().unwrap();
         assert!(saved.rdp_restored && saved.remote_desktop_rule_ids.is_empty());
         assert!(pc.now().block_rules.is_empty());
-        // The user turns RDP on since: the check leaves it on, though the block rule is gone.
-        let deny = (
-            "LocalMachine".to_string(),
-            logic::TERMINAL_SERVER.to_string(),
-            "fDenyTSConnections".to_string(),
-        );
-        pc.0.borrow_mut().values.insert(deny.clone(), 0);
-        let never = |_, _| -> Result<Vec<String>> { panic!("RDP is the user's own") };
-        let problem = secure_rdp(&record, never, no_wait).unwrap();
-        assert!(
-            problem.contains("partly restored") && problem.contains("Restore Windows settings"),
-            "{problem}"
-        );
-        // Restoring again finishes without writing RDP's value again.
+        // The user turns RDP on since. Restoring again finishes without writing RDP's value
+        // again.
+        pc.0.borrow_mut().values.insert(deny(), 0);
         pc.0.borrow_mut().child_sessions_fail = false;
         assert!(restore_saved(&record, pc.open()).unwrap());
         assert!(!record.path.exists());
         let mut expected = before;
-        expected.values.insert(deny, 0);
+        expected.values.insert(deny(), 0);
         assert_eq!(pc.now(), expected);
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -1602,71 +1009,40 @@ mod tests {
             },
             ..trusted.clone()
         };
-        let turned_off = || -> Result<Vec<String>> {
-            Ok(vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()])
-        };
         for record in [&foreign_file, &foreign_folder, &unchecked_folder] {
             let error = format!("{:#}", record.load().unwrap_err());
             assert!(
                 error.contains("S-1-5-21-9") || error.contains("access denied"),
                 "{error}"
             );
-            // Restore and setup refuse it.
+            // Restore refuses it.
             let pc = Pc::new();
             assert!(restore_saved(record, pc.open()).is_err());
-            assert!(setup_in(record, USER, pc.open()).is_err());
             assert_eq!(pc.now(), Pc::new().now());
         }
         // A record another account wrote into setup's folder, or a folder that can't be
-        // checked: the firewall check turns RDP off, as without a record.
+        // checked: RDP goes off, as after any restore that failed.
         for record in [&foreign_file, &unchecked_folder] {
-            let mut ports = Vec::new();
-            let problem = secure_rdp(
-                record,
-                |port, _| {
-                    ports.push(port);
-                    turned_off()
-                },
-                no_wait,
-            )
-            .unwrap();
-            assert_eq!(ports, [None]);
+            let fake = Fake::new(Pc::new());
+            fake.pc.0.borrow_mut().values.insert(deny(), 0);
+            let left = retire(record, &directory, &fake);
+            assert_eq!((fake.rdp_offs.get(), fake.pc.rdp()), (1, Some(1)));
             assert!(
-                problem.contains("S-1-5-21-9") || problem.contains("access denied"),
-                "{problem}"
-            );
-            assert!(
-                problem.contains("Remote Desktop was turned off"),
-                "{problem}"
+                left.problems[0].contains("Remote Desktop was turned off"),
+                "{left:?}"
             );
         }
         // A folder setup never made holds no setup of Rubylight's: any user could make one in
         // a data root they can write, so RDP, the user's own, is left as it is. Still said.
-        let problem = secure_rdp(
-            &foreign_folder,
-            |_, _| panic!("the firewall was checked for a folder setup never made"),
-            no_wait,
-        )
-        .unwrap();
+        let fake = Fake::new(Pc::new());
+        fake.pc.0.borrow_mut().values.insert(deny(), 0);
+        let left = retire(&foreign_folder, &directory, &fake);
+        assert_eq!((fake.rdp_offs.get(), fake.pc.rdp()), (0, Some(0)));
         assert!(
-            problem.contains("is owned by S-1-5-21-9")
-                && problem.contains("Remote Desktop is left as it is"),
-            "{problem}"
+            left.problems[0].contains("is owned by S-1-5-21-9")
+                && left.problems[0].contains("Remote Desktop is left as it is"),
+            "{left:?}"
         );
-        let mut reported = Vec::new();
-        let mut watched = Watched::default();
-        for _ in 0..2 {
-            watch(
-                &foreign_folder,
-                &mut watched,
-                true,
-                |_, _| panic!("the firewall was checked for a folder setup never made"),
-                || panic!("there is a record"),
-                no_wait,
-                |problem| reported.push(problem),
-            );
-        }
-        assert_eq!(reported, [problem]);
         // A folder someone else made first is not saved into.
         std::fs::remove_dir_all(&directory).unwrap();
         let squatted = record_in(&directory);
@@ -1914,11 +1290,13 @@ mod tests {
     }
 
     #[test]
-    fn setup_and_restore_need_administrator_rights() {
+    fn restore_needs_administrator_rights() {
         let directory = scratch();
         let pc = Pc::new();
         let elevated = record_in(&directory);
         let before = pc.now();
+        set_up(&pc, &elevated);
+        let changed = pc.now();
         for unelevated in [
             Record {
                 elevated: || Ok(false),
@@ -1931,28 +1309,13 @@ mod tests {
         ] {
             let error = format!(
                 "{:#}",
-                setup_in(&unelevated, USER, || -> Result<Pc> {
-                    panic!("Windows' settings were opened")
-                })
-                .unwrap_err()
+                restore_locked(&unelevated, |_| -> Result<bool> { panic!("restored") })
+                    .unwrap_err()
             );
             assert!(error.contains("administrator rights"), "{error}");
-            assert!(!unelevated.folder().exists());
-            assert_eq!(pc.now(), before);
+            assert_eq!(pc.now(), changed);
+            assert!(elevated.path.is_file());
         }
-        setup_in(&elevated, USER, pc.open()).unwrap();
-        let set_up = pc.now();
-        let unelevated = Record {
-            elevated: || Ok(false),
-            ..elevated.clone()
-        };
-        let error = format!(
-            "{:#}",
-            restore_locked(&unelevated, |_| -> Result<bool> { panic!("restored") }).unwrap_err()
-        );
-        assert!(error.contains("administrator rights"), "{error}");
-        assert_eq!(pc.now(), set_up);
-        assert!(elevated.path.is_file());
         assert!(restore_locked(&elevated, |record| restore_saved(record, pc.open())).unwrap());
         assert_eq!(pc.now(), before);
         std::fs::remove_dir_all(directory).unwrap();
@@ -1979,495 +1342,16 @@ mod tests {
         .unwrap();
         assert!(!record.may_exist());
         assert_eq!(record.load().unwrap(), None);
-        let never = |_: Option<u16>, _: bool| -> Result<Vec<String>> { panic!("checked") };
-        assert_eq!(secure_rdp(&record, never, |_| panic!("waited")), None);
         assert!(!restore_saved(&record, unopened).unwrap());
-        // Setup records the PC's values, not the planted ones.
-        let pc = Pc::new();
-        let saved = setup_in(&record, USER, pc.open()).unwrap();
-        assert_eq!(saved.deny_ts_connections, Some(1));
-        assert_eq!(record.load().unwrap(), Some(saved.clone()));
-        assert!(restore_saved(&record, pc.open()).unwrap());
-        assert_eq!(
-            pc.read_dword(
-                &logic::Hive::LocalMachine,
-                logic::TERMINAL_SERVER,
-                "fDenyTSConnections"
-            )
-            .unwrap(),
-            Some(1),
-            "RDP stays off"
-        );
+        let fake = Fake::new(Pc::new());
+        assert_eq!(retire(&record, &profile, &fake), Left::default());
+        assert_eq!((fake.restores.get(), fake.pc.rdp()), (0, Some(1)));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn the_record_is_the_pcs_not_the_profiles() {
         assert_eq!(Record::new().path, logic::setup_record());
-    }
-
-    #[test]
-    fn the_child_profile_keeps_its_own_settings_under_the_child_host_ones() {
-        let directory = scratch();
-        let profile = directory.join(CHILD_PROFILE);
-        std::fs::create_dir_all(&profile).unwrap();
-        std::fs::write(profile.join("sunshine.conf"), "port = 47989\nlocale = de\n").unwrap();
-        let main = Credentials::new("admin".into(), "main-console").unwrap();
-        write_child_profile(&profile, "Den", 47989, Some(&main)).unwrap();
-        let written = Config::load(&profile.join("sunshine.conf")).unwrap();
-        assert_eq!(written.get("locale", ""), "de");
-        assert_eq!(written.get("port", ""), logic::CHILD_BASE_PORT.to_string());
-        assert_eq!(written.get("sunshine_name", ""), "Den (background)");
-        assert!(written.boolean(logic::CHILD_HOST_KEY, false));
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn status_reads_the_firewall_rules_once_in_30_seconds_until_setup_or_restore() {
-        let cache = RulesCache::new();
-        let reads = std::cell::Cell::new(0);
-        let rules = |id: &str| logic::FirewallRules {
-            enabled: vec![id.to_owned()],
-            active: logic::ActiveFirewall::default(),
-        };
-        let read = |id: &'static str| {
-            let reads = &reads;
-            move || {
-                reads.set(reads.get() + 1);
-                Ok(rules(id))
-            }
-        };
-        let start = Instant::now();
-        assert_eq!(cache.get(start, read("first")).unwrap(), rules("first"));
-        let soon = start + RULES_FOR - std::time::Duration::from_millis(1);
-        assert_eq!(cache.get(soon, read("second")).unwrap(), rules("first"));
-        assert_eq!(reads.get(), 1);
-        // Read again once they are 30 s old.
-        assert_eq!(
-            cache.get(start + RULES_FOR, read("third")).unwrap(),
-            rules("third")
-        );
-        assert_eq!(reads.get(), 2);
-        // Setup and restore forget them.
-        cache.forget();
-        assert_eq!(
-            cache.get(start + RULES_FOR, read("fourth")).unwrap(),
-            rules("fourth")
-        );
-        assert_eq!(reads.get(), 3);
-        // A read that fails is said, and not kept: the next status reads again.
-        let later = start + RULES_FOR * 3;
-        let failed = cache.get(later, || bail!("powershell exited with code 1"));
-        assert!(failed.is_err());
-        assert_eq!(cache.get(later, read("fifth")).unwrap(), rules("fifth"));
-        assert!(RULES_FOR <= std::time::Duration::from_secs(30));
-    }
-
-    #[test]
-    fn the_firewall_is_watched_while_child_sessions_are_set_up() {
-        let mut watched = Watched::default();
-        let mut reports = Vec::new();
-        // Not set up: no check, and setup's traces looked for once, not every round.
-        let empty = scratch();
-        let never = |_, _| -> Result<Vec<String>> { panic!("no setup, no check") };
-        let mut traced = 0;
-        for _ in 0..3 {
-            watch(
-                &record_in(&empty),
-                &mut watched,
-                true,
-                never,
-                || {
-                    traced += 1;
-                    Ok(Vec::new())
-                },
-                no_wait,
-                |p| reports.push(p),
-            );
-        }
-        assert_eq!(traced, 1);
-        std::fs::remove_dir_all(empty).unwrap();
-        // Set up: every round checks, and a problem is reported once while it stays.
-        let (directory, record) = set_up_record();
-        let untraced = || -> Result<Vec<String>> { panic!("a record: no traces looked for") };
-        let rounds = [false, true, true, false, true];
-        let mut checks = 0;
-        for open in rounds {
-            watch(
-                &record,
-                &mut watched,
-                true,
-                |port, _| {
-                    assert_eq!(port, Some(3390));
-                    checks += 1;
-                    Ok(if open {
-                        vec!["the block rule is not in effect".into()]
-                    } else {
-                        Vec::new()
-                    })
-                },
-                untraced,
-                no_wait,
-                |problem| reports.push(problem),
-            );
-        }
-        assert_eq!(checks, rounds.len());
-        assert_eq!(reports.len(), 2, "{reports:?}");
-        assert!(reports[0].contains("the block rule is not in effect"));
-        assert!(WATCH_EVERY <= std::time::Duration::from_secs(60));
-        // The record goes: its traces are looked for again, once.
-        record.remove().unwrap();
-        for _ in 0..2 {
-            watch(
-                &record,
-                &mut watched,
-                true,
-                never,
-                || {
-                    traced += 1;
-                    Ok(Vec::new())
-                },
-                no_wait,
-                |p| reports.push(p),
-            );
-        }
-        assert_eq!((traced, reports.len()), (2, 2));
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn a_setup_whose_record_is_gone_turns_rdp_off_at_the_hosts_start() {
-        // Set up, then the record went (deleted, say): nothing checks the firewall for it.
-        let directory = scratch();
-        let record = record_in(&directory);
-        let pc = Pc::new();
-        let mut settings = pc.clone();
-        settings
-            .add_block_rule(logic::BLOCK_RULE, &logic::block_ports(3389))
-            .unwrap();
-        settings
-            .write_dword(
-                &logic::Hive::LocalMachine,
-                logic::TERMINAL_SERVER,
-                "fDenyTSConnections",
-                0,
-            )
-            .unwrap();
-        let never = |_, _| -> Result<Vec<String>> { panic!("no record, no firewall check") };
-        let mut reports = Vec::new();
-        // Unelevated: it can change nothing, so it looks for nothing.
-        let mut watched = Watched::default();
-        let untraced = || -> Result<Vec<String>> { panic!("an unelevated host looks for nothing") };
-        watch(
-            &record,
-            &mut watched,
-            false,
-            never,
-            untraced,
-            no_wait,
-            |p| reports.push(p),
-        );
-        assert!(reports.is_empty() && watched.last.is_none(), "{reports:?}");
-        // Rules that cannot be read: said in the log once, tried again the next round.
-        for _ in 0..2 {
-            watch(
-                &record,
-                &mut watched,
-                true,
-                never,
-                || anyhow::bail!("PowerShell exited with 1"),
-                no_wait,
-                |p| reports.push(p),
-            );
-        }
-        assert!(reports.is_empty(), "{reports:?}");
-        let warning = watched.last.clone().unwrap();
-        assert!(warning.contains("PowerShell exited with 1"), "{warning}");
-        assert!(!watched.traced);
-        assert_eq!(
-            pc.now().values.get(&hive_key(
-                &logic::Hive::LocalMachine,
-                logic::TERMINAL_SERVER,
-                "fDenyTSConnections"
-            )),
-            Some(&0)
-        );
-        // Read: RDP goes off, and the console and the log say why, loudly and once.
-        for _ in 0..2 {
-            let mut settings = pc.clone();
-            watch(
-                &record,
-                &mut watched,
-                true,
-                never,
-                move || logic::enforce_unrecorded(&mut settings),
-                no_wait,
-                |p| reports.push(p),
-            );
-        }
-        assert_eq!(
-            pc.now().values.get(&hive_key(
-                &logic::Hive::LocalMachine,
-                logic::TERMINAL_SERVER,
-                "fDenyTSConnections"
-            )),
-            Some(&1)
-        );
-        assert_eq!(reports.len(), 1, "{reports:?}");
-        let problem = &reports[0];
-        assert!(
-            problem.contains(logic::BLOCK_RULE)
-                && problem.contains(logic::SETUP_FILE)
-                && problem.contains("is gone")
-                && problem.contains("Remote Desktop was turned off"),
-            "{problem}"
-        );
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn a_host_without_administrator_rights_says_child_sessions_are_unavailable_in_it() {
-        let never = |_, _| -> Result<Vec<String>> { panic!("an unelevated host checks nothing") };
-        let untraced = || -> Result<Vec<String>> { panic!("an unelevated host looks for nothing") };
-        let mut reports = Vec::new();
-        // Not set up: nothing to say.
-        let empty = scratch();
-        let mut watched = Watched::default();
-        assert_eq!(unverified(&record_in(&empty), false), None);
-        watch(
-            &record_in(&empty),
-            &mut watched,
-            false,
-            never,
-            untraced,
-            no_wait,
-            |p| reports.push(p),
-        );
-        assert_eq!(watched.last, None);
-        std::fs::remove_dir_all(empty).unwrap();
-        // Set up and readable: unavailable here, said in the log, never reported as a problem.
-        let (directory, record) = set_up_record();
-        let reason = unverified(&record, false).unwrap();
-        assert!(
-            reason.starts_with("child sessions are set up on this PC"),
-            "{reason}"
-        );
-        assert!(reason.contains("unavailable in this host"), "{reason}");
-        for _ in 0..2 {
-            watch(
-                &record,
-                &mut watched,
-                false,
-                never,
-                untraced,
-                no_wait,
-                |p| reports.push(p),
-            );
-        }
-        assert_eq!(watched.last.as_deref(), Some(reason.as_str()));
-        // A record it can't read (an older one only administrators may read): the same, with why.
-        let unreadable = Record {
-            trusted: |_, path| bail!("Access is denied reading {}", path.display()),
-            ..record.clone()
-        };
-        let reason = unverified(&unreadable, false).unwrap();
-        assert!(
-            reason.starts_with(
-                "Rubylight's child-session record could not be read (Access is denied"
-            ),
-            "{reason}"
-        );
-        assert!(reason.contains("unavailable in this host"), "{reason}");
-        watch(
-            &unreadable,
-            &mut watched,
-            false,
-            never,
-            untraced,
-            no_wait,
-            |p| reports.push(p),
-        );
-        assert!(reports.is_empty(), "{reports:?}");
-        // Elevated: it checks, as before.
-        assert_eq!(unverified(&unreadable, true), None);
-        let mut checks = 0;
-        watch(
-            &record,
-            &mut watched,
-            true,
-            |_, _| {
-                checks += 1;
-                Ok(Vec::new())
-            },
-            untraced,
-            no_wait,
-            |p| reports.push(p),
-        );
-        assert_eq!((checks, watched.last), (1, None));
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn the_console_says_why_child_sessions_are_unavailable_in_this_host() {
-        let fixture = crate::state::test_support::Fixture::new();
-        let unread = || -> Result<Vec<String>> { bail!("not read in this test") };
-        // Set up, in a host without administrator rights: the reason the log gives.
-        let (directory, record) = set_up_record();
-        let status = status_with(&fixture.host, &record, false, unread);
-        let reason = unverified(&record, false).unwrap();
-        assert!(reason.contains("unavailable in this host"), "{reason}");
-        assert_eq!(status["unavailable"], json!(reason));
-        assert_eq!(status["set_up"], json!(true));
-        // Elevated, or never set up: nothing to say.
-        let elevated = status_with(&fixture.host, &record, true, unread);
-        assert!(elevated["unavailable"].is_null(), "{elevated}");
-        let empty = scratch();
-        let never = status_with(&fixture.host, &record_in(&empty), false, unread);
-        assert!(never["unavailable"].is_null(), "{never}");
-        std::fs::remove_dir_all(empty).unwrap();
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn a_set_up_pc_checks_its_firewall_at_the_hosts_start() {
-        let directory = scratch();
-        let record = record_in(&directory);
-        let never = |_, _| -> Result<Vec<String>> { panic!("no setup, no check") };
-        assert_eq!(secure_rdp(&record, never, no_wait), None);
-        let state = SetupState {
-            version: 1,
-            user_sid: "S-1-5-21-1".into(),
-            deny_ts_connections: Some(1),
-            dwm_frame_interval: None,
-            suppress_when_minimized: None,
-            child_sessions: false,
-            remote_desktop_rule_ids: Vec::new(),
-            rdp_port: 3390,
-            rdp_restored: false,
-        };
-        record.save(&state).unwrap();
-        // Checked for the port setup recorded.
-        assert_eq!(
-            secure_rdp(
-                &record,
-                |port, _| {
-                    assert_eq!(port, Some(3390));
-                    Ok(Vec::new())
-                },
-                no_wait
-            ),
-            None
-        );
-        let problem = secure_rdp(
-            &record,
-            |_, _| {
-                Ok(vec![
-                    "the block rule is not in effect".into(),
-                    "Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into(),
-                ])
-            },
-            no_wait,
-        )
-        .unwrap();
-        assert!(
-            problem.contains("the block rule is not in effect; Remote Desktop was turned off")
-                && problem.contains("set up child sessions again")
-                && !problem.contains("so Remote Desktop is on"),
-            "{problem}"
-        );
-        // A record that cannot be read still turns RDP off, and says why.
-        write_record(&record, "not json");
-        let problem = secure_rdp(
-            &record,
-            |port, _| {
-                assert_eq!(port, None);
-                Ok(vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()])
-            },
-            no_wait,
-        )
-        .unwrap();
-        assert!(
-            problem.contains(logic::SETUP_FILE)
-                && problem.contains("Remote Desktop was turned off"),
-            "{problem}"
-        );
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    /// The registry alone, as [`enforce_with`] falls back to it.
-    #[derive(Default)]
-    struct Values {
-        values: std::collections::BTreeMap<(String, String), u32>,
-        fail_writes: bool,
-    }
-    impl Registry for Values {
-        fn read_dword(&self, hive: &logic::Hive, path: &str, name: &str) -> Result<Option<u32>> {
-            assert_eq!(*hive, logic::Hive::LocalMachine);
-            Ok(self.values.get(&(path.into(), name.into())).copied())
-        }
-        fn write_dword(
-            &mut self,
-            hive: &logic::Hive,
-            path: &str,
-            name: &str,
-            value: u32,
-        ) -> Result<()> {
-            assert_eq!(*hive, logic::Hive::LocalMachine);
-            if self.fail_writes {
-                bail!("access is denied");
-            }
-            self.values.insert((path.into(), name.into()), value);
-            Ok(())
-        }
-    }
-    fn no_wait(_: std::time::Duration) {}
-    fn deny() -> (String, String) {
-        (logic::TERMINAL_SERVER.into(), "fDenyTSConnections".into())
-    }
-
-    #[test]
-    fn a_firewall_that_cannot_be_opened_still_turns_rdp_off() {
-        let unopened = || -> Result<native::NativeSettings> { bail!("CoCreateInstance failed") };
-        let mut registry = Values::default();
-        registry.values.insert(deny(), 0);
-        // Not the last try: nothing changes, so it can be tried again.
-        let error = enforce_with(Some(3390), false, unopened, &mut registry).unwrap_err();
-        assert!(
-            format!("{error:#}").contains("CoCreateInstance failed"),
-            "{error:#}"
-        );
-        assert_eq!(registry.values.get(&deny()), Some(&0));
-        let found = enforce_with(Some(3390), true, unopened, &mut registry).unwrap();
-        assert!(
-            found[0].contains("Windows Firewall could not be opened")
-                && found[0].contains("CoCreateInstance failed"),
-            "{found:?}"
-        );
-        assert!(
-            found[1].contains("Remote Desktop was turned off"),
-            "{found:?}"
-        );
-        assert_eq!(registry.values.get(&deny()), Some(&1));
-        // A write that fails says so: RDP may still be on.
-        let mut stuck = Values {
-            fail_writes: true,
-            ..Values::default()
-        };
-        let found = enforce_with(Some(3390), true, unopened, &mut stuck).unwrap();
-        assert!(
-            found[1].contains("turning Remote Desktop off failed")
-                && found[1].contains("access is denied"),
-            "{found:?}"
-        );
-        // Without a record, RDP goes off without the firewall.
-        let mut registry = Values::default();
-        let unneeded = || -> Result<native::NativeSettings> { panic!("the firewall was opened") };
-        let found = enforce_with(None, false, unneeded, &mut registry).unwrap();
-        assert!(
-            found.len() == 1 && found[0].contains("Remote Desktop was turned off"),
-            "{found:?}"
-        );
-        assert_eq!(registry.values.get(&deny()), Some(&1));
     }
 
     fn set_up_record() -> (PathBuf, Record) {
@@ -2488,84 +1372,6 @@ mod tests {
             rdp_port: 3390,
             rdp_restored: false,
         }
-    }
-
-    #[test]
-    fn a_check_that_cannot_run_is_tried_again_then_fails_closed() {
-        let (directory, record) = set_up_record();
-        // Fails twice, then runs: no problem, after two waits without the settings lock.
-        let mut tries = Vec::new();
-        let mut waits = 0;
-        let problem = secure_rdp(
-            &record,
-            |port, last| {
-                tries.push((port, last));
-                match tries.len() {
-                    1 | 2 => bail!("the firewall rule script timed out"),
-                    _ => Ok(Vec::new()),
-                }
-            },
-            |wait| {
-                assert_eq!(wait, CHECK_WAIT);
-                // Another thread gets the lock (other tests may hold it a moment).
-                let (locked, lock) = std::sync::mpsc::channel();
-                std::thread::spawn(move || {
-                    let _settings = settings_lock().unwrap();
-                    locked.send(()).unwrap();
-                });
-                assert!(
-                    lock.recv_timeout(std::time::Duration::from_secs(10))
-                        .is_ok(),
-                    "waits holding the settings lock"
-                );
-                waits += 1;
-            },
-        );
-        assert_eq!(problem, None);
-        assert_eq!(
-            tries,
-            [(Some(3390), false), (Some(3390), false), (Some(3390), true)]
-        );
-        assert_eq!(waits, 2);
-        // Never runs: the last try is told so and turns RDP off.
-        let mut tries = 0;
-        let problem = secure_rdp(
-            &record,
-            |_, last| {
-                tries += 1;
-                if !last {
-                    bail!("the firewall rule script timed out");
-                }
-                Ok(vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()])
-            },
-            no_wait,
-        )
-        .unwrap();
-        assert_eq!(tries, CHECK_TRIES);
-        assert!(
-            problem.contains("Remote Desktop was turned off"),
-            "{problem}"
-        );
-        // What a check finds is never tried again.
-        let mut tries = 0;
-        let problem = secure_rdp(
-            &record,
-            |_, _| {
-                tries += 1;
-                Ok(vec![
-                    "the block rule is not in effect".into(),
-                    "Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into(),
-                ])
-            },
-            |_| panic!("a real problem was tried again"),
-        )
-        .unwrap();
-        assert_eq!(tries, 1);
-        assert!(
-            problem.contains("the block rule is not in effect"),
-            "{problem}"
-        );
-        std::fs::remove_dir_all(directory).unwrap();
     }
 
     /// The settings locks as this process holds them, or only the
@@ -2598,7 +1404,7 @@ mod tests {
     }
 
     #[test]
-    fn setup_and_restore_wait_for_the_settings_lock() {
+    fn restore_and_the_unrecorded_check_wait_for_the_settings_lock() {
         let directory = scratch();
         let record = record_in(&directory);
         for hold in HOLDERS {
@@ -2616,7 +1422,7 @@ mod tests {
                 )
             });
             assert_eq!(code, 0);
-            // The console's restore.
+            // The host's restore.
             let config = record.clone();
             let restored = waits_for_the_settings_lock(hold, move |reached| {
                 restore_locked(&config, |_| {
@@ -2625,43 +1431,16 @@ mod tests {
                 })
             });
             assert!(!restored.unwrap());
-            // Setup opens Windows' settings only under the lock.
+            // The check without a record.
+            record.remove().unwrap();
             let config = record.clone();
-            let error = waits_for_the_settings_lock(hold, move |reached| {
-                setup_in(
-                    &config,
-                    "S-1-5-21-1",
-                    || -> Result<native::NativeSettings> {
-                        reached.send(()).unwrap();
-                        bail!("not on this PC")
-                    },
-                )
-            })
-            .unwrap_err();
-            assert!(format!("{error:#}").contains("not on this PC"), "{error:#}");
-        }
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn the_startup_check_waits_for_setup_and_restore() {
-        let (directory, record) = set_up_record();
-        for hold in HOLDERS {
-            let (checked, checks) = std::sync::mpsc::channel();
-            let config = record.clone();
-            let problem = waits_for_the_settings_lock(hold, move |reached| {
-                secure_rdp(
-                    &config,
-                    |port, _| {
-                        checked.send(port).unwrap();
-                        reached.send(()).unwrap();
-                        Ok(Vec::new())
-                    },
-                    no_wait,
-                )
+            let found = waits_for_the_settings_lock(hold, move |reached| {
+                secure_unrecorded(&config, || {
+                    reached.send(()).unwrap();
+                    Ok(Unrecorded::default())
+                })
             });
-            assert_eq!(problem, None);
-            assert_eq!(checks.try_recv().unwrap(), Some(3390));
+            assert_eq!(found.unwrap(), Unrecorded::default());
         }
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -2747,121 +1526,294 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
-    #[test]
-    fn a_check_that_cannot_get_the_lock_fails_closed() {
-        let (directory, record) = set_up_record();
-        // Another process holds the cross-process lock for longer than the check waits.
-        let lock = native::lock::setup_lock(settings_wait()).unwrap();
-        let problem = std::thread::spawn({
-            let record = record.clone();
-            move || {
-                SETTINGS_WAIT.set(Some(std::time::Duration::from_millis(300)));
-                let mut tries = Vec::new();
-                let problem = secure_rdp(
-                    &record,
-                    |port, last| {
-                        tries.push((port, last));
-                        Ok(vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()])
-                    },
-                    |_| panic!("waited to try again"),
-                );
-                // Turned off without the firewall, as without a record.
-                assert_eq!(tries, [(None, true)]);
-                problem
+    /// [`Leftovers`] over a [`Pc`], counting what [`retire`] calls; saved
+    /// passwords in `profiles`, wiped as on this PC.
+    struct Fake {
+        pc: Pc,
+        restores: Cell<u32>,
+        /// The restore fails before it changes anything.
+        restore_fails: bool,
+        rdp_offs: Cell<u32>,
+        unrecorded: Cell<u32>,
+        profiles: Vec<PathBuf>,
+        session: Option<u32>,
+    }
+    impl Fake {
+        fn new(pc: Pc) -> Self {
+            Self {
+                pc,
+                restores: Cell::new(0),
+                restore_fails: false,
+                rdp_offs: Cell::new(0),
+                unrecorded: Cell::new(0),
+                profiles: Vec::new(),
+                session: None,
             }
-        })
-        .join()
-        .unwrap()
-        .unwrap();
-        drop(lock);
-        assert!(
-            problem.contains("the firewall could not be checked")
-                && problem.contains("still setting up or restoring")
-                && problem.contains("Remote Desktop was turned off"),
-            "{problem}"
-        );
-        std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+    impl Leftovers for Fake {
+        fn restore(&self, record: &Record) -> Result<bool> {
+            self.restores.set(self.restores.get() + 1);
+            if self.restore_fails {
+                bail!("access denied");
+            }
+            restore_saved(record, self.pc.open())
+        }
+        fn rdp_off(&self) -> String {
+            self.rdp_offs.set(self.rdp_offs.get() + 1);
+            logic::turn_rdp_off(&mut self.pc.clone())
+        }
+        fn unrecorded(&self) -> Result<Unrecorded> {
+            self.unrecorded.set(self.unrecorded.get() + 1);
+            logic::enforce_unrecorded(&mut self.pc.clone())
+        }
+        fn password_folders(&self) -> (Vec<PathBuf>, Vec<String>) {
+            (logic::password_folders(&self.profiles, &[]), Vec::new())
+        }
+        fn wipe(&self, path: &Path) -> std::io::Result<bool> {
+            native::wipe_file(path)
+        }
+        fn remove_empty(&self, path: &Path) -> std::io::Result<()> {
+            native::remove_empty_folder(path)
+        }
+        fn child_session(&self) -> Option<u32> {
+            self.session
+        }
     }
 
     #[test]
-    fn a_viewer_line_over_the_cap_is_not_read_or_logged() {
-        let directory = scratch();
-        let path = directory.join("viewer.log");
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .with_ansi(false)
-            .with_writer(Mutex::new(File::create(&path).unwrap()))
-            .finish();
-        let long = format!("{}SECRET\n", "x".repeat(logic::STATUS_LINE_CAP));
-        let input = format!("first\n{long}after\n");
-        tracing::subscriber::with_default(subscriber, || read_errors(7, input.as_bytes()));
-        let log = std::fs::read_to_string(&path).unwrap();
-        assert!(log.contains("first") && log.contains("after"), "{log}");
-        assert!(log.contains("a line that is not logged"), "{log}");
-        assert!(!log.contains("SECRET") && !log.contains("xxxx"), "{log}");
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn the_viewer_connects_to_the_rdp_port_setup_recorded() {
+    fn the_host_restores_a_set_up_pc_at_its_start_once() {
         let directory = scratch();
         let record = record_in(&directory);
-        let port = |record: &Record| match start_command(record, Default::default(), None) {
-            Ok(ViewerCommand::Start { rdp_port, .. }) => Ok(rdp_port),
-            Ok(other) => panic!("{other:?}"),
-            Err(error) => Err(format!("{error:#}")),
+        let fake = Fake::new(Pc::new());
+        let before = fake.pc.now();
+        set_up(&fake.pc, &record);
+        let left = retire(&record, &directory, &fake);
+        assert_eq!(left, Left::default());
+        assert_eq!(fake.pc.now(), before);
+        assert!(!record.path.exists());
+        assert_eq!(
+            status_with(&record, &left),
+            json!({"pending": false, "problem": null})
+        );
+        // The next start finds nothing to do.
+        let fake = Fake {
+            unrecorded: Cell::new(0),
+            ..fake
         };
-        let error = port(&record).unwrap_err();
-        assert!(error.contains("set up child sessions first"), "{error}");
-        let mut state = SetupState {
-            version: 1,
-            user_sid: "S-1-5-21-1".into(),
-            deny_ts_connections: Some(1),
-            dwm_frame_interval: None,
-            suppress_when_minimized: None,
-            child_sessions: false,
-            remote_desktop_rule_ids: Vec::new(),
-            rdp_port: 3390,
-            rdp_restored: false,
-        };
-        record.save(&state).unwrap();
-        assert_eq!(port(&record), Ok(3390));
-        // A record saved without a port: Windows' default.
-        let mut text = serde_json::to_value(&state).unwrap();
-        text.as_object_mut().unwrap().remove("rdp_port");
-        write_record(&record, &text.to_string());
-        assert_eq!(port(&record), Ok(3389));
-        state.rdp_port = 3389;
-        assert_eq!(record.load().unwrap(), Some(state));
+        assert_eq!(retire(&record, &directory, &fake), Left::default());
+        assert_eq!((fake.restores.get(), fake.unrecorded.get()), (1, 1));
+        assert_eq!(fake.pc.now(), before);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn the_child_host_signs_in_like_the_main_console_and_never_starts_unclaimed() {
+    fn a_restore_that_fails_at_the_start_turns_rdp_off_and_keeps_the_record() {
+        let (directory, record) = set_up_record();
+        let fake = Fake {
+            restore_fails: true,
+            ..Fake::new(Pc::new())
+        };
+        fake.pc.0.borrow_mut().values.insert(deny(), 0);
+        let left = retire(&record, &directory, &fake);
+        assert_eq!((fake.restores.get(), fake.rdp_offs.get()), (1, 1));
+        assert_eq!(fake.pc.rdp(), Some(1));
+        assert!(record.path.is_file());
+        let problem = &left.problems[0];
+        assert!(
+            problem.starts_with("Child sessions were removed from Rubylight, and the Windows settings their setup changed were not restored: access denied. Remote Desktop was turned off")
+                && problem.ends_with("Restore again under Maintenance, or run butterpollo.exe --child-session-restore as administrator."),
+            "{problem}"
+        );
+        let status = status_with(&record, &left);
+        assert_eq!(
+            (&status["pending"], &status["problem"]),
+            (&json!(true), &json!(problem))
+        );
+        // RDP back as before setup already: it stays the user's own.
+        let mut state = record.load().unwrap().unwrap();
+        state.rdp_restored = true;
+        record.save(&state).unwrap();
+        let fake = Fake {
+            restore_fails: true,
+            ..Fake::new(Pc::new())
+        };
+        fake.pc.0.borrow_mut().values.insert(deny(), 0);
+        let left = retire(&record, &directory, &fake);
+        assert_eq!((fake.rdp_offs.get(), fake.pc.rdp()), (0, Some(0)));
+        assert!(
+            left.problems[0].contains("Remote Desktop was left as it is"),
+            "{left:?}"
+        );
+        assert_eq!(
+            restore_exit_code_with(
+                &record,
+                |_| -> Result<bool> { bail!("access denied") },
+                || panic!("RDP off")
+            ),
+            logic::RESTORE_PARTLY_EXIT
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_host_without_administrator_rights_changes_nothing_and_says_so_once() {
+        let (directory, record) = set_up_record();
+        let unelevated = Record {
+            elevated: || Ok(false),
+            ..record.clone()
+        };
+        let profile = directory.join(CHILD_PROFILE);
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(profile.join("sunshine.conf"), "child_session_host = true\n").unwrap();
+        let fake = Fake::new(Pc::new());
+        fake.pc.0.borrow_mut().values.insert(deny(), 0);
+        let before = fake.pc.now();
+        let left = retire(&unelevated, &directory, &fake);
+        assert_eq!(left.problems, [NOT_ELEVATED]);
+        assert_eq!(
+            (
+                fake.restores.get(),
+                fake.rdp_offs.get(),
+                fake.unrecorded.get()
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(fake.pc.now(), before);
+        assert!(record.path.is_file() && profile.is_dir());
+        // Never set up: nothing to say.
+        record.remove().unwrap();
+        assert_eq!(retire(&unelevated, &directory, &fake), Left::default());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn without_a_record_setups_traces_are_checked_once() {
+        let directory = scratch();
+        let record = record_in(&directory);
+        // Set up, then the record went: RDP goes off, then the block rule.
+        let fake = Fake::new(Pc::new());
+        set_up(&fake.pc, &record);
+        record.remove().unwrap();
+        let left = retire(&record, &directory, &fake);
+        assert_eq!(left, Left::default());
+        assert_eq!((fake.unrecorded.get(), fake.restores.get()), (1, 0));
+        assert_eq!(fake.pc.rdp(), Some(1));
+        assert!(fake.pc.now().block_rules.is_empty());
+        // A block rule that stays (RDP can't be turned off) is pending, and said.
+        let fake = Fake::new(Pc::new());
+        set_up(&fake.pc, &record);
+        record.remove().unwrap();
+        fake.pc.0.borrow_mut().values.insert(
+            hive_key(
+                &logic::Hive::LocalMachine,
+                logic::TERMINAL_SERVICES_POLICY,
+                "fDenyTSConnections",
+            ),
+            0,
+        );
+        let left = retire(&record, &directory, &fake);
+        assert!(left.block_rule, "{left:?}");
+        assert!(left.problems[0].contains("is still on this PC"), "{left:?}");
+        assert_eq!(status_with(&record, &left)["pending"], json!(true));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_saved_passwords_go_from_every_profile() {
+        let directory = scratch();
+        let profiles = [directory.join("ramaz"), directory.join("guest")];
+        let folder = |profile: &Path| {
+            profile
+                .join("AppData")
+                .join("Local")
+                .join(logic::PASSWORD_FOLDER)
+        };
+        for profile in &profiles {
+            std::fs::create_dir_all(folder(profile)).unwrap();
+            for name in logic::PASSWORD_FILES {
+                std::fs::write(folder(profile).join(name), "DPAPI blob").unwrap();
+            }
+        }
+        // The guest's folder holds something else too, and stays.
+        std::fs::write(folder(&profiles[1]).join("other.txt"), "kept").unwrap();
+        // A profile with no saved password is no failure; a relative one, and one through `..`,
+        // are skipped.
+        let empty = directory.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let kept = directory.join("kept");
+        std::fs::create_dir_all(folder(&kept)).unwrap();
+        std::fs::write(folder(&kept).join(logic::PASSWORD_FILES[0]), "DPAPI blob").unwrap();
+        let fake = Fake {
+            profiles: vec![
+                profiles[0].clone(),
+                profiles[1].clone(),
+                empty,
+                PathBuf::from("relative"),
+                directory.join("x").join("..").join("kept"),
+            ],
+            ..Fake::new(Pc::new())
+        };
+        assert!(delete_saved_passwords(&fake).is_empty());
+        assert!(!folder(&profiles[0]).exists());
+        assert_eq!(
+            std::fs::read_dir(folder(&profiles[1])).unwrap().count(),
+            1,
+            "only other.txt stays"
+        );
+        assert!(folder(&kept).join(logic::PASSWORD_FILES[0]).is_file());
+        // A file that can't be deleted (held open) is said with its path; the others go.
+        for profile in &profiles {
+            std::fs::create_dir_all(folder(profile)).unwrap();
+            for name in logic::PASSWORD_FILES {
+                std::fs::write(folder(profile).join(name), "DPAPI blob").unwrap();
+            }
+        }
+        let held_path = folder(&profiles[0]).join(logic::PASSWORD_FILES[0]);
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&held_path)
+                .unwrap()
+        };
+        let problems = delete_saved_passwords(&fake);
+        drop(held);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains(&held_path.display().to_string())
+                && problems[0].contains("delete it by hand"),
+            "{problems:?}"
+        );
+        assert!(!folder(&profiles[0]).join(logic::PASSWORD_FILES[1]).exists());
+        for name in logic::PASSWORD_FILES {
+            assert!(!folder(&profiles[1]).join(name).exists());
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_child_hosts_profile_goes_only_when_it_is_that_hosts() {
         let directory = scratch();
         let profile = directory.join(CHILD_PROFILE);
-        let error = write_child_profile(&profile, "Den", 47989, None).unwrap_err();
-        assert!(format!("{error:#}").contains("sign-in first"), "{error:#}");
-        assert!(
-            !profile.exists(),
-            "nothing is written for a host that cannot start"
-        );
-        // A paired device in the file that also holds the sign-in stays.
+        assert_eq!(remove_child_profile(&directory), Ok(false));
         std::fs::create_dir_all(&profile).unwrap();
-        let state = profile.join("sunshine_state.json");
-        std::fs::write(&state, r#"{"root":{"named_devices":[1]},"username":"old"}"#).unwrap();
-        let main = Credentials::new("admin".into(), "main-console").unwrap();
-        write_child_profile(&profile, "Den", 47989, Some(&main)).unwrap();
-        let config = Config::load(&profile.join("sunshine.conf")).unwrap();
-        let files = ProfileFiles::new(&config, &profile);
-        assert_eq!(files.credentials, state);
-        let loaded = Credentials::load(&files.credentials).unwrap().unwrap();
-        assert!(loaded == main);
-        assert!(loaded.verifies("admin", "main-console"));
-        assert_eq!(
-            load_json(&state, json!({})).unwrap()["root"]["named_devices"][0],
-            1
-        );
+        std::fs::write(profile.join("sunshine.conf"), "port = 47989\n").unwrap();
+        assert_eq!(remove_child_profile(&directory), Ok(false));
+        assert!(profile.is_dir());
+        std::fs::write(
+            profile.join("sunshine.conf"),
+            "port = 47999\n child_session_host = True \n",
+        )
+        .unwrap();
+        std::fs::write(
+            profile.join("sunshine_state.json"),
+            r#"{"username":"admin"}"#,
+        )
+        .unwrap();
+        assert_eq!(remove_child_profile(&directory), Ok(true));
+        assert!(!profile.exists());
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

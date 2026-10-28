@@ -1,7 +1,8 @@
 name: Release
 
 # A pushed v* tag builds the signed release APKs and bundle and the desktop client
-# (Windows zip, Linux tar.gz) and attaches them to the GitHub release for that tag
+# (Windows zip and installer; Linux tar.gz, .deb, .rpm and AppImage) and attaches them to the
+# GitHub release for that tag
 # (created here when it does not exist yet). The desktop jobs run first and the
 # release job needs them, so a tag publishes everything or nothing.
 # Main's own CI (android.yml) already tested the commit: tag a commit whose
@@ -66,7 +67,8 @@ jobs:
     # The Linux desktop client: protocol/desktop/package-linux.sh builds it (SDL3 from
     # source, linked statically; the decode-only FFmpeg of protocol/desktop/ffmpeg-decode-only.sh,
     # shipped in lib/ so the machine's own FFmpeg does not matter) and packs
-    # nightjar-desktop-<version>-linux-x86_64.tar.gz.
+    # nightjar-desktop-<version>-linux-x86_64.tar.gz; packaging/linux/build-packages.sh makes the
+    # .deb, .rpm and AppImage from that archive, and each is installed and started here.
     needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -79,6 +81,15 @@ jobs:
       RUBYLIGHT_SHA: 957ace5a9cdb14b5f39cffbe662f0df1dcb41caf
       FFMPEG_VERSION: 8.1.2
       FFMPEG_SHA256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+      # The packaging tools, pinned by version and SHA-256 (the hashes GitHub lists for the assets).
+      NFPM_VERSION: 2.48.0
+      NFPM_SHA256: 6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750
+      APPIMAGETOOL_VERSION: 1.9.1
+      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+      APPIMAGE_RUNTIME_VERSION: '20251108'
+      APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+      # The clean distribution the .rpm and the AppImage are installed and started in.
+      FEDORA_IMAGE: fedora:42
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -187,10 +198,56 @@ jobs:
           done
           grep -Eq "libavcodec\.so.* => $PWD/unpacked/$name/lib/" ldd.txt || { echo "::error::libavcodec is not the packaged one"; exit 1; }
           tar -xzOf "dist/$name.tar.gz" "$name/LINUX-RUNTIME.txt"
+          grep -qx "$name/share/applications/io.github.ramazankara.nightjar.desktop" contents.txt || { echo "::error::$name.tar.gz has no desktop entry"; exit 1; }
+      - name: Packaging tools
+        run: |
+          tools="$RUNNER_TEMP/packaging-tools"
+          mkdir -p "$tools"
+          cd "$tools"
+          curl -sSLf --retry 5 --retry-all-errors -o nfpm.tar.gz "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          curl -sSLf --retry 5 --retry-all-errors -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
+          curl -sSLf --retry 5 --retry-all-errors -o runtime-x86_64 "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-x86_64"
+          printf '%s  %s\n' "$NFPM_SHA256" nfpm.tar.gz "$APPIMAGETOOL_SHA256" appimagetool "$APPIMAGE_RUNTIME_SHA256" runtime-x86_64 | sha256sum -c -
+          tar -xzf nfpm.tar.gz nfpm
+          chmod +x nfpm appimagetool
+      # Made from the tar.gz above, so they carry its files. The runner has no FUSE for
+      # appimagetool (an AppImage itself): it runs extracted.
+      - name: Build the .deb, .rpm and AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          tools="$RUNNER_TEMP/packaging-tools"
+          bash protocol/desktop/packaging/linux/build-packages.sh -n "$tools/nfpm" -a "$tools/appimagetool" -r "$tools/runtime-x86_64" \
+            "dist/nightjar-desktop-$VERSION-linux-x86_64.tar.gz"
+      # Each package installs, answers --version (no window needed) and uninstalls without
+      # leftovers: the .deb on this Ubuntu runner, the .rpm and the AppImage in a clean Fedora.
+      - name: Install, start and remove the packages
+        run: |
+          name="nightjar-desktop-$VERSION-linux-x86_64"
+          sudo apt-get install -y -qq "./dist/$name.deb"
+          printed=$(nightjar --version)
+          test "$printed" = "Nightjar $VERSION" || { echo "::error::the .deb's nightjar --version printed '$printed'"; exit 1; }
+          test -s /usr/share/applications/io.github.ramazankara.nightjar.desktop || { echo "::error::the .deb has no desktop entry"; exit 1; }
+          test -s /usr/share/icons/hicolor/256x256/apps/io.github.ramazankara.nightjar.png || { echo "::error::the .deb has no icon"; exit 1; }
+          sudo apt-get remove -y -qq nightjar
+          if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "::error::removing the .deb left files behind"; exit 1; fi
+          APPIMAGE_EXTRACT_AND_RUN=1 "./dist/$name.AppImage" --version | grep -qx "Nightjar $VERSION" || { echo "::error::the AppImage does not start"; exit 1; }
+          docker run --rm -e VERSION -e name="$name" -v "$PWD/dist:/dist:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
+            dnf install -y -q "/dist/$name.rpm"
+            test "$(nightjar --version)" = "Nightjar $VERSION"
+            test -s /usr/share/applications/io.github.ramazankara.nightjar.desktop
+            dnf remove -y -q nightjar
+            if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "removing the .rpm left files behind"; exit 1; fi
+            cd /tmp && APPIMAGE_EXTRACT_AND_RUN=1 "/dist/$name.AppImage" --version | grep -qx "Nightjar $VERSION"
+            echo "fedora: .rpm and AppImage passed"'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-linux
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
           if-no-files-found: error
 
   desktop-windows:
@@ -198,6 +255,8 @@ jobs:
     # decode-only FFmpeg (protocol/desktop/ffmpeg-decode-only.sh), so the zip holds a few
     # DLLs instead of MSYS2's 80. package-windows.ps1 walks the import tables, fails when a
     # non-system DLL would be missing from the zip, and starts the unpacked exe once.
+    # packaging/windows/build-installer.ps1 makes the installer from the zip, installs it, starts
+    # it and uninstalls it again.
     needs: preflight
     runs-on: windows-latest
     timeout-minutes: 90
@@ -210,6 +269,10 @@ jobs:
       RUBYLIGHT_SHA: 957ace5a9cdb14b5f39cffbe662f0df1dcb41caf
       FFMPEG_VERSION: 8.1.2
       FFMPEG_SHA256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+      # Inno Setup, pinned by version and SHA-256 (the hash GitHub lists for the asset); the
+      # runner image's own copy is not used, so its version does not matter.
+      INNO_SETUP_VERSION: 6.7.4
+      INNO_SETUP_SHA256: a549929319f9120716677c685535ca4671e4b937b5fdc87e2585f32d8eb30e8c
     steps:
       # Check out with LF endings: the PyroWave patches are compared byte for byte with the
       # host's copies and applied with git, and the runner's Git defaults to autocrlf=true.
@@ -334,10 +397,34 @@ jobs:
           for file in licenses-ffmpeg/COPYING.LGPLv2.1 licenses-ffmpeg/SOURCE.txt licenses-dav1d/COPYING; do
             unzip -Z1 "$zip" | grep -Eqx "${file%%/*}[/\\]${file#*/}" || { echo "::error::$zip has no $file"; exit 1; }
           done
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP "innosetup-$env:INNO_SETUP_VERSION.exe"
+          $tag = 'is-' + $env:INNO_SETUP_VERSION.Replace('.', '_')
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$env:INNO_SETUP_VERSION.exe" -OutFile $setup
+          $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne $env:INNO_SETUP_SHA256) { throw "innosetup-$env:INNO_SETUP_VERSION.exe is $sha, expected $env:INNO_SETUP_SHA256" }
+          $dir = Join-Path $env:RUNNER_TEMP 'inno-setup'
+          $process = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', '/NOICONS', "/DIR=`"$dir`"" -Wait -PassThru
+          if ($process.ExitCode -ne 0 -or -not (Test-Path "$dir\ISCC.exe")) { throw "Inno Setup did not install (exit $($process.ExitCode))" }
+          "ISCC=$dir\ISCC.exe" >> $env:GITHUB_ENV
+      # From the zip above, so the installer carries its files. -Smoke installs it silently,
+      # checks the files against the zip, the shortcuts and the uninstall entry, runs
+      # nightjar.exe --version and uninstalls it, failing on anything left behind.
+      - name: Build and check the installer
+        shell: pwsh
+        run: >
+          ./protocol/desktop/packaging/windows/build-installer.ps1
+          -Zip "$env:GITHUB_WORKSPACE\dist\nightjar-desktop-$env:VERSION-windows-x86_64.zip"
+          -Iscc $env:ISCC
+          -Smoke
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-windows
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
           if-no-files-found: error
 
   release:
@@ -452,7 +539,8 @@ jobs:
           merge-multiple: true
       - name: Check the desktop packages
         run: |
-          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64.tar.gz" "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip"; do
+          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64".{tar.gz,deb,rpm,AppImage} \
+              "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
           done
           ls -l desktop
@@ -495,7 +583,7 @@ jobs:
             if [ "${#flags[@]}" != 0 ]; then gh release edit "$GITHUB_REF_NAME" "${flags[@]}"; fi
           else
             gh release create "$GITHUB_REF_NAME" out/* --verify-tag --title "Nightjar $VERSION" \
-              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows zip, Linux tar.gz) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
+              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows installer and zip; Linux .deb, .rpm, AppImage and tar.gz) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
           fi
           echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
       - name: Dry run result

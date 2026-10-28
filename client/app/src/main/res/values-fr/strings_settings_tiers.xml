@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings: each section's More row (settings_tiers.xml), the Advanced Experimental group
+     and the short line under Automatic bitrate while it is off. -->
+<resources>
+    <string name="settings_more">Plus de paramètres</string>
+    <string name="settings_more_count">Plus de paramètres : %1$s (%2$d)</string>
+    <string name="settings_fewer">Moins de paramètres : %1$s</string>
+    <string name="settings_category_experimental">Expérimental</string>
+    <string name="summary_off_auto_bitrate">Désactivé : le PC adapte le débit (recommandé)</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings: each section's More row (settings_tiers.xml), the Advanced Experimental group
+     and the short line under Automatic bitrate while it is off. -->
+<resources>
+    <string name="settings_more">更多設定</string>
+    <string name="settings_more_count">更多%1$s設定（%2$d）</string>
+    <string name="settings_fewer">收起%1$s設定</string>
+    <string name="settings_category_experimental">實驗性</string>
+    <string name="summary_off_auto_bitrate">關閉：由電腦調整位元速率（建議）</string>
+</resources>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The main rows of each Settings section (StreamSettings.SECTIONS), at most eight. Every other
+    row of the section folds behind its "More … settings" row; search still finds it. The desktop
+    client checks its own list against this file, and scripts/generate-settings.py writes the
+    Tier column of docs/settings.md from it.
+-->
+<resources>
+    <string-array name="settings_tier_video" translatable="false">
+        <item>stream_profiles</item>
+        <item>list_resolution</item>
+        <item>list_fps</item>
+        <item>seekbar_bitrate_kbps</item>
+        <item>checkbox_auto_bitrate</item>
+        <item>list_mobile_bitrate_kbps</item>
+        <item>video_format</item>
+        <item>checkbox_enable_hdr</item>
+    </string-array>
+    <string-array name="settings_tier_display" translatable="false">
+        <item>checkbox_stretch_video</item>
+        <item>stream_orientation</item>
+    </string-array>
+    <string-array name="settings_tier_input" translatable="false">
+        <item>checkbox_multi_controller</item>
+        <item>controller_button_mapping</item>
+        <item>controller_test</item>
+        <item>checkbox_flip_face_buttons</item>
+        <item>checkbox_touchscreen_trackpad</item>
+        <item>checkbox_show_onscreen_controls</item>
+        <item>checkbox_keyboard_follows_text_fields</item>
+        <item>checkbox_clipboard_sync</item>
+    </string-array>
+    <string-array name="settings_tier_audio" translatable="false">
+        <item>list_audio_config</item>
+        <item>checkbox_host_audio</item>
+        <item>checkbox_enable_mic</item>
+        <item>checkbox_mic_button</item>
+    </string-array>
+    <string-array name="settings_tier_streaming" translatable="false">
+        <item>checkbox_enable_perf_overlay</item>
+        <item>checkbox_auto_reconnect</item>
+    </string-array>
+    <string-array name="settings_tier_app" translatable="false">
+        <item>checkbox_always_dark</item>
+        <item>list_languages</item>
+        <item>checkbox_console_home</item>
+        <item>checkbox_quick_resume</item>
+        <item>pin_lock</item>
+        <item>help</item>
+        <item>report_problem</item>
+        <item>check_updates_now</item>
+    </string-array>
+    <string-array name="settings_tier_advanced" translatable="false">
+        <item>checkbox_rust_engine</item>
+        <item>low_latency_decoding</item>
+        <item>low_latency_customize</item>
+        <item>gpu_driver</item>
+        <item>checkbox_gpu_max_clocks</item>
+        <item>checkbox_texture_view</item>
+        <item>checkbox_vulkan_render</item>
+        <item>checkbox_full_range</item>
+    </string-array>
+</resources>

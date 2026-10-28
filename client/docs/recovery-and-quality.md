@@ -4,7 +4,7 @@
 
 ## Recovering a connection
 
-**Settings → Streaming → Recover interrupted streams** is off by default. When it is on, after a temporary transport failure, a normal game stream retries after 1, 2, 4, 8 and 12 seconds, with at most five attempts and a one-minute budget including connection startup. The progress dialog shows the attempt; Back cancels. Leaving the stream cancels pending recovery. A connection must remain up for 30 seconds before another interruption receives a fresh retry budget.
+**Settings → Streaming → Recover interrupted streams** is on by default (an install that stored the old default, off, is switched on once; turning it off again is kept). When it is on, after a temporary transport failure, a normal game stream retries after 1, 2, 4, 8 and 12 seconds, with at most five attempts and a one-minute budget including connection startup. The progress dialog shows the attempt; Back cancels. Leaving the stream cancels pending recovery. A connection must remain up for 30 seconds before another interruption receives a fresh retry budget.
 
 When an established game stream stops because the screen locks or the app leaves the foreground, returning can resume that captured game through the same bounded policy. No connection starts while the app is in the background. Time spent locked does not count as a stable connection or refresh an exhausted retry budget. Leaving during startup, a queued retry or teardown cancels that handoff and keeps recovery manual. With **Recover interrupted streams** off, leaving the stream ends it and there is no automatic recovery after screen lock.
 

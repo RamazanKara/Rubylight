@@ -62,7 +62,9 @@ public class SettingsKeysTest {
             "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             "pin_lock", // opens its own screen; the PIN lives in the pin_lock prefs file
             // The merged switch writes the three decoder switches and stores nothing itself.
-            StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY));
+            StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY,
+            // Each section's More row shows and hides its other rows.
+            "more_video", "more_display", "more_input", "more_audio", "more_streaming", "more_app", "more_advanced"));
     // Stored settings that a picker or a dialog writes without a row of their own.
     private static final Set<String> WRITTEN_BY_PICKERS = new HashSet<>(Arrays.asList(
             "checkbox_unlock_fps", // the frame rate picker's button

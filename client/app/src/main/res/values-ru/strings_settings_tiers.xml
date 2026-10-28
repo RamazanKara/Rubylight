@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings: each section's More row (settings_tiers.xml), the Advanced Experimental group
+     and the short line under Automatic bitrate while it is off. -->
+<resources>
+    <string name="settings_more">Другие настройки</string>
+    <string name="settings_more_count">Другие настройки: %1$s (%2$d)</string>
+    <string name="settings_fewer">Меньше настроек: %1$s</string>
+    <string name="settings_category_experimental">Экспериментально</string>
+    <string name="summary_off_auto_bitrate">Выкл.: ПК сам подстраивает битрейт (рекомендуется)</string>
+</resources>

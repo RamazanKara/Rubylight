@@ -153,4 +153,34 @@ public class TvSettingsFocusTest {
                 chooser.getListView().getCount());
         chooser.dismiss();
     }
+
+    /**
+     * TV run on a TCL C6K: the preset list marked its D-pad row with a grey block. The row takes the amber outline the
+     * Settings lists use, and nothing fills it.
+     */
+    @Test
+    public void thePresetListMarksItsRowWithTheAmberOutline() {
+        StreamSettings screen = open();
+        ListView list = sections(screen);
+        int presets = StreamSettings.RootFragment.positionOf(list, "stream_presets");
+        while (list.getSelectedItemPosition() != presets) {
+            press(screen, list.getSelectedItemPosition() < presets ? KeyEvent.KEYCODE_DPAD_DOWN : KeyEvent.KEYCODE_DPAD_UP);
+        }
+        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        AlertDialog chooser = (AlertDialog) ShadowDialog.getLatestDialog();
+        android.graphics.drawable.Drawable selector = chooser.getListView().getSelector().getConstantState()
+                .newDrawable(chooser.getContext().getResources(), chooser.getContext().getTheme()).mutate();
+        float density = screen.getResources().getDisplayMetrics().density;
+        int w = Math.round(400 * density), h = Math.round(48 * density);
+        selector.setBounds(0, 0, w, h);
+        selector.setState(new int[] {android.R.attr.state_enabled, android.R.attr.state_focused});
+        selector.jumpToCurrentState();
+        android.graphics.Bitmap row = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+        selector.draw(new android.graphics.Canvas(row));
+        int amber = com.google.android.material.color.MaterialColors.getColor(chooser.getContext(),
+                androidx.appcompat.R.attr.colorPrimary, 0);
+        assertEquals("the outline is amber", amber, row.getPixel(w / 2, Math.round(3 * density)));
+        assertEquals("no grey block inside it", 0, android.graphics.Color.alpha(row.getPixel(w / 2, h / 2)));
+        chooser.dismiss();
+    }
 }

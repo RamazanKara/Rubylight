@@ -19,7 +19,7 @@ const START_LIMIT: Duration = Duration::from_secs(60);
 /// sooner.
 const LAUNCH_LIMIT: Duration = Duration::from_secs(180);
 
-pub const USAGE: &str = "usage: nightjar [--host <name|uuid> [--app <name|uuid>] [--quit-on-exit]]";
+pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit]]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Launch {
@@ -33,6 +33,8 @@ pub enum Parsed {
     /// No arguments: the launcher as usual.
     Gui,
     Help,
+    /// `--version`: print the version and exit, without a window (the packages' install checks).
+    Version,
     Launch(Launch),
 }
 
@@ -54,6 +56,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
         };
         match flag.as_str() {
             "--help" | "-h" if inline.is_none() => return Ok(Parsed::Help),
+            "--version" if inline.is_none() => return Ok(Parsed::Version),
             "--quit-on-exit" if inline.is_none() => quit_on_exit = true,
             "--host" | "--app" => {
                 let value = match inline {
@@ -510,6 +513,7 @@ mod tests {
         );
         assert_eq!(args(&["--host", " pc "]), Ok(launch("pc", None, false)));
         assert_eq!(args(&["--help"]), Ok(Parsed::Help));
+        assert_eq!(args(&["--version"]), Ok(Parsed::Version));
     }
 
     #[test]
@@ -523,6 +527,7 @@ mod tests {
         assert!(args(&["--host", "pc", "--fullscreen"]).is_err());
         assert!(args(&["--quit-on-exit=yes", "--host", "pc"]).is_err());
         assert!(args(&["pc"]).is_err());
+        assert!(args(&["--version=1"]).is_err());
     }
 
     fn entry<'a>(

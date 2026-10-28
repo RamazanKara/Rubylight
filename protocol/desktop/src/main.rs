@@ -196,6 +196,11 @@ fn main() {
             }
             return;
         }
+        // No box: install checks run it without a console and must not wait on a click.
+        Ok(cli::Parsed::Version) => {
+            println!("Nightjar {VERSION}");
+            return;
+        }
         Err(e) => {
             let text = format!("{e}\n{}", cli::USAGE);
             eprintln!("nightjar: {text}");

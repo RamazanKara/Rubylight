@@ -203,6 +203,14 @@ public final class ModernController {
         frame.removeView(closing);
         if (save) save(closing.draft(), closing.perGame());
         place();
+        if (onLayoutChanged != null) onLayoutChanged.run();
+    }
+
+    private Runnable onLayoutChanged;
+
+    /** Runs when the editor closes, so what sits below the top row (the microphone button) can move with it. */
+    public void setOnLayoutChanged(Runnable listener) {
+        onLayoutChanged = listener;
     }
 
     void save(PadLayout draft, boolean forThisGame) {
@@ -223,11 +231,6 @@ public final class ModernController {
     /** Forgets every saved modern layout, for all games and for each game. */
     public static void clearLayouts(Context context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply();
-    }
-
-    /** The layout for all games, for the editor's "only this game" switch going off. */
-    PadLayout globalLayout() {
-        return PadLayout.parse(store.getString(GLOBAL_KEY, null));
     }
 
     PadLayout layout() {

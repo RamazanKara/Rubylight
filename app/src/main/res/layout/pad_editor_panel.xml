@@ -86,6 +86,7 @@
             android:valueFrom="10"
             android:valueTo="100"
             app:labelBehavior="gone"
+            app:tickVisible="false"
             app:thumbColor="@color/night_primary"
             app:trackColorActive="@color/night_primary"
             app:trackColorInactive="@color/night_outline_variant" />

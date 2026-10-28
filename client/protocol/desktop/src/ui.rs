@@ -1799,7 +1799,7 @@ impl Launcher {
             ui.label(RichText::new(tr("Co-op streams take controllers only: keyboard and mouse stay on the PC.")).font(regular(text::CAPTION)).color(OUTLINE));
         }
         if refresh {
-            self.coop.list();
+            self.coop.refresh();
         } else if close {
             self.coop.close();
         } else if let Some(session) = join {

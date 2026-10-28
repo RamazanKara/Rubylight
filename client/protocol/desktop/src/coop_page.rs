@@ -164,6 +164,15 @@ impl CoopSessions {
         }
     }
 
+    /// Refresh on the page: lists again and clears what the last listing or join said.
+    pub fn refresh(&mut self) {
+        if let Some(open) = &mut self.open {
+            open.error = None;
+            open.done = None;
+        }
+        self.list();
+    }
+
     /// Joins `session` of `host`: a free slot, or this device's own one. A second join while one
     /// is on its way does nothing; the button is off meanwhile.
     pub fn join(&mut self, host: u64, session: u32) {
@@ -538,6 +547,10 @@ pub(crate) mod tests {
                 ["coop", "join 3", "coop"],
                 "the listing is asked again"
             );
+            // Refresh starts over: the refusal goes, and the listing that comes back says nothing.
+            coop.refresh();
+            settle(&mut coop, 7);
+            assert_eq!(coop.state_for(7).unwrap().error, None, "{page}");
         }
         // Anything else reads as the error does.
         assert_eq!(

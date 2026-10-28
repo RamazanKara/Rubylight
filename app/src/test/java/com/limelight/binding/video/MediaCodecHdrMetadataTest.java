@@ -38,6 +38,7 @@ public class MediaCodecHdrMetadataTest {
         static final List<Bundle> parameters = new ArrayList<>();
         static RuntimeException refuseParameters;
         static boolean createFails;
+        static RuntimeException createRefused;
 
         @Implementation public String getName() {
             return "c2.mtk.dvhe.st.decoder";
@@ -63,6 +64,7 @@ public class MediaCodecHdrMetadataTest {
         @Implementation public static MediaCodec createByCodecName(String name) throws IOException {
             calls.add("create " + name);
             if (createFails) throw new IOException("no " + name);
+            if (createRefused != null) throw createRefused;
             return MediaCodec.createDecoderByType("video/avc");
         }
     }
@@ -84,6 +86,7 @@ public class MediaCodecHdrMetadataTest {
         RecordingCodec.parameters.clear();
         RecordingCodec.refuseParameters = null;
         RecordingCodec.createFails = false;
+        RecordingCodec.createRefused = null;
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
     }
 
@@ -253,6 +256,31 @@ public class MediaCodecHdrMetadataTest {
 
             RecordingCodec.createFails = true;
             assertFalse(codec.recreate());
+            // No decoder free yet (a CodecException): the released codec is not reset, it is set up again.
+            RecordingCodec.createFails = false;
+            RecordingCodec.createRefused = new IllegalStateException("NO_MEMORY");
+            assertFalse(codec.recreate());
+        }
+    }
+
+    @Test
+    public void aDecoderThatCannotBeCreatedWhileRecoveringIsACodecError() throws IOException {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            MediaCodecDecoderRenderer renderer = streaming(activity.get(), true);
+            RecordingCodec.createFails = true;
+            // Codec recovery reports an IllegalStateException as a crash; anything else would kill its thread.
+            try {
+                ReflectionHelpers.callInstanceMethod(renderer, "tryConfigureDecoder",
+                        ReflectionHelpers.ClassParameter.from(android.media.MediaCodecInfo.class,
+                                org.robolectric.shadows.MediaCodecInfoBuilder.newBuilder()
+                                        .setName("c2.mtk.dvhe.st.decoder").build()),
+                        ReflectionHelpers.ClassParameter.from(MediaFormat.class,
+                                MediaFormat.createVideoFormat("video/hevc", 3840, 2160)),
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true));
+                fail("the decoder could not be created");
+            } catch (IllegalStateException expected) {
+                assertTrue(expected.getCause() instanceof IOException);
+            }
         }
     }
 }

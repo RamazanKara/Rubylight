@@ -2174,7 +2174,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         } catch (IOException e) {
             noteConfigureError(selectedDecoderInfo, format, e);
             if (throwOnCodecError) {
-                throw new RuntimeException(e);
+                // An IllegalStateException, as codec errors are: codec recovery reports it as a crash.
+                throw new IllegalStateException(e);
             }
         } finally {
             if (!configured && videoDecoder != null) {
@@ -2605,7 +2606,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             try {
                 videoDecoder = MediaCodec.createByCodecName(name);
                 return true;
-            } catch (IOException | IllegalArgumentException e) {
+            } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+                // IllegalStateException: a MediaCodec.CodecException, as when no decoder is free yet.
                 e.printStackTrace();
                 LimeLog.warning("Decoder " + name + " could not be created again after its release (" + e +
                         "); setting the decoder up from scratch");

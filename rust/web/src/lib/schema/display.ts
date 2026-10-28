@@ -257,6 +257,18 @@ export const settings: Setting[] = [
     visibleWhen: (values) => !on(values, 'dd_config_revert_on_disconnect', true),
   },
   {
+    key: 'dd_hold_layout_while_paused',
+    label: 'Keep monitors off while paused (Experimental)',
+    description:
+      'With an exclusive layout, keep switching the monitors back off while a device is disconnected, until it returns or the restore delay ends.',
+    details:
+      'For monitors that wake up or re-announce themselves over HDMI and pull the game onto them. While it holds, Win+P cannot bring a monitor back; the restore hotkey still can.',
+    category: 'display',
+    group: 'After a stream',
+    control: { kind: 'toggle' },
+    default: false,
+  },
+  {
     key: 'dd_always_restore_from_golden',
     label: 'Restore the saved layout',
     description:

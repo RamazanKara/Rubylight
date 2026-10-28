@@ -606,6 +606,9 @@ pub struct Prepared {
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
+    /// Keep switching the physical monitors of an exclusive layout off while
+    /// the stream is paused (`dd_hold_layout_while_paused`).
+    hold_layout_while_paused: bool,
     mode_report: ModeReport,
     recovery_scale: i64,
     recovery_dimensions: (u32, u32),
@@ -719,6 +722,13 @@ fn frame_policy(
 /// physical display, whose scale belongs to the user.
 fn virtual_display_scale(virtual_layout: bool, configured: i64) -> i64 {
     if virtual_layout { configured } else { 0 }
+}
+
+/// Whether a paused stream keeps its layout's physical monitors off. Only an
+/// exclusive layout switches them off, and only on request: by default a paused
+/// stream leaves local display changes alone.
+fn holds_layout_while_paused(config: &Config, exclusive: bool) -> bool {
+    exclusive && config.boolean("dd_hold_layout_while_paused", false)
 }
 
 /// Puts the configured virtual display scale on `output`, whichever display it is: a stream's
@@ -1079,7 +1089,14 @@ impl Prepared {
         // Renew the driver lease while paused, without reactivating a display
         // the user switched off through Win+P or restoring its mode/HDR.
         if !active {
-            return self.display.as_mut().map_or(Ok(()), Guard::keep_alive);
+            self.display.as_mut().map_or(Ok(()), Guard::keep_alive)?;
+            // Opted in (issue #56): a monitor that wakes up or re-announces
+            // itself over HDMI must not take the game while the device is away.
+            return if self.hold_layout_while_paused {
+                self.keep_layout()
+            } else {
+                Ok(())
+            };
         }
         let fed = self.display.as_mut().map_or(Ok(false), Guard::feed);
         self.finish_feed(fed)
@@ -1651,6 +1668,12 @@ impl Prepared {
         // A remote monitor's display has its own generation; see `feed`.
         let revision = retained.as_ref().map_or(0, |r| r.capture_target().1);
         let owns_display = display.is_some();
+        let hold_layout_while_paused = holds_layout_while_paused(
+            config,
+            arrangement
+                .as_ref()
+                .is_some_and(display_arrangement::Lease::exclusive),
+        );
         Ok((
             Self {
                 display,
@@ -1688,6 +1711,7 @@ impl Prepared {
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
+                hold_layout_while_paused,
                 mode_report,
                 recovery_scale: scale,
                 recovery_dimensions: (width, height),
@@ -2513,6 +2537,21 @@ pub(crate) mod tests {
         assert_eq!(stream_profile(true, None, true, || None), None);
     }
 
+    #[test]
+    fn only_an_opted_in_exclusive_layout_is_held_while_paused() {
+        let on = Config::parse("dd_hold_layout_while_paused=true").unwrap();
+        // Issue #56: off by default, so a paused stream leaves Win+P alone.
+        assert!(!holds_layout_while_paused(&Config::default(), true));
+        assert!(holds_layout_while_paused(&on, true));
+        // Extended layouts never switched a monitor off; there is nothing to hold.
+        assert!(!holds_layout_while_paused(&on, false));
+        // Held or not, a paused stream with no layout to guard still renews its lease.
+        let fixture = crate::state::test_support::Fixture::new();
+        let mut paused = test_prepared(&fixture.host);
+        paused.hold_layout_while_paused = true;
+        paused.feed(false).unwrap();
+    }
+
     /// A game display kept between streams, with no other holder, for tests
     /// of the session state and the grace period.
     pub(crate) fn retained_display(host: &Shared, config: &Config) -> Arc<Ready> {
@@ -2556,6 +2595,7 @@ pub(crate) mod tests {
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
+            hold_layout_while_paused: false,
             mode_report: ModeReport::new(Arc::new(Warnings::default()), (None, None, None), 60_000),
             recovery_scale: 0,
             recovery_dimensions: (640, 480),
@@ -3548,6 +3588,7 @@ pub(crate) mod tests {
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
+            hold_layout_while_paused: false,
             mode_report: ModeReport::new(Arc::new(Warnings::default()), (None, None, None), 60_000),
             recovery_scale: 0,
             recovery_dimensions: (2560, 1440),

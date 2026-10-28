@@ -68,6 +68,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "dd_config_revert_on_disconnect", "Restore displays when the stream disconnects", Bool;
         "dd_config_revert_delay", "Display restore delay (milliseconds)", Number;
         "dd_paused_virtual_display_timeout_secs", "Paused display timeout (seconds; 0 keeps it)", Number;
+        "dd_hold_layout_while_paused", "Keep monitors off while paused (Experimental)", Bool;
         "dd_always_restore_from_golden", "Always restore the saved display layout", Bool;
         "dd_activate_virtual_display", "Activate virtual display", Bool;
         "dd_virtual_display_scale", "Virtual display scale (%)", Number;

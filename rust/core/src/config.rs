@@ -1093,6 +1093,7 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_config_revert_delay",
         "dd_config_revert_on_disconnect",
         "dd_paused_virtual_display_timeout_secs",
+        "dd_hold_layout_while_paused",
         "dd_always_restore_from_golden",
         "dd_snapshot_exclude_devices",
         "dd_snapshot_restore_hotkey",

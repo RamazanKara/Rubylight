@@ -88,7 +88,7 @@ def create_job():
     return kernel, handle
 
 
-def cases(mode):
+def cases(mode, only=None):
     duration = 1200 if mode == 'long' else 25
     rows = []
     for index, (codec, fps, vrr) in enumerate([('hevc', 60, False), ('av1', 60, False), ('hevc', 120, True)]):
@@ -105,6 +105,11 @@ def cases(mode):
     for fault in ('wgc-helper', 'DXGI_ERROR_ACCESS_LOST', 'encoder failure', 'encoder failure.persistent'):
         rows.append(dict(name='fault-' + fault.replace(' ', '-'), codec='hevc', mode='1920x1080x60',
                          seconds=40 if fault.endswith('.persistent') else 20, fault=fault))
+    if only:
+        unknown = set(only) - {row['name'] for row in rows}
+        if unknown:
+            raise ValueError('unknown soak cases: ' + ', '.join(sorted(unknown)))
+        rows = [row for row in rows if row['name'] in only]
     return rows
 
 
@@ -115,7 +120,15 @@ def main():
     parser.add_argument('--client', required=True, type=pathlib.Path)
     parser.add_argument('--gpu-load', required=True, type=pathlib.Path)
     parser.add_argument('--work', required=True, type=pathlib.Path)
+    # A/B runs of a few cases at their normal length, e.g. --only hevc-60-load,hevc-120-load.
+    parser.add_argument('--only', type=lambda text: [name for name in text.split(',') if name])
+    # A host setting for an A/B arm, e.g. --config amd_ltr_frames=0 (repeatable).
+    parser.add_argument('--config', action='append', default=[])
     args = parser.parse_args()
+    try:
+        selected = cases(args.mode, args.only)
+    except ValueError as error:
+        parser.error(str(error))
     for name in ('package', 'client', 'gpu_load', 'work'):
         setattr(args, name, getattr(args, name).resolve())
     for path in (args.package / 'butterpollo.exe', args.client, args.gpu_load,
@@ -126,7 +139,7 @@ def main():
     run = args.work / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S-%fZ')
     run.mkdir()
     report = dict(mode=args.mode, started_utc=datetime.now(timezone.utc).isoformat(), results=[],
-                  package=str(args.package), host_sha256=hashlib.sha256((args.package / 'butterpollo.exe').read_bytes()).hexdigest(),
+                  package=str(args.package), only=args.only, config=args.config, host_sha256=hashlib.sha256((args.package / 'butterpollo.exe').read_bytes()).hexdigest(),
                   limits={'fresh_fps_minimum_fraction': .9, 'window_seconds': 10},
                   skipped=[dict(name='controllers-vhf', reason='receiver fixture has no controller sender'),
                            dict(name='secure-desktop', reason='no Windows desktop or security changes; isolated debug host injects access-lost instead')])
@@ -138,7 +151,7 @@ def main():
         with socket.socket() as check:
             check.bind(('127.0.0.1', port))
     fixture = SimpleNamespace(package=args.package, client=args.client, mode='1920x1080x60', codec='hevc',
-                              config=['wgc_user_helper=true', 'pyrowave=true', 'lan_encryption_mode=2'])
+                              config=['wgc_user_helper=true', 'pyrowave=true', 'lan_encryption_mode=2', *args.config])
     env, display, sink = prepare(fixture, run, PORT)
     write(run / 'display.json', display)
     kernel, job = create_job()
@@ -180,6 +193,12 @@ def main():
             return process
 
         host = start_host(args.package / 'butterpollo.exe', env, 'host.stdout.log')
+        # The driver's frame caps (Frame Rate Target, Chill) change every rate this soak measures.
+        try:
+            radeon = admin.get(web + '/api/radeon', timeout=30)
+            write(run / 'radeon.json', radeon.json() if radeon.ok else dict(status=radeon.status_code, text=radeon.text))
+        except (requests.RequestException, ValueError) as error:
+            write(run / 'radeon.json', dict(error=str(error)))
         baseline = snapshot(host.pid)
         write(run / 'baseline.json', baseline)
 
@@ -208,7 +227,7 @@ def main():
         last_disconnect = None
         settled_baseline = snapshot(host.pid)
         fault_dir = run / 'faults'
-        for case in cases(args.mode):
+        for case in selected:
             if case.get('resume'):
                 installed_idle()
             else:
@@ -412,9 +431,12 @@ def main():
                 report['gpu_hang'] = result['gpu_hang']
                 raise GpuHang(f"{case['name']}: {result['gpu_hang']}. The remaining cases did not run; reboot if "
                               'Device Manager shows the Radeon with Code 31')
-        report['resource_growth'] = resource_growth(resources)
+        report['resource_growth'] = (resource_growth(resources) if any(case.get('churn') for case in selected)
+                                     else dict(passed=True, skipped='no churn cases selected'))
         reconnects = [r['reconnect_seconds'] for r in report['results'] if 'reconnect_seconds' in r]
-        report['quick_reconnect'] = dict(passed=bool(reconnects) and min(reconnects) <= 2, seconds=reconnects)
+        # A subset without resume cases has no reconnect to time.
+        report['quick_reconnect'] = dict(passed=(min(reconnects) <= 2 if reconnects
+                                                 else not any(case.get('resume') for case in selected)), seconds=reconnects)
     except BaseException as error:
         report['fatal'] = f'{type(error).__name__}: {error}'
         print(report['fatal'], flush=True)
@@ -434,7 +456,7 @@ def main():
                 report.setdefault('stuck_processes', []).append(process.pid)
             output.close()
         report['finished_utc'] = datetime.now(timezone.utc).isoformat()
-        complete = (len(report['results']) == len(cases(args.mode))
+        complete = (len(report['results']) == len(selected)
                     and report.get('resource_growth', {}).get('passed', False)
                     and report.get('quick_reconnect', {}).get('passed', False)
                     and not report.get('fatal') and not report.get('cleanup_error')

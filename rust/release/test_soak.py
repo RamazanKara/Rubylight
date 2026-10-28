@@ -50,6 +50,13 @@ class SoakMeasurements(unittest.TestCase):
         persistent = next(s for s in cases('short') if s.get('fault') == 'encoder failure.persistent')
         self.assertEqual(persistent['seconds'], 40)
 
+    def test_only_keeps_named_cases_at_their_normal_length(self):
+        subset = cases('short', ['hevc-120-load', 'hevc-60-load'])
+        self.assertEqual([s['name'] for s in subset], ['hevc-60-load', 'hevc-120-load'])
+        self.assertEqual(subset, [s for s in cases('short') if s['name'] in ('hevc-60-load', 'hevc-120-load')])
+        with self.assertRaisesRegex(ValueError, 'hevc-61-load'):
+            cases('short', ['hevc-61-load'])
+
     def test_windows_detect_a_late_freeze_beyond_the_old_receiver_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / 'frames.csv'

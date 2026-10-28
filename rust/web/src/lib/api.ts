@@ -151,6 +151,28 @@ const post = <T>(path: string, body: unknown = {}, timeout = REQUEST_TIMEOUT_MS)
 export interface Ok {
   status: true;
 }
+/** One Radeon setting as the driver reports it (the native API's model). */
+export interface RadeonSetting {
+  id: string;
+  group: string;
+  kind: 'toggle' | 'integer' | 'choice' | 'unknown';
+  /** `configurable` is supported and writable. */
+  state: 'configurable' | 'read_only' | 'needs_external_setup' | 'unsupported' | 'temporarily_unavailable' | 'unknown';
+  value?: boolean | number | string;
+  range?: { min: number; max: number; step: number };
+  options?: { value: string; label: string }[];
+  unit?: string;
+  reason?: string;
+  message?: string;
+}
+/** `GET /api/radeon`: what the Radeon controls may offer. It reads the driver and applies nothing. */
+export interface RadeonPanel {
+  status: true;
+  state: RadeonSetting['state'];
+  reason?: string | null;
+  message?: string | null;
+  gpus: { id: number; name: string; driver: string; settings: RadeonSetting[] }[];
+}
 export interface AuthStatus {
   status: true;
   authenticated: boolean;
@@ -854,6 +876,8 @@ export const api = {
     uploadCover: (key: string, source: { url: string } | { data: string }) =>
       post<{ status: true; path: string }>('/api/covers/upload', { key, ...source }, ACTION_TIMEOUT_MS),
   },
+  /** The Radeon settings this PC's GPU supports, for a game's Radeon controls. */
+  radeon: () => get<RadeonPanel>('/api/radeon'),
   library: {
     discovery: () => get<LibraryDiscovery>('/api/library/discovery', ACTION_TIMEOUT_MS),
     import: (games: { source: LibrarySource; id: string }[]) =>

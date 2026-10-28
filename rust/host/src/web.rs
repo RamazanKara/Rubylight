@@ -12,6 +12,7 @@ mod maintenance;
 #[cfg(test)]
 mod parity_tests;
 mod power;
+mod radeon;
 mod session;
 mod webhooks;
 #[cfg(test)]
@@ -276,6 +277,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/playnite/launch", &["POST"][..]),
         ("/api/apps/purge_autosync", &["POST"][..]),
         ("/api/lossless_scaling/status", &["GET"][..]),
+        ("/api/radeon", &["GET"][..]),
         ("/api/browse", &["GET"][..]),
         ("/api/restart", &["POST"][..]),
         ("/api/quit", &["POST"][..]),
@@ -856,6 +858,9 @@ pub(crate) async fn api(
     }
     if method == Method::GET && path == "/api/lossless_scaling/status" {
         return apps::lossless_scaling(&h, &uri).await;
+    }
+    if method == Method::GET && path == "/api/radeon" {
+        return radeon::read(&h).await;
     }
     if method == Method::GET && path == "/api/browse" {
         return apps::browse(&uri).await;

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Join co-op (Experimental): the PC menu entry and its sheet (computers/CoopSheet). English and German;
+     the other languages show English until they are translated. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="host_menu_coop">Join co-op</string>
+    <string name="host_menu_coop_note">Experimental</string>
+    <string name="coop_title">Co-op on %1$s</string>
+    <string name="coop_loading">Asking %1$s for its co-op sessions…</string>
+    <string name="coop_none">No co-op session is running. Start a game’s “Co-op (Nucleus)” entry from the library, and other devices can join it here.</string>
+    <string name="coop_status">Status</string>
+    <string name="coop_phase_starting">Starting</string>
+    <string name="coop_phase_running">Running</string>
+    <string name="coop_phase_ended">Ended</string>
+    <string name="coop_phase_unknown">Unknown</string>
+    <string name="coop_player">Player %1$d</string>
+    <string name="coop_player_free">Free</string>
+    <string name="coop_player_unnamed">A device</string>
+    <string name="coop_player_you">%1$s (this device)</string>
+    <string name="coop_player_away">%1$s, away</string>
+    <string name="coop_end_ended">The session was ended.</string>
+    <string name="coop_end_empty">Every player left.</string>
+    <string name="coop_end_crashed">A game instance crashed.</string>
+    <string name="coop_end_failed">The game did not start.</string>
+    <string name="coop_end_unknown">The session is over.</string>
+    <string name="coop_join">Join</string>
+    <plurals name="coop_free_slots">
+        <item quantity="one">%d free slot</item>
+        <item quantity="other">%d free slots</item>
+    </plurals>
+    <string name="coop_cannot_join">This device can’t join this session now.</string>
+    <string name="coop_return">Return to your seat</string>
+    <string name="coop_return_note">Player %1$d</string>
+    <string name="coop_refresh">Check again</string>
+    <string name="coop_joining">Joining %1$s…</string>
+    <string name="coop_unavailable_no_reason">The PC can’t run co-op sessions now.</string>
+    <string name="coop_problem_permission">Join co-op is off for this device</string>
+    <string name="coop_problem_refused">%1$s refused the join</string>
+    <string name="coop_problem_gone">The co-op session is gone</string>
+    <string name="coop_problem_busy">Co-op is busy on %1$s</string>
+    <string name="coop_problem_unavailable">Co-op is not available on %1$s</string>
+    <string name="coop_problem_unreachable">Couldn’t reach %1$s</string>
+    <string name="coop_problem_other">Co-op failed</string>
+    <string name="coop_problem_no_message">The PC gave no reason (HTTP %1$d).</string>
+</resources>

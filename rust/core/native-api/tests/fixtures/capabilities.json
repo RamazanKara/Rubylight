@@ -4,5 +4,5 @@
   "features": ["library", "session", "session.close_game", "radeon.read", "radeon.write", "files.upload", "files.download"],
   "permissions": { "list": true, "view": true, "launch": true, "host_control": false,
                    "file_upload": true, "file_download": false,
-                   "usb": false, "shared_folders": false }
+                   "usb": false, "shared_folders": false, "coop_join": false }
 }

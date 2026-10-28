@@ -1,15 +1,17 @@
-//! Background streaming in a Windows child session (Experimental, off by
-//! default: `background_mode`). The console sets the PC up and restores it, a
-//! viewer started as the signed-in user attaches the child session's desktop
-//! (`--child-session-viewer`), and a second host streams that desktop from
-//! inside the child session with its own ports and name. The rules are
-//! `butterpollo_core::child_session`, ported from Annex (MIT).
+//! Background streaming in a Windows child session (Experimental; no
+//! background mode picks it now, Nucleus Co-op is the only one). The console
+//! sets the PC up and restores it, a viewer started as the signed-in user
+//! attaches the child session's desktop (`--child-session-viewer`), and a
+//! second host streams that desktop from inside the child session with its
+//! own ports and name. The rules are `butterpollo_core::child_session`,
+//! ported from Annex (MIT).
 use crate::state::Shared;
 use anyhow::{Context, Result, bail};
+use butterpollo_core::nucleus::mode::KEY;
 use butterpollo_core::{
     child_session::{
-        self as logic, DisplaySettings, LineReader, Mode, ModeDecision, ModeSetting, Phase,
-        Registry, SetupState, SystemSettings, ViewerCommand, ViewerStatus,
+        self as logic, DisplaySettings, LineReader, Mode, ModeDecision, Phase, Registry,
+        SetupState, SystemSettings, ViewerCommand, ViewerStatus,
     },
     config::Config,
     state::{Credentials, ProfileFiles, load_json, write_json},
@@ -299,27 +301,28 @@ fn administrators_own_root(file: &File, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Which background mode this host runs and why. A `background_mode` the file
-/// holds but that is not a mode keeps the default and says why.
+/// Which background mode this host runs and why: Nucleus Co-op. A
+/// `background_mode` the file holds but that is not a mode runs none, and
+/// says why.
 pub(crate) fn decision(config: &Config) -> ModeDecision {
-    let inside = config.boolean(logic::CHILD_HOST_KEY, false);
-    let setting = ModeSetting::parse(config.get(logic::MODE_KEY, ""));
-    let mut decision = logic::decide(
-        *setting.as_ref().unwrap_or(&ModeSetting::VirtualDisplay),
-        &native::edition_id(),
-        inside,
-    );
-    if let (Err(error), false) = (&setting, inside) {
-        decision.reason = format!("{error:#}; background streams use the isolated virtual display");
-    }
-    decision
+    logic::decide(
+        config.get(KEY, ""),
+        config.boolean(logic::CHILD_HOST_KEY, false),
+    )
 }
 
 /// The startup line naming the background mode. The child session's own host
 /// also says which GPU renders its desktop, loudly when it can't be encoded.
 pub(crate) fn log_mode(config: &Config) {
+    if let Some(line) = butterpollo_core::nucleus::mode::legacy(config.get(KEY, "")) {
+        tracing::warn!("{line}");
+    }
     let decision = decision(config);
-    tracing::info!(mode = ?decision.mode, reason = %decision.reason, "{}", decision.label);
+    if decision.mode == Mode::Unavailable {
+        tracing::error!(reason = %decision.reason, "{}", decision.label);
+    } else {
+        tracing::info!(mode = ?decision.mode, reason = %decision.reason, "{}", decision.label);
+    }
     if decision.mode != Mode::InsideChildSession {
         return;
     }
@@ -777,7 +780,7 @@ pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
     let decision = decision(&config);
     if decision.mode != Mode::ChildSession {
         bail!(
-            "{}: {}. Choose child sessions as the background mode first; nothing was changed.",
+            "{}: {}. Child sessions no longer run, Nucleus Co-op is the background mode; nothing was changed.",
             decision.label,
             decision.reason
         );
@@ -1251,7 +1254,7 @@ fn status_with(
         "mode": decision.mode,
         "label": decision.label,
         "reason": decision.reason,
-        "setting": config.get(logic::MODE_KEY, ""),
+        "setting": config.get(KEY, ""),
         "edition": native::edition_id(),
         "missing": missing.as_ref().ok(),
         "missing_error": missing.as_ref().err().map(|error| format!("{error:#}")),
@@ -1277,11 +1280,18 @@ mod tests {
     }
 
     #[test]
-    fn the_mode_is_off_until_asked_for_and_a_bad_value_says_why() {
+    fn the_mode_is_always_nucleus_and_a_bad_value_runs_none() {
         let config = |text: &str| Config::parse(text).unwrap();
-        assert_eq!(decision(&config("")).mode, Mode::VirtualDisplay);
+        assert_eq!(decision(&config("")).mode, Mode::Nucleus);
+        for old in ["virtual_display", "auto", "child_session"] {
+            assert_eq!(
+                decision(&config(&format!("background_mode = {old}\n"))).mode,
+                Mode::Nucleus,
+                "{old}"
+            );
+        }
         let bad = decision(&config("background_mode = rdp\n"));
-        assert_eq!(bad.mode, Mode::VirtualDisplay);
+        assert_eq!(bad.mode, Mode::Unavailable);
         assert!(bad.reason.contains("is not a mode"), "{}", bad.reason);
         let inside = decision(&config(
             "background_mode = rdp\nchild_session_host = true\n",

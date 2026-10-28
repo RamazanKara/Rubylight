@@ -57,7 +57,10 @@ impl Allowed {
 
 /// What `client` may do on a stream with the effective `config`.
 pub(crate) fn allowed(config: &Config, client: &Client) -> Allowed {
-    if client.perm & VIEW == 0 || butterpollo_core::background::enabled(config) {
+    if client.perm & VIEW == 0
+        || butterpollo_core::background::enabled(config)
+        || crate::nucleus::player(config)
+    {
         return Allowed::default();
     }
     let png = config.clipboard_image().then(|| {

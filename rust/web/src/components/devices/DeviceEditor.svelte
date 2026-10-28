@@ -57,9 +57,10 @@
     dirty = changed;
   });
 
-  // Custom permissions, or a granted Host control, Sleep PC or USB devices, open the section.
+  // Custom permissions, or a granted Host control, Sleep PC, USB devices or Join co-op, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
-  const granted = () => permissionSummary(draft.perm) === 'Custom' || draft.host_control || draft.allow_sleep || draft.allow_usb;
+  const granted = () =>
+    permissionSummary(draft.perm) === 'Custom' || draft.host_control || draft.allow_sleep || draft.allow_usb || draft.coop_join;
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
@@ -256,6 +257,10 @@
             <label class="check">
               <input type="checkbox" bind:checked={draft.allow_usb} />
               USB devices: attach USB devices plugged into this device to this PC during a stream (Experimental)
+            </label>
+            <label class="check">
+              <input type="checkbox" bind:checked={draft.coop_join} />
+              Join co-op: take a free player slot in a co-op game another device started on this PC (Experimental)
             </label>
           {/if}
         </fieldset>
@@ -458,13 +463,13 @@
   <details class="override"><summary>Play in the background</summary>
   <section>
     <Toggle
-      label="Stream in the background"
-      hint="Lets this device play while someone keeps using the PC. Its games open on a virtual display away from your monitors, take no focus and stream only their own sound. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
+      label="Stream in the background (Experimental)"
+      hint="Lets this device play while someone keeps using the PC. Nucleus Co-op runs its games in their own window, away from your monitors, and only their own sound streams. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
       bind:checked={draft.background_stream}
     />
     <p class="note">
-      The PC keeps the real focus; Rubylight tells the game it is active so it keeps its sound and frame rate. Games
-      that check focus directly, exclusive fullscreen and Steam Input do not work this way.
+      Nucleus Co-op tells the game it has the focus, so the PC keeps its own. A game needs a Nucleus Co-op handler;
+      without one the launch is refused and says why. Exclusive fullscreen and Steam Input do not work this way.
     </p>
   </section>
   </details>

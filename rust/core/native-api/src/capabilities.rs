@@ -40,4 +40,9 @@ pub struct Permissions {
     /// Missing from hosts before 3.0, which then reads as not granted.
     #[serde(default)]
     pub shared_folders: bool,
+    /// The device may join other devices' co-op sessions: its own `coop_join`
+    /// flag, never a permission bit. Missing from hosts before 3.0, which then
+    /// reads as not granted.
+    #[serde(default)]
+    pub coop_join: bool,
 }

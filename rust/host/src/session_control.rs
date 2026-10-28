@@ -445,7 +445,7 @@ impl Host {
     /// The launch lock, or `Busy` while a launch holds it: an action must not
     /// race a launch of the same device, which a Disconnect or Resume would
     /// otherwise cancel.
-    fn transition(&self) -> Result<MutexGuard<'_, ()>, Refusal> {
+    pub(crate) fn transition(&self) -> Result<MutexGuard<'_, ()>, Refusal> {
         match self.launch_transition.try_lock() {
             Ok(guard) => Ok(guard),
             Err(TryLockError::Poisoned(poisoned)) => Ok(poisoned.into_inner()),

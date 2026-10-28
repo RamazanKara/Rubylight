@@ -35,9 +35,11 @@ use windows::{
             GetDiskFreeSpaceExW, GetFinalPathNameByHandleW, ReOpenFile, SetFileInformationByHandle,
         },
         System::{Com::CoTaskMemFree, RemoteDesktop::WTSQueryUserToken},
-        UI::Shell::{FOLDERID_Downloads, KF_FLAG_DEFAULT, SHGetKnownFolderPath},
+        UI::Shell::{
+            FOLDERID_Downloads, FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
+        },
     },
-    core::{HRESULT, HSTRING},
+    core::{GUID, HRESULT, HSTRING},
 };
 
 /// The subfolder of the user's Downloads folder transfers use by default.
@@ -206,12 +208,23 @@ fn no_signed_in_user(code: HRESULT) -> bool {
 
 /// The user's Downloads folder, wherever they moved it.
 fn downloads(token: Option<&OwnedHandle>) -> Result<PathBuf, UserFolderError> {
+    known_folder(&FOLDERID_Downloads, token)
+}
+
+/// The roaming AppData folder of the user signed in to the host's session
+/// (see [`user_token`]), where Nucleus Co-op keeps the user's game list.
+pub fn roaming_app_data() -> Result<PathBuf, UserFolderError> {
+    let token = user_token()?;
+    known_folder(&FOLDERID_RoamingAppData, token.as_ref())
+}
+
+/// The known folder `id` of the user `token` names, or of the host's user.
+fn known_folder(id: &GUID, token: Option<&OwnedHandle>) -> Result<PathBuf, UserFolderError> {
     let token = token.map(|token| HANDLE(token.as_raw_handle()));
     // SAFETY: the token stays open for the call; the string Windows returns
     // is copied, then freed once.
     unsafe {
-        let path =
-            SHGetKnownFolderPath(&FOLDERID_Downloads, KF_FLAG_DEFAULT, token).map_err(os_error)?;
+        let path = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, token).map_err(os_error)?;
         let copy = OsString::from_wide(path.as_wide());
         CoTaskMemFree(Some(path.0 as *const _));
         Ok(PathBuf::from(copy))

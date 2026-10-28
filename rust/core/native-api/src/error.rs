@@ -48,6 +48,9 @@ pub enum ErrorCode {
     /// Windows denies the signed-in user reading a shared folder, or a
     /// folder or file in it.
     FolderUnreadable,
+    /// A co-op session the device cannot join: full, ended, private or the
+    /// device was removed. The message says which.
+    CoopRefused,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -79,7 +82,8 @@ impl ErrorCode {
             | Self::NotStreaming
             | Self::NoConsoleUser
             | Self::TransferBusy
-            | Self::UsbLimit => 409,
+            | Self::UsbLimit
+            | Self::CoopRefused => 409,
             Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,

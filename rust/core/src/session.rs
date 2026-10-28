@@ -1997,8 +1997,23 @@ mod tests {
             transport: Default::default(),
             roaming_offered: Default::default(),
             claimed_until: None,
+            nucleus: None,
+            held: None,
             warnings: Default::default(),
         }
+    }
+    #[test]
+    fn what_a_launch_holds_goes_with_its_last_copy_and_never_with_an_rtsp_snapshot() {
+        let held: Arc<dyn std::any::Any + Send + Sync> = Arc::new(());
+        let given_back = Arc::downgrade(&held);
+        let mut first = launch("held", Role::Stream);
+        first.held = Some(held);
+        let copy = first.clone();
+        assert!(first.rtsp_snapshot().held.is_none());
+        drop(first);
+        assert!(given_back.upgrade().is_some());
+        drop(copy);
+        assert!(given_back.upgrade().is_none());
     }
     #[test]
     fn a_ten_bit_format_is_sdr_only_when_the_query_says_hdr_mode_zero() {
@@ -2698,6 +2713,25 @@ mod tests {
         assert!(sessions.pending.contains_key("monitor"));
     }
     #[test]
+    fn a_nucleus_co_op_stream_is_never_ended_by_the_other_transport() {
+        let seat = Seat {
+            session: 1,
+            slot: 1,
+        };
+        let mut sessions = Sessions::default();
+        let mut player = webrtc_launch("player", "tv");
+        player.nucleus = Some(seat);
+        sessions.queue(player.clone()).unwrap();
+        let player = sessions.start(player, Negotiated::default()).unwrap();
+        let mut pending = launch("pending", Role::Stream);
+        pending.nucleus = Some(seat);
+        sessions.queue(pending).unwrap();
+        let canceled = sessions.supersede_other_transport(Role::Stream, Transport::GameStream);
+        assert!(canceled.is_empty());
+        assert!(!player.stopping());
+        assert!(sessions.pending.contains_key("pending"));
+    }
+    #[test]
     fn a_webrtc_stream_is_held_by_another_device_only_while_it_lives() {
         let mut sessions = Sessions::default();
         assert!(!sessions.held_by_other(Role::Stream, Transport::WebRtc, "tv"));
@@ -2769,6 +2803,20 @@ pub struct Launch<P = (), A = ()> {
     /// Until when an RTSP handshake holds this launch past its 30 s
     /// ([`Sessions::claim`]); `None` until its first RTSP request.
     pub claimed_until: Option<Instant>,
+    /// The Nucleus Co-op session and slot this launch streams, fixed when the
+    /// host admits it; `None` for every other launch.
+    pub nucleus: Option<Seat>,
+    /// What the launch holds for the host (a co-op launch's slot), given back
+    /// when its last copy is dropped: an expired, replaced or failed launch
+    /// at once, a started one with its stream's session. RTSP's snapshots
+    /// never keep it.
+    pub held: Option<Arc<dyn std::any::Any + Send + Sync>>,
+}
+/// One player's place in a Nucleus Co-op session (see `crate::nucleus::coop`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Seat {
+    pub session: u32,
+    pub slot: usize,
 }
 // Launch clones share the slots; the platform preparations need not be Clone.
 impl<P, A> Clone for Launch<P, A> {
@@ -2799,6 +2847,8 @@ impl<P, A> Clone for Launch<P, A> {
             transport: self.transport,
             roaming_offered: self.roaming_offered.clone(),
             claimed_until: self.claimed_until,
+            nucleus: self.nucleus,
+            held: self.held.clone(),
         }
     }
 }
@@ -2817,6 +2867,7 @@ impl<P, A> Launch<P, A> {
         let mut snapshot = self.clone();
         snapshot.preparation = Default::default();
         snapshot.audio_preparation = Default::default();
+        snapshot.held = None;
         snapshot
     }
     /// Still waiting for its client: being prepared, or able to take its
@@ -4312,16 +4363,19 @@ impl<P, A> Sessions<P, A> {
     }
     /// A new session over one transport ends the sessions of the other in the same role: a
     /// WebRTC stream and a Moonlight stream never run together, whichever came first. Sessions
-    /// of the same transport follow the per-client rules of `supersede`.
+    /// of the same transport follow the per-client rules of `supersede`. A Nucleus Co-op stream
+    /// streams a game window of its own and is never ended this way.
     #[must_use = "drop canceled launches after releasing the sessions lock"]
     pub fn supersede_other_transport(
         &mut self,
         role: Role,
         transport: Transport,
     ) -> Vec<Launch<P, A>> {
-        let canceled = self.remove_pending(|p| p.role == role && p.transport != transport);
+        let other =
+            |l: &Launch<P, A>| l.role == role && l.transport != transport && l.nucleus.is_none();
+        let canceled = self.remove_pending(&other);
         for s in self.active.values() {
-            if s.launch.role == role && s.launch.transport != transport {
+            if other(&s.launch) {
                 s.stop();
             }
         }

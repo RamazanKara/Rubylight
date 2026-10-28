@@ -277,7 +277,7 @@ mod tests {
                 "{path}: {body}"
             );
         }
-        // Another background mode sets nothing up.
+        // Nucleus Co-op, the only background mode, sets nothing up.
         let main = Fixture::new();
         let body = value(
             request(&main, "POST", "/api/child-session/setup", json!({})).await,
@@ -288,7 +288,7 @@ mod tests {
             body["error"]
                 .as_str()
                 .unwrap()
-                .contains("Choose child sessions as the background mode first"),
+                .contains("Child sessions no longer run"),
             "{body}"
         );
     }

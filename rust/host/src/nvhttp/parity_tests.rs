@@ -952,6 +952,55 @@ async fn applist_permissions_placeholder_and_hdr_xml_match_moonlight() {
     assert!(disabled.children.is_empty());
 }
 
+/// With a Nucleus Co-op handler for an app's program the list gains its
+/// co-op entry after the user's apps; the user's entries keep their order,
+/// index and ids.
+#[tokio::test]
+async fn applist_lists_co_op_entries_after_the_apps() {
+    let f = Fixture::new();
+    f.client(1 << 24);
+    let before = document(request(&f, true, "GET", "/applist").await).await;
+    f.host
+        .nucleus
+        .use_pc(std::sync::Arc::new(crate::nucleus::fake::Pc::installed()));
+    // Without a handler for any app's program the list does not change.
+    let installed = document(request(&f, true, "GET", "/applist").await).await;
+    assert_eq!(installed, before);
+    let app = |name: &str, cmd: String| App {
+        name: name.into(),
+        cmd,
+        working_dir: String::new(),
+        prep: Vec::new(),
+        computed_id: None,
+        aliases: Vec::new(),
+        extra: Default::default(),
+    };
+    let portal = app("Portal 2", format!("\"{}\"", crate::nucleus::fake::EXE));
+    f.host.apps.write().unwrap().push(portal);
+    let apps = f.host.apps.read().unwrap().clone();
+    let listed = document(request(&f, true, "GET", "/applist").await).await;
+    assert_eq!(listed.children.len(), apps.len() + 1);
+    let entries: Vec<_> = listed
+        .children
+        .iter()
+        .filter_map(xmltree::XMLNode::as_element)
+        .collect();
+    for (index, app) in apps.iter().enumerate() {
+        assert_eq!(field(entries[index], "ID"), app.id().to_string());
+        assert_eq!(field(entries[index], "IDX"), index.to_string());
+    }
+    let coop = entries[apps.len()];
+    assert_eq!(field(coop, "AppTitle"), "Co-op (Nucleus): Portal 2");
+    assert_eq!(
+        field(coop, "ID"),
+        app("Co-op (Nucleus): Portal 2", String::new())
+            .id()
+            .to_string()
+    );
+    assert_eq!(field(coop, "IDX"), apps.len().to_string());
+    assert_eq!(field(coop, "UUID"), "");
+}
+
 #[tokio::test]
 async fn unpair_get_and_post_require_tls_and_stop_only_the_paired_device() {
     for method in ["GET", "POST"] {
@@ -1791,9 +1840,9 @@ fn input_and_monitor_roles_resolve_without_starting_an_app_or_preparing_hardware
         (Control::Input, Role::InputOnly),
         (Control::Monitor, Role::RemoteMonitor),
     ] {
-        let (resolved, app, _) = resolve(control, remote::Owner::None, false).unwrap();
+        let (resolved, app, _, coop) = resolve(control, remote::Owner::None, false).unwrap();
         assert_eq!(resolved, role);
-        assert!(app.is_none());
+        assert!(app.is_none() && coop.is_none());
     }
     assert_eq!(
         resolve(Control::Resume, remote::Owner::Monitor, true)

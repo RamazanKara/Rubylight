@@ -147,6 +147,12 @@ impl Client {
     pub fn allows_usb(&self) -> bool {
         self.enabled && self.extra.get("allow_usb") == Some(&Value::Bool(true))
     }
+    /// Whether the administrator let this device join other devices' co-op
+    /// sessions (`coop_join`, `nucleus::coop::may_join`). No permission bit or
+    /// Host control implies it, and a disabled device may not.
+    pub fn allows_coop_join(&self) -> bool {
+        self.enabled && crate::nucleus::coop::may_join(&self.extra)
+    }
     /// This device's grant for shared folder `id`, from
     /// `shared_folders: {"<id>": "read" | "write"}`. Any other value, or an id
     /// the console would refuse (a hand-edited `"../x"`), grants nothing, and a
@@ -778,6 +784,21 @@ mod tests {
         let mut disabled = client_with(0, json!({"allow_usb":true}));
         disabled.enabled = false;
         assert!(!disabled.allows_usb());
+    }
+    #[test]
+    fn coop_join_is_its_own_grant_never_a_permission_bit() {
+        assert!(!client_with(u32::MAX, json!({"host_control":true})).allows_coop_join());
+        assert!(client_with(0, json!({"coop_join":true})).allows_coop_join());
+        assert!(client_with(0, json!({"coop_join":"true"})).allows_coop_join());
+        for value in [json!(false), json!(1), json!(null), json!("yes")] {
+            assert!(
+                !client_with(u32::MAX, json!({"coop_join":value})).allows_coop_join(),
+                "{value}"
+            );
+        }
+        let mut disabled = client_with(0, json!({"coop_join":true}));
+        disabled.enabled = false;
+        assert!(!disabled.allows_coop_join());
     }
     #[test]
     fn folder_grants_read_only_read_and_write() {

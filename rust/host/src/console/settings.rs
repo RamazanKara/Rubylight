@@ -166,11 +166,6 @@ pub const GLOBAL: &[Setting] = settings! {
         "couch_menu_corner_hold_ms", "Touch corner hold (500–3000 milliseconds; default 1500)", Number;
         "couch_menu_keyboard_chord", "Keyboard chord", Choice(&["ctrl+alt+backspace","ctrl+alt+home","ctrl+alt+end","ctrl+alt+insert"]);
     ]
-    "Background streaming (Experimental)" => [
-        "background_mode", "Background mode (virtual_display by default; auto and child_session use a Windows child session on Pro and higher)", Choice(&["virtual_display","auto","child_session"]);
-        "child_session_resolution", "Child session resolution (WIDTHxHEIGHT; default 1920x1080)", Text;
-        "child_session_scale", "Child session scale (100–500 %; default 100)", Number;
-    ]
     "Hardware metrics" => [
         "hardware_metrics", "Send hardware metrics to client", Bool;
         "hardware_metrics_interval", "Hardware metrics interval (500–10000 milliseconds; default 1000)", Number;
@@ -231,7 +226,7 @@ pub const APP: &[Setting] = settings! {
         "terminate-on-pause", "Close the app when the last device disconnects", Bool;
         "allow-client-commands", "Allow per-device connection commands", Bool;
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
-        "background-stream", "Stream in the background (isolated display, controllers only)", Bool;
+        "background-stream", "Stream in the background (Experimental: Nucleus Co-op, controllers only)", Bool;
         "state-cmd", "App resume and pause commands", Json;
         "output", "App log path (null discards output)", Text;
         "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","vhf_switch"]);
@@ -258,7 +253,7 @@ pub const CLIENT: &[Setting] = settings! {
         "output_name_override", "Display override", Text;
         "always_use_virtual_display", "Always use a virtual display", Bool;
         "remember_display_mode", "Remember the virtual display resolution and scale chosen in Windows", Bool;
-        "background_stream", "Stream in the background (isolated display, controllers only)", Bool;
+        "background_stream", "Stream in the background (Experimental: Nucleus Co-op, controllers only)", Bool;
         "virtual_display_mode", "Virtual display mode", Choice(&["disabled","per_client","shared"]);
         "virtual_display_layout", "Virtual display layout", Choice(&["exclusive","extended","extended_primary","extended_isolated","extended_primary_isolated"]);
         "prefer_10bit_sdr", "Prefer 10-bit SDR", Bool;

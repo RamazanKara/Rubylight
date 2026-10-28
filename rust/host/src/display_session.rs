@@ -460,6 +460,88 @@ impl Ready {
             _limiter: limiter,
         })
     }
+    /// A stream of one game window, a Nucleus Co-op player's: no display is
+    /// prepared, changed or kept, and no frame limit is set, which would
+    /// hold back the PC user's games too. `follow` gives the window's
+    /// capture target every 100 ms and the capture reopens on a new one. An
+    /// error keeps the last target, whose capture then fails loudly, and
+    /// says why (`capture_window`); it never becomes a display.
+    pub fn window(
+        h: &Shared,
+        stream: &Negotiated,
+        config: &Config,
+        first: String,
+        mut follow: Box<dyn FnMut() -> Result<String> + Send>,
+        warnings: Arc<Warnings>,
+    ) -> Result<StreamPreparation> {
+        let mut framegen = Policy::resolve(
+            config,
+            Rate(stream.fps_millihz()),
+            false,
+            "none",
+            false,
+            false,
+        )?;
+        // Only WGC captures a single window.
+        framegen.capture = "wgc".into();
+        framegen.enabled = false;
+        let limiter = limiter::Lease::acquire(&h.directory, config, &framegen)?;
+        let target = CaptureTarget::new((first.clone(), 0));
+        let mode_report =
+            ModeReport::new(warnings.clone(), (None, None, None), stream.fps_millihz());
+        let prepared = Prepared::bare(
+            h,
+            first.clone(),
+            framegen.clone(),
+            stream_mode(stream),
+            mode_report.clone(),
+        );
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker = std::thread::Builder::new()
+            .name("game-window".into())
+            .spawn({
+                let (target, stop) = (target.clone(), stop.clone());
+                move || {
+                    let mut last = first;
+                    while !stop.load(Ordering::Acquire) {
+                        match follow() {
+                            Ok(next) => {
+                                if next != last {
+                                    tracing::info!(from = %last, to = %next, "the stream's game window was replaced");
+                                    target.publish((next.clone(), 0));
+                                    last = next;
+                                }
+                                warnings.clear("capture_window");
+                            }
+                            Err(error) => warnings.set(
+                                "capture_window",
+                                format!("{error:#}; the stream waits for it to return"),
+                            ),
+                        }
+                        std::thread::park_timeout(Duration::from_millis(100));
+                    }
+                }
+            })?;
+        let display = Arc::new(Self {
+            _state: Arc::new(Mutex::new(prepared)),
+            target,
+            mode: stream_mode(stream),
+            client_display: None,
+            virtual_layout: None,
+            exclusive_layout: false,
+            framegen: Mutex::new(framegen),
+            mode_report,
+            turned: Arc::new(Mutex::new(None)),
+            stop,
+            active: Arc::new(AtomicUsize::new(1)),
+            retained: None,
+            worker: Some(worker),
+        });
+        Ok(StreamPreparation {
+            display,
+            _limiter: limiter,
+        })
+    }
     pub fn resume(
         self: Arc<Self>,
         directory: &std::path::Path,
@@ -1056,6 +1138,53 @@ fn follow_turn(
 }
 
 impl Prepared {
+    /// Nothing prepared: a stream of `output` that holds no display, layout,
+    /// profile or lease.
+    fn bare(
+        h: &Shared,
+        output: String,
+        framegen: Policy,
+        mode: (u32, u32, u32, bool, bool),
+        mode_report: ModeReport,
+    ) -> Self {
+        Self {
+            display: None,
+            output,
+            framegen,
+            _arrangement: None,
+            _activation: None,
+            _profile: None,
+            _retained: None,
+            _vulkan: None,
+            _golden: None,
+            mode,
+            client_display: None,
+            virtual_layout: None,
+            layout_owner: None,
+            inherited_layout: None,
+            resolution_owner: None,
+            scale_baseline: None,
+            follow: None,
+            #[cfg(test)]
+            layout_snapshot: None,
+            #[cfg(test)]
+            size_snapshot: None,
+            #[cfg(test)]
+            scale_snapshot: None,
+            #[cfg(test)]
+            scales_set: Mutex::new(Vec::new()),
+            revision: 0,
+            recovery: Recovery::new(),
+            layout_watch: Default::default(),
+            // A game window holds no layout to keep while paused.
+            hold_layout_while_paused: false,
+            mode_report,
+            recovery_scale: 0,
+            recovery_dimensions: (mode.0, mode.1),
+            recovery_profile: None,
+            host: Arc::downgrade(h),
+        }
+    }
     /// Follows a stream that turned to `to` mid-stream when the device's
     /// display follows it. A display that cannot follow fails loudly and keeps
     /// streaming as it is: the colour conversion scales its picture.

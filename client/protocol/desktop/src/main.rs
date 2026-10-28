@@ -13,6 +13,7 @@ mod cli;
 mod clipboard;
 mod config;
 mod console;
+mod coop_page;
 mod folders_page;
 mod controller_audio;
 mod controller_mouse;
@@ -1043,6 +1044,11 @@ impl App {
             Command::FolderUpload(host) => {
                 let window = self.window;
                 start_folder_pick(&mut self.folder_pick, &mut self.launcher.folders, host, |at| FolderPick::Upload { host, at }, || sdl::choose_path(window, false));
+            }
+            Command::Coop(id) => {
+                if let Some(host) = self.hosts.get(id) {
+                    coop_page::start(&mut self.launcher.coop, self.hosts.identity(), host, self.waker.clone());
+                }
             }
             Command::OpenFiles(id) => {
                 if let Some(host) = self.hosts.get(id) {

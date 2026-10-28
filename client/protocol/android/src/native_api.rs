@@ -1,7 +1,8 @@
 //! The JNI side of `com.limelight.nvstream.jni.NativeApiBridge`: the Rubylight native API v1
 //! (`HostClient::{native_capabilities, library, session, session_action, couch_menu, radeon,
 //! write_radeon, restore_radeon, wake}`) for the console screens and the stream menu, and Sleep
-//! PC (`power_capabilities`, `sleep`), and the file transfer permissions (`files.capabilities`).
+//! PC (`power_capabilities`, `sleep`), the file transfer permissions (`files.capabilities`), and
+//! Nucleus Co-op (`coop`, `coop.join`).
 //! Calls block on HTTPS, so Java runs them on worker threads, never on the UI thread.
 //!
 //! One entry point, `request`, takes the operation, the host endpoint and an optional JSON
@@ -20,7 +21,8 @@ use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
 use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{
-    ClientIdentity, Error, HostClient, NativeCapabilities, PowerError, PowerReply, Refusal,
+    ClientIdentity, Coop, CoopJoined, Error, HostClient, NativeCapabilities, PowerError,
+    PowerReply, Refusal,
 };
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
@@ -48,6 +50,8 @@ pub trait Host {
     fn power_capabilities(&self) -> Result<PowerReply, PowerError>;
     fn sleep(&self, token: &str) -> Result<PowerReply, PowerError>;
     fn wake(&self) -> Result<Wake, Error>;
+    fn coop(&self) -> Result<Coop, Error>;
+    fn join_coop(&self, session: u32) -> Result<CoopJoined, Error>;
 }
 
 impl Host for HostClient {
@@ -83,6 +87,12 @@ impl Host for HostClient {
     }
     fn wake(&self) -> Result<Wake, Error> {
         HostClient::wake(self)
+    }
+    fn coop(&self) -> Result<Coop, Error> {
+        HostClient::coop(self)
+    }
+    fn join_coop(&self, session: u32) -> Result<CoopJoined, Error> {
+        HostClient::join_coop(self, session)
     }
 }
 
@@ -209,7 +219,8 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
 /// `session`, `session_action` (argument `disconnect`, `end` or `close_game`), `couch_menu`
 /// (argument: the `CouchMenuRequest` JSON), `radeon`, `radeon_write` (argument: the
 /// `SettingsWrite` JSON), `radeon_restore`, `wake`, `power.capabilities` and `power.sleep`
-/// (argument: the token from `power.capabilities`). Gate the power ones on `Feature::Sleep`.
+/// (argument: the token from `power.capabilities`), `coop` and `coop.join` (argument: the
+/// session id). Gate the power ones on `Feature::Sleep` and the co-op ones on `Feature::Coop`.
 pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
     match op {
         // The pinned `Capabilities` drops `permissions.usb`, so the stream menu never offered USB.
@@ -240,6 +251,11 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
         "power.capabilities" => power(host.power_capabilities()),
         "power.sleep" => power(host.sleep(argument)),
         "wake" => ok(host.wake()),
+        "coop" => ok(host.coop()),
+        "coop.join" => match argument.trim().parse::<u32>() {
+            Ok(session) => ok(host.join_coop(session)),
+            Err(_) => argument_error(format!("co-op session id: {argument:?}")),
+        },
         other => argument_error(format!("unknown native API operation: {other:?}")),
     }
 }
@@ -422,6 +438,33 @@ mod tests {
             )
             .unwrap())
         }
+        fn coop(&self) -> Result<Coop, Error> {
+            self.note("coop");
+            Ok(serde_json::from_str(
+                r#"{"available":true,"reason":null,"games":[{"app_id":7,"title":"Co-op (Nucleus): Portal 2","game":"g","max_players":2}],"sessions":[{"id":3,"app_id":7,"title":"Portal 2","game":"g","phase":"running","end":null,"players":[{"slot":0,"name":"Fold7","you":false,"away":false},{"slot":1,"name":null,"you":false,"away":false}],"free_slots":1,"joinable":false,"refusal":"This device may not join co-op sessions"}]}"#,
+            )
+            .unwrap())
+        }
+        fn join_coop(&self, session: u32) -> Result<CoopJoined, Error> {
+            self.note(&format!("join {session}"));
+            if let Some(code) = self.fail {
+                return Err(Error::Api {
+                    status: code.status(),
+                    error: ApiError {
+                        code,
+                        message: "Turn on Join co-op for this device in the Rubylight console."
+                            .into(),
+                        setting: None,
+                        retry_after_ms: None,
+                    },
+                });
+            }
+            Ok(CoopJoined {
+                session,
+                slot: 1,
+                app_id: 7,
+            })
+        }
         fn power_capabilities(&self) -> Result<PowerReply, PowerError> {
             self.note("power");
             Ok(power_reply(200, "", Some(TOKEN)))
@@ -512,6 +555,46 @@ mod tests {
         };
         let reply = parse(&execute(&refused, "capabilities", ""));
         assert_eq!(reply["ok"]["permissions"]["usb"], false);
+    }
+
+    #[test]
+    fn coop_lists_and_joins_by_session_id_and_keeps_the_refusal() {
+        let fake = Fake::default();
+        let reply = parse(&execute(&fake, "coop", ""));
+        assert_eq!(reply["ok"]["sessions"][0]["id"], 3);
+        assert_eq!(reply["ok"]["sessions"][0]["joinable"], false);
+        assert_eq!(
+            reply["ok"]["sessions"][0]["refusal"],
+            "This device may not join co-op sessions"
+        );
+        assert_eq!(
+            reply["ok"]["sessions"][0]["players"][1]["name"],
+            Value::Null
+        );
+        let reply = parse(&execute(&fake, "coop.join", "3"));
+        assert_eq!(reply["ok"], json!({"session": 3, "slot": 1, "app_id": 7}));
+        assert_eq!(fake.calls.lock().unwrap().last().unwrap(), "join 3");
+        let calls = fake.calls.lock().unwrap().len();
+        for argument in ["", "-1", "three", "4294967296"] {
+            let reply = parse(&execute(&fake, "coop.join", argument));
+            assert_eq!(reply["error"]["kind"], "invalid_argument", "{argument}");
+        }
+        assert_eq!(
+            fake.calls.lock().unwrap().len(),
+            calls,
+            "a bad id never reaches the host"
+        );
+        let refused = Fake {
+            fail: Some(ErrorCode::PermissionRequired),
+            ..Fake::default()
+        };
+        let reply = parse(&execute(&refused, "coop.join", "3"));
+        assert_eq!(reply["error"]["http_status"], 403);
+        assert_eq!(reply["error"]["code"], "permission_required");
+        assert_eq!(
+            reply["error"]["message"],
+            "Turn on Join co-op for this device in the Rubylight console."
+        );
     }
 
     #[test]

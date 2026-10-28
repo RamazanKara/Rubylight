@@ -25,6 +25,7 @@ use axum::{
     routing::get,
 };
 use butterpollo_core::{
+    config::Config,
     crypto,
     pairing::Pairing,
     remote::{self, Control},
@@ -1245,16 +1246,28 @@ async fn applist(
     }
     h.request_codec_probe();
     h.wait_for_startup_codecs(STARTUP_CODEC_WAIT).await;
-    let configured = h
-        .apps
-        .read()
-        .unwrap()
+    let apps = h.apps.read().unwrap().clone();
+    let config = h.config.read().unwrap().clone();
+    // The co-op entries follow the user's apps; reading Nucleus Co-op's
+    // handlers and games touches files.
+    let coop = {
+        let (h, apps) = (h.clone(), apps.clone());
+        let configured = crate::nucleus::configured(&config);
+        match tokio::task::spawn_blocking(move || h.nucleus.entries(&apps, &configured)).await {
+            Ok(coop) => coop,
+            // The user's apps still list; only the co-op entries are missing.
+            Err(error) => {
+                tracing::error!(%error, "Nucleus Co-op: the co-op entries did not load");
+                Vec::new()
+            }
+        }
+    };
+    let configured = apps
         .iter()
-        .enumerate()
-        .map(|(index, app)| remote::Entry {
+        .map(|app| remote::Entry {
             id: app.id(),
             title: app.name.clone(),
-            index,
+            index: 0,
             uuid: app
                 .extra
                 .get("uuid")
@@ -1263,8 +1276,16 @@ async fn applist(
                 .into(),
             art_version: app.id().to_string(),
         })
+        .chain(coop.iter().map(|coop| remote::Entry {
+            id: coop.id(),
+            title: coop.entry.name.clone(),
+            index: 0,
+            uuid: String::new(),
+            art_version: coop.id().to_string(),
+        }))
+        .enumerate()
+        .map(|(index, entry)| remote::Entry { index, ..entry })
         .collect();
-    let config = h.config.read().unwrap().clone();
     let game = remote_game(&h);
     let projection = remote::project(
         &client.uuid,
@@ -1400,7 +1421,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             .try_into()
             .map_err(|_| anyhow::anyhow!("invalid stream key length"))?;
         let key_id = stream_key_id(args.get("rikeyid").context("missing stream key ID")?)?;
-        let (role, app, app_id) =
+        let (role, app, app_id, coop) =
             resolve_launch_app(&h, &args, &client, requested, control, owner, resume)?;
         if role != Role::InputOnly {
             h.wait_for_startup_codecs_blocking(STARTUP_CODEC_WAIT);
@@ -1417,7 +1438,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         butterpollo_core::extensions::fec_choice(&launch.options)?;
         // So does a refused `rlRateChange`, rather than a stream without 0x553C.
         butterpollo_core::rate_change::launch_choice(&launch.options)?;
-        launch.background = Some(validate_background_launch(&h, &launch)?);
+        // A co-op launch is no background stream; a background stream runs
+        // in a Nucleus Co-op session of its own ([`launch_back_half`]).
+        launch.background = Some(coop.is_none() && validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
             && crate::network::encryption_mode(&h.config.read().unwrap(), connection.peer.ip()) == 2
@@ -1429,7 +1452,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         } else {
             "rtsp"
         };
-        launch_back_half(&h, &args, launch, app, resume, owner)?;
+        launch_back_half(&h, &args, launch, app, coop, resume, owner)?;
         let host = match connection.local.ip() {
             std::net::IpAddr::V4(ip) => ip.to_string(),
             std::net::IpAddr::V6(ip) => format!("[{ip}]"),
@@ -1443,17 +1466,29 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
 /// Moonlight and a WebRTC launch: end the sessions it replaces, wait for their resources, begin
 /// the session state, queue the launch, prepare the display, controllers and app, and keep the
 /// app. The caller holds `launch_transition`. The launch stays queued until its transport starts it.
+/// A co-op launch (`coop`) takes a slot of Nucleus Co-op's session instead, and a background
+/// launch (`Launch::background`) a private session of its app: the game it streams is
+/// Nucleus's, so the host's own app is neither replaced, started nor kept.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the launch's parts, as both transports parse them"
+)]
 fn launch_back_half(
     h: &Shared,
     args: &Args,
-    launch: Launch,
+    mut launch: Launch,
     app: Option<App>,
+    coop: Option<crate::nucleus::CoopApp>,
     resume: bool,
     owner: remote::Owner,
 ) -> Result<Launch> {
     let role = launch.role;
     let app_id = launch.app_id;
     let id = launch.id.clone();
+    // A stream of Nucleus Co-op's (a co-op or a background launch) streams a
+    // game window of its own: it neither ends the other transport's streams
+    // nor takes the host's session from whoever owns it.
+    let in_nucleus = coop.is_some() || launch.background == Some(true);
     // Stopping streams can still own displays shared with this launch.
     // Read both maps under one lock so a worker moving into teardown
     // cannot disappear from the wait before releasing its resources.
@@ -1461,7 +1496,9 @@ fn launch_back_half(
         let mut sessions = h.sessions.lock().unwrap();
         let mut canceled = sessions.supersede(&launch.client.uuid, role);
         // A Moonlight stream and a WebRTC stream never run together: the newer one ends the older.
-        canceled.extend(sessions.supersede_other_transport(role, launch.transport));
+        if !in_nucleus {
+            canceled.extend(sessions.supersede_other_transport(role, launch.transport));
+        }
         let stopping: Vec<_> = sessions
             .active
             .values()
@@ -1480,9 +1517,36 @@ fn launch_back_half(
     }
     // The state machine follows stream launches; a failure before the
     // reply returns it to what it was.
-    let mut session =
-        (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
-    replace_launch_app(h, &launch, resume, owner)?;
+    let mut session = (role == Role::Stream && !in_nucleus)
+        .then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
+    let game = match (&coop, launch.background == Some(true)) {
+        (Some(coop), _) => Some(crate::nucleus::Game::Coop(coop)),
+        // A background stream runs only in Nucleus Co-op: an app it can't
+        // run is refused, never streamed from the PC's displays.
+        (None, true) => Some(crate::nucleus::Game::Background(
+            app.as_ref().context(APPLICATION_NOT_FOUND)?,
+        )),
+        (None, false) => None,
+    };
+    match game {
+        Some(game) => {
+            let config = crate::stream::effective_config(h, &launch)?;
+            let seat = h.nucleus.admit(crate::nucleus::Admission {
+                launch: &id,
+                client: &launch.client,
+                game,
+                size: launch_size(args, &config)?,
+                config: &config,
+                warnings: launch.warnings.clone(),
+            })?;
+            tracing::info!(client = %launch.client.name, session = seat.session, slot = seat.slot, "Nucleus Co-op seat taken");
+            launch.nucleus = Some(seat);
+            // Every copy holds the slot: a failure here, the launch's expiry
+            // or replacement, or the end of its stream gives it back.
+            launch.held = Some(std::sync::Arc::new(crate::nucleus::Held::new(h, seat, &id)));
+        }
+        None => replace_launch_app(h, &launch, resume, owner)?,
+    }
     // Preparing can outlast the pending launch's 30 s (prep commands may
     // run for minutes); it expires only from the reply on, on every path.
     struct Preparing(std::sync::Arc<std::sync::atomic::AtomicBool>);
@@ -1514,7 +1578,9 @@ fn launch_back_half(
             }
         }
     }
+    // A co-op player's controller drives its slot's pad, never one of its own.
     if let Some(value) = args.get("rlControllers")
+        && launch.nucleus.is_none()
         && let Err(error) = crate::controller_sessions::prepare(h, &launch, value)
     {
         let canceled = h.sessions.lock().unwrap().pending.remove(&id);
@@ -1524,7 +1590,13 @@ fn launch_back_half(
     if let Some(session) = &session {
         session.app_starting();
     }
-    let prepared_app = match prepare_launch_app(h, args, app.as_ref(), &launch) {
+    let prepared_app = if launch.nucleus.is_some() {
+        // Nucleus Co-op started the game when it admitted the launch.
+        Ok(None)
+    } else {
+        prepare_launch_app(h, args, app.as_ref(), &launch)
+    };
+    let prepared_app = match prepared_app {
         Ok(prepared_app) => prepared_app,
         Err(error) => {
             // Any failure here, including a config or app lookup error, must
@@ -1556,7 +1628,9 @@ fn launch_back_half(
         Some(pending) => pending.created = Instant::now(),
         None => bail!("the launch was replaced by a newer one from this device"),
     }
-    retain_launch_app(h, &launch, prepared_app);
+    if launch.nucleus.is_none() {
+        retain_launch_app(h, &launch, prepared_app);
+    }
     drop(preparing);
     let mode = args.get("mode").map_or("", String::as_str);
     let hdr = args.get("hdrMode").is_some_and(|v| v == "1");
@@ -1588,6 +1662,19 @@ fn launch_back_half(
     }
     Ok(launch)
 }
+/// The width and height a launch asks for (`mode`, else `fallback_mode`),
+/// even like the stream's.
+fn launch_size(args: &Args, config: &Config) -> Result<(u32, u32)> {
+    let mode = args
+        .get("mode")
+        .map(String::as_str)
+        .unwrap_or(config.get("fallback_mode", "1920x1080x60"));
+    let mut dimensions = mode.split('x').map(str::parse::<u32>);
+    match (dimensions.next(), dimensions.next()) {
+        (Some(Ok(width)), Some(Ok(height))) => Ok((width & !1, height & !1)),
+        _ => bail!("launch mode must be WIDTHxHEIGHTxFPS"),
+    }
+}
 /// What a WebRTC start-session asks the launch for. The settings are the validated ones.
 pub(crate) struct WebRtcLaunch {
     pub client: Client,
@@ -1603,7 +1690,7 @@ pub(crate) struct WebRtcLaunch {
 pub(crate) enum WebRtcLaunchError {
     InvalidApplication,
     /// Another app, or another device's WebRTC stream, holds the host.
-    SessionActive(&'static str),
+    SessionActive(String),
     /// A stream operation of another session has not finished.
     HostBusy,
     Failed(String),
@@ -1638,7 +1725,7 @@ pub(crate) fn launch_webrtc(
             ),
         ]);
         let owner = remote_owner(h, &request.client.uuid);
-        let (role, app, app_id) = resolve_launch_app(
+        let (role, app, app_id, coop) = resolve_launch_app(
             h,
             &args,
             &request.client,
@@ -1648,11 +1735,13 @@ pub(crate) fn launch_webrtc(
             false,
         )
         .map_err(launch_app_error)?;
-        if h.current_app
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_some_and(|running| running.id != app_id)
+        // A co-op game runs beside the host's app, as on a Moonlight launch.
+        if coop.is_none()
+            && h.current_app
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|running| running.id != app_id)
         {
             return Err(LaunchFailure(
                 409,
@@ -1682,18 +1771,25 @@ pub(crate) fn launch_webrtc(
             rand::random(),
         );
         launch.transport = Transport::WebRtc;
-        launch.background = Some(validate_background_launch(h, &launch)?);
-        launch_back_half(h, &args, launch, app, false, owner)
+        launch.background = Some(coop.is_none() && validate_background_launch(h, &launch)?);
+        launch_back_half(h, &args, launch, app, coop, false, owner)
     })();
     outcome.map_err(|error| match error.downcast_ref::<LaunchFailure>() {
         Some(LaunchFailure(404, _)) => WebRtcLaunchError::InvalidApplication,
-        Some(LaunchFailure(409, message)) => WebRtcLaunchError::SessionActive(message),
+        Some(LaunchFailure(409, message)) => WebRtcLaunchError::SessionActive((*message).into()),
         Some(LaunchFailure(503, message))
             if *message != butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH =>
         {
             WebRtcLaunchError::HostBusy
         }
-        _ => WebRtcLaunchError::Failed(format!("{error:#}")),
+        _ => match error.downcast_ref::<crate::nucleus::Refusal>() {
+            // Busy or refused by the session; a missing handler or an
+            // unavailable Nucleus keeps its own text.
+            Some(refusal) if refusal.status == 409 => {
+                WebRtcLaunchError::SessionActive(refusal.message.clone())
+            }
+            _ => WebRtcLaunchError::Failed(format!("{error:#}")),
+        },
     })
 }
 /// A failed app lookup keeps its own status: only an unknown app is a 404.
@@ -1720,6 +1816,69 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
             .any(|s| !s.stopping() && s.launch.role != Role::Stream);
     remote_active && game.owner != client
 }
+/// A Nucleus Co-op player's quit (Moonlight's cancel, WebRTC's stop-host-session): its own
+/// streams end, never the other players' or the host's app, and its slot is kept for the grace
+/// period; its private background session ends with it unless only `disconnect`ing. `None` when
+/// `client` streams nothing of Nucleus's, else the ids of the streams it stopped. The caller holds
+/// `launch_transition`.
+fn quit_nucleus_player(h: &Shared, client: &str, disconnect: bool) -> Option<Vec<String>> {
+    let (canceled, ids, seats) = {
+        let mut sessions = h.sessions.lock().unwrap();
+        let mine = |l: &Launch| l.role == Role::Stream && l.client.uuid == client;
+        let seats: Vec<_> = sessions
+            .pending
+            .values()
+            .chain(sessions.active.values().map(|s| &s.launch))
+            .filter(|l| mine(l))
+            .filter_map(|l| l.nucleus)
+            .collect();
+        if seats.is_empty() {
+            return None;
+        }
+        let ids: Vec<_> = sessions
+            .active
+            .values()
+            .filter(|s| mine(&s.launch))
+            .map(|s| s.launch.id.clone())
+            .collect();
+        (sessions.stop_role(Role::Stream, Some(client)), ids, seats)
+    };
+    drop(canceled);
+    let listed = h.nucleus.sessions();
+    for seat in seats {
+        let background = listed.iter().any(|listed| {
+            listed.session.id == seat.session
+                && listed.session.kind == butterpollo_core::nucleus::coop::Kind::Background
+        });
+        if background && !disconnect {
+            tracing::info!(
+                client,
+                session = seat.session,
+                "a quit ends the device's background stream"
+            );
+            h.nucleus.end(seat.session);
+        }
+    }
+    Some(ids)
+}
+/// The native End session (or Disconnect, `disconnect`) of a Nucleus Co-op player, who owns no
+/// host session: [`quit_nucleus_player`], waiting up to five seconds for its streams. False when
+/// `client` streams nothing of Nucleus's; `Busy` while a launch holds the launch lock, as the
+/// session's own actions answer.
+pub(crate) fn quit_nucleus_stream(
+    h: &Shared,
+    client: &str,
+    disconnect: bool,
+) -> Result<bool, butterpollo_core::session_state::Refusal> {
+    let _transition = h.transition()?;
+    let Some(ids) = quit_nucleus_player(h, client, disconnect) else {
+        return Ok(false);
+    };
+    if !wait_for_teardown(&h.sessions, &ids, Duration::from_secs(5)) {
+        tracing::warn!(client, "a co-op player's streams did not stop within 5 s");
+    }
+    Ok(true)
+}
 /// What `stop_streams` did.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum StopStreams {
@@ -1734,6 +1893,13 @@ pub(crate) enum StopStreams {
 /// and Remote Input sessions stay, and are not waited for.
 pub(crate) fn stop_streams(h: &Shared, terminate_app: Option<&str>) -> StopStreams {
     let _transition = h.launch_transition.lock().unwrap();
+    if let Some(ids) = terminate_app.and_then(|client| quit_nucleus_player(h, client, false)) {
+        return if wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10)) {
+            StopStreams::Stopped
+        } else {
+            StopStreams::TimedOut
+        };
+    }
     if terminate_app.is_some_and(|client| terminate_refused(h, client)) {
         return StopStreams::Refused;
     }
@@ -1870,7 +2036,7 @@ fn resolve_launch_app(
     control: Option<Control>,
     owner: remote::Owner,
     resume: bool,
-) -> Result<(Role, Option<App>, u32)> {
+) -> Result<(Role, Option<App>, u32, Option<crate::nucleus::CoopApp>)> {
     let mut role = match control {
         Some(Control::Monitor) => Role::RemoteMonitor,
         Some(Control::Input) => Role::InputOnly,
@@ -1920,11 +2086,23 @@ fn resolve_launch_app(
                 })
         })
         .cloned();
+    // The co-op entries come after the apps: an app keeps its id.
+    let coop = if role == Role::Stream && app.is_none() && !resume {
+        let apps = h.apps.read().unwrap().clone();
+        let configured = crate::nucleus::configured(&h.config.read().unwrap());
+        h.nucleus.resolve(&apps, &configured, app_id)
+    } else {
+        None
+    };
+    if let Some(coop) = coop {
+        let app_id = coop.id();
+        return Ok((role, Some(coop.app.clone()), app_id, Some(coop)));
+    }
     if role == Role::Stream && app.is_none() {
         bail!(APPLICATION_NOT_FOUND);
     }
     let app_id = app.as_ref().map_or(app_id, |a| a.id());
-    Ok((role, app, app_id))
+    Ok((role, app, app_id, None))
 }
 fn build_launch_session(
     connection: &Connection,
@@ -1995,6 +2173,8 @@ fn build_launch(
         transport: Default::default(),
         roaming_offered: Default::default(),
         claimed_until: None,
+        nucleus: None,
+        held: None,
         warnings: Default::default(),
     }
 }
@@ -2162,6 +2342,10 @@ fn prepare_launch_display(
     };
     butterpollo_core::stream_policy::apply_color(&mut stream, &config);
     stream.validate()?;
+    // A co-op player streams its game window: no display is prepared.
+    if launch.nucleus.is_some() {
+        return crate::nucleus::prepare(h, launch, &stream, &config, crate::nucleus::WINDOW_WAIT);
+    }
     if launch.role == Role::Stream {
         // Reuse only this client's own retained display; another
         // client streaming the same app keeps its display. One set up for
@@ -2324,13 +2508,13 @@ fn launch_response(
                 resume,
                 "Moonlight session launch failed"
             );
-            xml(
-                error
-                    .downcast_ref::<LaunchFailure>()
-                    .map_or(503, |failure| failure.0),
-                &[(reply, "0".into())],
-                Some(format!("{error:#}")),
-            )
+            let status = match error.downcast_ref::<LaunchFailure>() {
+                Some(failure) => failure.0,
+                None => error
+                    .downcast_ref::<crate::nucleus::Refusal>()
+                    .map_or(503, |refusal| refusal.status),
+            };
+            xml(status, &[(reply, "0".into())], Some(format!("{error:#}")))
         }
     }
 }
@@ -2344,6 +2528,9 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
         Err(e) => return xml(401, &[], Some(e.to_string())),
     };
     let _transition = h.launch_transition.lock().unwrap();
+    if quit_nucleus_player(&h, &client.uuid, false).is_some() {
+        return xml(200, &[("cancel", "1".into())], None);
+    }
     if remote_game(&h).is_none() {
         return xml(200, &[("cancel", "1".into())], None);
     }
@@ -2593,7 +2780,7 @@ fn clipboard_client(
     // playing in the background.
     if sessions.iter().any(|s| {
         crate::stream::effective_config(h, &s.launch).map_or(true, |config| {
-            butterpollo_core::background::enabled(&config)
+            butterpollo_core::background::enabled(&config) || crate::nucleus::player(&config)
         })
     }) {
         bail!("clipboard access is off for background streams");

@@ -93,10 +93,10 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .iter_mut()
                 .find(|c| c.uuid == text("uuid"))
                 .ok_or_else(|| anyhow::anyhow!("client not found"))?;
-            // Host control, Sleep PC and USB forwarding are granted only here,
-            // and only as a real boolean (null clears it). Anything else is
-            // refused before any change.
-            for key in ["host_control", "allow_sleep", "allow_usb"] {
+            // Host control, Sleep PC, USB forwarding and Join co-op are granted
+            // only here, and only as a real boolean (null clears it). Anything
+            // else is refused before any change.
+            for key in ["host_control", "allow_sleep", "allow_usb", "coop_join"] {
                 if data
                     .get(key)
                     .is_some_and(|v| !v.is_boolean() && !v.is_null())
@@ -114,6 +114,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             }
             let previous_perm = c.perm;
             let previous_usb = c.allows_usb();
+            let previous_coop_join = c.allows_coop_join();
             let previous_folders = folder_grants(c);
             let previous_layout = c.extra.get("virtual_display_layout").cloned();
             if let Some(n) = data.get("name").and_then(Value::as_str) {
@@ -175,9 +176,10 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     .get("perm")
                     .and_then(Value::as_u64)
                     .is_some_and(|p| previous_perm & !(p as u32) != 0)
-                // USB forwarding and folder grants are permissions too: losing
-                // one, or write going back to read, ends what the device is doing.
+                // USB forwarding, Join co-op and folder grants are permissions too:
+                // losing one, or write going back to read, ends what the device is doing.
                 || (previous_usb && !c.allows_usb())
+                || (previous_coop_join && !c.allows_coop_join())
                 || previous_folders
                     .iter()
                     .any(|(id, access)| match (access, c.folder_access(id)) {
@@ -439,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn taking_away_usb_or_a_folder_grant_disconnects_the_device() {
+    fn taking_away_usb_join_co_op_or_a_folder_grant_disconnects_the_device() {
         let f = Fixture::new();
         let client = f.client(PERM);
         let disconnects = |change: serde_json::Value| {
@@ -455,6 +457,10 @@ mod tests {
         assert!(!disconnects(json!({"allow_usb": false})));
         assert!(!disconnects(json!({"allow_usb": true})));
         assert!(disconnects(json!({"allow_usb": null})));
+        // Join co-op too: a co-op player loses its stream and cannot rejoin.
+        assert!(!disconnects(json!({"coop_join": true})));
+        assert!(disconnects(json!({"coop_join": false})));
+        assert!(!disconnects(json!({"coop_join": null})));
         assert!(!disconnects(
             json!({"shared_folders": {"games": "write", "mods": "read"}})
         ));
@@ -477,6 +483,31 @@ mod tests {
         ));
         assert!(disconnects(json!({"shared_folders": null})));
         assert!(!disconnects(json!({"shared_folders": null})));
+    }
+
+    #[test]
+    fn join_co_op_is_granted_only_as_a_boolean() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let update = |value: serde_json::Value| {
+            handle(
+                &f.host,
+                "POST",
+                "/api/clients/update",
+                &json!({"uuid": client.uuid, "coop_join": value}),
+            )
+        };
+        let allowed = || f.host.paired.read().unwrap().clients[0].allows_coop_join();
+        let error = update(json!("yes")).unwrap_err();
+        assert_eq!(error.to_string(), "coop_join must be true, false or null");
+        assert!(!allowed());
+        update(json!(true)).unwrap();
+        assert!(allowed());
+        update(json!(false)).unwrap();
+        assert!(!allowed());
+        update(json!(true)).unwrap();
+        update(serde_json::Value::Null).unwrap();
+        assert!(!allowed());
     }
 
     #[test]

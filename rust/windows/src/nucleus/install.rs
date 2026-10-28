@@ -22,9 +22,18 @@ pub trait Fetch {
 }
 
 /// The Nucleus folder streams use: `nucleus_path` when set, which must hold
-/// NucleusCoop.exe (it is never replaced by the host's copy), else the host's
-/// copy below `data` once it is installed.
+/// NucleusCoop.exe (it is never replaced by the host's copy) and which only
+/// SYSTEM and Administrators may change, else the host's copy below `data`
+/// once it is installed.
 pub fn installed(data: &Path, configured: &str) -> Result<Option<PathBuf>> {
+    installed_checked(data, configured, administrators_only)
+}
+
+fn installed_checked(
+    data: &Path,
+    configured: &str,
+    trusted: fn(&Path) -> Result<()>,
+) -> Result<Option<PathBuf>> {
     let configured = configured.trim();
     if !configured.is_empty() {
         let folder = PathBuf::from(configured);
@@ -35,10 +44,82 @@ pub fn installed(data: &Path, configured: &str) -> Result<Option<PathBuf>> {
             pinned::EXECUTABLE,
             pinned::VERSION
         );
+        trusted(&folder).with_context(|| {
+            format!(
+                "nucleus_path is {}, which Rubylight does not run: Nucleus Co-op runs elevated, so only SYSTEM and Administrators may change its folder. Move it under Program Files or clear nucleus_path to let Rubylight install Nucleus Co-op {}",
+                folder.display(),
+                pinned::VERSION
+            )
+        })?;
         return Ok(Some(folder));
     }
     let folder = pinned::folder(data);
     Ok(folder.join(pinned::EXECUTABLE).is_file().then_some(folder))
+}
+
+/// SYSTEM's, the Administrators group's and TrustedInstaller's (what Program
+/// Files holds).
+const TRUSTED: [&str; 3] = [
+    "S-1-5-18",
+    "S-1-5-32-544",
+    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+];
+
+/// Whether an elevated program may run from `folder`: neither it, its
+/// NucleusCoop.exe nor its parent is a link, each is owned by [`TRUSTED`],
+/// nobody else may write the folder or the executable, and nobody else may
+/// move the folder out of its parent (the parent's own new folders are no
+/// matter). Otherwise a program of an ordinary user could swap what runs
+/// elevated, or point the host's settings writes elsewhere.
+fn administrators_only(folder: &Path) -> Result<()> {
+    use crate::process::{open_file_child_movers, open_file_owner, open_file_writers};
+    let exe = folder.join(pinned::EXECUTABLE);
+    let parent = folder.parent().filter(|p| !p.as_os_str().is_empty());
+    let checked = [(folder, true), (exe.as_path(), false)]
+        .into_iter()
+        .chain(parent.map(|p| (p, true)));
+    for (index, (path, is_folder)) in checked.enumerate() {
+        let file = crate::process::open_unfollowed(path, is_folder)
+            .with_context(|| format!("opening {}", path.display()))?;
+        let owner = open_file_owner(&file)
+            .with_context(|| format!("reading the owner of {}", path.display()))?;
+        let others = if index < 2 {
+            open_file_writers(&file)
+        } else {
+            open_file_child_movers(&file)
+        }
+        .with_context(|| format!("reading the permissions of {}", path.display()))?;
+        untrusted(path, &file, &owner, &others)?;
+    }
+    Ok(())
+}
+
+/// [`administrators_only`]'s verdict on one path, from its owner and those
+/// who may change it.
+fn untrusted(path: &Path, file: &std::fs::File, owner: &str, others: &[String]) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    let attributes = file
+        .metadata()
+        .with_context(|| format!("reading {}", path.display()))?
+        .file_attributes();
+    ensure!(
+        attributes & 0x400 == 0,
+        "{} is a link to elsewhere",
+        path.display()
+    );
+    verdict(path, owner, others)
+}
+
+fn verdict(path: &Path, owner: &str, others: &[String]) -> Result<()> {
+    ensure!(
+        TRUSTED.contains(&owner),
+        "{} is owned by {owner}, not by SYSTEM or Administrators",
+        path.display()
+    );
+    if let Some(other) = others.iter().find(|sid| !TRUSTED.contains(&sid.as_str())) {
+        bail!("{} can be changed by {other}", path.display());
+    }
+    Ok(())
 }
 
 /// The Nucleus folder, installing the pinned release first when there is
@@ -347,16 +428,51 @@ mod tests {
         assert!(error.starts_with("nucleus_path is "), "{error}");
         assert!(error.contains("holds no NucleusCoop.exe"), "{error}");
         std::fs::write(own.path().join(pinned::EXECUTABLE), b"MZ").unwrap();
+        let trusted = |_: &Path| Ok(());
         assert_eq!(
-            installed(data.path(), &format!(" {path} ")).unwrap(),
+            installed_checked(data.path(), &format!(" {path} "), trusted).unwrap(),
             Some(own.path().to_path_buf())
         );
-        // The user's copy is used as it is: nothing is fetched.
+    }
+
+    #[test]
+    fn the_users_own_copy_must_be_one_only_administrators_change() {
+        let data = tempfile::tempdir().unwrap();
+        // A temporary folder is the user's, as an extracted download is.
+        let own = tempfile::tempdir().unwrap();
+        std::fs::write(own.path().join(pinned::EXECUTABLE), b"MZ").unwrap();
+        let path = own.path().to_str().unwrap().to_string();
         let mut fake = Fake::new(Vec::new());
-        assert_eq!(
-            ensure(data.path(), &path, &mut fake).unwrap(),
-            own.path().to_path_buf()
+        let error = format!("{:#}", ensure(data.path(), &path, &mut fake).unwrap_err());
+        assert!(error.starts_with("nucleus_path is "), "{error}");
+        assert!(
+            error.contains("only SYSTEM and Administrators may change its folder"),
+            "{error}"
         );
+        // Neither used nor replaced by the host's copy: nothing is fetched.
         assert!(fake.calls.is_empty());
+        let folder = own.path().join("Nucleus");
+        let trusted = &["S-1-5-18".to_string(), "S-1-5-32-544".to_string()];
+        assert!(verdict(&folder, "S-1-5-32-544", trusted).is_ok());
+        assert!(
+            verdict(
+                &folder,
+                "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+                &[]
+            )
+            .is_ok()
+        );
+        let user = verdict(&folder, "S-1-5-21-1-2-3-1001", &[]).unwrap_err();
+        assert!(
+            user.to_string().contains("is owned by S-1-5-21-1-2-3-1001"),
+            "{user}"
+        );
+        let writer = verdict(&folder, "S-1-5-18", &["S-1-5-11".into()]).unwrap_err();
+        assert!(
+            writer.to_string().contains("can be changed by S-1-5-11"),
+            "{writer}"
+        );
+        let entry = verdict(&folder, "S-1-5-18", &["ACE type 5".into()]).unwrap_err();
+        assert!(entry.to_string().contains("ACE type 5"), "{entry}");
     }
 }

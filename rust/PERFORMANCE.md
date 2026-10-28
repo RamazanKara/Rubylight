@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| LTR recovery on H.264 and HEVC with header rewrites: repair against keyframe bytes per gap (1 to 130) and codec, scrolling and static, decodes, the size estimate's choices, rewrite cost in a 60 s stream (ABBA) | [October 28, LTR recovery with header rewrites](#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default) |
 | Audio passthrough: AC3 and E-AC3 encode time per packet against Opus, codec delay, and what the 32 ms frames cost end to end | [October 27, audio passthrough encode cost](#october-27-audio-passthrough-encode-cost) |
 | AV1 intra refresh on AMF: keyframes, frame sizes and recovery after a lost frame, against LTR invalidation and keyframes (refresh turned off) | [October 27, AV1 intra refresh and recovery after a lost frame](#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame) |
 | HDR10+ and HDR Vivid dynamic metadata: the units in real AMF HEVC and AV1 output, what a Moonlight client receives, CPU cost per frame, 4K60 encode stage on and off (ABBA) | [October 27, HDR10+ and HDR Vivid dynamic metadata](#october-27-hdr10-and-hdr-vivid-dynamic-metadata) |
@@ -8222,6 +8223,92 @@ the recovery frame to the end on every arm, with no decoder errors. The slowest 
 Not run: decodes on the NUC and the laptop. On the stock stream (before any loss), ffmpeg's
 d3d12va decoder failed with "No space for new Reference frame" after about 17 frames, Vulkan with
 `VK_ERROR_OUT_OF_DEVICE_MEMORY`, and `h264_amf` exited nonzero with no message, so those were left out.
+
+## October 28: LTR recovery on H.264 and HEVC with header rewrites (on by default)
+
+Moonlight and Nightjar drop every frame from a loss until the repair, so the repair always follows a gap.
+The October 27 freezes came from that gap: HEVC's four-bit POC LSB puts the repair 16 too low after more
+than 8 dropped frames, and FFmpeg's d3d11va and dxva2 H.264 decoders mishandle any frame_num gap. On a
+stream with long-term references the host now rewrites AMF's headers for a client that skipped the lost
+frames: HEVC gets an 8-bit POC LSB, every slice POC rewritten and explicit MSB cycles for its long-term
+entries (repairs up to 128 frames after the last one shown, a keyframe beyond); H.264's frame_num is
+renumbered to leave out the skipped frames. A stream without long-term references sends AMF's bytes
+untouched. The host repairs only when its estimate (mean inter frame bytes times the anchor's age) is
+under the last keyframe's size.
+
+Same ignored native test as October 27, release build of branch `rl-ltr`, RX 7900 XT, 2560x1440 at
+120 fps, 50 Mbps, 480 frames, frames from 264 on not shown for the gap. Two contents: the scrolling
+texture (16 px a frame) and "static", the texture held still with a 64 px square crossing it 32 px a
+frame. The full stream is AMF's own bytes, the lossy one the rewritten bytes without the gap. Decoded
+with ffmpeg 9.0.2 software and d3d11va, frames compared by hash. Bytes are the recovery frame, forced
+to repair (`-Force`) against the keyframe of a stream without long-term references.
+
+Scrolling:
+
+| Gap | H.264 IDR | H.264 repair | HEVC IDR | HEVC repair | AV1 keyframe | AV1 repair |
+|---|---|---|---|---|---|---|
+| 1 | 82,238 | 58,293 (0.71) | 91,319 | 50,700 (0.56) | 102,781 | 53,922 (0.52) |
+| 2 | 82,240 | 79,971 (0.97) | 90,775 | 66,524 (0.73) | 101,678 | 57,822 (0.57) |
+| 4 | 82,274 | 121,630 (1.48) | 90,719 | 93,115 (1.03) | 101,617 | 86,723 (0.85) |
+| 8 | 82,235 | 215,735 (2.62) | 90,731 | 243,494 (2.68) | 101,555 | 247,386 (2.44) |
+| 16 | 82,280 | 225,548 (2.74) | 90,758 | 233,271 (2.57) | 101,171 | 101,145 (1.00) |
+| 64 | 82,251 | 236,916 (2.88) | 90,814 | 239,696 (2.64) | 100,366 | 100,340 (1.00) |
+| 130 | 82,240 | 236,498 (2.88) | 91,000 | IDR, 91,056 (past 128 frames) | 99,157 | 99,131 (1.00) |
+
+Static:
+
+| Gap | H.264 IDR | H.264 repair | HEVC IDR | HEVC repair | AV1 keyframe | AV1 repair |
+|---|---|---|---|---|---|---|
+| 1 | 82,245 | 55,869 (0.68) | 90,787 | 52,703 (0.58) | 101,775 | 51,792 (0.51) |
+| 2 | 82,294 | 46,816 (0.57) | 90,741 | 49,130 (0.54) | 101,780 | 48,255 (0.47) |
+| 4 | 82,235 | 48,119 (0.59) | 90,805 | 57,076 (0.63) | 101,749 | 49,280 (0.48) |
+| 8 | 82,237 | 53,331 (0.65) | 90,830 | 57,358 (0.63) | 101,618 | 59,826 (0.59) |
+| 16 | 82,219 | 211,875 (2.58) | 90,885 | 236,050 (2.60) | 101,419 | 101,393 (1.00) |
+| 64 | 82,270 | 215,780 (2.62) | 91,129 | 246,287 (2.70) | 99,161 | 99,135 (1.00) |
+| 130 | 82,294 | 223,590 (2.72) | 91,194 | IDR, 91,196 (past 128 frames) | 99,163 | 99,137 (1.00) |
+
+Decodes: all 84 forced arms and all 42 policy arms showed the full stream's pictures from the recovery
+frame to the end on software and d3d11va, with no decoder errors (the first forced H.264 run compared
+against the rewritten stream as its reference, which itself drops frames, and was rerun against AMF's
+bytes). The offline streams of the morning, rewritten from recorded AMF output, also decoded identically
+on d3d11va and dxva2: HEVC gap 8 111/111 and gap 11 108/108 frames after the recovery, H.264 gap 1
+118/118, gap 8 111/111 and gap 11 108/108.
+
+Policy run (no `-Force`, both contents): on every codec the estimate repaired at gaps 1 and 2 and sent a
+keyframe from gap 4 on, so no repair it chose was bigger than the keyframe. It passed up smaller repairs
+on static content at gaps 4 and 8 (0.48 to 0.65 of the keyframe) and AV1 scrolling at gap 4 (0.85). Over
+the 14 gap and content cells per codec the policy sent 0.92 (H.264), 0.89 (HEVC) and 0.86 (AV1) of the
+keyframe bytes, and 0.52, 0.62 and 0.97 of what repairing every gap would have. AV1 repaired every gap
+before the estimate; its 3% saving here is a mix of avoiding the 2.4x repair at scrolling gap 8 and
+missing the static ones. So long-term references are on by default for H.264 and HEVC as for AV1
+(`amd_ltr_frames`, default 4), and the launch parameter `rlLtrRecovery` no longer changes anything.
+
+Cost of the rewrite. Offline, release build (core ignored test `rewrite_time_per_frame`,
+`BUTTERPOLLO_TEST_REWRITE`): rewrite p50 10 to 14 us, p99 37 to 62 us, against the copy the encoder already makes (p50
+2.6 to 3.9 us, p99 19 to 44 us): about +9 us p50 per frame, only on streams with long-term references. In
+a real stream, `rust/release/e2e.py` with the moonlight-common-c receiver, HEVC 2560x1440x120 at
+50 Mbps, d3d11va decode, 60 s per side with the first 5 s left out, release host at `80221f3db`; the LTR
+side asked with `rlLtrRecovery=1` (the rewrite on every frame), the other side was the stock stream, as
+on main. ABBA, one stream each:
+
+| Stream | Host processing, median of 5 s means | Median of 5 s p99 | Record host total median / p99 | End to end median / p99 |
+|---|---|---|---|---|
+| stock 1 | 0.483 ms | 1.218 ms | 3.401 / 4.787 ms | 5.445 / 6.843 ms |
+| LTR 1 | 0.621 ms | 0.929 ms | 3.384 / 4.284 ms | 5.451 / 6.382 ms |
+| LTR 2 | 0.616 ms | 0.948 ms | 3.414 / 3.737 ms | 5.497 / 5.891 ms |
+| stock 2 | 0.627 ms | 0.945 ms | 3.400 / 3.721 ms | 5.475 / 5.883 ms |
+
+The first stock stream's host processing rose to the others' level (0.62 to 0.65 ms) in its last three
+windows; the second pair differs by 11 us in the mean and 3 us in the p99, and the record's host total
+by 14 us in the median. The rewrite adds no latency we can measure in a stream. The 5 s line carries a
+mean, p95 and p99, no median. All four streams held 120 fps with no decode failures; no loss was injected,
+so no repair was sent in them.
+
+Not run: decoders other than FFmpeg's on this PC (Android MediaCodec, Apple VideoToolbox, the NUC and
+the laptop). A separate NUC run, HEVC with LTR, repaired 40 ms bursts and decoded 2215/2215 frames. Limits:
+HEVC repairs only within 128 frames of the last one shown; the skipped-frame history keeps 64 repairs
+per IDR; the size estimate is linear; the rewriters have mutation tests (3000 per codec), not a fuzz
+harness.
 
 ## Hardware covered
 

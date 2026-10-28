@@ -239,6 +239,9 @@ public class MediaCodecDecoderRendererTest {
         java.util.List<String> standard = java.util.Arrays.asList("low-latency=1", "priority=0");
         assertTrue(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.dvhe.st.decoder", vendor));
         assertTrue(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.av1.decoder", vendor));
+        // The TV's HDR10 HEVC stream (T4) hung with the device out of memory, before any restart: HEVC
+        // takes the same new-codec restart, whatever the dynamic range.
+        assertTrue(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.hevc.decoder", vendor));
         // Run b4lll: without the vendor mode stop() and configure() did not hang.
         assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.av1.decoder", standard));
         assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.mtk.av1.decoder",

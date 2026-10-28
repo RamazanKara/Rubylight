@@ -6,8 +6,8 @@
 //! session signs it in through the RDP client over loopback and keeps it
 //! attached (a child session only has a display while it is attached), and a
 //! second host instance streams that desktop while the person at the PC keeps
-//! using theirs. Where Windows offers no child session, Nucleus Co-op runs
-//! background streams instead ([`crate::nucleus`]).
+//! using theirs. No background mode picks a child session any more: Nucleus
+//! Co-op runs background streams ([`crate::nucleus`]).
 //!
 //! Ported from Annex (mattxslv/annex, MIT, Copyright (c) 2026 mattxslv; the
 //! license text is in `third-party/licenses/annex-LICENSE.txt`): the request
@@ -22,8 +22,6 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf};
 use zeroize::Zeroizing;
 
-/// The host setting that picks the background streaming mode.
-pub const MODE_KEY: &str = "background_mode";
 /// Set in the child-session host's own configuration, so it never tries to
 /// start a child session of its own.
 pub const CHILD_HOST_KEY: &str = "child_session_host";
@@ -59,39 +57,12 @@ pub const RESTORE_FLAG: &str = "--child-session-restore";
 /// cannot parse exits with.
 pub const RESTORE_PARTLY_EXIT: i32 = 4;
 
-/// What the host setting asks for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ModeSetting {
-    Auto,
-    ChildSession,
-    Nucleus,
-}
-impl ModeSetting {
-    /// Unset means `nucleus`: child sessions are Experimental and only run
-    /// when `auto` or `child_session` asks for them. `virtual_display`, the
-    /// mode Nucleus Co-op replaced, reads as `nucleus` ([`Self::is_legacy`]).
-    pub fn parse(text: &str) -> Result<Self> {
-        match text.trim().to_ascii_lowercase().as_str() {
-            "auto" => Ok(Self::Auto),
-            "child_session" => Ok(Self::ChildSession),
-            "" | "nucleus" | "virtual_display" => Ok(Self::Nucleus),
-            other => {
-                bail!("{MODE_KEY} = {other} is not a mode: use auto, child_session or nucleus")
-            }
-        }
-    }
-    /// Whether the text still names the isolated virtual display, which the
-    /// host logs once as read as `nucleus`.
-    pub fn is_legacy(text: &str) -> bool {
-        text.trim().eq_ignore_ascii_case("virtual_display")
-    }
-}
-
 /// The mode that runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
-    /// A Windows child session with its own host instance.
+    /// A Windows child session with its own host instance. No decision
+    /// picks it: Nucleus Co-op is the only background mode.
     ChildSession,
     /// Nucleus Co-op runs the game beside the signed-in user ([`crate::nucleus`]).
     Nucleus,
@@ -139,18 +110,10 @@ pub struct ModeDecision {
     pub label: String,
     pub reason: String,
 }
-/// The label of a decision whose mode can't run.
-pub const UNAVAILABLE_LABEL: &str = "Background streaming: not available";
-
-/// The edition check feeds [`crate::nucleus::mode::decide`], which picks
-/// between a child session and Nucleus Co-op.
-pub fn decide(setting: ModeSetting, edition_id: &str, inside_child_session: bool) -> ModeDecision {
-    use crate::nucleus::mode::{self as nucleus, ChildSupport};
-    let shown = if edition_id.trim().is_empty() {
-        "unknown"
-    } else {
-        edition_id.trim()
-    };
+/// Which mode runs: Nucleus Co-op ([`crate::nucleus::mode`]), never a child
+/// session, except in the child session's own host.
+pub fn decide(setting: &str, inside_child_session: bool) -> ModeDecision {
+    use crate::nucleus::mode as nucleus;
     if inside_child_session {
         return ModeDecision {
             mode: Mode::InsideChildSession,
@@ -158,35 +121,14 @@ pub fn decide(setting: ModeSetting, edition_id: &str, inside_child_session: bool
             reason: format!("{CHILD_HOST_KEY} is set: this is the child session's own host"),
         };
     }
-    let support = match (edition(edition_id), setting) {
-        (Edition::ProOrHigher, _) => ChildSupport::Available,
-        (Edition::Home, _) => {
-            ChildSupport::Unavailable(format!("Windows edition {shown} has no child sessions"))
-        }
-        // An edition this list doesn't know runs one only when the setting
-        // asks for it by name.
-        (Edition::Unknown, ModeSetting::ChildSession) => ChildSupport::Available,
-        (Edition::Unknown, _) => ChildSupport::Unavailable(format!(
-            "Windows edition {shown} is not known to have child sessions; set {MODE_KEY} = child_session to use them"
-        )),
-    };
-    match nucleus::decide(setting, &support) {
-        Ok(decision) => ModeDecision {
-            mode: match decision.mode {
-                nucleus::Mode::ChildSession => Mode::ChildSession,
-                nucleus::Mode::Nucleus => Mode::Nucleus,
-            },
-            label: decision.label.into(),
-            reason: match support {
-                ChildSupport::Available => format!("{} (Windows edition {shown})", decision.reason),
-                ChildSupport::Unavailable(_) => decision.reason,
-            },
+    let decision = nucleus::decide(setting);
+    ModeDecision {
+        mode: match decision.mode {
+            nucleus::Mode::Nucleus => Mode::Nucleus,
+            nucleus::Mode::Unavailable => Mode::Unavailable,
         },
-        Err(reason) => ModeDecision {
-            mode: Mode::Unavailable,
-            label: UNAVAILABLE_LABEL.into(),
-            reason,
-        },
+        label: decision.label.into(),
+        reason: decision.reason,
     }
 }
 

@@ -12,9 +12,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use butterpollo_core::{
-    child_session::{MODE_KEY, ModeSetting},
     native_api::coop as wire,
-    nucleus::{coop::Phase, install::VERSION},
+    nucleus::{
+        coop::Phase,
+        install::VERSION,
+        mode::{self, KEY},
+    },
 };
 use serde_json::{Value, json};
 use std::sync::PoisonError;
@@ -76,8 +79,8 @@ fn status(h: &Shared) -> Value {
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
-    let setting = config.get(MODE_KEY, "");
-    let decision = crate::child_session::decision(&config);
+    let setting = config.get(KEY, "");
+    let decision = mode::decide(setting);
     let (state, path, version, install_error) =
         match h.nucleus.install(&crate::nucleus::configured(&config)) {
             Install::Missing => ("missing", None, None, None),
@@ -132,7 +135,7 @@ fn status(h: &Shared) -> Value {
             "mode": decision.mode,
             "label": decision.label,
             "reason": decision.reason,
-            "legacy": ModeSetting::is_legacy(setting),
+            "legacy": mode::legacy(setting).is_some(),
         },
         "install": {
             "state": state,

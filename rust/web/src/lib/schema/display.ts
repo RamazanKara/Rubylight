@@ -32,9 +32,6 @@ function rtss(values: Values): boolean {
 
 const SCALES = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
 
-const childSession = (values: Values) =>
-  ['auto', 'child_session'].includes(text(values, 'background_mode', 'nucleus'));
-
 export const settings: Setting[] = [
   // Display
   {
@@ -569,49 +566,6 @@ export const settings: Setting[] = [
     group: 'Display',
     control: { kind: 'number', min: 400, max: 2000, step: 1, unit: 'nits' },
     default: 1000,
-  },
-
-  // Background streaming
-  {
-    key: 'background_mode',
-    label: 'Background mode (Experimental)',
-    description:
-      'How the host streams while someone keeps using this PC. A child session gives the stream its own Windows desktop; Nucleus Co-op runs the game in its own window, with controllers.',
-    details:
-      'Nucleus Co-op, the default, streams the game’s window and needs a Nucleus Co-op handler for the game; the host installs Nucleus Co-op on first use. Child session needs Windows Pro or higher and the setup under Maintenance. Automatic uses a child session on Pro and higher and Nucleus Co-op elsewhere. A chosen mode this PC can’t run refuses background streams and says why. No HDR in the child session, and it runs at up to about 120 fps.',
-    category: 'display',
-    group: 'Background streaming',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'nucleus', label: 'Nucleus Co-op' },
-        { value: 'auto', label: 'Automatic' },
-        { value: 'child_session', label: 'Child session' },
-      ],
-    },
-    default: 'nucleus',
-  },
-  {
-    key: 'child_session_resolution',
-    label: 'Child session resolution',
-    description: 'The size of the child session’s desktop, as WIDTHxHEIGHT.',
-    category: 'display',
-    group: 'Background streaming',
-    control: { kind: 'text', placeholder: '1920x1080', mono: true },
-    default: '1920x1080',
-    visibleWhen: childSession,
-    inactiveHint: 'Used when Background mode is Automatic or Child session.',
-  },
-  {
-    key: 'child_session_scale',
-    label: 'Child session scale',
-    description: 'How large text and apps look on the child session’s desktop.',
-    category: 'display',
-    group: 'Background streaming',
-    control: { kind: 'number', min: 100, max: 500, step: 25, unit: '%' },
-    default: 100,
-    visibleWhen: childSession,
-    inactiveHint: 'Used when Background mode is Automatic or Child session.',
   },
 
   // Advanced

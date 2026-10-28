@@ -55,19 +55,10 @@ test('the panel is labelled Experimental and loads with a skeleton', () => {
   assert.doesNotMatch(out, /untested|Expected/i);
 });
 
-test('child sessions stay off by default and their display settings show only when used', () => {
-  const mode = settings.find((setting) => setting.key === 'background_mode');
-  assert.equal(mode.default, 'nucleus');
-  assert.deepEqual(
-    mode.control.options.map((option) => option.value),
-    ['nucleus', 'auto', 'child_session'],
-  );
-  assert.match(mode.label, /Experimental/);
-  const resolution = settings.find((setting) => setting.key === 'child_session_resolution');
-  assert.equal(resolution.visibleWhen({}), false);
-  assert.equal(resolution.visibleWhen({ background_mode: 'auto' }), true);
-  assert.equal(resolution.visibleWhen({ background_mode: 'child_session' }), true);
-  assert.equal(resolution.visibleWhen({ background_mode: 'virtual_display' }), false, 'the replaced mode reads as Nucleus Co-op');
+test('no setting chooses a background mode: Nucleus Co-op is the only one', () => {
+  for (const key of ['background_mode', 'child_session_resolution', 'child_session_scale']) {
+    assert.equal(settings.find((setting) => setting.key === key), undefined, key);
+  }
 });
 
 test('a poll tick waits for the status load in flight, and a slow load never overwrites a newer one', async () => {

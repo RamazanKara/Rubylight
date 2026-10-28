@@ -131,7 +131,7 @@
         <Banner tone="warn" title="The child session’s display setting is not valid">{status.display_error}</Banner>
       {/if}
       {#if current === 'off'}
-        <p class="muted">To use a child session, choose Child session or Automatic under Settings › Displays › Background mode.</p>
+        <p class="muted">Child sessions no longer run: Nucleus Co-op runs background streams.</p>
       {:else if current === 'refused'}
         <Banner tone="danger" title={status.label}>{status.reason}</Banner>
       {:else if current === 'inside'}

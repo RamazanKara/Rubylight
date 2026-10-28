@@ -767,8 +767,9 @@ impl Config {
         {
             bail!("stream_preset must be lowest_latency, balanced or reference");
         }
-        if changed(crate::child_session::MODE_KEY) {
-            crate::child_session::ModeSetting::parse(&next.values[crate::child_session::MODE_KEY])?;
+        if changed(crate::nucleus::mode::KEY) {
+            crate::nucleus::mode::parse(&next.values[crate::nucleus::mode::KEY])
+                .map_err(anyhow::Error::msg)?;
         }
         if changed(crate::child_session::RESOLUTION_KEY) || changed(crate::child_session::SCALE_KEY)
         {

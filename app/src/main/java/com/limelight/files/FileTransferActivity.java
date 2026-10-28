@@ -171,15 +171,18 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     }
 
     /**
-     * Whether a shared file may be sent: a content URI that Nightjar's own providers do not serve. A file path or
-     * one of Nightjar's providers would let any app have Nightjar send its private files (keys, settings).
+     * Whether a shared file may be sent: a content URI that another app's provider serves. A file path or one of
+     * Nightjar's providers would let any app have Nightjar send its private files (keys, settings). An authority
+     * with a user prefix ({@code 0@...}) resolves to no provider here but opens the unprefixed one, Nightjar's
+     * own included, so it is refused, and so is an authority no provider serves.
      */
     static boolean sendable(Uri uri, String ownPackage, String providerPackage) {
-        return ContentResolver.SCHEME_CONTENT.equals(uri.getScheme()) && !TextUtils.isEmpty(uri.getAuthority())
-                && !ownPackage.equals(providerPackage);
+        String authority = uri.getAuthority();
+        return ContentResolver.SCHEME_CONTENT.equals(uri.getScheme()) && !TextUtils.isEmpty(authority)
+                && authority.indexOf('@') < 0 && providerPackage != null && !ownPackage.equals(providerPackage);
     }
 
-    /** The app whose provider serves {@code uri}, or null when none does (then the file fails to open). */
+    /** The app whose provider serves {@code uri}, or null when none does (then the share is refused). */
     private String providerPackage(Uri uri) {
         if (TextUtils.isEmpty(uri.getAuthority())) return null;
         ProviderInfo provider = getPackageManager().resolveContentProvider(uri.getAuthority(), 0);

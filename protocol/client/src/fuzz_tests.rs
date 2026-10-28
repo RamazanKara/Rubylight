@@ -284,6 +284,13 @@ impl UsbDevice for Answering {
             .lock()
             .unwrap()
             .push((transfer.seqnum, transfer.direction, transfer.iso.len()));
+        // The host names the packets' lengths and the server passes them on unchecked: like
+        // usbfs.rs, packets that add up past the transfer are refused, in u64 so none wraps.
+        let total: u64 = transfer.iso.iter().map(|p| u64::from(p.length)).sum();
+        if total > u64::from(transfer.length) {
+            done.complete(Reply::failed(wire::EINVAL));
+            return;
+        }
         // An isochronous OUT sends every packet whole, an IN reads nothing.
         let out = transfer.direction == Direction::Out;
         let iso: Vec<IsoPacket> = transfer

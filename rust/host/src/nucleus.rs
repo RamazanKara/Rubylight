@@ -948,10 +948,17 @@ pub fn end_streams(h: &Host, session: u32, device: Option<&str>) {
 }
 
 /// What a player's stream says when its session ended.
-fn ended_text(title: &str, end: &End) -> String {
+fn ended_text(session: &coop::Session, end: &End) -> String {
+    let (title, what) = (
+        &session.title,
+        match session.kind {
+            Kind::Coop => "co-op session",
+            Kind::Background => "background stream",
+        },
+    );
     match end {
-        End::Ended => format!("The {title} co-op session was ended on the PC"),
-        end => format!("The {title} co-op session ended: {end}"),
+        End::Ended => format!("The {title} {what} was ended on the PC"),
+        end => format!("The {title} {what} ended: {end}"),
     }
 }
 
@@ -1038,11 +1045,10 @@ impl Watch {
                     let end = match h.nucleus.instance(seat.session) {
                         Some(instance) => instance
                             .end()
-                            .map(|end| (instance.session(|s| s.title.clone()), end)),
-                        None => Some((String::new(), End::Ended)),
+                            .map(|end| (instance.session(|s| ended_text(s, &end)), end)),
+                        None => Some(("The Nucleus Co-op session is gone".into(), End::Ended)),
                     };
-                    if let Some((title, end)) = end {
-                        let text = ended_text(&title, &end);
+                    if let Some((text, end)) = end {
                         tracing::warn!(session = seat.session, slot = seat.slot, client = %s.launch.client.name, "Nucleus Co-op: {text}");
                         s.launch.warnings.set("coop_ended", &text);
                         match end {
@@ -1091,7 +1097,7 @@ pub fn prepare(
     let instance = h
         .nucleus
         .instance(seat.session)
-        .ok_or_else(|| Refusal::unavailable("The co-op session ended: launch it again"))?;
+        .ok_or_else(|| Refusal::unavailable("The Nucleus Co-op session ended: launch it again"))?;
     instance.resize(seat.slot, (stream.width, stream.height))?;
     // The display only picks the GPU the window is captured on.
     let display = butterpollo_windows::capture::primary_display()
@@ -1161,8 +1167,8 @@ fn first_window(
     let deadline = Instant::now() + wait;
     loop {
         if let Some(end) = instance.end() {
-            let title = instance.session(|s| s.title.clone());
-            return Err(Refusal::unavailable(ended_text(&title, &end)).into());
+            let text = instance.session(|s| ended_text(s, &end));
+            return Err(Refusal::unavailable(text).into());
         }
         match instance.capture_target(slot, display) {
             Ok(target) => return Ok(target),

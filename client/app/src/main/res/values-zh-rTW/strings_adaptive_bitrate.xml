@@ -8,6 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">這部電腦不會回報串流位元速率。此串流已關閉自動位元速率。</string>
     <string name="stream_auto_bitrate_status">自動位元速率：%1$.1f Mbps</string>
     <string name="stream_bitrate_busy">主機忙碌中，請稍後再試。</string>
-    <string name="title_auto_bitrate">自動位元速率</string>
+    <string name="title_auto_bitrate">由裝置控制位元速率</string>
     <string name="dialog_auto_bitrate">連線或裝置跟不上時降低位元速率，恢復後再提高。不會超過串流位元速率。這是所有電腦的預設值；可在串流選單中為單台電腦變更。</string>
 </resources>

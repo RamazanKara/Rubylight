@@ -64,8 +64,8 @@ public class SettingsTiersPreviewTest {
             screen.showSection(section);
             SettingsStructureTest.settle(screen);
             StreamSettings.SettingsFragment fragment = (StreamSettings.SettingsFragment) SettingsStructureTest.shown(screen);
-            // The bottom of the list: the last main rows and the More row.
-            scrollTo(screen, fragment, StreamSettings.MORE_PREFIX + section, width, height, 6);
+            // The bottom of the list: the last main rows and the More row, whatever the pane height.
+            scrollTo(screen, fragment, StreamSettings.MORE_PREFIX + section, width, height, -1);
             write(screen.getWindow().getDecorView(), width, height, new File(directory, name + "-" + shot++ + "-" + section + ".png"));
         }
         StreamSettings.SettingsFragment advanced = (StreamSettings.SettingsFragment) SettingsStructureTest.shown(screen);
@@ -76,7 +76,7 @@ public class SettingsTiersPreviewTest {
         write(screen.getWindow().getDecorView(), width, height, new File(directory, name + "-" + shot + "-advanced-open.png"));
     }
 
-    /** Scrolls the section's list so {@code key} sits {@code above} rows below the top. */
+    /** Scrolls the section's list so {@code key} sits {@code above} rows below the top, or at the bottom for -1. */
     private static void scrollTo(StreamSettings screen, StreamSettings.SettingsFragment fragment, String key, int width,
                                  int height, int above) {
         layout(screen.getWindow().getDecorView(), width, height);
@@ -89,8 +89,12 @@ public class SettingsTiersPreviewTest {
             if (adapter.getItem(i) == target) position = i;
         }
         assertTrue(key + " is listed", position >= 0);
-        list.setSelectionFromTop(Math.max(0, position - above), 0);
+        list.setSelectionFromTop(above < 0 ? position : Math.max(0, position - above), 0);
         layout(screen.getWindow().getDecorView(), width, height);
+        if (above < 0) {
+            list.setSelectionFromTop(position, list.getHeight() - list.getChildAt(0).getHeight());
+            layout(screen.getWindow().getDecorView(), width, height);
+        }
     }
 
     private static File outputDirectory() {

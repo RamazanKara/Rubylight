@@ -22,6 +22,48 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
+/// Whether `ip` is this PC or link-local: services there (the host's own
+/// API, a router's or a cloud's metadata page) may trust whoever can reach
+/// them, so no hook may send there. LAN addresses stay allowed.
+pub(crate) fn on_this_pc_or_link(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => ip.is_loopback() || ip.is_link_local() || ip.is_unspecified(),
+        std::net::IpAddr::V6(ip) => match ip.to_ipv4_mapped() {
+            Some(ip) => ip.is_loopback() || ip.is_link_local() || ip.is_unspecified(),
+            None => ip.is_loopback() || ip.is_unicast_link_local() || ip.is_unspecified(),
+        },
+    }
+}
+
+/// Resolves a hook's host name at connect time and drops the addresses
+/// [`on_this_pc_or_link`] refuses. The console checks only the saved text,
+/// and a name can point (or later rebind) to 127.0.0.1 or 169.254.169.254.
+struct Resolver;
+impl reqwest::dns::Resolve for Resolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async move {
+            let name = name.as_str().to_owned();
+            let resolved: Vec<_> = tokio::net::lookup_host((name.as_str(), 0)).await?.collect();
+            let allowed = allowed_addresses(resolved);
+            if allowed.is_empty() {
+                return Err(format!(
+                    "{name} resolves only to this PC or link-local addresses, which webhooks may not reach"
+                )
+                .into());
+            }
+            Ok(Box::new(allowed.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+fn allowed_addresses(
+    resolved: impl IntoIterator<Item = std::net::SocketAddr>,
+) -> Vec<std::net::SocketAddr> {
+    resolved
+        .into_iter()
+        .filter(|address| !on_this_pc_or_link(address.ip()))
+        .collect()
+}
+
 /// Deliveries waiting per hook before new ones are dropped.
 pub const QUEUE: usize = 32;
 /// Hooks the console may add.
@@ -131,6 +173,7 @@ impl Webhooks {
         let client = reqwest::Client::builder()
             // A redirect could send the signed body somewhere else.
             .redirect(reqwest::redirect::Policy::none())
+            .dns_resolver(Arc::new(Resolver))
             .connect_timeout(policy.timeout)
             .timeout(policy.timeout)
             .user_agent(concat!("Rubylight-Webhooks/", env!("CARGO_PKG_VERSION")))
@@ -611,6 +654,32 @@ pub(crate) mod tests {
         panic!("no delivery finished");
     }
 
+    #[tokio::test]
+    async fn a_name_that_resolves_to_this_pc_is_refused_at_delivery() {
+        let (url, mut received) = receiver(vec![204]).await;
+        let port = url::Url::parse(&url).unwrap().port().unwrap();
+        // The console refuses "localhost" by name; any other name pointing
+        // here (nip.io, a rebinding domain) only shows when it resolves.
+        let webhooks = Webhooks::new(QUICK).unwrap();
+        let status = webhooks
+            .test(&hook(&format!("http://localhost:{port}/hook"), &[]), HOST)
+            .await;
+        assert!(!status.ok);
+        assert_eq!(status.http_status, None);
+        assert!(received.try_recv().is_err());
+        let addresses = [
+            "127.0.0.1:80",
+            "[::1]:80",
+            "169.254.169.254:80",
+            "[fe80::1]:80",
+            "0.0.0.0:80",
+            "[::ffff:127.0.0.1]:80",
+            "192.168.4.20:80",
+            "[fd00::20]:80",
+        ]
+        .map(|a| a.parse::<std::net::SocketAddr>().unwrap());
+        assert_eq!(allowed_addresses(addresses), &addresses[6..]);
+    }
     #[tokio::test]
     async fn a_delivery_is_signed_so_the_receiver_can_verify_it() {
         let (url, mut received) = receiver(vec![204]).await;

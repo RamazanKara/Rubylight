@@ -5094,10 +5094,30 @@ fn queue_input(inputs: &mut Vec<input::Input>, event: input::Input) -> bool {
 
 /// While the controllers can't be acquired there is nothing to inject into:
 /// keys, clicks and moves are dropped rather than replayed in one late burst
-/// when acquire succeeds. Arrivals stay, so the pads keep the kind the
-/// client announced.
+/// when acquire succeeds. State the client sends once stays: arrivals, so
+/// the pads keep the kind the client announced, the haptics switch, Steam
+/// attributes, and each pad's latest state, whose active mask removes pads.
 fn drop_uninjectable_input(inputs: &mut Vec<input::Input>) {
-    inputs.retain(|event| matches!(event, input::Input::Arrival { .. }));
+    let mut latest: Vec<(u16, usize)> = Vec::new();
+    for (at, event) in inputs.iter().enumerate().rev() {
+        if let input::Input::Controller { id, .. } = event
+            && !latest.iter().any(|(pad, _)| pad == id)
+        {
+            latest.push((*id, at));
+        }
+    }
+    let mut at = 0;
+    inputs.retain(|event| {
+        let keep = match event {
+            input::Input::Arrival { .. }
+            | input::Input::Haptics(_)
+            | input::Input::SteamAttributes(_) => true,
+            input::Input::Controller { .. } => latest.iter().any(|(_, kept)| *kept == at),
+            _ => false,
+        };
+        at += 1;
+        keep
+    });
 }
 
 /// What a pass sends for the gamepad thread's reports: feedback messages
@@ -6291,6 +6311,42 @@ mod tests {
         ];
         drop_uninjectable_input(&mut inputs);
         assert_eq!(inputs, vec![arrival]);
+    }
+    #[test]
+    fn a_refused_controller_acquire_keeps_the_state_the_client_sends_once() {
+        let pad = |id, active, buttons| input::Input::Controller {
+            id,
+            active,
+            buttons,
+            left_trigger: 0,
+            right_trigger: 0,
+            sticks: [0; 4],
+        };
+        let steam = input::Input::SteamAttributes(Default::default());
+        let mut inputs = vec![
+            pad(0, 0b11, 1),
+            input::Input::Haptics(false),
+            pad(1, 0b11, 2),
+            steam.clone(),
+            input::Input::Keyboard {
+                key: 0x41,
+                modifiers: 0,
+                flags: 0,
+                down: true,
+            },
+            // The client unplugged pad 1: only pad 0's latest state carries that.
+            pad(0, 0b01, 0),
+        ];
+        drop_uninjectable_input(&mut inputs);
+        assert_eq!(
+            inputs,
+            vec![
+                input::Input::Haptics(false),
+                pad(1, 0b11, 2),
+                steam,
+                pad(0, 0b01, 0),
+            ]
+        );
     }
     #[test]
     fn an_arrived_pad_is_asked_for_the_sensors_it_has() {

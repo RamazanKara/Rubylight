@@ -5,6 +5,6 @@
     <string name="settings_more">Diğer ayarlar</string>
     <string name="settings_more_count">Diğer ayarlar: %1$s (%2$d)</string>
     <string name="settings_fewer">Daha az ayar: %1$s</string>
-    <string name="settings_category_experimental">Deneysel</string>
+    <string name="settings_category_experimental">Diğer seçenekler</string>
     <string name="summary_off_auto_bitrate">Kapalı: bit hızını PC ayarlar (önerilen)</string>
 </resources>

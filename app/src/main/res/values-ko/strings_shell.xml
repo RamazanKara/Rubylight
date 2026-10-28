@@ -12,7 +12,6 @@
     <string name="host_unpair_message">PC가 이 기기를 잊고 저장된 라이브러리도 여기서 지워집니다. 스트리밍하려면 다시 페어링해야 합니다. PC는 목록에 남습니다.</string>
     <string name="host_wake_needs_pairing">PC가 켜져 있을 때 한 번 페어링하면 깨울 수 있습니다</string>
     <string name="host_menu_sleep">PC 절전</string>
-    <string name="host_menu_sleep_note">실험적</string>
     <string name="host_sleep_title">%1$s을(를) 절전 모드로 전환할까요?</string>
     <string name="host_sleep_message">먼저 PC의 게임과 스트림을 종료해야 합니다. Wake-on-LAN으로 다시 깨울 수 있습니다.</string>
     <string name="host_sleep_asking">PC에 확인하는 중…</string>

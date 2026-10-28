@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_audio_passthrough">Truyền thẳng âm thanh (Thử nghiệm)</string>
+    <string name="title_checkbox_audio_passthrough">Truyền thẳng âm thanh</string>
     <string name="summary_checkbox_audio_passthrough">Yêu cầu PC chạy Rubylight gửi âm thanh ở định dạng mà đầu ra âm thanh của bạn phát nguyên trạng: PCM không nén, hoặc Dolby Digital (AC3) hay Dolby Digital Plus (E-AC3) cho bộ thu, loa soundbar hoặc TV có thể giải mã. Cần Android 10 trở lên và Công cụ stream mới. Âm thanh Dolby đến theo khối 32 ms nên đến muộn hơn Opus. Các PC và đầu ra khác vẫn dùng Opus.</string>
 </resources>

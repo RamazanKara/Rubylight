@@ -14,7 +14,6 @@
     <string name="host_wake_needs_pairing">Pair once while the PC is on to enable Wake</string>
     <!-- Sleep PC: the host's /power-actions/v1. Refusals show the host's own message. -->
     <string name="host_menu_sleep">Sleep PC</string>
-    <string name="host_menu_sleep_note">Experimental</string>
     <string name="host_sleep_title">Put %1$s to sleep?</string>
     <string name="host_sleep_message">Games and streams on the PC must be closed first. Wake-on-LAN can wake it again.</string>
     <string name="host_sleep_asking">Asking the PC…</string>

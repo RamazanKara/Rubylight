@@ -52,7 +52,7 @@
     <string name="controller_test_needs_android_12">Android 12 以降が必要です。</string>
 
     <!-- USB Switch Pro driver -->
-    <string name="title_usb_switch_pro">USB Switch Pro ドライバ（試験運用）</string>
-    <string name="summary_usb_switch_pro">試験的機能。有線接続した Nintendo Switch Pro Controller を直接読み取り、モーション、振動、Home、Capture を使用します。</string>
+    <string name="title_usb_switch_pro">USB Switch Pro ドライバ</string>
+    <string name="summary_usb_switch_pro">有線接続した Nintendo Switch Pro Controller を直接読み取り、モーション、振動、Home、Capture を使用します。</string>
     <string name="usb_switch_pro_denied">USB にアクセスできないため、Switch Pro Controller は Android の入力を使用します。\n再試行するにはケーブルを接続し直してください。</string>
 </resources>

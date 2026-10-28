@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Надіслати зображення з буфера обміну на хост (експериментально)</string>
-    <string name="stream_clipboard_image_receive">Копіювати зображення з буфера обміну хоста (експериментально)</string>
+    <string name="stream_clipboard_image_send">Надіслати зображення з буфера обміну на хост</string>
+    <string name="stream_clipboard_image_receive">Копіювати зображення з буфера обміну хоста</string>
     <string name="stream_clipboard_image_empty">У буфері обміну немає зображення</string>
     <string name="stream_clipboard_image_sent">Зображення з буфера обміну надіслано на хост</string>
     <string name="stream_clipboard_image_none">У буфері обміну хоста немає зображення</string>

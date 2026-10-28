@@ -104,6 +104,11 @@
             android:title="@string/title_enable_sdr10"
             android:dialogMessage="@string/summary_enable_sdr10"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="experimental_packed_444"
+            android:title="@string/title_packed_444"
+            android:dialogMessage="@string/summary_packed_444"
+            android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_more_video">
         <Preference android:key="more_video" android:title="@string/settings_more" android:persistent="false" />
@@ -844,11 +849,6 @@
             android:title="@string/title_rate_change_bitrate"
             android:summary="@string/summary_short_rate_change_bitrate"
             android:dialogMessage="@string/summary_rate_change_bitrate"
-            android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="experimental_packed_444"
-            android:title="@string/title_packed_444"
-            android:dialogMessage="@string/summary_packed_444"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_experimental_chipset_tuning"

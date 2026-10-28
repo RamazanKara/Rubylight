@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Croma completo experimental</string>
-    <string name="summary_packed_444">Requiere la opción experimental de croma completo de Rubylight, el nuevo motor de streaming y un decodificador HEVC/AV1 por hardware compatible. Los modos no compatibles detienen la conexión. HDR también requiere una superficie de visualización HDR de 10 bits compatible.</string>
-    <string name="title_experimental_chipset_tuning">Ajuste experimental del chipset</string>
+    <string name="title_packed_444">Croma completo</string>
+    <string name="summary_packed_444">Requiere la opción de croma completo de Rubylight, el nuevo motor de streaming y un decodificador HEVC/AV1 por hardware compatible. Los modos no compatibles detienen la conexión. HDR también requiere una superficie de visualización HDR de 10 bits compatible.</string>
+    <string name="title_experimental_chipset_tuning">Ajuste del chipset</string>
     <string name="summary_experimental_chipset_tuning">Ajustes adicionales de baja latencia para los decodificadores MediaTek Dimensity y Samsung Exynos. Si el vídeo se detiene o se entrecorta, desactívalo.</string>
     <string name="scut_deleted_pc">PC eliminado</string>
     <string name="scut_not_paired">PC no vinculado</string>
@@ -381,7 +381,7 @@
     <string name="upscaling_sharpness_value">%1$d %%</string>
     <string name="upscaling_direct">Desactivado (salida directa)</string>
     <string name="title_vulkan_render">Renderizar con Vulkan</string>
-    <string name="summary_vulkan_render">Experimental. Muestra el vídeo mediante Vulkan con su propio control del ritmo de fotogramas, para superposiciones de generación de fotogramas que se enganchan a Vulkan. Añade una pasada de renderizado, por lo que hay algo más de latencia. Requiere Android 10 o posterior. No se usa con PyroWave. El escalado se desactiva mientras esté activado.</string>
+    <string name="summary_vulkan_render">Muestra el vídeo mediante Vulkan con su propio control del ritmo de fotogramas, para superposiciones de generación de fotogramas que se enganchan a Vulkan. Añade una pasada de renderizado, por lo que hay algo más de latencia. Requiere Android 10 o posterior. No se usa con PyroWave. El escalado se desactiva mientras esté activado.</string>
     <string name="vulkan_render_fallback">No se usa el renderizado con Vulkan. %1$s</string>
     <string name="vulkan_reason_pyrowave">El vídeo PyroWave no lo usa.</string>
     <string name="vulkan_reason_api">Requiere Android 10 o posterior.</string>

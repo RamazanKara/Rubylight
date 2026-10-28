@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Send clipboard image to host (Experimental)</string>
-    <string name="stream_clipboard_image_receive">Copy host clipboard image (Experimental)</string>
+    <string name="stream_clipboard_image_send">Send clipboard image to host</string>
+    <string name="stream_clipboard_image_receive">Copy host clipboard image</string>
     <string name="stream_clipboard_image_empty">The clipboard has no image</string>
     <string name="stream_clipboard_image_sent">Clipboard image sent to host</string>
     <string name="stream_clipboard_image_none">The host clipboard has no image</string>

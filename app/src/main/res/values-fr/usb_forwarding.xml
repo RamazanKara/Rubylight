@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">Rediriger les périphériques USB (expérimental)</string>
+    <string name="title_usb_forwarding">Rediriger les périphériques USB</string>
     <string name="summary_usb_forwarding">Ajoute les périphériques USB au menu du stream : un périphérique branché sur cet appareil, comme une tablette graphique ou une clé de sécurité, fonctionne alors sur le PC. Nécessite un PC qui propose la redirection USB.</string>
     <string name="stream_usb_devices">Périphériques USB</string>
     <string name="usb_forwarding_pick_title">Rediriger un périphérique USB</string>

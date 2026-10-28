@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_packed_444">Deneysel tam kroma</string>
-    <string name="summary_packed_444">Rubylight’ın deneysel tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Desteklenmeyen modlar bağlantıyı durdurur. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
-    <string name="title_experimental_chipset_tuning">Deneysel yonga seti ayarı</string>
+    <string name="title_packed_444">Tam kroma</string>
+    <string name="summary_packed_444">Rubylight’ın tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Desteklenmeyen modlar bağlantıyı durdurur. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
+    <string name="title_experimental_chipset_tuning">Yonga seti ayarı</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity ve Samsung Exynos kod çözücüleri için ek düşük gecikme ayarları. Görüntü durursa veya takılırsa bunu kapatın.</string>
     <string name="scut_deleted_pc">Bilgisayar silindi</string>
     <string name="scut_not_paired">Bilgisayar eşleştirilmedi</string>
@@ -381,7 +381,7 @@
     <string name="upscaling_sharpness_value">%%%1$d</string>
     <string name="upscaling_direct">Kapalı (doğrudan çıkış)</string>
     <string name="title_vulkan_render">Vulkan ile işle</string>
-    <string name="summary_vulkan_render">Deneysel. Videoyu, kendi kare hızı denetimiyle Vulkan üzerinden gösterir; Vulkan’a bağlanan kare üretimi katmanları içindir. Bir işleme geçişi ekler, bu yüzden biraz gecikme olur. Android 10 veya üstü gerekir. PyroWave ile kullanılmaz. Açıkken ölçekleme kapalıdır.</string>
+    <string name="summary_vulkan_render">Videoyu, kendi kare hızı denetimiyle Vulkan üzerinden gösterir; Vulkan’a bağlanan kare üretimi katmanları içindir. Bir işleme geçişi ekler, bu yüzden biraz gecikme olur. Android 10 veya üstü gerekir. PyroWave ile kullanılmaz. Açıkken ölçekleme kapalıdır.</string>
     <string name="vulkan_render_fallback">Vulkan ile işleme kullanılmıyor. %1$s</string>
     <string name="vulkan_reason_pyrowave">PyroWave videosu bunu kullanmaz.</string>
     <string name="vulkan_reason_api">Android 10 veya üstü gerekir.</string>

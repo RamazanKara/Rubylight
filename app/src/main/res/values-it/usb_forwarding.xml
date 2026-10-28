@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">Inoltra dispositivi USB (sperimentale)</string>
+    <string name="title_usb_forwarding">Inoltra dispositivi USB</string>
     <string name="summary_usb_forwarding">Aggiunge i dispositivi USB al menu dello stream: un dispositivo collegato a questo, come una tavoletta grafica o una chiave di sicurezza, funziona poi sul PC. Richiede un PC che offra l’inoltro USB.</string>
     <string name="stream_usb_devices">Dispositivi USB</string>
     <string name="usb_forwarding_pick_title">Inoltra un dispositivo USB</string>

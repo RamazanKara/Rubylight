@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_usb_forwarding">Переспрямовувати USB-пристрої (експериментально)</string>
+    <string name="title_usb_forwarding">Переспрямовувати USB-пристрої</string>
     <string name="summary_usb_forwarding">Додає USB-пристрої до меню стриму: пристрій, підключений до цього, наприклад графічний планшет або ключ безпеки, працює тоді на ПК. Потрібен ПК, який пропонує переспрямування USB.</string>
     <string name="stream_usb_devices">USB-пристрої</string>
     <string name="usb_forwarding_pick_title">Переспрямувати USB-пристрій</string>

@@ -251,7 +251,7 @@ pub struct Settings {
     pub host_display: HostDisplay,
     /// The video FEC asked for at launch from a PC that lets the client choose it.
     pub error_correction: ErrorCorrection,
-    /// Link test before the first bitrate (Experimental): a new stream at the automatic bitrate
+    /// Link test before the first bitrate: a new stream at the automatic bitrate
     /// times `GET /bandwidth-probe` first and starts at no more than 80 % of it. Off by default:
     /// on the NUC it started streams lower with more loss and freezes (rust/PERFORMANCE.md).
     pub link_probe: bool,

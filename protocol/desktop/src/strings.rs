@@ -535,18 +535,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn our_own_features_no_device_here_proved_say_experimental_in_both_languages() {
+    fn no_shown_text_says_experimental_in_either_language() {
+        // Features ship plainly (ux/labels.md); setting keys such as experimental_packed_444 are not text.
+        let says = |text: &str| text.to_lowercase().contains("experiment");
+        let labelled: Vec<String> = marked().into_iter().map(|m| m.text).filter(|t| says(t)).collect();
+        assert!(labelled.is_empty(), "English text says Experimental:\n{}", labelled.join("\n"));
+        let german: Vec<&str> = de::TABLE.iter().map(|(_, g)| *g).filter(|g| says(g)).collect();
+        assert!(german.is_empty(), "German text says Experimentell:\n{}", german.join("\n"));
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
-        for (file, text) in [
-            ("ui.rs", "Shared folders (Experimental)"),
-            ("main.rs", "Send image to PC (Experimental)"),
-            ("main.rs", "Copy PC image here (Experimental)"),
-        ] {
+        for (file, text) in [("main.rs", "Send image to PC"), ("ui.rs", "Shared folders"), ("ui.rs", "Full chroma"),
+            ("ui.rs", "Client roaming"), ("ui.rs", "USB forwarding")]
+        {
             assert!(shown(file, text), "{file} shows {text:?}");
-            assert!(translate(Lang::De, text).ends_with(" (Experimentell)"), "{text:?}");
         }
-        // The text clipboard is established: no label.
-        assert!(shown("main.rs", "Send clipboard to PC") && shown("main.rs", "Copy PC clipboard here"));
     }
 
     #[test]

@@ -12,7 +12,6 @@
     <string name="host_unpair_message">Bilgisayar bu cihazı unutur ve kayıtlı kitaplık burada temizlenir. Yayın için yeniden eşleştirmeniz gerekir. Bilgisayar listede kalır.</string>
     <string name="host_wake_needs_pairing">Uyandırabilmek için bilgisayar açıkken bir kez eşleştirin</string>
     <string name="host_menu_sleep">Bilgisayarı uyut</string>
-    <string name="host_menu_sleep_note">Deneysel</string>
     <string name="host_sleep_title">%1$s uyku moduna alınsın mı?</string>
     <string name="host_sleep_message">Önce bilgisayardaki oyunlar ve yayınlar kapatılmalı. Wake-on-LAN onu yeniden uyandırabilir.</string>
     <string name="host_sleep_asking">Bilgisayara soruluyor…</string>

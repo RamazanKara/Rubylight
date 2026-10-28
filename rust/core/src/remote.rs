@@ -214,6 +214,20 @@ impl Confirmations {
         }
         false
     }
+    /// Asks `client` to confirm `action` within 60 seconds, as a refused
+    /// [`Self::confirm`] does, without redeeming an earlier prompt.
+    pub fn ask(
+        &mut self,
+        client: &str,
+        action: Confirmation,
+        generation: &str,
+        app: u32,
+        now: std::time::Instant,
+    ) {
+        self.pending.remove(&(client.into(), action));
+        let redeemed = self.confirm(client, action, generation, app, now);
+        debug_assert!(!redeemed);
+    }
     pub fn clear(&mut self, client: &str, action: Confirmation) {
         self.pending.remove(&(client.into(), action));
     }
@@ -324,6 +338,19 @@ mod tests {
             3,
             now + Duration::from_secs(61)
         ));
+    }
+    #[test]
+    fn asking_again_never_redeems_the_earlier_prompt() {
+        use std::time::Instant;
+        let now = Instant::now();
+        let mut book = Confirmations::default();
+        book.ask("client", Confirmation::Replace, "game-1", 3, now);
+        assert!(book.active("client", Confirmation::Replace, "game-1"));
+        book.ask("client", Confirmation::Replace, "game-1", 3, now);
+        assert!(book.active("client", Confirmation::Replace, "game-1"));
+        // A legacy repeat still confirms the prompt that stands.
+        assert!(book.confirm("client", Confirmation::Replace, "game-1", 3, now));
+        assert!(!book.active("client", Confirmation::Replace, "game-1"));
     }
     #[test]
     fn active_game_projection_has_a_distinct_stable_resumable_identity() {

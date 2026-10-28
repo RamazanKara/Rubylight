@@ -318,5 +318,6 @@ Each is absent until the host offers it.
 | `ANNOUNCE` | `x-nv-audio.surround.numChannels:12`, `x-nv-audio.surround.channelMask:185919` | 7.1.4 (FL FR FC LFE BL BR SL SR TFL TFR TBL TBR); the launch says `surroundAudioInfo=12` |
 | serverinfo | `BandwidthProbeVersion` | the host serves `GET /bandwidth-probe?bytes=N` on the paired port |
 | `/launch`, `/resume` | `rlFecPercentage` | `host` or absent keeps the host's settings, `auto` follows the `0x5539` reports, 0-255 fixes the share; anything else is refused |
+| `/launch` | `rlConfirmReplace` | `1` closes the running game for this launch, as the user's answer to the host's 410 prompt; any other value never closes it and asks again. Absent keeps Vibepollo's rule: the same launch again within 60 seconds confirms |
 
 A host refuses an `ANNOUNCE` that picks something it did not offer, with 400 and the attribute's name.

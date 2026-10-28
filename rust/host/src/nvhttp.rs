@@ -2014,13 +2014,7 @@ fn replace_launch_app(
             .read()
             .unwrap()
             .boolean("remote_monitor_confirm_app_replacement", true)
-            && !h.confirmations.lock().unwrap().confirm(
-                &launch.client.uuid,
-                remote::Confirmation::Replace,
-                generation,
-                launch.app_id,
-                Instant::now(),
-            )
+            && !replacement_confirmed(h, launch, generation)
         {
             return Err(LaunchFailure(410, "An app is already running. Launch this app again within 60 seconds to confirm that you want to close it.").into());
         }
@@ -2059,6 +2053,38 @@ fn replace_launch_app(
     // Launches and stops stay serialized by launch_transition.
     drop(current);
     Ok(())
+}
+/// Launch parameter of Rubylight clients: `1` when this request is the user's
+/// answer to the host's prompt, `0` otherwise.
+const CONFIRM_REPLACE: &str = "rlConfirmReplace";
+/// Whether `launch` may close the running game. A client that sends
+/// [`CONFIRM_REPLACE`] confirms on that request only, so no launch of it
+/// redeems a prompt the user cancelled or never saw: a remembered launch, a
+/// retry, a frontend starting the game again. Any other client keeps
+/// Vibepollo's rule: the same launch again within 60 seconds confirms.
+fn replacement_confirmed(h: &Shared, launch: &Launch, generation: &str) -> bool {
+    let mut book = h.confirmations.lock().unwrap();
+    let (client, now) = (&launch.client.uuid, Instant::now());
+    match launch.options.get(CONFIRM_REPLACE).map(String::as_str) {
+        Some("1") => true,
+        Some(_) => {
+            book.ask(
+                client,
+                remote::Confirmation::Replace,
+                generation,
+                launch.app_id,
+                now,
+            );
+            false
+        }
+        None => book.confirm(
+            client,
+            remote::Confirmation::Replace,
+            generation,
+            launch.app_id,
+            now,
+        ),
+    }
 }
 fn validate_background_launch(h: &Shared, launch: &Launch) -> Result<bool> {
     if launch.role != Role::Stream {
@@ -2699,6 +2725,46 @@ mod tests {
         for field in ["reason=\"replaced\"", "by=\"parity-device\"", "owner=owner"] {
             assert!(stops[0].contains(field), "{field} missing: {log}");
         }
+    }
+    #[test]
+    fn a_client_that_sends_the_confirmation_replaces_only_on_that_request() {
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::{remote::Owner, session::Role};
+        let f = Fixture::new();
+        running_app(&f, "owner");
+        let mut launch = f.launch(f.client(u32::MAX), Role::Stream);
+        let (id, generation) = f
+            .host
+            .current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|app| (app.id, app.generation.clone()))
+            .unwrap();
+        launch.app_id = id + 1;
+        launch.options.insert("rlConfirmReplace".into(), "0".into());
+        let asking = || {
+            f.host.confirmations.lock().unwrap().active(
+                &launch.client.uuid,
+                butterpollo_core::remote::Confirmation::Replace,
+                &generation,
+            )
+        };
+        // A remembered launch or a retry after a cancelled prompt never
+        // redeems the prompt, however often it repeats within 60 seconds.
+        for _ in 0..3 {
+            let error = super::replace_launch_app(&f.host, &launch, false, Owner::None)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("already running"), "{error}");
+            assert!(f.host.current_app.lock().unwrap().is_some());
+            // Serverinfo still shows the game while the client asks.
+            assert!(asking());
+        }
+        launch.options.insert("rlConfirmReplace".into(), "1".into());
+        super::replace_launch_app(&f.host, &launch, false, Owner::None).unwrap();
+        assert!(f.host.current_app.lock().unwrap().is_none());
+        assert!(!asking());
     }
     #[test]
     fn stopping_streams_does_not_wait_for_remote_sessions_it_leaves_running() {

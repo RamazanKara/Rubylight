@@ -4170,38 +4170,46 @@ impl Media {
                                     );
                                     continue;
                                 };
-                                let config = match effective_config(&h, &s.launch) {
-                                    Ok(config) => config,
-                                    Err(e) => {
-                                        tracing::warn!(error = %format!("{e:#}"), "rate change not decided");
-                                        continue;
-                                    }
-                                };
-                                let enabled = config.boolean("stream_reconfigure", true);
+                                let config = effective_config(&h, &s.launch);
                                 let mut reconfigure = s.reconfigure.lock().unwrap();
                                 let requested = reconfigure.requested();
                                 let current = reconfigure.current().fps_millihz;
-                                let mb_rate = h
-                                    .encoder_mb_rates
-                                    .get(usize::from(s.config.codec))
-                                    .map_or(0, |rate| rate.load(Ordering::Acquire));
-                                let stream = rate_change::Stream {
-                                    bitrate_kbps: s.bitrate.load(Ordering::Acquire),
-                                    fps_millihz: current,
-                                    requested,
-                                    fps_ceiling_millihz: rate_change::fps_ceiling_millihz(
-                                        mb_rate,
-                                        requested.width,
-                                        requested.height,
-                                        current,
-                                        s.config.fps_millihz(),
-                                    ),
-                                    fps_refusal: butterpollo_core::reconfigure::refusal(
-                                        &s.config, enabled,
-                                    )
-                                    .map(|_| rate_change::refusal_reason(enabled)),
+                                let bitrate_kbps = s.bitrate.load(Ordering::Acquire);
+                                let decision = match config {
+                                    Ok(config) => {
+                                        let enabled = config.boolean("stream_reconfigure", true);
+                                        let mb_rate = h
+                                            .encoder_mb_rates
+                                            .get(usize::from(s.config.codec))
+                                            .map_or(0, |rate| rate.load(Ordering::Acquire));
+                                        let stream = rate_change::Stream {
+                                            bitrate_kbps,
+                                            fps_millihz: current,
+                                            requested,
+                                            fps_ceiling_millihz: rate_change::fps_ceiling_millihz(
+                                                mb_rate,
+                                                requested.width,
+                                                requested.height,
+                                                current,
+                                                s.config.fps_millihz(),
+                                            ),
+                                            fps_refusal: butterpollo_core::reconfigure::refusal(
+                                                &s.config, enabled,
+                                            )
+                                            .map(|_| rate_change::refusal_reason(enabled)),
+                                        };
+                                        rate_change::decide(&request, &stream, &config)
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %format!("{e:#}"), serial = request.serial, "rate change refused: the device's configuration did not load");
+                                        rate_change::refuse(
+                                            &request,
+                                            bitrate_kbps,
+                                            current,
+                                            rate_change::Reason::Other,
+                                        )
+                                    }
                                 };
-                                let decision = rate_change::decide(&request, &stream, &config);
                                 s.rate_changes.lock().unwrap().record(
                                     &decision,
                                     &mut reconfigure,

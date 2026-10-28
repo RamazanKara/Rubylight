@@ -147,6 +147,34 @@ pub fn decide(request: &RateChangeRequest, stream: &Stream, config: &Config) -> 
     }
 }
 
+/// The answer to `request` when the host cannot decide it: each value asked for is refused
+/// with `reason`, and the stream keeps `bitrate_kbps` and `fps_millihz`.
+pub fn refuse(
+    request: &RateChangeRequest,
+    bitrate_kbps: u32,
+    fps_millihz: u32,
+    reason: Reason,
+) -> Decision {
+    let refused = |asked: u32| {
+        if asked == 0 {
+            Outcome::UNCHANGED
+        } else {
+            Outcome::refused(reason)
+        }
+    };
+    Decision {
+        bitrate_kbps: None,
+        switch_to: None,
+        result: RateChangeResult {
+            serial: request.serial,
+            bitrate_kbps,
+            fps_millihz,
+            bitrate: refused(request.bitrate_kbps),
+            fps: refused(request.fps_millihz),
+        },
+    }
+}
+
 /// The reason for a [`crate::reconfigure::refusal`]: `enabled` is `stream_reconfigure`.
 pub fn refusal_reason(enabled: bool) -> Reason {
     if enabled {
@@ -464,6 +492,35 @@ mod tests {
             );
             assert_eq!(decision.result.bitrate_kbps, 20_000);
             assert_eq!(decision.result.fps_millihz, 60_000);
+        }
+    }
+
+    #[test]
+    fn an_undecided_request_refuses_what_it_asked_for_and_is_still_answered() {
+        let other = Outcome::refused(Reason::Other);
+        for (request, bitrate, fps) in [
+            (request(1, 30_000, 120), other, other),
+            (request(2, 30_000, 0), other, Outcome::UNCHANGED),
+            (request(3, 0, 120), Outcome::UNCHANGED, other),
+        ] {
+            let decision = refuse(&request, 20_000, 60_000, Reason::Other);
+            assert_eq!(decision.bitrate_kbps, None);
+            assert_eq!(decision.switch_to, None);
+            assert_eq!(
+                decision.result,
+                RateChangeResult {
+                    serial: request.serial,
+                    bitrate_kbps: 20_000,
+                    fps_millihz: 60_000,
+                    bitrate,
+                    fps,
+                }
+            );
+            let mut changes = RateChanges::default();
+            let mut reconfigure = Reconfiguration::new(mode(1920, 1080, 60));
+            changes.record(&decision, &mut reconfigure, Instant::now());
+            assert_eq!(changes.take(), Some(decision.result));
+            assert_eq!(reconfigure.requested(), mode(1920, 1080, 60));
         }
     }
 

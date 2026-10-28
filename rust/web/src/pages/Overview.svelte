@@ -10,6 +10,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
   import ConnectHelp from '../components/overview/ConnectHelp.svelte';
+  import PairPanel from '../components/devices/PairPanel.svelte';
   import ConnectionList from '../components/overview/ConnectionList.svelte';
   import HostReadiness from '../components/overview/HostReadiness.svelte';
   import RunningApp from '../components/overview/RunningApp.svelte';
@@ -136,13 +137,14 @@
       {:else if checking}Checking streaming, displays, and audio…
       {:else if live}{summary}
       {:else if attention}View the checks below to get this PC ready for streaming.
-      {:else if !paired}Pair your device, then choose a game in your streaming app.
-      {:else}Open your streaming app on your device and choose a game.{/if}
+      {:else if !paired}Pair your phone or TV below, then pick a game on it.
+      {:else}Open Nightjar or Moonlight on your device and choose a game.{/if}
     </p>
     <div class="hero-actions">
       {#if unavailable}<Button variant="primary" busy={rechecking} onclick={() => { void recheck(); void refreshSessions(); }}>Retry</Button>
       {:else if attention}<Button variant="primary" onclick={() => checksOpen = !checksOpen}>View checks</Button>
-      {:else if !live}<Button variant="primary" href="/devices">Pair a device</Button>{/if}
+      {:else if !live && !paired}<Button variant="primary" onclick={() => document.getElementById('get-started')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Pair a device</Button>
+      {:else if !live}<Button variant="primary" href="/library">See your games</Button>{/if}
       <button class="text-action" onclick={() => helpOpen = !helpOpen} aria-expanded={helpOpen}>Connection help</button>
     </div>
   </div>
@@ -157,12 +159,33 @@
 {#if statusError}<p class="notice danger" role="alert">Could not refresh the running app: {statusError}</p>{/if}
 {#if metadataError}<p class="notice danger" role="alert">Could not refresh host details: {metadataError}</p>{/if}
 
-{#if !paired && metadata && !checking && !unavailable}
-  <ol class="setup-checklist" aria-label="Getting started">
-    <li><Icon name={attention ? 'alert' : 'check'} /><div><strong>Prepare this PC</strong><span class="muted">{attention ? 'Review the host checks below.' : 'This PC is ready.'}</span></div></li>
-    <li><Icon name="devices" /><div><a href="/devices" use:link>Pair a device</a><span class="muted">Enter the PIN shown on your device.</span></div></li>
-    <li><Icon name="play" /><div><strong>Start playing</strong><span class="muted">Choose a game in the app on your device.</span></div></li>
-  </ol>
+{#if !paired && metadata && !unavailable}
+  <section class="start" id="get-started" aria-labelledby="start-title">
+    <h2 id="start-title">Get started</h2>
+    <ol class="journey">
+      <li class="now">
+        <span class="step" aria-hidden="true">1</span>
+        <div class="step-body">
+          <h3>Pair your phone or TV</h3>
+          <PairPanel bare />
+        </div>
+      </li>
+      <li>
+        <span class="step" aria-hidden="true">2</span>
+        <div class="step-body">
+          <h3>Your games are already here</h3>
+          <p class="muted">Steam, Epic Games, Battle.net, Xbox, EA app, Ubisoft Connect and GOG add their installed games by themselves, with covers. <a href="/library" use:link>See your games</a></p>
+        </div>
+      </li>
+      <li>
+        <span class="step" aria-hidden="true">3</span>
+        <div class="step-body">
+          <h3>Play</h3>
+          <p class="muted">Open Nightjar or Moonlight on your device, choose this PC and pick a game.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
 {/if}
 {#if helpOpen}<Panel title="Connect from your device"><ConnectHelp {metadata} /></Panel>{/if}
 {#if checksOpen || attention}
@@ -176,11 +199,11 @@
 {#if others.length}<Panel title="Other connections" flush><ConnectionList sessions={others} busy={disconnecting} ondisconnect={disconnect} /></Panel>{/if}
 {#if status?.appRunning}<RunningApp {status} error={statusError} onchange={refreshSessions} />{/if}
 
-<section class="games" aria-label="Games & apps">
-  <header><h2>Games & apps</h2><a href="/library" use:link>Manage library <Icon name="chevron" /></a></header>
+<section class="games" aria-label="Your games">
+  <header><h2>Your games</h2><a href="/library" use:link>All games <Icon name="chevron" /></a></header>
   {#if appsError}<p class="notice danger" role="alert">Could not load games: {appsError}<Button onclick={loadGames}>Retry</Button></p>
   {:else if !apps}<p class="muted">Loading games…</p>
-  {:else if !apps.length}<p class="empty">Your library is empty. <a href="/library/import" use:link>Add installed games</a> or <a href="/library/new" use:link>add an app manually</a>.</p>
+  {:else if !apps.length}<p class="empty">No games yet. Games from Steam and your other launchers appear here by themselves; <a href="/library" use:link>check your launchers</a>.</p>
   {:else}<div class="game-shelf">
     {#each apps.slice(0, 4) as app (app.uuid ?? app.name)}
       <a class="game" href={app.uuid ? `/library/${encodeURIComponent(app.uuid)}` : '/library'} use:link>
@@ -196,6 +219,16 @@
 {/if}
 
 <style>
+  .start { display: grid; gap: var(--space-4); scroll-margin-top: var(--space-4); }
+  .start > h2 { font-size: var(--text-lg); }
+  .journey { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+  .journey > li { display: flex; gap: var(--space-4); padding: var(--space-5); }
+  .journey > li + li { border-top: 1px solid var(--line); }
+  .journey .step { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--line-strong); font-weight: var(--weight-bold); color: var(--ink-2); }
+  .journey .now .step { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+  .journey .step-body { flex: 1; min-width: 0; display: grid; gap: var(--space-3); padding-top: 3px; }
+  .journey h3 { font-size: var(--text-md); font-weight: var(--weight-semibold); }
+  .journey p { font-size: var(--text-sm); }
   .hero { overflow: hidden; border: 1px solid var(--media-line); border-radius: var(--radius-lg); background-color: var(--media-bg); background-size: cover; background-position: center; color: var(--media-ink); }
   .hero-body { padding: 36px; min-height: 260px; background: linear-gradient(90deg, color-mix(in srgb, var(--media-bg) 93%, transparent) 0%, color-mix(in srgb, var(--media-bg) 65%, transparent) 45%, transparent 78%); }
   .hero h2 { display: flex; align-items: center; gap: 14px; font-size: clamp(26px, 3vw, 38px); max-width: 680px; }
@@ -210,11 +243,6 @@
   .hero-foot > span, .hero-foot > a { display: inline-flex; align-items: center; gap: 10px; }
   .hero-foot > a { text-decoration: none; }
   .checks-link { margin-left: auto; }
-  .setup-checklist { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); list-style: none; margin: 0; padding: var(--space-5); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
-  .setup-checklist li { display: flex; gap: var(--space-3); }
-  .setup-checklist li :global(svg) { flex: none; margin-top: 3px; }
-  .setup-checklist li div { display: grid; gap: var(--space-1); }
-  .setup-checklist span { font-size: var(--text-sm); }
   .games { display: grid; gap: var(--space-4); }
   .games header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
   .games h2 { font-size: var(--text-xl); }
@@ -225,5 +253,5 @@
   .game :global(.cover) { aspect-ratio: 4 / 5; }
   .shelf-hint { padding-top: var(--space-4); border-top: 1px solid var(--line); font-size: var(--text-sm); }
   .empty { padding: var(--space-5); border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); }
-  @media (max-width: 700px) { .hero-body { padding: var(--space-5); } .hero-foot { padding: var(--space-3) var(--space-5); gap: 6px var(--space-4); } .setup-checklist { grid-template-columns: 1fr; } .game-shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); } .checks-link { margin-left: 0; } }
+  @media (max-width: 700px) { .journey > li { padding: var(--space-4); gap: var(--space-3); } .hero-body { padding: var(--space-5); } .hero-foot { padding: var(--space-3) var(--space-5); gap: 6px var(--space-4); } .game-shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); } .checks-link { margin-left: 0; } }
 </style>

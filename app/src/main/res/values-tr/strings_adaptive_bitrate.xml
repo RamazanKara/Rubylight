@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Otomatik bit hızını etkinleştir</string>
-    <string name="stream_auto_bitrate_disable">Otomatik bit hızını devre dışı bırak</string>
+    <string name="stream_auto_bitrate_enable">“Bit hızını cihaz yönetir” seçeneğini etkinleştir</string>
+    <string name="stream_auto_bitrate_disable">“Bit hızını cihaz yönetir” seçeneğini devre dışı bırak</string>
     <string name="stream_auto_bitrate_help">Bit hızını bağlantınıza göre ayarlar.\nBu bilgisayar için kaydedilir; elle yapılan değişiklikler bunu kapatır.</string>
     <string name="stream_pyrowave_bitrate_help">PyroWave’i bu bilgisayar için otomatik ayarlar.\nElle bit hızı seçmek bunu kapatır.</string>
     <string name="stream_auto_bitrate_failed">Bit hızı geçici olarak güncellenemedi. Otomatik olarak yeniden deneniyor.</string>
-    <string name="stream_auto_bitrate_unavailable">Bu bilgisayar yayın bit hızını bildirmiyor. Bu yayın için otomatik bit hızı kapalı.</string>
-    <string name="stream_auto_bitrate_status">Otomatik bit hızı: %1$.1f Mbps</string>
+    <string name="stream_auto_bitrate_unavailable">Bu bilgisayar yayın bit hızını bildirmiyor. Bu yayın için “Bit hızını cihaz yönetir” kapalı.</string>
+    <string name="stream_auto_bitrate_status">Bit hızını cihaz yönetir: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Ana bilgisayar meşgul. Birazdan tekrar deneyin.</string>
     <string name="title_auto_bitrate">Bit hızını cihaz yönetir</string>
     <string name="dialog_auto_bitrate">Bağlantı veya cihaz yetişemediğinde bit hızını düşürür, durum düzelince tekrar yükseltir. Yayının bit hızını asla aşmaz. Tüm bilgisayarlar için varsayılandır; yayın menüsünden tek bir bilgisayar için değiştirilebilir.</string>

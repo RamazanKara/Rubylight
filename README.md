@@ -111,7 +111,7 @@ Press Back while you play. **Session and graphics** has Resume, Disconnect, End 
 - **HDR10** on AV1 and HEVC, **10-bit SDR** that smooths out banding on any screen, and **full-colour 4:4:4** for sharp coloured text, from your device's own hardware decoder.
 - **PyroWave on the GPU.** The low-latency wavelet codec decodes through Vulkan on Android and on the GPU on Windows and Linux, in full-colour 4:4:4 and HDR. On Snapdragon you can load a newer Adreno driver for it.
 - **Upscaling on your device** with FSR 1 or Snapdragon GSR: send fewer pixels, see a sharp picture.
-- **Automatic bitrate** up to 2000 Mbps follows loss, jitter and your decoder's headroom, and **automatic quality** changes resolution and frame rate mid-stream for smooth motion, sharp detail or longer battery life. Both watch your device's temperature.
+- **Device controls bitrate** up to 2000 Mbps follows loss, jitter and your decoder's headroom, and **automatic quality** changes resolution and frame rate mid-stream for smooth motion, sharp detail or longer battery life. Both watch your device's temperature.
 - **Render through Vulkan**, so frame-generation overlays can hook the video.
 
 ## One engine, every screen

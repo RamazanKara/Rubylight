@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Altere as permissões nas configurações ou na interface web do host.</string>
     <string name="stream_input_denied">O PC bloqueia a entrada deste dispositivo. Permita nas configurações ou na interface web do host.</string>
     <string name="stream_bitrate">Taxa de bits</string>
-    <string name="stream_bitrate_help">Defina os Mbps desta sessão.\nIsso desativa a taxa de bits automática.</string>
+    <string name="stream_bitrate_help">Defina os Mbps desta sessão.\nIsso desativa “O dispositivo controla a taxa de bits”.</string>
     <string name="stream_bitrate_invalid">Insira uma taxa de bits de 0,5 a 2000 Mbps</string>
     <string name="stream_bitrate_applied">O host aplicou %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps está abaixo do mínimo do PyroWave de %2$d Mbps em %3$d×%4$d, %5$d FPS. A imagem vai se desfazer.</string>

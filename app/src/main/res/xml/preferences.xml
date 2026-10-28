@@ -49,12 +49,6 @@
             seekbar:presets="@array/bitrate_presets_kbps"
             android:text="@string/suffix_seekbar_bitrate_mbps"
             android:title="@string/title_seekbar_bitrate" />
-        <!-- Client-hint bitrate over 0x553C (StreamRateChanges); a stream without it keeps Automatic bitrate below. -->
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_rate_change_bitrate"
-            android:title="@string/title_rate_change_bitrate"
-            android:dialogMessage="@string/summary_rate_change_bitrate"
-            android:defaultValue="false" />
         <!-- The default for every PC; the stream menu's toggle saves a choice for one PC (AutoBitrateChoice). -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_auto_bitrate"
@@ -844,6 +838,13 @@
             android:defaultValue="true" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_advanced_experimental" android:title="@string/settings_category_experimental">
+        <!-- Client-hint bitrate over 0x553C (StreamRateChanges); a stream without it keeps Device controls bitrate (Video). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_rate_change_bitrate"
+            android:title="@string/title_rate_change_bitrate"
+            android:summary="@string/summary_short_rate_change_bitrate"
+            android:dialogMessage="@string/summary_rate_change_bitrate"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="experimental_packed_444"
             android:title="@string/title_packed_444"

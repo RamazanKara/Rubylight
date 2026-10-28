@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Automatische Bitrate aktivieren</string>
-    <string name="stream_auto_bitrate_disable">Automatische Bitrate deaktivieren</string>
+    <string name="stream_auto_bitrate_enable">„Gerät steuert die Bitrate“ einschalten</string>
+    <string name="stream_auto_bitrate_disable">„Gerät steuert die Bitrate“ ausschalten</string>
     <string name="stream_auto_bitrate_help">Bitrate automatisch anpassen.\nGilt für diesen PC; manuelle Werte schalten sie aus.</string>
     <string name="stream_pyrowave_bitrate_help">PyroWave-Automatik für diesen PC.\nManuelle Bitrate schaltet sie aus.</string>
     <string name="stream_auto_bitrate_failed">Bitrate vorübergehend nicht aktualisierbar. Ein neuer Versuch erfolgt automatisch.</string>
-    <string name="stream_auto_bitrate_unavailable">Dieser PC meldet seine Stream-Bitrate nicht. Die automatische Bitrate ist für diesen Stream aus.</string>
-    <string name="stream_auto_bitrate_status">Automatische Bitrate: %1$.1f Mbit/s</string>
+    <string name="stream_auto_bitrate_unavailable">Dieser PC meldet seine Stream-Bitrate nicht. „Gerät steuert die Bitrate“ ist für diesen Stream aus.</string>
+    <string name="stream_auto_bitrate_status">Gerät steuert die Bitrate: %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Host beschäftigt. Versuch es gleich erneut.</string>
     <string name="title_auto_bitrate">Gerät steuert die Bitrate</string>
     <string name="dialog_auto_bitrate">Senkt die Bitrate, wenn Verbindung oder Gerät nicht mithalten, und erhöht sie wieder, sobald es besser läuft. Sie geht nie über die Bitrate des Streams. Das ist der Standard für alle PCs; im Stream-Menü lässt er sich für einen PC ändern.</string>

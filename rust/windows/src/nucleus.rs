@@ -7,3 +7,4 @@
 //! windows and virtual pads.
 pub mod files;
 pub mod install;
+pub mod instances;

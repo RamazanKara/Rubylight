@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, ensure};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Identity {
     pub pid: u32,
     pub started: u64,

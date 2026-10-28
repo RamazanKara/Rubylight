@@ -464,6 +464,61 @@ public class ComputerManagerLifecycleTest {
     }
 
     @Test
+    public void aStateResetWhileAPollRunsWaitsForItInsteadOfDeadlocking() throws Exception {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        ComputerDetails stored = new ComputerDetails();
+        stored.uuid = "busy-host";
+        stored.name = "PC";
+        stored.activeAddress = new ComputerDetails.AddressTuple("192.168.1.9", 47989);
+        stored.remoteAddress = stored.activeAddress;
+        ComputerDatabaseManager database = new ComputerDatabaseManager(context);
+        database.updateComputer(stored);
+        database.close();
+        ServiceController<HeldPollManager> controller = Robolectric.buildService(HeldPollManager.class).create();
+        HeldPollManager service = controller.get();
+        Thread poller = null;
+        Thread resetter = null;
+        try {
+            List<PollingTuple> tuples = ReflectionHelpers.getField(service, "pollingTuples");
+            PollingTuple tuple = tuples.get(0);
+            // As the polling thread does: the poll holds the PC's network lock for its whole run.
+            poller = new Thread(() -> {
+                synchronized (tuple.networkLock) {
+                    ReflectionHelpers.callInstanceMethod(service, "runPoll",
+                            ReflectionHelpers.ClassParameter.from(ComputerDetails.class, tuple.computer),
+                            ReflectionHelpers.ClassParameter.from(PollingTuple.class, tuple),
+                            ReflectionHelpers.ClassParameter.from(int.class, 3));
+                }
+            });
+            poller.start();
+            assertTrue(service.polling.await(10, TimeUnit.SECONDS));
+
+            // A wake from a shortcut resets the PC's state while that poll still waits on the network.
+            Object binder = ReflectionHelpers.getField(service, "binder");
+            resetter = new Thread(() -> ReflectionHelpers.callInstanceMethod(binder, "invalidateStateForComputer",
+                    ReflectionHelpers.ClassParameter.from(String.class, "busy-host")));
+            resetter.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (resetter.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals("the reset waits for the poll", Thread.State.BLOCKED, resetter.getState());
+
+            service.release.countDown();
+            poller.join(10000);
+            resetter.join(10000);
+            assertFalse("the poll finished", poller.isAlive());
+            assertFalse("the reset finished", resetter.isAlive());
+            assertEquals(ComputerDetails.State.UNKNOWN, tuple.computer.state);
+        } finally {
+            service.release.countDown();
+            if (poller != null) poller.join(10000);
+            if (resetter != null) resetter.join(10000);
+            controller.destroy();
+        }
+    }
+
+    @Test
     public void aPollStillRunningWhenTheServiceGoesAwayAsksNothingAndKeepsNoReservation() throws Exception {
         ServiceController<SlowNativeManager> controller = Robolectric.buildService(SlowNativeManager.class).create();
         SlowNativeManager service = controller.get();

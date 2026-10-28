@@ -138,3 +138,20 @@ test('the harness asks for the release scripts and its own, nothing under a user
   assert(steps.includes(`$Dir = '${host.ELEVATION.requests}'`));
   assert(fs.readFileSync(path.join(__dirname, '..', '..', 'release', 'elevation.ps1'), 'utf8').includes("'webrtc-e2e-elevated.ps1'"));
 });
+
+test('the Steam client in a Games folder is no game; what runs from steamapps is', () => {
+  const games = host.gameProcesses([
+    {name: 'steam', path: 'C:\\games\\Steam\\steam.exe'},
+    {name: 'steamwebhelper', path: 'C:\\games\\Steam\\bin\\cef\\cef.win7x64\\steamwebhelper.exe'},
+    {name: 'SteamService', path: 'C:\\Program Files (x86)\\Common Files\\Steam\\steamservice.exe'},
+    {name: 'eldenring', path: 'C:\\games\\Steam\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe'},
+    {name: 'Witcher3', path: 'D:\\GOG Games\\The Witcher 3\\bin\\x64\\witcher3.exe'},
+    {name: 'explorer', path: 'C:\\Windows\\explorer.exe'},
+  ]);
+  assert.deepEqual(games, ['eldenring', 'Witcher3']);
+});
+
+test('the harness adds, changes and removes no firewall rule', () => {
+  // The user's own rule covers the staging folder; the elevated script's firewall step stays unused.
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, 'host.cjs'), 'utf8'), /firewall:\s*true/);
+});

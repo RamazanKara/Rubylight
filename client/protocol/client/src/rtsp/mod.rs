@@ -267,6 +267,9 @@ pub struct RtspOutcome {
     pub host_control_messages: Vec<u16>,
     /// The host takes client roaming probes (`a=x-rl-roaming`).
     pub host_roaming: bool,
+    /// The stream takes pen barrel roll (`a=x-ss-general.penBarrelRoll:1`); send it only
+    /// with `Feature::PenBarrelRoll` too.
+    pub host_pen_barrel_roll: bool,
     pub microphone: MicrophoneState,
     pub opus: OpusConfigs,
     pub high_quality_surround_enabled: bool,
@@ -491,6 +494,7 @@ impl Handshake {
                 audio_encryption_enabled: false,
                 host_control_messages: Vec::new(),
                 host_roaming: false,
+                host_pen_barrel_roll: false,
                 microphone: mic,
                 opus: OpusConfigs::default(),
                 high_quality_surround_enabled: false,
@@ -912,6 +916,7 @@ impl Handshake {
         self.out.encryption_enabled = 0;
         self.out.host_control_messages = info.control_messages.clone();
         self.out.host_roaming = info.roaming;
+        self.out.host_pen_barrel_roll = info.pen_barrel_roll;
         // A host takes a microphone only encrypted.
         if config.microphone {
             match info.microphone {

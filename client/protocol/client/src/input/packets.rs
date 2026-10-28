@@ -18,6 +18,8 @@ pub mod magic {
     pub const HSCROLL: u32 = 0x5500_0001;
     pub const TOUCH: u32 = 0x5500_0002;
     pub const PEN: u32 = 0x5500_0003;
+    /// The pen packet with the barrel roll after it (`rubylight_protocol::pen`).
+    pub const PEN_BARREL_ROLL: u32 = rubylight_protocol::pen::PEN_BARREL_ROLL_MAGIC;
     pub const CONTROLLER_ARRIVAL: u32 = 0x5500_0004;
     pub const CONTROLLER_TOUCH: u32 = 0x5500_0005;
     pub const CONTROLLER_MOTION: u32 = 0x5500_0006;
@@ -178,6 +180,9 @@ pub enum InputEvent {
         contact_minor: f32,
         rotation: u16,
         tilt: u8,
+        /// Barrel roll, degrees 0-359 clockwise; a known one makes this 0x5500000B, and
+        /// `rubylight_protocol::pen::ROLL_UNKNOWN` keeps the stock 0x55000003.
+        roll: u16,
     },
     ControllerTouch {
         number: u8,
@@ -218,7 +223,11 @@ impl InputEvent {
             Self::Controller { .. } => magic::MULTI_CONTROLLER,
             Self::ControllerArrival { .. } => magic::CONTROLLER_ARRIVAL,
             Self::Touch { .. } => magic::TOUCH,
-            Self::Pen { .. } => magic::PEN,
+            Self::Pen {
+                roll: rubylight_protocol::pen::ROLL_UNKNOWN,
+                ..
+            } => magic::PEN,
+            Self::Pen { .. } => magic::PEN_BARREL_ROLL,
             Self::ControllerTouch { .. } => magic::CONTROLLER_TOUCH,
             Self::ControllerMotion { .. } => magic::CONTROLLER_MOTION,
             Self::ControllerBattery { .. } => magic::CONTROLLER_BATTERY,
@@ -334,6 +343,7 @@ impl InputEvent {
                 contact_minor,
                 rotation,
                 tilt,
+                roll,
             } => {
                 out.extend_from_slice(&[event, tool, buttons, 0]);
                 for v in [x, y, pressure_or_distance] {
@@ -343,6 +353,10 @@ impl InputEvent {
                 out.extend_from_slice(&[tilt, 0]);
                 float(&mut out, contact_major);
                 float(&mut out, contact_minor);
+                if roll != rubylight_protocol::pen::ROLL_UNKNOWN {
+                    le16(&mut out, roll);
+                    le16(&mut out, 0);
+                }
             }
             Self::ControllerTouch {
                 number,
@@ -588,6 +602,7 @@ mod tests {
                 contact_minor: 0.0,
                 rotation: 45,
                 tilt: 30,
+                roll: rubylight_protocol::pen::ROLL_UNKNOWN,
             }),
             Input::Pen {
                 event: 1,
@@ -646,6 +661,35 @@ mod tests {
                 percent: 80
             }
         );
+    }
+
+    /// A known roll makes the pen packet 0x5500000B, the stock packet plus the roll; an
+    /// unknown roll leaves it byte for byte the stock 0x55000003.
+    #[test]
+    fn a_known_barrel_roll_extends_the_pen_packet() {
+        use rubylight_protocol::pen::{PenBarrelRoll, ROLL_UNKNOWN};
+        let pen = |roll| InputEvent::Pen {
+            event: touch_event::MOVE,
+            tool: 1,
+            buttons: 0,
+            x: 0.25,
+            y: 0.75,
+            pressure_or_distance: 0.5,
+            contact_major: 0.0,
+            contact_minor: 0.0,
+            rotation: 90,
+            tilt: 30,
+            roll,
+        };
+        let stock = pen(ROLL_UNKNOWN).encode(true);
+        assert_eq!(stock.len(), 36);
+        assert_eq!(stock[4..8], magic::PEN.to_le_bytes());
+        for roll in [0, 270, 359] {
+            let wire = pen(roll).encode(true);
+            let decoded = PenBarrelRoll::decode(&wire).unwrap_or_else(|| panic!("{roll}"));
+            assert_eq!(decoded.roll(), roll);
+            assert_eq!(decoded.pen()[..], stock[..], "{roll}");
+        }
     }
 
     #[test]

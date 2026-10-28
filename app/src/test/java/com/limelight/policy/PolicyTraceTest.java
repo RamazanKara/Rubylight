@@ -35,7 +35,7 @@ public class PolicyTraceTest {
     // Gradle runs unit tests in the app module.
     private static final File TRACES = new File("../protocol/policy/tests/traces");
     /** Every module folder, each with at least one Java trace, so a renamed or emptied folder fails. */
-    private static final List<String> MODULES = Arrays.asList("bitrate", "health", "launch", "pyrowave", "quality", "recovery");
+    private static final List<String> MODULES = Arrays.asList("bitrate", "client_hint", "health", "launch", "pyrowave", "quality", "recovery");
     private static final String RECOVERY = "{\"rust\": \"recovery::StreamRecoveryPolicy\", \"java\": \"com.limelight.StreamRecoveryPolicy\","
             + " \"new\": [0, 0], \"calls\": [{\"call\": \"next_delay\", \"args\": [%s, -1], \"expect\": 1000}]}";
 

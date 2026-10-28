@@ -23,6 +23,7 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
         "recovery::StreamRecoveryPolicy" => crate::recovery::traced_policy(args),
         "recovery::Backoff" => crate::recovery::traced_backoff(args),
         "bitrate::AdaptiveBitrateController" => crate::bitrate::traced_controller(args),
+        "client_hint::Bitrate" => crate::client_hint::traced(args),
         "quality::AdaptiveQualityController" => crate::quality::traced_controller(args),
         "pyrowave::BitrateController" => crate::pyrowave::traced_controller(args),
         "pyrowave::BitrateFloor" => crate::pyrowave::traced_floor(args),

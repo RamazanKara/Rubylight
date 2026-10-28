@@ -66,6 +66,7 @@ import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
 
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * One PC's settings, titled with its name: its own stream values, its display, its connection
@@ -105,8 +106,8 @@ public class HostStreamSettings extends NightjarActivity {
     // The computer manager once bound; Rename, Unpair and Remove go through it.
     private ComputerManagerService.ComputerManagerBinder manager;
     private boolean foreground;
-    // The manager polls the PCs for a wake started here.
-    private boolean wakePolling;
+    // The manager polls the PCs while this screen is in front, so the rows follow whether the PC answers.
+    private boolean polling;
     private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
         @Override public ComputerManagerService.ComputerManagerBinder binder() { return manager; }
         @Override public boolean isForeground() { return foreground; }
@@ -118,8 +119,8 @@ public class HostStreamSettings extends NightjarActivity {
         @Override public void onRenamed(ComputerDetails details) {
             showName();
         }
-        @Override public void onWakeSent(ComputerDetails details) { startWakePolling(); }
-        @Override public void onWakeEnded(ComputerDetails details) { stopWakePolling(); }
+        // The screen polls while it is in front, a wake or not.
+        @Override public void onWakeSent(ComputerDetails details) { }
         @Override public void pausePolling() { }
         @Override public void resumePolling() { }
     });
@@ -141,8 +142,8 @@ public class HostStreamSettings extends NightjarActivity {
             if (!(binder instanceof ComputerManagerService.ComputerManagerBinder)) return;
             ComputerManagerService.ComputerManagerBinder bound = (ComputerManagerService.ComputerManagerBinder) binder;
             manager = bound;
-            // A wake started before the manager was bound found nothing to poll with; it polls now.
-            if (foreground && hostActions.isWaking()) startWakePolling();
+            // A screen in front before the manager was bound found nothing to poll with; it polls now.
+            if (foreground) startPolling();
             new Thread(() -> {
                 if (!bound.waitForReady()) return;
                 ComputerDetails known = bound.getComputer(hostUuid);
@@ -341,14 +342,14 @@ public class HostStreamSettings extends NightjarActivity {
     protected void onResume() {
         super.onResume();
         foreground = true;
-        if (hostActions.isWaking()) startWakePolling();
+        startPolling();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         foreground = false;
-        stopWakePolling();
+        stopPolling();
         if (paceCalibration != null) {
             paceCalibration.cancel();
             paceCalibration = null;
@@ -363,7 +364,7 @@ public class HostStreamSettings extends NightjarActivity {
     protected void onDestroy() {
         super.onDestroy();
         hostActions.destroy();
-        stopWakePolling();
+        stopPolling();
         if (managerBound) {
             unbindService(managerConnection);
             managerBound = false;
@@ -397,8 +398,29 @@ public class HostStreamSettings extends NightjarActivity {
         }
     }
 
+    /** A poll's view of the PC. The rows are built again only when what they show changed, so the focused row stays. */
+    void followComputer(ComputerDetails details) {
+        if (sameRows(computer, details)) {
+            details.alias = computer.alias;
+            computer = details;
+        } else {
+            showComputer(details);
+        }
+    }
+
+    private static boolean sameRows(ComputerDetails shown, ComputerDetails polled) {
+        return isOnline(shown) == isOnline(polled) && shown.pairState == polled.pairState
+                && Objects.equals(shown.name, polled.name) && Objects.equals(shown.activeAddress, polled.activeAddress)
+                && shown.httpsPort == polled.httpsPort && Objects.equals(shown.macAddress, polled.macAddress)
+                && shown.caps.equals(polled.caps);
+    }
+
     private boolean isOnline() {
-        return computer.state == ComputerDetails.State.ONLINE && computer.activeAddress != null;
+        return isOnline(computer);
+    }
+
+    private static boolean isOnline(ComputerDetails pc) {
+        return pc.state == ComputerDetails.State.ONLINE && pc.activeAddress != null;
     }
 
     private void startConnectionTest() {
@@ -460,26 +482,27 @@ public class HostStreamSettings extends NightjarActivity {
     }
 
     /**
-     * Nothing polls the PCs on this screen, so the wait for a woken PC does while it lasts and the screen is in front:
-     * the manager's object then follows the PC, and the screen shows it once it answers.
+     * The list that opened this screen stops polling once it is behind it, so this screen polls while it is in front:
+     * the rows that need the PC follow whether it answers now, not what the manager knew when the screen opened, and
+     * the wait for a woken PC ends once it answers.
      */
-    private void startWakePolling() {
-        if (wakePolling || manager == null) {
+    private void startPolling() {
+        if (polling || manager == null) {
             return;
         }
-        wakePolling = true;
+        polling = true;
         manager.startPolling(details -> {
-            if (!details.uuid.equals(hostUuid) || details.state != ComputerDetails.State.ONLINE) return;
+            if (!hostUuid.equalsIgnoreCase(details.uuid)) return;
             ComputerDetails copy = new ComputerDetails(details);
             runOnUiThread(() -> {
-                if (!isFinishing() && !isDestroyed()) showComputer(copy);
+                if (!isFinishing() && !isDestroyed()) followComputer(copy);
             });
         });
     }
 
-    private void stopWakePolling() {
-        if (wakePolling) {
-            wakePolling = false;
+    private void stopPolling() {
+        if (polling) {
+            polling = false;
             manager.stopPolling();
         }
     }

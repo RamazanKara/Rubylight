@@ -163,6 +163,53 @@ public class PcSettingsTest {
     }
 
     @Test
+    public void connectionTestFollowsThePcWhileTheScreenIsInFront() {
+        // The manager's copy when the screen opened did not know the PC answers; only the polls after it do.
+        List<com.limelight.computers.ComputerManagerListener> listeners = new ArrayList<>();
+        List<String> stops = new ArrayList<>();
+        ActivityController<HostStreamSettings> controller = open("live-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            org.robolectric.util.ReflectionHelpers.setField(screen, "manager", polling(listeners, stops));
+            controller.pause().resume();
+            assertEquals("the screen polls while it is in front", 1, listeners.size());
+            assertFalse(row(screen, "connection_test").isEnabled());
+
+            listeners.get(0).notifyComputerUpdated(pc("live-pc", TestHosts.rubylight(), true));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            Preference test = row(screen, "connection_test");
+            assertTrue(test.isEnabled());
+
+            listeners.get(0).notifyComputerUpdated(pc("live-pc", TestHosts.rubylight(), true));
+            listeners.get(0).notifyComputerUpdated(pc("other-pc", TestHosts.rubylight(), false));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertSame("an unchanged PC keeps the rows, and the focused one", test, row(screen, "connection_test"));
+            assertTrue(test.isEnabled());
+
+            listeners.get(0).notifyComputerUpdated(pc("live-pc", TestHosts.rubylight(), false));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertFalse(row(screen, "connection_test").isEnabled());
+
+            controller.pause();
+            assertEquals("the list behind polls again once this screen leaves", List.of("stop"), stops);
+            controller.resume();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static com.limelight.computers.ComputerManagerService.ComputerManagerBinder polling(
+            List<com.limelight.computers.ComputerManagerListener> listeners, List<String> stops) {
+        return new com.limelight.computers.ComputerManagerService().new ComputerManagerBinder() {
+            @Override public boolean isPersistent() { return false; }
+            @Override public void startPolling(com.limelight.computers.ComputerManagerListener listener) {
+                listeners.add(listener);
+            }
+            @Override public void stopPolling() { stops.add("stop"); }
+        };
+    }
+
+    @Test
     public void hostWebUiExplainsLoginThenOpensTheCurrentHostsConsole() {
         ActivityController<HostStreamSettings> controller = open("web-pc", TestHosts.rubylight());
         try {

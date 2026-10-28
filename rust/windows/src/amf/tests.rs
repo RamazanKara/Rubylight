@@ -1,5 +1,76 @@
 use super::*;
 
+/// How long an external tool (ffprobe, ffmpeg) may take before the test
+/// fails. An ffprobe once sat on one AV1 frame for 40 minutes while the
+/// test held the GPU.
+const TOOL_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// `command`'s output, as `Command::output` gives it, but killed and failed
+/// after `timeout`.
+fn output_within_for(
+    command: &mut std::process::Command,
+    timeout: Duration,
+) -> Result<std::process::Output> {
+    use std::{io::Read, process::Stdio};
+    let program = command.get_program().to_string_lossy().into_owned();
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("starting {program}"))?;
+    let read = |stream: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut stream) = stream {
+                let _ = stream.read_to_end(&mut bytes);
+            }
+            bytes
+        })
+    };
+    let stdout = read(child.stdout.take().map(|s| Box::new(s) as _));
+    let stderr = read(child.stderr.take().map(|s| Box::new(s) as _));
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("{program} did not finish within {timeout:?}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
+/// [`output_within_for`] with [`TOOL_TIMEOUT`].
+fn output_within(command: &mut std::process::Command) -> Result<std::process::Output> {
+    output_within_for(command, TOOL_TIMEOUT)
+}
+
+#[test]
+fn a_tool_that_hangs_fails_the_test_instead_of_holding_it() {
+    let started = Instant::now();
+    let error = output_within_for(
+        std::process::Command::new("cmd.exe").args(["/d", "/c", "ping -n 30 127.0.0.1 >nul"]),
+        Duration::from_millis(500),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("did not finish"), "{error:#}");
+    assert!(started.elapsed() < Duration::from_secs(10));
+    // One that finishes gives its output as Command::output would.
+    let done =
+        output_within(std::process::Command::new("cmd.exe").args(["/d", "/c", "echo hi"])).unwrap();
+    assert!(done.status.success());
+    assert_eq!(String::from_utf8_lossy(&done.stdout).trim(), "hi");
+}
+
 #[test]
 fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreation() {
     // A buffered initial keyframe and a recovery keyframe at a continued wire
@@ -1200,18 +1271,19 @@ fn hdr10_metadata_and_range_reach_the_bitstream() -> Result<()> {
                         // Moonlight's decode-unit dump strips HEVC prefix SEI, so inspect
                         // the encoder output before client depacketization.
                         std::fs::write(&bitstream, &output[frame].bytes)?;
-                        let probed = Command::new(&ffprobe)
-                            .args([
-                                "-v",
-                                "error",
-                                "-f",
-                                if codec == 1 { "hevc" } else { "obu" },
-                                "-i",
-                            ])
-                            .arg(&bitstream)
-                            .args(["-show_frames", "-of", "json"])
-                            .creation_flags(0x08000000)
-                            .output()?;
+                        let probed = output_within(
+                            Command::new(&ffprobe)
+                                .args([
+                                    "-v",
+                                    "error",
+                                    "-f",
+                                    if codec == 1 { "hevc" } else { "obu" },
+                                    "-i",
+                                ])
+                                .arg(&bitstream)
+                                .args(["-show_frames", "-of", "json"])
+                                .creation_flags(0x08000000),
+                        )?;
                         assert!(
                             probed.status.success(),
                             "{}",
@@ -1376,18 +1448,19 @@ fn hlg_and_dolby_vision_8_4_reach_the_bitstream() -> Result<()> {
             assert!(frame.idr, "{name}");
             let bitstream = directory.path().join(format!("{name}.bin"));
             std::fs::write(&bitstream, &frame.bytes)?;
-            let probed = Command::new(&ffprobe)
-                .args([
-                    "-v",
-                    "error",
-                    "-f",
-                    if codec == 1 { "hevc" } else { "obu" },
-                    "-i",
-                ])
-                .arg(&bitstream)
-                .args(["-show_frames", "-of", "json"])
-                .creation_flags(0x08000000)
-                .output()?;
+            let probed = output_within(
+                Command::new(&ffprobe)
+                    .args([
+                        "-v",
+                        "error",
+                        "-f",
+                        if codec == 1 { "hevc" } else { "obu" },
+                        "-i",
+                    ])
+                    .arg(&bitstream)
+                    .args(["-show_frames", "-of", "json"])
+                    .creation_flags(0x08000000),
+            )?;
             assert!(
                 probed.status.success(),
                 "{}",
@@ -1552,12 +1625,13 @@ fn native_av1_geometry_and_hdr_are_preserved() -> Result<()> {
                         .flat_map(|packet| packet.bytes.iter().copied())
                         .collect::<Vec<_>>(),
                 )?;
-                let decoded = Command::new(&ffprobe)
-                    .args(["-v", "error", "-f", "obu", "-i"])
-                    .arg(&bitstream)
-                    .args(["-show_frames", "-show_streams", "-of", "json"])
-                    .creation_flags(0x08000000)
-                    .output()?;
+                let decoded = output_within(
+                    Command::new(&ffprobe)
+                        .args(["-v", "error", "-f", "obu", "-i"])
+                        .arg(&bitstream)
+                        .args(["-show_frames", "-show_streams", "-of", "json"])
+                        .creation_flags(0x08000000),
+                )?;
                 assert!(
                     decoded.status.success(),
                     "{}",
@@ -1580,24 +1654,25 @@ fn native_av1_geometry_and_hdr_are_preserved() -> Result<()> {
                                     && frame["color_transfer"] == "smpte2084"))
                     });
                 exact &= alignment != 3 || matches;
-                let trace = Command::new(&ffmpeg)
-                    .args(["-hide_banner", "-nostdin", "-f", "obu", "-i"])
-                    .arg(&bitstream)
-                    .args([
-                        "-map",
-                        "0:v",
-                        "-frames:v",
-                        "1",
-                        "-c:v",
-                        "copy",
-                        "-bsf:v",
-                        "trace_headers",
-                        "-f",
-                        "null",
-                        "-",
-                    ])
-                    .creation_flags(0x08000000)
-                    .output()?;
+                let trace = output_within(
+                    Command::new(&ffmpeg)
+                        .args(["-hide_banner", "-nostdin", "-f", "obu", "-i"])
+                        .arg(&bitstream)
+                        .args([
+                            "-map",
+                            "0:v",
+                            "-frames:v",
+                            "1",
+                            "-c:v",
+                            "copy",
+                            "-bsf:v",
+                            "trace_headers",
+                            "-f",
+                            "null",
+                            "-",
+                        ])
+                        .creation_flags(0x08000000),
+                )?;
                 assert!(trace.status.success(), "bitstream trace failed");
                 std::fs::write(directory.join(format!("{name}.headers.log")), trace.stderr)?;
                 reports.push(serde_json::json!({"width":width,"height":height,"hdr":hdr,"alignment":alignment,
@@ -1684,22 +1759,23 @@ fn native_h264_one_reference_budget_decodes_without_ltr_corruption() -> Result<(
     )?;
     // Inspect the encoder's actual SPS independently. A software-only decode
     // can pass an oversized SPS that Moonlight's one-reference fixup would reject.
-    let trace = Command::new(&decoder)
-        .args(["-hide_banner", "-nostdin", "-f", "h264", "-i"])
-        .arg(&bitstream)
-        .args([
-            "-map",
-            "0:v",
-            "-c:v",
-            "copy",
-            "-bsf:v",
-            "trace_headers",
-            "-f",
-            "null",
-            "-",
-        ])
-        .creation_flags(0x08000000)
-        .output()?;
+    let trace = output_within(
+        Command::new(&decoder)
+            .args(["-hide_banner", "-nostdin", "-f", "h264", "-i"])
+            .arg(&bitstream)
+            .args([
+                "-map",
+                "0:v",
+                "-c:v",
+                "copy",
+                "-bsf:v",
+                "trace_headers",
+                "-f",
+                "null",
+                "-",
+            ])
+            .creation_flags(0x08000000),
+    )?;
     let headers = String::from_utf8_lossy(&trace.stderr);
     let values = |field: &str| -> Vec<u32> {
         headers
@@ -1711,33 +1787,34 @@ fn native_h264_one_reference_budget_decodes_without_ltr_corruption() -> Result<(
     let max_num_ref_frames = values("max_num_ref_frames");
     let max_dec_frame_buffering = values("max_dec_frame_buffering");
     std::fs::write(bitstream.with_extension("headers.log"), &trace.stderr)?;
-    let decoded = Command::new(&decoder)
-        .args([
-            "-hide_banner",
-            "-nostdin",
-            "-v",
-            "error",
-            "-xerror",
-            "-err_detect",
-            "explode",
-            "-f",
-            "h264",
-            "-i",
-        ])
-        .arg(&bitstream)
-        .args([
-            "-an",
-            "-progress",
-            "pipe:1",
-            "-nostats",
-            "-fps_mode",
-            "passthrough",
-            "-f",
-            "null",
-            "-",
-        ])
-        .creation_flags(0x08000000)
-        .output()?;
+    let decoded = output_within(
+        Command::new(&decoder)
+            .args([
+                "-hide_banner",
+                "-nostdin",
+                "-v",
+                "error",
+                "-xerror",
+                "-err_detect",
+                "explode",
+                "-f",
+                "h264",
+                "-i",
+            ])
+            .arg(&bitstream)
+            .args([
+                "-an",
+                "-progress",
+                "pipe:1",
+                "-nostats",
+                "-fps_mode",
+                "passthrough",
+                "-f",
+                "null",
+                "-",
+            ])
+            .creation_flags(0x08000000),
+    )?;
     std::fs::write(bitstream.with_extension("decode.log"), &decoded.stderr)?;
     let decoded_frames = String::from_utf8_lossy(&decoded.stdout)
         .lines()
@@ -1876,33 +1953,34 @@ fn native_reference_recovery_decodes_after_dropping_the_invalidated_packets() ->
             "codec={codec}, supported={supported}, fixture={}",
             path.display()
         );
-        let decoded_output = std::process::Command::new(&decoder)
-            .args([
-                "-hide_banner",
-                "-nostdin",
-                "-v",
-                "error",
-                "-xerror",
-                "-err_detect",
-                "explode",
-                "-f",
-                format,
-                "-i",
-            ])
-            .arg(&path)
-            .args([
-                "-an",
-                "-progress",
-                "pipe:1",
-                "-nostats",
-                "-fps_mode",
-                "passthrough",
-                "-f",
-                "null",
-                "-",
-            ])
-            .creation_flags(0x08000000)
-            .output()?;
+        let decoded_output = output_within(
+            std::process::Command::new(&decoder)
+                .args([
+                    "-hide_banner",
+                    "-nostdin",
+                    "-v",
+                    "error",
+                    "-xerror",
+                    "-err_detect",
+                    "explode",
+                    "-f",
+                    format,
+                    "-i",
+                ])
+                .arg(&path)
+                .args([
+                    "-an",
+                    "-progress",
+                    "pipe:1",
+                    "-nostats",
+                    "-fps_mode",
+                    "passthrough",
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .creation_flags(0x08000000),
+        )?;
         let stderr = String::from_utf8_lossy(&decoded_output.stderr);
         assert!(
             decoded_output.status.success() && stderr.is_empty(),

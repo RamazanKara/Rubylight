@@ -169,6 +169,19 @@ pub const DESTINATIONS: [(&str, Screen); 3] = [(en("Home"), Screen::Home), (en("
 /// The settings sections in the order Android lists them (App only on the main settings).
 const SETTINGS_SECTIONS: [&str; 7] = [en("Video"), en("Display & image"), en("Controls"), en("Audio"), en("Streaming"), en("App"), en("Advanced")];
 
+/// The Resolution menu after Native: Android's 16:9 sizes with common PC and laptop ones, then
+/// 16:10, then ultrawide. Custom… takes any other size.
+const RESOLUTIONS: [(u32, u32); 15] = [
+    (640, 360), (854, 480), (1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160),
+    (1280, 800), (1920, 1200), (2560, 1600), (3840, 2400),
+    (2560, 1080), (3440, 1440), (5120, 1440),
+];
+
+/// The Frame rate menu after Display: Android's 30-120 and common monitor rates. Custom… takes
+/// any rate in `CUSTOM_FPS`, as the stream menu's rate does.
+const FRAME_RATES: [u32; 7] = [30, 60, 90, 120, 144, 165, 240];
+const CUSTOM_FPS: std::ops::RangeInclusive<u32> = 10..=500;
+
 /// What the pairing help says, in the order of Nightjar Android's guide.
 const PAIRING_STEPS: [&str; 3] = [
     en("1. Start a Moonlight-compatible host on the PC, such as Apollo, Rubylight, Sunshine or Vibepollo."),
@@ -283,6 +296,10 @@ pub struct Launcher {
     pub settings_dirty: bool,
     /// The settings sections showing their folded rows; none when the app starts.
     unfolded: std::collections::BTreeSet<&'static str>,
+    /// The settings page where Custom… was chosen for the resolution and for the frame rate: its
+    /// row shows there even at a preset, until a preset is chosen.
+    custom_size: Option<Screen>,
+    custom_fps: Option<Screen>,
     pub controller_key: String,
     pub controller_mapping: crate::gamepad::Mapping,
     pub controller_test: bool,
@@ -463,6 +480,8 @@ impl Launcher {
             edit_name: String::new(),
             settings_dirty: false,
             unfolded: Default::default(),
+            custom_size: None,
+            custom_fps: None,
             controller_key: String::new(),
             controller_mapping: crate::gamepad::Mapping::default(),
             controller_test: false,
@@ -2067,6 +2086,8 @@ impl Launcher {
         let inherited = self.inherited_settings.clone();
         let overrides = &mut self.edit_overrides;
         let mut rows = Rows { layer: layered.then_some((&inherited, overrides)), unfolded: &mut self.unfolded, section: "", folded: 0 };
+        let screen = self.screen;
+        let (custom_size_on, custom_fps_on) = (&mut self.custom_size, &mut self.custom_fps);
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
         let before = s.clone();
         // Coming back from a sub-page, the link that opened it takes focus instead.
@@ -2078,32 +2099,46 @@ impl Launcher {
             ui.set_max_width(760.0);
             rows.section(ui, "Video", &mut jump);
             let native = trf("Native ({}x{})", &[&display.width, &display.height]);
+            let custom_size = s.width != 0 && (*custom_size_on == Some(screen) || !RESOLUTIONS.contains(&(s.width, s.height)));
             let current = if s.width == 0 {
                 native.clone()
+            } else if custom_size {
+                trf("Custom ({}x{})", &[&s.width, &s.height])
             } else {
                 format!("{}x{}", s.width, s.height)
             };
+            let mut chose = None;
             let first = setting_row(ui, s, &mut rows, &["width", "height"], "Resolution", "The stream's size. Native matches this display.", |ui, s| {
+                // Taller than egui's default menu; it scrolls where the window is shorter.
                 egui::ComboBox::from_id_salt("resolution")
                     .selected_text(current)
+                    .height(640.0)
                     .show_ui(ui, |ui| {
                         let mut v = (s.width, s.height);
                         if ui.selectable_value(&mut v, (0, 0), native).clicked() {
-                            (s.width, s.height) = v;
+                            ((s.width, s.height), chose) = (v, Some(false));
                         }
-                        for (w, h) in [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3440, 1440), (3840, 2160)] {
+                        for (w, h) in RESOLUTIONS {
                             let mut v = (s.width, s.height);
                             if ui.selectable_value(&mut v, (w, h), format!("{w}x{h}")).clicked() {
-                                (s.width, s.height) = v;
+                                ((s.width, s.height), chose) = (v, Some(false));
                             }
+                        }
+                        if ui.selectable_label(custom_size, tr("Custom…")).clicked() {
+                            if s.width == 0 { (s.width, s.height) = (display.width, display.height); }
+                            chose = Some(true);
                         }
                     })
                     .response
             });
+            if let Some(custom) = chose { *custom_size_on = custom.then_some(screen); }
             if let Some(first) = first.filter(|_| focus_first) {
                 first.request_focus();
             }
-            if s.width != 0 {
+            // Read again after the menu: a row drawn at Native or Display would clamp it to its range.
+            // Stepping onto a preset keeps the row.
+            if s.width != 0 && (*custom_size_on == Some(screen) || !RESOLUTIONS.contains(&(s.width, s.height))) {
+                let before = (s.width, s.height);
                 setting_row(ui, s, &mut rows, &["width", "height"], "Custom resolution", "Width and height in pixels.", |ui, s| {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         step_value(ui, &mut s.width, 320..=7680, 16.0, |d| d);
@@ -2111,24 +2146,42 @@ impl Launcher {
                         step_value(ui, &mut s.height, 240..=4320, 16.0, |d| d);
                     }).response
                 });
+                if (s.width, s.height) != before { *custom_size_on = Some(screen); }
             }
             let display_fps = display.refresh_hz.round() as u32;
+            let custom_fps = s.fps != 0 && (*custom_fps_on == Some(screen) || !FRAME_RATES.contains(&s.fps));
             let fps_text = if s.fps == 0 {
                 trf("Display ({} Hz)", &[&display_fps])
+            } else if custom_fps {
+                trf("Custom ({} fps)", &[&s.fps])
             } else {
                 trf("{} fps", &[&s.fps])
             };
+            let mut chose = None;
             setting_row(ui, s, &mut rows, &["fps"], "Frame rate", "Display matches this monitor's refresh rate.", |ui, s| {
                 egui::ComboBox::from_id_salt("fps")
                     .selected_text(fps_text)
+                    .height(640.0)
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.fps, 0, trf("Display ({} Hz)", &[&display_fps]));
-                        for fps in [30, 60, 90, 120, 144, 165, 240] {
-                            ui.selectable_value(&mut s.fps, fps, trf("{} fps", &[&fps]));
+                        if ui.selectable_value(&mut s.fps, 0, trf("Display ({} Hz)", &[&display_fps])).clicked() { chose = Some(false); }
+                        for fps in FRAME_RATES {
+                            if ui.selectable_value(&mut s.fps, fps, trf("{} fps", &[&fps])).clicked() { chose = Some(false); }
+                        }
+                        if ui.selectable_label(custom_fps, tr("Custom…")).clicked() {
+                            if s.fps == 0 { s.fps = display_fps.clamp(*CUSTOM_FPS.start(), *CUSTOM_FPS.end()); }
+                            chose = Some(true);
                         }
                     })
                     .response
             });
+            if let Some(custom) = chose { *custom_fps_on = custom.then_some(screen); }
+            if s.fps != 0 && (*custom_fps_on == Some(screen) || !FRAME_RATES.contains(&s.fps)) {
+                let before = s.fps;
+                setting_row(ui, s, &mut rows, &["fps"], "Custom frame rate", "Frames per second.", |ui, s| {
+                    step_value(ui, &mut s.fps, CUSTOM_FPS, 1.0, |d| d.suffix(" fps"))
+                });
+                if s.fps != before { *custom_fps_on = Some(screen); }
+            }
             let (w, h, fps, bitrate) = stream_mode(s, display);
             let recommended = stream_mode(&Settings { bitrate_kbps: 0, ..s.clone() }, display).3;
             let mut automatic = s.bitrate_kbps == 0;
@@ -2287,8 +2340,8 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC display scaling", "Text and interface size on the virtual display.", |ui, s| {
-                ui.add(egui::Slider::new(&mut s.virtual_display_scale, 100..=300).step_by(25.0).suffix("%"))
+            setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution.", |ui, s| {
+                ui.add(egui::Slider::new(&mut s.virtual_display_scale, crate::config::RENDER_SCALE).step_by(5.0).suffix("%"))
             });
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
@@ -4587,6 +4640,77 @@ mod tests {
         f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
         f.settle();
         assert!(shows(&f, "Client roaming") && !shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
+    }
+
+    #[test]
+    fn resolution_and_frame_rate_offer_presets_and_custom_with_its_row() {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.size = vec2(1280.0, 12000.0);
+        f.l.go(Screen::Settings);
+        f.settle();
+        assert!(!shows(&f, "Custom resolution") && !shows(&f, "Custom frame rate"), "Native and Display need no rows");
+        // The open menu, under its button, scrolls when it is taller than the space it gets.
+        let wheel_over = |f: &mut Frames, button: &str| {
+            let at = f.placed.iter().find(|(t, ..)| t == button).expect("the menu's button").1.center() + vec2(0.0, 150.0);
+            f.frame(vec![egui::Event::PointerMoved(at)]);
+            f.frame(vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, -1000.0),
+                phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: egui::Modifiers::NONE }]);
+            for _ in 0..10 { f.settle(); }
+        };
+        click_text(&mut f, "Native (1920x1080)");
+        let mut offered: Vec<String> = f.drawn.clone();
+        wheel_over(&mut f, "Native (1920x1080)");
+        offered.extend(f.drawn.iter().cloned());
+        for (w, h) in RESOLUTIONS {
+            assert!(offered.contains(&format!("{w}x{h}")), "{w}x{h} is offered: {offered:?}");
+        }
+        click_text(&mut f, "Custom…");
+        assert_eq!((f.l.settings.width, f.l.settings.height), (1920, 1080), "Custom starts from the native size");
+        assert!(shows(&f, "Custom (1920x1080)") && shows(&f, "Custom resolution"), "{:?}", f.drawn);
+        // A preset hides the row; a saved size off the menu is Custom with its row.
+        click_text(&mut f, "Custom (1920x1080)");
+        wheel_over(&mut f, "Custom (1920x1080)");
+        click_text(&mut f, "5120x1440");
+        assert_eq!((f.l.settings.width, f.l.settings.height), (5120, 1440));
+        assert!(shows(&f, "5120x1440") && !shows(&f, "Custom resolution"), "{:?}", f.drawn);
+        (f.l.settings.width, f.l.settings.height) = (1720, 720);
+        f.settle();
+        assert!(shows(&f, "Custom (1720x720)") && shows(&f, "Custom resolution"), "{:?}", f.drawn);
+
+        click_text(&mut f, "Display (60 Hz)");
+        let mut offered: Vec<String> = f.drawn.clone();
+        wheel_over(&mut f, "Display (60 Hz)");
+        offered.extend(f.drawn.iter().cloned());
+        for fps in FRAME_RATES {
+            assert!(offered.contains(&format!("{fps} fps")), "{fps} fps is offered: {offered:?}");
+        }
+        click_text(&mut f, "Custom…");
+        assert_eq!(f.l.settings.fps, 60, "Custom starts from the display's rate");
+        assert!(shows(&f, "Custom (60 fps)") && shows(&f, "Custom frame rate"), "{:?}", f.drawn);
+        click_text(&mut f, "Custom (60 fps)");
+        click_text(&mut f, "120 fps");
+        assert!(!shows(&f, "Custom frame rate"), "{:?}", f.drawn);
+        f.l.settings.fps = 75;
+        f.settle();
+        assert!(shows(&f, "Custom (75 fps)") && shows(&f, "Custom frame rate"), "{:?}", f.drawn);
+    }
+
+    #[test]
+    fn the_pc_render_resolution_is_named_and_ranged_as_on_android() {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.size = vec2(1280.0, 12000.0);
+        f.l.unfolded.insert("Display & image");
+        f.l.go(Screen::Settings);
+        f.settle();
+        assert!(shows(&f, "PC render resolution"), "{:?}", f.drawn);
+        assert!(shows(&f, "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution."));
+        assert!(!f.drawn.iter().any(|t| t.contains("display scaling") || t.contains("Text and interface size")), "{:?}", f.drawn);
+        // The slider holds Android's 50-200 %.
+        for (set, kept) in [(300, 200), (25, 50), (135, 135)] {
+            f.l.settings.virtual_display_scale = set;
+            f.settle();
+            assert_eq!(f.l.settings.virtual_display_scale, kept, "{set} %");
+        }
     }
 
     #[test]

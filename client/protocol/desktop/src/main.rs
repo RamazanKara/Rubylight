@@ -162,13 +162,38 @@ fn display_of(window: *mut SDL_Window) -> Display {
             };
         }
         let m = &*mode;
-        let density = if m.pixel_density > 0.0 { m.pixel_density } else { 1.0 };
+        let (width, height) = mode_pixels(m.w, m.h, m.pixel_density);
         Display {
-            width: (m.w as f32 * density).round() as u32,
-            height: (m.h as f32 * density).round() as u32,
+            width,
+            height,
             refresh_hz: if m.refresh_rate > 0.0 { m.refresh_rate } else { 60.0 },
         }
     }
+}
+
+/// A display mode's size in pixels. SDL 3 gives a mode's size in its own units and
+/// `pixel_density` turns them into pixels: Windows (per-monitor DPI aware, which SDL declares)
+/// and X11 give pixels at density 1 whatever the desktop scaling, Wayland and macOS give points
+/// and the scale. The display's scaling (`SDL_GetDisplayContentScale`) is not part of it.
+fn mode_pixels(w: i32, h: i32, pixel_density: f32) -> (u32, u32) {
+    let density = if pixel_density > 0.0 { pixel_density } else { 1.0 };
+    let pixels = |points: i32| (points.max(0) as f32 * density).round() as u32;
+    (pixels(w), pixels(h))
+}
+
+/// What the display reported, for the log: the stream's "native" resolution comes from it.
+fn log_display(window: *mut SDL_Window, display: Display) {
+    // SAFETY: a live window; the mode pointer is owned by SDL.
+    let (mode, scale) = unsafe {
+        let id = SDL_GetDisplayForWindow(window);
+        let mode = SDL_GetCurrentDisplayMode(id).as_ref().map(|m| (m.w, m.h, m.pixel_density));
+        (mode, SDL_GetDisplayContentScale(id))
+    };
+    let mode = mode.map_or("no mode".to_owned(), |(w, h, d)| format!("mode {w}x{h} at density {d}"));
+    eprintln!(
+        "nightjar: display {}x{}@{} ({mode}, scaling {scale})",
+        display.width, display.height, display.refresh_hz
+    );
 }
 
 fn main() {
@@ -1378,6 +1403,7 @@ impl App {
             return;
         };
         let display = display_of(self.window);
+        log_display(self.window, display);
         self.launcher.display = display;
         let (pacing, vrr) = pacing(&settings, self.launcher.tearing_supported);
         let plan = LaunchPlan {
@@ -2245,6 +2271,19 @@ mod tests {
 
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn native_resolution_is_the_display_in_pixels_at_any_scaling() {
+        // Windows and X11: SDL gives pixels at density 1 at any scaling (4K at 200% and 175%).
+        assert_eq!(mode_pixels(3840, 2160, 1.0), (3840, 2160));
+        // Wayland at 200%, and at 175% through fractional scaling (3840 / 2194 points).
+        assert_eq!(mode_pixels(1920, 1080, 2.0), (3840, 2160));
+        assert_eq!(mode_pixels(2194, 1234, 3840.0 / 2194.0), (3840, 2160));
+        // macOS: a 14" MacBook Pro looks like 1512x982 at density 2.
+        assert_eq!(mode_pixels(1512, 982, 2.0), (3024, 1964));
+        // No density reported counts as 1.
+        assert_eq!(mode_pixels(2560, 1440, 0.0), (2560, 1440));
+    }
 
     #[test]
     fn the_color_probe_runs_once_per_decoder() {

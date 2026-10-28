@@ -206,7 +206,8 @@
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
         </activity>
         <!-- File transfer: opened from the PC and stream menus, and a share target for other apps' files.
-             configChanges keep a rotation from recreating it, which would cancel the transfers in flight. -->
+             configChanges keep a rotation from recreating it; the transfers in flight also outlive the changes
+             that still do (dark theme, font or display size, language) in FileTransferActivity.TransferWork. -->
         <activity
             android:name=".files.FileTransferActivity"
             android:exported="true"

@@ -6,6 +6,7 @@ import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.PreferenceConfiguration;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -184,6 +185,19 @@ public class NvConnectionControllerMicrophoneTest {
         assertFalse(connection.controllerMicrophoneEnabled());
     }
 
+    @Test public void remoteMonitorNeverOpensThePhoneMicrophoneWhateverTheSetting() {
+        Connection connection = new Connection(2147483505);
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.enableMic = true;
+        connection.readMicrophoneSettings(prefs);
+        assertFalse(ReflectionHelpers.getField(connection, "micEnabled"));
+        assertFalse(ReflectionHelpers.getField(connection, "micPermitted"));
+        connection.startOrdinary();
+        connection.setMicrophoneMuted(false);
+        assertTrue(connection.captures.isEmpty());
+        assertEquals(MicrophoneStatus.OFF, connection.getMicrophoneStatus());
+    }
+
     @Test public void keyboardOnlyAccessKeepsTheOrdinaryMicrophoneAvailable() {
         Connection connection = new Connection(73);
         ComputerDetails keyboardOnly = new ComputerDetails(); keyboardOnly.permission = 1 << 12;
@@ -250,6 +264,61 @@ public class NvConnectionControllerMicrophoneTest {
         assertTrue(connection.latest().running);
     }
 
+    @Test public void aMicrophoneThatFailsMidStreamMutesSaysSoAndUnmuteOpensAFreshOne() {
+        Connection connection = new Connection(73);
+        int[] notices = {0};
+        connection.setMicrophoneNoticeListener(() -> notices[0]++);
+        connection.startOrdinary();
+        assertEquals(MicrophoneStatus.SENDING, connection.getMicrophoneStatus());
+        connection.latest().failOnItsOwn();
+        assertTrue(connection.isMicrophoneMuted());
+        assertEquals("The mute control stays offered", MicrophoneStatus.MUTED, connection.getMicrophoneStatus());
+        assertEquals(1, notices[0]);
+        assertTrue(connection.takeMicrophoneFailure());
+        assertFalse("Said once", connection.takeMicrophoneFailure());
+        assertNull("Not reported as missing effects", connection.takeMicrophoneNotice());
+
+        connection.setMicrophoneMuted(false);
+        assertEquals(2, connection.captures.size());
+        assertTrue(connection.latest().running);
+        assertEquals(MicrophoneStatus.SENDING, connection.getMicrophoneStatus());
+
+        // A second failure after the retry is said again.
+        connection.latest().failOnItsOwn();
+        assertEquals(2, notices[0]);
+        assertTrue(connection.takeMicrophoneFailure());
+    }
+
+    @Test public void aFailedPhoneMicrophoneLetsTheUsbFallbackRunAfterUnmute() {
+        Connection connection = new Connection(73);
+        connection.startOrdinary();
+        connection.latest().failOnItsOwn();
+        Object pad = new Object();
+        connection.controllerMicrophoneState(pad, true, true, false);
+        connection.releaseControllerMicrophone(pad);
+        assertEquals("Still muted, nothing opens by itself", 1, connection.captures.size());
+        connection.setMicrophoneMuted(false);
+        assertEquals(2, connection.captures.size());
+        assertTrue(connection.latest().running);
+    }
+
+    @Test public void aStoppedOrReplacedCaptureReportingLateChangesNothing() {
+        Connection connection = new Connection(73);
+        int[] notices = {0};
+        connection.setMicrophoneNoticeListener(() -> notices[0]++);
+        connection.startOrdinary();
+        Capture first = connection.latest();
+        Object pad = new Object();
+        connection.controllerMicrophoneState(pad, true, true, false);
+        connection.releaseControllerMicrophone(pad);
+        assertEquals(2, connection.captures.size());
+        first.failOnItsOwn();
+        assertFalse(connection.isMicrophoneMuted());
+        assertTrue(connection.latest().running);
+        assertEquals(0, notices[0]);
+        assertFalse(connection.takeMicrophoneFailure());
+    }
+
     @Test public void usbWorkerRouteTransitionsDoNotWaitForTheNativeConnectionLock() throws Exception {
         Connection connection = new Connection(73);
         connection.startOrdinary();
@@ -277,8 +346,8 @@ public class NvConnectionControllerMicrophoneTest {
             ReflectionHelpers.setField(this, "nativeConnected", true);
         }
         @Override boolean microphoneCapturePermitted() { return permitted && canSendInput(); }
-        @Override MicrophoneCapture createMicrophoneCapture(boolean muted) {
-            Capture capture = new Capture(muted); captures.add(capture); return capture;
+        @Override MicrophoneCapture createMicrophoneCapture(boolean muted, MicrophoneCapture.FailureListener failed) {
+            Capture capture = new Capture(muted, failed); captures.add(capture); return capture;
         }
         void startOrdinary() { ReflectionHelpers.callInstanceMethod(this, "startMicrophone"); }
         Capture latest() { return captures.get(captures.size() - 1); }
@@ -286,9 +355,15 @@ public class NvConnectionControllerMicrophoneTest {
 
     private static class Capture extends MicrophoneCapture {
         boolean running;
-        Capture(boolean muted) { super((pcm, length) -> 0, muted); }
+        final MicrophoneCapture.FailureListener failed;
+        Capture(boolean muted, MicrophoneCapture.FailureListener failed) {
+            super((pcm, length) -> 0, muted);
+            this.failed = failed;
+        }
         @Override public synchronized void start() { running = true; }
         @Override public void stop() { running = false; }
         @Override public boolean isCapturing() { return running; }
+        // What the capture thread does when recording fails on its own: release, then report.
+        void failOnItsOwn() { running = false; failed.failed(this); }
     }
 }

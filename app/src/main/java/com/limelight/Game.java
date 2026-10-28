@@ -3341,8 +3341,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final com.limelight.binding.audio.MicNotice.Once microphoneNotice = new com.limelight.binding.audio.MicNotice.Once();
 
     // The microphone settings ask for processing this device lacks: say so in the stream, once per difference.
+    // A microphone that failed and was muted is said every time, since each unmute tries again.
     private void showMicrophoneNotice() {
         if (conn == null || isFinishing() || isDestroyed()) return;
+        if (conn.takeMicrophoneFailure()) {
+            messages.alert(getString(R.string.mic_failed), Toast.LENGTH_LONG);
+            if (micButton != null) micButton.refresh();
+        }
         String text = microphoneNotice.next(com.limelight.binding.audio.MicNotice.text(this, conn.takeMicrophoneNotice()));
         if (text != null) messages.alert(text, Toast.LENGTH_LONG);
     }

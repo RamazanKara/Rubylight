@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">Ẩn nút micrô</string>
     <string name="mic_effects_missing">Không có trên thiết bị này: %1$s. Micrô được gửi mà không có xử lý này.</string>
     <string name="mic_effect_not_on_device">Không có trên thiết bị này</string>
+    <string name="mic_failed">Micrô đã ngừng hoạt động nên hiện đang bị tắt tiếng. Bật tiếng để thử lại.</string>
 </resources>

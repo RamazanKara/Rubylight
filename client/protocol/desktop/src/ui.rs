@@ -67,7 +67,7 @@ pub enum Command {
     /// Open the details page's browser of the folders a PC shares with this device.
     SharedFolders(u64),
     /// Choose a folder here and download the file `name` of the listed directory into it.
-    FolderDownload { host: u64, name: String },
+    FolderDownload { host: u64, name: String, size: u64 },
     /// Choose a file here and upload it into the listed directory.
     FolderUpload(u64),
     CancelPair,
@@ -1805,7 +1805,7 @@ impl Launcher {
                                 ui.add_enabled_ui(!busy, |ui| quiet_button(ui, "Download")).inner
                             });
                             if download.clicked() {
-                                commands.push(Command::FolderDownload { host: id, name: entry.name.clone() });
+                                commands.push(Command::FolderDownload { host: id, name: entry.name.clone(), size: entry.size });
                             }
                         }
                         // A kind this version does not know: shown, not opened.

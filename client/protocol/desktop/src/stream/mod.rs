@@ -542,7 +542,7 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
         match connect(plan, shared.clone(), interrupt) {
             Err(error) if error.retryable && plan.recovery.is_some() && !interrupt.is_interrupted() => {
                 lock(&shared.frames).clear();
-                lock(&shared.notices).clear();
+                shared.next_attempt();
             }
             result => return result,
         }
@@ -1081,7 +1081,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         session_config(settings, role, stream, location_override(), watch.is_some()),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
-        Arc::new(pipeline::Events { shared }),
+        Arc::new(pipeline::Events::new(shared)),
         interrupt,
     )
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
@@ -1424,6 +1424,21 @@ pub enum Wait {
     Now,
     /// Wait for events up to this long.
     For(Duration),
+}
+
+/// Why the stream ends after SDL's render device event `kind`: the stream's textures and the
+/// decoder's GPU planes are gone with the device, and the picture would freeze without a word.
+fn render_device_ended(kind: SDL_EventType) -> Option<&'static str> {
+    match kind {
+        SDL_EVENT_RENDER_DEVICE_RESET => Some("The graphics driver was reset, which ended the stream. Connect again."),
+        SDL_EVENT_RENDER_DEVICE_LOST => Some("The graphics device was lost (the driver stopped or the GPU was removed), which ended the stream. Restart Nightjar."),
+        _ => None,
+    }
+}
+
+/// [`Streaming::sends_controllers`] for `settings` in a session of `role`.
+fn sends_controllers(settings: &Settings, role: AppRole) -> bool {
+    settings.controllers && role != AppRole::RemoteMonitor
 }
 
 impl Streaming {
@@ -1775,7 +1790,13 @@ impl Streaming {
     }
 
     pub fn controller_audio_available(&self) -> bool {
-        self.settings.controllers && self.settings.controller_audio && self.facts.role != AppRole::RemoteMonitor
+        self.sends_controllers() && self.settings.controller_audio
+    }
+
+    /// Whether this session tells the host about controllers: not with Controllers off, and never
+    /// from a view-only remote monitor.
+    fn sends_controllers(&self) -> bool {
+        sends_controllers(&self.settings, self.facts.role)
     }
 
     pub fn mute_microphone(&mut self, muted: bool, pads: &mut Gamepads) {
@@ -3182,6 +3203,11 @@ impl Streaming {
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
                     self.exit = Some(Exit::CloseWindow);
                 }
+                SDL_EVENT_RENDER_DEVICE_RESET | SDL_EVENT_RENDER_DEVICE_LOST => {
+                    let reason = render_device_ended(kind).expect("a render device event");
+                    eprintln!("nightjar: {reason}");
+                    self.exit.get_or_insert(Exit::Ended(Some(reason.into())));
+                }
                 SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, window, pads),
                 SDL_EVENT_TEXT_INPUT if !event.text.text.is_null() => {
                     let text = std::ffi::CStr::from_ptr(event.text.text).to_string_lossy();
@@ -3290,16 +3316,18 @@ impl Streaming {
                     self.session.input(|q| self.touch.handle(event, rect, area, density, q));
                 }
                 SDL_EVENT_GAMEPAD_ADDED => {
-                    pads.added(event.gdevice.which);
+                    if let Err(why) = pads.added(event.gdevice.which) {
+                        self.show_toast(why.message());
+                    }
                     if self.controller_audio_available() { pads.auto_audio(); }
-                    if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
+                    if self.sends_controllers() {
                         self.session.input(|q| pads.announce_new(q));
                     }
                 }
                 SDL_EVENT_GAMEPAD_REMOVED => {
                     self.session.input(|q| pads.release_mouse(event.gdevice.which, q));
                     if let Some(index) = pads.removed(event.gdevice.which) {
-                        if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
+                        if self.sends_controllers() {
                             self.session.input(|q| pads.send_removed(index, q));
                         }
                     }
@@ -3312,7 +3340,9 @@ impl Streaming {
                 }
                 SDL_EVENT_AUDIO_DEVICE_REMOVED => {
                     pads.removed_audio_device(event.adevice.which);
-                    self.session.input(|q| pads.announce_new(q));
+                    if self.sends_controllers() {
+                        self.session.input(|q| pads.announce_new(q));
+                    }
                 }
                 _ => {
                     let focused = SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0;
@@ -3658,6 +3688,25 @@ mod tests {
         assert!(!stream.remote_monitor && !stream.input_only);
         let input = config(AppRole::InputOnly);
         assert!(!input.remote_monitor && input.input_only);
+    }
+
+    #[test]
+    fn a_lost_or_reset_render_device_ends_the_stream_saying_why() {
+        for kind in [SDL_EVENT_RENDER_DEVICE_RESET, SDL_EVENT_RENDER_DEVICE_LOST] {
+            let reason = render_device_ended(kind).expect("ends the stream");
+            assert!(!Exit::Ended(Some(reason.into())).retryable(), "{reason}");
+        }
+        assert_eq!(render_device_ended(SDL_EVENT_RENDER_TARGETS_RESET), None);
+    }
+
+    #[test]
+    fn controllers_reach_the_host_only_when_on_and_not_from_a_remote_monitor() {
+        let on = Settings { controllers: true, ..Settings::default() };
+        let off = Settings { controllers: false, ..Settings::default() };
+        assert!(sends_controllers(&on, AppRole::Stream));
+        assert!(sends_controllers(&on, AppRole::InputOnly));
+        assert!(!sends_controllers(&on, AppRole::RemoteMonitor));
+        assert!(!sends_controllers(&off, AppRole::Stream));
     }
 
     #[test]

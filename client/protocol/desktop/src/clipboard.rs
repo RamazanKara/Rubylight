@@ -241,7 +241,10 @@ fn pixels_where_they_are(bmp: &[u8]) -> std::borrow::Cow<'_, [u8]> {
     {
         return bmp.into();
     }
-    let masks = &bmp[FILE_HEADER + 40..FILE_HEADER + 52];
+    // A file cut short inside its header has no masks to compare; the decoder refuses it.
+    let Some(masks) = bmp.get(FILE_HEADER + 40..FILE_HEADER + 52) else {
+        return bmp.into();
+    };
     if bmp.get(header_end..header_end + 12) == Some(masks) {
         return bmp.into();
     }
@@ -556,5 +559,20 @@ mod tests {
     fn broken_images_fail_loudly() {
         assert!(to_png(Local::Bmp(b"BM broken".to_vec())).is_err());
         assert!(from_png(b"\x89PNG\r\n\x1a\n broken").is_err());
+    }
+
+    #[test]
+    fn a_bitmap_cut_short_in_its_header_fails_instead_of_panicking() {
+        // A V4 BI_BITFIELDS header that says the pixels follow 12 bytes of masks, cut off
+        // before the masks themselves.
+        for len in 34..66 {
+            let mut bmp = vec![0u8; len];
+            bmp[..2].copy_from_slice(b"BM");
+            bmp[10..14]
+                .copy_from_slice(&(FILE_HEADER as u32 + V4_HEADER as u32 + 12).to_le_bytes());
+            bmp[14..18].copy_from_slice(&(V4_HEADER as u32).to_le_bytes());
+            bmp[30..34].copy_from_slice(&BI_BITFIELDS.to_le_bytes());
+            assert!(to_png(Local::Bmp(bmp)).is_err(), "{len} bytes");
+        }
     }
 }

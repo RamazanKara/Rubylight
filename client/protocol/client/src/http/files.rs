@@ -366,28 +366,79 @@ impl HostClient {
         }
     }
 
-    /// Downloads `name` into `sink` and returns its length, reporting progress like
-    /// `upload_file`. A body shorter than its Content-Length is an error, as is cancelling `stop`; the
-    /// caller then discards what `sink` got. Needs the device's `file_download` permission.
+    /// Downloads `name`, which the list gave as `listed` bytes, into `sink` and returns its
+    /// length, reporting progress like `upload_file`. A body shorter than its Content-Length is
+    /// an error, as is one longer than `listed` or cancelling `stop`; the caller then discards
+    /// what `sink` got. Needs the device's `file_download` permission.
     pub fn download_file(
         &self,
         name: &str,
+        listed: u64,
         sink: &mut dyn Write,
         progress: &mut dyn FnMut(u64, u64),
         stop: &TransferCancel,
     ) -> Result<u64, FileError> {
         let (path, target) = self.files_target(CONTENT_PATH, Some(name));
         let request = self.files_request(&target, MAX_JSON_BYTES, TRANSFER_TIMEOUT)?;
-        let mut sink = Local::new(sink);
-        let mut length = 0;
-        let mut counted = |done, total| {
-            length = done;
-            progress(done, total);
-        };
-        match transport::download(&request, &self.cancel, &mut sink, &mut counted, &stop.0) {
-            Ok(response) => downloaded(response, &path, length),
-            Err(error) => Err(sink.or(error)),
+        download_listed(&request, &self.cancel, &path, listed, sink, progress, stop)
+    }
+}
+
+/// A download's sink that takes no more than the size the listing gave, so a host that sends
+/// more stops at that size instead of filling the disk.
+struct Listed<'a> {
+    inner: &'a mut dyn Write,
+    left: u64,
+    over: bool,
+}
+
+impl Write for Listed<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() as u64 > self.left {
+            self.over = true;
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "more than the listed size",
+            ));
         }
+        let written = self.inner.write(bytes)?;
+        self.left -= written as u64;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Runs the download `request` of `path`, listed at `listed` bytes, into `sink`: what
+/// [`HostClient::download_file`] and `download_folder_file` share.
+pub(super) fn download_listed(
+    request: &Request<'_>,
+    cancel: &transport::Cancel,
+    path: &str,
+    listed: u64,
+    sink: &mut dyn Write,
+    progress: &mut dyn FnMut(u64, u64),
+    stop: &TransferCancel,
+) -> Result<u64, FileError> {
+    let mut sink = Local::new(Listed {
+        inner: sink,
+        left: listed,
+        over: false,
+    });
+    let mut length = 0;
+    let mut counted = |done, total| {
+        length = done;
+        progress(done, total);
+    };
+    match transport::download(request, cancel, &mut sink, &mut counted, &stop.0) {
+        Ok(response) => downloaded(response, path, length),
+        Err(_) if sink.inner.over => Err(Error::Malformed(format!(
+            "native API {path}: the host sent more than the {listed} bytes it listed"
+        ))
+        .into()),
+        Err(error) => Err(sink.or(error)),
     }
 }
 
@@ -410,6 +461,24 @@ mod tests {
             status,
             &format!(r#"{{"error":{{"code":"{code}","message":"Host says {code}"}}}}"#),
         )
+    }
+
+    #[test]
+    fn a_download_takes_no_more_than_its_listed_size() {
+        let mut file = Vec::new();
+        let mut sink = Local::new(Listed {
+            inner: &mut file,
+            left: 5,
+            over: false,
+        });
+        sink.write_all(b"abc").unwrap();
+        sink.write_all(b"de").unwrap();
+        assert!(!sink.inner.over, "exactly the listed size is fine");
+        let error = sink.write_all(b"f").unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert!(sink.inner.over);
+        drop(sink);
+        assert_eq!(file, b"abcde", "nothing past the listed size is written");
     }
 
     /// The design's error tables, Files and Shared folders, row by row.

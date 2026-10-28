@@ -8,6 +8,12 @@
 #![no_std]
 
 extern crate alloc;
+// The property tests (fuzz.rs) run on std; the crate itself stays no_std.
+#[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
+mod fuzz;
 
 pub mod audio_ext;
 pub mod clipboard_sync;

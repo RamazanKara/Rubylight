@@ -13,6 +13,7 @@ fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreatio
             idr: requested,
             after_invalidation: false,
             frame_cap_bytes: Some(100_000),
+            skipped: 0,
             _capture: None,
             _converted: None,
         };
@@ -56,6 +57,7 @@ fn a_frame_counts_as_unreturned_from_its_acceptance_not_from_its_conversion() {
         idr: true,
         after_invalidation: false,
         frame_cap_bytes: None,
+        skipped: 0,
         _capture: None,
         _converted: None,
     };
@@ -122,6 +124,7 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         idr,
         after_invalidation: plan.after_invalidation,
         frame_cap_bytes: encoder.frame_cap(),
+        skipped: plan.skipped,
         _capture: Some(image),
         _converted: Some(converted),
     });

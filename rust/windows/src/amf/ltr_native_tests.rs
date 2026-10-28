@@ -1,5 +1,5 @@
-//! Opt-in native measurement of long-term reference recovery on H.264 and HEVC, the
-//! Experimental `rlLtrRecovery` path, against the keyframe a stock client gets.
+//! Opt-in native measurement of long-term reference recovery on H.264, HEVC and AV1
+//! against the keyframe a client without it gets.
 use super::intra_refresh_native_tests::scrolled;
 use super::*;
 use std::{
@@ -12,11 +12,51 @@ use std::{
 
 const WIDTH: usize = 2560;
 const HEIGHT: usize = 1440;
-const FRAMES: usize = 360;
-/// The first frame the client doesn't show. Frame 240, the last it shows,
-/// starts a 16-frame period of the encoder's four-bit H.264 frame number.
-const LOST: usize = 241;
+const FRAMES: usize = 480;
+/// The first frame the client doesn't show. From a gap of 12 on, the only
+/// long-term reference older than the loss is the IDR; at 16, 32 and 130 the
+/// repair lands 8 to 10 of the scrolling texture's 32 phases away from it,
+/// not on a picture that repeats it.
+const LOST: usize = 264;
 const PHASES: usize = 32;
+
+/// The scrolling texture held still, with one 64-pixel square crossing it
+/// 32 px a frame: mostly static content, like a desktop and its pointer.
+fn mostly_static(device: &Device, width: usize, height: usize, phase: usize) -> Result<GpuImage> {
+    let mut bytes = vec![0; width * height * 4];
+    let (left, top) = (256 + phase * 32, 400);
+    for (y, row) in bytes.chunks_exact_mut(width * 4).enumerate() {
+        for (x, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            let u = x % 512;
+            let cell = (u / 16) ^ (y / 16);
+            let texture = (u * 7 + y * 13 + (u * y) / 37) % 64;
+            let square = (left..left + 64).contains(&x) && (top..top + 64).contains(&y);
+            pixel.copy_from_slice(&if square {
+                [255, 255, 255, 255]
+            } else {
+                [
+                    (cell * 37 % 192 + texture) as u8,
+                    (cell * 59 % 160 + texture * 2) as u8,
+                    ((u + y) % 192 + texture / 2) as u8,
+                    255,
+                ]
+            });
+        }
+    }
+    let image = GpuImage::upload(
+        device,
+        &Image {
+            width: width as u32,
+            height: height as u32,
+            stride: width * 4,
+            bytes,
+            captured: Instant::now(),
+            pixel: crate::capture::Pixel::Bgra8,
+        },
+    )?;
+    image.readback(&mut None)?;
+    Ok(image)
+}
 
 /// Per-frame MD5s of one decode and its error output. Lossy streams are
 /// decoded leniently, as a client's decoder would.
@@ -97,15 +137,20 @@ fn decode(
 }
 
 /// Recovery after `gap` frames the client never shows (lost, or received
-/// after the loss and dropped until the recovery frame): the invalidated frame
-/// an opted-in client gets, against the keyframe of a stock client. Each
-/// decoder in `BUTTERPOLLO_TEST_LTR_DECODERS` (`sw`, `amf`, or an FFmpeg
-/// `-hwaccel` name such as `d3d11va`) decodes the full and the lossy stream;
-/// after an accepted invalidation every decoder must show the full stream's
-/// pictures from the recovery frame on, and a declined one must be a
-/// keyframe. The host accepts exactly the gaps a decoder can still order
-/// (`ltr::Counter`): HEVC up to 7, H.264 up to 14 from frame 241. The streams
-/// stay beside the report for decoders on other devices.
+/// after the loss and dropped until the recovery frame): the invalidated
+/// frame, against the keyframe of a stream without long-term references
+/// (`amd_ltr_frames=0`), at each gap, codec and content
+/// (`BUTTERPOLLO_TEST_LTR_CONTENT`: `scrolling`, `static`). Each decoder in
+/// `BUTTERPOLLO_TEST_LTR_DECODERS` (`sw`, `amf`, or an FFmpeg `-hwaccel` name
+/// such as `d3d11va`) decodes the full stream (AMF's bytes, every frame) and
+/// the lossy one (the bytes the client gets, without those frames); after an
+/// accepted invalidation every decoder must show the full stream's pictures
+/// from the recovery frame on, and a declined one must be a keyframe. The
+/// host repairs what a decoder can still order (`ltr::Counter`: HEVC up to
+/// `ORDER_WINDOW` frames after the last one shown) when its estimate makes
+/// the repair the smaller frame; `BUTTERPOLLO_TEST_LTR_FORCE=1` repairs every
+/// such gap, to measure what the estimate weighs. The streams stay beside the
+/// report for decoders on other devices.
 #[test]
 #[ignore = "requires an idle AMD GPU, AMF, independent FFmpeg and a task-owned report path"]
 fn native_ltr_recovery_after_lost_frames() -> Result<()> {
@@ -131,14 +176,23 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             .collect::<Vec<_>>()
     };
     let decoders = list("BUTTERPOLLO_TEST_LTR_DECODERS", "sw");
-    let gaps = list("BUTTERPOLLO_TEST_LTR_GAPS", "1,3,7,8,11,15")
+    let gaps = list("BUTTERPOLLO_TEST_LTR_GAPS", "1,2,4,8,16,32,130")
         .iter()
         .map(|gap| gap.parse::<usize>())
         .collect::<Result<Vec<_>, _>>()?;
-    let codecs = list("BUTTERPOLLO_TEST_LTR_CODECS", "0,1")
+    let codecs = list("BUTTERPOLLO_TEST_LTR_CODECS", "0,1,2")
         .iter()
         .map(|codec| codec.parse::<u8>())
         .collect::<Result<Vec<_>, _>>()?;
+    let contents = list("BUTTERPOLLO_TEST_LTR_CONTENT", "scrolling");
+    let wanted = list("BUTTERPOLLO_TEST_LTR_ARMS", "keyframe,ltr");
+    anyhow::ensure!(
+        wanted.iter().all(|arm| arm == "keyframe" || arm == "ltr"),
+        "arms: keyframe, ltr"
+    );
+    let forced = std::env::var("BUTTERPOLLO_TEST_LTR_FORCE").as_deref() == Ok("1");
+    let without = butterpollo_core::config::Config::parse("amd_ltr_frames=0\n")?;
+    let with = butterpollo_core::config::Config::default();
     anyhow::ensure!(
         gaps.iter().all(|&gap| gap >= 1 && LOST + gap < FRAMES - 30),
         "gaps must leave frames to compare"
@@ -147,25 +201,41 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
     let device = Device::new("")?;
     let compute = crate::compute::Compute::for_device(&device.device)?;
     let timer = crate::timing::Timer::new()?;
-    let pictures = (0..PHASES)
-        .map(|phase| scrolled(&device, WIDTH, HEIGHT, phase * 16))
-        .collect::<Result<Vec<_>>>()?;
     let mut reports = Vec::new();
     let mut failures = Vec::new();
-    for &codec in &codecs {
-        let (format, properties) = match codec {
-            0 => ("h264", ["MaxOfLTRFrames", "LTRMode", "MaxNumRefFrames"]),
+    for (content, codec) in contents
+        .iter()
+        .flat_map(|content| codecs.iter().map(move |&codec| (content, codec)))
+    {
+        let pictures = (0..PHASES)
+            .map(|phase| match content.as_str() {
+                "scrolling" => scrolled(&device, WIDTH, HEIGHT, phase * 16),
+                "static" => mostly_static(&device, WIDTH, HEIGHT, phase),
+                other => bail!("content {other}: scrolling or static"),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let (format, properties): (_, &[&str]) = match codec {
+            0 => ("h264", &["MaxOfLTRFrames", "LTRMode", "MaxNumRefFrames"]),
             1 => (
                 "hevc",
-                ["HevcMaxOfLTRFrames", "HevcLTRMode", "HevcMaxNumRefFrames"],
+                &["HevcMaxOfLTRFrames", "HevcLTRMode", "HevcMaxNumRefFrames"],
             ),
-            _ => bail!("codec {codec}: H.264 (0) or HEVC (1)"),
+            2 => ("obu", &["Av1MaxNumLTRFrames", "Av1LTRMode"]),
+            _ => bail!("codec {codec}: H.264 (0), HEVC (1) or AV1 (2)"),
         };
-        // (opted in, gap): the stock client's keyframe once, then each gap.
-        let arms = std::iter::once((false, gaps[0])).chain(gaps.iter().map(|&gap| (true, gap)));
+        // (long-term references, gap): the keyframe, then the repair;
+        // `BUTTERPOLLO_TEST_LTR_ARMS=ltr` runs only the repairs.
+        let arms = gaps
+            .iter()
+            .flat_map(|&gap| [(false, gap), (true, gap)])
+            .filter(|&(asked, _)| {
+                wanted
+                    .iter()
+                    .any(|arm| arm == if asked { "ltr" } else { "keyframe" })
+            });
         for (asked, gap) in arms {
             let name = format!(
-                "{format}-{}-gap{gap}",
+                "{content}-{format}-{}-gap{gap}",
                 if asked { "ltr" } else { "keyframe" }
             );
             let config = butterpollo_core::rtsp::Negotiated {
@@ -181,9 +251,25 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             let mut encoder = Encoder::new_gpu(
                 &config,
                 device.clone(),
-                &Default::default(),
+                if asked { &with } else { &without },
                 Some(compute.clone()),
             )?;
+            if forced {
+                encoder.references.repair_whatever_it_costs();
+            }
+            // The full stream is AMF's own: renumbered for a client that
+            // skipped the lost frames, it would not decode with them in it.
+            encoder.unrewritten = Some(Vec::new());
+            // Only a stream with long-term references rewrites AMF's headers.
+            anyhow::ensure!(
+                encoder.repair_headers.is_some() == (asked && codec <= 1),
+                "{name}: header rewrite {}",
+                if asked {
+                    "missing"
+                } else {
+                    "without long-term references"
+                }
+            );
             let read: serde_json::Map<_, _> = properties
                 .iter()
                 .map(|&property| (property.into(), serde_json::json!(encoder.read(property))))
@@ -195,7 +281,7 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
                 if asked {
                     "missing"
                 } else {
-                    "without the opt-in"
+                    "with amd_ltr_frames=0"
                 }
             );
             let recovery = LOST + gap;
@@ -232,7 +318,12 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
                 anyhow::ensure!(output.len() == 1, "missing/late {name} output {index}");
                 let frame = output.pop().unwrap();
                 anyhow::ensure!(!idr || frame.idr, "forced IDR absent at {name} {index}");
-                full.write_all(&frame.bytes)?;
+                let unrewritten = encoder.unrewritten.replace(Vec::new()).unwrap_or_default();
+                anyhow::ensure!(
+                    !unrewritten.is_empty(),
+                    "{name}: AMF's bytes missing at {index}"
+                );
+                full.write_all(&unrewritten)?;
                 if !(LOST..recovery).contains(&index) {
                     lossy.write_all(&frame.bytes)?;
                 }
@@ -244,13 +335,11 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             drop(lossy);
             drop(encoder);
             let accepted = accepted == Some(true);
-            // Frame LOST - 1 is the last shown: HEVC orders a repair up to 8
-            // frames on, H.264 to the end of its 16-frame period.
+            // Frame LOST - 1 is the last shown: HEVC orders a repair up to
+            // ORDER_WINDOW frames on, H.264 and AV1 at any distance.
             let repairable = asked
-                && match codec {
-                    0 => recovery / 16 == (LOST - 1) / 16,
-                    _ => recovery - (LOST - 1) <= 8,
-                };
+                && (codec != 1
+                    || recovery - (LOST - 1) <= butterpollo_core::bitstream::ORDER_WINDOW as usize);
             let keyframes: Vec<usize> = frames
                 .iter()
                 .filter(|frame| frame.0)
@@ -296,7 +385,12 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
                 "adapter": device.display.adapter, "width": WIDTH, "height": HEIGHT,
                 "fps": 120, "bitrate_kbps": config.bitrate_kbps, "frames": FRAMES,
                 "first_frame_not_shown": LOST, "frames_not_shown": gap, "recovery_frame": recovery,
-                "source": "scrolling synthetic texture, 16 px a frame; no capture/display/network",
+                "source": if content == "static" {
+                    "still synthetic texture, a 64 px square moving 32 px a frame; no capture/display/network"
+                } else {
+                    "scrolling synthetic texture, 16 px a frame; no capture/display/network"
+                },
+                "content": content, "forced": forced,
                 "properties": read, "invalidation_accepted": accepted,
                 "invalidation_expected": repairable,
                 "recovery_frame_idr": frames[recovery].0, "recovery_frame_bytes": frames[recovery].1,
@@ -312,7 +406,14 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             } else {
                 frames[recovery].0
             };
-            if !answered || !healthy || accepted != repairable {
+            // Forced, every repairable gap is repaired; otherwise the
+            // estimate may answer with a keyframe, but never repair beyond.
+            let expected = if forced {
+                accepted == repairable
+            } else {
+                repairable || !accepted
+            };
+            if !answered || !healthy || !expected {
                 failures.push(format!(
                     "{name}: invalidation accepted {accepted} (expected {repairable}), recovery keyframe {}, decoders {}",
                     frames[recovery].0,

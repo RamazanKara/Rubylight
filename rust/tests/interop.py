@@ -85,6 +85,8 @@ apps=ET.fromstring(client.get(https+'/applist',timeout=10).text);app=apps.find('
 key_id = '-2147483525' if os.environ.get('BUTTERPOLLO_TEST_SIGNED_KEY_ID') == '1' else '123'
 launch_args={'appid':app.findtext('ID'),'rikey':bytes(range(16)).hex(),'rikeyid':key_id,'corever':'1'}
 if os.environ.get('BUTTERPOLLO_TEST_VRR')=='1': launch_args['clientVrrRequested']='1'
+# Nightjar's long-term reference opt-in, for H.264 and HEVC timing A/Bs.
+if os.environ.get('BUTTERPOLLO_TEST_LTR_RECOVERY')=='1': launch_args['rlLtrRecovery']='1'
 if os.environ.get('BUTTERPOLLO_TEST_MATCH_DISPLAY')=='1':
     launch_args.update(mode='x'.join(sys.argv[3:6]),hdrMode='1' if '-hdr' in codec else '0')
 # Artemis's Warp frame pacing launches at its display rate and asks for a multiple in RTSP.

@@ -10,17 +10,22 @@ const SID: &str = "S-1-5-21-1000-2000-3000-1001";
 const PASSWORD: &str = "correct horse battery staple";
 
 #[test]
-fn home_keeps_the_virtual_display_and_says_why() {
+fn home_runs_nucleus_automatically_and_refuses_a_chosen_child_session() {
     for id in ["Core", "CoreSingleLanguage", "CoreCountrySpecific", "CoreN"] {
-        for setting in [ModeSetting::Auto, ModeSetting::ChildSession] {
-            let decision = decide(setting, id, false);
-            assert_eq!(decision.mode, Mode::VirtualDisplay, "{id}");
-            assert_eq!(
-                decision.label,
-                "Background streaming (virtual display): Windows Home"
-            );
-            assert!(decision.reason.contains(id), "{}", decision.reason);
-        }
+        let auto = decide(ModeSetting::Auto, id, false);
+        assert_eq!(auto.mode, Mode::Nucleus, "{id}");
+        assert_eq!(auto.label, "Background streaming (Nucleus Co-op)");
+        assert!(auto.reason.contains(id), "{}", auto.reason);
+        // A chosen child session is never quietly another mode.
+        let chosen = decide(ModeSetting::ChildSession, id, false);
+        assert_eq!(chosen.mode, Mode::Unavailable, "{id}");
+        assert_eq!(chosen.label, UNAVAILABLE_LABEL);
+        assert!(chosen.reason.contains(id), "{}", chosen.reason);
+        assert!(
+            chosen.reason.contains("choose Automatic or Nucleus Co-op"),
+            "{}",
+            chosen.reason
+        );
     }
 }
 
@@ -38,18 +43,23 @@ fn pro_and_higher_use_the_child_session() {
     ] {
         let decision = decide(ModeSetting::Auto, id, false);
         assert_eq!(decision.mode, Mode::ChildSession, "{id}");
+        assert_eq!(decision.label, "Background streaming (child session)");
         assert!(decision.reason.contains(id));
-        // The setting can still keep the virtual display, and says so.
-        let kept = decide(ModeSetting::VirtualDisplay, id, false);
-        assert_eq!(kept.mode, Mode::VirtualDisplay);
-        assert!(kept.reason.contains("background_mode = virtual_display"));
+        // The setting can still choose Nucleus Co-op, and says so.
+        let kept = decide(ModeSetting::Nucleus, id, false);
+        assert_eq!(kept.mode, Mode::Nucleus);
+        assert!(
+            kept.reason.contains("chosen in the settings"),
+            "{}",
+            kept.reason
+        );
     }
 }
 
 #[test]
 fn an_unknown_edition_is_never_switched_silently() {
     let auto = decide(ModeSetting::Auto, "", false);
-    assert_eq!(auto.mode, Mode::VirtualDisplay);
+    assert_eq!(auto.mode, Mode::Nucleus);
     assert!(auto.reason.contains("unknown"));
     assert!(auto.reason.contains("background_mode = child_session"));
     assert_eq!(
@@ -64,18 +74,26 @@ fn an_unknown_edition_is_never_switched_silently() {
 
 #[test]
 fn mode_setting_parses_and_rejects_typos() {
-    // Off by default: child sessions ship Experimental.
-    assert_eq!(ModeSetting::parse("").unwrap(), ModeSetting::VirtualDisplay);
+    // Nucleus Co-op by default: child sessions only run when asked for.
+    assert_eq!(ModeSetting::parse("").unwrap(), ModeSetting::Nucleus);
     assert_eq!(ModeSetting::parse(" auto ").unwrap(), ModeSetting::Auto);
     assert_eq!(
         ModeSetting::parse(" Child_Session ").unwrap(),
         ModeSetting::ChildSession
     );
+    assert_eq!(ModeSetting::parse("nucleus").unwrap(), ModeSetting::Nucleus);
+    // The replaced virtual-display mode reads as Nucleus Co-op.
     assert_eq!(
         ModeSetting::parse("virtual_display").unwrap(),
-        ModeSetting::VirtualDisplay
+        ModeSetting::Nucleus
     );
-    assert!(ModeSetting::parse("child").is_err());
+    assert!(ModeSetting::is_legacy(" Virtual_Display "));
+    assert!(!ModeSetting::is_legacy("nucleus"));
+    let typo = ModeSetting::parse("child").unwrap_err().to_string();
+    assert!(
+        typo.contains("use auto, child_session or nucleus"),
+        "{typo}"
+    );
 }
 
 #[test]

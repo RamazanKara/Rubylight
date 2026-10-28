@@ -132,9 +132,11 @@ export const settings: Setting[] = [
     visibleWhen: (values) => String(values.dd_rotation_option ?? '').trim() === 'manual',
   },
   {
+    // Inert: the child session's host takes CHILD_BASE_PORT (48989, or
+    // 49989 when this host uses that) until this setting goes live.
     key: 'child_session_port',
-    label: 'Session port',
-    description: "The base port of the separate session's streams, which need ports of their own.",
+    label: 'Child session port',
+    description: "The base port of the child session host's streams, which need ports of their own.",
     category: 'general',
     group: 'Background streaming',
     control: { kind: 'number', min: 1029, max: 65514, step: 1 },

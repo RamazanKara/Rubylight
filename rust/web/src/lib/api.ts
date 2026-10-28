@@ -583,7 +583,7 @@ export interface ChildSessionViewer {
 }
 /** `GET /api/child-session`: background streaming in a Windows child session (Experimental). */
 export interface ChildSessionStatus {
-  mode: 'child_session' | 'virtual_display' | 'inside_child_session';
+  mode: 'child_session' | 'nucleus' | 'inside_child_session' | 'unavailable';
   label: string;
   reason: string;
   edition: string;

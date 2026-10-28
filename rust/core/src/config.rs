@@ -2043,12 +2043,12 @@ webrtc_media_port = 99999
     #[test]
     fn background_mode_and_child_session_display_save_only_valid_values() {
         let mut config = super::Config::default();
-        for value in ["auto", "child_session", "virtual_display"] {
+        for value in ["auto", "child_session", "virtual_display", "nucleus"] {
             change(&mut config, "background_mode", value).unwrap();
             assert_eq!(config.get("background_mode", ""), value);
         }
         assert!(change(&mut config, "background_mode", "rdp").is_err());
-        assert_eq!(config.get("background_mode", ""), "virtual_display");
+        assert_eq!(config.get("background_mode", ""), "nucleus");
         change(&mut config, "child_session_resolution", "2560x1440").unwrap();
         change(&mut config, "child_session_scale", "150").unwrap();
         for (key, value) in [

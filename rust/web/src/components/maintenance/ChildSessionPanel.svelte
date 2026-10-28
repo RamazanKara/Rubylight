@@ -132,6 +132,8 @@
       {/if}
       {#if current === 'off'}
         <p class="muted">To use a child session, choose Child session or Automatic under Settings › Displays › Background mode.</p>
+      {:else if current === 'refused'}
+        <Banner tone="danger" title={status.label}>{status.reason}</Banner>
       {:else if current === 'inside'}
         <p class="muted">This is the child session’s own host. Manage the child session from the host on the PC’s screen.</p>
       {:else if current === 'unavailable'}

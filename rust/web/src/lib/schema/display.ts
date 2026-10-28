@@ -33,7 +33,7 @@ function rtss(values: Values): boolean {
 const SCALES = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
 
 const childSession = (values: Values) =>
-  text(values, 'background_mode', 'virtual_display') !== 'virtual_display';
+  ['auto', 'child_session'].includes(text(values, 'background_mode', 'nucleus'));
 
 export const settings: Setting[] = [
   // Display
@@ -576,20 +576,20 @@ export const settings: Setting[] = [
     key: 'background_mode',
     label: 'Background mode (Experimental)',
     description:
-      'How the host streams while someone keeps using this PC. A Windows child session gives the stream its own desktop and apps.',
+      'How the host streams while someone keeps using this PC. A Windows child session gives the stream its own desktop and apps; Nucleus Co-op runs the game in its own window, with controllers.',
     details:
-      'Virtual display, the default, streams an isolated virtual display with controllers only. Child session needs Windows Pro or higher and the setup under Maintenance; Automatic uses it on Pro and higher and the virtual display on Windows Home. No HDR in the child session, and it runs at up to about 120 fps.',
+      'Nucleus Co-op, the default, streams the game’s window and needs a Nucleus Co-op handler for the game; the host installs Nucleus Co-op on first use. Child session needs Windows Pro or higher and the setup under Maintenance. Automatic uses a child session on Pro and higher and Nucleus Co-op elsewhere. A chosen mode this PC can’t run refuses background streams and says why. No HDR in the child session, and it runs at up to about 120 fps.',
     category: 'display',
     group: 'Background streaming',
     control: {
       kind: 'select',
       options: [
-        { value: 'virtual_display', label: 'Virtual display' },
+        { value: 'nucleus', label: 'Nucleus Co-op' },
         { value: 'auto', label: 'Automatic' },
         { value: 'child_session', label: 'Child session' },
       ],
     },
-    default: 'virtual_display',
+    default: 'nucleus',
   },
   {
     key: 'child_session_resolution',

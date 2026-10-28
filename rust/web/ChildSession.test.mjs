@@ -12,8 +12,8 @@ const { settings } = await server.ssrLoadModule('/src/lib/schema/display.ts');
 
 const status = (overrides) => ({
   mode: 'child_session',
-  label: 'Background streaming (child session): Windows Pro or higher',
-  reason: 'background_mode = child_session (Windows edition Professional)',
+  label: 'Background streaming (child session)',
+  reason: 'chosen in the settings (Windows edition Professional)',
   edition: 'Professional',
   missing: [],
   missing_error: null,
@@ -29,7 +29,8 @@ const status = (overrides) => ({
 });
 
 test('the panel offers setup, then start, and only when Background mode asks for a child session', () => {
-  assert.equal(step(status({ mode: 'virtual_display' })), 'off');
+  assert.equal(step(status({ mode: 'nucleus' })), 'off');
+  assert.equal(step(status({ mode: 'unavailable' })), 'refused', 'a chosen child session this PC lacks says why');
   assert.equal(step(status({ mode: 'inside_child_session' })), 'inside');
   assert.equal(step(status({ missing: ['Remote Desktop is off'] })), 'setup');
   assert.equal(step(status({ missing: null, missing_error: 'reading the account' })), 'setup', 'unread settings never offer Start');
@@ -37,7 +38,7 @@ test('the panel offers setup, then start, and only when Background mode asks for
   const unavailable = 'Child sessions are set up, but this host runs without administrator rights';
   assert.equal(step(status({ unavailable })), 'unavailable', 'a host without administrator rights never offers Start');
   assert.equal(step(status({ unavailable, missing: ['Remote Desktop is off'] })), 'unavailable', 'nor Setup');
-  assert.equal(step(status({ unavailable, mode: 'virtual_display' })), 'off');
+  assert.equal(step(status({ unavailable, mode: 'nucleus' })), 'off');
 });
 
 test('every viewer phase is spelled out, with a failure in danger', () => {
@@ -56,12 +57,17 @@ test('the panel is labelled Experimental and loads with a skeleton', () => {
 
 test('child sessions stay off by default and their display settings show only when used', () => {
   const mode = settings.find((setting) => setting.key === 'background_mode');
-  assert.equal(mode.default, 'virtual_display');
+  assert.equal(mode.default, 'nucleus');
+  assert.deepEqual(
+    mode.control.options.map((option) => option.value),
+    ['nucleus', 'auto', 'child_session'],
+  );
   assert.match(mode.label, /Experimental/);
   const resolution = settings.find((setting) => setting.key === 'child_session_resolution');
   assert.equal(resolution.visibleWhen({}), false);
   assert.equal(resolution.visibleWhen({ background_mode: 'auto' }), true);
   assert.equal(resolution.visibleWhen({ background_mode: 'child_session' }), true);
+  assert.equal(resolution.visibleWhen({ background_mode: 'virtual_display' }), false, 'the replaced mode reads as Nucleus Co-op');
 });
 
 test('a poll tick waits for the status load in flight, and a slow load never overwrites a newer one', async () => {

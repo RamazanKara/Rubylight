@@ -167,7 +167,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "couch_menu_keyboard_chord", "Keyboard chord", Choice(&["ctrl+alt+backspace","ctrl+alt+home","ctrl+alt+end","ctrl+alt+insert"]);
     ]
     "Background streaming (Experimental)" => [
-        "background_mode", "Background mode (virtual_display by default; auto and child_session use a Windows child session on Pro and higher)", Choice(&["virtual_display","auto","child_session"]);
+        "background_mode", "Background mode (nucleus by default; auto and child_session use a Windows child session on Pro and higher, auto Nucleus Co-op elsewhere)", Choice(&["nucleus","auto","child_session"]);
         "child_session_resolution", "Child session resolution (WIDTHxHEIGHT; default 1920x1080)", Text;
         "child_session_scale", "Child session scale (100–500 %; default 100)", Number;
     ]

@@ -300,26 +300,35 @@ fn administrators_own_root(file: &File, path: &Path) -> Result<()> {
 }
 
 /// Which background mode this host runs and why. A `background_mode` the file
-/// holds but that is not a mode keeps the default and says why.
+/// holds but that is not a mode runs none, and says why.
 pub(crate) fn decision(config: &Config) -> ModeDecision {
     let inside = config.boolean(logic::CHILD_HOST_KEY, false);
-    let setting = ModeSetting::parse(config.get(logic::MODE_KEY, ""));
-    let mut decision = logic::decide(
-        *setting.as_ref().unwrap_or(&ModeSetting::VirtualDisplay),
-        &native::edition_id(),
-        inside,
-    );
-    if let (Err(error), false) = (&setting, inside) {
-        decision.reason = format!("{error:#}; background streams use the isolated virtual display");
+    match ModeSetting::parse(config.get(logic::MODE_KEY, "")) {
+        Ok(setting) => logic::decide(setting, &native::edition_id(), inside),
+        Err(_) if inside => logic::decide(ModeSetting::Nucleus, "", true),
+        Err(error) => ModeDecision {
+            mode: Mode::Unavailable,
+            label: logic::UNAVAILABLE_LABEL.into(),
+            reason: format!("{error:#}"),
+        },
     }
-    decision
 }
 
 /// The startup line naming the background mode. The child session's own host
 /// also says which GPU renders its desktop, loudly when it can't be encoded.
 pub(crate) fn log_mode(config: &Config) {
+    if ModeSetting::is_legacy(config.get(logic::MODE_KEY, "")) {
+        tracing::warn!(
+            "{} = virtual_display names the isolated virtual display, which Nucleus Co-op replaced: it reads as nucleus",
+            logic::MODE_KEY
+        );
+    }
     let decision = decision(config);
-    tracing::info!(mode = ?decision.mode, reason = %decision.reason, "{}", decision.label);
+    if decision.mode == Mode::Unavailable {
+        tracing::error!(reason = %decision.reason, "{}", decision.label);
+    } else {
+        tracing::info!(mode = ?decision.mode, reason = %decision.reason, "{}", decision.label);
+    }
     if decision.mode != Mode::InsideChildSession {
         return;
     }
@@ -1277,11 +1286,15 @@ mod tests {
     }
 
     #[test]
-    fn the_mode_is_off_until_asked_for_and_a_bad_value_says_why() {
+    fn the_mode_is_nucleus_until_asked_for_and_a_bad_value_runs_none() {
         let config = |text: &str| Config::parse(text).unwrap();
-        assert_eq!(decision(&config("")).mode, Mode::VirtualDisplay);
+        assert_eq!(decision(&config("")).mode, Mode::Nucleus);
+        assert_eq!(
+            decision(&config("background_mode = virtual_display\n")).mode,
+            Mode::Nucleus
+        );
         let bad = decision(&config("background_mode = rdp\n"));
-        assert_eq!(bad.mode, Mode::VirtualDisplay);
+        assert_eq!(bad.mode, Mode::Unavailable);
         assert!(bad.reason.contains("is not a mode"), "{}", bad.reason);
         let inside = decision(&config(
             "background_mode = rdp\nchild_session_host = true\n",

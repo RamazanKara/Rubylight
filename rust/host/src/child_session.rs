@@ -417,7 +417,9 @@ fn retire(record: &Record, config_dir: &Path, pc: &dyn Leftovers) -> Left {
                 "{NOT_ELEVATED} (Rubylight's record of that setup could not be read here: {error:#})"
             ),
         };
-        tracing::warn!("{reason}");
+        tracing::warn!(
+            "Windows settings from the removed child-session feature are still changed: {reason}"
+        );
         left.problems.push(reason);
         return left;
     }
@@ -467,8 +469,9 @@ fn retire(record: &Record, config_dir: &Path, pc: &dyn Leftovers) -> Left {
     left
 }
 /// What a host without administrator rights says while setup's record is
-/// there: it can't restore.
-const NOT_ELEVATED: &str = "Windows settings from the removed child-session feature are still changed; the Rubylight service restores them at its next start, or run butterpollo.exe --child-session-restore as administrator.";
+/// there: it can't restore. The console shows it under a title saying the
+/// settings are still changed, so it doesn't repeat that.
+const NOT_ELEVATED: &str = "This host runs without administrator rights, so it can't restore them. The Rubylight service restores them at its next start, or run butterpollo.exe --child-session-restore as administrator.";
 
 /// [`logic::delete_passwords`] in every folder a saved password can be in,
 /// each deleted file logged (its path, never what it held); the failures.
@@ -1671,6 +1674,9 @@ mod tests {
         let before = fake.pc.now();
         let left = retire(&unelevated, &directory, &fake);
         assert_eq!(left.problems, [NOT_ELEVATED]);
+        // Maintenance shows it under the title "Windows settings ... are
+        // still changed": the text doesn't say that again.
+        assert!(!NOT_ELEVATED.contains("still changed"), "{NOT_ELEVATED}");
         assert_eq!(
             (
                 fake.restores.get(),

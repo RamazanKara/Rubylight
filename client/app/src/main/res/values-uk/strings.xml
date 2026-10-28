@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Рендерер Vulkan припинив працювати: %1$s\n\nВимкніть «Рендеринг через Vulkan» у налаштуваннях відео та запустіть трансляцію знову.</string>
     <string name="stream_vulkan_behind">«Рендеринг через Vulkan» не встигає на цьому екрані. Вимкніть його в налаштуваннях відео, щоб зображення йшло плавно.</string>
     <string name="vulkan_failure_unknown">невідома помилка</string>
+    <string name="decoder_failed">Відеодекодер припинив працювати: %1$s\n\nЗапустіть трансляцію знову. Якщо це повториться, зменште роздільну здатність у налаштуваннях.</string>
+    <string name="decoder_failed_vulkan">Відеодекодер припинив працювати: %1$s\n\nВимкніть «Рендеринг через Vulkan» у налаштуваннях відео або зменште роздільну здатність і запустіть трансляцію знову.</string>
     <string name="upscaling_fallback">Масштабування: прямий вивід. %1$s</string>
     <string name="upscaling_hdr">HDR/10-біт використовує прямий вивід, щоб зберегти колір і точність.</string>
     <string name="upscaling_pyrowave">Трансляції PyroWave використовують SGSR на GPU і для FSR, і для SGSR.</string>

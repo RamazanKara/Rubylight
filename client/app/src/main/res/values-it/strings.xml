@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Il renderer Vulkan ha smesso di funzionare: %1$s\n\nDisattiva «Rendering tramite Vulkan» nelle impostazioni video e riavvia lo stream.</string>
     <string name="stream_vulkan_behind">«Rendering tramite Vulkan» non tiene il passo su questo schermo. Disattivalo nelle impostazioni video per un’immagine fluida.</string>
     <string name="vulkan_failure_unknown">errore sconosciuto</string>
+    <string name="decoder_failed">Il decoder video ha smesso di funzionare: %1$s\n\nRiavvia lo stream. Se succede di nuovo, abbassa la risoluzione nelle impostazioni.</string>
+    <string name="decoder_failed_vulkan">Il decoder video ha smesso di funzionare: %1$s\n\nDisattiva «Rendering tramite Vulkan» nelle impostazioni video o abbassa la risoluzione, poi riavvia lo stream.</string>
     <string name="upscaling_fallback">Upscaling: output diretto. %1$s</string>
     <string name="upscaling_hdr">Con HDR/10 bit resta l’output diretto per preservare colore e precisione.</string>
     <string name="upscaling_pyrowave">Gli stream PyroWave usano SGSR sulla GPU sia per FSR sia per SGSR.</string>

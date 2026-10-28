@@ -439,6 +439,8 @@
     <string name="vulkan_renderer_failed">The Vulkan renderer stopped working: %1$s\n\nTurn off “Render through Vulkan” in the settings (Decoder section) and start the stream again.</string>
     <string name="stream_vulkan_behind">“Render through Vulkan” can’t keep up on this display. Turn it off in the settings (Decoder section) for smooth video.</string>
     <string name="vulkan_failure_unknown">unknown error</string>
+    <string name="decoder_failed">The video decoder stopped working: %1$s\n\nStart the stream again. If it keeps happening, lower the resolution in the settings.</string>
+    <string name="decoder_failed_vulkan">The video decoder stopped working: %1$s\n\nTurn off “Render through Vulkan” in the settings (Decoder section) or lower the resolution, then start the stream again.</string>
     <string name="upscaling_fallback">Upscaling: direct output. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit keeps direct output to preserve color and precision.</string>
     <string name="upscaling_pyrowave">PyroWave streams use SGSR on the GPU for both FSR and SGSR.</string>

@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Vulkan 渲染器已停止工作：%1$s\n\n请在视频设置中关闭“通过 Vulkan 渲染”，然后重新开始串流。</string>
     <string name="stream_vulkan_behind">“通过 Vulkan 渲染”在此屏幕上跟不上。请在视频设置中关闭它，让画面流畅。</string>
     <string name="vulkan_failure_unknown">未知错误</string>
+    <string name="decoder_failed">视频解码器已停止工作：%1$s\n\n请重新开始串流。如果再次发生，请在设置中降低分辨率。</string>
+    <string name="decoder_failed_vulkan">视频解码器已停止工作：%1$s\n\n请在视频设置中关闭“通过 Vulkan 渲染”或降低分辨率，然后重新开始串流。</string>
     <string name="upscaling_fallback">放大：直接输出。%1$s</string>
     <string name="upscaling_hdr">HDR/10 位视频保持直接输出，以保留色彩和精度。</string>
     <string name="upscaling_pyrowave">选择 FSR 或 SGSR 时，PyroWave 串流均在 GPU 上使用 SGSR。</string>

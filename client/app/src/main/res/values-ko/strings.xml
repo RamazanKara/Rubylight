@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Vulkan 렌더러가 작동을 멈췄습니다: %1$s\n\n영상 설정에서 “Vulkan으로 렌더링”을 끄고 스트림을 다시 시작하세요.</string>
     <string name="stream_vulkan_behind">이 화면에서는 “Vulkan으로 렌더링”이 따라가지 못합니다. 부드러운 영상을 위해 영상 설정에서 끄세요.</string>
     <string name="vulkan_failure_unknown">알 수 없는 오류</string>
+    <string name="decoder_failed">비디오 디코더가 작동을 멈췄습니다: %1$s\n\n스트림을 다시 시작하세요. 다시 발생하면 설정에서 해상도를 낮추세요.</string>
+    <string name="decoder_failed_vulkan">비디오 디코더가 작동을 멈췄습니다: %1$s\n\n영상 설정에서 “Vulkan으로 렌더링”을 끄거나 해상도를 낮춘 다음 스트림을 다시 시작하세요.</string>
     <string name="upscaling_fallback">업스케일링: 직접 출력. %1$s</string>
     <string name="upscaling_hdr">HDR/10비트는 색상과 정밀도를 유지하기 위해 직접 출력을 사용합니다.</string>
     <string name="upscaling_pyrowave">PyroWave 스트림은 FSR과 SGSR 모두 GPU에서 SGSR을 사용합니다.</string>

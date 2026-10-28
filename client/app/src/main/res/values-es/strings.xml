@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">El renderizador Vulkan dejó de funcionar: %1$s\n\nDesactiva «Renderizar con Vulkan» en los ajustes de vídeo e inicia la transmisión de nuevo.</string>
     <string name="stream_vulkan_behind">«Renderizar con Vulkan» no da abasto en esta pantalla. Desactívalo en los ajustes de vídeo para una imagen fluida.</string>
     <string name="vulkan_failure_unknown">error desconocido</string>
+    <string name="decoder_failed">El decodificador de vídeo dejó de funcionar: %1$s\n\nInicia la transmisión de nuevo. Si vuelve a ocurrir, baja la resolución en los ajustes.</string>
+    <string name="decoder_failed_vulkan">El decodificador de vídeo dejó de funcionar: %1$s\n\nDesactiva «Renderizar con Vulkan» en los ajustes de vídeo o baja la resolución, e inicia la transmisión de nuevo.</string>
     <string name="upscaling_fallback">Escalado: salida directa. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bits mantiene la salida directa para conservar el color y la precisión.</string>
     <string name="upscaling_pyrowave">Las transmisiones PyroWave usan SGSR en la GPU tanto para FSR como para SGSR.</string>

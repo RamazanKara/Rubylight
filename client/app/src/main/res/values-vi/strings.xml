@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Bộ kết xuất Vulkan đã ngừng hoạt động: %1$s\n\nHãy tắt “Kết xuất qua Vulkan” trong cài đặt video rồi bắt đầu lại luồng.</string>
     <string name="stream_vulkan_behind">“Kết xuất qua Vulkan” không theo kịp trên màn hình này. Hãy tắt nó trong cài đặt video để hình ảnh mượt.</string>
     <string name="vulkan_failure_unknown">lỗi không xác định</string>
+    <string name="decoder_failed">Bộ giải mã video đã ngừng hoạt động: %1$s\n\nHãy bắt đầu lại luồng. Nếu vẫn xảy ra, hãy giảm độ phân giải trong cài đặt.</string>
+    <string name="decoder_failed_vulkan">Bộ giải mã video đã ngừng hoạt động: %1$s\n\nHãy tắt “Kết xuất qua Vulkan” trong cài đặt video hoặc giảm độ phân giải, rồi bắt đầu lại luồng.</string>
     <string name="upscaling_fallback">Nâng cấp độ phân giải: xuất trực tiếp. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit giữ xuất trực tiếp để bảo toàn màu sắc và độ chính xác.</string>
     <string name="upscaling_pyrowave">Stream PyroWave dùng SGSR trên GPU cho cả FSR và SGSR.</string>

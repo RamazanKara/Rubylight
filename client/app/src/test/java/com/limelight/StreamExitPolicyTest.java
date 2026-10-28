@@ -48,6 +48,8 @@ public class StreamExitPolicyTest {
         assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION, false, false, false));
         assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_PROTECTED_CONTENT, false, false, false));
         assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_FRAME_CONVERSION, false, false, false));
+        // A failed decoder says what to change before the stream starts again.
+        assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.CLIENT_ERROR_DECODER, false, false, false));
     }
 
     @Test public void aBlockedPortTestKeepsTheDialogForAnyError() {

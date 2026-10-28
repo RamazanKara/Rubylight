@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Renderer Vulkan przestał działać: %1$s\n\nWyłącz „Renderowanie przez Vulkan” w ustawieniach wideo i uruchom strumień ponownie.</string>
     <string name="stream_vulkan_behind">„Renderowanie przez Vulkan” nie nadąża na tym ekranie. Wyłącz je w ustawieniach wideo, aby obraz był płynny.</string>
     <string name="vulkan_failure_unknown">nieznany błąd</string>
+    <string name="decoder_failed">Dekoder wideo przestał działać: %1$s\n\nUruchom strumień ponownie. Jeśli to się powtórzy, obniż rozdzielczość w ustawieniach.</string>
+    <string name="decoder_failed_vulkan">Dekoder wideo przestał działać: %1$s\n\nWyłącz „Renderowanie przez Vulkan” w ustawieniach wideo lub obniż rozdzielczość, a potem uruchom strumień ponownie.</string>
     <string name="upscaling_fallback">Skalowanie: wyjście bezpośrednie. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit używa wyjścia bezpośredniego, aby zachować kolory i precyzję.</string>
     <string name="upscaling_pyrowave">Strumienie PyroWave używają SGSR na GPU zarówno dla FSR, jak i SGSR.</string>

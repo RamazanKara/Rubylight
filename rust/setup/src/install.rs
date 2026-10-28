@@ -275,47 +275,49 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
         }
     }
 
-    if let Some(root) = &previous {
-        progress.set("Importing settings, paired devices and apps…");
-        let source = if root.join("config\\sunshine.conf").is_file() {
-            root.join("config")
-        } else {
-            root.clone()
-        };
-        let (code, output) = system::run(
-            &staging.join("butterpollo.exe").display().to_string(),
-            &[
-                "--config-dir",
-                &profile.display().to_string(),
-                "--import-config",
-                &source.display().to_string(),
-            ],
-            Duration::from_secs(300),
-        )?;
-        if code != 0 {
-            // Nothing has been removed yet: the services that were running
-            // start again when this error returns.
-            bail!(
-                "importing the settings from {} failed:\n\n{}",
-                source.display(),
-                import_error(&output)
-                    .unwrap_or_else(|| format!("butterpollo.exe exited with code {code}"))
-            );
+    undo_import_on_error(&profile, previous.is_some(), || {
+        if let Some(root) = &previous {
+            progress.set("Importing settings, paired devices and apps…");
+            let source = if root.join("config\\sunshine.conf").is_file() {
+                root.join("config")
+            } else {
+                root.clone()
+            };
+            let (code, output) = system::run(
+                &staging.join("butterpollo.exe").display().to_string(),
+                &[
+                    "--config-dir",
+                    &profile.display().to_string(),
+                    "--import-config",
+                    &source.display().to_string(),
+                ],
+                Duration::from_secs(300),
+            )?;
+            if code != 0 {
+                // Nothing has been removed yet: the services that were running
+                // start again when this error returns.
+                bail!(
+                    "importing the settings from {} failed:\n\n{}",
+                    source.display(),
+                    import_error(&output)
+                        .unwrap_or_else(|| format!("butterpollo.exe exited with code {code}"))
+                );
+            }
+            notes.push(format!(
+                "Settings, paired devices and apps were imported from {}. The console keeps that host's sign-in: use its username and password.",
+                source.display()
+            ));
         }
-        notes.push(format!(
-            "Settings, paired devices and apps were imported from {}. The console keeps that host's sign-in: use its username and password.",
-            source.display()
-        ));
-    }
 
-    progress.set("Installing files…");
-    std::fs::create_dir_all(&install)?;
-    secure_install(&install)?;
-    copy_package(&staging, &install, &entries)?;
-    payload::write_stub(
-        &install.join("uninstall.exe"),
-        payload::packaged_stub(&staging, &entries)?.as_deref(),
-    )?;
+        progress.set("Installing files…");
+        std::fs::create_dir_all(&install)?;
+        secure_install(&install)?;
+        copy_package(&staging, &install, &entries)?;
+        payload::write_stub(
+            &install.join("uninstall.exe"),
+            payload::packaged_stub(&staging, &entries)?.as_deref(),
+        )
+    })?;
 
     // The previous host is removed from here on, so a failure now starts
     // the service Rubylight runs as instead.
@@ -813,6 +815,30 @@ fn migration_source(
         );
     }
     Ok(Some(source.clone()))
+}
+/// Runs the import and the steps before the previous host is removed. When
+/// one fails, the profile this run imported into is removed again:
+/// `migration_source` found it empty, and a retry refuses to import over
+/// settings it would take for Rubylight's own.
+fn undo_import_on_error(
+    profile: &Path,
+    importing: bool,
+    steps: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let Err(error) = steps() else {
+        return Ok(());
+    };
+    if !importing {
+        return Err(error);
+    }
+    match std::fs::remove_dir_all(profile) {
+        Ok(()) => Err(error),
+        Err(undo) if undo.kind() == std::io::ErrorKind::NotFound => Err(error),
+        Err(undo) => Err(anyhow!(
+            "{error:#}\n\nThe settings setup imported into {} could not be removed again ({undo}). Delete that folder, then run setup again.",
+            profile.display()
+        )),
+    }
 }
 /// Stop `services`, restarting those that were running if any stop fails.
 fn stop_running<F: FnMut(&str) -> Result<()>>(
@@ -2302,6 +2328,66 @@ mod tests {
             migration_source(&detect::Found::default(), &profile, &install)?,
             None
         );
+        Ok(())
+    }
+    #[test]
+    fn an_install_that_fails_after_the_import_can_be_run_again() -> Result<()> {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir()?;
+        let old = temp.path().join("Vibepollo");
+        let profile = temp.path().join("Butterpollo/config");
+        let install = temp.path().join("programs/Butterpollo");
+        std::fs::create_dir_all(old.join("config"))?;
+        std::fs::write(old.join("config/sunshine.conf"), "encoder=amdvce")?;
+        let found = detect::Found {
+            legacy: vec![detect::Product {
+                key: "Vibepollo".into(),
+                name: "Vibepollo".into(),
+                version: "2.0.0".into(),
+                location: Some(old.clone()),
+                uninstall: None,
+                quiet_uninstall: None,
+                msi: false,
+                root: HKEY_LOCAL_MACHINE,
+            }],
+            ..Default::default()
+        };
+        let import = || -> Result<()> {
+            std::fs::create_dir_all(profile.join("credentials"))?;
+            std::fs::write(profile.join("sunshine.conf"), "encoder=amdvce")?;
+            std::fs::write(profile.join("credentials/cakey.pem"), "key")?;
+            Ok(())
+        };
+        assert!(migration_source(&found, &profile, &install)?.is_some());
+        // The file copy after the import fails: the error is kept and the
+        // import is gone, so the retry imports again.
+        let error = undo_import_on_error(&profile, true, || {
+            import()?;
+            bail!("disk full")
+        })
+        .unwrap_err();
+        assert_eq!(format!("{error:#}"), "disk full");
+        assert!(!profile.exists());
+        assert!(migration_source(&found, &profile, &install)?.is_some());
+        // A successful run keeps it.
+        undo_import_on_error(&profile, true, import)?;
+        assert!(profile.join("sunshine.conf").is_file());
+        // Without an import nothing is removed.
+        assert!(undo_import_on_error(&profile, false, || bail!("disk full")).is_err());
+        assert!(profile.join("sunshine.conf").is_file());
+        // An import that cannot be removed says so and where.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(profile.join("credentials/cakey.pem"))?;
+        let error = undo_import_on_error(&profile, true, || bail!("disk full")).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.starts_with("disk full"), "{message}");
+        assert!(
+            message.contains(&profile.display().to_string()),
+            "{message}"
+        );
+        drop(held);
         Ok(())
     }
     #[test]

@@ -1,0 +1,1 @@
+- **Running setup again after a failed first install.** When a first installation failed after importing Vibepollo's or Apollo's settings, setup now removes that import again, so the next run imports them instead of refusing because Rubylight "already has settings".

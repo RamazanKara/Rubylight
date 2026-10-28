@@ -16,6 +16,7 @@
   import VideoSettings from './VideoSettings.svelte';
   import LosslessSettings from './LosslessSettings.svelte';
   import RadeonSettings from './RadeonSettings.svelte';
+  import PlayTogether from './PlayTogether.svelte';
   import { api, type App, type SessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { guardNavigation, link, navigate } from '../../lib/router.svelte';
@@ -267,6 +268,10 @@
         <CoverPicker {draft} />
       </Panel>
     </div>
+
+    {#if draft.saved.uuid}
+      <PlayTogether uuid={draft.saved.uuid} {draft} />
+    {/if}
 
     <Panel collapsible title="Preparation commands" description="Run before the app starts. Cleanup commands run after it closes.">
       <div class="prep">

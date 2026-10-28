@@ -616,7 +616,26 @@ export interface CoopSession {
   end: CoopEnd | null;
   players: CoopPlayer[];
 }
-/** `GET /api/coop`: background streaming and co-op through Nucleus Co-op (Experimental). */
+/**
+ * One app's co-op on the host: `unknown` before Nucleus Co-op is set up (or while its handlers don't load),
+ * `ready` with a handler and the added game, `launcher` for an app a launcher's link starts (no handler can
+ * match it), otherwise why not, in the host's words (`reason`).
+ */
+export type CoopGameStatus = 'unknown' | 'ready' | 'no_handler' | 'not_added' | 'no_executable' | 'launcher';
+export interface CoopGame {
+  /** The app's uuid. */
+  app: string;
+  name: string;
+  status: CoopGameStatus;
+  reason: string | null;
+  /** The handler's name when ready. */
+  handler: string | null;
+  /** The most players a session seats when ready. */
+  players: number | null;
+  /** The co-op entry's name in the library: `<name> (Co-op)`. */
+  entry: string;
+}
+/** `GET /api/coop`: background streaming and co-op through Nucleus Co-op. */
 export interface CoopStatus {
   mode: {
     setting: string;
@@ -630,10 +649,18 @@ export interface CoopStatus {
     path: string | null;
     version: string | null;
     error: string | null;
+    /** What Set up co-op downloads (older hosts leave it out). */
+    release?: { version: string; size: number };
+    /** Bytes downloaded while installing; all of them while the archive is checked and unpacked. */
+    received?: number | null;
   };
   available: boolean;
   /** Why this host runs no Nucleus Co-op sessions; null when it does. */
   reason: string | null;
+  /** Every app that starts an .exe (older hosts leave it out). */
+  games?: CoopGame[];
+  /** Why Nucleus Co-op's handlers and games did not load. */
+  catalog_error?: string | null;
   sessions: CoopSession[];
 }
 export interface VulkanLayerStatus {
@@ -970,6 +997,10 @@ export const api = {
   },
   coop: {
     status: () => get<CoopStatus>('/api/coop'),
+    /** Starts the pinned, checked download; its progress and a refusal show in `status`. */
+    install: () => post<{ state: 'installing' | 'installed' }>('/api/coop/install', {}),
+    /** Opens Nucleus Co-op's window on the PC's screen, for adding a handler. */
+    open: () => post<Record<string, never>>('/api/coop/open', {}, ACTION_TIMEOUT_MS),
     /** Frees the slot; the device's stream ends. */
     kick: (session: number, slot: number) => post<{ device: string }>('/api/coop/kick', { session, slot }, ACTION_TIMEOUT_MS),
     /** Stops Nucleus Co-op and every instance, and ends each player's stream. */

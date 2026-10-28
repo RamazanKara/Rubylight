@@ -38,6 +38,8 @@ export const FLAGS = {
   'lossless-scaling-enabled': false,
   'lossless-scaling-legacy-auto-detect': false,
   'background-stream': false,
+  /** The game's "<name> (Co-op)" entry lists in the library. */
+  'coop-entry': true,
 } as const;
 export type FlagKey = keyof typeof FLAGS;
 

@@ -109,7 +109,7 @@
       {:else if status.install.state === 'missing'}
         <p class="muted">
           The first background or co-op launch downloads Nucleus Co-op and checks it before it runs. Add game handlers in
-          Nucleus Co-op’s handler hub; each game with one gets a “Co-op (Nucleus)” entry in the library.
+          Nucleus Co-op’s handler hub; each game with one gets a “&lt;game&gt; (Co-op)” entry in the library.
         </p>
       {/if}
       {#if status.sessions.length === 0}

@@ -6,6 +6,7 @@
     <string name="stream_rate_change_fps_invalid">Enter a frame rate from 10 to 500 fps</string>
     <string name="stream_rate_change_nothing">Change the bitrate or the frame rate first</string>
     <string name="stream_rate_change_not_sent">The change could not be sent to the host.</string>
+    <string name="stream_rate_change_stream_ended">The stream ended before the change was sent. Nothing was changed.</string>
     <string name="stream_rate_change_bitrate_applied">Bitrate: %1$.1f Mbps</string>
     <string name="stream_rate_change_bitrate_clamped">Bitrate: %1$.1f Mbps, lower than asked. %2$s</string>
     <string name="stream_rate_change_bitrate_refused">Bitrate not changed, still %1$.1f Mbps. %2$s</string>

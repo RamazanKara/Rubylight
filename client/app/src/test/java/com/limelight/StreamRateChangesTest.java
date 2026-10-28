@@ -39,12 +39,14 @@ public class StreamRateChangesTest {
     public void aRequestFromTheMenuGoesOutWithItsOwnSerialAndComesBackAsManual() {
         assertTrue(changes.sendManual(30_000, 0));
         assertTrue(changes.sendManual(0, 120_000));
-        assertArrayEquals(new int[] {1, 30_000, 0}, sent.get(0));
-        assertArrayEquals(new int[] {2, 0, 120_000}, sent.get(1));
-        assertEquals(StreamRateChanges.Answer.MANUAL, changes.onResult(bitrate(1, 30_000, STATUS_APPLIED, REASON_NONE), 0));
+        int first = sent.get(0)[0];
+        assertArrayEquals(new int[] {first, 30_000, 0}, sent.get(0));
+        assertArrayEquals(new int[] {first + 1, 0, 120_000}, sent.get(1));
+        assertEquals(StreamRateChanges.Answer.MANUAL, changes.onResult(bitrate(first, 30_000, STATUS_APPLIED, REASON_NONE), 0));
         assertEquals("a serial answers once", StreamRateChanges.Answer.UNKNOWN,
-                changes.onResult(bitrate(1, 30_000, STATUS_APPLIED, REASON_NONE), 0));
-        assertEquals(StreamRateChanges.Answer.UNKNOWN, changes.onResult(bitrate(9, 30_000, STATUS_APPLIED, REASON_NONE), 0));
+                changes.onResult(bitrate(first, 30_000, STATUS_APPLIED, REASON_NONE), 0));
+        assertEquals(StreamRateChanges.Answer.UNKNOWN,
+                changes.onResult(bitrate(first + 9, 30_000, STATUS_APPLIED, REASON_NONE), 0));
     }
 
     @Test
@@ -54,7 +56,10 @@ public class StreamRateChangesTest {
         sendWorks = true;
         changes.startAutomatic(20_000, 0);
         // Nothing outstanding, so automatic bitrate samples and asks.
-        assertEquals(2, automaticRequest(ClientHintBitrateController.START_DELAY_MS)[0]);
+        int[] request = automaticRequest(ClientHintBitrateController.START_DELAY_MS);
+        assertEquals(1, sent.size());
+        assertEquals(StreamRateChanges.Answer.AUTOMATIC,
+                changes.onResult(bitrate(request[0], request[1], STATUS_APPLIED, REASON_NONE), 10_000));
     }
 
     @Test
@@ -92,7 +97,8 @@ public class StreamRateChangesTest {
         assertTrue(changes.sendManual(50_000, 0));
         for (long now = 0; now < 20_000; now += 1000) assertTrue(changes.sampleAutomatic(now, true, 0, 0));
         assertEquals("nothing while the menu's request is out", 1, sent.size());
-        assertEquals(StreamRateChanges.Answer.MANUAL, changes.onResult(bitrate(1, 50_000, STATUS_APPLIED, REASON_NONE), 20_000));
+        assertEquals(StreamRateChanges.Answer.MANUAL,
+                changes.onResult(bitrate(sent.get(0)[0], 50_000, STATUS_APPLIED, REASON_NONE), 20_000));
         assertEquals(50_000, changes.automatic().currentKbps());
         assertEquals(100_000, changes.automatic().maxKbps());
     }
@@ -120,5 +126,24 @@ public class StreamRateChangesTest {
         }
         assertTrue(failed);
         assertFalse(changes.automaticOn());
+    }
+
+    @Test
+    public void aLateResultOfAnEarlierStreamMatchesNoRequestOfTheNext() {
+        assertTrue(changes.sendManual(30_000, 0));
+        int earlier = sent.get(0)[0];
+        // The stream restarts before the host's answer is handled: a new stream, new requests.
+        StreamRateChanges next = new StreamRateChanges((serial, kbps, mhz) -> {
+            sent.add(new int[] {serial, kbps, mhz});
+            return true;
+        });
+        assertTrue(next.sendManual(40_000, 0));
+        next.startAutomatic(20_000, 0);
+        assertNotEquals(earlier, sent.get(1)[0]);
+        assertEquals(StreamRateChanges.Answer.UNKNOWN,
+                next.onResult(bitrate(earlier, 30_000, STATUS_REFUSED, REASON_HOST_LIMIT), 1000));
+        assertTrue("the late answer neither stops automatic bitrate", next.automaticOn());
+        assertEquals("nor stands in for the menu's request", StreamRateChanges.Answer.MANUAL,
+                next.onResult(bitrate(sent.get(1)[0], 40_000, STATUS_APPLIED, REASON_NONE), 1000));
     }
 }

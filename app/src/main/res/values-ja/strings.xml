@@ -277,6 +277,9 @@
     <string name="summary_content_rate_frame_rate">ゲームが実際に動作しているフレームレートを Android に伝え、対応するモードを持つ画面が、画面が真っ暗にならずにそのモードへ切り替えられるようにします。フレームタイミングを送信する PC と「低いリフレッシュレートを許可」が必要です。変更は 2 秒に 1 回までです。PyroWave と可変リフレッシュレートでは使用されません。</string>
     <string name="title_virtual_display_scale">PC のレンダリング解像度</string>
     <string name="summary_virtual_display_scale">PC がレンダリングする解像度を、ストリーム解像度に対する割合で指定します。送信される映像のサイズは変わりません。送るピクセル数を減らしてこの端末でアップスケールするには、ストリーム解像度を下げてください。</string>
+    <string name="title_virtual_display_dpi">PC のディスプレイ拡大率</string>
+    <string name="summary_virtual_display_dpi">仮想ディスプレイ上の文字とインターフェースの大きさです。Rubylight の PC で使われます。</string>
+    <string name="virtual_display_dpi_pc_own">PC の設定のまま</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f（n=%4$d）</string>
     <string name="latency_unavailable">データなし</string>
     <string name="title_export_latency_csv">遅延の CSV をエクスポート</string>

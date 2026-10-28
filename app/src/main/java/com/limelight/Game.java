@@ -1520,6 +1520,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setAttachedGamepadMask(gamepadMask)
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
+                .setVirtualDisplayDpi(prefConfig.virtualDisplayDpi)
                 .setVrr(!smallStream && prefConfig.vrr)
                 .setClipboardSync(prefConfig.clipboardSync && prefConfig.rustEngine)
                 .setHostDisplay(prefConfig.hostDisplay)

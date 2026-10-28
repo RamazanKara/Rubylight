@@ -246,9 +246,43 @@ public class HostStreamProfileTest {
     }
 
     @Test
+    public void aPcCanHaveItsOwnDisplayScaleApartFromItsRenderScale() {
+        HostStreamProfile profile = HostStreamProfile.deserialize("v2;scale=100;dpi=200");
+        assertEquals(Integer.valueOf(200), profile.displayScale);
+        assertEquals("v2;scale=100;dpi=200", profile.serialize());
+        PreferenceConfiguration config = new PreferenceConfiguration();
+        config.virtualDisplayScale = 150;
+        profile.applyTo(config);
+        assertEquals(100, config.virtualDisplayScale);
+        assertEquals(200, config.virtualDisplayDpi);
+        // "PC's own" set for one PC overrides a scale chosen for all PCs.
+        config.virtualDisplayDpi = 150;
+        HostStreamProfile.deserialize("v2;dpi=0").applyTo(config);
+        assertEquals(0, config.virtualDisplayDpi);
+        // Unset, the PC follows the setting for all PCs.
+        config.virtualDisplayDpi = 150;
+        HostStreamProfile.deserialize("v2;hdr=true").applyTo(config);
+        assertEquals(150, config.virtualDisplayDpi);
+        // A scale Windows does not offer would fail the launch.
+        assertThrows(IllegalArgumentException.class, () -> HostStreamProfile.deserialize("v2;dpi=130"));
+        assertThrows(IllegalArgumentException.class, () -> HostStreamProfile.deserialize("v2;dpi=600"));
+    }
+
+    @Test
+    public void aStoredDisplayScaleOutsideTheChoicesKeepsThePcsOwn() {
+        assertEquals(0, PreferenceConfiguration.virtualDisplayDpi("0"));
+        assertEquals(175, PreferenceConfiguration.virtualDisplayDpi("175"));
+        assertEquals(500, PreferenceConfiguration.virtualDisplayDpi("500"));
+        assertEquals(0, PreferenceConfiguration.virtualDisplayDpi("130"));
+        assertEquals(0, PreferenceConfiguration.virtualDisplayDpi("600"));
+        assertEquals(0, PreferenceConfiguration.virtualDisplayDpi("-100"));
+        assertEquals(0, PreferenceConfiguration.virtualDisplayDpi("junk"));
+    }
+
+    @Test
     public void everyFieldCanBeCopiedAloneAndFallsThroughWhenUnset() {
         HostStreamProfile full = HostStreamProfile.deserialize("v2;res=1920x1080;refresh=6000;bitrate=20000;" +
-                "scale=150;codec=FORCE_AV1;virtual=true;hdr=true;full_range=true;yuv444=true;vrr=false;" +
+                "scale=150;dpi=175;codec=FORCE_AV1;virtual=true;hdr=true;full_range=true;yuv444=true;vrr=false;" +
                 "upscaling=FSR1;sharpness=60;pacing=balanced");
         assertEquals(HostStreamProfile.Field.values().length, full.count());
         HostStreamProfile copy = new HostStreamProfile();

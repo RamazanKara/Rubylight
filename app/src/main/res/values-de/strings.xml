@@ -277,6 +277,9 @@
     <string name="summary_content_rate_frame_rate">Meldet Android die Bildrate, mit der das Spiel tatsächlich läuft, damit ein Display mit passendem Modus ohne schwarzen Bildschirm darauf umschalten kann. Braucht einen PC, der Bildzeiten sendet, und „Niedrigere Display-Bildrate“; ändert höchstens alle 2 Sekunden. Nicht mit PyroWave oder adaptiver Bildwiederholrate.</string>
     <string name="title_virtual_display_scale">Render-Auflösung des PCs</string>
     <string name="summary_virtual_display_scale">Prozent der Stream-Auflösung, mit der der PC rendert. Die Größe des übertragenen Videos ändert sich nicht. Senke die Stream-Auflösung, um weniger Pixel zu übertragen und auf diesem Gerät hochzuskalieren.</string>
+    <string name="title_virtual_display_dpi">Display-Skalierung am PC</string>
+    <string name="summary_virtual_display_dpi">Text- und Oberflächengröße auf dem virtuellen Display, auf Rubylight-PCs.</string>
+    <string name="virtual_display_dpi_pc_own">Wie am PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">Noch keine Daten</string>
     <string name="title_export_latency_csv">Latenz als CSV exportieren</string>

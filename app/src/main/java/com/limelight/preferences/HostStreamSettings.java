@@ -782,6 +782,7 @@ public class HostStreamSettings extends NightjarActivity {
                 if (virtualDisplay) {
                     row(display, "virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
                     row(display, "scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
+                    row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
                 }
             }
             Preference footer = new Preference(activity);
@@ -926,6 +927,10 @@ public class HostStreamSettings extends NightjarActivity {
                     config.fps * 100 : config.launchRefreshRateX100) + " " + getString(R.string.fps_suffix_fps);
         }
 
+        private String displayScaleText(int percent) {
+            return percent == 0 ? getString(R.string.virtual_display_dpi_pc_own) : percent + "%";
+        }
+
         private String upscalingText(PreferenceConfiguration config) {
             String upscaling = getResources().getStringArray(R.array.upscaling_names)[config.upscalingMode.ordinal()];
             if (config.upscalingMode != UpscalingPolicy.Mode.OFF) {
@@ -999,10 +1004,13 @@ public class HostStreamSettings extends NightjarActivity {
                     "\n" + getString(R.string.summary_vrr));
             Preference virtual = findPreference("virtual");
             Preference scale = findPreference("scale");
+            Preference dpi = findPreference("dpi");
             if (virtual != null) {
                 virtual.setSummary(summary(HostStreamProfile.Field.VIRTUAL_DISPLAY, switchOverride("virtual") != null, onOff(switchValue(config, "virtual"))));
                 scale.setSummary(summary(HostStreamProfile.Field.RENDER_SCALE, own.renderScale != null, config.virtualDisplayScale + "%") +
                         "\n" + getString(R.string.summary_virtual_display_scale));
+                dpi.setSummary(summary(HostStreamProfile.Field.DISPLAY_SCALE, own.displayScale != null,
+                        displayScaleText(config.virtualDisplayDpi)) + "\n" + getString(R.string.summary_virtual_display_dpi));
             }
             Preference preset = findPreference("preset");
             if (preset != null) {
@@ -1025,6 +1033,7 @@ public class HostStreamSettings extends NightjarActivity {
                 }
                 applyGate(virtual, HostCapabilities.Feature.VIRTUAL_DISPLAY);
                 applyGate(scale, HostCapabilities.Feature.VIRTUAL_DISPLAY);
+                applyGate(dpi, HostCapabilities.Feature.VIRTUAL_DISPLAY);
             }
             if (display != null) {
                 display.setSummary(getString(displayChoice.label) + "\n" + getString(R.string.settings_profile_display_immediate));
@@ -1090,6 +1099,23 @@ public class HostStreamSettings extends NightjarActivity {
             new NavigationDialogBuilder(activity).setTitle(R.string.title_frame_pacing)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         activity.overrides.pacing = which == 0 ? null : values[which - 1];
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
+        private void showDisplayScale() {
+            int[] values = PreferenceConfiguration.VIRTUAL_DISPLAY_DPI_VALUES;
+            CharSequence[] items = new CharSequence[values.length + 1];
+            items[0] = sameAs(displayScaleText(activity.global.virtualDisplayDpi));
+            int checked = 0;
+            for (int i = 0; i < values.length; i++) {
+                items[i + 1] = displayScaleText(values[i]);
+                if (activity.overrides.displayScale != null && activity.overrides.displayScale == values[i]) checked = i + 1;
+            }
+            new NavigationDialogBuilder(activity).setTitle(R.string.title_virtual_display_dpi)
+                    .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                        activity.overrides.displayScale = which == 0 ? null : values[which - 1];
                         updateSummaries();
                         dialog.dismiss();
                     }).setNegativeButton(android.R.string.cancel, null).show();

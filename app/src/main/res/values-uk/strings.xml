@@ -277,6 +277,9 @@
     <string name="summary_content_rate_frame_rate">Повідомляє Android, з якою частотою кадрів гра насправді працює, щоб екран із відповідним режимом міг перемкнутися на неї без чорного екрана. Потрібен ПК, що надсилає час кадрів, і параметр «Дозволити нижчу частоту оновлення»; змінюється не частіше ніж раз на 2 секунди. Не використовується з PyroWave та адаптивною частотою.</string>
     <string name="title_virtual_display_scale">Роздільність рендерингу на ПК</string>
     <string name="summary_virtual_display_scale">Частка роздільності трансляції у відсотках, з якою ПК виконує рендеринг. Розмір відео, що передається, не змінюється. Щоб надсилати менше пікселів і масштабувати зображення на цьому пристрої, знизьте роздільність трансляції.</string>
+    <string name="title_virtual_display_dpi">Масштаб екрана ПК</string>
+    <string name="summary_virtual_display_dpi">Розмір тексту та інтерфейсу на віртуальному дисплеї, на ПК з Rubylight.</string>
+    <string name="virtual_display_dpi_pc_own">Як на ПК</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">ще немає даних</string>
     <string name="title_export_latency_csv">Експортувати CSV затримки</string>

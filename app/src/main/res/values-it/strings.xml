@@ -277,6 +277,9 @@
     <string name="summary_content_rate_frame_rate">Comunica ad Android la frequenza di fotogrammi con cui il gioco gira davvero, così uno schermo con una modalità corrispondente può passarci senza schermo nero. Richiede un PC che invii i tempi dei fotogrammi e «Consenti frequenza di aggiornamento più bassa»; cambia al massimo una volta ogni 2 secondi. Non usato con PyroWave né con l’aggiornamento adattivo.</string>
     <string name="title_virtual_display_scale">Risoluzione di rendering del PC</string>
     <string name="summary_virtual_display_scale">Percentuale della risoluzione dello stream con cui il PC esegue il rendering. La dimensione del video trasmesso non cambia. Per inviare meno pixel e fare l’upscaling su questo dispositivo, abbassa la risoluzione dello stream.</string>
+    <string name="title_virtual_display_dpi">Ridimensionamento dello schermo del PC</string>
+    <string name="summary_virtual_display_dpi">Dimensione di testo e interfaccia sul display virtuale, sui PC con Rubylight.</string>
+    <string name="virtual_display_dpi_pc_own">Quella del PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">ancora nessun dato</string>
     <string name="title_export_latency_csv">Esporta CSV della latenza</string>

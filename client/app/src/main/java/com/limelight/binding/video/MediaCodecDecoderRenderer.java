@@ -69,6 +69,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile boolean dolbyVisionActive;
     // The first Dolby Vision frame's padding after the RPU was logged for this decoder.
     private boolean dolbyVisionPaddingLogged;
+    // The decoder that gets frames without the host's HDR Vivid SEI (HdrBitstream.dropsVivid), or null;
+    // the first drop is logged.
+    private String vividSeiDropDecoder;
+    private boolean vividSeiDropLogged;
+    private final int[] vividSeiRange = new int[2];
 
     private final ArrayList<byte[]> vpsBuffers = new ArrayList<>();
     private final ArrayList<byte[]> spsBuffers = new ArrayList<>();
@@ -2250,6 +2255,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         boolean dolbyVision = HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType);
         dolbyVisionActive = false;
         dolbyVisionPaddingLogged = false;
+        vividSeiDropDecoder = HdrBitstream.dropsVivid(selectedDecoderInfo.getName(), mimeType) ?
+                selectedDecoderInfo.getName() : null;
+        vividSeiDropLogged = false;
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
 
@@ -4075,6 +4083,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.info("Dolby Vision: the first frame ends " + HdrBitstream.tail(decodeUnitData, queuedLength, 8) +
                     ", dropped " + (decodeUnitLength - queuedLength) + " zero bytes after it");
         }
+        // MediaTek shows a stream with HDR Vivid as SDR on displays without Vivid; see HdrBitstream.dropsVivid.
+        String vividDecoder = vividSeiDropDecoder;
+        boolean dropVivid = vividDecoder != null && HdrBitstream.findVividSei(decodeUnitData, queuedLength, vividSeiRange);
+        if (dropVivid) {
+            queuedLength -= vividSeiRange[1] - vividSeiRange[0];
+            if (!vividSeiDropLogged) {
+                vividSeiDropLogged = true;
+                LimeLog.warning("HDR Vivid: " + vividDecoder + " shows Vivid as SDR on displays without it;" +
+                        " frames reach it without the host's Vivid SEI (" + (vividSeiRange[1] - vividSeiRange[0]) +
+                        " bytes), with HDR10+ and HDR10");
+            }
+        }
 
         if (queuedLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
             // The recovery drops this buffer and frame; the IDR asked for then fits.
@@ -4093,7 +4113,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Copy data from our buffer list into the input buffer
-        nextInputBuffer.put(decodeUnitData, 0, queuedLength);
+        if (dropVivid) {
+            nextInputBuffer.put(decodeUnitData, 0, vividSeiRange[0]);
+            nextInputBuffer.put(decodeUnitData, vividSeiRange[1], queuedLength - vividSeiRange[0]);
+        } else {
+            nextInputBuffer.put(decodeUnitData, 0, queuedLength);
+        }
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again

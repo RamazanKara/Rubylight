@@ -37,7 +37,7 @@ use butterpollo_windows::clipboard;
 use parity_tests::clipboard;
 use serde_json::json;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     ops::ControlFlow,
     sync::Mutex,
     time::{Duration, Instant},
@@ -2461,12 +2461,58 @@ fn clipboard_limit(h: &Shared, kind: Option<ClipboardType>) -> usize {
         _ => 1024 * 1024,
     }
 }
+/// Image clipboard requests take turns: each holds up to the image limit as
+/// its body or copy, and far more while it converts, so they would add up.
+/// A device asking again before its last image request has ended is
+/// refused, so one device can't queue ahead of the others.
+struct ImageTurns {
+    devices: Mutex<BTreeSet<String>>,
+    turn: tokio::sync::Semaphore,
+}
+static IMAGE_TURNS: ImageTurns = ImageTurns::new();
+/// A device's image request, holding the turn until it is dropped.
+struct ImageTurn<'a> {
+    _turn: tokio::sync::SemaphorePermit<'a>,
+    _device: ImageDevice<'a>,
+}
+struct ImageDevice<'a>(&'a ImageTurns, String);
+impl Drop for ImageDevice<'_> {
+    fn drop(&mut self) {
+        self.0.devices.lock().unwrap().remove(&self.1);
+    }
+}
+impl ImageTurns {
+    const fn new() -> Self {
+        Self {
+            devices: Mutex::new(BTreeSet::new()),
+            turn: tokio::sync::Semaphore::const_new(1),
+        }
+    }
+    /// The turn of `device`, after any other image request has ended, or
+    /// `None` while one of its own is waiting or running.
+    async fn take(&self, device: &str) -> Option<ImageTurn<'_>> {
+        if !self.devices.lock().unwrap().insert(device.to_owned()) {
+            return None;
+        }
+        // Released if the request is dropped while it waits.
+        let device = ImageDevice(self, device.to_owned());
+        let turn = self
+            .turn
+            .acquire()
+            .await
+            .expect("the image turn is never closed");
+        Some(ImageTurn {
+            _turn: turn,
+            _device: device,
+        })
+    }
+}
 fn clipboard_client(
     h: &Shared,
     c: &Connection,
     permission: u32,
     args: &Args,
-) -> Result<ClipboardType> {
+) -> Result<(ClipboardType, String)> {
     let client = authenticated(h, c, permission)?;
     if client.perm & ((1 << 25) | (1 << 26)) == 0 {
         bail!("view permission required");
@@ -2499,19 +2545,27 @@ fn clipboard_client(
     }) {
         bail!("clipboard access is off for background streams");
     }
-    Ok(kind)
+    Ok((kind, client.uuid))
 }
 async fn clipboard_read(
     State(h): State<Shared>,
     Extension(c): Extension<Connection>,
     Query(args): Query<Args>,
 ) -> Response {
-    let Ok(kind) = clipboard_client(&h, &c, 1 << 17, &args) else {
+    let Ok((kind, device)) = clipboard_client(&h, &c, 1 << 17, &args) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     if kind == ClipboardType::Png {
+        let Some(turn) = IMAGE_TURNS.take(&device).await else {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        };
         let max = clipboard_limit(&h, Some(kind));
-        return match tokio::task::spawn_blocking(move || clipboard::read_png(max)).await {
+        // The turn goes with the copy, which outlives a dropped request.
+        let read = move || {
+            let _turn = turn;
+            clipboard::read_png(max)
+        };
+        return match tokio::task::spawn_blocking(read).await {
             Ok(Ok(Some(png))) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
             Ok(Ok(None)) => StatusCode::NOT_FOUND.into_response(),
             // The device did nothing wrong: an image this host can't
@@ -2548,18 +2602,30 @@ async fn clipboard_write(
     if declared.is_some_and(|length| length > limit as u64) {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    let Ok(kind) = clipboard_client(&h, &c, 1 << 16, &args) else {
+    let Ok((kind, device)) = clipboard_client(&h, &c, 1 << 16, &args) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     if kind == ClipboardType::Png && !is_png_content_type(request.headers()) {
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
     }
+    // An image's turn comes before its body is read.
+    let turn = match kind {
+        ClipboardType::Png => match IMAGE_TURNS.take(&device).await {
+            Some(turn) => Some(turn),
+            None => return StatusCode::TOO_MANY_REQUESTS.into_response(),
+        },
+        ClipboardType::Text => None,
+    };
     let body = match body_within(request.into_body(), limit).await {
         Ok(body) => body,
         Err(status) => return status.into_response(),
     };
     if kind == ClipboardType::Png {
-        return match tokio::task::spawn_blocking(move || clipboard::write_png(&body)).await {
+        let write = move || {
+            let _turn = turn;
+            clipboard::write_png(&body)
+        };
+        return match tokio::task::spawn_blocking(write).await {
             Ok(Ok(())) => StatusCode::OK.into_response(),
             Ok(Err(error)) => clipboard_image_failure("writing", &error, StatusCode::BAD_REQUEST),
             Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),

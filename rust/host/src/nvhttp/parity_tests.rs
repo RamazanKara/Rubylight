@@ -1490,7 +1490,9 @@ async fn clipboard_requires_direction_view_text_and_an_active_session_for_this_d
     f.host.paired.write().unwrap().clients[0].perm = (1 << 16) | (1 << 17) | (1 << 26);
     let png = Args::from([("type".into(), "png".into())]);
     assert_eq!(
-        clipboard_client(&f.host, &c, 1 << 17, &png).ok(),
+        clipboard_client(&f.host, &c, 1 << 17, &png)
+            .ok()
+            .map(|(kind, _)| kind),
         Some(ClipboardType::Png)
     );
     f.host
@@ -1548,6 +1550,7 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     let _turn = clipboard::TURN.lock().await;
     let f = Fixture::new();
     let client = f.client((1 << 16) | (1 << 17) | (1 << 25));
+    let client_uuid = client.uuid.clone();
     let _session = f.session(client, Role::InputOnly);
     let set = |key: &str, value: &str| {
         f.host
@@ -1603,6 +1606,44 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     *clipboard::PNG.lock().unwrap() = Some(vec![0; MIB + 1]);
     assert_eq!(get().await.status(), StatusCode::PAYLOAD_TOO_LARGE);
     *clipboard::PNG.lock().unwrap() = None;
+    // While one of its image requests runs, the device's next one is
+    // refused, both ways; text doesn't wait for images.
+    let running = IMAGE_TURNS.take(&client_uuid).await.unwrap();
+    assert_eq!(get().await.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        post_png(&f, Some("image/png"), Some(png.len()), png.clone()).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        request(&f, true, "GET", "/actions/clipboard?type=text")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    drop(running);
+    assert_eq!(get().await.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn image_clipboard_requests_take_turns_one_per_device() {
+    let turns = ImageTurns::new();
+    let first = turns.take("a").await.expect("a's turn");
+    // The device's second request is refused rather than queued...
+    assert!(turns.take("a").await.is_none());
+    // ...and another device's waits, without its copy or body, for the turn.
+    let waiting = tokio::time::timeout(Duration::from_millis(50), turns.take("b")).await;
+    assert!(waiting.is_err());
+    // A request dropped while it waited leaves its device free to ask again.
+    assert!(!turns.devices.lock().unwrap().contains("b"));
+    drop(first);
+    let b = turns.take("b").await.expect("b's turn once a's has ended");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), turns.take("a"))
+            .await
+            .is_err()
+    );
+    drop(b);
+    assert!(turns.take("a").await.is_some());
 }
 
 #[test]

@@ -19,7 +19,9 @@ const CF_DIBV5: u32 = 17;
 static LOCK: Mutex<()> = Mutex::new(());
 /// Held while an image is decoded or encoded: each can take hundreds of MiB
 /// at the limits (`clipboard_image::MAX_PIXELS`), so requests take turns
-/// rather than adding up. Never held with the clipboard open.
+/// rather than adding up. Never held with the clipboard open. The host also
+/// lets one image request in at a time, so their copies and bodies don't add
+/// up either.
 static CONVERT: Mutex<()> = Mutex::new(());
 /// The lock guards no data, so one a panic poisoned still serializes.
 fn lock(mutex: &Mutex<()>) -> MutexGuard<'_, ()> {

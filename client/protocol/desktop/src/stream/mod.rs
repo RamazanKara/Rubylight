@@ -17,6 +17,7 @@ pub mod doctor;
 pub mod overlay;
 mod recovery;
 mod quality;
+mod rate_change;
 mod touch;
 mod upscale;
 mod phase;
@@ -53,6 +54,7 @@ use nightjar_policy::stats::Stats;
 use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PipelineRatesRequest, PIPELINE_RATES_MESSAGE_TYPE, UNKNOWN};
 use rubylight_protocol::present_clock::ClockOffset;
+use rubylight_protocol::rate_change::{RateChangeRequest, RateChangeResult};
 use sdl3_sys::everything::*;
 
 use crate::config::{self, AudioChannels, CodecPreference, HostRecord, MouseMode, OverlayCorner, OverlayMode, QualityMode, Settings};
@@ -131,6 +133,8 @@ pub struct Facts {
     pub server_commands: Vec<String>,
     pub runtime_bitrate: bool,
     pub reconfigure: bool,
+    /// The host takes mid-stream bitrate and rate changes (0x553C).
+    pub rate_change: bool,
     pub touch: bool,
     pub phase_lock: bool,
     /// PyroWave decodes blocks while a frame arrives (`Settings::early_decode`, or the
@@ -793,6 +797,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         host_display: settings.host_display.into(),
         fec: Some(settings.error_correction.into()),
         small_stream_input_only: plan.small_stream_input_only,
+        // The host lists 0x553C in DESCRIBE only when asked.
+        rate_change: role == AppRole::Stream,
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -993,6 +999,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         runtime_bitrate: plan.info.capabilities.has(Feature::RuntimeBitrate) && role != AppRole::InputOnly,
         reconfigure: outcome.host_control_messages.contains(&RECONFIGURE_MESSAGE_TYPE)
             && !outcome.config.experimental_packed_444 && outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE == 0 && role == AppRole::Stream,
+        rate_change: rate_change::offered(&outcome.host_control_messages, role),
         touch: outcome.sunshine_feature_flags & nightjar_core::control::negotiation::feature::PEN_TOUCH_EVENTS != 0
             && role != AppRole::RemoteMonitor,
         phase_lock: outcome.host_control_messages.contains(&rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE),
@@ -1231,6 +1238,8 @@ pub struct Streaming {
     bitrate_policy: Option<bitrate::Bitrate>,
     /// The stream doctor: its report in the stream menu and after the stream, and the bitrate trial.
     doctor: doctor::Doctor,
+    /// Rate changes over 0x553C, on a stream that takes them.
+    pub rate_change: Option<rate_change::RateChange>,
     pub quality_mode: QualityMode,
     quality_policy: Option<quality::Quality>,
     quality_ceiling: Reconfigure,
@@ -1340,6 +1349,8 @@ impl Streaming {
                 }
             },
         };
+        let rate_change = facts.rate_change.then(|| rate_change::RateChange::new(
+            bitrate_kbps, facts.fps.max(1) as u32 * 1000, settings.client_hint_bitrate, connecting.plan.bitrate_limit_kbps, 0));
         let backlog = connecting.shared.pacer_backlog.clone();
         // The stream controls read the attachments each time they are drawn.
         let usb = if settings.usb_forwarding { lock(&connecting.shared.host_client).clone() } else { None }
@@ -1392,6 +1403,7 @@ impl Streaming {
             adaptive_bitrate: false,
             bitrate_policy: None,
             doctor: doctor::Doctor::default(),
+            rate_change,
             quality_mode,
             quality_policy,
             quality_ceiling: mode,
@@ -1551,6 +1563,7 @@ impl Streaming {
         if let Some(rate) = &mut self.bitrate_policy {
             rate.set_mode(u32::from(request.width), u32::from(request.height), request.fps_millihz.div_ceil(1000));
         }
+        if let Some(rates) = &mut self.rate_change { rates.fps_set(request.fps_millihz); }
         true
     }
 
@@ -1788,6 +1801,7 @@ impl Streaming {
                         Ok(kbps) => {
                             self.facts.bitrate_kbps = kbps as i32;
                             self.bitrate_kbps = kbps;
+                            if let Some(rates) = &mut self.rate_change { rates.bitrate_set(kbps, self.started.elapsed().as_millis() as u64); }
                             if let Some(policy) = &mut self.bitrate_policy {
                                 policy.applied(requested, kbps, self.started.elapsed().as_millis() as u64);
                             } else {
@@ -1897,6 +1911,7 @@ impl Streaming {
                 self.link_notice = (notice.state != LinkState::Full).then_some(notice);
             }
             ControlEvent::PipelineRates(report) => self.pipeline_rates = Some(report),
+            ControlEvent::RateChange(result) => self.rate_change_result(&result),
             ControlEvent::ClockSync { reply, received } => {
                 let receive_us = session::now_us().saturating_sub(received.elapsed().as_micros() as u64);
                 self.offset.add(&reply, receive_us);
@@ -2061,8 +2076,58 @@ impl Streaming {
         });
     }
 
+    /// Sends the stream menu's rate change; the host's answer comes back as a toast.
+    pub fn change_rates(&mut self) {
+        let Some(rates) = &mut self.rate_change else { return };
+        match rates.menu_request(self.started.elapsed().as_millis() as u64) {
+            Ok(request) => self.send_rate_change(request),
+            Err(toast) => self.show_toast(toast),
+        }
+    }
+
+    fn send_rate_change(&mut self, request: RateChangeRequest) {
+        if let Err(error) = self.session.send(ClientMessage::RateChange(request)) {
+            let toast = self.rate_change.as_mut().expect("rate changes offered").send_failed(&request, &error);
+            self.show_toast(toast);
+        }
+    }
+
+    fn rate_change_result(&mut self, result: &RateChangeResult) {
+        let Some(rates) = &mut self.rate_change else { return };
+        let answer = rates.result(result, self.started.elapsed().as_millis() as u64);
+        if let Some(kbps) = answer.bitrate_kbps {
+            self.facts.bitrate_kbps = kbps as i32;
+            self.bitrate_kbps = kbps;
+            let now = self.started.elapsed().as_millis() as u64;
+            if let Some(policy) = &mut self.bitrate_policy { policy.applied(kbps, kbps, now); }
+        }
+        if let Some(fps_millihz) = answer.fps_millihz {
+            self.facts.fps = fps_millihz.div_ceil(1000) as i32;
+            self.shared.fps_millihz.store(fps_millihz, Ordering::Relaxed);
+            *lock(&self.shared.decode_window) = pipeline::DecodeWindow::default();
+            self.decode_window_us = session::now_us();
+            self.decode_generation += 1;
+            self.requested_mode.fps_millihz = fps_millihz;
+            if let Some(rate) = &mut self.bitrate_policy {
+                let mode = self.requested_mode;
+                rate.set_mode(u32::from(mode.width), u32::from(mode.height), fps_millihz.div_ceil(1000));
+            }
+        }
+        if let Some(toast) = answer.toast { self.show_toast(toast); }
+    }
+
+    /// The client-hint controller steers this stream's bitrate in place of the PC's adaptive
+    /// bitrate.
+    pub fn client_hint_active(&self) -> bool {
+        self.rate_change.as_ref().is_some_and(|rates| rates.hint_active())
+    }
+
     pub fn enable_adaptive_bitrate(&mut self, enabled: bool) {
         if self.bitrate_busy { return; }
+        if enabled && self.client_hint_active() {
+            eprintln!("nightjar: client-hint bitrate adapts this stream; the PC's adaptive bitrate stays off");
+            return;
+        }
         self.bitrate_policy = None;
         self.adaptive_bitrate = enabled && self.facts.runtime_bitrate && self.facts.role == AppRole::Stream;
         if !self.adaptive_bitrate { return; }
@@ -2764,7 +2829,7 @@ impl Streaming {
         }
         lines.push(("Audio".into(), audio));
         lines.push(("Bitrate".into(), format!("{:.1} Mbps{}", f64::from(self.facts.bitrate_kbps) / 1000.0,
-            if self.adaptive_bitrate { ", automatic" } else { "" })));
+            if self.adaptive_bitrate || self.client_hint_active() { ", automatic" } else { "" })));
         if let Some(report) = &self.pipeline_rates {
             lines.push(("Host pipeline".into(), pipeline_rates_line(report)));
         }
@@ -2831,7 +2896,8 @@ impl Streaming {
         let quality_target = if let Some(policy) = &mut self.quality_policy {
             if self.menu_visible || !self.focused || self.pending_mode.is_some() { policy.suspend(); None }
             else {
-                let has_room = self.bitrate_busy || self.bitrate_policy.as_ref().is_some_and(|p| p.has_room());
+                let has_room = self.bitrate_busy || self.bitrate_policy.as_ref().is_some_and(|p| p.has_room())
+                    || self.rate_change.as_ref().is_some_and(|rates| rates.hint_has_room());
                 policy.sample(&tick, has_room, decode_timing.as_ref())
             }
         } else { None };
@@ -2862,6 +2928,26 @@ impl Streaming {
                         self.set_bitrate();
                     }
                 }
+            }
+        }
+        if let Some(toast) = self.rate_change.as_mut().and_then(|rates| rates.expire(self.started.elapsed().as_millis() as u64)) {
+            self.show_toast(toast);
+        }
+        if !self.menu_visible && self.focused {
+            if let Some(rates) = &mut self.rate_change {
+                // PyroWave also loses records within frames, as for the PC's adaptive bitrate.
+                let record_loss = (self.facts.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 && timing.record_samples > 0)
+                    .then(|| (timing.record_loss_milli as f64 / f64::from(timing.record_samples) / 1000.0) as f32);
+                let loss_percent = match (tick.loss_percent, record_loss) { (Some(a), Some(b)) => Some(a.max(b)), (a, b) => a.or(b) };
+                let request = rates.tick(&Stats {
+                    now_ms: tick.now_ms,
+                    recent_video: tick.recent_video,
+                    poor_connection: tick.poor_connection,
+                    loss_percent,
+                    queue_ms: tick.queue_ms,
+                    ..Default::default()
+                });
+                if let Some(request) = request { self.send_rate_change(request); }
             }
         }
         self.window.started = Some(Instant::now());

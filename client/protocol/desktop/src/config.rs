@@ -143,6 +143,9 @@ pub struct Settings {
     /// 0 picks a bitrate for the resolution and rate.
     pub bitrate_kbps: u32,
     pub adaptive_bitrate: bool,
+    /// Steers the bitrate from this client's loss over mid-stream rate changes (0x553C), on a
+    /// PC that takes them, in place of `adaptive_bitrate`. Off by default.
+    pub client_hint_bitrate: bool,
     pub adaptive_quality: QualityMode,
     pub quality_min_short_edge: u32,
     pub quality_min_fps: u32,
@@ -420,6 +423,7 @@ impl Default for Settings {
             fps: 0,
             bitrate_kbps: 0,
             adaptive_bitrate: false,
+            client_hint_bitrate: false,
             adaptive_quality: QualityMode::Off,
             quality_min_short_edge: 720,
             quality_min_fps: 30,
@@ -1454,6 +1458,17 @@ mod tests {
         assert!(old.tell_host_link_speed && !old.tell_host_wireless);
         let off: Settings = serde_json::from_str(r#"{"tell_host_link_speed":false}"#).unwrap();
         assert!(!off.tell_host_link_speed);
+    }
+
+    #[test]
+    fn client_hint_bitrate_is_off_by_default_and_in_old_files() {
+        assert!(!Settings::default().client_hint_bitrate);
+        let old: Settings = serde_json::from_str(r#"{"fps":60,"adaptive_bitrate":true}"#).unwrap();
+        assert!(!old.client_hint_bitrate);
+        let on: Settings = serde_json::from_str(r#"{"client_hint_bitrate":true}"#).unwrap();
+        assert!(on.client_hint_bitrate);
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
+        assert!(back.client_hint_bitrate);
     }
 
     #[test]

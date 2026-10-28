@@ -29,6 +29,18 @@
                     android:nextFocusUp="@id/hostTextView" android:accessibilityTraversalAfter="@id/hostTextView"
                     android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp"
                     android:layout_marginTop="@dimen/space_l" android:text="@string/addpc_button" />
+                <!-- Shown only on devices with a camera. -->
+                <com.google.android.material.button.MaterialButton android:id="@+id/scanQrButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:nextFocusUp="@id/addPcButton" android:accessibilityTraversalAfter="@id/addPcButton"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp"
+                    android:layout_marginTop="@dimen/space_m" android:text="@string/addpc_scan_qr"
+                    android:visibility="gone" />
+                <TextView android:id="@+id/scanQrHint"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_s"
+                    android:text="@string/addpc_qr_hint" android:textAppearance="@style/TextAppearance.Nightjar.Body"
+                    android:textColor="?attr/colorOnSurfaceVariant" android:visibility="gone" />
             </LinearLayout>
         </ScrollView>
     </LinearLayout>

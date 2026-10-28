@@ -27,6 +27,7 @@ import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.nvstream.http.PairingLink;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.wol.WakeOnLanSender;
@@ -146,7 +147,15 @@ public final class HostActions {
     // Pairing
 
     public void pair(ComputerDetails computer) {
-        pair(computer, null, null);
+        pair(computer, null, null, null);
+    }
+
+    /**
+     * Pairs with a QR pairing link (Experimental): its one-time PIN, refused when the PC's certificate
+     * is not the link's. A failure offers no Try again, since the link's PIN works once.
+     */
+    public void pairWithLink(ComputerDetails computer, PairingLink link) {
+        pair(computer, link.otp, link.passphrase, link);
     }
 
     public void pairWithOneTimePin(final ComputerDetails computer) {
@@ -177,7 +186,7 @@ public final class HostActions {
                 return;
             }
             dialog.dismiss();
-            pair(computer, pinValue, passphraseValue);
+            pair(computer, pinValue, passphraseValue, null);
         }));
         dialog.setOnDismissListener(ignored -> {
             pin.getText().clear();
@@ -205,7 +214,8 @@ public final class HostActions {
         }
     }
 
-    private void pair(final ComputerDetails computer, final String oneTimePin, final String passphrase) {
+    private void pair(final ComputerDetails computer, final String oneTimePin, final String passphrase,
+                      final PairingLink link) {
         if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
             showError(R.string.pair_pairing_title, activity.getString(R.string.pair_pc_offline), null);
             return;
@@ -257,10 +267,16 @@ public final class HostActions {
                     pairingRequest = request;
                 }
                 if (request.getPairState() == PairState.PAIRED) {
-                    success = true;
+                    // Already paired, with the certificate pinned then: a link naming another one is refused.
+                    if (link != null && computer.serverCert != null && !link.matches(computer.serverCert)) {
+                        message = activity.getString(R.string.pair_qr_cert_mismatch);
+                    } else {
+                        success = true;
+                    }
                 } else {
                     PairingManager pairing = request.getPairingManager();
-                    PairState state = pairing.pair(request.getServerInfo(true), pin, passphrase);
+                    PairState state = link != null ? pairing.pair(request.getServerInfo(true), link)
+                            : pairing.pair(request.getServerInfo(true), pin, passphrase);
                     if (state == PairState.PAIRED) {
                         ComputerDetails stored = binder.getComputer(computer.uuid);
                         if (stored != null) {
@@ -270,9 +286,12 @@ public final class HostActions {
                         } else {
                             message = activity.getString(R.string.pair_fail);
                         }
+                    } else if (state == PairState.CERT_MISMATCH) {
+                        message = activity.getString(R.string.pair_qr_cert_mismatch);
                     } else {
                         message = activity.getString(state == PairState.PIN_WRONG ?
-                                (oneTimePin == null ? R.string.pair_incorrect_pin : R.string.pair_otp_incorrect_pin) :
+                                (link != null ? R.string.pair_qr_incorrect_pin :
+                                        oneTimePin == null ? R.string.pair_incorrect_pin : R.string.pair_otp_incorrect_pin) :
                                 state == PairState.ALREADY_IN_PROGRESS ? R.string.pair_already_in_progress :
                                         computer.runningGameId != 0 ? R.string.pair_pc_ingame : R.string.pair_fail);
                     }
@@ -282,7 +301,7 @@ public final class HostActions {
             }
             final boolean paired = success;
             final String failure = message;
-            activity.runOnUiThread(() -> showPairingResult(generation, paired, failure, computer, oneTimePin));
+            activity.runOnUiThread(() -> showPairingResult(generation, paired, failure, computer, oneTimePin, link != null));
         }, "Pairing");
         pairingThread.start();
     }
@@ -290,11 +309,16 @@ public final class HostActions {
     @VisibleForTesting
     void showPairingResult(int generation, boolean paired, String failure,
                            ComputerDetails computer, String oneTimePin) {
+        showPairingResult(generation, paired, failure, computer, oneTimePin, false);
+    }
+
+    private void showPairingResult(int generation, boolean paired, String failure,
+                                   ComputerDetails computer, String oneTimePin, boolean fromLink) {
         if (generation != pairingGeneration || gone()) {
             return;
         }
         if (!callbacks.isForeground()) {
-            pendingPairingResult = () -> showPairingResult(generation, paired, failure, computer, oneTimePin);
+            pendingPairingResult = () -> showPairingResult(generation, paired, failure, computer, oneTimePin, fromLink);
             return;
         }
         pairingRequest = null;
@@ -308,7 +332,7 @@ public final class HostActions {
             callbacks.onPaired(computer);
         } else {
             callbacks.resumePolling();
-            showError(R.string.pair_pairing_title, failure, () -> {
+            showError(R.string.pair_pairing_title, failure, fromLink ? null : () -> {
                 if (oneTimePin == null) {
                     pair(computer);
                 } else {

@@ -14,9 +14,11 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 import com.limelight.binding.PlatformBinding;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostActions;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.nvstream.http.PairingLink;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
@@ -25,11 +27,14 @@ import com.limelight.utils.UiHelper;
 import com.limelight.ui.TopAppBar;
 
 import com.limelight.ui.NightjarActivity;
+import android.Manifest;
+import android.app.Activity;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.text.Editable;
@@ -41,6 +46,10 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.content.ContextCompat;
+
 public class AddComputerManually extends NightjarActivity {
     private TextView hostText;
     private com.google.android.material.textfield.TextInputLayout hostInput;
@@ -49,6 +58,39 @@ public class AddComputerManually extends NightjarActivity {
     private final LinkedBlockingQueue<String> computersToAdd = new LinkedBlockingQueue<>();
     private Thread addThread;
     private boolean managerServiceBound;
+    private boolean foreground;
+    // Pairs a PC added from a QR pairing link (Experimental); a typed address only adds it.
+    private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
+        @Override public ComputerManagerService.ComputerManagerBinder binder() { return managerBinder; }
+        @Override public boolean isForeground() { return foreground; }
+        @Override public void onPaired(ComputerDetails computer) {
+            Toast.makeText(AddComputerManually.this, R.string.addpc_qr_paired, Toast.LENGTH_LONG).show();
+            finish();
+        }
+        @Override public void onRemoved(ComputerDetails computer) { }
+        @Override public void onRenamed(ComputerDetails computer) { }
+        @Override public void onWakeSent(ComputerDetails computer) { }
+        @Override public void pausePolling() { }
+        @Override public void resumePolling() { }
+    });
+    private final ActivityResultLauncher<Intent> scanner = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                Intent data = result.getData();
+                if (result.getResultCode() == Activity.RESULT_OK && data != null) {
+                    String link = data.getStringExtra(QrScanActivity.EXTRA_LINK);
+                    if (link != null && !submitting) submit(link);
+                }
+            });
+    // The camera is asked for only when Scan QR code is tapped.
+    private final ActivityResultLauncher<String> cameraPermission = registerForActivityResult(
+            new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) {
+                    scanner.launch(new Intent(this, QrScanActivity.class));
+                } else {
+                    Dialog.displayDialog(this, getString(R.string.conn_error_title),
+                            getString(R.string.addpc_qr_camera_denied), false);
+                }
+            });
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, final IBinder binder) {
             if (isFinishing() || isDestroyed()) {
@@ -137,6 +179,9 @@ public class AddComputerManually extends NightjarActivity {
     private void doAddPc(String rawUserInput, ComputerManagerService.ComputerManagerBinder binder) throws InterruptedException {
         boolean wrongSiteLocal = false;
         boolean invalidInput = false;
+        PairingLink link = PairingLink.parse(rawUserInput);
+        boolean invalidLink = link == null && PairingLink.looksLikeLink(rawUserInput);
+        ComputerDetails details = new ComputerDetails();
         boolean success;
         int portTestResult;
 
@@ -144,11 +189,15 @@ public class AddComputerManually extends NightjarActivity {
             getResources().getString(R.string.msg_add_pc), true);
 
         try {
-            ComputerDetails details = new ComputerDetails();
-
             // Check if we parsed a host address successfully
-            URI uri = parseRawUserInputToUri(rawUserInput);
-            if (uri != null && uri.getHost() != null && !uri.getHost().isEmpty()) {
+            URI uri = link != null || invalidLink ? null : parseRawUserInputToUri(rawUserInput);
+            if (link != null) {
+                details.manualAddress = new ComputerDetails.AddressTuple(link.host, link.port);
+                success = binder.addComputerBlocking(details);
+                if (!success) {
+                    wrongSiteLocal = isWrongSubnetSiteLocalAddress(link.host);
+                }
+            } else if (uri != null && uri.getHost() != null && !uri.getHost().isEmpty()) {
                 String host = uri.getHost();
                 int port = uri.getPort();
 
@@ -200,7 +249,10 @@ public class AddComputerManually extends NightjarActivity {
             throw new InterruptedException();
         }
 
-        if (invalidInput) {
+        if (invalidLink) {
+            Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title), getResources().getString(R.string.addpc_qr_invalid), false);
+        }
+        else if (invalidInput) {
             Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title), getResources().getString(R.string.addpc_unknown_host), false);
         }
         else if (wrongSiteLocal) {
@@ -215,6 +267,15 @@ public class AddComputerManually extends NightjarActivity {
                 dialogText = getResources().getString(R.string.addpc_fail);
             }
             Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title), dialogText, false);
+        }
+        else if (link != null) {
+            // Added: pair now with the link's one-time PIN, refused if the PC's certificate is not the link's.
+            final PairingLink pairingLink = link;
+            ComputerDetails stored = binder.getComputer(details.uuid);
+            final ComputerDetails computer = stored != null ? stored : details;
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed()) hostActions.pairWithLink(computer, pairingLink);
+            });
         }
         else {
             AddComputerManually.this.runOnUiThread(new Runnable() {
@@ -266,6 +327,19 @@ public class AddComputerManually extends NightjarActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        foreground = true;
+        hostActions.deliverPendingResult();
+    }
+
+    @Override
+    protected void onPause() {
+        foreground = false;
+        super.onPause();
+    }
+
+    @Override
     protected void onStop() {
         super.onStop();
 
@@ -277,6 +351,7 @@ public class AddComputerManually extends NightjarActivity {
     protected void onDestroy() {
         super.onDestroy();
 
+        hostActions.destroy();
         joinAddThread();
         if (managerServiceBound) {
             unbindService(serviceConnection);
@@ -336,6 +411,13 @@ public class AddComputerManually extends NightjarActivity {
             }
         });
 
+        View scan = content.findViewById(R.id.scanQrButton);
+        if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            scan.setVisibility(View.VISIBLE);
+            content.findViewById(R.id.scanQrHint).setVisibility(View.VISIBLE);
+            scan.setOnClickListener(view -> scanQr());
+        }
+
         // Bind to the ComputerManager service
         managerServiceBound = bindService(new Intent(AddComputerManually.this,
                     ComputerManagerService.class), serviceConnection, Service.BIND_AUTO_CREATE);
@@ -350,14 +432,32 @@ public class AddComputerManually extends NightjarActivity {
     // Returns true if the event should be eaten
     private boolean handleDoneEvent() {
         if (submitting) return true;
-        String hostAddress = hostText.getText().toString().trim();
+        return submit(hostText.getText().toString());
+    }
 
+    private void scanQr() {
+        if (submitting) return;
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            scanner.launch(new Intent(this, QrScanActivity.class));
+        } else {
+            cameraPermission.launch(Manifest.permission.CAMERA);
+        }
+    }
+
+    /** Adds the PC at a typed address, or adds and pairs the one a pairing link (typed, pasted or scanned) names. */
+    private boolean submit(String hostAddress) {
+        hostAddress = hostAddress.trim();
         if (hostAddress.length() == 0) {
             hostInput.setError(getString(R.string.addpc_enter_ip));
             hostText.requestFocus();
             return true;
         }
-        if (parseRawUserInputToUri(hostAddress) == null) {
+        boolean isLink = PairingLink.looksLikeLink(hostAddress);
+        if (isLink && PairingLink.parse(hostAddress) == null) {
+            hostInput.setError(getString(R.string.addpc_qr_invalid));
+            return true;
+        }
+        if (!isLink && parseRawUserInputToUri(hostAddress) == null) {
             hostInput.setError(getString(R.string.add_pc_address_error));
             hostText.requestFocus();
             return true;

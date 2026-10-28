@@ -1,0 +1,16 @@
+<com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+        <include android:id="@+id/qr_scan_toolbar" layout="@layout/view_top_app_bar" />
+        <androidx.camera.view.PreviewView android:id="@+id/qr_scan_preview"
+            android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+        <TextView android:id="@+id/qr_scan_status"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+            android:paddingTop="@dimen/space_l" android:paddingBottom="@dimen/space_xl"
+            android:accessibilityLiveRegion="polite"
+            android:text="@string/qr_scan_help" android:textAppearance="@style/TextAppearance.Nightjar.Body"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+</com.limelight.ui.ContentFrame>

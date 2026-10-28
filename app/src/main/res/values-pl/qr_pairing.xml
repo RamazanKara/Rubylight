@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="addpc_scan_qr">Scan QR code</string>
+    <string name="addpc_qr_hint">Experimental: turn on Pair with a QR code in the PC’s settings, show the code on its Devices page and scan it to add and pair the PC at once.</string>
+    <string name="addpc_qr_invalid">This is not a valid pairing code. Show a new QR code on the PC and scan it again.</string>
+    <string name="addpc_qr_camera_denied">Scanning needs the camera. Allow it in Android’s settings for this app, or type the PC’s address.</string>
+    <string name="addpc_qr_paired">PC added and paired</string>
+    <string name="qr_scan_title">Scan the PC’s QR code</string>
+    <string name="qr_scan_help">Point the camera at the QR code on the PC’s Devices page.</string>
+    <string name="qr_scan_not_pairing">This QR code is not a pairing code from a PC.</string>
+    <string name="qr_scan_camera_failed">The camera could not start. Type the PC’s address instead.</string>
+    <string name="pair_qr_cert_mismatch">This PC’s certificate does not match the QR code, so Nightjar did not pair. Scan only codes shown by your own PC.</string>
+    <string name="pair_qr_incorrect_pin">The PC refused the code. A code works once and for 3 minutes: show a new one on the PC and scan it again.</string>
+</resources>

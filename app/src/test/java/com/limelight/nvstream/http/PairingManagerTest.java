@@ -75,6 +75,31 @@ public class PairingManagerTest {
         }
     }
 
+    private static PairingLink link(X509Certificate host) throws Exception {
+        String fp = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(host.getEncoded()));
+        return PairingLink.parse("rubylight://pair?v=1&host=127.0.0.1&port=47989&otp=1234&pass=abcd1234&fp=" + fp);
+    }
+
+    @Test
+    public void aLinkNamingAnotherCertificateIsRefusedBeforeItIsTrusted() throws Exception {
+        PairingHttp http = new PairingHttp(reply("plaincert", HexFormat.of().formatHex(certificate.getEncoded())));
+        PairingManager pairing = http.getPairingManager();
+        assertEquals(PairingManager.PairState.CERT_MISMATCH, pairing.pair(SERVER_INFO, link(otherCertificate)));
+        assertNull(pairing.getPairedCert());
+        // The host's pairing is cancelled and no challenge was sent.
+        assertEquals(1, http.cancellations);
+        assertTrue(http.replies.isEmpty());
+    }
+
+    @Test
+    public void aLinkNamingTheHostCertificateGoesOnToTheChallenge() throws Exception {
+        PairingHttp http = new PairingHttp(reply("plaincert", HexFormat.of().formatHex(certificate.getEncoded())),
+                reply("challengeresponse", "AA"));
+        // The truncated challenge reply shows the certificate check passed and the next step ran.
+        assertThrows(IOException.class, () -> http.getPairingManager().pair(SERVER_INFO, link(certificate)));
+        assertEquals(1, http.cancellations);
+    }
+
     @Test
     public void malformedCertificatesFailWithCheckedErrorsAndReleasePairing() throws Exception {
         for (String encoded : new String[] {"0", "GG", "00"}) {

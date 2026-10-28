@@ -31,6 +31,16 @@ final class StreamRecoveryPolicy {
         }
     }
 
+    /**
+     * The budget left after the user's own trip away (Home, Files, a lock) that began at
+     * {@code leftAt}: the trip spends nothing. With no failure being recovered the budget is
+     * full; a window already running pauses for the time away instead of running on.
+     */
+    static StreamRecoveryPolicy afterUserTrip(int attempts, long startedAt, long leftAt, long now) {
+        if (attempts <= 0) return new StreamRecoveryPolicy(0, 0);
+        return new StreamRecoveryPolicy(attempts, startedAt + Math.max(0, now - leftAt));
+    }
+
     int attempts() { return attempts; }
     long startedAt() { return startedAt; }
 

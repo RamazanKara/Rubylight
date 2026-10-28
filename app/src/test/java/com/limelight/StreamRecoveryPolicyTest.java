@@ -42,6 +42,33 @@ public class StreamRecoveryPolicyTest {
         assertEquals(1000, flapping.startedAt());
     }
 
+    @Test public void aUserTripSpendsNothingAndPausesARunningWindow() {
+        // No failure being recovered: whatever the resume used, the budget is full again.
+        StreamRecoveryPolicy fresh = StreamRecoveryPolicy.afterUserTrip(0, 0, 20000, 50000);
+        assertEquals(0, fresh.attempts());
+        assertEquals(0, fresh.startedAt());
+        assertEquals(1000, fresh.nextDelay(60000, -1));
+        // A failure being recovered keeps its attempts; its window does not run while away.
+        StreamRecoveryPolicy paused = StreamRecoveryPolicy.afterUserTrip(3, 1000, 20000, 50000);
+        assertEquals(3, paused.attempts());
+        assertEquals(31000, paused.startedAt());
+        assertEquals(8000, paused.nextDelay(70000, -1));
+        assertEquals(-1, StreamRecoveryPolicy.afterUserTrip(4, 1000, 20000, 50000).nextDelay(80000, -1));
+        assertEquals(1000, StreamRecoveryPolicy.afterUserTrip(2, 1000, 20000, 10000).startedAt());
+    }
+
+    @Test public void aFailureLoopAfterAUserTripIsStillRefusedAfterItsMinute() {
+        StreamRecoveryPolicy policy = StreamRecoveryPolicy.afterUserTrip(0, 0, 10000, 30000);
+        long now = 40000;
+        int attempts = 0;
+        for (long delay; (delay = policy.nextDelay(now, -1)) >= 0; attempts++) {
+            now += delay + 10000;
+            policy = new StreamRecoveryPolicy(policy.attempts(), policy.startedAt());
+        }
+        assertEquals(4, attempts);
+        assertTrue(now - 40000 < StreamRecoveryPolicy.WINDOW_MS);
+    }
+
     @Test public void gracefulPermanentAndUnknownErrorsDoNotRetry() {
         for (int code : new int[] {0, -103, -104, -105, 401, 403, 409, 470, 525, -999, 123456}) {
             assertFalse("code " + code, StreamRecoveryPolicy.transientTermination(code));

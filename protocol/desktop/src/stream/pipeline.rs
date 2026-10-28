@@ -301,6 +301,8 @@ pub struct Decoder {
     dump: Option<(std::path::PathBuf, u32)>,
     /// Frames that failed since the last picture.
     failing: Failing,
+    /// The frame being submitted failed for data lost on the way (`Failure::Loss`).
+    lost: bool,
 }
 
 /// How long frames may fail with no picture between before the decoder is taken for broken.
@@ -373,6 +375,7 @@ impl Decoder {
             gpu: None,
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
             failing: Failing::default(),
+            lost: false,
         }
     }
 
@@ -400,6 +403,16 @@ impl Decoder {
         }
     }
 
+    /// Counts a submitted frame towards [`Failing`]: a picture starts over, and a frame that failed
+    /// in the decoder counts. One that only lost too much of its data on the way does not.
+    fn after_frame(&mut self, decoded: bool, need_idr: bool, now_us: u64) {
+        if decoded {
+            self.failing.decoded();
+        } else if need_idr && !self.lost {
+            self.frame_failed(now_us);
+        }
+    }
+
     /// Writes a PyroWave envelope as `frame-<w>x<h>-<420|444>-<n>.bin`, which
     /// `cpu_costs_of_a_pyrowave_frame` reads back through `NIGHTJAR_PYROWAVE_FRAMES`.
     fn dump_envelope(&mut self, setup: &VideoSetup, data: &[u8]) {
@@ -421,6 +434,12 @@ impl Decoder {
             Failure::Frame(error) => {
                 eprintln!("nightjar: PyroWave: {error}");
                 counters.decode_errors.fetch_add(1, Ordering::Relaxed);
+                DecodeStatus::NeedIdr
+            }
+            Failure::Loss(error) => {
+                eprintln!("nightjar: PyroWave: {error}");
+                counters.decode_errors.fetch_add(1, Ordering::Relaxed);
+                self.lost = true;
                 DecodeStatus::NeedIdr
             }
             Failure::NoPlanes => {
@@ -564,12 +583,10 @@ impl VideoDecoder for Decoder {
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
         let pictures = self.shared.counters.decoded.load(Ordering::Relaxed);
+        self.lost = false;
         let status = self.decode_frame(frame);
-        if self.shared.counters.decoded.load(Ordering::Relaxed) != pictures {
-            self.failing.decoded();
-        } else if status == DecodeStatus::NeedIdr {
-            self.frame_failed(session::now_us());
-        }
+        let decoded = self.shared.counters.decoded.load(Ordering::Relaxed) != pictures;
+        self.after_frame(decoded, status == DecodeStatus::NeedIdr, session::now_us());
         status
     }
 
@@ -1141,6 +1158,28 @@ mod tests {
         decoder.setup(&setup).unwrap();
         for at in [0, 500_000, 1_000_000] {
             decoder.frame_failed(at);
+        }
+        assert!(matches!(notices(&shared).as_slice(), [Notice::DecoderFailed(_)]));
+    }
+
+    #[test]
+    fn pyrowave_frames_that_lost_their_data_never_end_the_stream() {
+        let (mut decoder, shared) = decoder();
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_PYROWAVE, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        decoder.setup(&setup).unwrap();
+        // A loss burst of seconds on a bad link: an IDR is asked for each time, nothing more.
+        for at in [0, 500_000, 1_000_000, 2_000_000, 5_000_000] {
+            decoder.lost = false;
+            assert!(matches!(decoder.failed(Failure::Loss("lost".into())), DecodeStatus::NeedIdr));
+            decoder.after_frame(false, true, at);
+        }
+        assert!(notices(&shared).is_empty(), "the stream goes on");
+        assert_eq!(decoder.failing, Failing::default());
+        // Frames the decoder itself rejects still end it.
+        for at in [6_000_000, 6_500_000, 7_000_000] {
+            decoder.lost = false;
+            decoder.failed(Failure::Frame("bad".into()));
+            decoder.after_frame(false, true, at);
         }
         assert!(matches!(notices(&shared).as_slice(), [Notice::DecoderFailed(_)]));
     }

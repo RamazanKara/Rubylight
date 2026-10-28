@@ -228,6 +228,21 @@ impl Confirmations {
         let redeemed = self.confirm(client, action, generation, app, now);
         debug_assert!(!redeemed);
     }
+    /// Redeems the prompt `client` was shown for `action` with the user's
+    /// explicit answer: true only while one is pending for this `generation`
+    /// and `app`, however long the user took, so a confirmation never closes a
+    /// game that started after the prompt. Never asks; the caller asks again.
+    pub fn answer(
+        &mut self,
+        client: &str,
+        action: Confirmation,
+        generation: &str,
+        app: u32,
+    ) -> bool {
+        self.pending.remove(&(client.into(), action)).is_some_and(
+            |(saved_generation, saved_app, _)| saved_generation == generation && saved_app == app,
+        )
+    }
     pub fn clear(&mut self, client: &str, action: Confirmation) {
         self.pending.remove(&(client.into(), action));
     }
@@ -351,6 +366,25 @@ mod tests {
         // A legacy repeat still confirms the prompt that stands.
         assert!(book.confirm("client", Confirmation::Replace, "game-1", 3, now));
         assert!(!book.active("client", Confirmation::Replace, "game-1"));
+    }
+    #[test]
+    fn an_answer_redeems_only_the_prompt_it_answers() {
+        use std::time::Instant;
+        let now = Instant::now();
+        let mut book = Confirmations::default();
+        // No prompt shown: nothing to answer.
+        assert!(!book.answer("client", Confirmation::Replace, "game-1", 3));
+        // The game the prompt named ended and another one started.
+        book.ask("client", Confirmation::Replace, "game-1", 3, now);
+        assert!(!book.answer("client", Confirmation::Replace, "game-2", 3));
+        // Another app than the one the prompt was for, or another client.
+        book.ask("client", Confirmation::Replace, "game-1", 3, now);
+        assert!(!book.answer("client", Confirmation::Replace, "game-1", 4));
+        book.ask("client", Confirmation::Replace, "game-1", 3, now);
+        assert!(!book.answer("other", Confirmation::Replace, "game-1", 3));
+        assert!(book.answer("client", Confirmation::Replace, "game-1", 3));
+        // Once only.
+        assert!(!book.answer("client", Confirmation::Replace, "game-1", 3));
     }
     #[test]
     fn active_game_projection_has_a_distinct_stable_resumable_identity() {

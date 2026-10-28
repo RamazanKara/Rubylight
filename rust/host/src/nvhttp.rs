@@ -2060,13 +2060,25 @@ const CONFIRM_REPLACE: &str = "rlConfirmReplace";
 /// Whether `launch` may close the running game. A client that sends
 /// [`CONFIRM_REPLACE`] confirms on that request only, so no launch of it
 /// redeems a prompt the user cancelled or never saw: a remembered launch, a
-/// retry, a frontend starting the game again. Any other client keeps
-/// Vibepollo's rule: the same launch again within 60 seconds confirms.
+/// retry, a frontend starting the game again. Its `1` answers the prompt this
+/// host showed it for the game still running; with none pending (another game
+/// started meanwhile, or no prompt at all) the host asks again. Any other
+/// client keeps Vibepollo's rule: the same launch again within 60 seconds
+/// confirms.
 fn replacement_confirmed(h: &Shared, launch: &Launch, generation: &str) -> bool {
     let mut book = h.confirmations.lock().unwrap();
     let (client, now) = (&launch.client.uuid, Instant::now());
     match launch.options.get(CONFIRM_REPLACE).map(String::as_str) {
-        Some("1") => true,
+        Some("1")
+            if book.answer(
+                client,
+                remote::Confirmation::Replace,
+                generation,
+                launch.app_id,
+            ) =>
+        {
+            true
+        }
         Some(_) => {
             book.ask(
                 client,
@@ -2765,6 +2777,38 @@ mod tests {
         super::replace_launch_app(&f.host, &launch, false, Owner::None).unwrap();
         assert!(f.host.current_app.lock().unwrap().is_none());
         assert!(!asking());
+    }
+    #[test]
+    fn a_confirmation_closes_only_the_game_its_prompt_named() {
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::{remote::Owner, session::Role};
+        let f = Fixture::new();
+        running_app(&f, "owner");
+        let mut launch = f.launch(f.client(u32::MAX), Role::Stream);
+        launch.app_id = f.host.current_app.lock().unwrap().as_ref().unwrap().id + 1;
+        launch.options.insert("rlConfirmReplace".into(), "1".into());
+        let refused = |launch: &crate::state::Launch| {
+            let error = super::replace_launch_app(&f.host, launch, false, Owner::None)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("already running"), "{error}");
+            assert!(f.host.current_app.lock().unwrap().is_some());
+        };
+        // A confirmation the host never asked for closes nothing; it asks.
+        refused(&launch);
+        // The prompt named a game that ended; another device started the
+        // one running now, which nobody agreed to close.
+        f.host
+            .current_app
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .generation = "started-after-the-prompt".into();
+        refused(&launch);
+        // The answer to the prompt for the game running now closes it.
+        super::replace_launch_app(&f.host, &launch, false, Owner::None).unwrap();
+        assert!(f.host.current_app.lock().unwrap().is_none());
     }
     #[test]
     fn stopping_streams_does_not_wait_for_remote_sessions_it_leaves_running() {

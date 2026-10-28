@@ -10,6 +10,7 @@
 extern crate alloc;
 
 pub mod audio_ext;
+pub mod clipboard_sync;
 pub mod control;
 pub mod cursor_shape;
 pub mod fec_report;

@@ -4,11 +4,12 @@
 //! Control message types are the u16 at the start of a control-stream packet; input magics
 //! are the u32 LE at offset 4 of an input packet, after its 4-byte big-endian length. The
 //! tables list what moonlight-common-c, the Sunshine family and Rubylight use, the numbers
-//! held back for later, and the range other clients use, which Rubylight keeps out of.
+//! held back for later, and the range other clients use, which Rubylight keeps out of except
+//! for the messages it takes over from them as they are.
 
 use crate::{
-    control, cursor_shape, fec_report, keyboard_layout, pen, phase_lock, pipeline_rates,
-    rate_change, steam_controller, text_input, usb,
+    clipboard_sync, control, cursor_shape, fec_report, keyboard_layout, pen, phase_lock,
+    pipeline_rates, rate_change, steam_controller, text_input, usb,
 };
 use core::ops::RangeInclusive;
 
@@ -35,6 +36,10 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
         "RGB LED (host to client), frame FEC status (client to host)",
     ),
     (0x5503, "adaptive triggers"),
+    (
+        clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE,
+        "clipboard sync (Moonlight V+)",
+    ),
     (
         steam_controller::STEAM_HAPTIC_MESSAGE_TYPE,
         "Steam Controller haptics",
@@ -77,6 +82,9 @@ pub const RESERVED_CONTROL_IDS: &[(u16, &str)] = &[(0x5542, "cursor position")];
 
 /// Control message types other clients use; Rubylight defines nothing here.
 pub const OTHER_CLIENTS_CONTROL_IDS: RangeInclusive<u16> = 0x5506..=0x5510;
+
+/// Control message types of other clients Rubylight takes with their wire format unchanged.
+pub const ADOPTED_CONTROL_IDS: &[u16] = &[clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE];
 
 /// A capability bit (DualSense haptics) that must never become a message type.
 pub const HAPTICS_CAPABILITY: u16 = 0x8000;
@@ -136,11 +144,23 @@ mod tests {
     fn nothing_lands_where_other_clients_are() {
         for (id, meaning) in CONTROL_IDS.iter().chain(RESERVED_CONTROL_IDS) {
             assert!(
-                !OTHER_CLIENTS_CONTROL_IDS.contains(id),
+                !OTHER_CLIENTS_CONTROL_IDS.contains(id) || ADOPTED_CONTROL_IDS.contains(id),
                 "{id:#06x} {meaning}"
             );
             assert_ne!(*id, HAPTICS_CAPABILITY, "{meaning}");
             assert_eq!(id & HAPTICS_CAPABILITY, 0, "{id:#06x} {meaning}");
+        }
+    }
+
+    #[test]
+    fn adopted_ids_keep_their_meaning_from_other_clients() {
+        assert_eq!(ADOPTED_CONTROL_IDS, [0x5508]);
+        for id in ADOPTED_CONTROL_IDS {
+            assert!(OTHER_CLIENTS_CONTROL_IDS.contains(id), "{id:#06x}");
+            assert!(
+                CONTROL_IDS.iter().any(|(listed, _)| listed == id),
+                "{id:#06x}"
+            );
         }
     }
 

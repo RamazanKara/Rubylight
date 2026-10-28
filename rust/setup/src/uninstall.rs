@@ -114,20 +114,27 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     crate::install::untrust_console();
     remove_layers(&install);
     remove_earlier_folder(&install);
-    // Child-session setup (Experimental) turned on Remote Desktop, child
-    // sessions and firewall rules; the host that recorded them puts them back
-    // while it is still installed. When they are not restored (the restore
-    // failed, or could not run: the host missing, not starting, timing out
-    // or crashing), this uninstaller turns Remote Desktop off itself and
-    // reads it back, and the record stays, even through a factory reset:
-    // Rubylight installed again restores the rest (Restore Windows
-    // settings). So it does when the record is gone but setup's block rule
-    // is still there. The uninstaller then exits with UNRESTORED_EXIT.
+    // Settings for the removed child-session feature: its setup, in
+    // development builds, turned on Remote Desktop, child sessions and
+    // firewall rules, and the host that recorded them puts them back while
+    // it is still installed. When they are not restored (the restore failed,
+    // or could not run: the host missing, not starting, timing out or
+    // crashing), this uninstaller turns Remote Desktop off itself and reads
+    // it back, and the record stays, even through a factory reset: Rubylight
+    // installed again restores the rest at its start. So it does when the
+    // record is gone but setup's block rule is still there. The uninstaller
+    // then exits with UNRESTORED_EXIT. The password those builds saved goes
+    // here too, record or not: a restore can have removed the record and
+    // left the file, and the host may be missing.
     let mut notes = Vec::new();
     let unrestored = restore_child_session(&install, progress);
     if let Some(problem) = &unrestored {
         line(format!("warning: {problem}"));
         notes.push(problem.clone());
+    }
+    for problem in delete_child_session_passwords() {
+        line(format!("warning: {problem}"));
+        notes.push(problem);
     }
 
     let powershell = format!(
@@ -219,7 +226,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
         }
         if !records.is_empty() {
             let kept = format!(
-                "The factory reset kept {} so the Windows settings can still be restored: install Rubylight again and choose Restore Windows settings under Maintenance in the console.",
+                "The factory reset kept {} so the Windows settings can still be restored: install Rubylight again, which restores them at its start (or choose Restore again under Maintenance in the console).",
                 records
                     .iter()
                     .map(|record| record.display().to_string())
@@ -254,7 +261,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
         unrestored: unrestored.is_some(),
     })
 }
-/// Put back the Windows settings child-session setup changed, through the
+/// Put back the Windows settings the removed child-session setup changed, through the
 /// installed host; the reason when they were not restored and its record
 /// is still needed, with what was done about Remote Desktop. None when there
 /// was nothing to restore or it worked.
@@ -300,7 +307,7 @@ fn restore_child_session_with(
             // it would stay off.
             Ok((CHILD_SESSION_RESTORE_PARTLY_EXIT, output)) => {
                 return Some(format!(
-                    "The Windows settings child sessions changed were partly restored: {}. Remote Desktop was left as it is.",
+                    "The Windows settings the removed child-session feature changed were partly restored: {}. Remote Desktop was left as it is.",
                     output.trim().trim_end_matches('.')
                 ));
             }
@@ -309,7 +316,7 @@ fn restore_child_session_with(
         },
     };
     Some(format!(
-        "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored: {}. {}.",
+        "The Windows settings the removed child-session feature changed (Remote Desktop, its firewall rules, child sessions) were not restored: {}. {}.",
         problem.trim().trim_end_matches('.'),
         turn_rdp_off(registry)
     ))
@@ -351,6 +358,195 @@ fn child_session_block_rule_present() -> Result<bool> {
         }
     }
     Ok(false)
+}
+
+/// Where the removed child-session feature saved the account's Windows
+/// password, encrypted with DPAPI, under each `AppData\Local`, and the file a
+/// save cut short left (`butterpollo_core::child_session::PASSWORD_FOLDER`
+/// and `PASSWORD_FILES`).
+const CHILD_SESSION_PASSWORD_FOLDER: &str = "Rubylight";
+const CHILD_SESSION_PASSWORD_FILES: [&str; 2] =
+    ["child-session-password.bin", "child-session-password.tmp"];
+/// The accounts' profile folders, each a `ProfileImagePath`.
+const PROFILE_LIST: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList";
+/// Delete the saved child-session passwords in every profile (ProfileList's
+/// `S-1-5-21-*` `ProfileImagePath`s) and in this account's own
+/// `%LOCALAPPDATA%`; what could not be deleted, each with its path.
+fn delete_child_session_passwords() -> Vec<String> {
+    let profiles: Vec<PathBuf> = system::subkeys(HKEY_LOCAL_MACHINE, PROFILE_LIST, KEY_WOW64_64KEY)
+        .into_iter()
+        .filter(|sid| sid.starts_with("S-1-5-21-"))
+        .filter_map(|sid| {
+            system::registry_string(
+                HKEY_LOCAL_MACHINE,
+                &format!(r"{PROFILE_LIST}\{sid}"),
+                "ProfileImagePath",
+            )
+        })
+        .map(|path| PathBuf::from(expand_environment(&path)))
+        .collect();
+    let local: Vec<PathBuf> = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .into_iter()
+        .collect();
+    let (deleted, failed) =
+        delete_child_session_passwords_in(&profiles, &local, wipe_file, |folder| {
+            match std::fs::remove_dir(folder) {
+                Err(error) if error.kind() != std::io::ErrorKind::DirectoryNotEmpty => Err(error),
+                _ => Ok(()),
+            }
+        });
+    for path in deleted {
+        line(format!(
+            "deleted the child-session password Rubylight had saved (DPAPI-encrypted) at {}",
+            path.display()
+        ));
+    }
+    failed
+}
+/// `%NAME%` in a REG_EXPAND_SZ value, from this process's environment; a
+/// name it doesn't have stays as it is.
+fn expand_environment(text: &str) -> String {
+    let mut expanded = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('%') {
+        let Some(length) = rest[start + 1..].find('%') else {
+            break;
+        };
+        let name = &rest[start + 1..start + 1 + length];
+        expanded.push_str(&rest[..start]);
+        match std::env::var(name) {
+            Ok(value) if !name.is_empty() => expanded.push_str(&value),
+            _ => expanded.push_str(&rest[start..start + length + 2]),
+        }
+        rest = &rest[start + length + 2..];
+    }
+    expanded.push_str(rest);
+    expanded
+}
+/// [`delete_child_session_passwords`] in each `AppData\Local` under
+/// `profiles`, and in each of `local`: a path that is not absolute or holds
+/// `..` is skipped, each folder once. Each file through `wipe` (Ok(false)
+/// when there is none), then each folder a file went from through
+/// `remove_empty`. The files deleted, and each failure with its path; one
+/// failure stops none of the others.
+fn delete_child_session_passwords_in(
+    profiles: &[PathBuf],
+    local: &[PathBuf],
+    mut wipe: impl FnMut(&Path) -> std::io::Result<bool>,
+    mut remove_empty: impl FnMut(&Path) -> std::io::Result<()>,
+) -> (Vec<PathBuf>, Vec<String>) {
+    let usable = |path: &Path| {
+        path.is_absolute()
+            && !path
+                .components()
+                .any(|part| part == std::path::Component::ParentDir)
+    };
+    let mut folders: Vec<PathBuf> = Vec::new();
+    for folder in profiles
+        .iter()
+        .filter(|profile| usable(profile))
+        .map(|profile| profile.join("AppData").join("Local"))
+        .chain(local.iter().filter(|local| usable(local)).cloned())
+        .map(|local| local.join(CHILD_SESSION_PASSWORD_FOLDER))
+    {
+        let key = folder.to_string_lossy().to_lowercase();
+        if !folders
+            .iter()
+            .any(|known| known.to_string_lossy().to_lowercase() == key)
+        {
+            folders.push(folder);
+        }
+    }
+    let (mut deleted, mut failed) = (Vec::new(), Vec::new());
+    for folder in folders {
+        let mut emptied = false;
+        for name in CHILD_SESSION_PASSWORD_FILES {
+            let path = folder.join(name);
+            match wipe(&path) {
+                Ok(true) => {
+                    deleted.push(path);
+                    emptied = true;
+                }
+                Ok(false) => {}
+                Err(error) => failed.push(format!(
+                    "The child-session password Rubylight had saved at {} could not be deleted: {error}; delete it by hand.",
+                    path.display()
+                )),
+            }
+        }
+        if emptied && let Err(error) = remove_empty(&folder) {
+            failed.push(format!(
+                "The empty folder {} could not be removed: {error}.",
+                folder.display()
+            ));
+        }
+    }
+    (deleted, failed)
+}
+/// Overwrite the file at `path` with zeros, flush it to disk and delete it;
+/// false when there is none. Opened without following a link, and refused
+/// with nothing written when the handle is not `path` itself (a link or
+/// junction on the way led elsewhere).
+fn wipe_file(path: &Path) -> std::io::Result<bool> {
+    use std::io::Write;
+    use std::os::windows::{
+        fs::{MetadataExt, OpenOptionsExt},
+        io::AsRawHandle,
+    };
+    use windows::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW,
+        },
+    };
+    let mut file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let metadata = file.metadata()?;
+    if metadata.file_attributes() & 0x400 != 0 || !metadata.is_file() {
+        return Err(std::io::Error::other(
+            "it is not a plain file; nothing was changed",
+        ));
+    }
+    let mut buffer = vec![0u16; 32768];
+    // SAFETY: `file` stays open for the call and `buffer` is writable for its length.
+    let length = unsafe {
+        GetFinalPathNameByHandleW(
+            HANDLE(file.as_raw_handle()),
+            &mut buffer,
+            FILE_NAME_NORMALIZED,
+        )
+    } as usize;
+    if length == 0 || length > buffer.len() {
+        return Err(std::io::Error::last_os_error());
+    }
+    let opened = String::from_utf16_lossy(&buffer[..length]);
+    let opened = opened.strip_prefix(r"\\?\").unwrap_or(&opened);
+    if !opened.eq_ignore_ascii_case(&path.display().to_string()) {
+        return Err(std::io::Error::other(format!(
+            "it opens as {opened}, through a link on the way; nothing was changed"
+        )));
+    }
+    let zeros = [0u8; 64 * 1024];
+    let mut left = metadata.len();
+    while left > 0 {
+        let chunk = left.min(zeros.len() as u64) as usize;
+        file.write_all(&zeros[..chunk])?;
+        left -= chunk as u64;
+    }
+    file.sync_all()?;
+    drop(file);
+    std::fs::remove_file(path)?;
+    Ok(true)
 }
 
 /// Where Remote Desktop is switched (`fDenyTSConnections`), and the group
@@ -1379,5 +1575,84 @@ mod tests {
         remove_package(&root);
         std::fs::remove_dir(&root).unwrap();
         assert!(!root.exists());
+    }
+    #[test]
+    fn the_saved_child_session_passwords_go_without_a_record() {
+        // No record anywhere: a restore can have removed it and left the password.
+        let root = tempfile::tempdir().unwrap();
+        let folder = |profile: &Path| {
+            profile
+                .join("AppData")
+                .join("Local")
+                .join(CHILD_SESSION_PASSWORD_FOLDER)
+        };
+        let profiles = [root.path().join("ramaz"), root.path().join("guest")];
+        for profile in &profiles {
+            for name in CHILD_SESSION_PASSWORD_FILES {
+                write(&folder(profile).join(name), "DPAPI blob");
+            }
+        }
+        write(&folder(&profiles[1]).join("other.txt"), "kept");
+        let kept = root.path().join("kept");
+        write(
+            &folder(&kept).join(CHILD_SESSION_PASSWORD_FILES[0]),
+            "DPAPI blob",
+        );
+        let held_path = folder(&profiles[0]).join(CHILD_SESSION_PASSWORD_FILES[0]);
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&held_path)
+                .unwrap()
+        };
+        let remove_empty = |folder: &Path| match std::fs::remove_dir(folder) {
+            Err(error) if error.kind() != std::io::ErrorKind::DirectoryNotEmpty => Err(error),
+            _ => Ok(()),
+        };
+        let (deleted, failed) = delete_child_session_passwords_in(
+            &[
+                profiles[0].clone(),
+                profiles[1].clone(),
+                PathBuf::from("relative"),
+                root.path().join("x").join("..").join("kept"),
+            ],
+            // The console user's own AppData\Local, here the guest's again: once.
+            &[profiles[1].join("AppData").join("Local")],
+            wipe_file,
+            remove_empty,
+        );
+        drop(held);
+        // The held file is said with its path; every other one goes.
+        assert_eq!(deleted.len(), 3, "{deleted:?}");
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(
+            failed[0].contains(&held_path.display().to_string())
+                && failed[0].contains("delete it by hand"),
+            "{failed:?}"
+        );
+        assert!(
+            !folder(&profiles[0])
+                .join(CHILD_SESSION_PASSWORD_FILES[1])
+                .exists()
+        );
+        // The guest's folder holds something else, and stays; the skipped one is untouched.
+        assert_eq!(std::fs::read_dir(folder(&profiles[1])).unwrap().count(), 1);
+        assert!(
+            folder(&kept)
+                .join(CHILD_SESSION_PASSWORD_FILES[0])
+                .is_file()
+        );
+        // Run again: the held one goes now, then its emptied folder; nothing else is said.
+        let (deleted, failed) =
+            delete_child_session_passwords_in(&profiles, &[], wipe_file, remove_empty);
+        assert_eq!((deleted, failed), (vec![held_path], Vec::<String>::new()));
+        assert!(!folder(&profiles[0]).exists());
+        assert_eq!(
+            expand_environment(r"%SystemDrive%\Users\ramaz"),
+            format!(r"{}\Users\ramaz", std::env::var("SystemDrive").unwrap())
+        );
+        assert_eq!(expand_environment(r"C:\100%\%NOPE_X%"), r"C:\100%\%NOPE_X%");
     }
 }

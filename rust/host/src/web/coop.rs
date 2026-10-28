@@ -39,12 +39,10 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
                 );
             };
             blocking(move || {
-                let device = h.nucleus.kick(session, slot).ok_or_else(|| {
-                    error(
-                        StatusCode::NOT_FOUND,
-                        "There is no such co-op session, or no player in that slot.",
-                    )
-                })?;
+                let device = h.nucleus.kick(session, slot).ok_or((
+                    StatusCode::NOT_FOUND,
+                    "There is no such co-op session, or no player in that slot.",
+                ))?;
                 // Kicked first, so the stream's slot is not held for it again.
                 crate::nucleus::end_streams(&h, session, Some(&device));
                 Ok(json!({"device": device}))
@@ -60,10 +58,7 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
             };
             blocking(move || {
                 if !h.nucleus.end(session) {
-                    return Err(error(
-                        StatusCode::NOT_FOUND,
-                        "There is no such co-op session.",
-                    ));
+                    return Err((StatusCode::NOT_FOUND, "There is no such co-op session."));
                 }
                 crate::nucleus::end_streams(&h, session, None);
                 Ok(json!({}))
@@ -152,11 +147,13 @@ fn status(h: &Shared) -> Value {
 }
 
 /// Nucleus Co-op's calls (its folder, its handlers, stopping a session) leave
-/// the async executor.
-async fn blocking(work: impl FnOnce() -> Result<Value, Response> + Send + 'static) -> Response {
+/// the async executor; a refusal answers its status and text.
+async fn blocking(
+    work: impl FnOnce() -> Result<Value, (StatusCode, &'static str)> + Send + 'static,
+) -> Response {
     match tokio::task::spawn_blocking(work).await {
         Ok(Ok(value)) => Json(value).into_response(),
-        Ok(Err(response)) => response,
+        Ok(Err((status, message))) => error(status, message),
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }

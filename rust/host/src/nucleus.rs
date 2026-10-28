@@ -346,6 +346,10 @@ pub struct Listed {
     pub app_id: u32,
     pub session: coop::Session,
     /// Whether a launch streams each slot.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "the tests read which slots a launch holds")
+    )]
     pub held: Vec<bool>,
 }
 
@@ -628,6 +632,10 @@ impl Registry {
     }
 
     /// The session's instance while the registry has it.
+    #[allow(
+        dead_code,
+        reason = "the co-op stream reaches its slot's capture, input and audio through it"
+    )]
     pub fn instance(&self, session: u32) -> Option<Arc<dyn Instance>> {
         self.lock()
             .sessions

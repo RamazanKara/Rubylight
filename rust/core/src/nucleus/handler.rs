@@ -374,6 +374,21 @@ impl Catalog {
         }
     }
 
+    /// The user's added game at exactly `exe_path`, with its hub or user
+    /// handler. No file-name match: another game's .exe of the same name
+    /// (Portal's and Half-Life 2's hl2.exe) is not this game.
+    pub fn added(&self, exe_path: &str) -> Option<Match> {
+        self.games
+            .iter()
+            .filter(|game| same_path(&game.exe_path, exe_path))
+            .find_map(|game| {
+                Some(Match {
+                    handler: self.handler(&game.guid)?.clone(),
+                    exe_path: game.exe_path.clone(),
+                })
+            })
+    }
+
     /// Every added game that has a handler, for the co-op library entries.
     pub fn playable(&self) -> Vec<Match> {
         let mut out: Vec<Match> = self
@@ -560,6 +575,17 @@ Game.SupportsKeyboard = true; // { not a block
             c.find("Twin", Some("E:\\Twin.exe")),
             Err(Missing::NotAdded { .. })
         ));
+    }
+
+    #[test]
+    fn only_the_exact_path_is_the_users_added_game() {
+        // Portal's hl2.exe found Half-Life 2's handler by its file name.
+        let c = catalog();
+        let added = c.added("d:/games/racer/RACER.EXE").unwrap();
+        assert_eq!(added.handler.guid, "Racer Deluxe");
+        assert_eq!(c.added("E:\\Copy\\Racer.exe"), None);
+        // An added game whose handler was deleted has none.
+        assert_eq!(c.added("C:\\Old\\Old.exe"), None);
     }
 
     #[test]

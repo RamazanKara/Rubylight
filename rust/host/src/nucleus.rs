@@ -531,11 +531,11 @@ impl Chosen {
 /// hooks would look like cheating.
 fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refusal> {
     let setup = pc.one_player(app)?;
-    // Found by another path than the app's command: a hub handler still wins.
-    match catalog.find(&app.name, Some(&setup.exe_path)) {
-        Ok(found) => return Ok(Chosen::Hub(found.handler)),
-        Err(Missing::NoHandler { .. }) => {}
-        Err(missing) => return Err(Refusal::missing(&missing)),
+    // Found by another path than the app's command: the game the user added
+    // at exactly that path keeps its hub handler. A file-name match is
+    // another game's (Portal's hl2.exe is not Half-Life 2).
+    if let Some(found) = catalog.added(&setup.exe_path) {
+        return Ok(Chosen::Hub(found.handler));
     }
     if let Some(anti_cheat) = generic::anti_cheat(&setup) {
         let executable = setup.exe_path.rsplit('\\').next().unwrap_or_default();
@@ -2880,6 +2880,25 @@ mod tests {
             "{refused}"
         );
         assert!(pc.own.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_link_to_another_game_of_the_same_file_name_streams_with_ours() {
+        // Portal's hl2.exe found Half-Life 2's handler by its file name.
+        let (registry, pc, _) = setup();
+        let owner = client("A", false);
+        let config = Config::default();
+        let link = app("Portal 2 Mod", "steam://rungameid/12345");
+        let exe = r"C:\Games\Portal 2 Mod\portal2.exe";
+        pc.one_player.lock().unwrap().insert(
+            link.name.clone(),
+            Setup::new(exe, &link.name, Some((12345, r"C:\Games\Portal 2 Mod"))),
+        );
+        background(&registry, &link, "a", &owner, &config).unwrap();
+        let own = pc.own.lock().unwrap().clone();
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].exe_path, exe);
+        assert_eq!(registry.sessions()[0].session.game, own[0].guid());
     }
 
     #[test]

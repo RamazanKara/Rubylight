@@ -143,6 +143,9 @@ struct App {
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
+    /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
+    /// decoder and the renderer stay the same while Nightjar runs.
+    color_probed: Option<(Hardware, (u32, String))>,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -260,7 +263,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let settings = store.settings();
     let profiles = store.profiles();
     let mappings = store.controller_mappings();
-    let gpu = settings.experimental_packed_444 || settings.hdr || settings.codec.is_pyrowave() || settings.upscaling != config::Upscaling::Bilinear || store.hosts().iter()
+    let gpu = settings.needs_gpu() || store.hosts().iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
 
@@ -389,6 +392,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         running: true,
         autostream: autostream::Autostream::from_env(),
         cli,
+        color_probed: None,
     };
     match identity {
         Some(identity) => {
@@ -1297,6 +1301,7 @@ impl App {
         if app.role(small) == nightjar_core::http::AppRole::InputOnly {
             settings.hdr = false;
             settings.experimental_packed_444 = false;
+            (settings.prefer_yuv444, settings.sdr_10bit) = (false, false);
             settings.codec = config::CodecPreference::H264;
             settings.width = 1280;
             settings.height = 720;
@@ -1344,6 +1349,14 @@ impl App {
         } else {
             0
         };
+        let color_decodable = if stream::probes_color(&settings) {
+            let (hardware, renderer) = (self.hardware(&settings), self.renderer);
+            probed_once(&mut self.color_probed, hardware, || {
+                stream::color_probe::probe(hardware, |ten_bit| stream::color_probe::planes_drawable(renderer, ten_bit))
+            })
+        } else {
+            (0, String::new())
+        };
         let Some(identity) = self.hosts.identity().cloned() else {
             return;
         };
@@ -1371,6 +1384,7 @@ impl App {
             hardware: self.hardware(&settings),
             gpu_decoder,
             packed_modes,
+            color_decodable,
             pacing,
             vrr,
             gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
@@ -1455,7 +1469,8 @@ impl App {
         } else if profiles.automatic && profiles.home.is_some() && !profiles.home_wifi.is_empty() && network.wifi && network.ssid.is_none() {
             Some(tr("Wi-Fi name unavailable; using the other Wi-Fi profile."))
         } else { None };
-        streaming.show_toast(warning.unwrap_or(tr("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input")));
+        let toast = start_toast(warning, streaming.facts.color_notice.as_deref());
+        streaming.show_toast(toast);
         self.streaming = Some((streaming, TimerResolution::begin()));
     }
 
@@ -2034,6 +2049,23 @@ fn small_stream(settings: &mut config::Settings) {
     (settings.width, settings.height, settings.fps, settings.bitrate_kbps) = (SMALL_WIDTH, SMALL_HEIGHT, SMALL_FPS, SMALL_BITRATE_KBPS);
     settings.audio = config::AudioChannels::Stereo;
     (settings.virtual_display, settings.vrr, settings.play_audio_on_host) = (false, false, true);
+    // Nothing is shown, so nothing is offered beyond plain 4:2:0 or said about it.
+    (settings.prefer_yuv444, settings.sdr_10bit) = (false, false);
+}
+
+/// `probe`'s answer for `hardware`, from `cache` when it was the last decoder checked.
+fn probed_once(cache: &mut Option<(Hardware, (u32, String))>, hardware: Hardware, probe: impl FnOnce() -> (u32, String)) -> (u32, String) {
+    match cache {
+        Some((probed, result)) if *probed == hardware => result.clone(),
+        _ => cache.insert((hardware, probe())).1.clone(),
+    }
+}
+
+/// The toast a stream starts with: a network warning and what became of 4:4:4 and 10-bit SDR,
+/// else the controls hint.
+fn start_toast(warning: Option<&str>, color: Option<&str>) -> String {
+    let lines: Vec<&str> = warning.into_iter().chain(color).collect();
+    if lines.is_empty() { tr("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input").to_owned() } else { lines.join("\n") }
 }
 
 /// Where the overlay sits: its corner, 16 points in from both edges.
@@ -2182,7 +2214,10 @@ mod tests {
     fn input_only_through_a_small_stream_asks_for_the_smallest_stream_and_leaves_the_pc_alone() {
         let mut settings = config::Settings { width: 3840, height: 2160, fps: 120, bitrate_kbps: 80_000, vrr: true,
             virtual_display: true, audio: config::AudioChannels::Surround71, ..Default::default() };
+        settings.prefer_yuv444 = true;
+        settings.sdr_10bit = true;
         super::small_stream(&mut settings);
+        assert!(!settings.prefer_yuv444 && !settings.sdr_10bit, "a stream nobody sees offers no 4:4:4 or 10-bit");
         assert_eq!((settings.width, settings.height, settings.fps, settings.bitrate_kbps), (640, 360, 30, 500));
         assert_eq!(settings.audio, config::AudioChannels::Stereo);
         assert!(!settings.virtual_display && !settings.vrr && settings.play_audio_on_host, "the PC's display and speakers stay as they are");
@@ -2199,6 +2234,25 @@ mod tests {
 
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn the_color_probe_runs_once_per_decoder() {
+        let mut cache = None;
+        let mut runs = 0;
+        let mut probe = |hardware| probed_once(&mut cache, hardware, || { runs += 1; (runs, format!("run {runs}")) });
+        assert_eq!(probe(Hardware::None), (1, "run 1".to_owned()));
+        assert_eq!(probe(Hardware::None), (1, "run 1".to_owned()), "the same decoder is not checked again");
+        assert_eq!(probe(Hardware::Vaapi), (2, "run 2".to_owned()), "another decoder is");
+        assert_eq!(probe(Hardware::None), (3, "run 3".to_owned()));
+    }
+
+    #[test]
+    fn a_stream_starts_with_what_became_of_4_4_4_and_10_bit_next_to_the_warning() {
+        assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input");
+        assert_eq!(start_toast(None, Some("Streaming in YUV 4:4:4.")), "Streaming in YUV 4:4:4.");
+        assert_eq!(start_toast(Some("Wi-Fi name unavailable."), Some("Streaming in YUV 4:4:4.")), "Wi-Fi name unavailable.\nStreaming in YUV 4:4:4.");
+        assert_eq!(start_toast(Some("Wi-Fi name unavailable."), None), "Wi-Fi name unavailable.");
+    }
 
     #[test]
     fn a_launch_logs_what_asked_for_it() {

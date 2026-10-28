@@ -44,6 +44,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use nightjar_core::color;
 use nightjar_core::control::{ClientMessage, ControlEvent};
 use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
@@ -93,6 +94,9 @@ pub struct LaunchPlan {
     /// The renderer's Direct3D 11 device when PyroWave decodes on the GPU (`pyrowave_decoder`).
     pub gpu_decoder: Option<pipeline::GpuDevice>,
     pub packed_modes: u8,
+    /// The 4:4:4 and 10-bit formats this device decodes and draws, and why the others are not
+    /// (`color_probe::probe`); `(0, "")` when neither setting asks for them.
+    pub color_decodable: (u32, String),
     pub pacing: PacingMode,
     pub vrr: bool,
     pub gamepad_mask: u32,
@@ -158,6 +162,8 @@ pub struct Facts {
     /// The pace the host sends the picture at (Mbps), the raced presenter's first guess at when
     /// slices are ready.
     pub pace_mbps: u32,
+    /// What "Prefer YUV 4:4:4" and "10-bit color (SDR)" came to, told once the stream starts.
+    pub color_notice: Option<String>,
     pub app_name: String,
     pub host_name: String,
 }
@@ -288,6 +294,64 @@ pub fn video_formats(preference: CodecPreference, hdr: bool, host_scm: u32) -> u
         }
     }
     formats | VIDEO_FORMAT_H264
+}
+
+/// What "Prefer YUV 4:4:4" and "10-bit color (SDR)" ask of `color::offer` with these settings.
+pub fn color_wants(settings: &Settings) -> color::Wants {
+    color::Wants {
+        yuv444: settings.prefer_yuv444,
+        sdr10: settings.sdr_10bit,
+        hdr: settings.hdr,
+        packed444: settings.experimental_packed_444,
+        pyrowave: settings.codec.is_pyrowave(),
+    }
+}
+
+/// Whether a launch checks the decoder (`color_probe::probe`): when one of the settings asks and
+/// nothing that takes the stream first (HDR, packed full chroma, PyroWave) refuses it anyway.
+pub fn probes_color(settings: &Settings) -> bool {
+    let wants = color_wants(settings);
+    (wants.yuv444 || wants.sdr10) && !wants.hdr && !wants.packed444 && !wants.pyrowave
+}
+
+/// The formats a launch offers: the codec choice's, and the 4:4:4 and 10-bit ones the settings
+/// add where this device (`decodable`, from the probe) and the PC (`scm`) both handle them.
+/// Packed full chroma offers the plain formats whatever the PC reports.
+fn offered_formats(settings: &Settings, scm: u32, decodable: &(u32, String)) -> color::Offer {
+    let base = video_formats(settings.codec, settings.hdr, if settings.experimental_packed_444 { 0 } else { scm });
+    color::offer(base, color_wants(settings), decodable.0, &decodable.1, scm)
+}
+
+fn refusal_text(refusal: &color::Refusal) -> String {
+    use color::Refusal;
+    match refusal {
+        Refusal::Off | Refusal::Hdr => String::new(),
+        Refusal::Packed444 => tr("experimental full chroma is on and has its own 4:4:4 and 10-bit handling.").into(),
+        Refusal::PyroWave => tr("PyroWave is chosen, and it has its own 4:4:4 and 10-bit modes.").into(),
+        Refusal::Decoder(why) => trf("this device can’t decode or draw it ({}).", &[why]),
+        Refusal::Host => tr("the PC doesn’t encode it for this codec.").into(),
+        Refusal::Yuv444 => tr("4:4:4 is on, and the PC takes 4:4:4 or 10-bit, not both.").into(),
+    }
+}
+
+/// What to tell the player once the stream that `offer` was made for streams `negotiated`: what
+/// was granted, or why not, one line each; None when neither setting was on or had a word.
+fn color_notice(offer: &color::Offer, negotiated: u32) -> Option<String> {
+    let mut lines = Vec::new();
+    if offer.yuv444.is_ok() && negotiated & VIDEO_FORMAT_MASK_YUV444 != 0 {
+        lines.push(tr("Streaming in YUV 4:4:4.").to_owned());
+    }
+    if offer.sdr10.is_ok() && negotiated & VIDEO_FORMAT_MASK_10BIT != 0 {
+        lines.push(tr("Streaming 10-bit color (SDR).").to_owned());
+    }
+    for notice in color::notices(offer, negotiated) {
+        lines.push(match notice {
+            color::Notice::Yuv444Unavailable(refusal) => trf("YUV 4:4:4 unavailable; using 4:2:0: {}", &[&refusal_text(&refusal)]),
+            color::Notice::Sdr10Unavailable(refusal) => trf("10-bit SDR isn’t used, so the stream is 8-bit: {}", &[&refusal_text(&refusal)]),
+            color::Notice::Sdr10NotAccepted => tr("This PC didn’t accept 10-bit, so the stream is 8-bit.").to_owned(),
+        });
+    }
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 fn stage_text(stage: Stage) -> &'static str {
@@ -960,6 +1024,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         BeamRace::Off => {}
     }
     let race_ask = race_request(beam, early_decode(settings.early_decode), height);
+    let offer = offered_formats(settings, scm, &plan.color_decodable);
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -969,15 +1034,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         bitrate_kbps: bitrate as i32,
         packet_size: 1392,
         audio,
-        supported_video_formats: video_formats(
-            settings.codec,
-            settings.hdr,
-            if settings.experimental_packed_444 {
-                0
-            } else {
-                scm
-            },
-        ),
+        supported_video_formats: offer.formats,
         experimental_packed_444: settings.experimental_packed_444,
         packed444_modes: plan.packed_modes,
         client_refresh_rate_x100: refresh_x100 as i32,
@@ -1070,11 +1127,15 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         pace_mbps,
         beam_race: race_runs(slices, early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
             outcome.pyrowave_records_enabled)),
+        color_notice: color_notice(&offer, outcome.negotiated_video_format),
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
     if facts.early_without_records {
         eprintln!("{EARLY_NO_RECORDS}");
+    }
+    if settings.prefer_yuv444 || settings.sdr_10bit {
+        eprintln!("nightjar: 4:4:4 {:?}, 10-bit SDR {:?}, offered {:#x}, streaming {:#x}", offer.yuv444, offer.sdr10, offer.formats, facts.format);
     }
     // A pen's barrel roll goes only to a host with both the serverinfo element and the
     // DESCRIBE attribute; other Sunshine-family hosts may send the attribute alone.
@@ -3729,6 +3790,64 @@ mod tests {
         assert_eq!(video_formats(CodecPreference::PyroWave, false, SCM_H264 | SCM_PYROWAVE), VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE);
         assert_eq!(video_formats(CodecPreference::PyroWave444, true, SCM_H264 | SCM_PYROWAVE_MAIN10_444), VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE_MAIN10_444);
         assert_eq!(video_formats(CodecPreference::PyroWave444, false, SCM_H264), VIDEO_FORMAT_H264);
+    }
+
+    const COLOR_SCM: u32 = SCM_H264 | SCM_HEVC | SCM_AV1_MAIN8 | SCM_HEVC_MAIN10 | SCM_AV1_MAIN10
+        | SCM_H264_HIGH8_444 | SCM_HEVC_REXT8_444 | SCM_AV1_HIGH8_444;
+
+    fn decodes_all() -> (u32, String) {
+        (color::YUV444_FORMATS | color::SDR10_FORMATS, String::new())
+    }
+
+    #[test]
+    fn the_launch_offers_what_the_4_4_4_and_10_bit_settings_add() {
+        let hevc = Settings { codec: CodecPreference::Hevc, ..Default::default() };
+        let plain = offered_formats(&hevc, COLOR_SCM, &decodes_all());
+        assert_eq!(plain.formats, video_formats(CodecPreference::Hevc, false, COLOR_SCM), "both off: the codec choice alone");
+        assert_eq!(color_notice(&plain, VIDEO_FORMAT_H265), None);
+        let yuv444 = offered_formats(&Settings { prefer_yuv444: true, ..hevc.clone() }, COLOR_SCM, &decodes_all());
+        assert_eq!(yuv444.formats, VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT8_444);
+        assert_eq!(color_notice(&yuv444, VIDEO_FORMAT_H265_REXT8_444).as_deref(), Some("Streaming in YUV 4:4:4."));
+        let sdr10 = offered_formats(&Settings { sdr_10bit: true, ..hevc.clone() }, COLOR_SCM, &decodes_all());
+        assert_eq!(sdr10.formats, VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(color_notice(&sdr10, VIDEO_FORMAT_H265_MAIN10).as_deref(), Some("Streaming 10-bit color (SDR)."));
+        assert_eq!(color_notice(&sdr10, VIDEO_FORMAT_H265).as_deref(), Some("This PC didn’t accept 10-bit, so the stream is 8-bit."));
+        // The probe's answer decides: what the decoder can't draw is not offered, and its reason is told.
+        let none = (0, "HEVC 4:4:4: the decoder failed on the fixture".to_owned());
+        let refused = offered_formats(&Settings { prefer_yuv444: true, ..hevc.clone() }, COLOR_SCM, &none);
+        assert_eq!(refused.formats, plain.formats);
+        assert_eq!(color_notice(&refused, VIDEO_FORMAT_H265).as_deref(),
+            Some("YUV 4:4:4 unavailable; using 4:2:0: this device can’t decode or draw it (HEVC 4:4:4: the decoder failed on the fixture)."));
+        // HDR takes the stream and needs no word; packed full chroma keeps its own offer.
+        let hdr = offered_formats(&Settings { hdr: true, prefer_yuv444: true, sdr_10bit: true, ..hevc.clone() }, COLOR_SCM, &decodes_all());
+        assert_eq!(hdr.formats, video_formats(CodecPreference::Hevc, true, COLOR_SCM));
+        assert_eq!(color_notice(&hdr, VIDEO_FORMAT_H265_MAIN10), None);
+        let packed = offered_formats(&Settings { experimental_packed_444: true, prefer_yuv444: true, ..hevc.clone() }, COLOR_SCM, &decodes_all());
+        assert_eq!(packed.formats, video_formats(CodecPreference::Hevc, false, 0));
+        assert_eq!(color_notice(&packed, VIDEO_FORMAT_H265).as_deref(),
+            Some("YUV 4:4:4 unavailable; using 4:2:0: experimental full chroma is on and has its own 4:4:4 and 10-bit handling."));
+        // Both on: 4:4:4 wins and 10-bit says why.
+        let both = offered_formats(&Settings { prefer_yuv444: true, sdr_10bit: true, ..hevc }, COLOR_SCM, &decodes_all());
+        assert_eq!(color_notice(&both, VIDEO_FORMAT_H265_REXT8_444).as_deref(),
+            Some("Streaming in YUV 4:4:4.\n10-bit SDR isn’t used, so the stream is 8-bit: 4:4:4 is on, and the PC takes 4:4:4 or 10-bit, not both."));
+    }
+
+    #[test]
+    fn the_decoder_is_checked_only_when_a_setting_reaches_it() {
+        let on = Settings { prefer_yuv444: true, ..Default::default() };
+        assert!(!probes_color(&Settings::default()));
+        assert!(probes_color(&on));
+        assert!(probes_color(&Settings { sdr_10bit: true, ..Default::default() }));
+        assert!(!probes_color(&Settings { hdr: true, ..on.clone() }));
+        assert!(!probes_color(&Settings { experimental_packed_444: true, ..on.clone() }));
+        assert!(!probes_color(&Settings { codec: CodecPreference::PyroWave, ..on }));
+    }
+
+    #[test]
+    fn color_notices_are_german_in_german() {
+        let offer = offered_formats(&Settings { sdr_10bit: true, codec: CodecPreference::Hevc, ..Default::default() }, SCM_H264 | SCM_HEVC, &decodes_all());
+        let text = crate::strings::tests::with_lang(crate::strings::Lang::De, || color_notice(&offer, VIDEO_FORMAT_H265));
+        assert_eq!(text.as_deref(), Some("10-Bit-SDR wird nicht verwendet, der Stream läuft mit 8 Bit: der PC codiert es für diesen Codec nicht."));
     }
 
     #[test]

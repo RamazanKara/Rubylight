@@ -152,6 +152,10 @@ pub struct Settings {
     pub codec: CodecPreference,
     pub hdr: bool,
     pub experimental_packed_444: bool,
+    /// "Prefer YUV 4:4:4" (Experimental): offers the 8-bit 4:4:4 formats (`color::offer`).
+    pub prefer_yuv444: bool,
+    /// "10-bit color (SDR)" (Experimental): offers Main10 without asking for HDR.
+    pub sdr_10bit: bool,
     pub audio: AudioChannels,
     pub play_audio_on_host: bool,
     /// Ask the PC for PCM audio instead of Opus (`pipeline::passthrough_codecs`).
@@ -430,6 +434,8 @@ impl Default for Settings {
             codec: CodecPreference::Auto,
             hdr: false,
             experimental_packed_444: false,
+            prefer_yuv444: false,
+            sdr_10bit: false,
             audio: AudioChannels::Stereo,
             play_audio_on_host: false,
             audio_passthrough: false,
@@ -490,6 +496,16 @@ impl Default for Settings {
             reduce_motion: ReduceMotion::System,
             language: Language::System,
         }
+    }
+}
+
+impl Settings {
+    /// Whether these settings draw through the GPU renderer, which Linux picks at start: SDL's
+    /// "gpu" renderer runs the shader passes (packed full chroma, HDR, PyroWave, upscaling, and
+    /// the plane pass that 4:4:4 and 10-bit pictures need).
+    pub fn needs_gpu(&self) -> bool {
+        self.experimental_packed_444 || self.hdr || self.codec.is_pyrowave() || self.upscaling != Upscaling::Bilinear
+            || self.prefer_yuv444 || self.sdr_10bit
     }
 }
 
@@ -643,8 +659,7 @@ impl Overrides {
     }
 
     pub fn needs_gpu(&self) -> bool {
-        let s = self.apply(&Settings::default());
-        s.experimental_packed_444 || s.hdr || s.codec.is_pyrowave() || s.upscaling != Upscaling::Bilinear
+        self.apply(&Settings::default()).needs_gpu()
     }
 }
 
@@ -1285,6 +1300,22 @@ mod tests {
         let mut overrides = Overrides::default();
         overrides.0.insert("pyrowave_decoder".into(), serde_json::json!("Gpu"));
         assert_eq!(overrides.apply(&Settings::default()).pyrowave_decoder, PyroWaveDecoder::Gpu);
+    }
+
+    #[test]
+    fn yuv444_and_sdr10_default_off_and_ask_for_the_gpu_renderer() {
+        let old: Settings = serde_json::from_str("{\"fps\": 90}").unwrap();
+        assert!(!old.prefer_yuv444 && !old.sdr_10bit, "an older file gets them off");
+        assert!(!Settings::default().needs_gpu());
+        let on: Settings = serde_json::from_str("{\"prefer_yuv444\": true}").unwrap();
+        assert!(on.needs_gpu(), "Linux draws 4:4:4 pictures with the plane pass");
+        let on: Settings = serde_json::from_str("{\"sdr_10bit\": true}").unwrap();
+        assert!(on.needs_gpu(), "and software 10-bit pictures too");
+        // A game or PC that turns one on starts Nightjar with the GPU renderer as well.
+        let mut overrides = Overrides::default();
+        assert!(!overrides.needs_gpu());
+        overrides.0.insert("sdr_10bit".into(), serde_json::json!(true));
+        assert!(overrides.needs_gpu());
     }
 
     #[test]

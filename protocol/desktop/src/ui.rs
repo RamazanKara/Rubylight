@@ -2145,6 +2145,12 @@ impl Launcher {
                 "Streams 10-bit HDR to an HDR-enabled display. Enable HDR in the operating system first.",
                 |ui, s| toggle(ui, &mut s.hdr),
             );
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["prefer_yuv444"], "Prefer YUV 4:4:4 (Experimental)",
+                "Sharper colored text when the PC and this device support it. HDR takes priority. Restart Nightjar after changing this setting on Linux.",
+                |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave() && !s.experimental_packed_444, |ui| toggle(ui, &mut s.prefer_yuv444)).inner);
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["sdr_10bit"], "10-bit color (SDR, Experimental)",
+                "Streams SDR in 10-bit HEVC or AV1 to reduce banding. Needs a Main10 decoder on this device; the PC’s display must be in SDR. Restart Nightjar after changing this setting on Linux.",
+                |ui, s| ui.add_enabled_ui(!s.codec.is_pyrowave() && !s.experimental_packed_444, |ui| toggle(ui, &mut s.sdr_10bit)).inner);
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["full_range"], "Full color range", "Request the full RGB range from the host.", |ui, s| toggle(ui, &mut s.full_range));
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["decoder"], "Decoder", "Automatic uses hardware decoding when available. PyroWave always uses GPU wavelets.", |ui, s| {
                 ui.add_enabled_ui(!s.codec.is_pyrowave(), |ui| egui::ComboBox::from_id_salt("decoder")

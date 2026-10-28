@@ -5,9 +5,6 @@
 //! A hardware decoder is opened as required hardware: FFmpeg would otherwise decode a profile its
 //! hardware lacks in software without a word, and the stream would not use the decoder it names.
 
-// TODO(W3-5): used once main.rs feeds the probe into `color::offer` with the settings.
-#![allow(dead_code)]
-
 use nightjar_core::sdp::*;
 use sdl3_sys::everything::*;
 

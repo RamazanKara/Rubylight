@@ -9,6 +9,7 @@ use rubylight_protocol::control::{
     LINK_NOTICE_BYTES,
 };
 use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PIPELINE_RATES_REPORT_BYTES};
+use rubylight_protocol::rate_change::{RateChangeResult, RATE_CHANGE_RESULT_BYTES};
 use rubylight_protocol::steam_controller::{SteamError, SteamHaptic, SteamSettings};
 use rubylight_protocol::usb::UsbMessage;
 
@@ -238,6 +239,9 @@ pub enum ControlEvent {
     /// The host's pipeline frame rates (0x553D), sent only after a
     /// [`ClientMessage::PipelineRatesRequest`](super::messages::ClientMessage).
     PipelineRates(PipelineRatesReport),
+    /// What became of a [`ClientMessage::RateChange`](super::messages::ClientMessage) (0x553C),
+    /// one answer per request, matched by its serial.
+    RateChange(RateChangeResult),
     /// A cursor shape (0x5541), while shapes are requested.
     CursorShape(CursorShape),
     /// A cursor shape message that broke a rule of the format.
@@ -450,6 +454,15 @@ pub(crate) fn pipeline_rates(p: &[u8]) -> Option<ControlEvent> {
         return None;
     }
     PipelineRatesReport::decode(p).map(ControlEvent::PipelineRates)
+}
+
+/// A rate change result: 20 bytes, and a newer host may append fields. Anything over 256
+/// bytes, or with a status this version does not know, is not a result.
+pub(crate) fn rate_change(p: &[u8]) -> Option<ControlEvent> {
+    if !(RATE_CHANGE_RESULT_BYTES..=256).contains(&p.len()) {
+        return None;
+    }
+    RateChangeResult::decode(p).map(ControlEvent::RateChange)
 }
 
 pub(crate) fn cursor_shape(p: &[u8]) -> ControlEvent {

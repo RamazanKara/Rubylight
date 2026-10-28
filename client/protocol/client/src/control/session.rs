@@ -522,6 +522,11 @@ impl ControlSession {
             ptype::LINK_NOTICE if extensions => events::link_notice(p),
             ptype::TEXT_INPUT if extensions => events::text_input(p),
             ptype::PIPELINE_RATES if extensions => events::pipeline_rates(p),
+            ptype::RATE_CHANGE
+                if extensions && self.caps.supports_control_message(ptype::RATE_CHANGE) =>
+            {
+                events::rate_change(p)
+            }
             ptype::CURSOR_SHAPE if extensions && self.cursor_shapes => {
                 Some(events::cursor_shape(p))
             }
@@ -982,6 +987,87 @@ mod tests {
             bare.send(ClientMessage::PipelineRatesRequest(request)),
             Err(SendError::Unsupported)
         );
+    }
+
+    #[test]
+    fn rate_changes_are_asked_and_answered_only_where_announced() {
+        use rubylight_protocol::rate_change::{
+            Outcome, RateChangeRequest, RateChangeResult, Reason,
+        };
+        let mut s = ControlSession::new(
+            HostCapabilities {
+                control_messages: vec![0x5530, 0x553c],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let request = RateChangeRequest {
+            serial: 3,
+            bitrate_kbps: 40_000,
+            fps_millihz: 0,
+        };
+        s.send(ClientMessage::RateChange(request)).unwrap();
+        let sent = host_reads(&mut s);
+        assert_eq!(sent.len(), 1);
+        assert_eq!((sent[0].0, sent[0].1, sent[0].2), (0, Delivery::Reliable, 0x553C));
+        assert_eq!(RateChangeRequest::decode(&sent[0].3), Some(request));
+        // Nothing asked, or a rate past the protocol's limits, is not sent.
+        for invalid in [(0, 0), (40_000, 9_999), (0, 500_001)] {
+            assert_eq!(
+                s.send(ClientMessage::RateChange(RateChangeRequest {
+                    serial: 4,
+                    bitrate_kbps: invalid.0,
+                    fps_millihz: invalid.1,
+                })),
+                Err(SendError::Invalid)
+            );
+        }
+
+        let result = RateChangeResult {
+            serial: 3,
+            bitrate_kbps: 30_000,
+            fps_millihz: 60_000,
+            bitrate: Outcome::clamped(Reason::HostLimit),
+            fps: Outcome::UNCHANGED,
+        };
+        let mut seq = 0;
+        let mut feed = |s: &mut ControlSession, payload: &[u8]| {
+            seq += 1;
+            s.handle_datagram(t0, &from_host(seq, 0x553C, payload))
+                .unwrap();
+        };
+        feed(&mut s, &result.encode());
+        // Fields a newer host appends are skipped; runts, giants and unknown statuses are
+        // dropped.
+        let mut longer = result.encode().to_vec();
+        longer.extend_from_slice(&[9; 4]);
+        feed(&mut s, &longer);
+        feed(&mut s, &result.encode()[..19]);
+        feed(&mut s, &[1; 300]);
+        let mut unknown = result.encode();
+        unknown[16] = 9;
+        feed(&mut s, &unknown);
+        assert_eq!(
+            s.take_events(),
+            [ControlEvent::RateChange(result), ControlEvent::RateChange(result)]
+        );
+
+        // A host that did not announce 0x553C, as for a launch without `rlRateChange=1`, is
+        // neither asked nor heard.
+        let mut bare = session(SessionOptions::default());
+        bare.start(t0);
+        host_reads(&mut bare);
+        assert_eq!(
+            bare.send(ClientMessage::RateChange(request)),
+            Err(SendError::Unsupported)
+        );
+        bare.handle_datagram(t0, &from_host(1, 0x553C, &result.encode()))
+            .unwrap();
+        assert!(bare.take_events().is_empty());
     }
 
     #[test]

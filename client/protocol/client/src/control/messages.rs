@@ -7,6 +7,7 @@ use rubylight_protocol::control::{
 use rubylight_protocol::fec_report::FecReport;
 use rubylight_protocol::phase_lock;
 use rubylight_protocol::pipeline_rates::PipelineRatesRequest;
+use rubylight_protocol::rate_change::RateChangeRequest;
 use rubylight_protocol::usb::UsbMessage;
 
 use super::wire::{channel, ptype, Delivery};
@@ -91,6 +92,10 @@ pub enum ClientMessage {
     FecReport(FecReport),
     /// Asks the host for its pipeline frame rates (0x553D) every interval, or to stop.
     PipelineRatesRequest(PipelineRatesRequest),
+    /// Asks the host for a new video bitrate, frame rate or both (0x553C), on a stream
+    /// launched with `rlRateChange=1`. The host answers each with a
+    /// [`ControlEvent::RateChange`](super::events::ControlEvent).
+    RateChange(RateChangeRequest),
     /// Asks the host to send its cursor image (0x5541) and leave it out of the video, or to
     /// stop.
     CursorShapeRequest {
@@ -131,6 +136,7 @@ impl ClientMessage {
             Self::LinkNoticeRequest(_) => ptype::LINK_NOTICE,
             Self::FecReport(_) => ptype::FEC_REPORT,
             Self::PipelineRatesRequest(_) => ptype::PIPELINE_RATES,
+            Self::RateChange(_) => ptype::RATE_CHANGE,
             Self::CursorShapeRequest { .. } => ptype::CURSOR_SHAPE_REQUEST,
             Self::TextInputRequest(_) => ptype::TEXT_INPUT,
             Self::KeyboardLayout(_) => ptype::KEYBOARD_LAYOUT,
@@ -167,6 +173,7 @@ impl ClientMessage {
             Self::LinkNoticeRequest(request) => request.encode().to_vec(),
             Self::FecReport(report) => report.encode().to_vec(),
             Self::PipelineRatesRequest(request) => request.encode().to_vec(),
+            Self::RateChange(request) => request.encode().to_vec(),
             Self::CursorShapeRequest { enabled } => {
                 let edge = CURSOR_SHAPE_MAX_EDGE.to_le_bytes();
                 vec![CURSOR_SHAPE_VERSION, u8::from(*enabled), edge[0], edge[1]]
@@ -218,6 +225,7 @@ impl ClientMessage {
             | Self::LinkNoticeRequest(_)
             | Self::FecReport(_)
             | Self::PipelineRatesRequest(_)
+            | Self::RateChange(_)
             | Self::CursorShapeRequest { .. }
             | Self::TextInputRequest(_)
             | Self::KeyboardLayout(_)
@@ -253,6 +261,7 @@ impl ClientMessage {
                 *controller < 16 && flags & !15 == 0
             }
             Self::KeyboardLayout(layout) => layout.encode().is_some(),
+            Self::RateChange(request) => request.valid(),
             // Only the client's kinds, and only what encodes.
             Self::Usb(message) => {
                 matches!(

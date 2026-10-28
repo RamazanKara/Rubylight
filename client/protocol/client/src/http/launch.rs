@@ -8,6 +8,7 @@ use super::xml;
 use super::{der, Error};
 use crate::sdp::AudioConfiguration;
 use rubylight_protocol::fec_report::{FecChoice, LAUNCH_PARAMETER};
+use rubylight_protocol::rate_change;
 
 /// What the PC's displays do during the stream (Rubylight's `hostDisplay`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -90,6 +91,10 @@ pub struct LaunchRequest {
     /// The video FEC to ask for (`rlFecPercentage`); `None`, and any host without
     /// `Feature::ClientFec`, keep the host's own.
     pub fec: Option<FecChoice>,
+    /// Asks for mid-stream rate changes (`rlRateChange=1`, control message 0x553C). No host
+    /// offers them before the launch, and every host ignores a parameter it does not know,
+    /// so this goes to any host; the stream's DESCRIBE says whether it took it.
+    pub rate_change: bool,
 }
 
 impl Default for LaunchRequest {
@@ -118,6 +123,7 @@ impl Default for LaunchRequest {
             gamepad_mask: 0,
             persist_gamepads: false,
             fec: None,
+            rate_change: false,
         }
     }
 }
@@ -254,6 +260,9 @@ impl LaunchRequest {
         if let Some(fec) = self.fec.filter(|_| caps.has(Feature::ClientFec)) {
             q.push_str(&format!("&{LAUNCH_PARAMETER}={}", fec.as_param()));
         }
+        if self.rate_change {
+            q.push_str(&format!("&{}=1", rate_change::LAUNCH_PARAMETER));
+        }
         q.push_str(CORE_LAUNCH_PARAMETERS);
         q
     }
@@ -377,6 +386,28 @@ mod tests {
             for caps in [HostCapabilities::UNKNOWN, rubylight()] {
                 assert_eq!(asked.query(&caps, false), request().query(&caps, false));
             }
+        }
+    }
+
+    #[test]
+    fn rate_changes_are_asked_for_at_launch_only_when_wanted() {
+        for caps in [HostCapabilities::UNKNOWN, rubylight()] {
+            let plain = request().query(&caps, false);
+            assert!(!plain.contains("rlRateChange"));
+            let asked = LaunchRequest {
+                rate_change: true,
+                fec: Some(FecChoice::Auto),
+                ..request()
+            };
+            let fec = LaunchRequest {
+                fec: Some(FecChoice::Auto),
+                ..request()
+            };
+            assert_eq!(
+                asked.query(&caps, false),
+                fec.query(&caps, false)
+                    .replace("&corever=1", "&rlRateChange=1&corever=1")
+            );
         }
     }
 

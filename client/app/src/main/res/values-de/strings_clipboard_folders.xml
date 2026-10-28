@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">Die Zwischenablage des PCs enthält kein Bild</string>
     <string name="stream_clipboard_image_received">Bild vom PC in die Zwischenablage kopiert</string>
     <string name="clipboard_image_too_large">Das Bild ist zu groß für die Zwischenablage des PCs</string>
+    <string name="clipboard_image_too_large_here">Das Bild des PCs ist zu groß, um es auf dieses Gerät zu kopieren</string>
     <string name="clipboard_image_not_png">Das Bild konnte nicht gelesen werden</string>
     <string name="clipboard_image_no_host">Dieser PC kann keine Bilder über die Zwischenablage teilen</string>
     <string name="clipboard_image_forbidden">Der PC erlaubt diesem Gerät seine Zwischenablage nicht</string>

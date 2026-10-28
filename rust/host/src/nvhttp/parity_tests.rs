@@ -102,7 +102,11 @@ pub(crate) mod clipboard {
     }
     pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
         match PNG.lock().unwrap().clone() {
-            Some(png) if png.len() > max_bytes => Err(ImageError::TooLarge.into()),
+            Some(png) if png.len() > max_bytes => Err(ImageError::TooManyBytes {
+                bytes: png.len(),
+                max: max_bytes,
+            }
+            .into()),
             png => Ok(png),
         }
     }
@@ -1619,6 +1623,15 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     // ...but `clipboard_image_max_mb` does, by the Content-Length or, without
     // one, once the body passes it.
     set("clipboard_image_max_mb", "1");
+    // Each refusal is logged with the size and the limit.
+    let path = f.host.directory.join("clipboard-limit.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
     for length in [Some(MIB + 1), None] {
         assert_eq!(
             post_png(&f, Some("image/png"), length, vec![0; MIB + 1]).await,
@@ -1630,6 +1643,31 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     *clipboard::PNG.lock().unwrap() = Some(vec![0; MIB + 1]);
     assert_eq!(get().await.status(), StatusCode::PAYLOAD_TOO_LARGE);
     *clipboard::PNG.lock().unwrap() = None;
+    drop(guard);
+    let log = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = log.lines().collect();
+    assert_eq!(lines.len(), 3, "{log}");
+    assert!(
+        lines[0].contains(&format!(
+            "refused an image of {} bytes by its Content-Length, over the limit of {MIB} bytes",
+            MIB + 1
+        )),
+        "{log}"
+    );
+    assert!(
+        lines[1].contains(&format!(
+            "refused an image whose body passed the limit of {MIB} bytes"
+        )),
+        "{log}"
+    );
+    assert!(
+        lines[2].contains(&format!(
+            "the image is {} bytes as PNG, over the limit of {MIB} bytes",
+            MIB + 1
+        )),
+        "{log}"
+    );
+    assert!(!log.contains("pixels"), "{log}");
     // While one of its image requests runs, the device's next one is
     // refused, both ways; text doesn't wait for images.
     let running = IMAGE_TURNS.take(&client_uuid).await.unwrap();
@@ -1646,6 +1684,70 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     );
     drop(running);
     assert_eq!(get().await.status(), StatusCode::NOT_FOUND);
+}
+
+#[test]
+fn unpaired_size_refusals_are_logged_once_a_minute_per_address() {
+    let log = RefusalLog::new();
+    let now = Instant::now();
+    let a: std::net::IpAddr = "192.168.1.20".parse().unwrap();
+    let b: std::net::IpAddr = "192.168.1.21".parse().unwrap();
+    assert_eq!(log.admit(a, now), Some(0));
+    assert_eq!(log.admit(a, now + Duration::from_secs(1)), None);
+    // As an IPv4-mapped IPv6 address it is the same device.
+    let mapped = std::net::IpAddr::V6(std::net::Ipv4Addr::new(192, 168, 1, 20).to_ipv6_mapped());
+    assert_eq!(log.admit(mapped, now + Duration::from_secs(59)), None);
+    // Another address has its own minute.
+    assert_eq!(log.admit(b, now + Duration::from_secs(2)), Some(0));
+    // The next line says how many went unlogged.
+    assert_eq!(log.admit(a, now + Duration::from_secs(60)), Some(2));
+    assert_eq!(log.admit(a, now + Duration::from_secs(61)), None);
+    // Addresses quiet for a minute are forgotten once another is logged.
+    let c: std::net::IpAddr = "192.168.1.22".parse().unwrap();
+    assert_eq!(log.admit(c, now + Duration::from_secs(120)), Some(0));
+    assert_eq!(log.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_unpaired_device_over_the_clipboard_limit_is_logged_once() {
+    let f = Fixture::new();
+    // Only this test uses the address, so the shared log starts empty for it.
+    let unpaired = Connection {
+        peer: "192.0.2.77:50000".parse().unwrap(),
+        local: "127.0.0.1:47984".parse().unwrap(),
+        certificate: None,
+        tls: true,
+    };
+    let path = f.host.directory.join("unpaired-limit.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    for _ in 0..3 {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/actions/clipboard?type=text")
+            .header(header::CONTENT_LENGTH, 2 * 1024 * 1024)
+            .body(Body::empty())
+            .unwrap();
+        let status = router(f.host.clone(), true)
+            .layer(Extension(unpaired.clone()))
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    drop(guard);
+    let log = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(log.lines().count(), 1, "{log}");
+    assert!(
+        log.contains("refused a copy of 2097152 bytes by its Content-Length from unpaired 192.0.2.77, over the limit of 1048576 bytes (0 more from it unlogged)"),
+        "{log}"
+    );
 }
 
 #[tokio::test]

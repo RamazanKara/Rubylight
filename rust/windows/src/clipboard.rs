@@ -175,7 +175,8 @@ fn with_data<T>(format: u32, read: impl FnOnce(&[u8]) -> Result<T>) -> Result<Op
 /// The clipboard's image as PNG of at most `max_bytes`, or `None` while it
 /// holds none. A `PNG` another program put there is passed on as it is,
 /// without anything after its end; a bitmap is converted. An image over
-/// `max_bytes` fails with [`ImageError::TooLarge`], one this can't read with
+/// `max_bytes` fails with [`ImageError::TooManyBytes`], one over the pixel
+/// limits with [`ImageError::TooLarge`], one this can't read with
 /// [`ImageError::Unsupported`].
 pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
     image_png(png_format()?, max_bytes, copied)
@@ -201,9 +202,13 @@ fn image_png(
     max_bytes: usize,
     mut copy: impl FnMut(u32, Take<'_>) -> Result<Option<Vec<u8>>>,
 ) -> Result<Option<Vec<u8>>> {
+    let over = move |bytes: usize| ImageError::TooManyBytes {
+        bytes,
+        max: max_bytes,
+    };
     let fits = move |bytes: Vec<u8>| -> Result<Vec<u8>> {
         if bytes.len() > max_bytes {
-            Err(ImageError::TooLarge.into())
+            Err(over(bytes.len()).into())
         } else {
             Ok(bytes)
         }
@@ -212,12 +217,15 @@ fn image_png(
         let end = clipboard_image::png_extent(bytes)
             .ok_or_else(|| ImageError::Malformed("the clipboard's PNG is cut short".into()))?;
         if end > max_bytes {
-            return Err(ImageError::TooLarge.into());
+            return Err(over(end).into());
         }
         Ok(bytes[..end].to_vec())
     });
-    let too_large =
-        |error: &anyhow::Error| error.downcast_ref::<ImageError>() == Some(&ImageError::TooLarge);
+    let too_large = |error: &anyhow::Error| {
+        error
+            .downcast_ref::<ImageError>()
+            .is_some_and(ImageError::too_large)
+    };
     // What made a format unusable, failed with when no later one is there.
     let mut unusable = None;
     match passed {
@@ -327,13 +335,39 @@ mod tests {
         assert_eq!(asked, [PNG, CF_DIBV5]);
         // A PNG there passes without what follows it, within the limit.
         let held = clipboard_image::encode_png(&image).unwrap();
+        let held_len = held.len();
         let mut padded = held.clone();
         padded.extend_from_slice(&[0; 64]);
         let mut asked = Vec::new();
         let read = image_png(PNG, 1 << 20, fake(vec![(PNG, padded.clone())], &mut asked));
         assert_eq!(read.unwrap(), Some(held));
+        // Over the byte limit, the size and the limit are named, not the
+        // pixel limits.
         let too_large = image_png(PNG, 16, fake(vec![(PNG, padded)], &mut asked)).unwrap_err();
-        assert_eq!(too_large.downcast_ref(), Some(&ImageError::TooLarge));
+        assert_eq!(
+            too_large.downcast_ref(),
+            Some(&ImageError::TooManyBytes {
+                bytes: held_len,
+                max: 16
+            })
+        );
+        let message = too_large.to_string();
+        assert!(message.contains(&format!("{held_len} bytes")), "{message}");
+        assert!(!message.contains("pixels"), "{message}");
+        // So is a converted bitmap's PNG over it, without trying CF_DIB.
+        let mut asked = Vec::new();
+        let dib = clipboard_image::encode_dibv5(&image).unwrap();
+        let converted = image_png(
+            PNG,
+            16,
+            fake(vec![(CF_DIBV5, dib.clone()), (CF_DIB, dib)], &mut asked),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            converted.downcast_ref(),
+            Some(ImageError::TooManyBytes { max: 16, .. })
+        ));
+        assert_eq!(asked, [PNG, CF_DIBV5]);
         assert_eq!(
             image_png(PNG, 1 << 20, fake(vec![], &mut asked)).unwrap(),
             None
@@ -465,7 +499,7 @@ mod tests {
             assert_eq!(clipboard_image::decode_png(&read)?, image);
             assert!(matches!(
                 read_png(16).unwrap_err().downcast_ref::<ImageError>(),
-                Some(ImageError::TooLarge)
+                Some(ImageError::TooManyBytes { max: 16, .. })
             ));
             // Without the PNG format, the bitmap is converted.
             {

@@ -344,26 +344,33 @@ abstract class CargoAndroidBuild extends DefaultTask {
         }
     }
 
-    // A windows-gnu toolchain links every build script with MSYS2's gcc. Without it cargo fails
-    // deep inside a dependency's build; this names the fix up front.
+    // On a windows-gnu host cargo links every build script with the repository's
+    // .cargo/config.toml linker, "gcc" from PATH; rustup's self-contained mingw gcc is not used
+    // unless CARGO_TARGET_<host>_LINKER names it. Without either cargo fails deep inside a
+    // dependency's build; this names the fix up front. The C code (ring) is built with the NDK's
+    // clang and nothing in the engine uses bindgen, so neither MSYS2's compiler nor libclang is
+    // needed.
     void checkMsys(String cargo, File protocol) {
         def cargoDir = new File(cargo).parentFile
         def rustc = cargoDir && new File(cargoDir, 'rustc.exe').isFile() ? new File(cargoDir, 'rustc.exe').absolutePath : 'rustc'
         def version = new ByteArrayOutputStream()
-        execOperations.exec {
-            workingDir protocol
-            commandLine rustc, '-vV'
-            standardOutput = version
+        try {
+            execOperations.exec {
+                workingDir protocol
+                commandLine rustc, '-vV'
+                standardOutput = version
+            }
+        } catch (Exception e) {
+            throw new GradleException("The Rust engine needs rustup's rustc ($rustc -vV failed: ${e.message}): install Rust with rustup, or set CARGO to its cargo.exe, then build again.", e)
         }
-        def host = version.toString().readLines().find { it.startsWith('host: ') }
+        def host = version.toString().readLines().find { it.startsWith('host: ') }?.substring(6)?.trim()
         if (!host?.endsWith('-gnu')) return
+        def linkerVar = "CARGO_TARGET_${host.toUpperCase().replace('-', '_')}_LINKER"
+        if (System.getenv(linkerVar)) return
         def path = (System.getenv('PATH') ?: '').split(File.pathSeparator).findAll { it }
-        def gcc = path.any { new File(it, 'gcc.exe').isFile() }
-        def libclang = System.getenv('LIBCLANG_PATH')
-        def clang = !libclang || new File(libclang, 'libclang.dll').isFile()
-        if (!gcc || !clang) {
-            def missing = !gcc ? 'gcc.exe is not on PATH' : "LIBCLANG_PATH=$libclang has no libclang.dll"
-            throw new GradleException("The Rust engine needs MSYS2 UCRT64 ($missing): put C:\\msys64\\ucrt64\\bin on PATH and set LIBCLANG_PATH=C:\\msys64\\ucrt64\\bin, then build again.")
+        if (!path.any { new File(it, 'gcc.exe').isFile() }) {
+            def selfContained = "lib\\rustlib\\$host\\bin\\self-contained\\${host.split('-')[0]}-w64-mingw32-gcc.exe"
+            throw new GradleException("The Rust engine links its build scripts with gcc.exe, which is not on PATH: put C:\\msys64\\ucrt64\\bin on PATH, or set $linkerVar to the toolchain's $selfContained, then build again.")
         }
     }
 

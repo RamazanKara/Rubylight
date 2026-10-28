@@ -4160,7 +4160,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     class UsbDeviceContext extends GenericControllerContext {
         public AbstractController device;
-        public ControllerButtonMap buttonMap;
+        // Empty until createUsbDeviceContextForDevice loads the stored one, like InputDeviceContext's
+        public ControllerButtonMap buttonMap = new ControllerButtonMap();
         private boolean arrivalPending;
         private long arrivalRetryAt;
         // Start+Back+LB+RB was held; the stream menu opens once every button is up.

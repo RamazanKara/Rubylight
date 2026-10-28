@@ -67,6 +67,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int announcedHdrFormat;
     private volatile boolean dolbyVisionFailed;
     private volatile boolean dolbyVisionActive;
+    // The first Dolby Vision frame's padding after the RPU was logged for this decoder.
+    private boolean dolbyVisionPaddingLogged;
 
     private final ArrayList<byte[]> vpsBuffers = new ArrayList<>();
     private final ArrayList<byte[]> spsBuffers = new ArrayList<>();
@@ -2247,6 +2249,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         boolean dolbyVision = HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType);
         dolbyVisionActive = false;
+        dolbyVisionPaddingLogged = false;
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
 
@@ -4064,14 +4067,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         numFramesIn++;
 
-        if (decodeUnitLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
+        // The FEC padding after a Dolby Vision RPU breaks MediaTek's RPU parser; see HdrBitstream.
+        boolean dolbyVision = dolbyVisionActive;
+        int queuedLength = HdrBitstream.queuedLength(dolbyVision, decodeUnitData, decodeUnitLength);
+        if (dolbyVision && !dolbyVisionPaddingLogged) {
+            dolbyVisionPaddingLogged = true;
+            LimeLog.info("Dolby Vision: the first frame ends " + HdrBitstream.tail(decodeUnitData, queuedLength, 8) +
+                    ", dropped " + (decodeUnitLength - queuedLength) + " zero bytes after it");
+        }
+
+        if (queuedLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
             // The recovery drops this buffer and frame; the IDR asked for then fits.
-            if (requestInputBufferGrowth((long) nextInputBuffer.position() + decodeUnitLength, nextInputBuffer.limit())) {
+            if (requestInputBufferGrowth((long) nextInputBuffer.position() + queuedLength, nextInputBuffer.limit())) {
                 doCodecRecoveryIfRequired(CR_FLAG_INPUT_THREAD);
                 return MoonBridge.DR_NEED_IDR;
             }
             IllegalArgumentException exception = new IllegalArgumentException(
-                    "Decode unit length "+decodeUnitLength+" too large for input buffer "+nextInputBuffer.limit()+
+                    "Decode unit length "+queuedLength+" too large for input buffer "+nextInputBuffer.limit()+
                     " (requested "+requiredInputBufferSize+")");
             if (!reportedCrash) {
                 reportedCrash = true;
@@ -4081,7 +4093,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Copy data from our buffer list into the input buffer
-        nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
+        nextInputBuffer.put(decodeUnitData, 0, queuedLength);
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again

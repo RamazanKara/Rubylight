@@ -756,6 +756,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (!connected || isFinishing()) return;
             checkRefreshSwitch();
             checkHdrStatus();
+            checkVulkanPace();
             bitrateHandler.postDelayed(this, 1000);
         }
     };
@@ -7620,6 +7621,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         String text = refreshSwitchMonitor.poll(SystemClock.uptimeMillis(), getVideoDisplay(),
                 surfaceCreated && !useArr ? appSurfaceFrameRateVote : null, appSurfaceSeamlessOnly);
         if (messages.status("refresh", text)) updatePerformanceOverlay();
+    }
+
+    // Render through Vulkan can't keep up on this display: say so once per PC and on the status line.
+    // The renderer stays on and the setting stays; turning it off is the user's choice.
+    private void checkVulkanPace() {
+        if (decoderRenderer != null && decoderRenderer.takeVulkanBehind()) {
+            hostNotice(HostNotices.Notice.VULKAN_BEHIND, R.string.stream_vulkan_behind);
+        }
     }
 
     // HDR was granted and then not delivered: say so on the status line for as long as it lasts,

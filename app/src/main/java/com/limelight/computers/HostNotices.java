@@ -35,7 +35,9 @@ public final class HostNotices {
         // 10-bit SDR was asked for and the PC sends HDR because its display is in HDR.
         SDR10_HOST_HDR,
         // HDR10+ that Render through Vulkan could not hand to the screen on this Android version.
-        VULKAN_HDR10_PLUS_REFUSED
+        VULKAN_HDR10_PLUS_REFUSED,
+        // Render through Vulkan presented too few of the stream's frames on this device's display.
+        VULKAN_BEHIND
     }
 
     static final String PREFERENCES = "HostNotices";

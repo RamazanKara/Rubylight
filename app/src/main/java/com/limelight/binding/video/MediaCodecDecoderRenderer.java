@@ -135,6 +135,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean vulkanHdr10Plus;
     private byte[] vulkanHdr10PlusNoted;
     private volatile boolean vulkanHdr10PlusRefusalTaken;
+    // Render through Vulkan presents too few of the received frames on this display (decoder input thread).
+    private final VulkanPaceCheck vulkanPace = new VulkanPaceCheck();
+    private volatile boolean vulkanBehind;
     // Set once the renderer reports it gave up; the stream is then ended with a dialog that says so
     private volatile String vulkanFailure;
     // The screen tells the renderer when frames are shown, so frames wait for that report to count
@@ -1834,6 +1837,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return false;
         }
         vulkanHdr10PlusRefusalTaken = true;
+        return true;
+    }
+
+    /**
+     * Render through Vulkan has presented under 80% of the received frames for 5 s on this display
+     * (see VulkanPaceCheck): true once per stream, for the status line. The renderer stays on.
+     */
+    public boolean takeVulkanBehind() {
+        if (!vulkanBehind) return false;
+        vulkanBehind = false;
         return true;
     }
 
@@ -3804,7 +3817,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             VulkanRendererBridge vulkan = vulkanRenderer;
             if (vulkan != null) {
-                activeWindowVideoStats.totalFramesRendered += vulkan.takePresentedFrames();
+                int presented = vulkan.takePresentedFrames();
+                activeWindowVideoStats.totalFramesRendered += presented;
+                long windowMs = SystemClock.uptimeMillis() - activeWindowVideoStats.measurementStartTimestamp;
+                if (vulkanPace.window(activeWindowVideoStats.totalFramesReceived, presented, windowMs)) {
+                    LimeLog.warning("Render through Vulkan presents " + presented + " of " +
+                            activeWindowVideoStats.totalFramesReceived + " frames received in " + windowMs +
+                            " ms, under " + Math.round(VulkanPaceCheck.MIN_SHARE * 100) + "% for " +
+                            VulkanPaceCheck.BEHIND_MS / 1000 + " s");
+                    vulkanBehind = true;
+                }
                 // The display mode can change mid-stream
                 vulkan.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
             }

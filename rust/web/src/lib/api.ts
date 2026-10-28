@@ -767,6 +767,8 @@ export interface PowerFixResult {
   skipped: string[];
 }
 
+/** What a device may do once paired (`butterpollo_core::state::pairing_access`). The first device gets everything. */
+export type PairingAccess = 'play' | 'view' | 'all';
 /** A pairing QR code for one of this PC's addresses (`rubylight://pair?...`). */
 export interface PairingCode {
   address: string;
@@ -890,12 +892,14 @@ export const api = {
     unpairAll: () => post<Ok>('/api/clients/unpair-all', {}, ACTION_TIMEOUT_MS),
     disconnect: (uuid: string) => post<Ok>('/api/clients/disconnect', { uuid }, ACTION_TIMEOUT_MS),
     resetNetworkHistory: (uuid: string) => post<Ok>('/api/clients/reset-network-history', { uuid }, ACTION_TIMEOUT_MS),
-    pin: (pin: string, uniqueid?: string, name?: string) => post<Ok>('/api/pin', { pin, uniqueid, name }),
-    otp: (passphrase: string, deviceName: string) =>
-      post<{ status: true; otp: string; ip: string; name: string }>('/api/otp', { passphrase, deviceName }),
+    /** `access` is what a Moonlight device may do once paired; WebRTC requests take none. */
+    pin: (pin: string, uniqueid?: string, name?: string, access?: PairingAccess) => post<Ok>('/api/pin', { pin, uniqueid, name, access }),
+    otp: (passphrase: string, deviceName: string, access?: PairingAccess) =>
+      post<{ status: true; otp: string; ip: string; name: string }>('/api/otp', { passphrase, deviceName, access }),
     hdrProfiles: () => get<{ status: true; profiles: { filename: string }[] }>('/api/clients/hdr-profiles'),
-    pairingQr: (address = '') =>
-      post<{ status: true; codes: PairingCode[]; name: string; expires_in_seconds: number }>('/api/pairing/qr', { address }),
+    /** The live code while it has a minute left, else a new one; `access` applies to it either way. */
+    pairingQr: (address = '', access?: PairingAccess) =>
+      post<{ status: true; codes: PairingCode[]; name: string; expires_in_seconds: number }>('/api/pairing/qr', { address, access }),
   },
   webhooks: {
     list: () => get<WebhookList>('/api/webhooks'),

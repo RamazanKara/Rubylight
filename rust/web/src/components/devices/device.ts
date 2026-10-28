@@ -1,11 +1,9 @@
 // Paired-device permissions and the editable form of a device's settings.
-import { FULL_CONTROL, PERM, PERM_ALL, type Client } from '../../lib/api';
+import { PERM, PERM_ALL, type Client } from '../../lib/api';
 import { grantsValue, readGrants, type FolderGrants } from '../../lib/shared-folders';
 import { SETTING as STREAM_PRESET, presets } from '../../lib/stream-presets';
 import { settings as displaySettings } from '../../lib/schema/display';
 import { settings as extensionSettings } from '../../lib/schema/extensions';
-
-export const VIEW_ONLY = PERM.LIST_APPS | PERM.VIEW_STREAMS;
 
 export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: string }[] }[] = [
   {
@@ -37,19 +35,6 @@ export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: str
     ],
   },
 ];
-
-export function permissionSummary(perm: number): string {
-  const granted = perm & PERM_ALL;
-  if ((granted & FULL_CONTROL) === FULL_CONTROL) return 'Full control';
-  if (granted === VIEW_ONLY) return 'View only';
-  if (granted === 0) return 'No access';
-  return 'Custom';
-}
-
-/** Full control, keeping the file transfer bits `perm` has. */
-export function fullControl(perm: number): number {
-  return FULL_CONTROL | (perm & (PERM.FILE_UPLOAD | PERM.FILE_DOWNLOAD));
-}
 
 /** "List apps, Mouse, Keyboard" for a tooltip. */
 export function grantedLabels(perm: number): string {

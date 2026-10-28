@@ -3,18 +3,17 @@
   import Button from '../Button.svelte';
   import Field from '../Field.svelte';
   import Toggle from '../Toggle.svelte';
+  import AccessChoice from './AccessChoice.svelte';
   import CommandList from './CommandList.svelte';
+  import { accessOf, withAccess, type Access } from './access';
   import { api, type Client, type DisplayDevice } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
     DISPLAY_OVERRIDE_OPTIONS,
-    fullControl,
-    permissionSummary,
     PERMISSION_GROUPS,
     savingEndsStream,
     toDraft,
-    VIEW_ONLY,
     VIRTUAL_DISPLAY_LAYOUTS,
     VIRTUAL_DISPLAY_MODES,
     validDisplayMode,
@@ -59,11 +58,22 @@
 
   // Custom permissions, or a granted Host control, Sleep PC or USB devices, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
-  const granted = () => permissionSummary(draft.perm) === 'Custom' || draft.host_control || draft.allow_sleep || draft.allow_usb;
+  const granted = () => accessOf(draft.perm) === 'custom' || draft.host_control || draft.allow_sleep || draft.allow_usb;
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
   });
+  // Custom stays chosen while the boxes happen to match a preset.
+  let customPicked = $state(false);
+  const access = $derived.by(() => {
+    const preset = accessOf(draft.perm);
+    return customPicked || preset === 'none' ? 'custom' : preset;
+  });
+  function chooseAccess(next: Access | 'custom') {
+    customPicked = next === 'custom';
+    if (next === 'custom') permissionsOpen = true;
+    else draft.perm = withAccess(draft.perm, next);
+  }
 
   // Follow edits made elsewhere while this form has none of its own.
   $effect(() => {
@@ -189,6 +199,7 @@
   }
 
   function discard() {
+    customPicked = false;
     draft = $state.snapshot(saved);
   }
 </script>
@@ -211,19 +222,12 @@
   </section>
 
   <section>
-    <div class="section-head">
-      <h3>Permissions</h3>
-      <div class="row">
-        <span class="muted presets">Set to</span>
-        <Button size="sm" onclick={() => (draft.perm = fullControl(draft.perm))}>Full control</Button>
-        <Button size="sm" onclick={() => (draft.perm = VIEW_ONLY)}>View only</Button>
-      </div>
-    </div>
+    <h3>Permissions</h3>
+    <AccessChoice legend="This device can" custom value={access} onchange={chooseAccess} />
     <p class="note">
-      The first paired device gets full control. Later devices can only list apps and view streams.
-      File transfer is granted on its own, never with full control.
+      The first paired device gets everything. Later devices get what was chosen when they paired.
+      File transfer is granted on its own, never with Everything.
     </p>
-    <p class="note">Current access: <strong>{permissionSummary(draft.perm)}</strong></p>
     <details bind:open={permissionsOpen}><summary>Custom permissions</summary>
     <div class="groups">
       {#each PERMISSION_GROUPS as group (group.name)}
@@ -297,7 +301,7 @@
         </div>
       {/if}
       <p class="note">
-        Folders are shared only here: Full control and the file transfer permissions don’t include them. Taking a folder
+        Folders are shared only here: Everything and the file transfer permissions don’t include them. Taking a folder
         away, or write access to it, disconnects the device.
       </p>
     {/if}
@@ -551,17 +555,6 @@
   }
   h3 {
     font-size: var(--text-sm);
-  }
-  .section-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-2) var(--space-4);
-    flex-wrap: wrap;
-  }
-  .presets {
-    font-size: var(--text-sm);
-    margin-right: var(--space-1);
   }
   .note {
     font-size: var(--text-xs);

@@ -1,13 +1,19 @@
 <script lang="ts">
   // Pairing, QR code first: Nightjar scans it; Moonlight, Artemis and other apps show a PIN
-  // that is typed here. The one-time PIN for Artemis is under Other ways to pair.
+  // that is typed here. The one-time PIN for Artemis is under Other ways to pair. What the
+  // device may do once paired is chosen first and sent with every code and PIN.
   import { onMount } from 'svelte';
+  import Button from '../Button.svelte';
   import CopyButton from '../CopyButton.svelte';
   import Icon from '../Icon.svelte';
   import Panel from '../Panel.svelte';
+  import AccessChoice from './AccessChoice.svelte';
   import OtpPairing from './OtpPairing.svelte';
   import PendingRequest from './PendingRequest.svelte';
   import QrPairing from './QrPairing.svelte';
+  import type { Access } from './access';
+  import { api } from '../../lib/api';
+  import { failed } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
   import { refreshMetadata, refreshPending, session } from '../../lib/session.svelte';
 
@@ -16,19 +22,42 @@
   const others = $derived((session.metadata?.pc_addresses ?? []).filter(address => address !== session.metadata?.pc_address));
   // On unless the settings file turns it off (`qr_pairing = false`).
   const qr = $derived(session.metadata ? session.metadata.qr_pairing !== false : false);
+  const qrOff = $derived(session.metadata?.qr_pairing === false);
+  // Pairing is approved here, by showing a code or typing a PIN, so the device may play.
+  let access = $state<Access>('play');
+  let turningOn = $state(false);
   onMount(() => { refreshMetadata().catch(() => {}); refreshPending().catch(() => {}); });
+
+  async function turnOnQr() {
+    turningOn = true;
+    try {
+      await api.config.patch({ qr_pairing: true });
+      await refreshMetadata();
+    } catch (error) {
+      failed('Turning on pairing with a QR code failed', error);
+    } finally {
+      turningOn = false;
+    }
+  }
 </script>
 
 {#snippet body()}
   {#if session.metadata?.enable_pairing === false}
     <p class="notice">Pairing is off. Turn on Allow pairing in <a href="/settings" use:link>Settings</a> to pair a new device. Devices already paired keep working.</p>
   {:else}
+    <div class="access">
+      <AccessChoice legend="This device can" recommend value={access} onchange={(next) => { if (next !== 'custom') access = next; }} />
+      <p class="muted">The first device paired to this PC can do everything. Change it later on the device's page.</p>
+    </div>
+    {#if qrOff}
+      <p class="notice qr-off">Pairing with a QR code is off. <Button size="sm" busy={turningOn} onclick={turnOnQr}>Turn on</Button></p>
+    {/if}
     <div class="ways" class:single={!qr}>
       {#if qr}
         <section class="way" aria-labelledby="pair-qr">
           <h3 id="pair-qr"><Icon name="image" size={18} />Nightjar: scan this code</h3>
           <p class="muted">In Nightjar, tap Add PC, then Scan QR code. On a computer, copy the link and paste it in Add PC.</p>
-          <QrPairing />
+          <QrPairing {access} />
         </section>
       {/if}
       <section class="way" aria-labelledby="pair-pin">
@@ -49,14 +78,14 @@
             <div class="step-body">
               <p>Type the PIN it shows here.</p>
               {#if session.pending.length}
-                <ul class="requests" aria-label="Waiting for a PIN">{#each session.pending as request (request.uniqueid)}<PendingRequest {request} />{/each}</ul>
+                <ul class="requests" aria-label="Waiting for a PIN">{#each session.pending as request (request.uniqueid)}<PendingRequest {request} {access} />{/each}</ul>
               {:else}<p class="waiting muted" role="status">Waiting for a device. It appears here a few seconds after you select this PC.</p>{/if}
             </div>
           </li>
         </ol>
       </section>
     </div>
-    <details class="alternatives"><summary>Other ways to pair</summary><p class="muted">Artemis: make a one-time PIN here and type it on the device.</p><OtpPairing /></details>
+    <details class="alternatives"><summary>Other ways to pair</summary><p class="muted">Artemis: make a one-time PIN here and type it on the device.</p><OtpPairing {access} /></details>
   {/if}
 {/snippet}
 
@@ -67,6 +96,9 @@
 {/if}
 
 <style>
+  .access { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+  .access > p { font-size: var(--text-sm); }
+  .qr-off { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-4); }
   .ways { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-5); }
   .ways.single { grid-template-columns: minmax(0, 1fr); max-width: 720px; }
   .way { display: grid; gap: var(--space-3); align-content: start; padding: var(--space-4) var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }

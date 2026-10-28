@@ -1,13 +1,19 @@
 <script lang="ts">
-  // The pairing QR code, shown as soon as the page opens: a one-time PIN and passphrase that
-  // work once for three minutes, with this PC's certificate fingerprint. A new code is made
-  // only when asked, so a one-time PIN made for Artemis is not replaced behind your back.
-  import { onMount } from 'svelte';
+  // The pairing QR code: a one-time PIN and passphrase that work once for three minutes, with
+  // this PC's certificate fingerprint. It is asked for only while it can be seen. The host
+  // shows the live code again while it has a minute left, so two tabs show the same code,
+  // and it has its own slot: a one-time PIN made for Artemis never replaces it.
+  import { onMount, untrack } from 'svelte';
   import Button from '../Button.svelte';
   import CopyButton from '../CopyButton.svelte';
-  import { api, type PairingCode } from '../../lib/api';
+  import { api, type PairingAccess, type PairingCode } from '../../lib/api';
+
+  let { access }: { access?: PairingAccess } = $props();
 
   const uid = $props.id();
+  let root = $state<HTMLElement>();
+  let inView = $state(false);
+  let pageShown = $state(true);
   let codes = $state<PairingCode[]>([]);
   let chosen = $state('');
   let expires = $state(0);
@@ -28,11 +34,17 @@
     return () => clearInterval(timer);
   });
 
+  // A choice made while a request is out is sent once it returns.
+  let again = false;
   async function create() {
+    if (busy) {
+      again = true;
+      return;
+    }
     busy = true;
     error = '';
     try {
-      const result = await api.clients.pairingQr(chosen);
+      const result = await api.clients.pairingQr(chosen, access);
       now = Date.now();
       codes = result.codes;
       chosen = result.codes[0]?.address ?? '';
@@ -42,13 +54,38 @@
     } finally {
       busy = false;
     }
+    if (again) {
+      again = false;
+      await create();
+    }
   }
   onMount(() => {
-    void create();
+    if (typeof IntersectionObserver === 'undefined') {
+      inView = true;
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => (inView = entries.some((entry) => entry.isIntersecting)));
+    if (root) observer.observe(root);
+    const page = () => (pageShown = document.visibilityState === 'visible');
+    page();
+    document.addEventListener('visibilitychange', page);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', page);
+    };
+  });
+  // On sight, and when the access choice changes while in sight. An expired code waits for
+  // Show a new code, so a code left open in a tab is not renewed for nobody.
+  $effect(() => {
+    if (!inView || !pageShown) return;
+    void access;
+    untrack(() => {
+      if (!expired) void create();
+    });
   });
 </script>
 
-<div class="qr">
+<div class="qr" bind:this={root}>
   <div class="frame" class:expired aria-busy={busy && !code}>
     {#if code}
       <img src={image} alt="Pairing QR code for {code.address}" width="200" height="200" />

@@ -256,8 +256,20 @@ Done, on Windows and Linux unless noted:
 - Reconnect after an interruption (off by default): up to five tries within one minute.
   Network interruption grace, instant mouse and pen input, and on Linux "Prioritize stream
   traffic".
-- Performance overlay with host processing; "Export statistics (last hour)" in the stream
-  menu writes to the config directory's `statistics/`.
+- Performance overlay in Android's three modes: Compact (one line behind a health mark, with
+  the host's lowered-bitrate notice), Statistics and Debug, in any corner. Statistics and
+  Debug add the host's CPU and GPU readings when it offers them (`/api/hardware-metrics`,
+  asked on a worker; a host without them is not asked again that stream). Changes from the
+  stream menu or the shortcut are kept. "Export statistics (last hour)" in the stream menu
+  writes to the config directory's `statistics/`.
+- Stream health report ("Why did my stream stutter?") with Copy report and the reversible
+  bitrate trial, as on Android.
+- Quick resume (Settings › App, off by default): clicking a PC that runs a known game goes
+  back into it. Quit on leave per game (the game page): leaving the stream yourself also
+  quits the game on the PC, and a failed quit says so. Input-only on any PC (Settings ›
+  App, off by default): on a PC without its own Input-only mode the game page offers
+  Input-only as a 640x360, 30 fps, 500 kbps stream that is neither shown nor played, never
+  replaces a running game and explains a host that refuses a second stream.
 - Starting from a game frontend (ES-DE, Pegasus, Playnite and the like):
   `nightjar --host <name|uuid> [--app <name|uuid>] [--quit-on-exit]` (`src/cli.rs`). The PC
   must be saved and paired; names match the PC's own name or the one given here, ignoring
@@ -290,17 +302,13 @@ Partial:
 - Controllers: rumble, trigger rumble, LEDs, motion, touchpad, battery, DualSense adaptive
   triggers and controller audio and haptics are wired to SDL's gamepad API but were not
   tried with physical controllers yet.
-- The performance overlay is on or off; Android's Compact, Statistics and Debug modes are
-  not there.
 - 4:4:4: only the experimental packed full chroma mode and PyroWave's chroma modes.
 
 Missing compared with the Android app:
 
-- PyroWave automatic bitrate, the stream health report and its bitrate trial, host CPU and
-  GPU telemetry, the network path and remote access check, and the delay test in the
-  connection test.
+- PyroWave automatic bitrate, the network path and remote access check, and the delay
+  test in the connection test.
 - Host family and version in the PC's details, and a button for the host's web UI.
-- Quick resume, quit on leave per game, and Input-only on any PC.
 - Problem reports and crash records (the logs folder is there).
 - Frame pacing modes (Balanced, Smoothest, drop late) and 10-bit SDR.
 - Touch trackpad mode and on-screen controls, a command line for frontends, a screen reader,

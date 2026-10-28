@@ -9,6 +9,32 @@ It pairs, lists and launches apps, and streams with hardware decoding, HDR10,
 [What works](#what-works) for the details and the gaps, and
 [Android and desktop](../../docs/CLIENT-PARITY.md) for a feature-by-feature comparison.
 
+## Installing
+
+Every release carries these files; the installer and the packages hold the same build as the archives.
+
+| File | Install | Uninstall |
+| --- | --- | --- |
+| `nightjar-desktop-<version>-windows-x86_64-setup.exe` | Run it. It installs for your user only, without an administrator prompt, into `%LOCALAPPDATA%\Programs\Nightjar`, with a Start menu shortcut, a desktop shortcut (a box on its only page) and an entry in Apps & features. A newer setup updates in place; a running Nightjar is closed first. | Apps & features, Nightjar, Uninstall. It removes the program folder, the shortcuts and the entry. |
+| `nightjar-desktop-<version>-windows-x86_64.zip` | Unzip it anywhere and run `nightjar.exe`. | Delete the folder. |
+| `nightjar-desktop-<version>-linux-x86_64.deb` | `sudo apt install ./nightjar-desktop-<version>-linux-x86_64.deb` (Debian 13, Ubuntu 24.04 and later) | `sudo apt remove nightjar` |
+| `nightjar-desktop-<version>-linux-x86_64.rpm` | `sudo dnf install ./nightjar-desktop-<version>-linux-x86_64.rpm` (Fedora 40 and later) | `sudo dnf remove nightjar` |
+| `nightjar-desktop-<version>-linux-x86_64.AppImage` | `chmod +x` it and run it; nothing is installed. Without FUSE, run it with `--appimage-extract-and-run`. | Delete the file. |
+| `nightjar-desktop-<version>-linux-x86_64.tar.gz` | Unpack it and run `./nightjar`. `share/` holds the desktop entry and icons, laid out as under `/usr/share`. | Delete the folder. |
+
+The .deb and the .rpm put the program in `/opt/nightjar`, `nightjar` in `/usr/bin`, the desktop entry
+`io.github.ramazankara.nightjar.desktop`, the icon in the hicolor sizes and the AppStream data in `/usr/share`. They
+need glibc 2.39 or newer, libopus, libva and libudev (pulled in as dependencies) and recommend the libraries SDL3 and
+PyroWave open at run time (X11 or Wayland, PulseAudio, PipeWire or ALSA, Vulkan, the VA-API driver). The AppImage
+carries libopus too; libva and its drivers stay the system's.
+
+Your settings, paired PCs, saved libraries, logs and screenshots live in `%APPDATA%\Nightjar` (Windows) or
+`~/.config/nightjar` (Linux), outside every install folder: no update touches them, and no uninstall removes them,
+except that the Windows uninstaller offers a "Remove my settings and paired PCs too" box (off unless you tick it;
+`unins000.exe /VERYSILENT /REMOVESETTINGS` does the same silently). On Linux, delete `~/.config/nightjar` yourself.
+
+`nightjar --version` prints the version and exits without opening a window.
+
 ## Building
 
 ### Windows
@@ -62,6 +88,34 @@ machine (another version on a Steam Deck, or none) is never used; FFmpeg stays d
 licence, source offer and dav1d's licence are in `licenses-ffmpeg/` and `licenses-dav1d/`. libopus, libva and the desktop libraries stay the system's
 (`LINUX-RUNTIME.txt` lists them, with the libraries `lib/` needs). The script unpacks the archive and fails if `ldd` shows a libav* or libdav1d outside it,
 or a library that is not found.
+
+### The Windows installer and the Linux packages
+
+Both are made from the finished archives, so they carry exactly their files (`packaging/`):
+
+- `packaging/windows/build-installer.ps1 -Zip <the zip> [-Smoke]` compiles `packaging/windows/nightjar.iss` with
+  Inno Setup 6 into `nightjar-desktop-<version>-windows-x86_64-setup.exe`. Inno Setup because it is made for exactly
+  this: a per-user install (`PrivilegesRequired=lowest`), the uninstaller, the Apps & features entry and in-place
+  upgrades by a fixed AppId come built in, and the script stays short. NSIS needs all of that written by hand, and a
+  Rust self-installer like the host's `butterpollo-setup` would mean maintaining an installer, an uninstaller and
+  their registry entries ourselves. `-Smoke` installs it silently, compares every file with the zip, checks the
+  shortcuts and the uninstall entry, runs `nightjar.exe --version`, uninstalls it and fails on anything left
+  behind; on a PC without `%APPDATA%\Nightjar` it also checks that an uninstall keeps the settings and that
+  `/REMOVESETTINGS` removes them. Code signing: there is no certificate yet. `-SignCommand` is the hook (see the
+  script's header); nothing is signed until it is given.
+- `packaging/linux/build-packages.sh -n <nfpm> -a <appimagetool> -r <AppImage runtime> <the tar.gz>` makes the .deb
+  and .rpm with nfpm (one description for both, no rpmbuild needed on the Ubuntu build machine) and the AppImage with
+  appimagetool and a pinned type 2 runtime. The dependencies are read off the binaries: the .deb names the packages
+  that own the linked libraries on the build machine and the newest `GLIBC_` symbol version, the .rpm asks for the
+  same libraries by soname. It also writes `PKGBUILD` (Arch Linux) and `io.github.ramazankara.nightjar.yml`
+  (Flatpak) from `packaging/linux/aur` and `packaging/linux/flatpak` with the archive's version and SHA-256; those
+  recipes are kept here and not published.
+- `packaging/make-icons.py` makes the icons (hicolor PNGs, `nightjar.ico`, the installer's side panel) from the
+  store icon.
+
+The release workflow pins nfpm, appimagetool, the AppImage runtime and Inno Setup by version and SHA-256, installs
+the .deb on its Ubuntu runner and the .rpm and the AppImage in a clean Fedora container, and runs the installer's
+`-Smoke` on its Windows runner.
 
 ### Linux
 

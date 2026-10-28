@@ -93,7 +93,8 @@ float4 fragment(float4 position : SV_Position) : SV_Target {
 // The GPU decoder's planes: R8 or R16 UNORM textures holding code / maximum, converted to the
 // same linear RGB as the CPU path (the planes are final, so no wavelet passes are left). The
 // Vulkan build is a module of its own (pyrowave-planes.spv, see docs/pyrowave-decode.md): the planes take
-// SDL's sampler slots 0 to 2 and glslang gives each texture its own sampler.
+// SDL's sampler slots 0 to 2 and glslang gives each texture its own sampler. Flag 64: R16 planes
+// holding FFmpeg's 10-bit samples in their low bits (code / 65535), as HEVC and AV1 decode them.
 #ifdef VULKAN
 Texture2D<float> planeY : register(t0, space2);
 Texture2D<float> planeCb : register(t1, space2);
@@ -118,5 +119,6 @@ float4 planes(float4 position : SV_Position) : SV_Target {
         samples.y = planeCb.SampleLevel(sampleLinear, uv, 0);
         samples.z = planeCr.SampleLevel(sampleLinear, uv, 0);
     }
+    if ((flags & 64) != 0) samples *= 65535.0 / 1023.0;
     return float4(linearRgb(samples - 0.5), 1);
 }

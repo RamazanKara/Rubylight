@@ -35,10 +35,37 @@ pub const FRAME_YUV420P: c_int = 2;
 pub const FRAME_D3D11: c_int = 3;
 pub const FRAME_WAVELET: c_int = 5;
 /// Software-decoded planar pictures: 8-bit 4:4:4, and 10-bit 4:2:0 and 4:4:4 with the samples in
-/// the low bits of each 16-bit word. The presenter has no path for them yet and refuses them by name.
+/// the low bits of each 16-bit word. The presenter draws them with the plane shader (`PlanarLayout`).
 pub const FRAME_YUV444P: c_int = 6;
 pub const FRAME_YUV420P10: c_int = 7;
 pub const FRAME_YUV444P10: c_int = 8;
+
+/// The shape of a planar picture's textures: R8 planes, or R16 for 10-bit, with half-size chroma
+/// (rounded up, as FFmpeg's) unless the picture is 4:4:4.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlanarLayout {
+    pub width: u32,
+    pub height: u32,
+    pub chroma444: bool,
+    pub ten_bit: bool,
+}
+
+impl PlanarLayout {
+    /// The layout of a `FRAME_YUV444P`, `FRAME_YUV420P10` or `FRAME_YUV444P10` picture.
+    pub fn of(info: &FrameInfo) -> Option<Self> {
+        let (chroma444, ten_bit) = match info.kind {
+            FRAME_YUV444P => (true, false),
+            FRAME_YUV420P10 => (false, true),
+            FRAME_YUV444P10 => (true, true),
+            _ => return None,
+        };
+        (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444, ten_bit })
+    }
+
+    pub fn plane_size(&self, plane: usize) -> (u32, u32) {
+        if plane == 0 || self.chroma444 { (self.width, self.height) } else { (self.width.div_ceil(2), self.height.div_ceil(2)) }
+    }
+}
 
 extern "C" {
     fn opus_multistream_decoder_create(

@@ -2435,7 +2435,10 @@ namespace {
         bool applyWindowDataspace() {
             if (!dataspaceOverride || window == nullptr) return true;
             using SetDataSpace = int32_t (*)(ANativeWindow *, int32_t);
-            static const auto setDataSpace = reinterpret_cast<SetDataSpace>(dlsym(RTLD_DEFAULT, "ANativeWindow_setBuffersDataSpace"));
+            // The libraries stay loaded for the life of the process.
+            static const auto setDataSpace = reinterpret_cast<SetDataSpace>(pyroFindSymbol(
+                    "ANativeWindow_setBuffersDataSpace", [](const char *library) { return dlopen(library, RTLD_NOW | RTLD_LOCAL); },
+                    [](void *handle, const char *symbol) { return dlsym(handle, symbol); }));
             const int32_t dataspace = pyroWindowDataspace(hdr, hlg);
             const char *name = !hdr ? "SRGB" : hlg ? "BT2020_HLG" : "BT2020_PQ";
             const int32_t result = setDataSpace != nullptr ? setDataSpace(window, dataspace) : -1;

@@ -176,3 +176,21 @@ inline int32_t pyroWindowDataspace(bool hdr, bool hlg) {
     if (!hdr) return PYRO_DATASPACE_SRGB;
     return hlg ? PYRO_DATASPACE_BT2020_HLG : PYRO_DATASPACE_BT2020_PQ;
 }
+
+// Where ANativeWindow_setBuffersDataSpace (API 28) lives. dlsym(RTLD_DEFAULT) searches only the
+// app's own linker namespace, which holds neither library, so it found nothing on Android 13 and
+// every dataspace HDR stream fell back to SDR. Each library is opened and searched by handle, as
+// the Vulkan renderer's ndk_api.cpp does.
+constexpr const char *PYRO_DATASPACE_LIBRARIES[] = {"libnativewindow.so", "libandroid.so"};
+
+// The first library in PYRO_DATASPACE_LIBRARIES that opens and has the symbol; open(library) and
+// lookup(handle, name) are dlopen and dlsym.
+template <typename Open, typename Lookup>
+void *pyroFindSymbol(const char *name, Open open, Lookup lookup) {
+    for (const char *library : PYRO_DATASPACE_LIBRARIES) {
+        void *handle = open(library);
+        if (handle == nullptr) continue;
+        if (void *symbol = lookup(handle, name)) return symbol;
+    }
+    return nullptr;
+}

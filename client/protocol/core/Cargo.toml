@@ -9,3 +9,7 @@ rust-version.workspace = true
 # no_std + alloc and no dependencies, so the same crate builds into the Windows host and,
 # through rubylight-protocol-ffi, into the Android client.
 [dependencies]
+
+# Property tests over every decoder (fuzz.rs); no runtime dependency.
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }

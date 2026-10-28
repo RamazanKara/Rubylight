@@ -81,6 +81,10 @@ pub struct LaunchRequest {
     pub sops: bool,
     pub play_local_audio: bool,
     pub hdr: bool,
+    /// The stream may negotiate a 10-bit format for SDR: with `hdr` off this sends `hdrMode=0`.
+    /// The protocol has no flag for 10-bit SDR, and a host reads a 10-bit format without it as
+    /// HDR, as stock clients mean it.
+    pub ten_bit_sdr: bool,
     pub audio: AudioConfiguration,
     /// The remote input key and ID; the same values go into the stream configuration.
     pub ri_key: [u8; 16],
@@ -122,6 +126,7 @@ impl Default for LaunchRequest {
             sops: true,
             play_local_audio: false,
             hdr: false,
+            ten_bit_sdr: false,
             audio: AudioConfiguration::STEREO,
             ri_key: [0; 16],
             ri_key_id: 0,
@@ -261,6 +266,8 @@ impl LaunchRequest {
         ));
         if self.hdr && !input_only {
             q.push_str("&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0");
+        } else if self.ten_bit_sdr && !input_only {
+            q.push_str("&hdrMode=0");
         }
         q.push_str(&format!(
             "&localAudioPlayMode={}",
@@ -352,6 +359,33 @@ mod tests {
                  &localAudioPlayMode=0&surroundAudioInfo=196610&remoteControllersBitmap=0&gcmap=0&gcpersist=0&corever=1"
             )
         );
+    }
+
+    #[test]
+    fn ten_bit_sdr_says_hdr_mode_zero_and_hdr_still_wins() {
+        // Without hdrMode=0 a host streams the 10-bit format as HDR (hardware lane 4a: every
+        // 10-bit SDR stream to desktop Nightjar ended at once on an SDR display).
+        for caps in [HostCapabilities::UNKNOWN, rubylight()] {
+            let sdr = LaunchRequest {
+                ten_bit_sdr: true,
+                ..request()
+            };
+            assert_eq!(
+                sdr.query(&caps, false),
+                request()
+                    .query(&caps, false)
+                    .replace("&localAudioPlayMode=", "&hdrMode=0&localAudioPlayMode=")
+            );
+            let hdr = LaunchRequest { hdr: true, ..sdr.clone() };
+            let q = hdr.query(&caps, false);
+            assert!(q.contains("&hdrMode=1&") && !q.contains("hdrMode=0"), "{q}");
+            let input = LaunchRequest {
+                role: AppRole::InputOnly,
+                ..sdr
+            };
+            assert!(!input.query(&caps, false).contains("hdrMode"));
+        }
+        assert!(!request().query(&rubylight(), false).contains("hdrMode"));
     }
 
     #[test]

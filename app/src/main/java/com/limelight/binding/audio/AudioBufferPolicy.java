@@ -5,6 +5,11 @@ final class AudioBufferPolicy {
     static final int PERF_NONE = 0, PERF_LOW_LATENCY = 1, PERF_POWER_SAVING = 2;
     // Growth room kept above the floor, in steps.
     private static final int HEADROOM_STEPS = 6;
+    // Audio may wait this long beyond the output's reserve before a decoded packet is dropped.
+    static final int LATE_BOUND_MS = 40;
+    // The most a reserve grows for network jitter. The TCL C6K's Wi-Fi stalls for up to 130 ms every
+    // 1.2 s; its AAudio callback takes 18 ms at a time on top of that.
+    static final int MAX_RESERVE_MS = 200;
 
     private final int burst;
     private final int minimum;
@@ -29,22 +34,57 @@ final class AudioBufferPolicy {
         lastSampleMs = cleanSinceMs = nowMs;
     }
 
-    /** AudioTrack policy: never below floor, grows by step up to HEADROOM_STEPS above it (within capacity). */
-    static AudioBufferPolicy forTrack(int step, int capacity, int floor, int initial, int underruns, long nowMs) {
+    /**
+     * AudioTrack policy: never below floor, grows by step up to HEADROOM_STEPS above it, or up to
+     * maxReserveFrames where the granted capacity holds that much.
+     */
+    static AudioBufferPolicy forTrack(int step, int capacity, int floor, int initial, int underruns, long nowMs,
+                                      int maxReserveFrames) {
         int minimum = Math.min(capacity, floor);
         return new AudioBufferPolicy(step, minimum, initial, underruns, nowMs,
-                Math.min(capacity, minimum + HEADROOM_STEPS * step));
+                Math.min(capacity, Math.max(minimum + HEADROOM_STEPS * step, maxReserveFrames)));
+    }
+
+    /**
+     * AAudio jitter reserve in the ring ahead of the stream: two bursts, growing a burst at a time on
+     * starvation up to eight bursts or MAX_RESERVE_MS, whichever is more, within the ring.
+     */
+    static AudioBufferPolicy forReserve(int burst, int capacity, int initial, int underruns, long nowMs,
+                                        int sampleRate) {
+        int limit = Math.max(8 * burst, maxReserveFrames(sampleRate) / burst * burst);
+        return new AudioBufferPolicy(burst, Math.min(capacity, Math.max(burst * 2, initial)), initial, underruns,
+                nowMs, Math.min(capacity / burst * burst, limit));
+    }
+
+    static int maxReserveFrames(int sampleRate) {
+        return Math.max(0, sampleRate) / 1000 * MAX_RESERVE_MS;
+    }
+
+    /**
+     * Whether a decoded packet arrived too late to play. The bound is on all audio waiting to be heard:
+     * the network queue plus what the output holds, LATE_BOUND_MS above the output's reserve. A reserve
+     * that a network stall drained refills from the burst after it; only the excess above it is dropped.
+     * With the output full this is the old 40 ms bound on the network queue alone.
+     */
+    static boolean dropLate(int pendingMs, int queuedFrames, int reserveFrames, int sampleRate) {
+        if (sampleRate <= 0) return pendingMs >= LATE_BOUND_MS;
+        long queuedMs = Math.max(0, queuedFrames) * 1000L / sampleRate;
+        long reserveMs = Math.max(0, reserveFrames) * 1000L / sampleRate;
+        return pendingMs + queuedMs >= reserveMs + LATE_BOUND_MS;
     }
 
     /**
      * Smallest buffer, in frames, the path an AudioTrack really got can run without underrunning.
-     * A fast (low latency) track keeps the two-packet floor it always had. A track on the normal
-     * mixer needs the framework's own minimum, which the platform sizes to the mixer period.
+     * A fast (low latency) track keeps the two-packet floor it always had, but holds at least one
+     * output burst and a packet: a TV mixes 864 frames at a time, which a 480-frame buffer never has.
+     * A track on the normal mixer needs the framework's own minimum, which the platform sizes to the
+     * mixer period.
      */
     static int trackFloorFrames(int sdk, int perfMode, boolean lowLatencyRequested, int packetFrames,
-                                int minBufferFrames) {
+                                int minBufferFrames, int outputFramesPerBuffer) {
         int floor = packetFrames * 2;
-        return trackIsFast(sdk, perfMode, lowLatencyRequested) ? floor : Math.max(floor, minBufferFrames);
+        return trackIsFast(sdk, perfMode, lowLatencyRequested) ?
+                Math.max(floor, Math.max(0, outputFramesPerBuffer) + packetFrames) : Math.max(floor, minBufferFrames);
     }
 
     // Before Android 8.0 the granted mode cannot be read; a low latency request is taken as granted.
@@ -110,8 +150,17 @@ final class AudioBufferPolicy {
         if (actualFrames > 0) frames = actualFrames;
     }
 
+    /** Starved in three samples at the limit: for a device buffer the output is broken. */
     boolean needsFallback() {
         return limitUnderruns >= 3;
+    }
+
+    int frames() {
+        return frames;
+    }
+
+    int limit() {
+        return maximum;
     }
 
     static boolean useAAudio(int sdk, int channels, boolean effects, int sampleRate, int nativeRate) {

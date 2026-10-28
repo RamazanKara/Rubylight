@@ -62,6 +62,7 @@
     <string name="profiles_location_denied">Sin acceso a la ubicación: todas las Wi-Fi cuentan como otra Wi-Fi. Puedes permitirlo más tarde en los ajustes de aplicaciones de Android.</string>
     <string name="profiles_wifi_unreadable">No se puede leer el nombre de la Wi-Fi. Comprueba que este dispositivo esté conectado a una Wi-Fi y que la ubicación esté activada, o escribe el nombre.</string>
     <string name="profiles_order">Al iniciar una transmisión, cada valor viene del primero de estos que lo fije: este juego, este PC, el perfil y, por último, los ajustes principales. Con datos móviles, Tasa de bits con datos móviles limita después la tasa de bits. Los cambios nunca se aplican a una transmisión en curso.</string>
+    <string name="profiles_order_no_mobile">Al iniciar una transmisión, cada valor viene del primero de estos que lo fije: este juego, este PC, el perfil y, por último, los ajustes principales. Los cambios nunca se aplican a una transmisión en curso.</string>
     <string name="profiles_privacy">Los nombres de las Wi-Fi de casa se quedan en este dispositivo y nunca se envían ni se registran.</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

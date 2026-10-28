@@ -153,6 +153,37 @@ public class ProfileScreensTest {
         }
     }
 
+    /** TV run on a TCL C6K: the footer named Bitrate on mobile data, a row Settings does not show there. */
+    @Test
+    public void theFooterNamesTheMobileDataCapOnlyWhereSettingsShowsIt() {
+        mobileData(false);
+        String cap = app.getString(R.string.title_mobile_bitrate);
+        android.content.SharedPreferences settings = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        ActivityController<StreamProfilesActivity> controller = Robolectric.buildActivity(StreamProfilesActivity.class).setup();
+        try {
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            PreferenceFragment fragment = (PreferenceFragment) controller.get().getFragmentManager()
+                    .findFragmentById(R.id.page_content);
+            String footer = summary(fragment, "order");
+            assertTrue(footer, footer.startsWith(app.getString(R.string.profiles_order_no_mobile)));
+            assertFalse(footer, footer.contains(cap));
+
+            // A cap set earlier still acts on a metered Wi-Fi, and Settings still shows it.
+            settings.edit().putString(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING, "5000").commit();
+            controller.pause().resume();
+            assertTrue(summary(fragment, "order").startsWith(app.getString(R.string.profiles_order)));
+            assertTrue(summary(fragment, "order").contains(cap));
+
+            settings.edit().remove(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING).commit();
+            mobileData(true);
+            controller.pause().resume();
+            assertTrue(summary(fragment, "order").contains(cap));
+        } finally {
+            controller.pause().stop().destroy();
+            settings.edit().clear().commit();
+        }
+    }
+
     @Test
     public void theProfileListShowsEachProfileAndWhatAStreamUses() {
         mobileData(true);

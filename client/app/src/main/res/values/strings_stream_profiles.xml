@@ -62,6 +62,7 @@
     <string name="profiles_location_denied">No location access: every Wi-Fi counts as other Wi-Fi. You can allow it later in Android’s app settings.</string>
     <string name="profiles_wifi_unreadable">Can’t read the Wi-Fi name. Check that this device is on Wi-Fi and location is on, or type the name.</string>
     <string name="profiles_order">When a stream starts, each value comes from the first of these that sets it: this game, this PC, the profile, then the main settings. On mobile data, Bitrate on mobile data then caps the bitrate. Changes never apply to a stream that is already running.</string>
+    <string name="profiles_order_no_mobile">When a stream starts, each value comes from the first of these that sets it: this game, this PC, the profile, then the main settings. Changes never apply to a stream that is already running.</string>
     <string name="profiles_privacy">Home Wi-Fi names stay on this device and are never sent or logged.</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

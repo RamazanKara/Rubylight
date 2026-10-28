@@ -1,11 +1,13 @@
 package com.limelight.preferences;
 
 import android.Manifest;
+import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
 import android.preference.Preference;
 import android.preference.PreferenceCategory;
 import android.preference.PreferenceFragment;
+import android.preference.PreferenceManager;
 import android.preference.PreferenceScreen;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -51,7 +53,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         TopAppBar.configure(this, R.id.page_toolbar, getString(R.string.profiles_title), R.menu.host_profile)
                 .setOnMenuItemClickListener(item -> {
                     UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.profiles_title)
-                            .setMessage(getString(R.string.profiles_order) + "\n\n" + getString(R.string.profiles_privacy))
+                            .setMessage(orderText(this))
                             .setPositiveButton(android.R.string.ok, null).create());
                     return true;
                 });
@@ -59,6 +61,13 @@ public class StreamProfilesActivity extends NightjarActivity {
             getFragmentManager().beginTransaction().replace(content.getId(), new ProfilesFragment()).commit();
         }
         UiHelper.notifyNewRootView(this);
+    }
+
+    /** Where a stream's values come from; the mobile data cap is named only where Settings shows it. */
+    static String orderText(Context context) {
+        boolean mobile = SettingRules.mobileBitrateShown(context, PreferenceManager.getDefaultSharedPreferences(context));
+        return context.getString(mobile ? R.string.profiles_order : R.string.profiles_order_no_mobile)
+                + "\n\n" + context.getString(R.string.profiles_privacy);
     }
 
     private ProfilesFragment fragment() {
@@ -81,6 +90,7 @@ public class StreamProfilesActivity extends NightjarActivity {
     public static class ProfilesFragment extends PreferenceFragment {
         private StreamProfilesActivity activity;
         private PreferenceCategory list, choice, home;
+        private Preference footer;
 
         @Override
         public void onActivityCreated(Bundle state) {
@@ -91,10 +101,9 @@ public class StreamProfilesActivity extends NightjarActivity {
             list = category(screen, R.string.profiles_section_list);
             choice = category(screen, R.string.profiles_section_choice);
             home = category(screen, R.string.profiles_home_networks);
-            Preference footer = new Preference(activity);
+            footer = new Preference(activity);
             footer.setLayoutResource(R.layout.settings_preference);
             footer.setKey("order");
-            footer.setSummary(getString(R.string.profiles_order) + "\n\n" + getString(R.string.profiles_privacy));
             footer.setSelectable(false);
             screen.addPreference(footer);
             refresh();
@@ -139,6 +148,8 @@ public class StreamProfilesActivity extends NightjarActivity {
         }
 
         void refresh() {
+            // Settings may have set or cleared the mobile data cap since.
+            footer.setSummary(orderText(activity));
             StreamProfiles.Snapshot profiles = StreamProfiles.load(activity);
             list.removeAll();
             for (Map.Entry<String, String> entry : profiles.names.entrySet()) {

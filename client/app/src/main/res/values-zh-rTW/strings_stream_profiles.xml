@@ -61,6 +61,7 @@
     <string name="profiles_location_denied">沒有位置資訊存取權：所有 Wi-Fi 都會視為其他 Wi-Fi。你之後可以在 Android 的應用程式設定中允許。</string>
     <string name="profiles_wifi_unreadable">無法讀取 Wi-Fi 名稱。請確認這部裝置已連上 Wi-Fi 且已開啟定位，或直接輸入名稱。</string>
     <string name="profiles_order">串流開始時，每個值都取自以下順序中第一個設定它的來源：這個遊戲、這部電腦、設定檔，最後是主要設定。使用行動數據時，「行動數據位元速率」接著會限制位元速率。變更絕不會套用到已在進行的串流。</string>
+    <string name="profiles_order_no_mobile">串流開始時，每個值都取自以下順序中第一個設定它的來源：這個遊戲、這部電腦、設定檔，最後是主要設定。變更絕不會套用到已在進行的串流。</string>
     <string name="profiles_privacy">家用 Wi-Fi 名稱只會保留在這部裝置上，絕不會傳送或記錄。</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

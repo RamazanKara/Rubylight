@@ -21,4 +21,6 @@
     <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision은 HEVC가 필요하므로 PyroWave는 %1$s(으)로 스트리밍합니다.</string>
     <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+는 HEVC 또는 AV1이 필요하므로 PyroWave는 HDR10+ 없는 HDR10으로 스트리밍합니다.</string>
     <string name="stream_hdr_pq_on_hlg_screen_host_update">이 화면은 HDR을 HLG로만 표시하지만 PC가 PyroWave로 HDR10을 보내고 있어 밝기와 색이 잘못 보일 수 있습니다. PC의 호스트를 업데이트하면 PyroWave에서 HLG를 쓸 수 있습니다.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">이 화면은 HDR을 HLG로만 표시하지만 PyroWave의 HLG를 거부해 PC가 HDR10을 보내고 있어 밝기와 색이 잘못 보일 수 있습니다.</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">이 화면은 스트림 전에 PyroWave의 HLG를 받아들였지만 스트림을 HLG로 표시하지 않았습니다.</string>
 </resources>

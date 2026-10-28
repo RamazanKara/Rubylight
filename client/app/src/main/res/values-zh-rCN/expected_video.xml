@@ -21,4 +21,6 @@
     <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision 需要 HEVC，因此 PyroWave 以 %1$s 串流。</string>
     <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ 需要 HEVC 或 AV1，因此 PyroWave 串流不含 HDR10+ 的 HDR10。</string>
     <string name="stream_hdr_pq_on_hlg_screen_host_update">此屏幕只能以 HLG 显示 HDR，但电脑通过 PyroWave 发送的是 HDR10，因此亮度和颜色可能不正确。更新电脑上的主机程序即可在 PyroWave 上使用 HLG。</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">此屏幕只能以 HLG 显示 HDR，但它拒绝了 PyroWave 的 HLG，因此电脑发送的是 HDR10，亮度和颜色可能不正确。</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">此屏幕在串流开始前接受了 PyroWave 的 HLG，但随后没有以 HLG 显示串流。</string>
 </resources>

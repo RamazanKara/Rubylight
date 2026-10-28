@@ -21,4 +21,6 @@
     <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision needs HEVC, so PyroWave streams %1$s.</string>
     <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ needs HEVC or AV1, so PyroWave streams HDR10 without it.</string>
     <string name="stream_hdr_pq_on_hlg_screen_host_update">This screen shows HDR only as HLG, but the PC sends HDR10 on PyroWave, so brightness and colors may look wrong. Updating the PC’s host adds HLG on PyroWave.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_display_refused">This screen shows HDR only as HLG, but it refused HLG from PyroWave, so the PC sends HDR10 and brightness and colors may look wrong.</string>
+    <string name="stream_hdr_pyrowave_hlg_lost">This screen took HLG from PyroWave before the stream, then didn’t show the stream as HLG.</string>
 </resources>

@@ -7,6 +7,7 @@
 //! is lost, relative capture with absolute fallback.
 
 pub mod packed444;
+pub mod color_probe;
 pub mod pipeline;
 mod playout;
 pub mod present;

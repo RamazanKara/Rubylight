@@ -52,7 +52,7 @@ and Administrators can change. To use your own copy instead, set
 elevated, so that folder, the exe and the folder's parent must be ones only
 SYSTEM and Administrators can change (under `C:\Program Files`, for example);
 a copy in a folder you can change without elevation is refused. The game page
-and Maintenance show the install state and any download or check error. While
+and Help show the install state and any download or check error. While
 Nucleus Co-op cannot be installed, launches answer 503 with the reason.
 
 Nucleus Co-op launches a game through its **handler** for that game. Handlers
@@ -104,7 +104,8 @@ Sessions list who plays only to devices that may join.
 Home in the console shows each running co-op game as a card: its players, an
 away device's remaining 120 s, **Remove** (asks first) and **End co-op** (asks
 first). While a slot is free, the card lists the paired devices with **Let
-<device> join** for one that may not yet.
+<device> join** for one that may not yet; a removed device is not offered
+again. A background stream gets a card too, with **End stream** only.
 
 Nightjar lists the running co-op sessions on a PC with their free slots and
 this device's own seat: on Android under **Join co-op** in the PC's menu, on
@@ -112,11 +113,11 @@ the desktop on the PC's details page. **Join** (or returning to your own seat)
 takes the slot and starts the stream. A refusal is shown with the PC's own
 words.
 
-The Nucleus Co-op panel under **Maintenance** in the console lists the sessions with their players. From there
-you can remove a player or end a session. Ending a session stops Nucleus Co-op
-and every instance, and ends each player's stream. A session also ends when
-every player has left, when an instance crashes, or when its start fails; the
-console and the log say which.
+Ending a session stops Nucleus Co-op and every instance, and ends each
+player's stream. A session also ends when every player has left, when an
+instance crashes, or when its start fails. For a minute after, Home says
+which ended last and why, and the log keeps it. Install troubleshooting is in
+the Nucleus Co-op panel under **Help**.
 
 ## Limits
 

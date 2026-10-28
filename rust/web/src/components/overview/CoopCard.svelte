@@ -47,9 +47,11 @@
   });
   onDestroy(() => clearInterval(timer));
 
+  // A background stream is one device's own game: End only, no seats to free or invite to.
+  const background = $derived(session.kind === 'background');
   const list = $derived(seats(session, Math.max(0, (now - at) / 1000)));
   const invite = $derived(clients ? invitees(session, clients) : []);
-  const hasFree = $derived(session.players.some((player) => !player.device));
+  const hasFree = $derived(!background && session.players.some((player) => !player.device));
 
   async function run(action: string, task: () => Promise<unknown>, done: string, failure: string) {
     running = action;
@@ -85,17 +87,26 @@
 
   async function end() {
     if (!(await confirm(endConfirmation(session)))) return;
-    await run('end', () => api.coop.end(session.id), `Co-op in ${session.title} is ending.`, 'Ending co-op failed');
+    await run(
+      'end',
+      () => api.coop.end(session.id),
+      background ? `The background stream of ${session.title} is ending.` : `Co-op in ${session.title} is ending.`,
+      background ? 'Ending the stream failed' : 'Ending co-op failed',
+    );
   }
 </script>
 
 {#snippet endAction()}
   <Button variant="danger" size="sm" icon="stop" busy={running === 'end'} disabled={running !== null && running !== 'end'} onclick={end}>
-    End co-op
+    {background ? 'End stream' : 'End co-op'}
   </Button>
 {/snippet}
 
-<Panel title={session.title} description="Co-op · {headcount(session)}" actions={endAction}>
+<Panel
+  title={session.title}
+  description={background ? `Background stream · ${list.find((seat) => seat.name)?.name ?? 'no device'}` : `Co-op · ${headcount(session)}`}
+  actions={endAction}
+>
   <div class="card">
     <ul class="seats" aria-label="Players">
       {#each list as seat (seat.slot)}
@@ -110,13 +121,15 @@
                 <Badge tone="live">Playing</Badge>
               {/if}
             </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              busy={running === `remove:${seat.slot}`}
-              disabled={running !== null && running !== `remove:${seat.slot}`}
-              onclick={() => remove(seat)}>Remove</Button
-            >
+            {#if !background}
+              <Button
+                size="sm"
+                variant="ghost"
+                busy={running === `remove:${seat.slot}`}
+                disabled={running !== null && running !== `remove:${seat.slot}`}
+                onclick={() => remove(seat)}>Remove</Button
+              >
+            {/if}
           {:else}
             <span class="who muted">Free slot</span>
           {/if}

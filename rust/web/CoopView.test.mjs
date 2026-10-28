@@ -216,10 +216,46 @@ const paired = [
 const card = (session = running, clients = paired, extra = {}) =>
   render(CoopCard, { props: { session, clients, at: Date.now(), ...extra } }).body;
 
-test('Home shows one card per running co-op game, never for a background stream or an ended game', () => {
-  const live = home.liveCoop(status({ sessions: [running, coopSession([], { id: 8, kind: 'background' }), coopSession([], { id: 9, phase: 'ended' })] }));
-  assert.deepEqual(live.map((session) => session.id), [7]);
+test('Home shows a card per running co-op game and background stream, never for an ended one', () => {
+  const sessions = [running, coopSession([], { id: 8, kind: 'background' }), coopSession([], { id: 9, phase: 'ended' })];
+  assert.deepEqual(home.homeSessions(status({ sessions })).map((session) => session.id), [7, 8]);
+  // Only co-op games invite players.
+  assert.deepEqual(home.liveCoop(status({ sessions })).map((session) => session.id), [7]);
+  assert.deepEqual(home.homeSessions(null), []);
   assert.deepEqual(home.liveCoop(null), []);
+});
+
+test('a background stream’s card offers End only: no Remove, no invites', async () => {
+  const background = coopSession([seat(0, 'fold', 'Fold7')], { id: 8, kind: 'background' });
+  const out = card(background);
+  assert.match(out, /Background stream · Fold7/);
+  assert.match(out, /End stream/);
+  assert.doesNotMatch(out, />Remove</);
+  assert.doesNotMatch(out, /Invite a player|End co-op/);
+  assert.deepEqual(home.endConfirmation(background), {
+    title: 'End the background stream of Portal 2?',
+    message: 'Ends Fold7’s stream and closes Portal 2 on this PC.',
+    confirm: 'End stream',
+    danger: true,
+  });
+});
+
+test('Home says why the last session ended, while the host still lists it', () => {
+  const ended = (id, end, extra = {}) => coopSession([seat(0, null, null)], { id, phase: 'ended', end, ...extra });
+  const crashed = ended(9, { reason: 'crashed', detail: 'portal2.exe exited' });
+  const sessions = [ended(4, { reason: 'empty', detail: null }), crashed, running];
+  assert.equal(home.lastEnded(status({ sessions })).id, 9);
+  assert.equal(home.lastEnded(status({ sessions: [running] })), null);
+  assert.equal(home.lastEnded(null), null);
+  assert.equal(home.endedTitle(crashed), 'Co-op in Portal 2 ended');
+  assert.equal(home.endedTitle(ended(5, { reason: 'failed', detail: null }, { kind: 'background' })), 'The background stream of Portal 2 ended');
+  assert.equal(home.endText(crashed.end), 'A game instance or Nucleus Co-op exited: portal2.exe exited.');
+  assert.equal(home.endText({ reason: 'empty', detail: null }), 'Every player left and none came back in time.');
+  assert.equal(home.endText({ reason: 'ended', detail: null }), 'It was ended from this console or by the host.');
+  assert.equal(home.endText({ reason: 'newer', detail: null }), 'It ended (newer).');
+  assert.equal(home.endedTone(crashed.end), 'danger');
+  assert.equal(home.endedTone({ reason: 'failed', detail: 'x' }), 'danger');
+  assert.equal(home.endedTone({ reason: 'empty', detail: null }), 'info');
 });
 
 test('the card shows the game, each player with their slot, who is away and the free slots', () => {

@@ -1,4 +1,4 @@
-import { PERM, type Client, type CoopGame, type CoopSession, type CoopStatus } from './api';
+import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type CoopStatus } from './api';
 
 /**
  * What the game page's Play together panel shows for one app, from `GET /api/coop`. Pure, so every
@@ -141,9 +141,46 @@ export function entryName(title: string): string {
   return `${title} (Co-op)`;
 }
 
-/** The co-op games running now, one Home card each. A background stream shows as a stream, not here. */
+/** The co-op games running now: the ones Home invites players to. */
 export function liveCoop(status: CoopStatus | null): CoopSession[] {
   return (status?.sessions ?? []).filter((session) => session.kind === 'coop' && session.phase !== 'ended');
+}
+
+/**
+ * Home's cards: each running co-op game, and each background stream (one device's own game while
+ * someone uses the PC), which only offers End.
+ */
+export function homeSessions(status: CoopStatus | null): CoopSession[] {
+  return (status?.sessions ?? []).filter((session) => session.phase !== 'ended');
+}
+
+/** The session that ended last, while the host still lists it (a minute): Home says why it ended. */
+export function lastEnded(status: CoopStatus | null): CoopSession | null {
+  const ended = (status?.sessions ?? []).filter((session) => session.phase === 'ended' && session.end);
+  return ended.reduce<CoopSession | null>((last, session) => (!last || session.id > last.id ? session : last), null);
+}
+
+const endings: Record<CoopEnd['reason'], string> = {
+  ended: 'It was ended from this console or by the host.',
+  empty: 'Every player left and none came back in time.',
+  crashed: 'A game instance or Nucleus Co-op exited',
+  failed: 'Nucleus Co-op did not start the game',
+};
+
+/** Why a session ended, with what stopped when the host says. A newer reason still shows. */
+export function endText(end: CoopEnd): string {
+  const why = endings[end.reason] ?? `It ended (${end.reason}).`;
+  return end.detail ? sentence(`${why.replace(/\.$/, '')}: ${end.detail}`) : sentence(why);
+}
+
+/** The ended banner's title: "Co-op in Portal 2 ended" or "The background stream of Portal 2 ended". */
+export function endedTitle(session: CoopSession): string {
+  return session.kind === 'background' ? `The background stream of ${session.title} ended` : `Co-op in ${session.title} ended`;
+}
+
+/** The ended banner's tone: a crash or a failed start is a problem, the rest is news. */
+export function endedTone(end: CoopEnd | null): 'danger' | 'info' {
+  return end?.reason === 'crashed' || end?.reason === 'failed' ? 'danger' : 'info';
 }
 
 /** Minutes and seconds, as a countdown reads: 1:05, 0:09. */
@@ -240,6 +277,15 @@ export function removeConfirmation(seat: Seat): Confirmation {
 }
 
 export function endConfirmation(session: CoopSession): Confirmation {
+  if (session.kind === 'background') {
+    const who = session.players.find((player) => player.device)?.name ?? 'The device';
+    return {
+      title: `End the background stream of ${session.title}?`,
+      message: `Ends ${who}’s stream and closes ${session.title} on this PC.`,
+      confirm: 'End stream',
+      danger: true,
+    };
+  }
   return {
     title: `End co-op in ${session.title}?`,
     message: `Ends every player’s stream and closes ${session.title} on this PC.`,

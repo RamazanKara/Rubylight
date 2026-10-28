@@ -17,7 +17,8 @@
   import RunningApp from '../components/overview/RunningApp.svelte';
   import StreamCard from '../components/overview/StreamCard.svelte';
   import { api, type App, type Client, type CoopStatus, type SessionStatus, type StreamSession } from '../lib/api';
-  import { liveCoop } from '../lib/coop-view';
+  import { endedTitle, endedTone, endText, homeSessions, lastEnded, liveCoop } from '../lib/coop-view';
+  import Banner from '../components/Banner.svelte';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { marked, poll } from '../lib/format';
   import { link } from '../lib/router.svelte';
@@ -46,7 +47,10 @@
   let coopError = $state('');
   let coopClients = $state<Client[] | null>(null);
   let coopClientsError = $state('');
-  const coopGames = $derived(liveCoop(coop));
+  const coopGames = $derived(homeSessions(coop));
+  const coopEnded = $derived(lastEnded(coop));
+  /** The ended session whose banner was dismissed. */
+  let coopDismissed = $state<number | null>(null);
   async function refreshCoop() {
     try {
       coop = await api.coop.status();
@@ -223,6 +227,11 @@
   <HostReadiness {metadata} error={metadataError} checking={rechecking} onrecheck={recheck} />
 {/if}
 {#if coopError && coopGames.length}<p class="notice danger" role="alert">Showing the last known co-op state. {coopError}</p>{/if}
+{#if coopEnded?.end && coopEnded.id !== coopDismissed}
+  <Banner tone={endedTone(coopEnded.end)} title={endedTitle(coopEnded)} live ondismiss={() => (coopDismissed = coopEnded.id)}>
+    {endText(coopEnded.end)}
+  </Banner>
+{/if}
 {#each coopGames as game (game.id)}
   <CoopCard session={game} clients={coopClients} clientsError={coopClientsError} at={coopAt} onchange={refreshCoop} />
 {/each}

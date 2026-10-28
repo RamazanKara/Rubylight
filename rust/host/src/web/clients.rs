@@ -114,6 +114,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             }
             let previous_perm = c.perm;
             let previous_usb = c.allows_usb();
+            let previous_coop_join = c.allows_coop_join();
             let previous_folders = folder_grants(c);
             let previous_layout = c.extra.get("virtual_display_layout").cloned();
             if let Some(n) = data.get("name").and_then(Value::as_str) {
@@ -175,9 +176,10 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     .get("perm")
                     .and_then(Value::as_u64)
                     .is_some_and(|p| previous_perm & !(p as u32) != 0)
-                // USB forwarding and folder grants are permissions too: losing
-                // one, or write going back to read, ends what the device is doing.
+                // USB forwarding, Join co-op and folder grants are permissions too:
+                // losing one, or write going back to read, ends what the device is doing.
                 || (previous_usb && !c.allows_usb())
+                || (previous_coop_join && !c.allows_coop_join())
                 || previous_folders
                     .iter()
                     .any(|(id, access)| match (access, c.folder_access(id)) {
@@ -439,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn taking_away_usb_or_a_folder_grant_disconnects_the_device() {
+    fn taking_away_usb_join_co_op_or_a_folder_grant_disconnects_the_device() {
         let f = Fixture::new();
         let client = f.client(PERM);
         let disconnects = |change: serde_json::Value| {
@@ -455,6 +457,10 @@ mod tests {
         assert!(!disconnects(json!({"allow_usb": false})));
         assert!(!disconnects(json!({"allow_usb": true})));
         assert!(disconnects(json!({"allow_usb": null})));
+        // Join co-op too: a co-op player loses its stream and cannot rejoin.
+        assert!(!disconnects(json!({"coop_join": true})));
+        assert!(disconnects(json!({"coop_join": false})));
+        assert!(!disconnects(json!({"coop_join": null})));
         assert!(!disconnects(
             json!({"shared_folders": {"games": "write", "mods": "read"}})
         ));

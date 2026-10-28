@@ -160,7 +160,8 @@ async fn coop_lists_the_games_and_the_sessions_as_the_device_sees_them() {
         butterpollo_core::native_api::coop::Phase::Starting
     );
     assert_eq!(session.players.len(), 2);
-    assert_eq!(session.players[0].name.as_deref(), Some("Other device"));
+    // Who plays is named only to a device that may join.
+    assert_eq!(session.players[0].name, None);
     assert!(!session.players[0].you);
     assert_eq!(session.players[1].name, None);
     assert_eq!(session.free_slots, 1);
@@ -173,6 +174,10 @@ async fn coop_lists_the_games_and_the_sessions_as_the_device_sees_them() {
     let allowed = coop(&s.get("/coop").await);
     assert!(allowed.sessions[0].joinable);
     assert_eq!(allowed.sessions[0].refusal, None);
+    assert_eq!(
+        allowed.sessions[0].players[0].name.as_deref(),
+        Some("Other device")
+    );
     // Ended from the console: still listed, with why.
     assert!(s.host().nucleus.end(seat.session));
     let ended = coop(&s.get("/coop").await);

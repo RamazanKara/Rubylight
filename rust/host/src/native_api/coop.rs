@@ -36,7 +36,8 @@ pub async fn list(State(h): State<Shared>, Extension(c): Extension<Connection>) 
 }
 
 /// The co-op games and sessions as `client` sees them. A background session
-/// is private and never listed.
+/// is private and never listed; who plays a co-op session is named only to a
+/// device with Join co-op or a slot in it.
 fn listing(h: &Shared, client: &Client) -> wire::Coop {
     let apps = h
         .apps
@@ -85,6 +86,7 @@ fn session_of(listed: &crate::nucleus::Listed, client: &Client) -> wire::Session
         .clone()
         .join(&client.uuid, &client.name, client.allows_coop_join())
         .err();
+    let names = client.allows_coop_join() || session.slot_of(&client.uuid).is_some();
     wire::Session {
         id: session.id,
         app_id: listed.app_id,
@@ -97,7 +99,7 @@ fn session_of(listed: &crate::nucleus::Listed, client: &Client) -> wire::Session
             .map(|player| wire::Player {
                 slot: player.slot as u32,
                 you: player.device.as_deref() == Some(client.uuid.as_str()),
-                name: player.name,
+                name: player.name.filter(|_| names),
                 away: player.away,
             })
             .collect(),

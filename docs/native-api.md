@@ -71,7 +71,7 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/folders/{id}/entries?path=` | a grant for `id` | FolderEntries |
 | GET | `/folders/{id}/content?path=` | a grant for `id` | The file's bytes |
 | PUT | `/folders/{id}/content?path=` | a `write` grant for `id` | 201 Uploaded |
-| GET | `/coop` | List apps | Coop: the co-op games and the co-op sessions, with this device's seat, `joinable` and `refusal` (feature `coop`, Experimental; 503 with the reason while Nucleus Co-op cannot run) |
+| GET | `/coop` | List apps | Coop: the co-op games and the co-op sessions, with this device's seat, `joinable` and `refusal`; player names only for a device with Join co-op or a seat (feature `coop`, Experimental; 503 with the reason while Nucleus Co-op cannot run) |
 | POST | `/coop/join` `{"session": N}` | Launch; **Join co-op** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused` |
 
 Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control is a separate per-device flag (see below).

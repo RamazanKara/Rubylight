@@ -220,14 +220,20 @@ impl Session {
     }
 
     /// Take a slot, or return to the device's own. `permitted` is the
-    /// device's Join co-op permission; the owner of a slot needs none to
-    /// return to it.
+    /// device's Join co-op permission; only the session's owner (the first
+    /// slot) needs none to return, so taking the permission away also keeps a
+    /// joined player from coming back. A device without it learns nothing of
+    /// the session, not even its title.
     pub fn join(&mut self, device: &str, name: &str, permitted: bool) -> Result<Joined, Refused> {
+        let seated = self.slot_of(device);
+        if !permitted && seated != Some(0) {
+            return Err(Refused::NotPermitted);
+        }
         let title = self.title.clone();
         if self.ended() {
             return Err(Refused::Ended { title });
         }
-        if let Some(slot) = self.slot_of(device) {
+        if let Some(slot) = seated {
             if let Some(seat) = self.slots[slot].seat.as_mut() {
                 seat.away_since = None;
                 seat.name = name.into();
@@ -460,13 +466,24 @@ mod tests {
     }
 
     #[test]
-    fn joining_needs_the_permission_but_returning_does_not() {
+    fn joining_needs_the_permission_and_only_the_owner_returns_without_it() {
         let mut s = coop(&[0, 1]);
         assert_eq!(
             s.join("laptop", "Laptop", false),
             Err(Refused::NotPermitted)
         );
         assert_eq!(s.join("owner", "Phone", false), Ok(Joined::Returned(0)));
+        // A joined player whose permission was taken away cannot come back,
+        // and an ended session's title stays hidden from a device without it.
+        assert_eq!(s.join("laptop", "Laptop", true), Ok(Joined::Seated(1)));
+        s.leave("laptop", Instant::now());
+        assert_eq!(
+            s.join("laptop", "Laptop", false),
+            Err(Refused::NotPermitted)
+        );
+        assert_eq!(s.join("laptop", "Laptop", true), Ok(Joined::Returned(1)));
+        s.end(End::Ended);
+        assert_eq!(s.join("tv", "TV", false), Err(Refused::NotPermitted));
         assert!(may_join(
             &serde_json::from_value(json!({"coop_join": true})).unwrap()
         ));

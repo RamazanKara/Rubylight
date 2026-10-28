@@ -483,7 +483,7 @@ impl Registry {
             Ok(Some(folder)) => folder,
             Ok(None) => return Vec::new(),
             Err(error) => {
-                tracing::debug!(error = %format!("{error:#}"), "Nucleus Co-op: no co-op entries");
+                tracing::warn!(error = %format!("{error:#}"), "Nucleus Co-op: no co-op entries");
                 return Vec::new();
             }
         };
@@ -781,6 +781,11 @@ impl Registry {
         stop(self.reap());
         let state = self.lock();
         let entry = state.sessions.get(&session).ok_or(JoinError::NoSession)?;
+        // A background stream is private: its id is no session to join, and
+        // its refusals would name the game.
+        if entry.instance.session(|s| s.kind) != Kind::Coop {
+            return Err(JoinError::NoSession);
+        }
         let slot = entry
             .instance
             .session(|s| {
@@ -826,7 +831,7 @@ impl Registry {
             entry.instance.session(|s| s.end(End::Ended));
             entry.instance.clone()
         };
-        tracing::info!(session, "Nucleus Co-op: session ended in the web console");
+        tracing::info!(session, "Nucleus Co-op: session ended");
         instance.stop();
         stop(self.reap());
         true
@@ -1595,6 +1600,15 @@ mod tests {
                 .status,
             409
         );
+        // Nor from a session list: its id is no co-op session, for anyone.
+        assert_eq!(
+            registry.join(seat.session, &client("B", true)),
+            Err(JoinError::NoSession)
+        );
+        assert_eq!(
+            registry.join(seat.session, &owner),
+            Err(JoinError::NoSession)
+        );
         // Its owner returns to its own slot of the same session.
         registry.leave(seat, "a");
         assert_eq!(
@@ -1807,6 +1821,18 @@ mod tests {
         // The streaming owner asking again is not marked away.
         assert_eq!(registry.join(1, &a), Ok((0, coop.id())));
         assert!(!session.session.lock().unwrap().players()[0].away);
+        // Join co-op taken away: the player cannot come back to its slot,
+        // from the list or by launching the entry; the owner still can.
+        let revoked = client("B", false);
+        assert_eq!(
+            registry.join(1, &revoked),
+            Err(JoinError::Refused(Refused::NotPermitted))
+        );
+        assert_eq!(
+            admit(&registry, &coop, "b2", &revoked).unwrap_err(),
+            Refusal::busy(Refused::NotPermitted.to_string())
+        );
+        assert_eq!(registry.join(1, &client("A", false)), Ok((0, coop.id())));
     }
 
     #[test]

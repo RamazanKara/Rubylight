@@ -1,5 +1,7 @@
 package com.limelight.utils;
 
+import com.limelight.LimeLog;
+
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -10,7 +12,8 @@ import java.util.function.Supplier;
  * Takes the stream doctor's once-a-second sample off the main thread. The sample reads the decoder's
  * statistics and the connection's round trip time, which wait on locks a hanging decoder holds for
  * seconds, so the caller only hands it to the worker and the result is posted back to the main
- * executor. While a sample still runs, the next one is skipped instead of queued behind it.
+ * executor. While a sample still runs, the next one is skipped instead of queued behind it. A sample
+ * that throws is logged and posts nothing; on the worker it would otherwise end the app.
  */
 public final class StreamHealthSampler {
     private final Executor worker;
@@ -30,6 +33,9 @@ public final class StreamHealthSampler {
                 StreamHealth.Sample taken;
                 try {
                     taken = sample.get();
+                } catch (RuntimeException e) {
+                    LimeLog.warning("Stream health sample failed: " + e);
+                    return;
                 } finally {
                     running.set(false);
                 }

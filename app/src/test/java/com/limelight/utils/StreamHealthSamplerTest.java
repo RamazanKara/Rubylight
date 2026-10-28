@@ -3,6 +3,7 @@ package com.limelight.utils;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -80,5 +81,40 @@ public class StreamHealthSamplerTest {
         reject[0] = false;
         assertTrue(sampler.sample(() -> sample(2000), added::add));
         assertEquals(1, added.size());
+    }
+
+    @Test
+    public void aThrowingSampleIsSkippedAndTheNextOneRuns() throws Exception {
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        AtomicReference<Throwable> uncaught = new AtomicReference<>();
+        LinkedBlockingQueue<Runnable> main = new LinkedBlockingQueue<>();
+        StreamHealthSampler sampler = new StreamHealthSampler(task -> worker.execute(() -> {
+            try {
+                task.run();
+            } catch (Throwable t) {
+                // What the default uncaught handler would get: on Android it ends the app.
+                uncaught.set(t);
+            }
+        }), main::add);
+        List<StreamHealth.Sample> added = new ArrayList<>();
+        try {
+            assertTrue(sampler.sample(() -> {
+                throw new IllegalStateException("decoder released");
+            }, added::add));
+            // The next tick finds the sampler free again and its result is posted.
+            StreamHealth.Sample taken = sample(2000);
+            long deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!sampler.sample(() -> taken, added::add)) {
+                assertTrue("the failed sample never finished", System.nanoTime() < deadlineNs);
+                Thread.sleep(1);
+            }
+            main.poll(5, TimeUnit.SECONDS).run();
+            assertNull(uncaught.get());
+            assertTrue(main.isEmpty());
+            assertEquals(1, added.size());
+            assertSame(taken, added.get(0));
+        } finally {
+            worker.shutdownNow();
+        }
     }
 }

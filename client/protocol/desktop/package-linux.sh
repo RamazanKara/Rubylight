@@ -90,6 +90,16 @@ if [[ -n $sdk ]]; then
 	cp -r "$sdk/licenses" "$stage/licenses-pyrowave"
 fi
 cp "$here/README.md" "$stage/"
+# The desktop entry, the icon in the hicolor sizes and the AppStream data, laid out as under
+# /usr/share: packaging/linux/build-packages.sh makes the .deb, .rpm and AppImage from them, and
+# the AUR and Flatpak recipes install them from this archive.
+app_id=io.github.ramazankara.nightjar
+install -Dm644 "$here/packaging/linux/$app_id.desktop" "$stage/share/applications/$app_id.desktop"
+install -Dm644 "$here/packaging/linux/$app_id.metainfo.xml" "$stage/share/metainfo/$app_id.metainfo.xml"
+for icon in "$here"/packaging/icons/[0-9]*.png; do
+	size=$(basename "$icon" .png)
+	install -Dm644 "$icon" "$stage/share/icons/hicolor/${size}x$size/apps/$app_id.png"
+done
 # FFmpeg and dav1d, found through the executable's run path $ORIGIN/lib (and libavcodec's own,
 # $ORIGIN, for libavutil and libdav1d). cp -a keeps the soname symlinks; the dev symlinks
 # (libavcodec.so) and the build tree's pkg-config files and headers stay out.

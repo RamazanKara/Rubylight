@@ -415,7 +415,7 @@ mod tests {
             "a=x-rl-audio.codecs:3\r\na=x-rl-control:0x5539,0x5540\r\n"
         );
         let hdr = Offered {
-            hdr_formats: hdr::HLG | 0xE0,
+            hdr_formats: hdr::HLG | 0x60,
             ..Offered::NONE
         };
         assert_eq!(hdr.serverinfo_fields(), [("HdrFormats", "2".to_owned())]);
@@ -642,6 +642,13 @@ mod tests {
             ),
             (
                 hevc_main10 | pyrowave_main10,
+                true,
+                true,
+                hdr::PQ | hdr::HLG | hdr::DV_81 | hdr::DV_84 | hdr::PYROWAVE_HLG,
+            ),
+            // AV1 Main10 adds Dolby Vision 10.1 beside the flag.
+            (
+                hevc_main10 | 0x2_0000 | pyrowave_main10,
                 true,
                 true,
                 hdr::ALL | hdr::PYROWAVE_HLG,

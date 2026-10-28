@@ -97,6 +97,7 @@ test('settings drafts survive category changes and canceled navigation', async t
   const { page } = await fixture(t);
   await page.goto(base + '/logs');
   await nav(page, 'Settings');
+  await page.locator('main').getByRole('link', { name: 'All settings', exact: true }).click();
   await page.getByLabel('Host name', { exact: true }).fill('Unsaved name');
   await page.getByRole('link', { name: /^Network/ }).click();
   await nav(page, 'Games & apps');
@@ -107,11 +108,11 @@ test('settings drafts survive category changes and canceled navigation', async t
   assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Unsaved name');
   await page.goBack();
   await cancel(page);
-  await page.waitForURL(base + '/settings');
+  await page.waitForURL(base + '/settings/general');
   assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Unsaved name');
   await page.goBack();
   await page.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
-  await page.getByRole('heading', { name: 'Logs', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Settings', exact: true, level: 1 }).waitFor();
   await page.goForward();
   assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Fixture host');
 });
@@ -122,7 +123,6 @@ test('hardware metrics stay off until enabled and save the interval and selectio
   page.on('console', message => { if (['error', 'warning'].includes(message.type())) consoleErrors.push(message.text()); });
   await page.goto(base + '/settings/general');
   assert.equal(await page.title(), 'Rubylight');
-  await page.locator('details.advanced > summary').click();
   const enabled = page.getByRole('switch', { name: /^Send hardware metrics to client/ });
   await enabled.waitFor();
   assert.equal(await enabled.isChecked(), false);
@@ -208,14 +208,13 @@ test('an unavailable host retries automatically and recovers with a usable navig
   await page.getByRole('button', { name: 'Retry now' }).click();
   await page.getByRole('navigation', { name: 'Main' }).waitFor();
   assert.equal(new URL(page.url()).pathname, '/settings/general');
-  await page.locator('details.advanced > summary').click();
   await page.getByLabel('Fallback console language').waitFor();
   await page.getByText('This console is currently available in English only.', { exact: false }).waitFor();
 });
 
 test('Install now needs confirmation and disabled update checks disable automatic installation', async t => {
   const { page, writes } = await fixture(t);
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/settings');
   await page.getByText('Off — automatic update checks are disabled', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Install now', exact: true }).click();
   await page.getByText(/Save your game progress before continuing/).waitFor();
@@ -241,18 +240,18 @@ test('the next update check says when it runs, and that a stream holds it back',
   };
   const scheduled = { checked_at: now - 600, update_check_interval: 86400, next_check_at: now + 85800, deferred: false };
   const normal = await fixture(t, { updates: scheduled });
-  await normal.page.goto(base + '/maintenance');
+  await normal.page.goto(base + '/settings');
   await normal.page.getByText('Next check', { exact: true }).waitFor();
   assert.equal(await normal.page.getByText('After the stream').count(), 0);
   assert.equal(await normal.page.getByText('Shortly').count(), 0);
   await shot(normal.page, 'updates-panel-scheduled.png');
   const held = await fixture(t, { updates: { ...scheduled, checked_at: now - 90000, next_check_at: now - 3600, deferred: true } });
-  await held.page.goto(base + '/maintenance');
+  await held.page.goto(base + '/settings');
   await held.page.getByText('After the stream', { exact: true }).waitFor();
   assert.equal(await held.page.getByText('Shortly').count(), 0);
   await shot(held.page, 'updates-panel-deferred.png');
   const overdue = await fixture(t, { updates: { ...scheduled, checked_at: now - 90000, next_check_at: now - 3600 } });
-  await overdue.page.goto(base + '/maintenance');
+  await overdue.page.goto(base + '/settings');
   await overdue.page.getByText('Shortly', { exact: true }).waitFor();
 });
 
@@ -537,7 +536,7 @@ test('console journeys reflow across themes and screen sizes with usable buttons
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 834, height: 1112 }, { width: 390, height: 844 }, { width: 720, height: 450 }]) {
       await page.setViewportSize(viewport);
-      for (const [route, heading] of [['/', 'Home'], ['/devices', 'Devices'], ['/settings/display', 'Settings'], ['/library/new', 'New app'], ['/maintenance', 'Help & diagnostics']]) {
+      for (const [route, heading] of [['/', 'Home'], ['/devices', 'Devices'], ['/settings/display', 'All settings'], ['/settings', 'Settings'], ['/library/new', 'New app'], ['/maintenance', 'Help & diagnostics']]) {
         await page.goto(base + route);
         await page.getByRole('heading', { name: heading, exact: true, level: 1 }).waitFor();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), colorScheme + ' ' + viewport.width + ' ' + route);

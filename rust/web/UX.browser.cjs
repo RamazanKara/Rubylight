@@ -87,12 +87,19 @@ test('maintenance panels recover failed loads without reloading the console', as
     return true;
   });
   await page.goto(base + '/maintenance');
-  for (const what of ['the display layout', 'crash reports', 'the Vulkan layer status',
-    'the frame limiter status', 'signed-in browsers', 'the update status', 'the wake status']) {
+  for (const what of ['the display layout', 'crash reports', 'the Vulkan layer status', 'the frame limiter status']) {
     const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
     await retry.click();
     await retry.waitFor({ state: 'detached' });
   }
+  // Updates, power and signed-in browsers live on the Settings home.
+  await page.goto(base + '/settings');
+  for (const what of ['signed-in browsers', 'the update status', 'the wake status']) {
+    const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
+    await retry.click();
+    await retry.waitFor({ state: 'detached' });
+  }
+  await page.goto(base + '/maintenance');
   await page.getByText('A layout is saved. The host could not compare it with the current displays.', { exact: true }).waitFor();
   assert.equal(await page.getByText('A layout is saved and matches the displays as they are now.', { exact: true }).count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -433,12 +440,39 @@ test('a rejected PIN removes the expired request at once instead of on the next 
   await pin.waitFor({ state: 'detached' });
 });
 
+test('the Settings home shows the main settings as outcomes, saves only changed keys and finds every setting', async t => {
+  const { page, writes } = await fixture(t);
+  await page.goto(base + '/settings');
+  await page.getByRole('heading', { name: 'Settings', exact: true, level: 1 }).waitFor();
+  assert.deepEqual(await page.locator('main').getByRole('heading', { level: 2 }).allInnerTexts(),
+    ['This PC', 'Picture', 'Sound and controls', 'Games', 'Updates', 'Sign-in and security']);
+  await page.locator('[data-setting="sunshine_name"]').waitFor();
+  assert.equal(await page.locator('main [data-setting]').count(), 10);
+  const monitors = page.getByLabel('While streaming, your monitors', { exact: true });
+  assert.deepEqual(await monitors.locator('option').allInnerTexts(), ['Turn off', 'Stay on']);
+  await monitors.selectOption('extended');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).waitFor({ state: 'detached' });
+  assert.deepEqual(writes, [{ path: '/api/config', body: { virtual_display_layout: 'extended' } }]);
+  // Search covers every key and opens it in All settings, its folded group open.
+  await page.getByRole('searchbox', { name: 'Search all settings' }).fill('qr_pairing');
+  await page.getByRole('link', { name: /Pair with a QR code/ }).click();
+  await page.waitForURL(base + '/settings/general?setting=qr_pairing');
+  const debug = page.locator('details.fold', { has: page.locator(':scope > summary', { hasText: 'Debug switches' }) });
+  assert.equal(await debug.evaluate(node => node.open), true);
+  await page.locator('[data-setting="qr_pairing"]').waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/settings');
+  await page.locator('[data-setting="sunshine_name"]').waitFor();
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
 test('maintenance is grouped into sections and every destructive action looks and confirms the same', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/maintenance');
   await page.getByRole('button', { name: 'Restore saved layout', exact: true }).waitFor();
   assert.deepEqual(await page.locator('main').getByRole('heading', { level: 2 }).allInnerTexts(),
-    ['Host', 'Power', 'Displays and Windows session', 'Troubleshooting', 'Integrations', 'Security']);
+    ['Host', 'Displays and Windows session', 'Troubleshooting', 'Integrations']);
   for (const [name, title, confirmName] of [
     ['Quit', 'Quit Rubylight?', 'Quit'],
     ['Delete saved layout', 'Delete the saved layout?', 'Delete'],
@@ -484,7 +518,7 @@ test('Wake-on-LAN changes apply only after confirmation, exactly as listed, and 
     }
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/settings');
   const panel = page.locator('section.panel', { has: page.getByRole('heading', { name: 'Wake-on-LAN and sleep', exact: true }) });
   await panel.getByText(/A wake setting of the wired adapter aa:bb:cc:dd:ee:01 is off/).waitFor();
   await panel.getByText('Sleeps in 12 min if nothing changes (counted from the last use of this console).', { exact: true }).waitFor();
@@ -552,7 +586,7 @@ test('an update action spins only its own button, and update settings open insid
     await route.fulfill({ json: { status: true } });
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/settings');
   const install = page.getByRole('button', { name: 'Install when idle', exact: true });
   await install.click();
   await started.promise;
@@ -562,7 +596,7 @@ test('an update action spins only its own button, and update settings open insid
   await page.waitForFunction(() => [...document.querySelectorAll('button')].every(button => button.getAttribute('aria-busy') !== 'true'));
   await page.evaluate(() => { window.consoleStayedLoaded = true; });
   await page.getByRole('link', { name: 'Change update settings', exact: true }).click();
-  await page.waitForURL(base + '/settings/general');
+  await page.waitForURL(base + '/settings/general?setting=update_check_interval');
   assert.equal(await page.evaluate(() => window.consoleStayedLoaded), true);
 });
 
@@ -576,7 +610,7 @@ test('an update that setup refused shows setup\'s reason once', async t => {
     await route.fulfill({ json: state });
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/settings');
   const panel = page.locator('section', { has: page.getByRole('heading', { name: 'Updates', exact: true }) });
   const shown = panel.getByText(reason, { exact: true });
   await shown.waitFor();
@@ -699,7 +733,7 @@ test('a long list of signed-in browsers starts short, with this browser first', 
     await route.fulfill({ json: { status: true, sessions } });
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/settings');
   const list = page.locator('main').getByRole('list').filter({ hasText: 'Browser 4' });
   await list.waitFor();
   assert.equal(await list.getByRole('listitem').count(), 5);

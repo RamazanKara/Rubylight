@@ -169,7 +169,8 @@ static long hdrFormatSent(int videoFormat, uint8_t asked, uint8_t offered) {
 }
 
 // The 3.0 HDR format goes out only when asked for and offered, as one bit, on a 10-bit HEVC or
-// AV1 stream, Dolby Vision on HEVC alone; as the Rust client's hdr_format test.
+// AV1 stream, Dolby Vision 8.1 and 8.4 on HEVC alone and 10.1 on AV1 alone; as the Rust client's
+// hdr_format test.
 static void hdrFormat(void) {
     static const int formats[] = {VIDEO_FORMAT_H265, VIDEO_FORMAT_H265_MAIN10, VIDEO_FORMAT_AV1_MAIN10,
                                   VIDEO_FORMAT_PYROWAVE};
@@ -184,15 +185,19 @@ static void hdrFormat(void) {
     CHECK(hdrFormatSent(VIDEO_FORMAT_H265_MAIN10, RL_HDR_HLG, RL_HDR_ALL) == 2);
     CHECK(hdrFormatSent(VIDEO_FORMAT_AV1_MAIN10, RL_HDR_HLG, RL_HDR_ALL) == 2);
     CHECK(hdrFormatSent(VIDEO_FORMAT_AV1_MAIN10, RL_HDR_DV_84, RL_HDR_ALL) == -1);
+    CHECK(hdrFormatSent(VIDEO_FORMAT_AV1_MAIN10, RL_HDR_DV_81, RL_HDR_ALL) == -1);
+    CHECK(hdrFormatSent(VIDEO_FORMAT_AV1_MAIN10, RL_HDR_DV_101, RL_HDR_PQ | RL_HDR_DV_101) == 16);
+    CHECK(hdrFormatSent(VIDEO_FORMAT_H265_MAIN10, RL_HDR_DV_101, RL_HDR_ALL) == -1);
+    CHECK(hdrFormatSent(VIDEO_FORMAT_AV1_MAIN8, RL_HDR_DV_101, RL_HDR_ALL) == -1);
     CHECK(hdrFormatSent(VIDEO_FORMAT_H265, RL_HDR_HLG, RL_HDR_ALL) == -1);
     CHECK(hdrFormatSent(VIDEO_FORMAT_PYROWAVE, RL_HDR_HLG, RL_HDR_ALL) == -1);
     // PyroWave's 10-bit formats are in VIDEO_FORMAT_MASK_10BIT but carry no HDR format: the host
     // refuses one in the ANNOUNCE.
     static const int pyroWave10[] = {VIDEO_FORMAT_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10_444};
-    static const uint8_t bits[] = {RL_HDR_PQ, RL_HDR_HLG, RL_HDR_DV_81, RL_HDR_DV_84};
+    static const uint8_t bits[] = {RL_HDR_PQ, RL_HDR_HLG, RL_HDR_DV_81, RL_HDR_DV_84, RL_HDR_DV_101};
     for (int i = 0; i < 2; i++) {
         CHECK((pyroWave10[i] & VIDEO_FORMAT_MASK_10BIT) != 0);
-        for (int bit = 0; bit < 4; bit++) {
+        for (int bit = 0; bit < 5; bit++) {
             CHECK(hdrFormatSent(pyroWave10[i], bits[bit], RL_HDR_ALL) == -1);
             CHECK(rlAnnouncedHdrFormat(bits[bit], RL_HDR_ALL, pyroWave10[i]) == 0);
         }
@@ -219,7 +224,8 @@ static void hdrFormatsOffer(void) {
     CHECK(rlParseHdrFormats("") == 0);
     CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:5\r\n") == 5);
     CHECK(rlParseHdrFormats("v=0\r\na=x-rl-control:0x5531\r\na=x-rl-video.hdrFormats:15\r\n") == 15);
-    CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:255\r\n") == 15);
+    CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:31\r\n") == 31);
+    CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:255\r\n") == 31);
     CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats: 2 \r\n") == 2);
     CHECK(rlParseHdrFormats("a=x-rl-video.hdrFormats:2") == 2);
     static const char* const malformed[] = {

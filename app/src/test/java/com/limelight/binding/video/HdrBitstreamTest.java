@@ -2,6 +2,8 @@ package com.limelight.binding.video;
 
 import static org.junit.Assert.*;
 
+import com.limelight.nvstream.jni.MoonBridge;
+
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -60,6 +62,17 @@ public class HdrBitstreamTest {
     public void aFrameThatIsNotDolbyVisionIsUntouched() {
         byte[] au = accessUnit(1391);
         assertEquals(au.length, HdrBitstream.queuedLength(false, au, au.length));
+    }
+
+    @Test
+    public void onlyHevcDolbyVisionFramesEndAtTheRpu() {
+        // Profile 8: the RPU NAL unit comes last, then the FEC padding.
+        assertTrue(HdrBitstream.endsAtRpu(MoonBridge.VIDEO_FORMAT_H265_MAIN10));
+        assertTrue(HdrBitstream.endsAtRpu(MoonBridge.VIDEO_FORMAT_H265));
+        // Profile 10: the RPU OBU comes before the frame, and a zero byte can end an AV1 tile.
+        assertFalse(HdrBitstream.endsAtRpu(MoonBridge.VIDEO_FORMAT_AV1_MAIN10));
+        assertFalse(HdrBitstream.endsAtRpu(MoonBridge.VIDEO_FORMAT_AV1_MAIN8));
+        assertFalse(HdrBitstream.endsAtRpu(MoonBridge.VIDEO_FORMAT_H264));
     }
 
     /** A prefix SEI NAL unit holding one T.35 message, as rust/core/src/hdr_dynamic.rs hevc_t35_sei writes it. */
@@ -151,15 +164,20 @@ public class HdrBitstreamTest {
 
     @Test
     public void onlyMediaTekHevcAndDolbyVisionDecodersLoseVivid() {
-        assertTrue(HdrBitstream.dropsVivid("c2.mtk.hevc.decoder", "video/hevc"));
-        assertTrue(HdrBitstream.dropsVivid("c2.mtk.dvhe.st.decoder", HdrFormatPolicy.MIME_DOLBY_VISION));
-        assertTrue(HdrBitstream.dropsVivid("OMX.MTK.VIDEO.DECODER.HEVC", "video/hevc"));
-        // AV1 has no Vivid carriage, and its OBUs are not walked for start codes.
-        assertFalse(HdrBitstream.dropsVivid("c2.mtk.av1.decoder", "video/av01"));
-        assertFalse(HdrBitstream.dropsVivid("c2.mtk.avc.decoder", "video/avc"));
+        int hevc = MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        int av1 = MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        assertTrue(HdrBitstream.dropsVivid("c2.mtk.hevc.decoder", hevc));
+        assertTrue(HdrBitstream.dropsVivid("c2.mtk.hevc.decoder", MoonBridge.VIDEO_FORMAT_H265));
+        assertTrue(HdrBitstream.dropsVivid("c2.mtk.dvhe.st.decoder", hevc));
+        assertTrue(HdrBitstream.dropsVivid("OMX.MTK.VIDEO.DECODER.HEVC", hevc));
+        // AV1 has no Vivid carriage, and its OBUs are not walked for start codes: not through the
+        // AV1 decoder, nor through the Dolby Vision profile 10 one (same MIME type as profile 8).
+        assertFalse(HdrBitstream.dropsVivid("c2.mtk.av1.decoder", av1));
+        assertFalse(HdrBitstream.dropsVivid("c2.mtk.dvav1.10.decoder", av1));
+        assertFalse(HdrBitstream.dropsVivid("c2.mtk.avc.decoder", MoonBridge.VIDEO_FORMAT_H264));
         for (String other : new String[] {"c2.qti.hevc.decoder", "OMX.amlogic.hevc.decoder.awesome2",
                 "c2.exynos.hevc.decoder", "c2.android.hevc.decoder", "OMX.Nvidia.h265.decode"}) {
-            assertFalse(other, HdrBitstream.dropsVivid(other, "video/hevc"));
+            assertFalse(other, HdrBitstream.dropsVivid(other, hevc));
         }
     }
 

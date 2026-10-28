@@ -494,7 +494,8 @@ mod tests {
             DescribeInfo::parse(&offered)
         );
         // Unknown bits are dropped; malformed values are no offer.
-        assert_eq!(with("a=x-rl-video.hdrFormats:255\r\n").hdr_formats, 15);
+        assert_eq!(with("a=x-rl-video.hdrFormats:255\r\n").hdr_formats, 31);
+        assert_eq!(with("a=x-rl-video.hdrFormats:31\r\n").hdr_formats, 31);
         assert_eq!(with("a=x-rl-video.hdrFormats: 2 \r\n").hdr_formats, 2);
         for line in [
             "a=x-rl-video.hdrFormats:256",

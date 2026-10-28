@@ -1325,12 +1325,13 @@ public class MediaCodecHelper {
     }
     
     /**
-     * A hardware video/dolby-vision decoder for profile 8 (DvheSt), or null: it takes an HEVC
-     * Main10 stream with Dolby Vision RPUs (NAL type 62) and maps it for the screen. Unlike
+     * A hardware video/dolby-vision decoder for {@code profile}, or null: profile 8 (DvheSt) takes
+     * an HEVC Main10 stream with Dolby Vision RPUs (NAL type 62), profile 10 (Dvav110) an AV1
+     * Main10 stream with RPU metadata OBUs, and either maps it for the screen. Unlike
      * findProbableSafeDecoder, neither the preferred decoder names nor a capabilities exception
      * can hand back a decoder without that profile.
      */
-    public static MediaCodecInfo findDolbyVisionDecoder() {
+    public static MediaCodecInfo findDolbyVisionDecoder(int profile) {
         for (MediaCodecInfo codecInfo : getMediaCodecList()) {
             if (codecInfo.isEncoder()) {
                 continue;
@@ -1345,17 +1346,24 @@ public class MediaCodecHelper {
                 }
                 try {
                     for (CodecProfileLevel level : codecInfo.getCapabilitiesForType(mime).profileLevels) {
-                        if (level.profile == CodecProfileLevel.DolbyVisionProfileDvheSt) {
+                        if (level.profile == profile) {
                             return codecInfo;
                         }
                     }
-                    LimeLog.info("Dolby Vision decoder " + codecInfo.getName() + " lacks profile 8");
+                    LimeLog.info("Dolby Vision decoder " + codecInfo.getName() + " lacks profile " +
+                            dolbyVisionProfileName(profile));
                 } catch (IllegalArgumentException e) {
                     LimeLog.warning("Dolby Vision decoder " + codecInfo.getName() + " reports no capabilities: " + e);
                 }
             }
         }
         return null;
+    }
+
+    /** "8" for DvheSt, "10" for Dvav110: the Dolby Vision profile findDolbyVisionDecoder looks for, for logs. */
+    public static String dolbyVisionProfileName(int profile) {
+        return profile == CodecProfileLevel.DolbyVisionProfileDvav110 ? "10" :
+                profile == CodecProfileLevel.DolbyVisionProfileDvheSt ? "8" : "0x" + Integer.toHexString(profile);
     }
 
     public static MediaCodecInfo findProbableSafeDecoder(String mimeType, int requiredProfile) {

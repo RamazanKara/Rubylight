@@ -1,5 +1,7 @@
 package com.limelight.binding.video;
 
+import com.limelight.nvstream.jni.MoonBridge;
+
 /**
  * HDR fixes to an HEVC access unit on its way to the decoder, apart from MediaCodec so they can be
  * tested with made-up bytes.
@@ -29,15 +31,27 @@ public final class HdrBitstream {
     }
 
     /**
+     * Whether a Dolby Vision access unit in {@code videoFormat} ends at its RPU, so that
+     * {@link #queuedLength} trims it: HEVC (profile 8), whose RPU NAL unit comes last. An AV1 frame
+     * (profile 10) carries its RPU in a metadata OBU before the frame, and the bridge trims the
+     * padding of AV1 itself.
+     */
+    public static boolean endsAtRpu(int videoFormat) {
+        return (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0;
+    }
+
+    /**
      * Whether the host's HDR Vivid SEI is kept from this decoder. MediaTek's HEVC and Dolby Vision
      * decoders prefer HDR Vivid to the HDR10 and HDR10+ the stream also carries, and a display
      * without Vivid (Android has no HDR type for it) then shows the picture as SDR: a TCL C6K logs
      * "oriInFmt[Hdr HDRVIVID -> SDR]". With no dynamic metadata at all (hdr_dynamic_metadata off)
      * its Dolby Vision decoder showed the same stream as HDR10, and its AV1 decoder shows HDR10+.
+     * Only HEVC streams ({@code videoFormat}), through the HEVC or the Dolby Vision profile 8
+     * decoder: AV1 has no Vivid carriage, and a profile 10 decoder gets AV1 OBUs.
      */
-    public static boolean dropsVivid(String decoderName, String mimeType) {
+    public static boolean dropsVivid(String decoderName, int videoFormat) {
         String name = decoderName.toLowerCase(java.util.Locale.ROOT);
-        boolean hevc = "video/hevc".equals(mimeType) || HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType);
+        boolean hevc = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0;
         return hevc && (name.startsWith("c2.mtk.") || name.startsWith("omx.mtk."));
     }
 

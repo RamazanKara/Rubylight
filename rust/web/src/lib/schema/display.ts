@@ -576,7 +576,7 @@ export const settings: Setting[] = [
     key: 'background_mode',
     label: 'Background mode (Experimental)',
     description:
-      'How the host streams while someone keeps using this PC. A Windows child session gives the stream its own desktop and apps; Nucleus Co-op runs the game in its own window, with controllers.',
+      'How the host streams while someone keeps using this PC. A child session gives the stream its own Windows desktop; Nucleus Co-op runs the game in its own window, with controllers.',
     details:
       'Nucleus Co-op, the default, streams the game’s window and needs a Nucleus Co-op handler for the game; the host installs Nucleus Co-op on first use. Child session needs Windows Pro or higher and the setup under Maintenance. Automatic uses a child session on Pro and higher and Nucleus Co-op elsewhere. A chosen mode this PC can’t run refuses background streams and says why. No HDR in the child session, and it runs at up to about 120 fps.',
     category: 'display',

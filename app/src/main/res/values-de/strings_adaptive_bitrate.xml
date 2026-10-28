@@ -8,6 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">Dieser PC meldet seine Stream-Bitrate nicht. Die automatische Bitrate ist für diesen Stream aus.</string>
     <string name="stream_auto_bitrate_status">Automatische Bitrate: %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Host beschäftigt. Versuch es gleich erneut.</string>
-    <string name="title_auto_bitrate">Automatische Bitrate</string>
+    <string name="title_auto_bitrate">Gerät steuert die Bitrate</string>
     <string name="dialog_auto_bitrate">Senkt die Bitrate, wenn Verbindung oder Gerät nicht mithalten, und erhöht sie wieder, sobald es besser läuft. Sie geht nie über die Bitrate des Streams. Das ist der Standard für alle PCs; im Stream-Menü lässt er sich für einen PC ändern.</string>
 </resources>

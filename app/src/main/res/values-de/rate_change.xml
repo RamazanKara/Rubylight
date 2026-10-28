@@ -26,5 +26,5 @@
     <string name="stream_rate_change_no_answer">Der Host hat auf die Änderung nicht geantwortet.</string>
     <string name="stream_rate_change_auto_no_answer">Automatische Bitrate für diesen Stream beendet: Der Host hat auf eine Änderung nicht geantwortet.</string>
     <string name="title_rate_change_bitrate">Automatische Bitrate auf diesem Gerät</string>
-    <string name="summary_rate_change_bitrate">Nightjar beobachtet Bildverluste und Netzwerkverzögerung und bittet den Host um eine niedrigere oder höhere Bitrate, anstelle der automatischen Bitrate. Braucht die Rust-Engine und einen Host, der Bitrate-Änderungen anbietet; andere Streams behalten die automatische Bitrate.</string>
+    <string name="summary_rate_change_bitrate">Nightjar beobachtet Bildverluste und Netzwerkverzögerung und bittet den Host um eine niedrigere oder höhere Bitrate, anstelle von „Gerät steuert die Bitrate“. Braucht die Rust-Engine und einen Host, der Bitrate-Änderungen anbietet; andere Streams nutzen „Gerät steuert die Bitrate“.</string>
 </resources>

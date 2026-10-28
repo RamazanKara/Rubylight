@@ -8,6 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">Bu bilgisayar yayın bit hızını bildirmiyor. Bu yayın için otomatik bit hızı kapalı.</string>
     <string name="stream_auto_bitrate_status">Otomatik bit hızı: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Ana bilgisayar meşgul. Birazdan tekrar deneyin.</string>
-    <string name="title_auto_bitrate">Otomatik bit hızı</string>
+    <string name="title_auto_bitrate">Bit hızını cihaz yönetir</string>
     <string name="dialog_auto_bitrate">Bağlantı veya cihaz yetişemediğinde bit hızını düşürür, durum düzelince tekrar yükseltir. Yayının bit hızını asla aşmaz. Tüm bilgisayarlar için varsayılandır; yayın menüsünden tek bir bilgisayar için değiştirilebilir.</string>
 </resources>

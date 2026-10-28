@@ -269,7 +269,7 @@ public class SettingsTiersTest {
             assertNull(rowSummary(video, "checkbox_auto_bitrate"));
             auto.setChecked(false);
 
-            Preference result = search(screen, "Automatic bitrate").getPreferenceScreen()
+            Preference result = search(screen, "Device controls bitrate").getPreferenceScreen()
                     .findPreference("search_result_checkbox_auto_bitrate");
             assertNotNull(result);
             assertEquals(line, String.valueOf(result.getSummary()));

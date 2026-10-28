@@ -104,12 +104,14 @@ impl Opened {
     pub fn pid(&self) -> u32 {
         self.0.pid
     }
-    /// Whether it, or a process it started, still runs.
+    /// Whether NucleusCoop.exe itself still runs. What it started (a browser
+    /// from a hub link, a game) is the user's, and doesn't count.
     pub fn running(&self) -> Result<bool> {
-        Ok(self.0.active_processes()? != 0)
+        self.0.running()
     }
-    /// Ask its windows to close and wait up to `timeout`. Nothing is ended:
-    /// one still open (a question it asks the user) is an error.
+    /// Ask its windows to close and wait up to `timeout`. Nothing is ended,
+    /// and what it started is left alone: one still open (a question it asks
+    /// the user) is an error.
     pub fn close(&self, timeout: Duration) -> Result<()> {
         ensure!(
             self.0.close(timeout)?,

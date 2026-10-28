@@ -1783,7 +1783,7 @@ impl Process {
         if timeout.is_zero() || self.active_processes()? == 0 {
             return self.stop();
         }
-        if self.close_windows()? {
+        if self.close_windows(self.process_ids()?.into_iter().collect())? {
             let deadline = std::time::Instant::now() + timeout;
             while self.active_processes()? != 0 && std::time::Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(20));
@@ -1791,23 +1791,28 @@ impl Process {
         }
         self.stop()
     }
-    /// Ask the job's windows to close and wait up to `timeout` for every
-    /// process in it to exit. Nothing is ended: whether they all exited.
+    /// Whether the process itself (not one it started) still runs.
+    pub fn running(&self) -> Result<bool> {
+        Ok(self.exit_code()?.is_none())
+    }
+    /// Ask the process's own windows to close and wait up to `timeout` for it
+    /// to exit. Nothing is ended, and processes it started (a browser, a
+    /// game) are left alone: whether it exited.
     pub fn close(&self, timeout: Duration) -> Result<bool> {
-        if self.active_processes()? == 0 {
+        if !self.running()? {
             return Ok(true);
         }
-        if self.close_windows()? {
+        if self.close_windows([self.pid].into())? {
             let deadline = std::time::Instant::now() + timeout;
-            while self.active_processes()? != 0 && std::time::Instant::now() < deadline {
+            while self.running()? && std::time::Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(20));
             }
         }
-        Ok(self.active_processes()? == 0)
+        Ok(!self.running()?)
     }
-    /// Post WM_CLOSE to each top-level window of the job's processes: whether
+    /// Post WM_CLOSE to each top-level window of the processes `ids`: whether
     /// one was sent.
-    fn close_windows(&self) -> Result<bool> {
+    fn close_windows(&self, ids: std::collections::BTreeSet<u32>) -> Result<bool> {
         use windows::Win32::UI::WindowsAndMessaging::*;
         struct Closing {
             ids: std::collections::BTreeSet<u32>,
@@ -1828,10 +1833,7 @@ impl Process {
                 BOOL(1)
             }
         }
-        let mut closing = Closing {
-            ids: self.process_ids()?.into_iter().collect(),
-            sent: false,
-        };
+        let mut closing = Closing { ids, sent: false };
         // SAFETY: `closing` outlives the synchronous EnumWindows call that reads it through
         // `close_window`.
         unsafe {
@@ -2518,6 +2520,28 @@ mod tests {
             .read_to_string(&mut rest)
             .unwrap();
         assert!(long.process.wait(Duration::from_secs(10)).is_ok());
+        // Close and running follow the process itself: a child it leaves
+        // running in the job is neither waited for nor asked to close.
+        let args = [
+            "/d",
+            "/c",
+            "start",
+            "/b",
+            "ping.exe",
+            "-n",
+            "30",
+            "127.0.0.1",
+        ]
+        .map(OsString::from);
+        let parent = Process::spawn_piped(&system32.join("cmd.exe"), &args, target()).unwrap();
+        parent.process.wait(Duration::from_secs(10)).unwrap();
+        assert!(!parent.process.running().unwrap());
+        assert!(parent.process.close(Duration::from_millis(200)).unwrap());
+        assert!(
+            parent.process.active_processes().unwrap() > 0,
+            "the child is left alone"
+        );
+        parent.process.terminate().unwrap();
     }
     #[test]
     fn console_reattachment_refuses_other_users_and_transitional_sessions() {

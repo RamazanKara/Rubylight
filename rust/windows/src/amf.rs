@@ -281,6 +281,10 @@ pub struct Encoder {
     /// A header rewrite failed: outputs are dropped until the keyframe it
     /// asked for, as their headers no longer match what the client has.
     repair_dropping: bool,
+    /// AMF's bytes before any rewrite, kept when a test asks: a decoder that
+    /// got every frame needs AMF's own numbering.
+    #[cfg(test)]
+    unrewritten: Option<Vec<u8>>,
     /// The bytes of a frame whose slices are still coming.
     frame_bytes: usize,
     ownership: Box<gpu::Ownership>,
@@ -619,6 +623,8 @@ impl Encoder {
                 references: Default::default(),
                 repair_headers: None,
                 repair_dropping: false,
+                #[cfg(test)]
+                unrewritten: None,
                 frame_bytes: 0,
                 ownership: gpu::Ownership::new(),
                 luminance: [100., 1.],
@@ -1972,6 +1978,10 @@ impl Encoder {
         skipped: u64,
         requested_keyframe: bool,
     ) -> Option<std::borrow::Cow<'a, [u8]>> {
+        #[cfg(test)]
+        if let Some(unrewritten) = self.unrewritten.as_mut() {
+            unrewritten.extend_from_slice(bytes);
+        }
         if self.repair_dropping {
             if !requested_keyframe {
                 return None;

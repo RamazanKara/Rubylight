@@ -142,7 +142,8 @@ fn decode(
 /// (`amd_ltr_frames=0`), at each gap, codec and content
 /// (`BUTTERPOLLO_TEST_LTR_CONTENT`: `scrolling`, `static`). Each decoder in
 /// `BUTTERPOLLO_TEST_LTR_DECODERS` (`sw`, `amf`, or an FFmpeg `-hwaccel` name
-/// such as `d3d11va`) decodes the full and the lossy stream; after an
+/// such as `d3d11va`) decodes the full stream (AMF's bytes, every frame) and
+/// the lossy one (the bytes the client gets, without those frames); after an
 /// accepted invalidation every decoder must show the full stream's pictures
 /// from the recovery frame on, and a declined one must be a keyframe. The
 /// host repairs what a decoder can still order (`ltr::Counter`: HEVC up to
@@ -243,6 +244,9 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             if forced {
                 encoder.references.repair_whatever_it_costs();
             }
+            // The full stream is AMF's own: renumbered for a client that
+            // skipped the lost frames, it would not decode with them in it.
+            encoder.unrewritten = Some(Vec::new());
             // Only a stream with long-term references rewrites AMF's headers.
             anyhow::ensure!(
                 encoder.repair_headers.is_some() == (asked && codec <= 1),
@@ -297,7 +301,12 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
                 anyhow::ensure!(output.len() == 1, "missing/late {name} output {index}");
                 let frame = output.pop().unwrap();
                 anyhow::ensure!(!idr || frame.idr, "forced IDR absent at {name} {index}");
-                full.write_all(&frame.bytes)?;
+                let unrewritten = encoder.unrewritten.replace(Vec::new()).unwrap_or_default();
+                anyhow::ensure!(
+                    !unrewritten.is_empty(),
+                    "{name}: AMF's bytes missing at {index}"
+                );
+                full.write_all(&unrewritten)?;
                 if !(LOST..recovery).contains(&index) {
                     lossy.write_all(&frame.bytes)?;
                 }

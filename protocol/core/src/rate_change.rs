@@ -8,6 +8,10 @@
 //! it, or did not. The host clamps either to what the device and the encoder allow, and says
 //! so per field.
 //!
+//! So results can come out of request order: one for a rate carries the bitrate the host set
+//! when the request came, and a bitrate-only request sent after it is answered first. A client
+//! takes a result's bitrate only when no result for a later serial came before it.
+//!
 //! Request, little-endian: version u8, reserved u8, reserved u16, serial u32, bitrate_kbps
 //! u32, fps_millihz u32; 0 leaves that value unchanged. Result: version u8, reserved u8 x3,
 //! serial u32, bitrate_kbps u32, fps_millihz u32, then a status and a reason byte for the

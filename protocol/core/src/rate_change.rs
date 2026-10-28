@@ -112,7 +112,8 @@ pub enum Reason {
     EncoderFailed = 6,
     /// A later request, or a 0x5532 reconfigure, replaced this one before it applied.
     Superseded = 7,
-    /// A reason this version does not know.
+    /// Another reason, such as the host failing to load the device's configuration, or one
+    /// this version does not know.
     Other = 255,
 }
 

@@ -3,6 +3,7 @@ package com.limelight.nvstream.http;
 import com.limelight.nvstream.ConnectionContext;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.preferences.HostDisplayChoice;
+import com.limelight.utils.ClipboardSync;
 
 import org.junit.Test;
 
@@ -11,8 +12,10 @@ import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Locale;
+import java.util.Set;
 
 import javax.crypto.spec.SecretKeySpec;
 
@@ -670,6 +673,34 @@ public class NvHTTPParityTest {
             assertEquals(server, plain, NvHTTP.getLaunchQuery(context, 42, false));
             assertFalse(server, plain.contains(LaunchConfirmation.REPLACE_PARAMETER));
         }
+    }
+
+    // Clipboard sync (0x5508) is asked only of a Rubylight PC; any other host gets the query it got before.
+    @Test
+    public void clipboardSyncIsAskedOnlyOfARubylightPc() throws Exception {
+        Set<HostCapabilities.Family> seen = new HashSet<>();
+        for (String server : new String[] {"butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml",
+                "rubylight-serverinfo.xml", "sunshine-serverinfo.xml", "apollo-serverinfo.xml",
+                "vibepollo-serverinfo.xml", "gamestream-serverinfo.xml"}) {
+            ConnectionContext context = context(server);
+            String plain = NvHTTP.getLaunchQuery(context, 42, false);
+            assertFalse(server, plain.contains(ClipboardSync.LAUNCH_PARAMETER));
+            context.streamConfig = new StreamConfiguration.Builder()
+                    .setResolution(1968, 2184).setRefreshRate(120).setLaunchRefreshRate(120)
+                    .setClientRefreshRateX100(11988).setVirtualDisplay(true, 100).setClipboardSync(true).build();
+            String asked = NvHTTP.getLaunchQuery(context, 42, false);
+            seen.add(context.hostCaps.family());
+            if (context.hostCaps.family() != HostCapabilities.Family.RUBYLIGHT) {
+                assertFalse(server, NvHTTP.asksClipboardSync(context));
+                assertEquals(server, plain, asked);
+                continue;
+            }
+            assertTrue(server, NvHTTP.asksClipboardSync(context));
+            // The rest of the query stays byte for byte; the ask comes last.
+            assertEquals(server, plain + "&" + ClipboardSync.LAUNCH_PARAMETER + "=1", asked);
+        }
+        assertTrue(seen.contains(HostCapabilities.Family.RUBYLIGHT));
+        assertTrue(seen.size() > 1);
     }
 
     // The Error correction setting stores the wire value; anything else leaves it to the PC.

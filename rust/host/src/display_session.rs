@@ -214,15 +214,26 @@ struct ModeReportState {
     last: Option<std::result::Result<AppliedMode, String>>,
     /// Why the display could not follow the stream's last turn, until a turn follows.
     unfollowed: Option<String>,
+    /// A shared virtual display: another stream on it may have raised its
+    /// refresh above the requested one, which serves this stream too.
+    shared: bool,
 }
 impl ModeReportState {
     fn report(&self) {
         match &self.last {
             Some(Ok(actual)) => {
                 self.warnings.clear("display_verify");
+                let mut requested = self.requested;
+                if self.shared
+                    && requested
+                        .1
+                        .is_some_and(|rate| actual.2.saturating_add(500) >= rate)
+                {
+                    requested.1 = None;
+                }
                 butterpollo_core::display_policy::report_mode(
                     &self.warnings,
-                    self.requested,
+                    requested,
                     *actual,
                     self.stream_rate,
                 );
@@ -244,7 +255,14 @@ impl ModeReport {
             stream_rate,
             last: None,
             unfollowed: None,
+            shared: false,
         })))
+    }
+    /// The display is a shared virtual display: only a refresh below the
+    /// requested one is reported.
+    fn shared(self) -> Self {
+        self.0.lock().unwrap().shared = true;
+        self
     }
     fn publish(&self, actual: Result<AppliedMode>) {
         let mut state = self.0.lock().unwrap();
@@ -1788,7 +1806,11 @@ impl Prepared {
         } else {
             (turn.after, request.refresh, request.hdr)
         };
-        let mode_report = ModeReport::new(launch.warnings.clone(), requested, stream.fps_millihz());
+        let mut mode_report =
+            ModeReport::new(launch.warnings.clone(), requested, stream.fps_millihz());
+        if virtual_mode && mode == "shared" {
+            mode_report = mode_report.shared();
+        }
         mode_report.publish(applied_mode(&output));
         let profile = recovery_profile
             .as_ref()
@@ -3800,6 +3822,23 @@ pub(crate) mod tests {
         let third = Arc::new(Warnings::default());
         fresh.attach(third.clone());
         assert!(codes(&third).is_empty());
+    }
+
+    #[test]
+    fn a_shared_virtual_display_raised_by_a_joining_stream_is_no_finding() {
+        let warnings = Arc::new(Warnings::default());
+        let requested = (Some((1920, 1080)), Some(120_000), Some(false));
+        let report = ModeReport::new(warnings.clone(), requested, 60_000).shared();
+        // A VRR stream that joined raised it to 1000 Hz: that serves this one.
+        report.publish(Ok((1920, 1080, 1_000_000, false)));
+        assert!(codes(&warnings).is_empty());
+        // A slower refresh than requested is still reported.
+        report.publish(Ok((1920, 1080, 60_000, false)));
+        assert_eq!(codes(&warnings), ["display_refresh"]);
+        // A display of its own still reports a refresh it did not ask for.
+        let own = Arc::new(Warnings::default());
+        ModeReport::new(own.clone(), requested, 60_000).publish(Ok((1920, 1080, 1_000_000, false)));
+        assert_eq!(codes(&own), ["display_refresh"]);
     }
 
     #[test]

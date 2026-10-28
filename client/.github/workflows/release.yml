@@ -68,9 +68,11 @@ jobs:
     # source, linked statically; the decode-only FFmpeg of protocol/desktop/ffmpeg-decode-only.sh,
     # shipped in lib/ so the machine's own FFmpeg does not matter) and packs
     # nightjar-desktop-<version>-linux-x86_64.tar.gz; packaging/linux/build-packages.sh makes the
-    # .deb, .rpm and AppImage from that archive, and each is installed and started here.
+    # .deb, .rpm and AppImage from that archive, and each is installed and started here. A fixed
+    # Ubuntu: the glibc it builds against is the packages' floor (2.39), and the .deb's dependency
+    # names are read off it.
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -88,8 +90,9 @@ jobs:
       APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
       APPIMAGE_RUNTIME_VERSION: '20251108'
       APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
-      # The clean distribution the .rpm and the AppImage are installed and started in.
-      FEDORA_IMAGE: fedora:42
+      # The clean distribution the .rpm and the AppImage are installed and started in, pinned by
+      # the digest of its image index.
+      FEDORA_IMAGE: fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -220,7 +223,9 @@ jobs:
           bash protocol/desktop/packaging/linux/build-packages.sh -n "$tools/nfpm" -a "$tools/appimagetool" -r "$tools/runtime-x86_64" \
             "dist/nightjar-desktop-$VERSION-linux-x86_64.tar.gz"
       # Each package installs, answers --version (no window needed) and uninstalls without
-      # leftovers: the .deb on this Ubuntu runner, the .rpm and the AppImage in a clean Fedora.
+      # leftovers: the .deb on this Ubuntu runner, the .rpm in a clean Fedora. The AppImage runs in
+      # a Fedora of its own with only libva added: it brings libopus itself, and removing the .rpm
+      # would also have removed the libraries the .rpm pulled in.
       - name: Install, start and remove the packages
         run: |
           name="nightjar-desktop-$VERSION-linux-x86_64"
@@ -238,8 +243,11 @@ jobs:
             test -s /usr/share/applications/io.github.ramazankara.nightjar.desktop
             dnf remove -y -q nightjar
             if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "removing the .rpm left files behind"; exit 1; fi
+            echo "fedora: .rpm passed"'
+          docker run --rm -e VERSION -e name="$name" -v "$PWD/dist:/dist:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
+            dnf install -y -q libva
             cd /tmp && APPIMAGE_EXTRACT_AND_RUN=1 "/dist/$name.AppImage" --version | grep -qx "Nightjar $VERSION"
-            echo "fedora: .rpm and AppImage passed"'
+            echo "fedora: AppImage passed"'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-linux
@@ -402,7 +410,7 @@ jobs:
         run: |
           $setup = Join-Path $env:RUNNER_TEMP "innosetup-$env:INNO_SETUP_VERSION.exe"
           $tag = 'is-' + $env:INNO_SETUP_VERSION.Replace('.', '_')
-          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$env:INNO_SETUP_VERSION.exe" -OutFile $setup
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$env:INNO_SETUP_VERSION.exe" -OutFile $setup -MaximumRetryCount 5 -RetryIntervalSec 5
           $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($sha -ne $env:INNO_SETUP_SHA256) { throw "innosetup-$env:INNO_SETUP_VERSION.exe is $sha, expected $env:INNO_SETUP_SHA256" }
           $dir = Join-Path $env:RUNNER_TEMP 'inno-setup'

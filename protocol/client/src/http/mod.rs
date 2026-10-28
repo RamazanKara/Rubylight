@@ -29,6 +29,9 @@ pub mod transfers;
 mod usb;
 mod xml;
 
+#[cfg(test)]
+mod fuzz_tests;
+
 pub use apps::{app_control, parse_app_list, App, AppControl, AppRole};
 pub use capabilities::{
     parse_rubylight_version, Availability, Evidence, Family, Feature, HostCapabilities, Reason,

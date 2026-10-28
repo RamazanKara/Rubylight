@@ -161,7 +161,7 @@ const video: Setting[] = [
   },
   {
     key: 'experimental_packed_444',
-    label: 'Experimental full chroma',
+    label: 'Full chroma',
     description: 'Allow compatible Nightjar clients to request full-resolution color through HEVC or AV1 on AMD. Requires the client option and a host restart.',
     category: 'video',
     group: 'Codecs',
@@ -315,7 +315,7 @@ const video: Setting[] = [
     description:
       'Encodes at the frame rate the device asked for when it launched the app instead of the faster rate its stream request may ask for.',
     details:
-      "Off, the stream runs at the stream request's rate, as in Vibepollo: Artemis's Warp frame pacing launches at 60 and asks for 120 or 240. The device's bitrate stays the stream's budget either way, so each frame gets less of it at the faster rate.",
+      "Off, the stream runs at the stream request's rate: a client whose frame pacing launches at 60 may ask for 120 or 240. The device's bitrate stays the stream's budget either way, so each frame gets less of it at the faster rate.",
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'toggle' },
@@ -355,7 +355,7 @@ const video: Setting[] = [
   },
   {
     key: 'host_adaptive_bitrate',
-    label: 'Adapt bitrate on the host (experimental)',
+    label: 'Adapt bitrate on the host (Experimental)',
     description:
       'Lowers the bitrate when a Moonlight device reports video loss, then slowly raises it again while traffic is sustained and latency is stable.',
     details:
@@ -435,7 +435,7 @@ const video: Setting[] = [
   },
   {
     key: 'host_adaptive_pacing',
-    label: 'Adaptive packet pacing (experimental)',
+    label: 'Adaptive packet pacing (Experimental)',
     description:
       'Starts with slower packet delivery, then tries faster rates and backs off when the device reports loss.',
     details:
@@ -838,7 +838,7 @@ const amd: Setting[] = [
   },
   {
     key: 'encoder_focus',
-    label: 'Encoder focus',
+    label: 'Encoder focus (Experimental)',
     description:
       'Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. Experimental.',
     details:

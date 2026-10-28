@@ -352,8 +352,8 @@ const network: Setting[] = [
   },
   {
     key: 'webrtc_server',
-    label: 'WebRTC server (Experimental)',
-    description: 'Let TVs and browsers that speak the Moonlight WebRTC protocol pair and stream. Experimental.',
+    label: 'WebRTC server',
+    description: 'Let TVs and browsers that speak the Moonlight WebRTC protocol pair and stream.',
     details:
       'Pairing requests appear on the PIN page. Signalling is plain ws:// on the local network: signing in keeps other devices from using this PC, but does not hide the traffic. Only devices on the local network are accepted.',
     category: 'network',
@@ -387,7 +387,7 @@ const network: Setting[] = [
   },
   {
     key: 'file_transfer',
-    label: 'File transfer (Experimental)',
+    label: 'File transfer',
     description: 'Let paired devices send files to this PC and download them again. Each device also needs Upload files or Download files.',
     details: 'Files are written as the Windows user who is signed in. An upload is saved under a .part name and renamed only once all of it arrived.',
     category: 'network',
@@ -427,7 +427,7 @@ const network: Setting[] = [
   },
   {
     key: 'shared_folders',
-    label: 'Shared folders (Experimental)',
+    label: 'Shared folders',
     description: 'Folders of this PC that devices may browse. Each device sees only the folders you share with it on Devices.',
     details: 'Files are read and written as the Windows user who is signed in, only inside each folder. Transfers keep to the file transfer size limit and speed while streaming. Renaming a folder keeps what devices may do with it; removing it takes it away from every device.',
     category: 'network',
@@ -437,7 +437,7 @@ const network: Setting[] = [
   },
   {
     key: 'clipboard_image',
-    label: 'Copy images (Experimental)',
+    label: 'Copy images',
     description: 'Let devices with clipboard permission copy images to and from this PC, besides text.',
     details: 'Images travel as PNG. Windows programs get a bitmap and a PNG to paste.',
     category: 'general',
@@ -845,8 +845,8 @@ const input: Setting[] = [
   },
   {
     key: 'keyboard_follows_focus',
-    label: 'Keyboard follows text fields (Experimental)',
-    description: "Show the device's keyboard when a text field on the host gets the focus, and hide it after. Experimental.",
+    label: 'Keyboard follows text fields',
+    description: "Show the device's keyboard when a text field on the host gets the focus, and hide it after.",
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'toggle' },
@@ -868,9 +868,9 @@ const input: Setting[] = [
   },
   {
     key: 'keyboard_layout',
-    label: 'Keyboard layout (Experimental)',
+    label: 'Keyboard layout',
     description:
-      "The layout that turns the device's keys into scan codes: client for the one the device reports, us for US English, or a Windows layout id. Experimental.",
+      "The layout that turns the device's keys into scan codes: client for the one the device reports, us for US English, or a Windows layout id.",
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'text', placeholder: 'client, us or 00000407', mono: true },
@@ -1081,7 +1081,7 @@ const commands: Setting[] = [
     key: 'server_cmd',
     label: 'Host commands',
     description:
-      'Commands a device can run on the host from its stream menu, in streaming apps that support it, such as Artemis. Only devices with the Host commands permission see them.',
+      'Commands a device can run on the host from its stream menu, in streaming apps that support it. Only devices with the Host commands permission see them.',
     category: 'commands',
     group: 'From devices',
     control: { kind: 'server-commands' },

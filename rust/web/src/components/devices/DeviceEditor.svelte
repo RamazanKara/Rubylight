@@ -250,7 +250,7 @@
             {:else}
               <label class="check">
                 <input type="checkbox" bind:checked={draft.allow_sleep} />
-                Sleep PC: put this PC to sleep from this device while nothing is running (Experimental)
+                Sleep PC: put this PC to sleep from this device while nothing is running
               </label>
             {/if}
             <label class="check">
@@ -264,7 +264,7 @@
     </details>
   </section>
 
-  <details class="override" bind:open={foldersOpen}><summary>Shared folders (Experimental)</summary>
+  <details class="override" bind:open={foldersOpen}><summary>Shared folders</summary>
   <section>
     {#if sharedFolders === null}
       <p class="note">Loading folders…</p>

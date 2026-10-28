@@ -18,7 +18,7 @@ import android.view.Display;
  * Never Dolby Vision when the client draws the picture itself (DrawnSurface): a Dolby Vision decoder
  * would map a picture that is not the one shown, and no API takes Dolby Vision with drawn buffers.
  * HLG on the Vulkan renderer, whose surface takes it, and on PyroWave from a host that offers it
- * there (PYROWAVE_HLG); packed full chroma draws BT.2020/PQ only.
+ * there (PYROWAVE_HLG) on Android 14 and later; packed full chroma draws BT.2020/PQ only.
  */
 public final class HdrFormatPolicy {
     private HdrFormatPolicy() {}
@@ -29,12 +29,12 @@ public final class HdrFormatPolicy {
         NONE,
         /**
          * The client draws it on a BT.2020/PQ surface: packed full chroma, and PyroWave from a host
-         * without PYROWAVE_HLG.
+         * without PYROWAVE_HLG or below Android 14 (PYROWAVE_HLG_MIN_SDK).
          */
         PQ_ONLY,
         /**
          * The Vulkan renderer, where its instance has VK_EXT_swapchain_colorspace
-         * (VulkanRendererBridge.drawsHlg), and PyroWave from a host with PYROWAVE_HLG: BT.2020 PQ or
+         * (VulkanRendererBridge.drawsHlg), and PyroWave from a host with PYROWAVE_HLG on Android 14+: BT.2020 PQ or
          * HLG, through the HDR colour spaces or the window dataspace.
          */
         PQ_HLG
@@ -103,10 +103,21 @@ public final class HdrFormatPolicy {
         return DrawnLimit.NONE;
     }
 
-    /** What PyroWave draws on: PQ and HLG from a host that offers HLG on PyroWave, else PQ only. */
-    public static DrawnSurface pyroWaveSurface(int hostFormats) {
-        return (hostFormats & PYROWAVE_HLG) != 0 && (hostFormats & HLG) != 0 ? DrawnSurface.PQ_HLG :
-                DrawnSurface.PQ_ONLY;
+    /**
+     * The first Android release whose PyroWave surface takes HLG. Android 13's
+     * ANativeWindow_setBuffersDataSpace takes BT2020_PQ but refuses BT2020_HLG with -EINVAL
+     * (isDataSpaceValid, seen on the Retroid Pocket 6); 14 takes any dataspace and 15 lists the
+     * native HDR10_HLG colour space.
+     */
+    public static final int PYROWAVE_HLG_MIN_SDK = 34;
+
+    /**
+     * What PyroWave draws on: PQ and HLG from a host that offers HLG on PyroWave, on Android 14
+     * and later; else PQ only.
+     */
+    public static DrawnSurface pyroWaveSurface(int hostFormats, int sdk) {
+        return sdk >= PYROWAVE_HLG_MIN_SDK && (hostFormats & PYROWAVE_HLG) != 0 && (hostFormats & HLG) != 0 ?
+                DrawnSurface.PQ_HLG : DrawnSurface.PQ_ONLY;
     }
 
     /**
@@ -129,10 +140,11 @@ public final class HdrFormatPolicy {
 
     /**
      * A screen that shows HDR only as HLG gets HDR10 on PyroWave because the host offers HLG but not
-     * on PyroWave: updating the host would give it HLG.
+     * on PyroWave: updating the host would give it HLG. Not below PYROWAVE_HLG_MIN_SDK, where no
+     * host update helps.
      */
-    public static boolean pyroWaveHlgNeedsHostUpdate(int hostFormats, int[] displayTypes) {
-        return (hostFormats & PYROWAVE_HLG) == 0 && !HdrPolicy.hasHdr10(displayTypes) &&
+    public static boolean pyroWaveHlgNeedsHostUpdate(int hostFormats, int[] displayTypes, int sdk) {
+        return sdk >= PYROWAVE_HLG_MIN_SDK && (hostFormats & PYROWAVE_HLG) == 0 && !HdrPolicy.hasHdr10(displayTypes) &&
                 hlgInstead(hostFormats, displayTypes);
     }
 

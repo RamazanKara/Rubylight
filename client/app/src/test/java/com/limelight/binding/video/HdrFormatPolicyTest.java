@@ -17,6 +17,9 @@ public class HdrFormatPolicyTest {
     private static final HdrFormatPolicy.DrawnSurface DIRECT = HdrFormatPolicy.DrawnSurface.NONE;
     private static final HdrFormatPolicy.DrawnSurface DRAWN_PQ = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
     private static final HdrFormatPolicy.DrawnSurface VULKAN = HdrFormatPolicy.DrawnSurface.PQ_HLG;
+    // Android 14 (U) and 13 (T) for PyroWave HLG.
+    private static final int U = 34;
+    private static final int T = 33;
 
     @Test
     public void aDolbyVisionScreenAndDecoderAskForProfile81First() {
@@ -118,24 +121,24 @@ public class HdrFormatPolicyTest {
     public void pyroWaveDrawsHlgOnlyForAHostThatOffersItThere() {
         int flagged = HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG;
         assertEquals(HdrFormatPolicy.PYROWAVE_HLG & HdrFormatPolicy.ALL, 0);
-        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(flagged));
-        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.HLG | HdrFormatPolicy.PYROWAVE_HLG));
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(flagged, U));
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.HLG | HdrFormatPolicy.PYROWAVE_HLG, U));
         // A 3.0 rc host refuses HLG on PyroWave; the flag without HLG offers nothing.
-        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL));
-        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.PQ | HdrFormatPolicy.PYROWAVE_HLG));
-        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(0));
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL, U));
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.PQ | HdrFormatPolicy.PYROWAVE_HLG, U));
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(0, U));
 
         int[] hlgOnly = {HLG};
-        int surfaced = HdrFormatPolicy.pick(flagged, hlgOnly, true, HdrFormatPolicy.pyroWaveSurface(flagged));
+        int surfaced = HdrFormatPolicy.pick(flagged, hlgOnly, true, HdrFormatPolicy.pyroWaveSurface(flagged, U));
         assertEquals(HdrFormatPolicy.HLG, surfaced);
         assertEquals(0, HdrFormatPolicy.pick(HdrFormatPolicy.ALL, hlgOnly, true,
-                HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL)));
+                HdrFormatPolicy.pyroWaveSurface(HdrFormatPolicy.ALL, U)));
         // Never Dolby Vision, never the flag itself, and stock HDR10 on an HDR10 screen.
         for (int[] types : new int[][] {TV, {DOLBY, HLG}, {DOLBY}, hlgOnly, {HDR10, HDR10_PLUS}}) {
-            int format = HdrFormatPolicy.pick(flagged, types, true, HdrFormatPolicy.pyroWaveSurface(flagged));
+            int format = HdrFormatPolicy.pick(flagged, types, true, HdrFormatPolicy.pyroWaveSurface(flagged, U));
             assertEquals(0, format & ~(HdrFormatPolicy.PQ | HdrFormatPolicy.HLG));
         }
-        assertEquals(0, HdrFormatPolicy.pick(flagged, TV, true, HdrFormatPolicy.pyroWaveSurface(flagged)));
+        assertEquals(0, HdrFormatPolicy.pick(flagged, TV, true, HdrFormatPolicy.pyroWaveSurface(flagged, U)));
     }
 
     @Test
@@ -161,13 +164,27 @@ public class HdrFormatPolicyTest {
     @Test
     public void anHlgOnlyScreenOnPyroWaveNamesTheHostUpdateOnlyWhereItHelps() {
         int[] hlgOnly = {HLG};
-        assertTrue(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, hlgOnly));
+        assertTrue(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, hlgOnly, U));
         assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG,
-                hlgOnly));
+                hlgOnly, U));
         // No HLG at all from this host, or a screen with HDR10: an update is not what is missing.
-        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.PQ, hlgOnly));
-        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, new int[] {HDR10, HLG}));
-        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, null));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.PQ, hlgOnly, U));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, new int[] {HDR10, HLG}, U));
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, null, U));
+        // Android 13 refuses HLG on PyroWave whatever the host: no update helps there.
+        assertFalse(HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(HdrFormatPolicy.ALL, hlgOnly, T));
+    }
+
+    @Test
+    public void pyroWaveAsksNoHlgBelowAndroid14() {
+        // Android 13's ANativeWindow_setBuffersDataSpace refuses BT2020_HLG (-EINVAL on the Retroid
+        // Pocket 6), so an HLG stream there could never start: PQ instead, from any host.
+        int flagged = HdrFormatPolicy.ALL | HdrFormatPolicy.PYROWAVE_HLG;
+        assertEquals(DRAWN_PQ, HdrFormatPolicy.pyroWaveSurface(flagged, T));
+        assertEquals(0, HdrFormatPolicy.pick(flagged, new int[] {HLG}, true,
+                HdrFormatPolicy.pyroWaveSurface(flagged, T)));
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(flagged, HdrFormatPolicy.PYROWAVE_HLG_MIN_SDK));
+        assertEquals(VULKAN, HdrFormatPolicy.pyroWaveSurface(flagged, 35));
     }
 
     @Test

@@ -47,7 +47,10 @@
 //! A frame the host could not send whole (a socket refused packets, such as
 //! error 10055 at 800 Mbps) is loss on send. It counts like loss the client
 //! reports: three within two seconds, or one keyframe, slow the stream, and
-//! the client's report of the same frame is not counted a second time.
+//! the client's report of the same frame is not counted a second time. Loss
+//! only the host saw is provisional: a transmit stall on the host (a game
+//! starting, seen in #59) is not the route. It lifts after 10 s clean and is
+//! never remembered; only loss the client reports makes a latch sustained.
 use std::time::{Duration, Instant};
 
 /// A second keyframe request this soon after the first, with a keyframe sent
@@ -87,9 +90,19 @@ pub enum LatchKind {
     /// is a burst at the start, not necessarily a slow route. It lifts after
     /// [`PROVISIONAL_LIFT`] clean and is not remembered for the next session.
     Startup,
+    /// Only the host's socket refused video, and no client report backs it.
+    /// Provisional like [`LatchKind::Startup`]: it lifts after
+    /// [`PROVISIONAL_LIFT`] clean and is not remembered.
+    Send,
     /// Repeated losses, a later keyframe lost, a second latch in the session,
     /// or a provisional latch confirmed by more evidence.
     Sustained,
+}
+impl LatchKind {
+    /// Lifts after [`PROVISIONAL_LIFT`] clean and is never remembered.
+    pub fn provisional(self) -> bool {
+        matches!(self, LatchKind::Startup | LatchKind::Send)
+    }
 }
 
 /// Why a report slowed the stream, and the frame numbers behind it, so the
@@ -102,6 +115,8 @@ pub struct Latched {
     /// More evidence arrived while a provisional latch held: the same latch,
     /// now sustained, not a new one.
     pub confirmed: bool,
+    /// With `confirmed`, the kind of the latch the client's report confirmed.
+    pub from: Option<LatchKind>,
 }
 
 #[derive(Debug, Default)]
@@ -114,7 +129,9 @@ pub struct KeyframeLoss {
     keyframe_since_request: bool,
     /// Frames sent after the latest keyframe.
     since_keyframe: u32,
-    recent_losses: [Option<(u32, Instant)>; LOSS_FRAMES],
+    /// Frame, when, and whether the client reported it (not only the host's
+    /// socket).
+    recent_losses: [Option<(u32, Instant, bool)>; LOSS_FRAMES],
     /// A client request no keyframe has answered yet.
     request_pending: bool,
     /// The next keyframe was made on the host's own initiative, whatever the
@@ -136,8 +153,8 @@ pub struct KeyframeLoss {
     /// An inherited latch is not new evidence and must not renew its lifetime.
     /// Cleared when a provisional latch lifts.
     observed_at: Option<Instant>,
-    /// When fresh evidence last made the latch sustained (a stream only
-    /// remembers its route for this).
+    /// When client-reported evidence last made the latch sustained (a stream
+    /// only remembers its route for this).
     sustained_at: Option<Instant>,
     /// Any latch happened in this stream, lifted or not.
     ever_latched: bool,
@@ -243,7 +260,7 @@ impl KeyframeLoss {
     /// [`PROVISIONAL_LIFT`] of busy video returns to the route rate. Called
     /// with each frame sent, so it needs no timer of its own.
     fn lift_if_clean(&mut self, now: Instant) {
-        if self.kind != Some(LatchKind::Startup) {
+        if !self.provisional() {
             return;
         }
         self.frames_since_latch = self.frames_since_latch.saturating_add(1);
@@ -251,17 +268,19 @@ impl KeyframeLoss {
             .recent_losses
             .iter()
             .flatten()
-            .all(|(_, at)| now.saturating_duration_since(*at) >= LOSS_WINDOW);
+            .all(|(_, at, _)| now.saturating_duration_since(*at) >= LOSS_WINDOW);
         // Clean since the latch, or since the last loss counted after it.
         let since = self.observed_at.max(self.last_loss_at);
         let held = since
             .map(|at| now.saturating_duration_since(at))
             .unwrap_or_default();
         if held >= PROVISIONAL_LIFT && self.frames_since_latch >= LIFT_FRAMES && quiet {
-            self.lifted_note = Some(format!(
-                "the first keyframe was lost, nothing since for {} s",
-                held.as_secs()
-            ));
+            let what = if self.kind == Some(LatchKind::Send) {
+                "only the host's socket refused video"
+            } else {
+                "the first keyframe was lost"
+            };
+            self.lifted_note = Some(format!("{what}, nothing since for {} s", held.as_secs()));
             self.latched = None;
             self.kind = None;
             self.observed_at = None;
@@ -330,7 +349,13 @@ impl KeyframeLoss {
         }
         if self.keyframes.contains(&Some(frame)) {
             let detail = format!("the host could not send keyframe {frame} whole");
-            return self.latch("a keyframe was lost on send", detail, now, Some(frame));
+            return self.latch(
+                "a keyframe was lost on send",
+                detail,
+                now,
+                Some(frame),
+                false,
+            );
         }
         self.count_loss(
             frame,
@@ -339,6 +364,7 @@ impl KeyframeLoss {
             now,
             "three recent video frames were lost on send within two seconds",
             "frames lost on send",
+            false,
         )
     }
     /// Tests that start a stream and then lose a keyframe skip the wait.
@@ -417,7 +443,13 @@ impl KeyframeLoss {
                 "the client could not rebuild keyframe {frame}; last frame sent {last_sent}; keyframes sent as {:?}",
                 self.keyframes.iter().flatten().collect::<Vec<_>>()
             );
-            return self.latch("a keyframe arrived incomplete", detail, now, Some(frame));
+            return self.latch(
+                "a keyframe arrived incomplete",
+                detail,
+                now,
+                Some(frame),
+                true,
+            );
         }
         // Ordinary frames sent after the host changed the stream: bigger
         // pictures and a new decoder state, not yet a verdict on the route.
@@ -437,10 +469,13 @@ impl KeyframeLoss {
             now,
             "three recent video frames arrived incomplete within two seconds",
             "unrecoverable frames",
+            true,
         )
     }
     /// Counts a frame that did not get through; the third distinct one within
-    /// two seconds slows the stream.
+    /// two seconds slows the stream. `reported` is the client's report, not
+    /// only the host's socket.
+    #[allow(clippy::too_many_arguments)]
     fn count_loss(
         &mut self,
         frame: u32,
@@ -449,24 +484,25 @@ impl KeyframeLoss {
         now: Instant,
         reason: &'static str,
         what: &str,
+        reported: bool,
     ) -> Option<Latched> {
-        // A sustained latch has nothing left to learn; a provisional one is
-        // confirmed by the third frame.
-        if (self.observed_at.is_some() && self.kind != Some(LatchKind::Startup))
+        // A sustained latch the client's reports backed has nothing left to
+        // learn; a provisional one, or one only the host saw, still does.
+        if (self.observed_at.is_some() && !self.provisional() && self.sustained_at.is_some())
             || period.is_zero()
             || period.saturating_mul(last_sent.wrapping_sub(frame)) >= LOSS_WINDOW
         {
             return None;
         }
         // A provisional latch learns only from frames sent after it.
-        if self.kind == Some(LatchKind::Startup) && !self.after_latch(frame) {
+        if self.provisional() && !self.after_latch(frame) {
             return None;
         }
         // The normal feedback parser accepts up to 1024 previous frames. A
         // delayed train of old reports must not look like current congestion.
         // Keep this additional fence tied to the negotiated frame period.
         for loss in &mut self.recent_losses {
-            if loss.is_some_and(|(_, at)| now.saturating_duration_since(at) >= LOSS_WINDOW) {
+            if loss.is_some_and(|(_, at, _)| now.saturating_duration_since(at) >= LOSS_WINDOW) {
                 *loss = None;
             }
         }
@@ -474,13 +510,23 @@ impl KeyframeLoss {
             .recent_losses
             .iter()
             .flatten()
-            .any(|(seen, _)| *seen == frame)
+            .any(|(seen, _, _)| *seen == frame)
         {
             return None;
         }
-        let vacant = self.recent_losses.iter_mut().find(|loss| loss.is_none())?;
-        *vacant = Some((frame, now));
-        if self.kind == Some(LatchKind::Startup) {
+        // Full only while a latch host-only evidence made still learns: the
+        // newest loss replaces the oldest, so a client report can confirm it.
+        let slot = match self.recent_losses.iter().position(Option::is_none) {
+            Some(vacant) => vacant,
+            None => self
+                .recent_losses
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, loss)| loss.map(|(_, at, _)| at))
+                .map(|(i, _)| i)?,
+        };
+        self.recent_losses[slot] = Some((frame, now, reported));
+        if self.provisional() {
             self.last_loss_at = Some(now);
         }
         if self.recent_losses.iter().all(Option::is_some) {
@@ -488,13 +534,14 @@ impl KeyframeLoss {
                 .recent_losses
                 .iter()
                 .flatten()
-                .map(|(frame, _)| *frame)
+                .map(|(frame, _, _)| *frame)
                 .collect();
             self.latch(
                 reason,
                 format!("{what} {frames:?}; last frame sent {last_sent}"),
                 now,
                 None,
+                reported,
             )
         } else {
             None
@@ -547,27 +594,57 @@ impl KeyframeLoss {
             detail,
             now,
             keyframe,
+            true,
         )
     }
     /// `keyframe` is the one this evidence is about, if any. A latch about the
-    /// stream's start, with nothing else seen, is provisional.
+    /// stream's start, with nothing else seen, is provisional. `reported`:
+    /// the client saw the loss, not only the host's socket; any loss the
+    /// client reported within [`LOSS_WINDOW`] counts as well.
     fn latch(
         &mut self,
         reason: &'static str,
         detail: String,
         now: Instant,
         keyframe: Option<u32>,
+        reported: bool,
     ) -> Option<Latched> {
         if !self.enabled {
             return None;
         }
+        let reported =
+            reported
+                || self.recent_losses.iter().flatten().any(|(_, at, client)| {
+                    *client && now.saturating_duration_since(*at) < LOSS_WINDOW
+                });
         if self.observed_at.is_some() {
-            // Only a provisional latch has anything to learn, and not from
-            // another report about the keyframe it was made for.
-            if self.kind != Some(LatchKind::Startup)
-                || (keyframe.is_some() && keyframe == self.latch_keyframe)
+            let kind = self.kind;
+            if !self.provisional() {
+                // A latch only the host's socket made, after a lift or on
+                // top of an inherited one, holds for the stream; the client's
+                // report is what lets the next session remember it.
+                if self.sustained_at.is_none() && reported {
+                    self.sustained_at = Some(now);
+                    return Some(Latched {
+                        reason,
+                        detail,
+                        kind: LatchKind::Sustained,
+                        confirmed: true,
+                        from: kind,
+                    });
+                }
+                return None;
+            }
+            // A provisional latch learns, but not from another report about
+            // the keyframe it was made for.
+            if (keyframe.is_some() && keyframe == self.latch_keyframe)
                 || keyframe.is_some_and(|frame| !self.after_latch(frame))
             {
+                return None;
+            }
+            if !reported {
+                // Host-only evidence never confirms; it restarts the clean 10 s.
+                self.last_loss_at = Some(now);
                 return None;
             }
             self.kind = Some(LatchKind::Sustained);
@@ -578,13 +655,39 @@ impl KeyframeLoss {
                 detail,
                 kind: LatchKind::Sustained,
                 confirmed: true,
+                from: kind,
+            });
+        }
+        if !reported {
+            // Only the host's socket refused video: a transmit stall on the
+            // host is not the route. Provisional, unless the stream already
+            // lifted one or inherited a latch; never remembered either way.
+            let kind = if self.lifted || self.latched.is_some() {
+                LatchKind::Sustained
+            } else {
+                LatchKind::Send
+            };
+            self.observed_at = Some(now);
+            self.latched = Some(reason);
+            self.kind = Some(kind);
+            self.ever_latched = true;
+            self.frames_since_latch = 0;
+            self.latch_keyframe = keyframe.filter(|_| kind.provisional());
+            self.latch_frame = self.last_sent;
+            self.last_loss_at = None;
+            return Some(Latched {
+                reason,
+                detail,
+                kind,
+                confirmed: false,
+                from: None,
             });
         }
         let evidence = self
             .recent_losses
             .iter()
             .flatten()
-            .any(|(_, at)| now.saturating_duration_since(*at) < LOSS_WINDOW);
+            .any(|(_, at, _)| now.saturating_duration_since(*at) < LOSS_WINDOW);
         // An inherited latch, a second latch and evidence beyond the first
         // keyframe all say the route is slow, not that the start was rough.
         let provisional = self.latched.is_none()
@@ -612,7 +715,11 @@ impl KeyframeLoss {
             detail,
             kind,
             confirmed: false,
+            from: None,
         })
+    }
+    fn provisional(&self) -> bool {
+        self.kind.is_some_and(LatchKind::provisional)
     }
     pub fn enabled(&self) -> bool {
         self.enabled
@@ -626,8 +733,9 @@ impl KeyframeLoss {
     pub fn observed_at(&self) -> Option<Instant> {
         self.observed_at
     }
-    /// When fresh evidence last made the latch sustained: the only latch the
-    /// next session inherits. A provisional latch has none.
+    /// When client-reported evidence last made the latch sustained: the only
+    /// latch the next session inherits. A provisional latch, and one only the
+    /// host's socket made, has none.
     pub fn sustained_at(&self) -> Option<Instant> {
         self.sustained_at
     }
@@ -1189,6 +1297,8 @@ mod tests {
             latched.reason,
             "three recent video frames were lost on send within two seconds"
         );
+        // Only the host saw it: provisional, and still slow.
+        assert_eq!(latched.kind, LatchKind::Send);
         assert_eq!(loss.bps(FAST, SAFE), SAFE);
         // The client reporting the same frames adds nothing to count.
         let mut loss = running(100);
@@ -1212,12 +1322,145 @@ mod tests {
         let latched = loss.abandoned(101, PERIOD, now).unwrap();
         assert_eq!(latched.reason, "a keyframe was lost on send");
         assert!(latched.detail.contains("101"), "{latched:?}");
+        assert_eq!(latched.kind, LatchKind::Send);
         assert_eq!(loss.bps(FAST, SAFE), SAFE);
+        assert!(loss.sustained_at().is_none());
         // Nothing lost on send is counted once the guard is off.
         let mut off = KeyframeLoss::new(false);
         off.sending_at(1, true, now);
         assert_eq!(off.abandoned(1, PERIOD, now), None);
         assert!(!off.latched());
+    }
+
+    /// A stream long past its start whose socket refused frames 101-103 at
+    /// `t0` (#59: `UDP send failed code=10035` while a game started).
+    fn send_latched(t0: Instant) -> KeyframeLoss {
+        let mut loss = running(100);
+        for frame in 101..=103 {
+            loss.sending_at(frame, false, t0);
+        }
+        assert_eq!(loss.abandoned(101, PERIOD, t0), None);
+        assert_eq!(loss.abandoned(102, PERIOD, t0), None);
+        let latched = loss.abandoned(103, PERIOD, t0).unwrap();
+        assert_eq!(latched.kind, LatchKind::Send);
+        assert!(!latched.confirmed);
+        loss
+    }
+
+    #[test]
+    fn loss_only_the_host_saw_is_provisional_and_lifts() {
+        let t0 = Instant::now();
+        let mut loss = send_latched(t0);
+        assert_eq!(loss.kind(), Some(LatchKind::Send));
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+        assert!(loss.sustained_at().is_none());
+        assert!(loss.ever_latched());
+        let frame = flow(&mut loss, 104, t0, t0 + Duration::from_millis(9_900));
+        assert!(loss.latched());
+        assert!(loss.take_lifted().is_none());
+        flow(
+            &mut loss,
+            frame,
+            t0 + Duration::from_millis(9_900),
+            t0 + Duration::from_millis(10_300),
+        );
+        assert!(!loss.latched());
+        assert_eq!(loss.bps(FAST, SAFE), FAST);
+        assert!(loss.sustained_at().is_none());
+        let note = loss.take_lifted().unwrap();
+        assert!(note.contains("host's socket"), "{note}");
+    }
+
+    #[test]
+    fn more_send_loss_extends_a_send_latch_and_never_confirms_it() {
+        let t0 = Instant::now();
+        let mut loss = send_latched(t0);
+        let mut frame = flow(&mut loss, 104, t0, t0 + Duration::from_secs(5));
+        // Three more frames, and a keyframe, refused five seconds in.
+        let again = t0 + Duration::from_secs(5);
+        for _ in 0..3 {
+            loss.sending_at(frame, false, again);
+            assert_eq!(loss.abandoned(frame, PERIOD, again), None);
+            frame += 1;
+        }
+        loss.sending_at(frame, true, again);
+        assert_eq!(loss.abandoned(frame, PERIOD, again), None);
+        assert_eq!(loss.kind(), Some(LatchKind::Send));
+        assert!(loss.sustained_at().is_none());
+        // Clean ten seconds counts from the last of them.
+        frame = flow(
+            &mut loss,
+            frame + 1,
+            again,
+            t0 + Duration::from_millis(14_900),
+        );
+        assert!(loss.latched());
+        flow(
+            &mut loss,
+            frame,
+            t0 + Duration::from_millis(14_900),
+            t0 + Duration::from_millis(15_300),
+        );
+        assert!(!loss.latched());
+        assert!(loss.sustained_at().is_none());
+    }
+
+    #[test]
+    fn a_client_report_confirms_a_send_latch_for_memory() {
+        let t0 = Instant::now();
+        // An ordinary frame the client lost right after: it takes the oldest
+        // of the three slots the host's losses filled, and confirms.
+        let mut loss = send_latched(t0);
+        loss.sending_at(104, false, t0);
+        let at = t0 + Duration::from_millis(100);
+        let confirmed = loss.unrecoverable(104, 104, PERIOD, at).unwrap();
+        assert!(confirmed.confirmed);
+        assert_eq!(confirmed.from, Some(LatchKind::Send));
+        assert_eq!(confirmed.kind, LatchKind::Sustained);
+        assert_eq!(loss.sustained_at(), Some(at));
+        // Or a keyframe it could not rebuild.
+        let mut loss = send_latched(t0);
+        loss.sending_at(104, true, t0);
+        let confirmed = loss.unrecoverable(104, 104, PERIOD, at).unwrap();
+        assert!(confirmed.confirmed);
+        assert_eq!(confirmed.from, Some(LatchKind::Send));
+        assert_eq!(loss.sustained_at(), Some(at));
+        flow(&mut loss, 105, at, at + Duration::from_secs(30));
+        assert!(loss.latched());
+        // A report of a frame the host refused is not the client's loss.
+        let mut loss = send_latched(t0);
+        assert_eq!(loss.unrecoverable(103, 103, PERIOD, at), None);
+        assert!(loss.sustained_at().is_none());
+    }
+
+    #[test]
+    fn a_send_latch_after_a_lift_holds_for_the_stream_but_is_not_remembered() {
+        let t0 = Instant::now();
+        let mut loss = send_latched(t0);
+        let mut frame = flow(&mut loss, 104, t0, t0 + Duration::from_millis(10_300));
+        assert!(!loss.latched());
+        let again = t0 + Duration::from_secs(20);
+        for _ in 0..2 {
+            loss.sending_at(frame, false, again);
+            assert_eq!(loss.abandoned(frame, PERIOD, again), None);
+            frame += 1;
+        }
+        loss.sending_at(frame, false, again);
+        let latched = loss.abandoned(frame, PERIOD, again).unwrap();
+        assert_eq!(latched.kind, LatchKind::Sustained);
+        assert!(!latched.confirmed);
+        assert!(loss.sustained_at().is_none());
+        frame = flow(&mut loss, frame + 1, again, again + Duration::from_secs(30));
+        assert!(loss.latched());
+        assert!(loss.sustained_at().is_none());
+        // The client's report is what makes it worth remembering.
+        let late = again + Duration::from_secs(30);
+        loss.sending_at(frame, true, late);
+        let confirmed = loss.unrecoverable(frame, frame, PERIOD, late).unwrap();
+        assert!(confirmed.confirmed);
+        assert_eq!(confirmed.from, Some(LatchKind::Sustained));
+        assert_eq!(loss.sustained_at(), Some(late));
+        assert_eq!(loss.unrecoverable(frame, frame, PERIOD, late), None);
     }
 
     #[test]
@@ -1663,19 +1906,21 @@ mod tests {
         assert_eq!(loss.unrecoverable(20, 30, PERIOD, seen), None);
         let latched = loss.unrecoverable(1, 30, PERIOD, seen).unwrap();
         assert_eq!(latched.kind, LatchKind::Sustained);
-        // A keyframe lost on send at the start is provisional too.
+        // A keyframe lost on send at the start is provisional too, as the
+        // host's own loss.
         let mut loss = KeyframeLoss::new(true);
         loss.sending_at(1, true, t0);
         let latched = loss.abandoned(1, PERIOD, t0).unwrap();
         assert_eq!(latched.reason, "a keyframe was lost on send");
-        assert_eq!(latched.kind, LatchKind::Startup);
-        // Three frames lost on send are never a start-up burst.
+        assert_eq!(latched.kind, LatchKind::Send);
+        // Three frames lost on send are never a start-up burst, but they are
+        // still only the host's.
         let mut loss = running(100);
         loss.abandoned(40, PERIOD, t0);
         loss.abandoned(41, PERIOD, t0);
         assert_eq!(
             loss.abandoned(42, PERIOD, t0).unwrap().kind,
-            LatchKind::Sustained
+            LatchKind::Send
         );
     }
 

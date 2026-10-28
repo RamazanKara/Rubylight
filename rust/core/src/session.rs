@@ -2468,6 +2468,14 @@ mod tests {
             Some("three recent video frames were lost on send within two seconds")
         );
         assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 44, false), SAFE);
+        // Only the host saw it: for now, and nothing for the next session.
+        assert!(s.keyframe_loss_sustained_at().is_none());
+        assert!(
+            s.info()["warnings"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("The host's network adapter refused video packets")
+        );
         // Two such frames are not enough, and the client reporting them is the
         // same loss, not more of it.
         let s = steady_stream("lost-on-send-twice");
@@ -4076,8 +4084,10 @@ impl<P, A> Session<P, A> {
             detail,
             kind,
             confirmed,
+            from,
         }) = latched
         {
+            use crate::keyframe_loss::LatchKind;
             if self.link_sent.live() {
                 let mut link = self.link_rate.lock().unwrap();
                 link.drain(&self.link_sent);
@@ -4089,15 +4099,21 @@ impl<P, A> Session<P, A> {
                     !confirmed,
                 );
             }
-            if confirmed {
+            if confirmed && matches!(from, Some(LatchKind::Send | LatchKind::Sustained)) {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the client reported video loss after the host's send loss; pacing video like a Wi-Fi route for the rest of the stream");
+            } else if confirmed {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "more video loss after the start-up keyframe; pacing video like a Wi-Fi route for the rest of the stream");
-            } else if kind == crate::keyframe_loss::LatchKind::Startup {
+            } else if kind == LatchKind::Send {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the host's socket refused video packets; pacing video like a Wi-Fi route until it has been clean for 10 s");
+            } else if kind == LatchKind::Startup {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "the stream's first keyframe was lost; pacing video like a Wi-Fi route until it has been clean for 10 s");
             } else {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
             }
-            if kind == crate::keyframe_loss::LatchKind::Startup {
+            if kind == LatchKind::Startup {
                 self.launch.warnings.set("network_keyframe_loss", format!("The first video frame was lost on the way to this device ({reason}), so video is paced like Wi-Fi for now. This limits packet bursts without reducing the encoder bitrate. The host returns to the normal rate after 10 seconds without further loss."));
+            } else if kind == LatchKind::Send {
+                self.launch.warnings.set("network_keyframe_loss", format!("The host's network adapter refused video packets ({reason}), so video is paced like Wi-Fi for now. This limits packet bursts without reducing the encoder bitrate. The host returns to the normal rate after 10 seconds without further loss."));
             } else {
                 self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
             }
@@ -4175,7 +4191,7 @@ impl<P, A> Session<P, A> {
                 .on_keyframe_sent(wire_frame, now);
         }
         if let Some(why) = lifted {
-            tracing::info!(stream_id = %self.launch.id, why, "returning to the route's pacing rate: the start-up loss did not recur");
+            tracing::info!(stream_id = %self.launch.id, why, "returning to the route's pacing rate: the loss did not recur");
             self.launch.warnings.clear("network_keyframe_loss");
             if self.link_sent.live() {
                 let mut link = self.link_rate.lock().unwrap();

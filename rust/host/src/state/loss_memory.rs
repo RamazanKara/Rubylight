@@ -17,9 +17,11 @@ const RETENTION: u64 = 24 * 60 * 60;
 const PROBE_EVERY: u32 = 2;
 const MAX_ROUTES: usize = 256;
 const FIELD: &str = "keyframe_loss_routes";
-/// Only loss that lasted is remembered. Records from before this field
-/// existed (stale 24 h latches, mostly from a rough start) are not.
-const SUSTAINED: &str = "sustained";
+/// Only loss that lasted and that the client reported is remembered. Records
+/// from before this field existed (stale 24 h latches, mostly from a rough
+/// start) are not, nor are rc.4's and older `"sustained"` ones, which also
+/// held decoder re-requests and the host's own send loss.
+const REPORTED: &str = "reported";
 
 /// What a history is about: the client, its address, the host interface the
 /// route leaves by and the client's own link when it reports one. A host that
@@ -42,7 +44,7 @@ struct Route {
     revision: String,
     #[serde(default)]
     remembered_sessions: u32,
-    /// `"sustained"`; anything else, or nothing, is not remembered.
+    /// `"reported"`; anything else, or nothing, is not remembered.
     #[serde(default)]
     kind: String,
     #[serde(default)]
@@ -77,7 +79,7 @@ fn read(state: &PairedState, now: u64) -> Vec<Route> {
         .flatten()
         .filter_map(|v| serde_json::from_value::<Route>(v.clone()).ok())
         .filter(|r| {
-            r.kind == SUSTAINED
+            r.kind == REPORTED
                 && r.current(now)
                 && state.clients.iter().any(|c| c.uuid == r.client_id)
         })
@@ -277,7 +279,7 @@ impl Host {
                     observed_at,
                     revision: uuid::Uuid::new_v4().to_string(),
                     remembered_sessions: 0,
-                    kind: SUSTAINED.into(),
+                    kind: REPORTED.into(),
                     interface: token.scope.interface,
                     client_link_mbps: token.scope.client_link_mbps,
                 });
@@ -547,8 +549,50 @@ mod tests {
         let saved = PairedState::load(&f.host.paired_path).unwrap();
         let routes = saved.document["root"][FIELD].as_array().unwrap();
         assert_eq!(routes.len(), 1);
-        assert_eq!(routes[0]["kind"], "sustained");
+        assert_eq!(routes[0]["kind"], "reported");
         assert_ne!(routes[0]["revision"], "old");
+    }
+
+    #[test]
+    fn an_older_sustained_record_is_not_read() {
+        // What rc.4 wrote, decoder re-requests and send loss included.
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let old = json!([{
+            "client_id": c.uuid, "address": "192.0.2.1", "observed_at": now(),
+            "revision": "rc4", "remembered_sessions": 0, "kind": "sustained"
+        }]);
+        f.host.paired.write().unwrap().document["root"][FIELD] = old;
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        let s = session(&f, &c, "192.0.2.1", 0);
+        drop(f.host.configure_keyframe_loss(&s, true));
+        assert!(!s.keyframe_loss_active());
+    }
+
+    #[test]
+    fn send_loss_alone_is_not_remembered() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 1, true);
+        for frame in 2..=40 {
+            s.keyframe_loss_bps(800_000_000, 60_000_000, frame, false);
+        }
+        // A keyframe and three frames the host's socket refused.
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 41, true);
+        s.keyframe_abandoned(41);
+        for frame in 42..=44 {
+            s.keyframe_loss_bps(800_000_000, 60_000_000, frame, false);
+            s.keyframe_abandoned(frame);
+        }
+        assert!(s.keyframe_loss_active());
+        assert!(s.keyframe_loss_sustained_at().is_none());
+        drop(guard);
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        let next = session(&f, &c, "192.0.2.1", 0);
+        drop(f.host.configure_keyframe_loss(&next, true));
+        assert!(!next.keyframe_loss_active());
     }
 
     #[test]

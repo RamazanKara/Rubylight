@@ -5,6 +5,7 @@ mod audio_haptics;
 mod audio_sink;
 mod background;
 mod capture;
+pub(crate) mod clipboard_sync;
 mod couch_audio;
 mod device_recovery;
 #[cfg(test)]
@@ -3700,6 +3701,7 @@ impl Media {
                                     keyboard_layout: Default::default(),
                                     cursor_owner: peer.id().0,
                                     focus_watch: None,
+                                    clipboard_sync: Default::default(),
                                 },
                             );
                         } else {
@@ -4019,6 +4021,16 @@ impl Media {
                                         "invalid text input request"
                                     ),
                                 }
+                            }
+                            // Clipboard sync from a Nightjar that asked or a Moonlight V+
+                            // client, which never asks: its first frame starts the sync.
+                            butterpollo_core::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE => {
+                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                    continue;
+                                };
+                                let allowed = clipboard_sync::allowed(&config, &s.launch.client);
+                                p.clipboard_sync
+                                    .receive(&s, &payload, allowed, &self.control_wake);
                             }
                             // The latest report wins; the injector maps keys with it.
                             butterpollo_core::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE => {
@@ -4546,6 +4558,27 @@ impl Media {
                             }
                         }
                     }
+                    // The PC's newest copy for a device that syncs the clipboard (0x5508):
+                    // reliable.
+                    if let Some(frame) = p.clipboard_sync.take(Instant::now()) {
+                        match p.encrypt(
+                            &s,
+                            butterpollo_core::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE,
+                            &frame,
+                        ) {
+                            Ok(message) => {
+                                if let Err(e) = host
+                                    .peer_mut(*peer_id)
+                                    .send(0, &Packet::new(message, PacketKind::Reliable))
+                                {
+                                    tracing::warn!(error = %e, "clipboard sync frame not sent");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %format!("{e:#}"), "clipboard sync frame not encrypted");
+                            }
+                        }
+                    }
                     // The device-drawn cursor's shapes (0x5541): reliable, the newest at
                     // most every 16 ms.
                     let shape = s
@@ -4931,6 +4964,8 @@ struct ControlPeer {
     /// The text field watcher, from the client's first text input request (0x553B); paused
     /// while the client turned it off, and dropped with the peer at session end.
     focus_watch: Option<butterpollo_windows::text_focus::FocusWatch>,
+    /// Clipboard sync (0x5508), from the device's first frame; its worker ends with the peer.
+    clipboard_sync: clipboard_sync::PeerSync,
 }
 impl Drop for ControlPeer {
     fn drop(&mut self) {

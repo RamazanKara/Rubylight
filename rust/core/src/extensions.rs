@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
 use rubylight_protocol::{
-    audio_ext, cursor_shape, fec_report, hdr, keyboard_layout, pen, pipeline_rates, rate_change,
-    text_input, usb,
+    audio_ext, clipboard_sync, cursor_shape, fec_report, hdr, keyboard_layout, pen, pipeline_rates,
+    rate_change, text_input, usb,
 };
 
 pub use rubylight_protocol::fec_report::FecChoice;
@@ -79,6 +79,9 @@ pub struct Offered {
     /// Rate changes (0x553C), in the DESCRIBE of a stream whose client launched with
     /// `rlRateChange=1`; no serverinfo element.
     pub rate_change: bool,
+    /// Clipboard sync (0x5508), only on a stream whose launch asked with
+    /// `rlClipboardSync=1`, so serverinfo never shows it.
+    pub clipboard_sync: bool,
 }
 
 impl Offered {
@@ -96,6 +99,7 @@ impl Offered {
         cursor_shape: false,
         pipeline_rates: false,
         rate_change: false,
+        clipboard_sync: false,
     };
 
     /// The serverinfo elements of what is offered, in a fixed order; none for
@@ -184,6 +188,10 @@ impl Offered {
         let mut ids: Vec<u16> = [
             (self.client_fec, fec_report::FEC_REPORT_MESSAGE_TYPE),
             (self.usb, usb::USB_MESSAGE_TYPE),
+            (
+                self.clipboard_sync,
+                clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE,
+            ),
             (self.text_input, text_input::TEXT_INPUT_MESSAGE_TYPE),
             (self.rate_change, rate_change::RATE_CHANGE_MESSAGE_TYPE),
             (
@@ -288,6 +296,7 @@ mod tests {
         cursor_shape: true,
         pipeline_rates: true,
         rate_change: true,
+        clipboard_sync: true,
     };
 
     #[test]
@@ -331,11 +340,11 @@ mod tests {
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
-             a=x-rl-control:0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540\r\n"
+             a=x-rl-control:0x5508,0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540\r\n"
         );
         assert_eq!(
             ALL_ON.control_ids(),
-            [0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540]
+            [0x5508, 0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540]
         );
     }
 

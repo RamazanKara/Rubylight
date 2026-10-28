@@ -37,6 +37,7 @@ pub mod child_session;
 pub mod client_cursor;
 pub mod client_warnings;
 pub mod clipboard_image;
+pub use rubylight_protocol::clipboard_sync;
 pub mod clock_sync;
 pub mod codec_support;
 pub mod config;

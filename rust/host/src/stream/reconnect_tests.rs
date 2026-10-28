@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+mod clipboard_sync_tests;
 mod extension_tests;
 mod interop_tests;
 mod rate_change_tests;
@@ -1116,6 +1117,8 @@ struct Client {
     text_notices: Notices,
     /// Rate change answers (0x553C) the host sent.
     rate_answers: Notices,
+    /// Clipboard sync frames (0x5508) the host sent.
+    clipboard: Notices,
     /// Plain control messages for the worker to send, reliable.
     outbox: Arc<Mutex<Vec<Vec<u8>>>>,
     /// Sockets ENet and the video pings move to (`move_to`).
@@ -1148,6 +1151,7 @@ impl Client {
         let hdr_modes = Notices::default();
         let text_notices = Notices::default();
         let rate_answers = Notices::default();
+        let clipboard = Notices::default();
         let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let control_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
@@ -1184,6 +1188,7 @@ impl Client {
         let worker_hdr_modes = hdr_modes.clone();
         let worker_text_notices = text_notices.clone();
         let worker_rate_answers = rate_answers.clone();
+        let worker_clipboard = clipboard.clone();
         let worker_rounds = rounds.clone();
         let worker_keyframe_heartbeat = keyframe_heartbeat.clone();
         let worker = thread::spawn(move || -> Result<()> {
@@ -1223,6 +1228,12 @@ impl Client {
                         }
                         if kind == butterpollo_core::rate_change::RATE_CHANGE_MESSAGE_TYPE {
                             worker_rate_answers
+                                .lock()
+                                .unwrap()
+                                .push((Instant::now(), payload.clone()));
+                        }
+                        if kind == butterpollo_core::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE {
+                            worker_clipboard
                                 .lock()
                                 .unwrap()
                                 .push((Instant::now(), payload.clone()));
@@ -1301,6 +1312,7 @@ impl Client {
             hdr_modes,
             text_notices,
             rate_answers,
+            clipboard,
             outbox,
             control_move,
             video_move,

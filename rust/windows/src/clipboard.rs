@@ -70,6 +70,12 @@ impl Drop for Open {
         }
     }
 }
+/// The clipboard's change count, which every new content raises
+/// (`GetClipboardSequenceNumber`), read without opening it.
+pub fn sequence() -> u32 {
+    // SAFETY: takes no arguments and only reads the window station's counter.
+    unsafe { GetClipboardSequenceNumber() }
+}
 pub fn read() -> Result<String> {
     let _lock = lock(&LOCK);
     let _open = Open::new()?;

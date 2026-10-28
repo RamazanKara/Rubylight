@@ -8,7 +8,7 @@ use butterpollo_core::config::Config;
 use butterpollo_core::extensions::Offered;
 use butterpollo_core::native_api::feature;
 
-use crate::state::Shared;
+use crate::state::{Launch, Shared};
 
 /// The serverinfo offer for one client, `config` being the host's
 /// configuration. Its AC3 and E-AC3 bits are FFmpeg's stereo probes as last
@@ -42,18 +42,24 @@ pub async fn probe_serverinfo_audio(config: &Config) -> anyhow::Result<()> {
 
 /// The offer for a stream's DESCRIBE and ANNOUNCE, `config` being its
 /// effective configuration, `dolby` the AC3 and E-AC3 bits FFmpeg opens
-/// for the launch's channels (`audio_encoder::dolby_codecs`) and `options` the
-/// launch's parameters.
-pub fn stream_offered(
-    h: &Shared,
-    config: &Config,
-    dolby: u8,
-    options: &std::collections::BTreeMap<String, String>,
-) -> Offered {
+/// for the launch's channels (`audio_encoder::dolby_codecs`) and `launch` the
+/// launch, whose parameters ask for the per-stream offers.
+pub fn stream_offered(h: &Shared, config: &Config, dolby: u8, launch: &Launch) -> Offered {
     Offered {
-        rate_change: rate_change(options),
+        rate_change: rate_change(&launch.options),
+        clipboard_sync: clipboard_sync(config, launch),
         ..offer(h, config, dolby)
     }
+}
+
+/// Clipboard sync (0x5508), Moonlight V+'s message: for a launch that asked
+/// with `rlClipboardSync=1`, from a device that may view and read or write the
+/// clipboard, on a stream that is not playing in the background, as the
+/// `/actions/clipboard` routes require. Never in serverinfo.
+fn clipboard_sync(config: &Config, launch: &Launch) -> bool {
+    use butterpollo_core::clipboard_sync::{LAUNCH_PARAMETER, requested};
+    requested(launch.options.get(LAUNCH_PARAMETER).map(String::as_str))
+        && crate::stream::clipboard_sync::allowed(config, &launch.client).any()
 }
 
 fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
@@ -69,7 +75,9 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         pen_barrel_roll: pen_barrel_roll(config),
         cursor_shape: cursor_shape(config),
         pipeline_rates: pipeline_rates(h, config),
+        // Per launch: `stream_offered`.
         rate_change: false,
+        clipboard_sync: false,
     }
 }
 

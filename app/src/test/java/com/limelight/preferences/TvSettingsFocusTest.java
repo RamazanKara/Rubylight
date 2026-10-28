@@ -72,7 +72,7 @@ public class TvSettingsFocusTest {
         root.layout(0, 0, width, height);
         // A device draws after every layout, and its pre-draw pass may still move a list (SettingsRail.snapTopRow);
         // this manual layout has no frame after it, so run that pass here until a frame would draw.
-        for (int i = 0; i < 5 && !root.getViewTreeObserver().dispatchOnPreDraw(); i++) {
+        for (int i = 0; i < 5 && root.getViewTreeObserver().dispatchOnPreDraw(); i++) {
             root.layout(0, 0, width, height);
         }
         ShadowLooper.idleMainLooper(300, TimeUnit.MILLISECONDS);
@@ -130,8 +130,9 @@ public class TvSettingsFocusTest {
         for (int key : keys) {
             press(screen, key);
             View first = null;
+            // A row ending in the selector's padding shows only its pill's transparent inset: it is gone, not cut.
             for (int c = 0; c < list.getChildCount() && first == null; c++) {
-                if (list.getChildAt(c).getBottom() > list.getPaddingTop()) first = list.getChildAt(c);
+                if (list.getChildAt(c).getBottom() > list.getListPaddingTop()) first = list.getChildAt(c);
             }
             View selected = list.getSelectedView();
             String at = keyAt(list, list.getSelectedItemPosition());

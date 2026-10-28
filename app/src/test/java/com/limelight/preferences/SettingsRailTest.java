@@ -67,7 +67,12 @@ public class SettingsRailTest {
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
         root.layout(0, 0, width, height);
         View rail = screen.findViewById(R.id.settings_rail);
-        if (rail != null) rail.getViewTreeObserver().dispatchOnPreDraw();
+        if (rail == null) return;
+        // A pre-draw that snaps a cut top row (SettingsRail.snapTopRow) skips its frame; a device lays out and draws
+        // again, so do the same until a frame would draw.
+        for (int i = 0; i < 5 && rail.getViewTreeObserver().dispatchOnPreDraw(); i++) {
+            root.layout(0, 0, width, height);
+        }
     }
 
     private static ListView sections(StreamSettings screen) {
@@ -145,6 +150,28 @@ public class SettingsRailTest {
         assertFalse(rail(screen).sliding());
         assertEquals(middleOf(screen, "audio"), barMiddle(screen), 1f);
         assertEquals(View.VISIBLE, screen.findViewById(R.id.settings_rail_bar).getVisibility());
+    }
+
+    @Test
+    public void aSnappedRailStaysWhereItSettled() {
+        StreamSettings screen = open(Motion.REDUCE);
+        screen.showSection("audio");
+        reveal(screen, "audio");
+        ListView list = sections(screen);
+        int first = list.getFirstVisiblePosition();
+        int top = list.getChildAt(0).getTop();
+        assertTrue("the reveal scrolled the rail", first > 0);
+        for (int i = 0; i < 3; i++) layOut(screen);
+        assertFalse("nothing left to snap", rail(screen).snapTopRow());
+        assertEquals("the rail did not climb a row per frame", first, list.getFirstVisiblePosition());
+        assertEquals(top, list.getChildAt(0).getTop());
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View row = list.getChildAt(i);
+            if (row.getBottom() <= list.getListPaddingTop()) continue;
+            assertTrue("the top row on screen is whole", row.getTop() >= list.getPaddingTop());
+            break;
+        }
+        assertEquals(middleOf(screen, "audio"), barMiddle(screen), 1f);
     }
 
     @Test

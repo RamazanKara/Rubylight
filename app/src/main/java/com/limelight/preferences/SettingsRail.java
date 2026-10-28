@@ -127,9 +127,11 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
         // The list clips its rows at its padding; a revealed row goes where the list lays out its first row, below its
         // selector's padding too, so the ring is not cut either.
         int top = list.getPaddingTop();
+        // A revealed row leaves the one above it ending in the selector's padding, where only its pill's transparent inset
+        // would show: that row is gone, not cut, or every snap would find the next row up cut and the rail would climb.
         View first = null;
         for (int i = 0; i < list.getChildCount() && first == null; i++) {
-            if (list.getChildAt(i).getBottom() > top) first = list.getChildAt(i);
+            if (list.getChildAt(i).getBottom() > list.getListPaddingTop()) first = list.getChildAt(i);
         }
         // A snap lands a row exactly at the top; the cap only guards the frame against a list that will not settle.
         if (first == null || first.getTop() >= top || snaps >= 2) {

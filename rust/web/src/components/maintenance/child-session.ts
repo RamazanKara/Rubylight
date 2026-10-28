@@ -27,6 +27,15 @@ export function step(status: ChildSessionStatus): 'off' | 'inside' | 'unavailabl
 }
 
 /**
+ * Whether Help shows the panel: while Background mode uses a child session,
+ * while Windows settings wait to be restored, or while something went wrong.
+ * Off and never set up, there is nothing to fix.
+ */
+export function pending(status: ChildSessionStatus): boolean {
+  return step(status) !== 'off' || status.set_up || Boolean(status.viewer || status.problem || status.missing_error || status.display_error);
+}
+
+/**
  * The panel's status loads. A poll tick is skipped while a load is in flight
  * (the host reads the firewall, which can take longer than a tick), and only
  * the newest load's answer is applied, so a slow one never overwrites it.

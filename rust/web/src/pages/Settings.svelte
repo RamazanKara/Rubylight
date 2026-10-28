@@ -8,6 +8,8 @@
   import SettingRow from '../components/settings/SettingRow.svelte';
   import Switch from '../components/settings/Switch.svelte';
   import UnknownKeys from '../components/settings/UnknownKeys.svelte';
+  import LimiterPanel from '../components/maintenance/LimiterPanel.svelte';
+  import VulkanPanel from '../components/maintenance/VulkanPanel.svelte';
   import { matchesSetting, matchesWords, searchWords } from '../components/settings/search';
   import {
     applyChanges,
@@ -568,6 +570,16 @@
               {/if}
             </div>
           {/if}
+          {#if active.id === 'display'}
+            <!-- Collapsed like the expert groups: installs and status, not settings keys. -->
+            <details class="fold integrations">
+              <summary><Icon name="chevron" size={15} />Integrations <span class="count">Vulkan HDR layer and RTSS</span></summary>
+              <div class="integration-panels">
+                <VulkanPanel />
+                <LimiterPanel />
+              </div>
+            </details>
+          {/if}
           {#if active.id === 'general'}
             <details class="fold custom-config" open={section === 'advanced'}>
               <summary><Icon name="chevron" size={15} />Custom configuration keys <span class="count">{unknownKeys.length} stored</span></summary>
@@ -771,6 +783,12 @@
   .fold > :global(.setting) {
     border-top: 1px solid var(--line);
   }
+  .integration-panels {
+    display: grid;
+    gap: var(--space-4);
+    padding: 0 var(--space-5) var(--space-5);
+    min-width: 0;
+  }
   .show-keys {
     display: inline-flex;
     align-items: center;
@@ -803,6 +821,7 @@
       grid-template-columns: minmax(0, 1fr);
     }
     .group-title,
+    .integration-panels,
     .fold > summary {
       padding-left: var(--space-4);
       padding-right: var(--space-4);

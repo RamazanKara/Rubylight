@@ -372,6 +372,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 file_download: client.allows(FILE_DOWNLOAD),
                 usb: client.allows_usb(),
                 shared_folders: client.has_folders(),
+                coop_join: client.allows_coop_join(),
             },
         },
     ))

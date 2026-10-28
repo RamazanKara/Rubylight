@@ -9,6 +9,7 @@
 //! unknown fields so typos fail loudly.
 pub mod audio;
 pub mod capabilities;
+pub mod coop;
 pub mod error;
 pub mod files;
 pub mod folders;
@@ -65,4 +66,7 @@ pub mod feature {
     /// `/folders/{id}/dav/` mounts a shared folder over WebDAV (class 1).
     /// Defined for 3.0; not yet served.
     pub const FOLDERS_MOUNT: &str = "folders.mount";
+    /// [`crate::coop`]: `GET /coop` and `POST /coop/join` answer, while the
+    /// host can run Nucleus Co-op sessions.
+    pub const COOP: &str = "coop";
 }

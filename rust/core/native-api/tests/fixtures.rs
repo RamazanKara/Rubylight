@@ -260,6 +260,7 @@ fn error_round_trip_and_status_table() {
         (ErrorCode::UsbLimit, 409),
         (ErrorCode::FoldersDisabled, 403),
         (ErrorCode::FolderUnreadable, 403),
+        (ErrorCode::CoopRefused, 409),
     ];
     for (code, status) in table {
         assert_eq!(code.status(), status, "{code:?}");
@@ -296,6 +297,7 @@ fn every_error_code_has_its_snake_case_name() {
         (ErrorCode::UsbLimit, "usb_limit"),
         (ErrorCode::FoldersDisabled, "folders_disabled"),
         (ErrorCode::FolderUnreadable, "folder_unreadable"),
+        (ErrorCode::CoopRefused, "coop_refused"),
     ] {
         assert_eq!(serde_json::to_value(code).unwrap(), name);
         assert_eq!(

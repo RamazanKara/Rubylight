@@ -17,6 +17,7 @@ use butterpollo_core::webhook::{self, Delivery, DeliveryHost, Webhook};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -107,6 +108,13 @@ impl Job {
     }
 }
 
+/// A hook's queue, and the flag [`Webhooks::forget`] sets to drop what is
+/// still in it.
+struct Queue {
+    sender: mpsc::Sender<Job>,
+    forgotten: Arc<AtomicBool>,
+}
+
 pub struct Webhooks {
     client: reqwest::Client,
     policy: Policy,
@@ -114,7 +122,7 @@ pub struct Webhooks {
     /// threads outside it.
     runtime: Option<tokio::runtime::Handle>,
     /// Each hook's queue, by URL.
-    queues: Mutex<HashMap<String, mpsc::Sender<Job>>>,
+    queues: Mutex<HashMap<String, Queue>>,
     status: Arc<Mutex<HashMap<String, Status>>>,
 }
 
@@ -192,7 +200,7 @@ impl Webhooks {
     fn enqueue(&self, job: Job) -> Result<(), &'static str> {
         let mut queues = self.queues.lock().unwrap();
         let job = match queues.get(&job.hook.url) {
-            Some(queue) => match queue.try_send(job) {
+            Some(queue) => match queue.sender.try_send(job) {
                 Ok(()) => return Ok(()),
                 Err(mpsc::error::TrySendError::Full(_)) => return Err("the hook's queue is full"),
                 // Its task ended: start another.
@@ -208,17 +216,26 @@ impl Webhooks {
         let client = self.client.clone();
         let policy = self.policy;
         let status = self.status.clone();
+        let forgotten = Arc::new(AtomicBool::new(false));
+        let dropped = forgotten.clone();
         runtime.spawn(async move {
             while let Some(job) = receiver.recv().await {
-                let result = deliver(&client, policy, &job).await;
-                finish(&status, &job, result);
+                let Some(result) = deliver(&client, policy, &job, &dropped).await else {
+                    // Ending drops the rest of the queue too.
+                    tracing::info!(
+                        hook = %origin(&job.hook.url),
+                        "the webhook was deleted or moved: its queued deliveries were dropped"
+                    );
+                    break;
+                };
+                finish(&status, &job, result, &dropped);
             }
         });
         let url = job.hook.url.clone();
         sender
             .try_send(job)
             .map_err(|_| "the hook's queue is full")?;
-        queues.insert(url, sender);
+        queues.insert(url, Queue { sender, forgotten });
         Ok(())
     }
 
@@ -229,8 +246,11 @@ impl Webhooks {
             attempts: 1,
             ..self.policy
         };
-        let result = deliver(&self.client, once, &job).await;
-        finish(&self.status, &job, result)
+        let kept = AtomicBool::new(false);
+        let result = deliver(&self.client, once, &job, &kept)
+            .await
+            .expect("a test delivery's hook is never forgotten");
+        finish(&self.status, &job, result, &kept)
     }
 
     /// The last delivery to `url`.
@@ -238,10 +258,14 @@ impl Webhooks {
         self.status.lock().unwrap().get(url).cloned()
     }
 
-    /// Ends `url`'s task once its queue drains and forgets its status: the
-    /// hook was deleted or moved.
+    /// Drops `url`'s queued deliveries, ends its task (before the next try of
+    /// one it is sending) and forgets its status: the hook was deleted or
+    /// moved, so they would go where it no longer points.
     pub fn forget(&self, url: &str) {
-        self.queues.lock().unwrap().remove(url);
+        if let Some(queue) = self.queues.lock().unwrap().remove(url) {
+            // Before the status goes: a delivery that finishes meanwhile records nothing.
+            queue.forgotten.store(true, Ordering::SeqCst);
+        }
         self.status.lock().unwrap().remove(url);
     }
 
@@ -258,7 +282,14 @@ struct Outcome {
     error: Option<String>,
 }
 
-async fn deliver(client: &reqwest::Client, policy: Policy, job: &Job) -> Outcome {
+/// Tries `job` as `policy` says; None when its hook was `forgotten`
+/// ([`Webhooks::forget`]) before a try.
+async fn deliver(
+    client: &reqwest::Client,
+    policy: Policy,
+    job: &Job,
+    forgotten: &AtomicBool,
+) -> Option<Outcome> {
     let mut outcome = Outcome {
         attempts: 0,
         http_status: None,
@@ -269,6 +300,9 @@ async fn deliver(client: &reqwest::Client, policy: Policy, job: &Job) -> Outcome
         if attempt > 1 {
             tokio::time::sleep(wait).await;
             wait = wait.saturating_mul(2);
+        }
+        if forgotten.load(Ordering::SeqCst) {
+            return None;
         }
         // A receiver following docs/webhooks.md would refuse it as a replay.
         if job.raised.elapsed() > policy.max_age {
@@ -311,7 +345,7 @@ async fn deliver(client: &reqwest::Client, policy: Policy, job: &Job) -> Outcome
                 outcome.http_status = Some(status.as_u16());
                 if status.is_success() {
                     outcome.error = None;
-                    return outcome;
+                    return Some(outcome);
                 }
                 outcome.error = Some(format!("the receiver answered HTTP {}", status.as_u16()));
                 // Another try won't fix a refused signature or a missing page.
@@ -334,10 +368,17 @@ async fn deliver(client: &reqwest::Client, policy: Policy, job: &Job) -> Outcome
             break;
         }
     }
-    outcome
+    Some(outcome)
 }
 
-fn finish(status: &Mutex<HashMap<String, Status>>, job: &Job, outcome: Outcome) -> Status {
+/// Logs and records how `job` went; not recorded once its hook is
+/// `forgotten`, whose status is gone.
+fn finish(
+    status: &Mutex<HashMap<String, Status>>,
+    job: &Job,
+    outcome: Outcome,
+    forgotten: &AtomicBool,
+) -> Status {
     let ok = outcome.error.is_none();
     if !ok {
         tracing::warn!(
@@ -359,10 +400,11 @@ fn finish(status: &Mutex<HashMap<String, Status>>, job: &Job, outcome: Outcome) 
         error: outcome.error,
         attempts: outcome.attempts,
     };
-    status
-        .lock()
-        .unwrap()
-        .insert(job.hook.url.clone(), next.clone());
+    let mut status = status.lock().unwrap();
+    // Read under the lock forget() takes after setting it.
+    if !forgotten.load(Ordering::SeqCst) {
+        status.insert(job.hook.url.clone(), next.clone());
+    }
     next
 }
 
@@ -740,6 +782,36 @@ pub(crate) mod tests {
         assert!(!status.ok);
         assert_eq!(status.attempts, 0);
         assert_eq!(status.error.as_deref(), Some("the hook's queue is full"));
+    }
+
+    #[tokio::test]
+    async fn a_deleted_hooks_queued_deliveries_are_dropped() {
+        let (url, mut received) = receiver(vec![0]).await;
+        let webhooks = Webhooks::new(Policy {
+            timeout: Duration::from_millis(300),
+            attempts: 2,
+            ..QUICK
+        })
+        .unwrap();
+        let hooks = [hook(&url, &["app.started"])];
+        for _ in 0..3 {
+            assert_eq!(webhooks.emit(&hooks, HOST, "app.started", json!({})), 1);
+        }
+        // The first is being sent: it gets no second try, and the other two never go.
+        received.recv().await.unwrap();
+        webhooks.forget(&url);
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(received.try_recv().is_err());
+        assert!(webhooks.status(&url).is_none());
+        // A hook added again at that URL starts afresh.
+        let (again, mut reached) = receiver(vec![200]).await;
+        let hooks = [hook(&again, &["app.started"])];
+        webhooks.emit(&hooks, HOST, "app.started", json!({}));
+        webhooks.forget(&again);
+        let hooks = [hook(&again, &["app.started"])];
+        webhooks.emit(&hooks, HOST, "app.started", json!({}));
+        reached.recv().await.unwrap();
+        assert!(settled(&webhooks, &again).await.ok);
     }
 
     #[test]

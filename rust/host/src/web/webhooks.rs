@@ -101,8 +101,27 @@ fn stored_hooks(stored: Option<&str>) -> anyhow::Result<Vec<Webhook>> {
     })
 }
 
+/// Whether `host` is this PC or a link-local address: services there (the
+/// host's own API, a router's or a cloud's metadata page) may trust whoever
+/// can reach them, and the console must not be a way in. A LAN host stays
+/// allowed: home automation lives there.
+fn on_this_pc_or_link(host: &url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(name) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            name == "localhost" || name.ends_with(".localhost")
+        }
+        url::Host::Ipv4(ip) => ip.is_loopback() || ip.is_link_local() || ip.is_unspecified(),
+        url::Host::Ipv6(ip) => match ip.to_ipv4_mapped() {
+            Some(ip) => ip.is_loopback() || ip.is_link_local() || ip.is_unspecified(),
+            None => ip.is_loopback() || ip.is_unicast_link_local() || ip.is_unspecified(),
+        },
+    }
+}
+
 /// Adds the hook for `url`, or edits the one at `previous`, and returns the
-/// secret when it is new.
+/// secret when it is new. A hook moved to another host gets a new secret:
+/// the old one is the old receiver's.
 fn save(
     h: &Shared,
     url: &str,
@@ -115,6 +134,13 @@ fn save(
     let parsed = url::Url::parse(url).map_err(|error| anyhow::anyhow!("not a URL: {error}"))?;
     if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
         anyhow::bail!("a webhook URL starts with http:// or https:// and names a host");
+    }
+    if let Some(host) = parsed.host()
+        && on_this_pc_or_link(&host)
+    {
+        anyhow::bail!(
+            "a webhook can't send to {host}: this PC (localhost, 127.0.0.0/8, ::1) and link-local addresses (169.254.0.0/16, fe80::/10) are refused, so a hook can't reach services that trust them. Use the receiver's LAN address or name"
+        );
     }
     let mut revealed = None;
     super::config::save_setting(h, "webhooks", |stored| {
@@ -141,9 +167,11 @@ fn save(
         match at {
             Some(at) => {
                 let hook = &mut hooks[at];
+                let moved =
+                    !url::Url::parse(&hook.url).is_ok_and(|before| before.host() == parsed.host());
                 hook.url = url.to_owned();
                 hook.events = events;
-                if rotate {
+                if rotate || moved {
                     hook.secret = fresh();
                     revealed = Some(hook.secret.clone());
                 }
@@ -260,6 +288,20 @@ mod tests {
         assert_ne!(replaced, secret);
         assert_eq!(stored(&f)[0].secret, replaced);
 
+        // Moved to another host, it gets a new secret: the old one is the old receiver's.
+        let elsewhere = "http://192.168.1.20:8123/api/webhook/rubylight";
+        let (status, edited) = post(
+            &f,
+            "/api/webhooks",
+            json!({"url": elsewhere, "events": ["pairing.paired"], "previous": moved}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{edited}");
+        let fresh = edited["secret"].as_str().unwrap();
+        assert!(fresh != replaced && fresh.len() == 64, "{edited}");
+        assert_eq!(stored(&f)[0].secret, fresh);
+        let moved = elsewhere;
+
         let (status, _) = post(&f, "/api/webhooks/delete", json!({"url": moved})).await;
         assert_eq!(status, StatusCode::OK);
         assert!(stored(&f).is_empty());
@@ -307,6 +349,60 @@ mod tests {
                 answer["error"].as_str().unwrap().contains(message),
                 "{data}: {answer}"
             );
+        }
+        assert_eq!(stored(&f).len(), 1);
+
+        // This PC and link-local addresses: their services may trust whoever reaches them.
+        for refused in [
+            "http://127.0.0.1:47990/api/apps",
+            "http://127.255.0.9/",
+            "http://localhost:8080/hook",
+            "http://LocalHost./hook",
+            "http://api.localhost/hook",
+            "http://[::1]:47990/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://0.0.0.0:47990/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[fe80::1]/",
+        ] {
+            let (status, answer) = post(
+                &f,
+                "/api/webhooks",
+                json!({"url": refused, "events": ["app.started"]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+            let error = answer["error"].as_str().unwrap();
+            assert!(
+                error.contains("this PC") && error.contains("LAN"),
+                "{refused}: {error}"
+            );
+        }
+        // Nor may an edit move a hook there.
+        let (status, _) = post(
+            &f,
+            "/api/webhooks",
+            json!({"url": "http://127.0.0.1/", "events": ["app.started"], "previous": url}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(stored(&f).len(), 1);
+        assert_eq!(stored(&f)[0].url, url);
+        // The LAN stays open: home automation lives there.
+        for allowed in [
+            "http://192.168.1.5:8123/api/webhook/x",
+            "http://10.0.0.2/",
+            "http://homeassistant.local:8123/",
+            "http://[fd00::5]/",
+        ] {
+            let (status, answer) = post(
+                &f,
+                "/api/webhooks",
+                json!({"url": allowed, "events": ["app.started"]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{allowed}: {answer}");
+            post(&f, "/api/webhooks/delete", json!({"url": allowed})).await;
         }
         assert_eq!(stored(&f).len(), 1);
 
@@ -369,20 +465,19 @@ mod tests {
     async fn send_test_reaches_the_receiver_and_shows_as_the_last_status() {
         let (url, mut received) = crate::webhooks::tests::receiver(vec![200]).await;
         let f = Fixture::new();
-        let (_, added) = post(
-            &f,
-            "/api/webhooks",
-            json!({"url": url, "events": ["app.started"]}),
-        )
-        .await;
+        // The receiver is on this PC, which the console refuses: saved as the config file would.
+        let secret = "receiver secret";
+        f.host.config.write().unwrap().values.insert(
+            "webhooks".into(),
+            json!([{"url": url, "events": ["app.started"], "secret": secret}]).to_string(),
+        );
         let (status, answer) = post(&f, "/api/webhooks/test", json!({"url": url})).await;
         assert_eq!(status, StatusCode::OK, "{answer}");
         assert_eq!(answer["result"]["ok"], true, "{answer}");
         assert_eq!(answer["result"]["event"], "webhook.test");
         let request = received.recv().await.unwrap();
         assert_eq!(request.headers["x-rubylight-event"], "webhook.test");
-        let signature =
-            butterpollo_core::webhook::sign(added["secret"].as_str().unwrap(), &request.body);
+        let signature = butterpollo_core::webhook::sign(secret, &request.body);
         assert_eq!(
             request.headers["x-rubylight-signature"],
             format!("sha256={signature}")

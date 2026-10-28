@@ -483,6 +483,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Why the pending restart was requested. Problem reports keep warnings and "Decoder" lines,
     // so they show HDR, size and upscaler restarts as such instead of as a CodecException.
     private volatile String restartReason = "CodecException";
+    // The pending restart is an HDR change: it releases the codec and creates a new one instead of
+    // stop() and configure(). Set and cleared under codecRecoveryMonitor.
+    private boolean hdrRestartRecreates;
     private long nextFrameTimeNanos;
     private int pacingFrameRateMilliHz;
     private HandlerThread choreographerHandlerThread;
@@ -2532,17 +2535,31 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     LimeLog.info("Codec recovery attempt: "+codecRecoveryAttempts);
                 }
 
+                boolean recreate = hdrRestartRecreates;
+                hdrRestartRecreates = false;
                 // For "recoverable" exceptions, we can just stop, reconfigure, and restart.
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_RESTART) {
-                    LimeLog.warning("Trying to restart decoder after " + restartReason);
+                    LimeLog.warning("Trying to " + (recreate ? "recreate" : "restart") + " decoder after " + restartReason);
                     try {
-                        videoDecoder.stop();
+                        if (recreate) {
+                            // release() returns once the codec is gone; then a new one of the same name.
+                            String name = videoDecoder.getName();
+                            videoDecoder.release();
+                            videoDecoder = MediaCodec.createByCodecName(name);
+                        } else {
+                            videoDecoder.stop();
+                        }
                         if (packing != null && upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE) {
                             closeUpscaler();
                             setupUpscaling();
                         }
                         configureAndStartDecoder(configuredFormat);
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+
+                        // No new codec: the reset below recreates the decoder from scratch.
+                        codecRecoveryType.set(CR_RECOVERY_TYPE_RESET);
                     } catch (IllegalArgumentException e) {
                         e.printStackTrace();
 
@@ -3476,21 +3493,71 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VulkanRendererBridge vulkan = vulkanRenderer;
                 if (vulkan != null) vulkan.setHdrMode(enabled, metadata);
                 if (enabled && upscaler != null) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
-                if (previousMode == enabled && Arrays.equals(currentHdrMetadata, metadata)) {
+                HdrChange change = hdrChange(previousMode, enabled, currentHdrMetadata, metadata, Build.VERSION.SDK_INT);
+                if (change == HdrChange.NONE) {
                     return;
                 }
                 currentHdrMetadata = metadata == null ? null : metadata.clone();
+                if (change == HdrChange.PARAMETERS && setRunningHdrStaticInfo(currentHdrMetadata)) {
+                    return;
+                }
 
-                // If we reach this point, we need to restart the MediaCodec instance to
-                // pick up the HDR metadata change. This will happen on the next input
-                // or output buffer.
+                // If we reach this point, we need a new MediaCodec instance to pick up the HDR
+                // change. This will happen on the next input or output buffer.
 
                 // HACK: Reset codec recovery attempt counter, since this is an expected "recovery"
                 codecRecoveryAttempts = 0;
 
-                // The host's first HDR report restarts a 10-bit stream once: it adds metadata or turns HDR off.
+                // The host's first HDR report turns HDR on or off on a 10-bit stream once.
+                hdrRestartRecreates = true;
                 requestRestart(enabled ? (metadata != null ? "HDR metadata" : "HDR on") : "HDR off");
             }
+        }
+    }
+
+    /** How the running decoder takes the PC's HDR report. */
+    enum HdrChange {
+        /** Nothing changed. */
+        NONE,
+        /** Only the mastering metadata of a running HDR stream: setParameters takes it. */
+        PARAMETERS,
+        /** HDR turned on or off (the colour keys change), or metadata setParameters can't carry: a new codec. */
+        RECREATE,
+    }
+
+    /**
+     * The metadata alone never restarts the decoder: MediaTek TV decoders (TCL C6K, HEVC and AV1)
+     * stopped taking input after a stop() and configure() on the same codec. Before Android 10, and
+     * when the metadata goes away, setParameters can't carry it.
+     */
+    static HdrChange hdrChange(boolean previousMode, boolean enabled, byte[] previousMetadata, byte[] metadata,
+                               int sdkInt) {
+        if (previousMode == enabled && Arrays.equals(previousMetadata, metadata)) {
+            return HdrChange.NONE;
+        }
+        if (previousMode == enabled && enabled && metadata != null && sdkInt >= Build.VERSION_CODES.Q) {
+            return HdrChange.PARAMETERS;
+        }
+        return HdrChange.RECREATE;
+    }
+
+    // Gives the running decoder the PC's mastering metadata; false when it refused (then it restarts).
+    // A recovery that is already pending configures with the new metadata, as does setup.
+    private boolean setRunningHdrStaticInfo(byte[] metadata) {
+        MediaCodec decoder = videoDecoder;
+        if (decoder == null || codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
+            return true;
+        }
+        ByteBuffer info = createHdrStaticInfo(metadata);
+        Bundle params = new Bundle();
+        params.putByteArray(MediaFormat.KEY_HDR_STATIC_INFO, info.array());
+        try {
+            decoder.setParameters(params);
+            LimeLog.info("HDR metadata set on the running decoder, no restart");
+            return true;
+        } catch (IllegalStateException e) {
+            LimeLog.warning("Decoder refused the HDR metadata as a parameter (" + e + "); restarting it");
+            return false;
         }
     }
 

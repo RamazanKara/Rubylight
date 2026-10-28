@@ -35,6 +35,7 @@ test('Help keeps co-op troubleshooting: the download and its check, the service,
   assert.match(out, /Downloads Nucleus Co-op 2\.4\.2 \(97\u00a0MB\) from its GitHub release\. Its size and SHA-256 are checked/);
   assert.match(out, /Windows service/);
   assert.match(out, /handler hub/);
+  assert.match(out, /a background stream of one player works\s+without one/);
   assert.match(out, /build 20348/);
   // Live games are on Home now, and nothing here says Experimental or names child sessions.
   assert.doesNotMatch(out, /End session|>Remove<|No session runs/);

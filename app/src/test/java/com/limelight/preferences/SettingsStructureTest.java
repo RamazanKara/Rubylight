@@ -198,8 +198,47 @@ public class SettingsStructureTest {
         }
     }
 
+    private static void mobileData(boolean has) {
+        shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(PackageManager.FEATURE_TELEPHONY, has);
+    }
+
+    @Test
+    public void mobileDataRowsShowOnlyWithMobileDataOrAValueThatStillActs() {
+        // A TV or a Wi-Fi tablet: no mobile data rows, in their sections or in search.
+        mobileData(false);
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertNull(resultGroup(search(screen, "mobile data"), "list_mobile_bitrate_kbps"));
+            ((SearchView) screen.findViewById(R.id.settings_search)).setQuery("", false);
+            settle(screen);
+            assertNull(open(screen, "video").getPreferenceScreen().findPreference("list_mobile_bitrate_kbps"));
+            PreferenceScreen streaming = open(screen, "streaming").getPreferenceScreen();
+            assertNotNull(streaming.findPreference("checkbox_client_roaming"));
+            assertNull(streaming.findPreference("checkbox_roaming_metered"));
+        }
+        // A value set earlier still acts on a metered Wi-Fi, so its row stays to undo it.
+        prefs().edit().putString("list_mobile_bitrate_kbps", "10000").putBoolean("checkbox_roaming_metered", true).commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertNotNull(open(screen, "video").getPreferenceScreen().findPreference("list_mobile_bitrate_kbps"));
+            assertNotNull(open(screen, "streaming").getPreferenceScreen().findPreference("checkbox_roaming_metered"));
+        }
+        prefs().edit().clear().commit();
+        mobileData(true);
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertNotNull(resultGroup(search(screen, "mobile data"), "list_mobile_bitrate_kbps"));
+            ((SearchView) screen.findViewById(R.id.settings_search)).setQuery("", false);
+            settle(screen);
+            assertNotNull(open(screen, "video").getPreferenceScreen().findPreference("list_mobile_bitrate_kbps"));
+            assertNotNull(open(screen, "streaming").getPreferenceScreen().findPreference("checkbox_roaming_metered"));
+        }
+    }
+
     @Test
     public void mobileDataShowsOnlyWhileClientRoamingIsOn() {
+        mobileData(true);
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             PreferenceScreen streaming = open(controller.get(), "streaming").getPreferenceScreen();
             SwitchPreference roaming = (SwitchPreference) streaming.findPreference("checkbox_client_roaming");

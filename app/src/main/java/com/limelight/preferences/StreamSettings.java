@@ -2037,6 +2037,17 @@ public class StreamSettings extends NightjarActivity {
                 removeSetting(StreamOrientation.PREF);
             }
 
+            // Mobile data rows only where there is mobile data, unless a value set earlier still acts.
+            if (!SettingRules.hasMobileData(getActivity())) {
+                SharedPreferences stored = getPreferenceManager().getSharedPreferences();
+                if (!SettingRules.mobileBitrateShown(getActivity(), stored)) {
+                    removeSetting(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING);
+                }
+                if (!stored.getBoolean(PreferenceConfiguration.ROAMING_METERED_PREF_STRING, false)) {
+                    removeSetting(PreferenceConfiguration.ROAMING_METERED_PREF_STRING);
+                }
+            }
+
             // hide on-screen controls category on non touch screen devices
             if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
                 PreferenceCategory category =

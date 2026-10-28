@@ -62,6 +62,7 @@
     <string name="profiles_location_denied">Kein Standortzugriff: Jedes WLAN zählt als anderes WLAN. Du kannst ihn später in den App-Einstellungen von Android erlauben.</string>
     <string name="profiles_wifi_unreadable">WLAN-Name kann nicht gelesen werden. Prüfe, ob dieses Gerät mit WLAN verbunden und der Standort an ist, oder gib den Namen ein.</string>
     <string name="profiles_order">Beim Streamstart kommt jeder Wert aus der ersten Ebene, die ihn setzt: dieses Spiel, dieser PC, das Profil, dann die Haupteinstellungen. Bei mobilen Daten begrenzt danach „Bitrate bei mobilen Daten“ die Bitrate. Änderungen gelten nie für einen bereits laufenden Stream.</string>
+    <string name="profiles_order_no_mobile">Beim Streamstart kommt jeder Wert aus der ersten Ebene, die ihn setzt: dieses Spiel, dieser PC, das Profil, dann die Haupteinstellungen. Änderungen gelten nie für einen bereits laufenden Stream.</string>
     <string name="profiles_privacy">Heim-WLAN-Namen bleiben auf diesem Gerät und werden nie gesendet oder protokolliert.</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

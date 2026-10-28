@@ -51,6 +51,10 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
     private String paneSection;
     private final Rect scratch = new Rect();
     private int snaps;
+    // Bottom padding added to the list while its last row is selected, so its top row can be scrolled away (scrollPastEnd).
+    private int slack;
+    // The list's own bottom padding, which releaseSlack puts back.
+    private int basePadding;
 
     /** Null when the layout has no rail (a phone, or a wide screen that is not a TV). */
     static SettingsRail attach(Activity activity) {
@@ -73,6 +77,8 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
 
     /** The rail's list, once its fragment has a view. */
     void setList(ListView list) {
+        // A new list has its own padding.
+        if (list != this.list) slack = 0;
         this.list = list;
     }
 
@@ -120,7 +126,8 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
      * The list's D-pad scroll keeps only a sliver of the row past the selected one in view, and a selected rail row grows by its
      * summary's second line, so the top row was left half under the subtitle (TV run: the search row after a few presses).
      * A cut top row is shown whole, or else scrolled away, when the selected row stays whole and its neighbours keep a part
-     * on screen: the list moves its selection only onto a row it shows. True when the list moved.
+     * on screen: the list moves its selection only onto a row it shows. On the last row the list cannot scroll past its
+     * end, so the cut row goes by scrollPastEnd. True when the list moved or will at its next layout.
      */
     boolean snapTopRow() {
         if (list == null || !list.isAttachedToWindow() || list.getChildCount() == 0) return false;
@@ -145,6 +152,10 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
             list.scrollListBy(-reveal);
         } else if (keepsSelection(-hide)) {
             list.scrollListBy(hide);
+            if (first.getTop() == before && scrollPastEnd(hide)) {
+                snaps++;
+                return true;
+            }
         } else {
             snaps = 0;
             return false;
@@ -152,6 +163,30 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
         boolean moved = first.getTop() != before;
         snaps = moved ? snaps + 1 : 0;
         return moved;
+    }
+
+    /**
+     * The list ends where its bottom padding starts, so with its last row selected it cannot scroll a cut top row away
+     * (TV run in German: Erweitert's second summary line left Audio half under the subtitle). The padding grows by that
+     * row while the last row is selected, and the rows move up by it; releaseSlack takes it back.
+     */
+    private boolean scrollPastEnd(int hide) {
+        int selected = list.getSelectedItemPosition();
+        View row = list.getSelectedView();
+        if (row == null || selected != list.getCount() - 1) return false;
+        if (slack == 0) basePadding = list.getPaddingBottom();
+        slack += hide;
+        list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), basePadding + slack);
+        list.setSelectionFromTop(selected, row.getTop() - hide - list.getListPaddingTop());
+        return true;
+    }
+
+    /** Takes the padding added by scrollPastEnd back once the last row is no longer selected. True when it did. */
+    private boolean releaseSlack() {
+        if (slack == 0 || list == null || list.getSelectedItemPosition() == list.getCount() - 1) return false;
+        list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), basePadding);
+        slack = 0;
+        return true;
     }
 
     /** Whether moving the rows down by {@code dy} keeps the selected row whole and a part of the rows on either side of it. */
@@ -180,8 +215,8 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
 
     @Override
     public boolean onPreDraw() {
-        // This frame would show the cut row; the next one draws the list where it settled.
-        if (snapTopRow()) return false;
+        // This frame would show the cut row, or the old padding; the next one draws the list where it settled.
+        if (releaseSlack() || snapTopRow()) return false;
         float y = targetY();
         if (Float.isNaN(y)) {
             if (slide == null || !slide.isRunning()) bar.setVisibility(View.INVISIBLE);

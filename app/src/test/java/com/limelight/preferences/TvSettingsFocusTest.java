@@ -71,8 +71,11 @@ public class TvSettingsFocusTest {
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
         root.layout(0, 0, width, height);
         // A device draws after every layout, and its pre-draw pass may still move a list (SettingsRail.snapTopRow);
-        // this manual layout has no frame after it, so run that pass here until a frame would draw.
+        // this manual layout has no frame after it, so run that pass here until a frame would draw. A device measures
+        // before it lays out again, which reads a padding the pass changed.
         for (int i = 0; i < 5 && root.getViewTreeObserver().dispatchOnPreDraw(); i++) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
             root.layout(0, 0, width, height);
         }
         ShadowLooper.idleMainLooper(300, TimeUnit.MILLISECONDS);
@@ -121,9 +124,24 @@ public class TvSettingsFocusTest {
     /** TV run on a TCL C6K: after a few presses the search row sat half under the subtitle. No rail row is ever cut at the top. */
     @Test
     public void noRailRowIsLeftHalfScrolledUnderTheSubtitle() {
+        assertNoRailRowCut();
+    }
+
+    /**
+     * TV run on a TCL C6K in German: on Erweitert, the last row, its summary's second line pushed Audio half under the
+     * subtitle, and the list could not scroll past its end to take Audio away.
+     */
+    @Test
+    @Config(qualifiers = "de-w960dp-h540dp-land-television-xhdpi")
+    public void theLastRailRowLeavesNoRowCutAtTheTopInGerman() {
+        assertNoRailRowCut();
+    }
+
+    private void assertNoRailRowCut() {
         StreamSettings screen = open();
         ListView list = sections(screen);
         for (int i = 0; i < list.getCount() && list.getSelectedItemPosition() != 0; i++) press(screen, KeyEvent.KEYCODE_DPAD_UP);
+        int padding = list.getPaddingBottom();
         List<String> cut = new ArrayList<>();
         int[] keys = new int[2 * list.getCount()];
         for (int i = 0; i < keys.length; i++) keys[i] = i < list.getCount() ? KeyEvent.KEYCODE_DPAD_DOWN : KeyEvent.KEYCODE_DPAD_UP;
@@ -140,6 +158,7 @@ public class TvSettingsFocusTest {
             assertTrue("the selected row " + at + " is whole", selected.getTop() >= 0 && selected.getBottom() <= list.getHeight());
         }
         assertTrue("rows cut at the top: " + cut, cut.isEmpty());
+        assertEquals("the room made past the last row is given back", padding, list.getPaddingBottom());
     }
 
     /**

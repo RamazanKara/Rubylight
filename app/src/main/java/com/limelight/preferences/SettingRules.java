@@ -1,6 +1,8 @@
 package com.limelight.preferences;
 
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 
 import com.limelight.binding.audio.MicProcessing;
 
@@ -73,6 +75,20 @@ final class SettingRules {
     /** Only the new streaming engine syncs the clipboard. */
     static boolean clipboardSyncApplies(SharedPreferences prefs) {
         return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
+    }
+
+    /**
+     * Whether this device has mobile data, asked per device at runtime. Rows about mobile data show only there,
+     * or where a value set earlier still acts, so it can be seen and undone.
+     */
+    static boolean hasMobileData(Context context) {
+        return context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
+    }
+
+    /** Bitrate on mobile data shows where there is mobile data, or while a cap set earlier still acts. */
+    static boolean mobileBitrateShown(Context context, SharedPreferences prefs) {
+        return hasMobileData(context)
+                || !"0".equals(prefs.getString(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING, "0"));
     }
 
     /** Continuing on mobile data is a roaming choice, so it shows only while roaming is on. */

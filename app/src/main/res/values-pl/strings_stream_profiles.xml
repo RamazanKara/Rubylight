@@ -64,6 +64,7 @@
     <string name="profiles_location_denied">Brak dostępu do lokalizacji: każda sieć Wi-Fi jest traktowana jako inna sieć Wi-Fi. Możesz zezwolić na dostęp później w ustawieniach aplikacji w Androidzie.</string>
     <string name="profiles_wifi_unreadable">Nie można odczytać nazwy sieci Wi-Fi. Sprawdź, czy to urządzenie jest połączone z Wi-Fi i czy lokalizacja jest włączona, albo wpisz nazwę.</string>
     <string name="profiles_order">Przy starcie strumienia każda wartość pochodzi z pierwszego z tych miejsc, w którym jest ustawiona: ta gra, ten komputer, profil, a na końcu główne ustawienia. Na danych mobilnych szybkość transmisji jest potem ograniczana przez „Szybkość transmisji na danych mobilnych”. Zmiany nigdy nie dotyczą już trwającego strumienia.</string>
+    <string name="profiles_order_no_mobile">Przy starcie strumienia każda wartość pochodzi z pierwszego z tych miejsc, w którym jest ustawiona: ta gra, ten komputer, profil, a na końcu główne ustawienia. Zmiany nigdy nie dotyczą już trwającego strumienia.</string>
     <string name="profiles_privacy">Nazwy domowych sieci Wi-Fi pozostają na tym urządzeniu i nigdy nie są wysyłane ani zapisywane w logach.</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

@@ -179,6 +179,19 @@ impl VideoPacketizer {
         let shards = (payload_bytes + 8).div_ceil(self.packet_size - 16);
         conventional_fec(shards, self.fec_percent, self.min_fec).1 < self.fec_percent
     }
+    /// The largest payload that still gets the full `fec_percent` within
+    /// Moonlight's four blocks ([`Self::fec_limited`] false). A larger frame
+    /// gets less parity, and above about 1.40 MB at 1392-byte packets none.
+    pub fn fec_whole_payload_limit(&self) -> usize {
+        let slice = self.packet_size - 16;
+        let shards = (1..=4 * 255)
+            .rev()
+            .find(|&shards| {
+                conventional_fec(shards, self.fec_percent, self.min_fec).1 >= self.fec_percent
+            })
+            .unwrap_or(1);
+        (shards * slice).saturating_sub(8)
+    }
 
     pub fn encode(
         &mut self,

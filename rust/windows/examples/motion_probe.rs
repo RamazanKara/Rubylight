@@ -10,6 +10,11 @@
 //! frames (default two seconds' worth). Every present still waits for the
 //! swap chain, so a script slower than the display is exact and a faster one
 //! is quantised to the display's refresh, as a vsynced game is.
+//!
+//! After the strip height, `noise` fills the window above the bottom 128 rows
+//! with fresh noise every frame; `cuts:MS[:FRESH_ROWS]` fills it with noise
+//! that changes every MS milliseconds (a scene cut), except FRESH_ROWS just
+//! above the band that change every frame, sizing the frames between cuts.
 
 #[cfg_attr(not(windows), allow(dead_code))]
 mod schedule {
@@ -99,12 +104,53 @@ mod schedule {
         }
     }
 
+    /// Scene cuts: the whole picture changes every `every`, and `fresh_rows`
+    /// change every frame.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct Cuts {
+        pub every: Duration,
+        pub fresh_rows: u32,
+    }
+
+    impl Cuts {
+        /// `MS[:FRESH_ROWS]`, the text after `cuts:`.
+        pub fn parse(text: &str) -> Result<Self> {
+            let mut parts = text.split(':');
+            let every = millis(parts.next().unwrap_or(""))?;
+            let fresh_rows = parts.next().map(str::parse).transpose()?.unwrap_or(0);
+            if parts.next().is_some() {
+                bail!("usage: cuts:MS[:FRESH_ROWS]");
+            }
+            Ok(Self { every, fresh_rows })
+        }
+
+        /// The picture's seed `elapsed` after the start, from 1: the same
+        /// between cuts and one higher after each.
+        pub fn seed(&self, elapsed: Duration) -> u32 {
+            (elapsed.as_nanos() / self.every.as_nanos()) as u32 + 1
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
 
         fn us(d: Duration) -> u128 {
             d.as_micros()
+        }
+
+        #[test]
+        fn cuts_change_the_seed_once_per_interval() {
+            let cuts = Cuts::parse("2000:96").unwrap();
+            assert_eq!(cuts.fresh_rows, 96);
+            assert_eq!(cuts.seed(Duration::ZERO), 1);
+            assert_eq!(cuts.seed(Duration::from_millis(1999)), 1);
+            assert_eq!(cuts.seed(Duration::from_millis(2000)), 2);
+            assert_eq!(cuts.seed(Duration::from_millis(5000)), 3);
+            assert_eq!(Cuts::parse("500").unwrap().fresh_rows, 0);
+            assert!(Cuts::parse("").is_err());
+            assert!(Cuts::parse("2000:x").is_err());
+            assert!(Cuts::parse("2000:1:2").is_err());
         }
 
         #[test]
@@ -183,7 +229,9 @@ mod probe {
     };
 
     const SHADER: &str = r#"
-cbuffer Frame : register(b0) { uint frame; uint ticksLow; uint ticksHigh; uint noise; };
+cbuffer Frame : register(b0) {
+    uint frame; uint ticksLow; uint ticksHigh; uint noise; uint cutSeed; uint freshRows; uint pad0; uint pad1;
+};
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 p = float2((id << 1) & 2, id & 2);
     return float4(p * float2(2, -2) + float2(-1, 1), 0, 1);
@@ -191,9 +239,12 @@ float4 vertex(uint id : SV_VertexID) : SV_Position {
 float4 picture(float4 p : SV_Position) : SV_Target {
     // With noise, the band below stays the window's bottom 128 pixels, as
     // receivers read it, and fresh noise above it costs the encoder bits.
+    // With cuts, the noise changes only at each cut, except a strip of
+    // freshRows just above the band that changes every frame.
     float y = p.y - (noise ? float(noise - 1) : 0);
     if (y < 0) {
-        uint h = uint(p.x) * 1973u + uint(p.y) * 9277u + frame * 26699u;
+        uint seed = (cutSeed != 0 && y < -float(freshRows)) ? cutSeed : frame;
+        uint h = uint(p.x) * 1973u + uint(p.y) * 9277u + seed * 26699u;
         h = (h ^ (h >> 13)) * 1274126177u;
         h ^= h >> 16;
         return float4(float3(h & 255, (h >> 8) & 255, (h >> 16) & 255) / 255.0, 1);
@@ -291,7 +342,7 @@ float4 picture(float4 p : SV_Position) : SV_Target {
     pub fn run() -> Result<()> {
         let mut args = std::env::args().skip(1);
         let display_name = args.next().context(
-            "usage: motion_probe DISPLAY SECONDS [REPORT.json [ANIMATION_HZ|current|SCRIPT [STRIP_HEIGHT [noise]]]]",
+            "usage: motion_probe DISPLAY SECONDS [REPORT.json [ANIMATION_HZ|current|SCRIPT [STRIP_HEIGHT [noise|cuts:MS[:FRESH_ROWS]]]]]",
         )?;
         let seconds: u64 = args.next().context("duration is required")?.parse()?;
         let report = args.next();
@@ -303,11 +354,20 @@ float4 picture(float4 p : SV_Position) : SV_Target {
         let animation_hz = animation.as_ref().and_then(|a| a.fixed_hz());
         let strip_height: Option<u32> = args.next().map(|s| s.parse()).transpose()?;
         // Per-pixel noise above the bottom 128 rows, new every frame: a
-        // high-bitrate picture for encoder and network tests.
-        let noise = match args.next().as_deref() {
+        // high-bitrate picture for encoder and network tests. With cuts, the
+        // noise is new only every MS milliseconds (a scene cut the encoder
+        // can't predict) and FRESH_ROWS above the band change every frame.
+        let noise_text = args.next();
+        let cuts = noise_text
+            .as_deref()
+            .and_then(|text| text.strip_prefix("cuts:"))
+            .map(crate::schedule::Cuts::parse)
+            .transpose()?;
+        let noise = match noise_text.as_deref() {
             None => false,
             Some("noise") => true,
-            Some(other) => bail!("unknown option {other}; expected noise"),
+            Some(_) if cuts.is_some() => true,
+            Some(other) => bail!("unknown option {other}; expected noise or cuts:MS[:FRESH_ROWS]"),
         };
         if !(1..=3600).contains(&seconds) || args.next().is_some() {
             bail!("duration must be 1..3600 seconds");
@@ -430,7 +490,7 @@ float4 picture(float4 p : SV_Position) : SV_Target {
             let mut constants = None;
             device.CreateBuffer(
                 &D3D11_BUFFER_DESC {
-                    ByteWidth: 16,
+                    ByteWidth: 32,
                     Usage: D3D11_USAGE_DEFAULT,
                     BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
                     ..Default::default()
@@ -509,6 +569,10 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                     ticks as u32,
                     (ticks as u64 >> 32) as u32,
                     if noise { window_height - 127 } else { 0 },
+                    cuts.as_ref().map_or(0, |c| c.seed(start.elapsed())),
+                    cuts.as_ref().map_or(0, |c| c.fresh_rows),
+                    0,
+                    0,
                 ];
                 context.UpdateSubresource(&constants, 0, None, values.as_ptr().cast(), 0, 0);
                 context.OMSetRenderTargets(Some(&[target.clone()]), None);
@@ -552,6 +616,8 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                 "display":display,"animation_hz":animation_hz,"animation":animation_text,
                 "display_refresh_hz":source_mode.dmDisplayFrequency,"seconds":start.elapsed().as_secs_f64(),
                 "window_height":window_height,"window_y":window_y,
+                "cut_ms":cuts.as_ref().map(|c| c.every.as_millis() as u64),
+                "fresh_rows":cuts.as_ref().map(|c| c.fresh_rows),
                 "qpc_frequency":frequency,"presented_frames":frames.len(),"frames":frames
             });
             if let Some(path) = report {

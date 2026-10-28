@@ -286,6 +286,17 @@ pub fn recovery_frame_cap(
     (budget.floor() as u64).clamp(minimum, maximum)
 }
 
+/// [`recovery_frame_cap`]'s `cap` held to `fec_whole`, the largest frame that
+/// keeps its full parity within Moonlight's four FEC blocks
+/// ([`crate::packet::VideoPacketizer::fec_whole_payload_limit`]). A larger
+/// recovery keyframe leaves with less parity or none, so one lost packet on a
+/// clean route costs it, and losing it again latches the slow pace. The cap
+/// stays at least two nominal frames, `recovery_frame_cap`'s floor.
+pub fn fec_whole_frame_cap(cap: u64, fec_whole: usize, bitrate_kbps: u32, period: Duration) -> u64 {
+    let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
+    cap.min((fec_whole as u64).max(minimum))
+}
+
 /// Time spent in the send call or waking late that still counts toward the
 /// batch's interval. It covers a typical 64 KB send (about 0.2 ms) plus timer
 /// lateness; a longer stall or idle gap earns no more than this.
@@ -426,6 +437,38 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn the_fec_whole_cap_keeps_recovery_frames_within_full_parity_above_two_frames() {
+        let period = Duration::from_secs_f64(1. / 60.);
+        let packetizer = crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let whole = packetizer.fec_whole_payload_limit();
+        // 200 Mbps at 60 fps on an 800 Mbps route: about 2.4 MB, no parity.
+        let cap = recovery_frame_cap(800_000_000, 200_000, period, 20, 1392, false);
+        assert!(packetizer.fec_limited(cap as usize));
+        let held = fec_whole_frame_cap(cap, whole, 200_000, period);
+        assert_eq!(held, whole as u64);
+        assert!(!packetizer.fec_limited(held as usize));
+        // A cap already within full parity is left as it is.
+        let slow = recovery_frame_cap(100_000_000, 200_000, period, 20, 1392, false);
+        assert_eq!(fec_whole_frame_cap(slow, whole, 200_000, period), slow);
+        // Never below two nominal frames: 400 Mbps keeps 1.67 MB.
+        let fast = recovery_frame_cap(800_000_000, 400_000, period, 20, 1392, false);
+        let floor = fec_whole_frame_cap(fast, whole, 400_000, period);
+        assert_eq!(
+            floor,
+            (400_000. * 125. * period.as_secs_f64() * 2.).ceil() as u64
+        );
+        assert!(floor > whole as u64 && floor <= fast);
+    }
+
     #[test]
     fn conventional_wire_budget_includes_framing_encryption_and_fec_rounding() {
         for ipv6 in [false, true] {

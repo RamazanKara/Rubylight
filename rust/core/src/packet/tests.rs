@@ -18,6 +18,30 @@ fn large_conventional_frames_report_the_wire_fec_cutoff() {
         assert!(per_block + parity <= 255 || percentage == 0, "{shards}");
     }
 }
+
+#[test]
+fn the_fec_whole_payload_limit_is_the_largest_frame_with_full_parity() {
+    let mut packetizer = super::VideoPacketizer {
+        sequence: 0,
+        iv_counter: 0,
+        frame: 1,
+        packet_size: 1392,
+        fec_percent: 20,
+        min_fec: 2,
+        key: Some([0; 16]),
+    };
+    // 848 shards of 1376 bytes, less the 8-byte frame header: about 1.17 MB.
+    let limit = packetizer.fec_whole_payload_limit();
+    assert_eq!(limit, 848 * 1376 - 8);
+    assert!(!packetizer.fec_limited(limit));
+    assert!(packetizer.fec_limited(limit + 1));
+    // Less parity fits more data; none fits all four full blocks.
+    packetizer.fec_percent = 10;
+    assert!(packetizer.fec_whole_payload_limit() > limit);
+    assert!(!packetizer.fec_limited(packetizer.fec_whole_payload_limit()));
+    packetizer.fec_percent = 0;
+    assert_eq!(packetizer.fec_whole_payload_limit(), 1020 * 1376 - 8);
+}
 use super::*;
 
 #[test]

@@ -34,6 +34,11 @@ pub const FRAME_P010: c_int = 1;
 pub const FRAME_YUV420P: c_int = 2;
 pub const FRAME_D3D11: c_int = 3;
 pub const FRAME_WAVELET: c_int = 5;
+/// Software-decoded planar pictures: 8-bit 4:4:4, and 10-bit 4:2:0 and 4:4:4 with the samples in
+/// the low bits of each 16-bit word. The presenter has no path for them yet and refuses them by name.
+pub const FRAME_YUV444P: c_int = 6;
+pub const FRAME_YUV420P10: c_int = 7;
+pub const FRAME_YUV444P10: c_int = 8;
 
 extern "C" {
     fn opus_multistream_decoder_create(
@@ -391,14 +396,22 @@ impl Frame {
                 AV_PIX_FMT_NV12 => (FRAME_NV12, 0),
                 AV_PIX_FMT_P010LE => (FRAME_P010, 1),
                 AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => (FRAME_YUV420P, 0),
+                AV_PIX_FMT_YUV444P | AV_PIX_FMT_YUVJ444P => (FRAME_YUV444P, 0),
+                AV_PIX_FMT_YUV420P10LE => (FRAME_YUV420P10, 1),
+                AV_PIX_FMT_YUV444P10LE => (FRAME_YUV444P10, 1),
                 AV_PIX_FMT_D3D11 => {
-                    let depth = if frame.hw_frames_ctx.is_null() {
-                        false
+                    let sw_format = if frame.hw_frames_ctx.is_null() {
+                        AV_PIX_FMT_NV12
                     } else {
                         (*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>())).sw_format
-                            == AV_PIX_FMT_P010LE
                     };
-                    (FRAME_D3D11, i32::from(depth))
+                    // Only NV12 and P010 surfaces copy into the presenter's textures; a 4:4:4
+                    // surface (AYUV, Y410) is a picture nothing here can show.
+                    match sw_format {
+                        AV_PIX_FMT_NV12 => (FRAME_D3D11, 0),
+                        AV_PIX_FMT_P010LE => (FRAME_D3D11, 1),
+                        _ => (4, 0),
+                    }
                 }
                 _ => (4, 0),
             } };
@@ -661,6 +674,40 @@ mod tests {
                 assert_eq!(info.kind, FRAME_YUV420P);
             }
             assert!(matches!(decoder.receive(), Received::None));
+        }
+    }
+
+    #[test]
+    fn software_decodes_444_fixtures_with_full_chroma_and_10_bit_as_planar_kinds() {
+        let source = include_bytes!("../tests/fixtures/yuv444-8.yuv");
+        for (codec, bytes) in [
+            (Codec::H264, include_bytes!("../tests/fixtures/h264-444-8.bin").as_slice()),
+            (Codec::Hevc, include_bytes!("../tests/fixtures/hevc-444-8.bin").as_slice()),
+            (Codec::Av1, include_bytes!("../tests/fixtures/av1-444-8.bin").as_slice()),
+        ] {
+            let mut decoder = VideoDecoder::open(codec, Hardware::None, 1, false).unwrap();
+            assert_eq!(decoder.send(bytes, 7), 0, "{codec:?}");
+            let Received::Frame(frame) = decoder.receive() else { panic!("{codec:?}: no decoded frame") };
+            let info = frame.info();
+            assert_eq!((info.kind, info.ten_bit, info.width, info.height), (FRAME_YUV444P, 0, 64, 64), "{codec:?}");
+            // The fixtures are lossless: every plane is the full-size source plane.
+            for plane in 0..3 {
+                for y in 0..64 {
+                    // SAFETY: a 64x64 4:4:4 picture's planes hold 64 bytes per row.
+                    let row = unsafe { std::slice::from_raw_parts(info.data[plane].add(y * info.linesize[plane] as usize), 64) };
+                    assert_eq!(row, &source[(plane * 64 + y) * 64..][..64], "{codec:?} plane {plane} row {y}");
+                }
+            }
+        }
+        for (codec, bytes) in [
+            (Codec::Hevc, include_bytes!("../../../app/src/main/assets/packed444/hevc-10.bin").as_slice()),
+            (Codec::Av1, include_bytes!("../../../app/src/main/assets/packed444/av1-10.bin").as_slice()),
+        ] {
+            let mut decoder = VideoDecoder::open(codec, Hardware::None, 1, false).unwrap();
+            assert_eq!(decoder.send(bytes, 7), 0);
+            let Received::Frame(frame) = decoder.receive() else { panic!("{codec:?}: no decoded frame") };
+            let info = frame.info();
+            assert_eq!((info.kind, info.ten_bit), (FRAME_YUV420P10, 1), "{codec:?} Main10 in software");
         }
     }
 

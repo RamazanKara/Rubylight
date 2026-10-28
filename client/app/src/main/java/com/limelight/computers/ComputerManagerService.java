@@ -6,6 +6,7 @@ import java.io.StringReader;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -75,6 +76,8 @@ public class ComputerManagerService extends Service {
     // Its HTTPS requests, off the polling threads and their network locks.
     private ExecutorService wakeRequests;
     private final LinkedList<PollingTuple> pollingTuples = new LinkedList<>();
+    // Orders a poll's save of a PC against removeComputer's delete (see runPoll).
+    private final Object removalLock = new Object();
     private volatile ComputerManagerListener listener;
     private final AtomicInteger activePolls = new AtomicInteger(0);
     private volatile boolean pollingActive;
@@ -164,10 +167,11 @@ public class ComputerManagerService extends Service {
                 }
             }
 
-            // removeComputer drops the tuple under this lock before it deletes the PC, so a PC removed while
-            // it was polled is neither saved again nor shown, and its wake targets are not asked for again.
-            synchronized (pollingTuples) {
-                if (!newPc && !pollingTuples.contains(tuple)) {
+            // removeComputer marks the tuple removed before it deletes the PC under this lock, so a PC removed
+            // while it was polled is neither saved again nor shown, and its wake targets are not asked for again.
+            // Not pollingTuples: the poll holds the tuple's network lock, which invalidateStateForComputer takes.
+            synchronized (removalLock) {
+                if (!newPc && tuple.removed) {
                     return false;
                 }
 
@@ -353,15 +357,20 @@ public class ComputerManagerService extends Service {
         }
 
         public void invalidateStateForComputer(String uuid) {
+            // Not under pollingTuples: a poll holds the network lock for its whole run.
+            List<PollingTuple> matching = new ArrayList<>();
             synchronized (pollingTuples) {
                 for (PollingTuple tuple : pollingTuples) {
                     if (uuid.equals(tuple.computer.uuid)) {
-                        // We need the network lock to prevent a concurrent poll
-                        // from wiping this change out
-                        synchronized (tuple.networkLock) {
-                            tuple.computer.state = ComputerDetails.State.UNKNOWN;
-                        }
+                        matching.add(tuple);
                     }
+                }
+            }
+            for (PollingTuple tuple : matching) {
+                // We need the network lock to prevent a concurrent poll
+                // from wiping this change out
+                synchronized (tuple.networkLock) {
+                    tuple.computer.state = ComputerDetails.State.UNKNOWN;
                 }
             }
         }
@@ -575,6 +584,7 @@ public class ComputerManagerService extends Service {
             synchronized (pollingTuples) {
                 for (PollingTuple tuple : pollingTuples) {
                     if (tuple.computer.uuid.equals(computer.uuid)) {
+                        tuple.removed = true;
                         if (tuple.thread != null) {
                             // Interrupt the thread on this entry
                             tuple.thread.interrupt();
@@ -586,16 +596,19 @@ public class ComputerManagerService extends Service {
                 }
             }
 
-            // Remove it from the database
-            dbManager.deleteComputer(computer);
-            // Before its stored targets go, so an ask still in flight can't store them again.
-            wakeTargets.forget(computer.uuid);
-            HostStreamProfile.reset(this, computer.uuid);
-            HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
-            HostCapabilityCache.forget(this, computer.uuid);
-            com.limelight.nativeapi.ConsoleRepository.forgetHost(this, computer.uuid);
-            HostNotices.forget(this, computer.uuid);
-            HostNames.forget(this, computer.uuid);
+            // Under the lock a poll saves under, after the tuple is marked (see runPoll).
+            synchronized (removalLock) {
+                // Remove it from the database
+                dbManager.deleteComputer(computer);
+                // Before its stored targets go, so an ask still in flight can't store them again.
+                wakeTargets.forget(computer.uuid);
+                HostStreamProfile.reset(this, computer.uuid);
+                HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
+                HostCapabilityCache.forget(this, computer.uuid);
+                com.limelight.nativeapi.ConsoleRepository.forgetHost(this, computer.uuid);
+                HostNotices.forget(this, computer.uuid);
+                HostNames.forget(this, computer.uuid);
+            }
             com.limelight.preferences.AppQuitOnLeave.forget(this, computer.uuid);
             com.limelight.preferences.AppStreamSettings.forget(this, computer.uuid);
             com.limelight.preferences.AutoBitrateChoice.forget(this, computer.uuid);
@@ -1100,6 +1113,8 @@ class PollingTuple {
     public final ComputerDetails computer;
     public final Object networkLock;
     public long lastSuccessfulPollMs;
+    /** Set by removeComputer before it deletes the PC: a poll still running saves and shows nothing. */
+    public volatile boolean removed;
 
     public PollingTuple(ComputerDetails computer, Thread thread) {
         this.computer = computer;

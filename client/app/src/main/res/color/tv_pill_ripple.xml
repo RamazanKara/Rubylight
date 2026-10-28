@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV pill's state layer: a press still flashes, but focus leaves the amber as it is; the ring (tv_pill_ring) shows
+     focus, and a darkened pill read as disabled on a TV. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:alpha="0.16" android:color="?attr/colorOnPrimary" />
+    <item android:color="@android:color/transparent" />
+</selector>

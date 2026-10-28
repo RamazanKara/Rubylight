@@ -1,7 +1,9 @@
 package com.limelight.ui;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -297,6 +299,51 @@ public class FocusVisibilityTest {
             sheet.show();
             assertEveryStopShowsFocus("action sheet", sheet.getWindow().getDecorView());
             sheet.dismiss();
+        }
+    }
+
+    /**
+     * TV run on a TCL C6K: the focused Add PC pill only darkened. It takes an amber ring outside the pill, as a PC tile
+     * does, and the pill keeps its 56dp height and its amber. A phone's Add PC is unchanged.
+     */
+    @Test @Config(qualifiers = "television")
+    public void addPcShowsAnAmberRingOutsideItsPillOnTelevision() {
+        try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
+            ViewGroup content = screen.get().findViewById(android.R.id.content);
+            View pcs = LayoutInflater.from(screen.get()).inflate(R.layout.activity_pc_view, content, false);
+            content.addView(pcs);
+            View add = pcs.findViewById(R.id.manuallyAddPc);
+            add.setVisibility(View.VISIBLE);
+            size(add);
+            float density = add.getResources().getDisplayMetrics().density;
+            assertEquals("the pill stays 56dp inside the ring's room", Math.round(66 * density), add.getHeight());
+            assertNull(focusProblem(add));
+            int amber = com.google.android.material.color.MaterialColors.getColor(add,
+                    androidx.appcompat.R.attr.colorPrimary);
+            Bitmap focused = draw(add);
+            int x = add.getWidth() / 2;
+            int ringY = Math.round(2.5f * density);
+            int pillY = Math.round(10 * density);
+            assertEquals("the ring is amber", amber, focused.getPixel(x, ringY));
+            assertTrue("focus leaves the pill amber, not darkened",
+                    ColorUtils.calculateContrast(ColorUtils.compositeColors(focused.getPixel(x, pillY), Color.BLACK), amber) < 1.1);
+            add.clearFocus();
+            settle(add);
+            assertEquals("no ring without focus", 0, Color.alpha(draw(add).getPixel(x, ringY)));
+        }
+    }
+
+    @Test
+    public void addPcOnAPhoneKeepsItsPillSize() {
+        try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
+            ViewGroup content = screen.get().findViewById(android.R.id.content);
+            View pcs = LayoutInflater.from(screen.get()).inflate(R.layout.activity_pc_view, content, false);
+            content.addView(pcs);
+            View add = pcs.findViewById(R.id.manuallyAddPc);
+            add.setVisibility(View.VISIBLE);
+            size(add);
+            assertEquals(Math.round(56 * add.getResources().getDisplayMetrics().density), add.getHeight());
+            assertNull(add.getForeground());
         }
     }
 

@@ -36,6 +36,8 @@
     <dimen name="icon_size">24dp</dimen>
     <!-- Bottom padding that keeps a list's last row clear of an extended FAB and its margin. -->
     <dimen name="fab_clearance">96dp</dimen>
+    <!-- An extended FAB's height; on a TV it adds 5dp a side for the focus ring around the pill (values-television). -->
+    <dimen name="extended_fab_min_height">56dp</dimen>
     <!-- The top app bar's own start/end padding; its 48dp icon buttons then line up with the gutter. -->
     <dimen name="top_app_bar_padding">4dp</dimen>
     <dimen name="top_app_bar_height">@dimen/space_4xl</dimen>

@@ -1,12 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- On TV, Add PC is an amber pill under the PC tiles, as the console's other primary actions are. -->
     <style name="Widget.Nightjar.ExtendedFab" parent="Widget.Material3.ExtendedFloatingActionButton.Icon.Primary">
         <item name="backgroundTint">?attr/colorPrimary</item>
         <item name="android:textColor">?attr/colorOnPrimary</item>
         <item name="iconTint">?attr/colorOnPrimary</item>
-        <item name="rippleColor">?attr/colorOnPrimary</item>
+        <item name="rippleColor">@color/tv_pill_ripple</item>
         <item name="shapeAppearanceOverlay">@style/ShapeAppearance.Nightjar.TvPill</item>
+        <!-- Focus is an amber ring outside the pill, as on a PC tile (TV run: the focused pill only darkened and read
+             as disabled). The pill sits 5dp inside the view, which grows by as much (extended_fab_min_height). -->
+        <item name="android:minHeight">@dimen/extended_fab_min_height</item>
+        <item name="android:insetLeft">5dp</item>
+        <item name="android:insetRight">5dp</item>
+        <item name="android:insetTop">5dp</item>
+        <item name="android:insetBottom">5dp</item>
+        <item name="android:paddingStart">21dp</item>
+        <item name="android:paddingLeft">21dp</item>
+        <item name="android:paddingEnd">25dp</item>
+        <item name="android:paddingRight">25dp</item>
+        <item name="android:foreground" tools:targetApi="m">@drawable/tv_pill_ring</item>
     </style>
     <style name="ShapeAppearance.Nightjar.TvPill" parent="">
         <item name="cornerFamily">rounded</item>

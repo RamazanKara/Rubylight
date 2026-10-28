@@ -798,7 +798,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         fec: Some(settings.error_correction.into()),
         small_stream_input_only: plan.small_stream_input_only,
         // The host lists 0x553C in DESCRIBE only when asked.
-        rate_change: role == AppRole::Stream,
+        rate_change: rate_change::asked_at_launch(role),
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -2114,6 +2114,11 @@ impl Streaming {
             }
         }
         if let Some(toast) = answer.toast { self.show_toast(toast); }
+    }
+
+    /// Which bitrate and rate controls the stream menu shows.
+    pub fn menu_controls(&self) -> rate_change::MenuControls {
+        rate_change::menu_controls(self.facts.runtime_bitrate, self.facts.reconfigure, self.rate_change.is_some())
     }
 
     /// The client-hint controller steers this stream's bitrate in place of the PC's adaptive

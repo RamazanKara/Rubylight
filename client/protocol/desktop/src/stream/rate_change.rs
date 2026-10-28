@@ -15,10 +15,38 @@ pub const TICK_MS: u64 = 1000;
 /// A request the host has not answered in this long is given up on, loudly.
 pub const ANSWER_MS: u64 = 5000;
 
+/// Whether the launch asks for rate changes (`rlRateChange=1`): full streams only.
+pub fn asked_at_launch(role: AppRole) -> bool {
+    role == AppRole::Stream
+}
+
 /// Whether the stream takes rate changes: the host listed 0x553C, which it does only for a
 /// launch with `rlRateChange=1`, and the stream is a full one.
 pub fn offered(host_control_messages: &[u16], role: AppRole) -> bool {
-    role == AppRole::Stream && host_control_messages.contains(&RATE_CHANGE_MESSAGE_TYPE)
+    asked_at_launch(role) && host_control_messages.contains(&RATE_CHANGE_MESSAGE_TYPE)
+}
+
+/// The stream menu's bitrate and rate controls. On a stream that takes 0x553C, "Change bitrate /
+/// frame rate" replaces the HTTP bitrate row and the size editor's frame rate, so each shows once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuControls {
+    /// "Change bitrate / frame rate".
+    pub rate_change: bool,
+    /// The bitrate field and "Apply bitrate" over HTTP.
+    pub http_bitrate: bool,
+    /// The 0x5532 size editor.
+    pub size_editor: bool,
+    /// The size editor's frame rate field.
+    pub size_editor_fps: bool,
+}
+
+pub fn menu_controls(runtime_bitrate: bool, reconfigure: bool, rate_change: bool) -> MenuControls {
+    MenuControls {
+        rate_change,
+        http_bitrate: runtime_bitrate && !rate_change,
+        size_editor: reconfigure,
+        size_editor_fps: reconfigure && !rate_change,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,6 +297,31 @@ mod tests {
         assert!(!offered(&[], AppRole::Stream));
         assert!(!offered(&[0x553C], AppRole::InputOnly));
         assert!(!offered(&[0x553C], AppRole::RemoteMonitor));
+    }
+
+    #[test]
+    fn a_full_stream_asks_for_rate_changes_at_launch_and_no_other_does() {
+        use nightjar_core::http::{HostCapabilities, LaunchRequest};
+        for (role, asked) in [(AppRole::Stream, true), (AppRole::RemoteMonitor, false), (AppRole::InputOnly, false)] {
+            let request = LaunchRequest { role, rate_change: asked_at_launch(role), ..LaunchRequest::default() };
+            assert_eq!(request.query(&HostCapabilities::UNKNOWN, false).contains("&rlRateChange=1"), asked, "{role:?}");
+        }
+    }
+
+    #[test]
+    fn the_rate_change_entry_replaces_the_other_bitrate_and_rate_controls() {
+        // A PC with 0x553C: one bitrate and one rate control; the size editor keeps the size.
+        assert_eq!(menu_controls(true, true, true),
+            MenuControls { rate_change: true, http_bitrate: false, size_editor: true, size_editor_fps: false });
+        assert_eq!(menu_controls(false, false, true),
+            MenuControls { rate_change: true, http_bitrate: false, size_editor: false, size_editor_fps: false });
+        // A PC without it keeps the older controls.
+        assert_eq!(menu_controls(true, true, false),
+            MenuControls { rate_change: false, http_bitrate: true, size_editor: true, size_editor_fps: true });
+        assert_eq!(menu_controls(true, false, false),
+            MenuControls { rate_change: false, http_bitrate: true, size_editor: false, size_editor_fps: false });
+        assert_eq!(menu_controls(false, false, false),
+            MenuControls { rate_change: false, http_bitrate: false, size_editor: false, size_editor_fps: false });
     }
 
     #[test]

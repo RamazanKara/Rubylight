@@ -1,6 +1,6 @@
 //! Virtual Steam Deck controller attachment and rumble.
-use super::usbip_pad::UsbPad;
 pub(super) use super::usbip_pad::usbip_exe;
+use super::{gamepads::Slot, usbip_pad::UsbPad};
 use anyhow::Result;
 use butterpollo_core::{
     input::Input as Event,
@@ -20,12 +20,20 @@ pub(super) fn steam_running() -> bool {
 pub(super) struct DeckPad {
     usb: UsbPad<SteamDeck>,
     last_rumble: Option<(u16, u16)>,
+    // Field order keeps the slot reserved until USB detach has completed.
+    _slot: Slot,
+}
+/// The Deck's USB serial, unique on the host: Windows and Steam Input tell
+/// two Decks apart by it, and every client numbers its controllers from 0.
+fn serial(slot: &Slot) -> String {
+    format!("BUTTERPOLLO{}", slot.id())
 }
 impl DeckPad {
-    pub(super) fn plug(exe: &Path, serial: &str) -> Result<Self> {
+    pub(super) fn plug(exe: &Path, slot: Slot) -> Result<Self> {
         Ok(Self {
-            usb: UsbPad::plug(exe, SteamDeck::new(serial), REPORT_PERIOD)?,
+            usb: UsbPad::plug(exe, SteamDeck::new(&serial(&slot)), REPORT_PERIOD)?,
             last_rumble: None,
+            _slot: slot,
         })
     }
     pub(super) fn port(&self) -> u32 {
@@ -50,5 +58,17 @@ impl DeckPad {
         data.extend_from_slice(&rumble.1.to_le_bytes());
         data.extend_from_slice(&[0; 4]);
         Some((4, data))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_clients_controller_0_decks_get_different_serials() {
+        let (first, second) = (Slot::reserve().unwrap(), Slot::reserve().unwrap());
+        assert_ne!(serial(&first), serial(&second));
+        assert_eq!(serial(&first), format!("BUTTERPOLLO{}", first.id()));
     }
 }

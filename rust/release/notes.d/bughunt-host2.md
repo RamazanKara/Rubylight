@@ -9,3 +9,6 @@
 - Image clipboard requests take turns, so several at once can no longer add up to gigabytes of memory; a device's second one while its first still runs gets 429.
 - With clipboard sync, a device that copies faster than the PC's clipboard takes the copies no longer piles them up in memory: only its newest copy waits.
 - A client whose virtual display fell back to WGC capture after two failed frame-ring starts gets the frame ring again once its display is recreated or the driver restarts, instead of only after a host restart.
+- A virtual controller that will not unplug when its stream ends is logged, and its slot is kept and freed once it does unplug, so the next client's controller is not plugged over it.
+- Two clients streaming with Steam Deck controllers at once get Decks with different USB serials, so Windows and Steam Input no longer mix them up.
+- When the gamepad driver refuses to plug a controller, the warning and log give the driver's error instead of "no free virtual controller slots".

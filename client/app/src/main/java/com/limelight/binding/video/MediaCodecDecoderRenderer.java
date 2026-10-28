@@ -4090,10 +4090,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 int presented = vulkan.takePresentedFrames();
                 activeWindowVideoStats.totalFramesRendered += presented;
                 long windowMs = SystemClock.uptimeMillis() - activeWindowVideoStats.measurementStartTimestamp;
-                if (vulkanPace.window(activeWindowVideoStats.totalFramesReceived, presented, windowMs)) {
+                if (vulkanPace.window(activeWindowVideoStats.totalFramesReceived, presented, windowMs,
+                        outputDisplay.getRefreshRate())) {
                     LimeLog.warning("Render through Vulkan presents " + presented + " of " +
                             activeWindowVideoStats.totalFramesReceived + " frames received in " + windowMs +
-                            " ms, under " + Math.round(VulkanPaceCheck.MIN_SHARE * 100) + "% for " +
+                            " ms at " + Math.round(outputDisplay.getRefreshRate()) + " Hz, under " +
+                            Math.round(VulkanPaceCheck.MIN_SHARE * 100) + "% for " +
                             VulkanPaceCheck.BEHIND_MS / 1000 + " s");
                     vulkanBehind = true;
                 }

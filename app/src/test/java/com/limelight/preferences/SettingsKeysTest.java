@@ -244,6 +244,7 @@ public class SettingsKeysTest {
         reads.put("adaptive_quality_min_resolution", new Read("720", "360", c -> c.qualityMinShortEdge));
         reads.put("adaptive_quality_min_fps", new Read("30", "60", c -> c.qualityMinFps));
         reads.put("checkbox_auto_bitrate", new Read(false, true, c -> c.autoBitrate));
+        reads.put("checkbox_rate_change_bitrate", new Read(false, true, c -> c.rateChangeBitrate));
         reads.put("checkbox_enable_hdr", new Read(false, true, c -> c.enableHdr));
         reads.put("checkbox_enable_sdr_10bit", new Read(false, true, c -> c.enableSdr10Bit));
         reads.put("checkbox_vrr", new Read(false, true, c -> c.vrr));

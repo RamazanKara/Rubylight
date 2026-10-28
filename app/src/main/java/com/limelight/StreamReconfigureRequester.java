@@ -61,6 +61,11 @@ final class StreamReconfigureRequester {
         baseline = request.clone();
     }
 
+    // A 0x553C rate change switched the stream to this rate; the size stays.
+    void rateChanged(int fpsMillihz) {
+        this.fpsMillihz = fpsMillihz;
+    }
+
     int width() {
         return width;
     }

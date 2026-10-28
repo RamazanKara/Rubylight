@@ -388,8 +388,36 @@ public class StreamMenuTest {
             options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));
+            options.rateChange = true;
+            reachable.addAll(items(StreamMenu.mainPage(options)));
         }
         assertEquals(EnumSet.allOf(StreamMenu.Item.class), reachable);
+    }
+
+    @Test
+    public void rateChangesReplaceTheBitrateRowWhenTheHostOffersThem() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        options.rateChange = true;
+        assertEquals(Arrays.asList(RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE),
+                sections(StreamMenu.mainPage(options)).get(StreamMenu.Section.QUALITY));
+
+        // A host without the bitrate endpoint still gets automatic bitrate when it runs on this device.
+        StreamMenu.Options plain = options("sunshine-serverinfo.xml", NvApp.Role.STREAM);
+        plain.rateChange = true;
+        assertFalse(items(StreamMenu.mainPage(plain)).contains(AUTOMATIC_BITRATE));
+        plain.rateChangeBitrate = true;
+        List<StreamMenu.Item> items = items(StreamMenu.mainPage(plain));
+        assertTrue(items.contains(RATE_CHANGE));
+        assertTrue(items.contains(AUTOMATIC_BITRATE));
+        assertFalse(items.contains(BITRATE));
+
+        // Only the stream that sends video changes its rates.
+        for (NvApp.Role role : NvApp.Role.values()) {
+            if (role == NvApp.Role.STREAM) continue;
+            StreamMenu.Options other = options("rubylight-serverinfo.xml", role);
+            other.rateChange = true;
+            assertFalse(role.name(), items(StreamMenu.mainPage(other)).contains(RATE_CHANGE));
+        }
     }
 
     @Test

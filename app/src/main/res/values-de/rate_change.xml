@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_rate_change">Bitrate / Bildrate ändern</string>
+    <string name="stream_rate_change_help">Der Host ändert den laufenden Stream. Ein unveränderter Wert bleibt.</string>
+    <string name="stream_rate_change_fps">Bildrate (fps)</string>
+    <string name="stream_rate_change_fps_invalid">Gib eine Bildrate von 10 bis 500 fps ein</string>
+    <string name="stream_rate_change_nothing">Ändere zuerst die Bitrate oder die Bildrate</string>
+    <string name="stream_rate_change_not_sent">Die Änderung konnte nicht an den Host gesendet werden.</string>
+    <string name="stream_rate_change_bitrate_applied">Bitrate: %1$.1f Mbit/s</string>
+    <string name="stream_rate_change_bitrate_clamped">Bitrate: %1$.1f Mbit/s, niedriger als gewünscht. %2$s</string>
+    <string name="stream_rate_change_bitrate_refused">Bitrate nicht geändert, weiter %1$.1f Mbit/s. %2$s</string>
+    <string name="stream_rate_change_fps_applied">Bildrate: %1$s fps</string>
+    <string name="stream_rate_change_fps_clamped">Bildrate: %1$s fps, niedriger als gewünscht. %2$s</string>
+    <string name="stream_rate_change_fps_refused">Bildrate nicht geändert, weiter %1$s fps. %2$s</string>
+    <string name="stream_rate_change_reason_invalid">Der Host hat den Wert nicht angenommen.</string>
+    <string name="stream_rate_change_reason_disabled">Der Host hat solche Änderungen ausgeschaltet.</string>
+    <string name="stream_rate_change_reason_codec">Das Videoformat dieses Streams kann das während des Streams nicht ändern.</string>
+    <string name="stream_rate_change_reason_host_limit">Mehr erlaubt der Host oder dieses Gerät nicht.</string>
+    <string name="stream_rate_change_reason_encoder_limit">Mehr schafft der Encoder des Hosts bei dieser Auflösung nicht.</string>
+    <string name="stream_rate_change_reason_encoder_failed">Der Encoder des Hosts lief damit nicht, daher blieb der Stream, wie er war.</string>
+    <string name="stream_rate_change_reason_superseded">Eine neuere Änderung hat sie ersetzt.</string>
+    <string name="stream_rate_change_reason_other">Der Host konnte sie nicht anwenden.</string>
+    <string name="stream_rate_change_auto_stopped">Automatische Bitrate für diesen Stream beendet: Der Host hat eine Änderung abgelehnt. %1$s</string>
+    <string name="stream_rate_change_auto_not_sent">Automatische Bitrate für diesen Stream beendet: Eine Änderung konnte nicht an den Host gesendet werden.</string>
+    <string name="title_rate_change_bitrate">Automatische Bitrate auf diesem Gerät</string>
+    <string name="summary_rate_change_bitrate">Nightjar beobachtet Bildverluste und Netzwerkverzögerung und bittet den Host um eine niedrigere oder höhere Bitrate, anstelle der automatischen Bitrate. Braucht die Rust-Engine und einen Host, der Bitrate-Änderungen anbietet; andere Streams behalten die automatische Bitrate.</string>
+</resources>

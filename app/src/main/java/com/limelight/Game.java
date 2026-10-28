@@ -51,6 +51,7 @@ import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.AdaptiveQualityController;
 import com.limelight.nvstream.PyroWaveBitrateController;
 import com.limelight.nvstream.PyroWaveBitrateFloor;
+import com.limelight.nvstream.RateChangeResult;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ClipboardImageException;
@@ -152,6 +153,7 @@ import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.InputMethodSubtype;
 import android.widget.TextView;
@@ -327,6 +329,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
     private com.limelight.utils.WifiDiagnostics wifiDiagnostics;
     private int healthOriginalBitrate, healthTrialBitrate;
+    // 0x553C rate changes, for a Rust stream whose host offered them; null otherwise.
+    private StreamRateChanges rateChanges;
+    // Automatic bitrate on this device: one client-hint sample a second, as a 0x553C request.
+    private final Runnable updateRateChangeBitrate = new Runnable() {
+        @Override public void run() {
+            if (!connected || rateChanges == null || !rateChanges.automaticOn() || decoderRenderer == null) return;
+            long now = SystemClock.uptimeMillis();
+            if (!hostActionInProgress && streamMenu == null && !rateChanges.sampleAutomatic(now,
+                    decoderRenderer.hasRecentVideoFrames(now), decoderRenderer.getNetworkFrameLossPercent(),
+                    decoderRenderer.getQueueDelayMs())) {
+                LimeLog.warning("Automatic bitrate: a rate change could not be sent; off for this stream");
+                messages.alert(R.string.stream_rate_change_auto_not_sent, Toast.LENGTH_LONG);
+                return;
+            }
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
     private final Runnable sampleStreamHealth = new Runnable() {
         @Override public void run() {
             if (!connected || decoderRenderer == null || app.getRole() == NvApp.Role.INPUT_ONLY) return;
@@ -1403,6 +1422,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : prefConfig.bitrate)
                 .setProbeFirstBitrate(!smallStream && prefConfig.probesFirstBitrate())
                 .setFecChoice(prefConfig.fecChoice)
+                .setRateChange(!smallStream && prefConfig.rustEngine)
                 .setEnableSops(!smallStream && prefConfig.enableSops)
                 .enableLocalAudioPlayback(smallStream || prefConfig.playHostAudio)
                 .setMaxPacketSize(1392)
@@ -2472,7 +2492,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Reconfigure: asking for " + request[0] + "x" + request[1] + " at " + request[2] / 1000f +
                 " fps (was " + reconfigureRequester.width() + "x" + reconfigureRequester.height() + " at " +
                 reconfigureRequester.fpsMillihz() / 1000f + " fps)");
-        int fps = Math.round(request[2] / 1000f);
         if (!decoderRenderer.prepareForReconfigure(request[0], request[1])) {
             LimeLog.warning("Reconfigure: the decoder cannot switch to " + request[0] + "x" + request[1] +
                     "; the stream stays as it is");
@@ -2489,14 +2508,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean fpsChanged = request[2] != reconfigureRequester.fpsMillihz();
         reconfigureRequester.sent(request);
         decoderRenderer.resetDecodeTiming();
-        if (fpsChanged) {
-            streamFps = fps;
-            prefConfig.fps = fps;
-            decoderRenderer.setStreamFrameRateMilliHz(request[2]);
-            if (adaptiveBitrate != null) adaptiveBitrate.setFrameRate(fps);
-            refreshSurfaceFrameRateVote();
-        }
+        if (fpsChanged) setStreamFrameRate(request[2]);
         return true;
+    }
+
+    // The stream runs at this rate now: a reconfigure asked for it, or a 0x553C rate change ran.
+    private void setStreamFrameRate(int fpsMillihz) {
+        int fps = Math.round(fpsMillihz / 1000f);
+        streamFps = fps;
+        prefConfig.fps = fps;
+        decoderRenderer.setStreamFrameRateMilliHz(fpsMillihz);
+        if (adaptiveBitrate != null) adaptiveBitrate.setFrameRate(fps);
+        refreshSurfaceFrameRateVote();
     }
 
     // What this phone offers a stream that follows it, {width, height, fps in millihertz}, given
@@ -3008,7 +3031,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.pictureInPicture = canEnterPictureInPicture();
         options.externalDisplays = hasPresentationDisplays();
         options.automaticQuality = supportsAdaptiveQuality();
-        options.automaticBitrateOn = isAdaptiveBitrateEnabled();
+        options.automaticBitrateOn = isAdaptiveBitrateEnabled() || isRateChangeBitrateOn();
+        options.rateChange = rateChanges != null;
+        options.rateChangeBitrate = rateChanges != null && prefConfig.rateChangeBitrate;
         options.webUiAddress = hostWebUiUrl() != null;
         options.connection = connectionInfo();
         return options;
@@ -3052,6 +3077,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case PICTURE_IN_PICTURE: action = this::enterPictureInPictureNow; break;
             case VIDEO_OUTPUT: action = this::showVideoOutputDialog; break;
             case BITRATE: action = this::showBitrateDialog; break;
+            case RATE_CHANGE: action = this::showRateChangeDialog; break;
             case AUTOMATIC_QUALITY: action = this::showAdaptiveQualityDialog; break;
             case AUTOMATIC_BITRATE: action = this::toggleAdaptiveBitrateFromMenu; break;
             case SERVER_COMMANDS: action = () -> showServerCommands(details); break;
@@ -3139,6 +3165,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void toggleAdaptiveBitrateFromMenu() {
+        // Automatic bitrate on this device turns on and off for this stream only; the setting stays.
+        if (isRateChangeBitrateOn() || (!isAdaptiveBitrateEnabled() && rateChanges != null && prefConfig.rateChangeBitrate)) {
+            setRateChangeBitrateEnabled(!isRateChangeBitrateOn());
+            return;
+        }
         boolean enable = !isAdaptiveBitrateEnabled();
         if (!enable || !hostActionInProgress) {
             setAdaptiveBitrateEnabled(enable, true);
@@ -3319,7 +3350,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void applyHealthBitrate(boolean undo) {
-        if (!foreground || !connected || hostActionInProgress || isAdaptiveBitrateEnabled() ||
+        if (!foreground || !connected || hostActionInProgress || isAdaptiveBitrateEnabled() || isRateChangeBitrateOn() ||
                 adaptiveQuality != null || !supportsAdaptiveBitrate()) return;
         if (undo && (healthOriginalBitrate <= 0 || currentBitrate != healthTrialBitrate)) return;
         final int original = healthOriginalBitrate;
@@ -4594,6 +4625,199 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
     }
 
+    // Bitrate and frame rate in one 0x553C request; a field left as it is keeps its value.
+    private void showRateChangeDialog() {
+        if (rateChanges == null) return;
+        float density = getResources().getDisplayMetrics().density;
+        int padding = Math.round(24 * density);
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(padding, 0, padding, 0);
+        int bitrateKbps = currentBitrate == 0 ? prefConfig.bitrate : currentBitrate;
+        String bitrateText = BigDecimal.valueOf(bitrateKbps, 3).stripTrailingZeros().toPlainString();
+        com.google.android.material.textfield.TextInputLayout bitrateField = rateChangeField(
+                getString(R.string.stream_bitrate), bitrateText, density);
+        fields.addView(bitrateField);
+        // Automatic quality owns the frame rate while it runs.
+        int fpsMillihz = reconfigureRequester.fpsMillihz() > 0 ? reconfigureRequester.fpsMillihz() : streamFps * 1000;
+        String fpsText = BigDecimal.valueOf(fpsMillihz, 3).stripTrailingZeros().toPlainString();
+        com.google.android.material.textfield.TextInputLayout fpsField = adaptiveQuality != null ? null :
+                rateChangeField(getString(R.string.stream_rate_change_fps), fpsText, density);
+        if (fpsField != null) fields.addView(fpsField);
+        AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(R.string.stream_rate_change)
+                .setMessage(R.string.stream_rate_change_help).setView(fields)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, null).create();
+        showStreamDialog(dialog);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            bitrateField.setError(null);
+            if (fpsField != null) fpsField.setError(null);
+            int kbps = parseRateChange(bitrateField, bitrateText, 500, StreamConfiguration.MAX_BITRATE_KBPS,
+                    R.string.stream_bitrate_invalid);
+            int millihz = fpsField == null ? 0 : parseRateChange(fpsField, fpsText, 10_000, 500_000,
+                    R.string.stream_rate_change_fps_invalid);
+            if (kbps < 0 || millihz < 0) return;
+            if (kbps == 0 && millihz == 0) {
+                bitrateField.setError(getString(R.string.stream_rate_change_nothing));
+                return;
+            }
+            if (!foreground || !connected || rateChanges == null) return;
+            dialog.dismiss();
+            if (!rateChanges.sendManual(kbps, millihz)) {
+                LimeLog.warning("Rate change: request not sent");
+                messages.alert(R.string.stream_rate_change_not_sent, Toast.LENGTH_LONG);
+                return;
+            }
+            LimeLog.info("Rate change: asking for " + kbps + " kbps, " + millihz + " mHz");
+            if (kbps != 0) {
+                // As with the bitrate dialog, a bitrate set by hand stops the host-side automatic
+                // bitrate for this session; automatic bitrate on this device follows it instead.
+                setAdaptiveBitrateEnabled(false, false);
+                qualityAutoBitrate = false;
+                healthOriginalBitrate = healthTrialBitrate = 0;
+            }
+        });
+    }
+
+    private com.google.android.material.textfield.TextInputLayout rateChangeField(String hint, String text, float density) {
+        com.google.android.material.textfield.TextInputLayout field = new com.google.android.material.textfield.TextInputLayout(this);
+        field.setBoxBackgroundMode(com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        field.setHint(hint);
+        EditText input = new com.google.android.material.textfield.TextInputEditText(this);
+        input.setMinHeight(Math.round(48 * density));
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        input.setText(text);
+        field.addView(input);
+        return field;
+    }
+
+    // The field's value in thousandths (kbps from Mbps, mHz from fps); 0 when it is empty or as it
+    // was, -1 with the error shown when it is outside min-max.
+    private int parseRateChange(com.google.android.material.textfield.TextInputLayout field, String unchanged,
+                                int min, int max, int error) {
+        String text = field.getEditText().getText().toString().trim().replace(',', '.');
+        if (text.isEmpty() || text.equals(unchanged)) return 0;
+        try {
+            int value = new BigDecimal(text).movePointRight(3).intValueExact();
+            if (value >= min && value <= max) return value;
+        } catch (NumberFormatException | ArithmeticException e) {
+            // Shown below.
+        }
+        field.setError(getString(error));
+        return -1;
+    }
+
+    // The host's answer to a 0x553C request, on the UI thread.
+    private void onRateChange(RateChangeResult result) {
+        if (rateChanges == null || !connected || isFinishing()) return;
+        StreamRateChanges.Answer answer = rateChanges.onResult(result, SystemClock.uptimeMillis());
+        if (answer == StreamRateChanges.Answer.UNKNOWN) {
+            LimeLog.warning("Rate change: a result for no request of this stream, " + result);
+            return;
+        }
+        LimeLog.info("Rate change: " + result + " (" + answer + ")");
+        if (result.bitrateKbps > 0) currentBitrate = result.bitrateKbps;
+        if (result.fpsChanged() && result.fpsMillihz > 0 && result.fpsMillihz != reconfigureRequester.fpsMillihz()) {
+            reconfigureRequester.rateChanged(result.fpsMillihz);
+            setStreamFrameRate(result.fpsMillihz);
+        }
+        if (answer == StreamRateChanges.Answer.AUTOMATIC_STOPPED) {
+            bitrateHandler.removeCallbacks(updateRateChangeBitrate);
+            LimeLog.warning("Automatic bitrate: the host refused a rate change; off for this stream");
+            messages.alert(getString(R.string.stream_rate_change_auto_stopped,
+                    rateChangeReason(this, result.bitrateReason)), Toast.LENGTH_LONG);
+        } else if (answer == StreamRateChanges.Answer.MANUAL) {
+            boolean refused = result.bitrateStatus == RateChangeResult.STATUS_REFUSED ||
+                    result.fpsStatus == RateChangeResult.STATUS_REFUSED;
+            // A bitrate below PyroWave's floor says so instead, unless something was refused.
+            if (refused || !result.bitrateChanged() || !warnIfBelowPyroWaveFloor(result.bitrateKbps)) {
+                messages.alert(rateChangeText(this, result), Toast.LENGTH_LONG);
+            }
+        }
+    }
+
+    // What became of each value asked for, in plain words.
+    static String rateChangeText(Context context, RateChangeResult result) {
+        StringBuilder text = new StringBuilder();
+        double mbps = result.bitrateKbps / 1000.0;
+        switch (result.bitrateStatus) {
+            case RateChangeResult.STATUS_APPLIED:
+                text.append(context.getString(R.string.stream_rate_change_bitrate_applied, mbps));
+                break;
+            case RateChangeResult.STATUS_CLAMPED:
+                text.append(context.getString(R.string.stream_rate_change_bitrate_clamped, mbps,
+                        rateChangeReason(context, result.bitrateReason)));
+                break;
+            case RateChangeResult.STATUS_REFUSED:
+                text.append(context.getString(R.string.stream_rate_change_bitrate_refused, mbps,
+                        rateChangeReason(context, result.bitrateReason)));
+                break;
+            default:
+                break;
+        }
+        String fps = BigDecimal.valueOf(result.fpsMillihz, 3).stripTrailingZeros().toPlainString();
+        int fpsText = result.fpsStatus == RateChangeResult.STATUS_APPLIED ? R.string.stream_rate_change_fps_applied :
+                result.fpsStatus == RateChangeResult.STATUS_CLAMPED ? R.string.stream_rate_change_fps_clamped :
+                result.fpsStatus == RateChangeResult.STATUS_REFUSED ? R.string.stream_rate_change_fps_refused : 0;
+        if (fpsText != 0) {
+            if (text.length() > 0) text.append('\n');
+            text.append(fpsText == R.string.stream_rate_change_fps_applied ? context.getString(fpsText, fps) :
+                    context.getString(fpsText, fps, rateChangeReason(context, result.fpsReason)));
+        }
+        return text.toString();
+    }
+
+    static String rateChangeReason(Context context, int reason) {
+        switch (reason) {
+            case RateChangeResult.REASON_INVALID: return context.getString(R.string.stream_rate_change_reason_invalid);
+            case RateChangeResult.REASON_DISABLED: return context.getString(R.string.stream_rate_change_reason_disabled);
+            case RateChangeResult.REASON_CODEC: return context.getString(R.string.stream_rate_change_reason_codec);
+            case RateChangeResult.REASON_HOST_LIMIT: return context.getString(R.string.stream_rate_change_reason_host_limit);
+            case RateChangeResult.REASON_ENCODER_LIMIT: return context.getString(R.string.stream_rate_change_reason_encoder_limit);
+            case RateChangeResult.REASON_ENCODER_FAILED: return context.getString(R.string.stream_rate_change_reason_encoder_failed);
+            case RateChangeResult.REASON_SUPERSEDED: return context.getString(R.string.stream_rate_change_reason_superseded);
+            default: return context.getString(R.string.stream_rate_change_reason_other);
+        }
+    }
+
+    // At the stream's start: rate changes when the host offered them, and the automatic bitrate
+    // the settings ask for, on this device or else on the host.
+    private void startStreamBitrate() {
+        rateChanges = offersRateChange() ? new StreamRateChanges(MoonBridge::sendRateChange) : null;
+        if (rateChanges != null && prefConfig.rateChangeBitrate) {
+            setRateChangeBitrateEnabled(true);
+        } else if (autoBitrateAtStart()) {
+            setAdaptiveBitrateEnabled(true, false);
+        }
+    }
+
+    // The host offered this stream 0x553C, which only the Rust engine asks for (rlRateChange).
+    private boolean offersRateChange() {
+        return connected && app != null && app.getRole() == NvApp.Role.STREAM && MoonBridge.isRustStream() &&
+                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RATE_CHANGE);
+    }
+
+    private boolean isRateChangeBitrateOn() {
+        return rateChanges != null && rateChanges.automaticOn();
+    }
+
+    // Automatic bitrate on this device, for this stream; the host-side automatic bitrate stops,
+    // since both would set the same encoder.
+    private void setRateChangeBitrateEnabled(boolean enabled) {
+        bitrateHandler.removeCallbacks(updateRateChangeBitrate);
+        if (rateChanges == null) return;
+        if (!enabled) {
+            rateChanges.stopAutomatic();
+            return;
+        }
+        if (isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(false, false);
+        qualityAutoBitrate = false;
+        healthOriginalBitrate = healthTrialBitrate = 0;
+        rateChanges.startAutomatic(currentBitrate == 0 ? prefConfig.bitrate : currentBitrate, SystemClock.uptimeMillis());
+        bitrateHandler.postDelayed(updateRateChangeBitrate, 1000);
+    }
+
     // PyroWave is intra-only, so below its floor every frame breaks up. True when it was said.
     private boolean warnIfBelowPyroWaveFloor(int kbps) {
         if (prefConfig.disableWarnings || kbps <= 0 || decoderRenderer == null) return false;
@@ -4658,7 +4882,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 reconfigureRequester.fpsMillihz() != qualityCeilingFrameRateMilliHz()) &&
                 !applyAdaptiveQuality(adaptiveQuality.current(), SystemClock.uptimeMillis())) return;
         // Automatic quality needs it for this session only; the saved choice stays the user's own.
-        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled()) {
+        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled() && !isRateChangeBitrateOn()) {
             setAdaptiveBitrateEnabled(true, false);
             qualityAutoBitrate = true;
         }
@@ -6498,6 +6722,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         windowFocusActions.clear();
         getWindow().getDecorView().removeCallbacks(runWindowFocusActions);
         bitrateHandler.removeCallbacks(updateBitrate);
+        bitrateHandler.removeCallbacks(updateRateChangeBitrate);
+        rateChanges = null;
         bitrateHandler.removeCallbacks(checkReconfigure);
         bitrateHandler.removeCallbacks(updateQuality);
         adaptiveQuality = null;
@@ -6906,9 +7132,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // A link test before the launch may have started the stream lower than the setting.
                 currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
                 warnIfBelowPyroWaveFloor(currentBitrate);
-                if (autoBitrateAtStart()) {
-                    setAdaptiveBitrateEnabled(true, false);
-                }
+                startStreamBitrate();
                 startAdaptiveQuality();
                 updatePipAutoEnter();
 
@@ -7092,6 +7316,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             linkNotice = status;
             if (performanceOverlayView != null) updatePerformanceOverlay();
         });
+    }
+
+    @Override
+    public void rateChange(RateChangeResult result) {
+        runOnUiThread(() -> onRateChange(result));
     }
 
     @Override

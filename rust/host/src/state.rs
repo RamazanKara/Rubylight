@@ -250,6 +250,8 @@ pub struct Host {
     pub wake: crate::wake::Wake,
     /// The `webhooks` setting's deliveries and each hook's last status.
     pub webhooks: crate::webhooks::Webhooks,
+    /// Nucleus Co-op: its install, the co-op entries and the session it runs.
+    pub nucleus: crate::nucleus::Registry,
     pub assets: PathBuf,
 }
 /// Why the running app is stopped, and the client that asked: each stop logs it.
@@ -582,6 +584,7 @@ impl Host {
             notes: crate::session_notes::SessionNotes::default(),
             wake: Default::default(),
             webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,
+            nucleus: crate::nucleus::Registry::on_pc(),
         }))
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {

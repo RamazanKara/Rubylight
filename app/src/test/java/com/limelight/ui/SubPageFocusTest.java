@@ -81,6 +81,31 @@ public class SubPageFocusTest {
 
     @Test public void theLatencyBenchmarkStartsOnItsContent() { check(LatencyBenchmarkActivity.class); }
 
+    /** TV previews: the ring around the benchmark's results was drawn over their first letters. */
+    @Test public void theBenchmarkResultsSitInsideTheirRing() {
+        assertEquals("room for the ring on a TV",
+                12 * 2, resultsPaddingStart());
+    }
+
+    @Test @Config(qualifiers = "w411dp-h891dp-port-xhdpi")
+    public void aPhoneKeepsTheBenchmarkResultsFlush() {
+        assertEquals(0, resultsPaddingStart());
+    }
+
+    private static int resultsPaddingStart() {
+        ActivityController<LatencyBenchmarkActivity> controller =
+                Robolectric.buildActivity(LatencyBenchmarkActivity.class).setup().visible();
+        try {
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            View results = controller.get().findViewById(R.id.benchmark_results);
+            assertNotNull(results.getTag(R.id.focus_ring));
+            assertEquals(results.getPaddingStart(), results.getPaddingEnd());
+            return results.getPaddingStart();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test public void theControllerPageStartsOnItsContent() { check(ControllerMappingActivity.class); }
 
     @Test public void theShortcutsPageStartsOnItsContent() { check(KeyboardShortcutsActivity.class); }

@@ -6,8 +6,10 @@ import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AbsListView;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ScrollView;
+import android.widget.TextView;
 
 import androidx.appcompat.widget.SearchView;
 
@@ -76,6 +78,25 @@ public final class SubPageFocus {
         // Before API 23 a view has no foreground; those versions keep the Material state layer.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && view.getForeground() == null) {
             view.setForeground(view.getContext().getDrawable(R.drawable.focus_ring_row));
+            insetText(view);
         }
+    }
+
+    /**
+     * A focusable block of text with no padding (the latency benchmark's results) had the TV's ring drawn over its first
+     * letters (TV previews). On a TV it gets room inside the ring; phones keep their layout.
+     */
+    private static void insetText(View view) {
+        if (!(view instanceof TextView) || view instanceof Button || !isTelevision(view)) return;
+        if (view.getPaddingStart() != 0 || view.getPaddingEnd() != 0 || view.getPaddingTop() != 0
+                || view.getPaddingBottom() != 0) return;
+        int side = view.getResources().getDimensionPixelSize(R.dimen.space_m);
+        int edge = view.getResources().getDimensionPixelSize(R.dimen.space_s);
+        view.setPaddingRelative(side, edge, side, edge);
+    }
+
+    private static boolean isTelevision(View view) {
+        return (view.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
+                == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 }

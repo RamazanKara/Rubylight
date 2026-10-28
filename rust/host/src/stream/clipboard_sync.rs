@@ -345,6 +345,8 @@ struct Watch<C> {
     last: Option<Item>,
     /// Whether an item too large to send was warned about.
     warned_large: bool,
+    /// Whether a copy kept back for want of the read permission was warned about.
+    warned_unread: bool,
 }
 impl<C: Clipboard> Watch<C> {
     /// From the clipboard as it is now, which stays on this PC.
@@ -356,6 +358,7 @@ impl<C: Clipboard> Watch<C> {
             seen,
             last: None,
             warned_large: false,
+            warned_unread: false,
         }
     }
 
@@ -375,12 +378,16 @@ impl<C: Clipboard> Watch<C> {
 
     /// The PC's copy since the last look, as a frame: its text, or else its image while
     /// images are on. Its own writes, what was last synced and empty clipboards give none.
+    /// A new copy the device may not read is an [`Unread`] error, not read.
     fn poll(&mut self) -> Result<Option<Frame>> {
         let sequence = self.clipboard.sequence();
-        if !self.allowed.read || sequence == self.seen {
+        if sequence == self.seen {
             return Ok(None);
         }
         self.seen = sequence;
+        if !self.allowed.read {
+            bail!(Unread);
+        }
         let text = self.clipboard.read()?;
         let item = if !text.is_empty() {
             if text.len() > MAX_PAYLOAD_BYTES {
@@ -414,6 +421,16 @@ impl std::fmt::Display for Large {
     }
 }
 impl std::error::Error for Large {}
+
+/// A copy on the PC kept back: the device lacks "Read the clipboard" here.
+#[derive(Debug)]
+struct Unread;
+impl std::fmt::Display for Unread {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the device may not read the clipboard here")
+    }
+}
+impl std::error::Error for Unread {}
 
 /// The worker: until the peer goes, puts the device's copies on the clipboard and notes the
 /// PC's in `outbox`, waking the control loop.
@@ -454,6 +471,19 @@ fn run<C: Clipboard>(
                     warnings.set(
                         WARNING,
                         format!("A copy on this PC did not reach the device: {e}. Larger ones go by the device's clipboard button."),
+                    );
+                }
+            }
+            Err(e) if e.downcast_ref::<Unread>().is_some() => {
+                if !watch.warned_unread {
+                    watch.warned_unread = true;
+                    tracing::warn!(
+                        client,
+                        "clipboard sync refused: a copy on this PC was not sent: {e}"
+                    );
+                    warnings.set(
+                        WARNING,
+                        "This PC's copies do not reach the device: it lacks the permission to read the clipboard here.",
                     );
                 }
             }
@@ -703,9 +733,66 @@ pub(crate) mod tests {
         );
         fake.write_png(b"png").unwrap();
         assert!(images.poll().unwrap_err().downcast_ref::<Large>().is_some());
-        // A device that may only write gets nothing.
+        // A device that may only write gets nothing: each new copy is an error, unread.
         let mut write_only = Watch::new(fake.clone(), Allowed { read: false, ..ALL });
-        fake.copy("secret");
         assert_eq!(write_only.poll().unwrap(), None);
+        fake.copy("secret");
+        assert!(
+            write_only
+                .poll()
+                .unwrap_err()
+                .downcast_ref::<Unread>()
+                .is_some()
+        );
+        assert_eq!(write_only.poll().unwrap(), None);
+        // Its own copies still go on the clipboard, and are not taken for a copy of the PC's.
+        write_only
+            .write(Item::Text("from the device".into()))
+            .unwrap();
+        assert_eq!(fake.text(), "from the device");
+        assert_eq!(write_only.poll().unwrap(), None);
+    }
+
+    #[test]
+    fn a_copy_kept_from_a_device_without_read_is_warned_on_the_stream_card_once() {
+        let fake = Fake::default();
+        let watch = Watch::new(fake.clone(), Allowed { read: false, ..ALL });
+        let (items, worker) = mpsc::channel();
+        let outbox = Arc::new(Mutex::new(None));
+        let wake = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let warnings = Arc::new(Warnings::default());
+        let thread = {
+            let (outbox, warnings) = (outbox.clone(), warnings.clone());
+            std::thread::spawn(move || run(watch, worker, outbox, wake, "phone", &warnings))
+        };
+        let card = || {
+            warnings
+                .snapshot()
+                .into_iter()
+                .filter(|w| w.code == WARNING)
+                .map(|w| w.message)
+                .collect::<Vec<_>>()
+        };
+        std::thread::sleep(POLL * 2);
+        assert!(card().is_empty(), "no copy yet, no warning");
+        fake.copy("copied on the PC");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while card().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            card(),
+            [
+                "This PC's copies do not reach the device: it lacks the permission to read the clipboard here."
+            ]
+        );
+        // Warned once: a cleared card stays clear on the next copy.
+        warnings.clear(WARNING);
+        fake.copy("another copy");
+        std::thread::sleep(POLL * 3);
+        assert!(card().is_empty());
+        assert!(outbox.lock().unwrap().is_none(), "nothing was sent");
+        drop(items);
+        thread.join().unwrap();
     }
 }

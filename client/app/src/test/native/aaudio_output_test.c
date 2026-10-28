@@ -65,18 +65,26 @@ static void stallsAreConcealedAndTheirPacketsSkipped(void) {
     assert(atomic_load(&output.lateFrames) == 7 * 864);
     assert(atomic_load(&output.queue.underruns) == 1);
 
-    // The stalled packets come at once: those whose time was concealed are skipped, the first one
-    // only after a gap is written, and a packet at its own pace is never skipped.
+    // The stalled packets come at once: the first one, after a gap, is written; of the rest, the oldest
+    // whose time was concealed are skipped and the newest refill the reserve, so the ring plays again
+    // without waiting in silence for live packets. A packet at its own pace is never skipped.
     uint64_t now = 5000000000ull;
     assert(!audioSkipLate(&output, now, 240));
-    int skipped = 0;
-    for (int i = 0; i < 40; i++) {
+    assert(audioQueueWrite(&output.queue, input, 240) == 240);
+    int skipped = 0, kept = 1;
+    for (int i = 0; i < 7 * 864 / 240; i++) {
         now += 200000;
-        if (audioSkipLate(&output, now, 240)) skipped++;
+        if (audioSkipLate(&output, now, 240)) {
+            assert(kept == 1);
+            skipped++;
+        } else {
+            assert(audioQueueWrite(&output.queue, input, 240) == 240);
+            kept++;
+        }
     }
-    assert(skipped == 7 * 864 / 240);
+    assert(skipped == 19 && kept == 7);
     assert(atomic_load(&output.skippedFrames) == (uint32_t)skipped * 240);
-    assert(atomic_load(&output.lateFrames) == (uint32_t)(7 * 864 - skipped * 240));
+    assert(atomic_load(&output.lateFrames) == (uint32_t)(7 * 864 - (skipped + kept - 1) * 240));
     atomic_store(&output.lateFrames, 960);
     now += 5000000;
     assert(!audioSkipLate(&output, now, 240));
@@ -84,12 +92,11 @@ static void stallsAreConcealedAndTheirPacketsSkipped(void) {
     // Refilling: the ring is not empty, so the decoder is left to the stalled packets; silence until primed.
     int calls = concealCalls;
     output.concealCount = 0;
-    assert(audioQueueWrite(&output.queue, input, 600) == 600);
     audioFill(&output, pcm, 864);
     assert(concealCalls == calls && allEqual(pcm, 864 * 2, 0));
 
     // Primed again: the ring plays, faded in from silence over 5 ms, and late frames left are dropped.
-    assert(audioQueueWrite(&output.queue, input, 1128) == 1128);
+    assert(audioQueueWrite(&output.queue, input, 48) == 48);
     audioFill(&output, pcm, 864);
     assert(pcm[0] == 0 && pcm[2 * 120] == 1000 && pcm[2 * 240] == 2000 && pcm[2 * 863] == 2000);
     assert(!output.concealing && atomic_load(&output.lateFrames) == 0);

@@ -70,6 +70,8 @@ pub struct RateChange {
     next_serial: u32,
     /// Requests waiting for their result, with when they were sent.
     pending: Vec<(u32, Origin, u64)>,
+    /// The serial of the newest request whose result set the bitrate; 0 for none yet.
+    bitrate_serial: u32,
     hint: Option<client_hint::Bitrate>,
     last_tick_ms: Option<u64>,
     bitrate_kbps: u32,
@@ -86,6 +88,7 @@ impl RateChange {
         Self {
             next_serial: 1,
             pending: Vec::new(),
+            bitrate_serial: 0,
             hint: hint.then(|| client_hint::Bitrate::new(bitrate_kbps, limit_kbps, now_ms)),
             last_tick_ms: None,
             bitrate_kbps,
@@ -187,7 +190,12 @@ impl RateChange {
             return Answer::default();
         };
         let mut answer = Answer::default();
-        if result.bitrate_kbps > 0 {
+        // The host answers a request with a rate once its switch ran, with the bitrate it set
+        // then, so a bitrate-only request sent after it is answered first: an older result keeps
+        // the newer bitrate.
+        let newest = self.bitrate_serial == 0 || (result.serial.wrapping_sub(self.bitrate_serial) as i32) > 0;
+        if result.bitrate_kbps > 0 && newest {
+            self.bitrate_serial = result.serial;
             self.bitrate_kbps = result.bitrate_kbps;
             self.menu_kbps = result.bitrate_kbps;
             answer.bitrate_kbps = Some(result.bitrate_kbps);
@@ -200,7 +208,7 @@ impl RateChange {
         let changed = matches!(result.bitrate.status, Status::Applied | Status::Clamped);
         match origin {
             Origin::Menu => {
-                if changed {
+                if changed && answer.bitrate_kbps.is_some() {
                     // A bitrate set by hand: the controller's range follows it.
                     if let Some(hint) = &mut self.hint { hint.overridden(self.bitrate_kbps, now_ms); }
                 }
@@ -405,6 +413,39 @@ mod tests {
         assert_eq!(answer.toast.as_deref(), Some("Client-hint bitrate stopped: this stream's codec keeps its rates"));
         assert!(!rates.hint_active() && !rates.hint_has_room());
         assert!((11..60).all(|s| rates.tick(&stats(s, 10.0)).is_none()));
+    }
+
+    #[test]
+    fn a_result_that_comes_after_a_later_requests_keeps_that_ones_bitrate() {
+        // The host holds the answer to a request with a rate until its switch ran, with the
+        // bitrate it set then; a bitrate-only request sent after it is answered first.
+        let mut rates = RateChange::new(20_000, 60_000, true, 0, 0);
+        rates.menu_kbps = 30_000;
+        rates.menu_fps = 120.0;
+        let first = rates.menu_request(0).unwrap();
+        rates.menu_kbps = 40_000;
+        rates.menu_fps = 60.0;
+        let second = rates.menu_request(100).unwrap();
+        assert_eq!((second.bitrate_kbps, second.fps_millihz), (40_000, 0));
+        let newer = rates.result(&result(&second, 40_000, 60_000, Outcome::APPLIED, Outcome::UNCHANGED), 200);
+        assert_eq!(newer.bitrate_kbps, Some(40_000));
+        let older = rates.result(&result(&first, 30_000, 120_000, Outcome::APPLIED, Outcome::APPLIED), 900);
+        assert_eq!(older.toast.as_deref(), Some("Bitrate set to 30000 kbps. Frame rate set to 120 fps."), "still said");
+        assert_eq!((older.bitrate_kbps, older.fps_millihz), (None, Some(120_000)), "the rate is the stream's, the bitrate not");
+        assert_eq!(rates.menu_kbps, 40_000);
+        let request = rates.tick(&stats(4, 10.0)).unwrap();
+        assert_eq!(request.bitrate_kbps, 28_000, "the controller follows the later bitrate");
+
+        // Serials wrap past 0; one after the wrap is still newer.
+        let mut rates = RateChange::new(20_000, 60_000, false, 0, 0);
+        rates.next_serial = u32::MAX;
+        rates.menu_kbps = 30_000;
+        let before = rates.menu_request(0).unwrap();
+        rates.menu_kbps = 40_000;
+        let after = rates.menu_request(0).unwrap();
+        assert_eq!((before.serial, after.serial), (u32::MAX, 1));
+        assert_eq!(rates.result(&result(&before, 30_000, 60_000, Outcome::APPLIED, Outcome::UNCHANGED), 100).bitrate_kbps, Some(30_000));
+        assert_eq!(rates.result(&result(&after, 40_000, 60_000, Outcome::APPLIED, Outcome::UNCHANGED), 200).bitrate_kbps, Some(40_000));
     }
 
     #[test]

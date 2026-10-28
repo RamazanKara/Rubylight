@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="help_connect_body">Nightjar streams from any Moonlight-compatible host running on your PC. Start the host and keep both devices on the same network, and the PC appears in your list. If it doesn’t, select Add PC and enter the PC’s IP address. If it still can’t connect, allow the host through the PC’s firewall.</string>
+    <string name="help_pairing_body">Select the PC and keep the PIN on screen. Enter that PIN in the host’s settings or web page on the PC. If the host has per-device permissions, allow this device to list and launch apps.</string>
+</resources>

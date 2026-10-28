@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="help_connect_body">Nightjar strumieniuje z dowolnego hosta zgodnego z Moonlight działającego na komputerze. Uruchom host i trzymaj oba urządzenia w tej samej sieci, a komputer pojawi się na liście. Jeśli tak się nie stanie, wybierz Dodaj komputer i wpisz adres IP komputera. Jeśli nadal nie można się połączyć, zezwól na host w zaporze komputera.</string>
+    <string name="help_pairing_body">Wybierz komputer i nie zamykaj ekranu z kodem PIN. Wpisz ten kod PIN w ustawieniach lub na stronie WWW hosta na komputerze. Jeśli host ma uprawnienia dla poszczególnych urządzeń, zezwól temu urządzeniu na wyświetlanie listy i uruchamianie aplikacji.</string>
+</resources>

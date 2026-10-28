@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="help_connect_body">Nightjar stream từ bất kỳ máy chủ tương thích Moonlight nào đang chạy trên PC của bạn. Hãy khởi động máy chủ và để cả hai thiết bị trong cùng một mạng, PC sẽ xuất hiện trong danh sách. Nếu không, hãy chọn Thêm PC và nhập địa chỉ IP của PC. Nếu vẫn không kết nối được, hãy cho phép máy chủ đi qua tường lửa của PC.</string>
+    <string name="help_pairing_body">Chọn PC và giữ mã PIN trên màn hình. Nhập mã PIN đó vào phần cài đặt hoặc trang web của máy chủ trên PC. Nếu máy chủ có phân quyền theo từng thiết bị, hãy cho phép thiết bị này liệt kê và mở ứng dụng.</string>
+</resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV is driven with a remote or a gamepad: select, never tap. -->
+<resources>
+    <string name="help_connect_body">Nightjar 可从电脑上运行的任何兼容 Moonlight 的主机进行串流。启动主机并让两台设备处于同一网络中，电脑就会出现在你的列表中。如果没有出现，请选择“添加电脑”并输入电脑的 IP 地址。如果仍然无法连接，请在电脑的防火墙中允许该主机。</string>
+    <string name="help_pairing_body">选择电脑，并让 PIN 码保持显示在屏幕上。在电脑上主机的设置或网页中输入该 PIN 码。如果主机支持按设备设置权限，请允许此设备列出和启动应用。</string>
+</resources>

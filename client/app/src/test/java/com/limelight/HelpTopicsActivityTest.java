@@ -2,6 +2,7 @@ package com.limelight;
 
 import android.app.Application;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.view.View;
 
@@ -14,6 +15,9 @@ import org.robolectric.Robolectric;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+
+import java.io.File;
+import java.util.Locale;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
@@ -85,5 +89,36 @@ public class HelpTopicsActivityTest {
         } finally {
             home.pause().stop().destroy();
         }
+    }
+
+    @Test
+    public void aTvSaysSelectWhereAPhoneSaysTapInEveryLanguage() {
+        File[] locales = new File("src/main/res").listFiles((dir, name) ->
+                name.matches("values(-[a-z]{2}(-r[A-Z]{2})?)?") && new File(dir, name + "/strings_help.xml").isFile());
+        assertNotNull(locales);
+        assertEquals(15, locales.length);
+        int[] taps = {R.string.help_connect_body, R.string.help_pairing_body, R.string.host_details_not_paired};
+        for (File dir : locales) {
+            String locale = dir.getName().equals("values") ? "en" : dir.getName().substring(7).replace("-r", "-");
+            for (int id : taps) {
+                String phone = text(id, locale, false), tv = text(id, locale, true);
+                assertNotEquals(locale + ": the TV must not tell to tap", phone, tv);
+            }
+        }
+        assertTrue(text(R.string.help_pairing_body, "en", false).startsWith("Tap the PC"));
+        assertTrue(text(R.string.help_pairing_body, "de", false).startsWith("Tippe"));
+        for (int id : taps) {
+            assertFalse(text(id, "en", true).toLowerCase(Locale.ROOT).contains("tap"));
+            assertFalse(text(id, "de", true).toLowerCase(Locale.ROOT).contains("tipp"));
+        }
+        assertTrue(text(R.string.help_pairing_body, "en", true).startsWith("Select the PC"));
+    }
+
+    private static String text(int id, String locale, boolean television) {
+        Configuration config = new Configuration(RuntimeEnvironment.getApplication().getResources().getConfiguration());
+        config.setLocale(Locale.forLanguageTag(locale));
+        config.uiMode = (config.uiMode & ~Configuration.UI_MODE_TYPE_MASK) |
+                (television ? Configuration.UI_MODE_TYPE_TELEVISION : Configuration.UI_MODE_TYPE_NORMAL);
+        return RuntimeEnvironment.getApplication().createConfigurationContext(config).getString(id);
     }
 }

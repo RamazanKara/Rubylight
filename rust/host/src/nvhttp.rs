@@ -1253,9 +1253,14 @@ async fn applist(
     let coop = {
         let (h, apps) = (h.clone(), apps.clone());
         let configured = crate::nucleus::configured(&config);
-        tokio::task::spawn_blocking(move || h.nucleus.entries(&apps, &configured))
-            .await
-            .unwrap_or_default()
+        match tokio::task::spawn_blocking(move || h.nucleus.entries(&apps, &configured)).await {
+            Ok(coop) => coop,
+            // The user's apps still list; only the co-op entries are missing.
+            Err(error) => {
+                tracing::error!(%error, "Nucleus Co-op: the co-op entries did not load");
+                Vec::new()
+            }
+        }
     };
     let configured = apps
         .iter()

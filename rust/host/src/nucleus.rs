@@ -425,7 +425,8 @@ impl Registry {
     }
 
     /// The co-op entries of `apps`: none while Nucleus Co-op is unavailable
-    /// or not installed.
+    /// or not installed. Each failure still shows: the console's panel names
+    /// a broken install, and [`Self::catalog`] logs an unreadable one.
     pub fn entries(&self, apps: &[App], configured: &str) -> Vec<CoopApp> {
         let pc = self.pc();
         if pc.unavailable().is_some() {

@@ -3052,17 +3052,22 @@ impl Media {
                                 );
                                 // Moonlight takes four FEC blocks a frame: a recovery keyframe
                                 // past them leaves with less parity or none, and one lost
-                                // packet costs it. Statistical FEC sizes parity per frame and
-                                // keeps the cap; so does a stream without FEC.
-                                let cap = if recovery_packetizer.fec_percent > 0 && !s.statistical_fec() {
-                                    let key = (recovery_packetizer.fec_percent, recovery_packetizer.packet_size);
-                                    if fec_whole.0 != key {
-                                        fec_whole = (key, recovery_packetizer.fec_whole_payload_limit());
-                                    }
-                                    butterpollo_core::network_pacing::fec_whole_frame_cap(cap, fec_whole.1, bitrate, period)
-                                } else {
-                                    cap
-                                };
+                                // packet costs it. Statistical FEC (not measured with the
+                                // hold) keeps the cap; so does a stream without FEC.
+                                let cap = butterpollo_core::network_pacing::fixed_fec_frame_cap(
+                                    cap,
+                                    recovery_packetizer.fec_percent,
+                                    s.statistical_fec(),
+                                    || {
+                                        let key = (recovery_packetizer.fec_percent, recovery_packetizer.packet_size);
+                                        if fec_whole.0 != key {
+                                            fec_whole = (key, recovery_packetizer.fec_whole_payload_limit());
+                                        }
+                                        fec_whole.1
+                                    },
+                                    bitrate,
+                                    period,
+                                );
                                 let _ = active.set_frame_cap(cap);
                             }
                             // The device draws the pointer: only Desktop Duplication supplies

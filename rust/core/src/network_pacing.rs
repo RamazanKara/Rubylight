@@ -290,11 +290,34 @@ pub fn recovery_frame_cap(
 /// keeps its full parity within Moonlight's four FEC blocks
 /// ([`crate::packet::VideoPacketizer::fec_whole_payload_limit`]). A larger
 /// recovery keyframe leaves with less parity or none, so one lost packet on a
-/// clean route costs it, and losing it again latches the slow pace. The cap
-/// stays at least two nominal frames, `recovery_frame_cap`'s floor.
+/// clean route costs it, and losing it again latches the slow pace. Where two
+/// nominal frames, `recovery_frame_cap`'s floor, already pass `fec_whole`, no
+/// cap at the floor keeps full parity, so `cap` stays as it is.
 pub fn fec_whole_frame_cap(cap: u64, fec_whole: usize, bitrate_kbps: u32, period: Duration) -> u64 {
     let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
-    cap.min((fec_whole as u64).max(minimum))
+    if minimum > fec_whole as u64 {
+        cap
+    } else {
+        cap.min(fec_whole as u64)
+    }
+}
+
+/// The automatic frame cap a stream sends with: `cap` held by
+/// [`fec_whole_frame_cap`] when its FEC is a fixed percentage. Statistical FEC
+/// (`rlFecPercentage=auto`) and a stream without FEC keep `cap`, and
+/// `fec_whole` is not asked for then.
+pub fn fixed_fec_frame_cap(
+    cap: u64,
+    fec_percent: usize,
+    statistical: bool,
+    fec_whole: impl FnOnce() -> usize,
+    bitrate_kbps: u32,
+    period: Duration,
+) -> u64 {
+    if fec_percent == 0 || statistical {
+        return cap;
+    }
+    fec_whole_frame_cap(cap, fec_whole(), bitrate_kbps, period)
 }
 
 /// Time spent in the send call or waking late that still counts toward the
@@ -459,14 +482,19 @@ mod tests {
         // A cap already within full parity is left as it is.
         let slow = recovery_frame_cap(100_000_000, 200_000, period, 20, 1392, false);
         assert_eq!(fec_whole_frame_cap(slow, whole, 200_000, period), slow);
-        // Never below two nominal frames: 400 Mbps keeps 1.67 MB.
+        // Two nominal frames already past full parity (1.67 MB at 400 Mbps): no
+        // cap at the floor keeps it, so the cap stays and the frame stays sharp.
         let fast = recovery_frame_cap(800_000_000, 400_000, period, 20, 1392, false);
-        let floor = fec_whole_frame_cap(fast, whole, 400_000, period);
+        assert!((400_000. * 125. * period.as_secs_f64() * 2.).ceil() as u64 > whole as u64);
+        assert_eq!(fec_whole_frame_cap(fast, whole, 400_000, period), fast);
+        // Only a fixed FEC percentage holds the cap.
         assert_eq!(
-            floor,
-            (400_000. * 125. * period.as_secs_f64() * 2.).ceil() as u64
+            fixed_fec_frame_cap(cap, 20, false, || whole, 200_000, period),
+            whole as u64
         );
-        assert!(floor > whole as u64 && floor <= fast);
+        let unasked = || -> usize { panic!("fec_whole asked for") };
+        assert_eq!(fixed_fec_frame_cap(cap, 20, true, unasked, 200_000, period), cap);
+        assert_eq!(fixed_fec_frame_cap(cap, 0, false, unasked, 200_000, period), cap);
     }
 
     #[test]

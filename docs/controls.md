@@ -13,10 +13,10 @@ The menu is one sheet:
 | Part | What it holds |
 | --- | --- |
 | Top row | **System keyboard** (Android's keyboard), **PC keyboard** (the full on-screen PC keyboard, see below), **Overlay** (show or hide the performance overlay) and **Microphone** (mute or unmute, when the PC offers a microphone). Overlay and Microphone switch in place. |
-| Input | Touch mode, Show mouse cursor (with a mouse attached), Show on-screen controls, Edit controller layout, Controls for this game, Keyboard & mouse. |
+| Input | Touch mode, Show mouse cursor (with a mouse attached), Show on-screen controls, Edit controller layout, Show or hide the [microphone button](#microphone), Controls for this game, Keyboard & mouse. |
 | Display | Video scaling (Fit, Fill, Stretch or 1:1, local video without upscaling), Enable pinch zoom and pan, Reset zoom, **Overlay and diagnostics**, Picture-in-picture, Video output (with an external display). |
-| Quality | Set bitrate, Automatic stream quality and Device controls bitrate, where the host supports them. |
-| Host | Server commands, Send clipboard to host, Copy host clipboard, Open host web UI, Permissions and frame limits, as the host and its permissions allow. |
+| Quality | Set bitrate (or **Change bitrate / frame rate** on a Rubylight PC that takes rate changes), Automatic stream quality and Device controls bitrate, where the host supports them. |
+| Host | **Session and graphics** ([Rubylight 3.0](console.md#session-and-graphics)), Server commands, Send clipboard to host, Copy host clipboard, the clipboard image entries, **USB devices** and **Files** ([sharing](sharing.md)), Open host web UI, Permissions and frame limits, as the host and its permissions allow. |
 | Bottom | Reconnect stream, Disconnect, and **Quit game** in red, which asks first. Remote Monitor and Input-only end their session instead. Disconnect also quits a game set to **Quit the game when I leave the stream** (see [leaving a game](#leaving-a-game)). |
 
 **Overlay and diagnostics** opens a page in the same sheet: Compact, Statistics or Debug, Copy stats, Why did my stream stutter? and Measure input latency. Back, Escape or a controller's B returns from the page to the menu; Back again closes the menu, and the close button closes it from anywhere. The D-pad and a controller move through every row; on a USB-driver controller, its D-pad, A and B do this while the menu is open. Items a host or permission does not allow are left out rather than shown disabled.
@@ -28,6 +28,8 @@ The menu is one sheet:
 Connect a Bluetooth controller in Android's Bluetooth settings or plug a USB controller into the device. **Settings → Controls → Multiple controllers** is on by default and gives each controller its own player; the protocol provides up to 16 controller slots.
 
 Use **Controller buttons** to press a digital button and choose what it sends, including **Nothing**. Mappings are stored per controller model and apply on the next stream, including the USB drivers. **Reset this controller** restores its default mapping.
+
+Buttons can also send the **touchpad click**, **Share / Capture** and **paddles 1 to 4**, so extra buttons such as C, Z or Button 1 to 16 press a DualShock 4 or DualSense touchpad click, a Share or Capture button or a paddle on the PC. A controller with a button mapped to the touchpad click connects as a PlayStation controller. A controller whose gyroscope only reports zeros hands player 1's motion to the device's own motion sensors.
 
 Open **Sticks, triggers and D-pad** after selecting a controller. Each output stick axis can read either stick's horizontal or vertical axis, optionally inverted, or be disabled. Triggers can read either physical trigger or be disabled; their full analog range is preserved. Each D-pad direction can send another direction, a gamepad button, or nothing. These mappings apply to normalized Android and direct-USB reports, after deadzones, and also apply from the next stream. D-pad directions mapped to the same button stay held until every contributing source is released. Reset restores both digital and axis mappings. Axis mappings do not convert a stick into a trigger or emulate keyboard keys.
 
@@ -67,7 +69,7 @@ For a GameSir G8+ MFi, use its green **Xbox mode** for direct USB input and rumb
 
 ### Switch Pro over USB
 
-**Experimental.** This driver was written from the published protocol notes and has not yet been tried with a real controller. If it misbehaves, turn it off; Android's own input path keeps working.
+This driver follows the published protocol notes. If it misbehaves with your controller, turn it off; Android's own input path keeps working.
 
 Android reads a Switch Pro Controller through its own input path; what that offers for motion, rumble and the Capture button depends on the device and Android version. For the direct USB driver:
 
@@ -116,7 +118,7 @@ Choose **Settings → Controls → Touch mode**, or **stream menu → Input → 
 | Trackpad (default) | Drag to move the pointer relatively. Tap with one finger for left-click, two for right-click. Lift both fingers quickly in either order. Hold then drag to drag with a mouse button; move two fingers to scroll. |
 | Direct mouse | Tap and release to left-click at that location. Move beyond the small hold area to drag with the left button, or hold still for about 0.65 seconds to right-click. A hold sends only the right click. A second finger scrolls. |
 | Multi-touch | Send fingers directly to the host touch interface. If native touch is unavailable, Nightjar uses Direct mouse. Use the stream menu for the keyboard. |
-| Local cursor | Like Trackpad, but Nightjar draws the pointer on this device, so it follows your finger with no round trip to the PC. The pointer's position goes to the host as an absolute position, so a tap clicks exactly where the drawn arrow points, including while pinch zoom is on. Tap, two-finger tap, hold-then-drag and two-finger scroll work as in Trackpad. The drawn pointer is a plain arrow and the PC's own cursor may still show in the video, unless the host offers [cursor shapes](protocol/cursor-shape.md): then Nightjar draws the PC's cursor (I-beam, resize arrows and so on), hides it when the PC does, and the host leaves it out of the video. No host offers this yet. |
+| Local cursor | Like Trackpad, but Nightjar draws the pointer on this device, so it follows your finger with no round trip to the PC. The pointer's position goes to the host as an absolute position, so a tap clicks exactly where the drawn arrow points, including while pinch zoom is on. Tap, two-finger tap, hold-then-drag and two-finger scroll work as in Trackpad. The drawn pointer is a plain arrow and the PC's own cursor may still show in the video, unless the host offers [cursor shapes](protocol/cursor-shape.md): then Nightjar draws the PC's cursor (I-beam, resize arrows and so on), hides it when the PC does, and the host leaves it out of the video. Rubylight 3.0 offers this, with either capture method (Windows Graphics Capture or Desktop Duplication). |
 | Touch off | The stream ignores fingers, for playing with a controller without stray touches. Android's Back gesture or Back button still opens the stream menu, where you can switch the mode back. On-screen controls, per-game touch buttons, pinch zoom (if you turned it on), a mouse and a pen keep working. |
 
 **Trackpad speed** changes Trackpad movement and **Local cursor speed** changes Local cursor movement, each from 25–400% with 100% as the default. At 100%, the local pointer moves as far as your finger. Native pen input is forwarded when supported and permitted by the host.
@@ -151,6 +153,16 @@ Move one finger on the trackpad to move the pointer; tap to left-click, use two 
 The panel follows **Local cursor** and **Desktop mouse mode**, using its own pointer-speed setting. Movement scales to the streamed picture, including local-cursor zoom, so a dense display does not slow it down. Empty panel margins absorb touches, and the panel leaves keyboard focus on the stream. In split-screen or freeform windows, the first direct button press works while Android is restoring window focus.
 
 The gear opens customization: key and panel size, background opacity, pointer speed, scrolling direction, tap-to-click, mouse buttons (including optional middle/Back/Forward), trackpad side, visible banks, and modifiers that stay selected for several keys. **Edit keyboard shortcuts** adds, edits, deletes or reorders saved chords inside the stream. Apply saves panel settings for this device; Reset panel restores defaults while keeping saved shortcuts. Closing the panel, changing modes, losing focus or disconnecting releases held mouse buttons and clears modifiers. The host's input permissions still apply.
+
+### Keyboard follows text fields
+
+On a Rubylight PC, the on-screen keyboard opens when you tap, click or type into a text field in the stream, and closes when the field loses focus. It fits the field: digits for a number field, no suggestions for a password. A field a game focuses by itself leaves the keyboard closed, and once you close it, it stays closed for that field, also when you come back to it, while any other field opens it again. The stream moves up so the field stays above the keyboard. An attached hardware keyboard keeps typing instead. **Settings → Controls → Keyboard follows text fields** is on by default. Nightjar for Windows and Linux does the same where the system has an on-screen keyboard.
+
+Nightjar also tells a Rubylight PC this device's keyboard layout, so games that read raw keys get the keys printed on your keyboard, German included.
+
+### Pen
+
+A stylus sends its pressure and tilt to hosts that take native pen input. Nightjar for Windows and Linux also sends how far a pen is turned in the hand, to Rubylight hosts that take it; Android reports no such turn.
 
 ### PC keyboard
 
@@ -225,7 +237,12 @@ On every host except NVIDIA GameStream, **Open host web UI** in an online PC's s
 
 Turn on **Settings → Controls → Show on-screen controls**, or use **stream menu → Input → Show on-screen controls**. The virtual gamepad supports opacity, press vibration, a Guide button and an L3/R3-only layout.
 
-During a stream choose **stream menu → Input → Edit controller layout**. Select **Move controls** or **Resize controls**, drag the controls, then choose **Save layout and play**. **Reset controls layout** in Settings restores their sizes and positions.
+**Controller style** picks one of two gamepads. Both send the same controller to the PC.
+
+- **Classic** (the default) keeps the original controller and its layout. During a stream choose **stream menu → Input → Edit controller layout**, select **Move controls** or **Resize controls**, drag the controls, then choose **Save layout and play**.
+- **Modern** has face buttons a thumb can press two at a time, sticks that follow your thumb (**Floating**, the default, centres a stick where your thumb lands; **Fixed** waits at the drawn stick) with their own deadzone (8 % by default), and a stick click by a tap, then touch. **Edit controller layout** edits it in place: move, resize, fade and hide each control, kept for all games or for one game.
+
+**Reset controls layout** in Settings restores the sizes and positions of both, including layouts kept for one game.
 
 ### Per-game controls
 
@@ -286,6 +303,21 @@ The JSON validator and its version 1 fixtures, the Artemis import mapping, stick
 ### Touch mapping and video scaling
 
 Every [video scaling](video-and-latency.md#video-scaling) mode maps touch and mouse input to the stream pixel under your finger. Direct mouse, Multi-touch, a pen and an absolute mouse go through the video's rectangle and then pinch zoom, so a tap lands on what you see in Fit, Fill, Stretch and 1:1 alike. A touch on a border beside a Fit or 1:1 picture goes to the nearest edge of the stream. In Fill, the cropped edges are still part of the stream: Trackpad and Local cursor can move the pointer there, and the drawn pointer then leaves the screen until you move it back. Trackpad speed follows the picture's size on screen, so the pointer keeps pace with your finger in every mode. On-screen controls and per-game touch buttons stay where you placed them; they belong to the screen, not the video. When the screen turns ([orientation](video-and-latency.md#orientation)), touch buttons keep their place as a share of the screen's width and height, the on-screen gamepad is laid out again, and input maps through the new picture rectangle.
+
+## Microphone
+
+Turn on **Settings → Audio → Send microphone to the PC** to talk in games and chat apps on the PC; Nightjar asks for microphone access, and the PC hears it as its streaming microphone. Mute it from the stream menu's top row or with the **microphone button**: a round button on the stream that mutes and unmutes with one tap. Drag it anywhere and it stays there. It shows while the PC takes the microphone; hide or show it from the stream menu's **Input** section, or turn it off in Settings.
+
+The microphone's effects sit under **More Audio settings**:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Echo cancellation | Automatic | On with the speaker, off with headphones and Bluetooth headsets, following a switch during the stream. Pick On if the PC hears its own game sound through a headset. |
+| Noise suppression | On | Filters fans and other steady noise. |
+| Automatic gain | Off | Levels a voice that swings between quiet and loud. |
+| Microphone gain | 100 % | 25 to 400 %, applied before sending. Loud peaks are rounded off instead of crackling. |
+
+A device without one of these effects, or one that refuses to turn it on, says so in the stream and the setting reads "Not on this device". When the microphone stops during a stream, for example because another app took it, Nightjar says so and mutes it; unmuting tries it again. Remote Monitor sessions never open the microphone. Nightjar for Windows and Linux sends the microphone without these effects.
 
 ## Input-only on any PC
 

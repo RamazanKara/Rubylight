@@ -26,7 +26,7 @@ This needs a host that supports one-time PINs (e.g. Apollo or Rubylight). Create
 
 This reverses the ordinary flow: you enter the host's PIN on Android. Generate a new one after expiry.
 
-## Pair with a QR code (Experimental)
+## Pair with a QR code
 
 This needs a Rubylight host with **Pair with a QR code** turned on in its settings. Its Devices page then shows a QR code for each of the PC's network addresses, with a one-time PIN that works once and expires after three minutes.
 
@@ -67,6 +67,8 @@ Hosts with per-device permissions (e.g. Apollo or Rubylight) set them in the hos
 | Send clipboard | Send explicitly selected text from Android to the PC. |
 | Read clipboard | Request text from the PC. |
 | Server commands | Send a command configured by the host administrator. |
+
+A Rubylight 3.0 PC adds permissions for its extras: **Host control** (close games and change Radeon settings, see [the session menu](console.md#session-and-graphics)), **Upload files** and **Download files**, shared folders, USB forwarding and **Can join co-op games** (see [sharing](sharing.md) and [Join co-op](console.md#join-co-op)). When an action needs one that is missing, Nightjar names it and points to the web UI's Devices page.
 
 Grant list, view, launch and the relevant input permissions for normal play. A view-only device can display video without controlling it. **Remote Monitor** is a view-only role; **Input-only** sends controls without starting video/audio decoders. These entries appear only on hosts that list them (Rubylight and Vibepollo; Apollo lists a Remote Input entry when its input-only mode is on). On other hosts, [Input-only on any PC](controls.md#input-only-on-any-pc) offers Input-only over a small stream; it needs view and input permission.
 

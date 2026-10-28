@@ -1,0 +1,26 @@
+{
+  "rust": "client_hint::Bitrate",
+  "java": "com.limelight.nvstream.ClientHintBitrateController",
+  "new": [20000, 0, 0],
+  "calls": [
+    {"call": "sample", "args": [3000, false, 10, -1], "expect": 0},
+    {"call": "sample", "args": [4000, true, -1, -1], "expect": 0},
+    {"call": "sample", "args": [5000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [6000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [7000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [8000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [9000, false, 0, -1], "expect": 0},
+    {"call": "sample", "args": [10000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [11000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [12000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [13000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [14000, true, 0, -1], "expect": 21000},
+    {"call": "refused", "args": [], "expect": null},
+    {"call": "stopped", "args": [], "expect": true},
+    {"call": "pending", "args": [], "expect": false},
+    {"call": "sample", "args": [20000, true, 10, -1], "expect": 0},
+    {"call": "overridden", "args": [30000, 21000], "expect": null},
+    {"call": "sample", "args": [30000, true, 10, -1], "expect": 0},
+    {"call": "stopped", "args": [], "expect": true}
+  ]
+}

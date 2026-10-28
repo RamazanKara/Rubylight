@@ -1,0 +1,18 @@
+{
+  "rust": "client_hint::Bitrate",
+  "java": "com.limelight.nvstream.ClientHintBitrateController",
+  "new": [20000, 0, 0],
+  "calls": [
+    {"call": "sample", "args": [3000, true, 1, -1], "expect": 0},
+    {"call": "sample", "args": [4000, true, 1, -1], "expect": 0},
+    {"call": "sample", "args": [5000, true, 1, -1], "expect": 0},
+    {"call": "sample", "args": [6000, true, 1, -1], "expect": 19000},
+    {"call": "applied", "args": [19000, 6000], "expect": null},
+    {"call": "sample", "args": [8000, true, 3, -1], "expect": 17100},
+    {"call": "applied", "args": [17100, 8000], "expect": null},
+    {"call": "sample", "args": [10000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [11000, true, 2, -1], "expect": 0},
+    {"call": "sample", "args": [12000, true, 0, -1], "expect": 0},
+    {"call": "current_kbps", "args": [], "expect": 17100}
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "rust": "client_hint::Bitrate",
+  "java": "com.limelight.nvstream.ClientHintBitrateController",
+  "new": [20000, 0, 0],
+  "calls": [
+    {"call": "sample", "args": [3000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [4000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [5000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [6000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [7000, true, 0, -1], "expect": 21000},
+    {"call": "applied", "args": [20500, 7000], "expect": null},
+    {"call": "max_kbps", "args": [], "expect": 20500},
+    {"call": "sample", "args": [9000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [10000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [11000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [12000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [13000, true, 0, -1], "expect": 0},
+    {"call": "sample", "args": [14000, true, 0, -1], "expect": 0},
+    {"call": "overridden", "args": [40000, 15000], "expect": null},
+    {"call": "current_kbps", "args": [], "expect": 40000},
+    {"call": "max_kbps", "args": [], "expect": 20500},
+    {"call": "min_kbps", "args": [], "expect": 12000},
+    {"call": "sample", "args": [16000, true, 10, -1], "expect": 0},
+    {"call": "sample", "args": [17000, true, 10, -1], "expect": 20500},
+    {"new": [20000, 25000, 0]},
+    {"call": "max_kbps", "args": [], "expect": 25000},
+    {"call": "min_kbps", "args": [], "expect": 6000},
+    {"new": [20000, 1000, 0]},
+    {"call": "max_kbps", "args": [], "expect": 1000},
+    {"call": "min_kbps", "args": [], "expect": 1000},
+    {"call": "sample", "args": [3000, true, 10, -1], "expect": 1000}
+  ]
+}

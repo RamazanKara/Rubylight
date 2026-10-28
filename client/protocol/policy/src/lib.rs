@@ -6,6 +6,7 @@
 //! in `tests/traces` (see [`trace`]).
 
 pub mod bitrate;
+pub mod client_hint;
 pub mod health;
 pub mod launch;
 pub mod overlay;

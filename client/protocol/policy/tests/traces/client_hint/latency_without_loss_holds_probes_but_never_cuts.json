@@ -1,0 +1,23 @@
+{
+  "rust": "client_hint::Bitrate",
+  "java": "com.limelight.nvstream.ClientHintBitrateController",
+  "new": [20000, 0, 0],
+  "calls": [
+    {"call": "sample", "args": [3000, true, 0, 30], "expect": 0},
+    {"call": "sample", "args": [4000, true, 0, 45], "expect": 0},
+    {"call": "sample", "args": [5000, true, 0, 60], "expect": 0},
+    {"call": "sample", "args": [6000, true, 0, 80], "expect": 0},
+    {"call": "sample", "args": [7000, true, 0, 80], "expect": 0},
+    {"call": "sample", "args": [8000, true, 0, 80], "expect": 0},
+    {"call": "sample", "args": [9000, true, 0, 3], "expect": 0},
+    {"call": "sample", "args": [10000, true, 0, 3], "expect": 0},
+    {"call": "sample", "args": [11000, true, 0, 3], "expect": 0},
+    {"call": "sample", "args": [12000, true, 0, 25], "expect": 0},
+    {"call": "sample", "args": [13000, true, 0, 3], "expect": 0},
+    {"call": "sample", "args": [14000, true, 0, 3], "expect": 0},
+    {"call": "sample", "args": [15000, true, 0, 3], "expect": 0},
+    {"call": "sample", "args": [16000, true, 0, 3], "expect": 0},
+    {"call": "sample", "args": [17000, true, 0, 3], "expect": 21000},
+    {"call": "current_kbps", "args": [], "expect": 20000}
+  ]
+}

@@ -521,6 +521,17 @@ pub fn start_on_pc(
     )
 }
 
+/// What starting a session needs that doesn't need Nucleus Co-op closed:
+/// administrator rights for the signed-in user, their AppData folder and
+/// their account. Checked before a session closes the console's window, so
+/// a launch refused for one of these leaves the window open.
+pub fn ready() -> Result<()> {
+    require_administrator(crate::process::user_runs_elevated()?)?;
+    environment(&BTreeMap::new())?;
+    layers::UserHive::signed_in()?;
+    Ok(())
+}
+
 /// Start a session: refused while Nucleus Co-op already runs, then one pad
 /// per player, the profile, the game's compatibility settings kept
 /// ([`layers`]), and Nucleus.

@@ -119,6 +119,10 @@ pub trait Pc: Send + Sync {
     /// `folder` and add its game for the signed-in user; refused while
     /// Nucleus Co-op runs.
     fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler>;
+    /// What a session's start needs that doesn't need Nucleus Co-op closed
+    /// (administrator rights, the signed-in user, `own`'s handler file being
+    /// Rubylight's): checked before the console's window closes for it.
+    fn ready(&self, folder: &Path, own: Option<&Setup>) -> Result<()>;
     fn start(
         &self,
         start: &Start,
@@ -275,6 +279,16 @@ impl Pc for OnPc {
             anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
         })?;
         files::write_own(folder, &appdata, setup)
+    }
+    fn ready(&self, folder: &Path, own: Option<&Setup>) -> Result<()> {
+        butterpollo_windows::nucleus::session::ready()?;
+        if let Some(setup) = own {
+            butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
+                anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
+            })?;
+            files::check_own(folder, setup)?;
+        }
+        Ok(())
     }
     fn start(
         &self,
@@ -1202,6 +1216,16 @@ impl Registry {
                 .map_err(Refusal::unavailable)?;
                 let policy = Policy::resolve(request.config)
                     .map_err(|error| Refusal::unavailable(format!("{error:#}")))?;
+                let own = match &found {
+                    Chosen::Own(setup) => Some(setup),
+                    Chosen::Hub(_) => None,
+                };
+                pc.ready(&folder, own).map_err(|error| {
+                    Refusal::unavailable(format!(
+                        "Nucleus Co-op did not start {}: {error:#}",
+                        app.name
+                    ))
+                })?;
                 // Last, so a launch refused for another reason leaves the
                 // user's window open.
                 self.close_for_session(&app.name)?;
@@ -1792,6 +1816,8 @@ pub(crate) mod fake {
         /// Rubylight's own handlers written, the last one last.
         pub own: Mutex<Vec<Setup>>,
         pub write_error: Mutex<Option<String>>,
+        /// What [`super::Pc::ready`] fails with.
+        pub ready_error: Mutex<Option<String>>,
     }
     impl Pc {
         pub(crate) fn unavailable() -> Self {
@@ -1840,6 +1866,7 @@ pub(crate) mod fake {
                 one_player: Mutex::new(BTreeMap::new()),
                 own: Mutex::new(Vec::new()),
                 write_error: Mutex::new(None),
+                ready_error: Mutex::new(None),
             }
         }
         /// The session started last.
@@ -1936,6 +1963,12 @@ pub(crate) mod fake {
             self.own.lock().unwrap().push(setup.clone());
             butterpollo_core::nucleus::handler::parse(&setup.file(), &setup.handler())
                 .map_err(anyhow::Error::msg)
+        }
+        fn ready(&self, _folder: &Path, _own: Option<&Setup>) -> Result<()> {
+            match self.ready_error.lock().unwrap().clone() {
+                Some(error) => anyhow::bail!(error),
+                None => Ok(()),
+            }
         }
         fn start(
             &self,
@@ -2476,6 +2509,43 @@ mod tests {
         admit(&registry, &coop, "a", &client("A", false)).unwrap_err();
         assert_eq!(window.closes.load(Relaxed), 0);
         assert!(registry.opened());
+        assert!(pc.started.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_launch_the_pc_cant_start_leaves_the_window_open() {
+        // Refused for administrator rights or a handler file that isn't
+        // ours only after the console's Nucleus window had closed.
+        use std::sync::atomic::Ordering::Relaxed;
+        let (registry, pc, apps) = setup();
+        registry.open("").unwrap();
+        let window = pc.window();
+        *pc.ready_error.lock().unwrap() = Some("no administrator rights".into());
+        let coop = registry.entries(&apps, "").remove(0);
+        let refused = admit(&registry, &coop, "a", &client("A", false)).unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (
+                503,
+                "Nucleus Co-op did not start Portal 2: no administrator rights"
+            )
+        );
+        let ice = app("Ice", r"C:\NoSuchGames\Ice\Ice.exe");
+        let refused = background(
+            &registry,
+            &ice,
+            "b",
+            &client("B", false),
+            &Config::default(),
+        )
+        .unwrap_err();
+        assert!(
+            refused.message.ends_with("no administrator rights"),
+            "{refused}"
+        );
+        assert_eq!(window.closes.load(Relaxed), 0);
+        assert!(registry.opened());
+        assert!(pc.own.lock().unwrap().is_empty());
         assert!(pc.started.lock().unwrap().is_empty());
     }
 

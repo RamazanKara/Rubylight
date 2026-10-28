@@ -73,6 +73,19 @@ fn read_existing(path: &Path) -> Result<Option<String>> {
     }
 }
 
+/// Refuses `setup`'s handler file in the Nucleus Co-op at `folder` when one
+/// Rubylight did not write is there: it is never overwritten.
+pub fn check_own(folder: &Path, setup: &Setup) -> Result<()> {
+    let path = folder.join("handlers").join(setup.file());
+    match read_existing(&path)? {
+        Some(old) if !generic::owns(&old) => bail!(
+            "{} is not Rubylight's handler, so Rubylight leaves it as it is: move it out of Nucleus Co-op's handlers folder",
+            path.display()
+        ),
+        _ => Ok(()),
+    }
+}
+
 /// Write Rubylight's one-player handler for `setup` into the Nucleus Co-op
 /// at `folder` and add its game to the signed-in user's game list in
 /// `appdata` (their roaming folder, which release builds read), as the
@@ -88,12 +101,9 @@ pub fn write_own(folder: &Path, appdata: &Path, setup: &Setup) -> Result<Handler
     std::fs::create_dir_all(&handlers)
         .with_context(|| format!("creating {}", handlers.display()))?;
     let path = handlers.join(&file);
+    check_own(folder, setup)?;
     match read_existing(&path)? {
         Some(old) if old == text => {}
-        Some(old) if !generic::owns(&old) => bail!(
-            "{} is not Rubylight's handler, so Rubylight leaves it as it is: move it out of Nucleus Co-op's handlers folder",
-            path.display()
-        ),
         _ => {
             std::fs::write(&path, &text).with_context(|| format!("writing {}", path.display()))?;
             tracing::info!(

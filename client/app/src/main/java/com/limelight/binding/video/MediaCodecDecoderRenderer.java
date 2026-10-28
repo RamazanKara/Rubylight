@@ -1754,7 +1754,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         int formats = HdrFormatPolicy.videoFormats(hdrFormat, videoFormats,
                 prefs.videoFormat == PreferenceConfiguration.FormatOption.AUTO);
         if (formats != videoFormats) {
-            LimeLog.info(HdrFormatPolicy.name(hdrFormat) + " needs HEVC: the automatic codec choice leaves AV1 out");
+            LimeLog.info(HdrFormatPolicy.name(hdrFormat) + " needs " + HdrFormatPolicy.codecNames(HdrFormatPolicy.carriers(hdrFormat)) +
+                    ": the automatic codec choice leaves " + HdrFormatPolicy.codecNames(videoFormats & ~formats) + " out");
         }
         return formats;
     }

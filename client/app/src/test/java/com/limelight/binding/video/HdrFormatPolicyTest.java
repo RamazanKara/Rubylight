@@ -103,6 +103,19 @@ public class HdrFormatPolicyTest {
     }
 
     @Test
+    public void theCodecsThatCarryAFormatAreItsCarriers() {
+        // Profile 8 is HEVC Main10 only; HLG and HDR10 go on any 10-bit codec.
+        assertEquals(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.carriers(HdrFormatPolicy.DV_81));
+        assertEquals(MoonBridge.VIDEO_FORMAT_H265_MAIN10, HdrFormatPolicy.carriers(HdrFormatPolicy.DV_84));
+        assertEquals(0, HdrFormatPolicy.carriers(HdrFormatPolicy.HLG));
+        assertEquals(0, HdrFormatPolicy.carriers(0));
+        assertEquals("HEVC", HdrFormatPolicy.codecNames(HdrFormatPolicy.carriers(HdrFormatPolicy.DV_81)));
+        assertEquals("AV1", HdrFormatPolicy.codecNames(MoonBridge.VIDEO_FORMAT_MASK_AV1));
+        assertEquals("AV1 and HEVC", HdrFormatPolicy.codecNames(MoonBridge.VIDEO_FORMAT_AV1_MAIN10 |
+                MoonBridge.VIDEO_FORMAT_H265));
+    }
+
+    @Test
     public void theOverlaySaysWhatTheScreenGetsAndALostDolbyVisionDecoder() {
         assertEquals("HDR", HdrFormatPolicy.overlayWord(0, false));
         assertEquals("HLG", HdrFormatPolicy.overlayWord(HdrFormatPolicy.HLG, false));

@@ -2,7 +2,7 @@
 
 [Documentation](../index.md) · [Video and latency](../video-and-latency.md#network-drops) · [Host feature support](../PARITY-MATRIX.md)
 
-Status: Experimental, version 1. The wire format is fixed (`rubylight_protocol::roaming`); Nightjar's Rust streaming engine implements the client rules below.
+Status: version 1. The wire format is fixed (`rubylight_protocol::roaming`); Nightjar's Rust streaming engine implements the client rules below.
 
 A Moonlight-protocol session is tied to the client's address. When a phone leaves Wi-Fi for mobile data, or moves to a Wi-Fi network with a different address, the host keeps sending video and audio to the old address and drops control packets from the new one. The stream freezes until a timeout ends it, and the only way back is a new connection.
 
@@ -137,4 +137,4 @@ An implementation must reproduce these (`rubylight_protocol::roaming::vectors`; 
 - **The host's address.** A session started on the host's LAN address cannot follow the phone onto mobile data, whatever the host does. A later version lets the client switch to another known host address (remote, IPv6), which needs the host to listen on all addresses.
 - **NAT that maps control and media to different public IPs.** Media never resumes, and the stream ends with a clear message.
 - **Engines.** Only Nightjar's Rust streaming engine roams; the classic engine does not.
-- **Testing.** Phone moves between Wi-Fi and mobile data are tested by hand only, so roaming ships as Experimental.
+- **Testing.** Phone moves between Wi-Fi and mobile data are tested by hand only.

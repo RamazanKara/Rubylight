@@ -220,7 +220,7 @@ pub struct VirtualDisplay {
     mode: (u32, u32, u32),
     /// The mode the display was created with. `mode` follows the rate,
     /// rotation and size changes made in place, so a second stream that asks
-    /// for the first one's launch mode still joins ([`joins`]).
+    /// for the first one's launch size still joins ([`join`]).
     created: (u32, u32, u32),
     /// Windows showed `mode`'s resolution after it was last set, at that or a
     /// slower refresh it accepted.
@@ -249,12 +249,11 @@ pub(super) fn display_lease(
     let mut displays = DISPLAYS.lock().unwrap();
     displays.retain(|_, lease| lease.strong_count() != 0);
     if let Some(display) = displays.get(id).and_then(std::sync::Weak::upgrade) {
-        let joined = {
-            let shared = display.lock().unwrap();
-            joins(shared.created, shared.mode, (width, height, fps))
-        };
-        if !joined {
-            bail!("shared virtual display already uses a different mode");
+        {
+            let mut shared = display.lock().unwrap();
+            join(shared.created, shared.mode, (width, height, fps), |rate| {
+                shared.raise_rate(rate)
+            })?;
         }
         return Ok(display);
     }
@@ -268,12 +267,44 @@ pub(super) fn display_lease(
     displays.insert(id.into(), std::sync::Arc::downgrade(&display));
     Ok(display)
 }
-/// A stream joins a shared virtual display that was created with the mode it
-/// asks for, or that shows that mode now: a rate raised, a turn or a size the
-/// user picked in Windows moves `current`, and the encoder scales as it does
-/// on a shared physical display.
-fn joins(created: (u32, u32, u32), current: (u32, u32, u32), requested: (u32, u32, u32)) -> bool {
-    requested == created || requested == current
+/// A stream joins a shared virtual display that was created at the size it
+/// asks for, or that shows that size now: a turn or a size the user picked in
+/// Windows moves `current`, and the encoder scales as it does on a shared
+/// physical display. Any refresh at least the stream's serves it, since
+/// capture and encode are paced per stream: a VRR stream's 1000 Hz display
+/// serves a fixed 60 fps one. A stream that asks for more raises the display
+/// in place with `raise` (for the streams on it, too, a faster refresh
+/// serves them). Another size, or a raise Windows refuses, fails with why.
+fn join(
+    created: (u32, u32, u32),
+    current: (u32, u32, u32),
+    requested: (u32, u32, u32),
+    raise: impl FnOnce(u32) -> Option<u32>,
+) -> Result<()> {
+    let (width, height, rate) = requested;
+    if (width, height) != (created.0, created.1) && (width, height) != (current.0, current.1) {
+        bail!(
+            "shared virtual display already uses a different mode: it is {}x{}, and this stream asks for {width}x{height}",
+            current.0,
+            current.1
+        );
+    }
+    if rate <= current.2 {
+        return Ok(());
+    }
+    if raise(rate).is_none() {
+        bail!(
+            "shared virtual display already uses a different mode: it runs at {:.3} Hz, and Windows refused the {:.3} Hz this stream asks for",
+            f64::from(current.2) / 1000.,
+            f64::from(rate) / 1000.
+        );
+    }
+    tracing::info!(
+        from = %format_timing(current),
+        to_millihz = rate,
+        "a joining stream raised the shared virtual display's refresh"
+    );
+    Ok(())
 }
 fn lease_exists(result: Result<()>) -> Result<bool> {
     match result {
@@ -985,18 +1016,76 @@ impl Drop for VirtualDisplay {
 
 #[cfg(test)]
 mod tests {
+    /// Joins without changing the display.
+    fn joins(
+        created: (u32, u32, u32),
+        current: (u32, u32, u32),
+        requested: (u32, u32, u32),
+    ) -> bool {
+        super::join(created, current, requested, |_| panic!("raised")).is_ok()
+    }
+
     #[test]
     fn a_second_stream_joins_a_shared_display_whose_mode_changed_in_place() {
-        let launched = (1920, 1080, 60);
+        let launched = (1920, 1080, 60_000);
         // The first stream raised the rate, turned, or Windows took a size
         // the user picked: the launch mode and the shown one both join.
-        for current in [(1920, 1080, 120), (1080, 1920, 60), (2560, 1440, 60)] {
-            assert!(super::joins(launched, current, launched));
-            assert!(super::joins(launched, current, current));
-            assert!(!super::joins(launched, current, (1280, 720, 60)));
+        for current in [
+            (1920, 1080, 120_000),
+            (1080, 1920, 60_000),
+            (2560, 1440, 60_000),
+        ] {
+            assert!(joins(launched, current, launched));
+            assert!(joins(launched, current, current));
+            let error = super::join(launched, current, (1280, 720, 60_000), |_| panic!())
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("asks for 1280x720"), "{error}");
         }
-        assert!(super::joins(launched, launched, launched));
-        assert!(!super::joins(launched, launched, (1920, 1080, 120)));
+        assert!(joins(launched, launched, launched));
+    }
+
+    #[test]
+    fn a_vrr_stream_and_a_fixed_rate_stream_share_a_virtual_display_either_way() {
+        // Nightjar desktop with VRR asks 1000 Hz, a phone at 60 fps 120 Hz.
+        let vrr = (1920, 1080, 1_000_000);
+        let fixed = (1920, 1080, 120_000);
+        // VRR first: its 1000 Hz serves the 60 fps stream as it is.
+        assert!(joins(vrr, vrr, fixed));
+        // The fixed rate first: the VRR stream raises the display, and keeps VRR.
+        let mut raised = None;
+        super::join(fixed, fixed, vrr, |rate| {
+            raised = Some(rate);
+            Some(rate)
+        })
+        .unwrap();
+        assert_eq!(raised, Some(1_000_000));
+        // Now at 1000 Hz, a third stream at either rate joins as it is.
+        assert!(joins(fixed, vrr, fixed));
+        assert!(joins(fixed, vrr, vrr));
+        // A display that already refreshes faster is never lowered.
+        assert!(joins(fixed, fixed, (1920, 1080, 60_000)));
+    }
+
+    #[test]
+    fn a_shared_virtual_display_that_cannot_serve_a_stream_refuses_it_with_why() {
+        let fixed = (1920, 1080, 120_000);
+        // Another size, even at a rate the display serves.
+        let error = super::join(fixed, fixed, (2560, 1440, 60_000), |_| panic!("raised"))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "shared virtual display already uses a different mode: it is 1920x1080, and this stream asks for 2560x1440"
+        );
+        // A refresh Windows refuses to raise the display to.
+        let error = super::join(fixed, fixed, (1920, 1080, 1_000_000), |_| None)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "shared virtual display already uses a different mode: it runs at 120.000 Hz, and Windows refused the 1000.000 Hz this stream asks for"
+        );
     }
 
     #[test]

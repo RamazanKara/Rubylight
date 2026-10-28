@@ -144,6 +144,21 @@ impl Lexer<'_> {
 /// Read the `common` names and types from Steam's binary app cache
 /// (`appcache/appinfo.vdf`, format 28 or 29) for the apps in `wanted`.
 pub fn appinfo(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u32, (String, String)> {
+    appinfo_entries(data, wanted)
+        .into_iter()
+        .map(|(app, info)| {
+            let common = |key: &str| {
+                info.at(&["common", key])
+                    .and_then(Vdf::text)
+                    .unwrap_or("")
+                    .to_owned()
+            };
+            (app, (common("name"), common("type")))
+        })
+        .collect()
+}
+/// The app cache's `appinfo` object of each app in `wanted`.
+fn appinfo_entries(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u32, Vdf> {
     let mut found = BTreeMap::new();
     let u32_at = |at: usize| -> Option<u32> {
         Some(u32::from_le_bytes(data.get(at..at + 4)?.try_into().ok()?))
@@ -188,15 +203,13 @@ pub fn appinfo(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u32, (String, St
         }
         if wanted.contains(&app) {
             let mut cursor = at + 68;
-            if let Some(root) = binary_object(data, &mut cursor, entry_end, keys.as_deref()) {
-                let info = root.get("appinfo").unwrap_or(&root);
-                let common = |key: &str| {
-                    info.at(&["common", key])
-                        .and_then(Vdf::text)
-                        .unwrap_or("")
-                        .to_owned()
-                };
-                found.insert(app, (common("name"), common("type")));
+            if let Some(mut root) = binary_object(data, &mut cursor, entry_end, keys.as_deref()) {
+                if let Vdf::Object(entries) = &mut root
+                    && let Some(at) = entries.iter().position(|(key, _)| key == "appinfo")
+                {
+                    root = entries.swap_remove(at).1;
+                }
+                found.insert(app, root);
             }
         }
         at = entry_end;
@@ -297,31 +310,7 @@ pub fn steamapps(root: &Path) -> Option<PathBuf> {
 /// Every installed app in the libraries of `roots` (Steam installations),
 /// with play history, names and types from the app cache, and artwork.
 pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
-    let mut libraries: Vec<PathBuf> = vec![];
-    let add = |path: PathBuf, libraries: &mut Vec<PathBuf>| {
-        if !libraries.iter().any(|known| same_path(known, &path)) {
-            libraries.push(path);
-        }
-    };
-    for root in roots {
-        let Some(apps) = steamapps(root) else {
-            continue;
-        };
-        add(apps.clone(), &mut libraries);
-        let folders = std::fs::read_to_string(apps.join("libraryfolders.vdf"))
-            .map(|text| Vdf::parse(&text))
-            .unwrap_or(Vdf::Object(vec![]));
-        let folders = folders.get("libraryfolders").unwrap_or(&folders);
-        for (_, folder) in folders.entries() {
-            // Old files give the path as the value itself.
-            let path = folder.get("path").or(Some(folder)).and_then(Vdf::text);
-            if let Some(path) = path.filter(|p| !p.is_empty())
-                && let Some(library) = steamapps(Path::new(path))
-            {
-                add(library, &mut libraries);
-            }
-        }
-    }
+    let libraries = libraries(roots);
     let mut games: BTreeMap<u32, Game> = BTreeMap::new();
     for steamapps in &libraries {
         let Ok(entries) = std::fs::read_dir(steamapps) else {
@@ -340,24 +329,10 @@ pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
             .collect();
         manifests.sort();
         for manifest in manifests {
-            let Ok(text) = std::fs::read_to_string(&manifest) else {
+            let Some((appid, state, install_dir)) = installed(steamapps, &manifest) else {
                 continue;
             };
-            let document = Vdf::parse(&text);
-            let Some(state) = document.get("AppState") else {
-                continue;
-            };
-            let Some(appid) = state
-                .get("appid")
-                .and_then(Vdf::number)
-                .and_then(|id| u32::try_from(id).ok())
-                .filter(|id| *id > 0)
-            else {
-                continue;
-            };
-            let folder = state.get("installdir").and_then(Vdf::text).unwrap_or("");
-            let install_dir = steamapps.join("common").join(folder);
-            if folder.is_empty() || !install_dir.is_dir() || games.contains_key(&appid) {
+            if games.contains_key(&appid) {
                 continue;
             }
             games.insert(
@@ -403,6 +378,122 @@ pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
         game.icon_path = icon;
     }
     games.into_values().filter(|g| !g.name.is_empty()).collect()
+}
+/// The `steamapps` folders of every library of `roots`.
+fn libraries(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut libraries: Vec<PathBuf> = vec![];
+    let add = |path: PathBuf, libraries: &mut Vec<PathBuf>| {
+        if !libraries.iter().any(|known| same_path(known, &path)) {
+            libraries.push(path);
+        }
+    };
+    for root in roots {
+        let Some(apps) = steamapps(root) else {
+            continue;
+        };
+        add(apps.clone(), &mut libraries);
+        let folders = std::fs::read_to_string(apps.join("libraryfolders.vdf"))
+            .map(|text| Vdf::parse(&text))
+            .unwrap_or(Vdf::Object(vec![]));
+        let folders = folders.get("libraryfolders").unwrap_or(&folders);
+        for (_, folder) in folders.entries() {
+            // Old files give the path as the value itself.
+            let path = folder.get("path").or(Some(folder)).and_then(Vdf::text);
+            if let Some(path) = path.filter(|p| !p.is_empty())
+                && let Some(library) = steamapps(Path::new(path))
+            {
+                add(library, &mut libraries);
+            }
+        }
+    }
+    libraries
+}
+/// A manifest's app, its `AppState` and its install folder, when the folder
+/// is there.
+fn installed(steamapps: &Path, manifest: &Path) -> Option<(u32, Vdf, PathBuf)> {
+    let text = std::fs::read_to_string(manifest).ok()?;
+    let state = Vdf::parse(&text).get("AppState")?.clone();
+    let appid = state
+        .get("appid")
+        .and_then(Vdf::number)
+        .and_then(|id| u32::try_from(id).ok())
+        .filter(|id| *id > 0)?;
+    let folder = state.get("installdir").and_then(Vdf::text).unwrap_or("");
+    let install_dir = steamapps.join("common").join(folder);
+    (!folder.is_empty() && install_dir.is_dir()).then_some((appid, state, install_dir))
+}
+
+/// The .exe Steam starts for `appid` on Windows and the game's install
+/// folder: the app cache's first launch option for Windows that is no
+/// beta's and starts an .exe below the folder, a 64-bit one first.
+pub fn game_executable(appid: u32, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf), String> {
+    let install_dir = libraries(roots)
+        .iter()
+        .find_map(|steamapps| {
+            let manifest = steamapps.join(format!("appmanifest_{appid}.acf"));
+            installed(steamapps, &manifest).map(|(_, _, folder)| folder)
+        })
+        .ok_or_else(|| format!("Steam app {appid} is not installed"))?;
+    let info = roots
+        .iter()
+        .find_map(|root| std::fs::read(root.join("appcache").join("appinfo.vdf")).ok())
+        .and_then(|data| appinfo_entries(&data, &BTreeSet::from([appid])).remove(&appid))
+        .ok_or_else(|| {
+            format!("Steam's app cache does not list app {appid}: start it once in Steam")
+        })?;
+    let relative = launch_executable(&info)
+        .ok_or_else(|| format!("Steam app {appid} has no launch option that starts an .exe"))?;
+    let parts: Vec<&str> = relative
+        .split(['\\', '/'])
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    if parts.iter().any(|part| *part == ".." || part.contains(':')) {
+        return Err(format!(
+            "Steam app {appid} starts {relative}, outside its folder"
+        ));
+    }
+    let exe = parts
+        .iter()
+        .fold(install_dir.clone(), |path, part| path.join(part));
+    if !exe.is_file() {
+        return Err(format!(
+            "{} is missing: verify the game's files in Steam",
+            exe.display()
+        ));
+    }
+    Ok((exe, install_dir))
+}
+
+/// The executable of the launch option (`config/launch`) Steam starts on
+/// Windows, relative to the install folder.
+fn launch_executable(info: &Vdf) -> Option<String> {
+    let options = info.at(&["config", "launch"])?.entries();
+    options
+        .iter()
+        .filter_map(|(_, option)| {
+            let executable = option.get("executable").and_then(Vdf::text)?.trim();
+            let config = |key: &str| {
+                option
+                    .at(&["config", key])
+                    .and_then(Vdf::text)
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+            };
+            let windows = config("oslist").is_empty() || config("oslist").contains("windows");
+            let kind = option
+                .get("type")
+                .and_then(Vdf::text)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            (windows
+                && config("betakey").is_empty()
+                && executable.to_ascii_lowercase().ends_with(".exe")
+                && matches!(kind.as_str(), "" | "default" | "none"))
+            .then(|| (config("osarch") == "32", executable.to_string()))
+        })
+        // 64-bit first, then Steam's order.
+        .min_by_key(|(only_32, _)| *only_32)
+        .map(|(_, executable)| executable)
 }
 fn same_path(a: &Path, b: &Path) -> bool {
     a.to_string_lossy()
@@ -1214,6 +1305,113 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[&70], ("Half-Life".into(), "Game".into()));
         assert!(appinfo(&data[..40], &BTreeSet::from([70])).is_empty());
+    }
+    /// Binary VDF in format 28: an object with its children, a text.
+    fn object(key: &str, children: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = vec![0x00];
+        out.extend(key.as_bytes());
+        out.push(0);
+        children.iter().for_each(|child| out.extend(child));
+        out.push(0x08);
+        out
+    }
+    fn text(key: &str, value: &str) -> Vec<u8> {
+        let mut out = vec![0x01];
+        for part in [key, value] {
+            out.extend(part.as_bytes());
+            out.push(0);
+        }
+        out
+    }
+    fn option(key: &str, executable: &str, kind: &str, config: &[(&str, &str)]) -> Vec<u8> {
+        let config: Vec<_> = config.iter().map(|(k, v)| text(k, v)).collect();
+        object(
+            key,
+            &[
+                text("executable", executable),
+                text("type", kind),
+                object("config", &config),
+            ],
+        )
+    }
+    /// A Steam folder with Black Flag (242050) installed and its launch
+    /// options in the app cache, Steam's order first.
+    fn steam_with_launch_options(options: &[Vec<u8>]) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let apps = root.path().join("steamapps");
+        let game = apps.join("common").join("Black Flag");
+        std::fs::create_dir_all(game.join("bin")).unwrap();
+        std::fs::write(game.join("bin").join("AC4BFSP.exe"), b"").unwrap();
+        std::fs::write(
+            apps.join("appmanifest_242050.acf"),
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"242050\"\n\t\"installdir\"\t\t\"Black Flag\"\n}\n",
+        )
+        .unwrap();
+        let mut kv = object("appinfo", &[object("config", &[object("launch", options)])]);
+        kv.extend([0x08, 0x08]);
+        let mut data = 0x0756_4428u32.to_le_bytes().to_vec();
+        data.extend(1u32.to_le_bytes());
+        data.extend(binary_entry(242050, &kv));
+        data.extend(0u32.to_le_bytes());
+        std::fs::create_dir_all(root.path().join("appcache")).unwrap();
+        std::fs::write(root.path().join("appcache").join("appinfo.vdf"), data).unwrap();
+        root
+    }
+    #[test]
+    fn a_steam_game_starts_the_exe_of_its_windows_launch_option() {
+        let steam = steam_with_launch_options(&[
+            option("0", "AC4BFSP.app", "default", &[("oslist", "macos")]),
+            option("1", "bin32\\AC4BFSP.exe", "default", &[("osarch", "32")]),
+            option("2", "Launcher.exe", "option1", &[]),
+            option(
+                "3",
+                "beta\\AC4BFSP.exe",
+                "default",
+                &[("betakey", "public_test")],
+            ),
+            option(
+                "4",
+                "bin/AC4BFSP.exe",
+                "default",
+                &[("oslist", "windows"), ("osarch", "64")],
+            ),
+        ]);
+        let roots = [steam.path().to_path_buf()];
+        let game = steam
+            .path()
+            .join("steamapps")
+            .join("common")
+            .join("Black Flag");
+        assert_eq!(
+            game_executable(242050, &roots).unwrap(),
+            (game.join("bin").join("AC4BFSP.exe"), game.clone())
+        );
+        assert_eq!(
+            game_executable(7, &roots).unwrap_err(),
+            "Steam app 7 is not installed"
+        );
+    }
+    #[test]
+    fn a_steam_launch_option_outside_its_folder_or_missing_is_refused() {
+        let steam = steam_with_launch_options(&[option("0", "..\\Other\\Other.exe", "", &[])]);
+        let roots = [steam.path().to_path_buf()];
+        let error = game_executable(242050, &roots).unwrap_err();
+        assert!(error.contains("outside its folder"), "{error}");
+        let steam = steam_with_launch_options(&[option("0", "Gone.exe", "", &[])]);
+        let error = game_executable(242050, &[steam.path().to_path_buf()]).unwrap_err();
+        assert!(error.contains("Gone.exe is missing"), "{error}");
+        let steam = steam_with_launch_options(&[option("0", "run.sh", "", &[])]);
+        let error = game_executable(242050, &[steam.path().to_path_buf()]).unwrap_err();
+        assert!(
+            error.contains("no launch option that starts an .exe"),
+            "{error}"
+        );
+        // Names and types still read from the same cache.
+        let data = std::fs::read(steam.path().join("appcache").join("appinfo.vdf")).unwrap();
+        assert_eq!(
+            appinfo(&data, &BTreeSet::from([242050]))[&242050],
+            (String::new(), String::new())
+        );
     }
     fn game(appid: u32, name: &str, last_played: u64) -> Game {
         Game {

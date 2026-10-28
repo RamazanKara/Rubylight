@@ -112,7 +112,8 @@ pub trait Pc: Send + Sync {
     /// The XInput slots the PC's own controllers leave free.
     fn free_pads(&self) -> Result<usize>;
     /// The game of `app` for Rubylight's own one-player handler: its .exe on
-    /// this PC. A launcher's link names none.
+    /// this PC, for a Steam link the one Steam starts. Another launcher's
+    /// link names none.
     fn one_player(&self, app: &App) -> Result<Setup, Refusal>;
     /// Write Rubylight's one-player handler for `setup` into the Nucleus at
     /// `folder` and add its game for the signed-in user; refused while
@@ -224,6 +225,24 @@ impl Pc for OnPc {
         pads::free(&mut pads::System::open()?)
     }
     fn one_player(&self, app: &App) -> Result<Setup, Refusal> {
+        // A Steam game's link: the .exe Steam starts for it.
+        if !starts_exe(app)
+            && let Some(appid) = serde_json::to_value(app)
+                .ok()
+                .and_then(|app| butterpollo_core::steam::game_of(&app))
+        {
+            let roots = butterpollo_windows::steam::roots();
+            let (exe, install_dir) = butterpollo_core::steam::game_executable(appid, &roots)
+                .map_err(|message| Refusal {
+                    status: 404,
+                    message,
+                })?;
+            return Ok(Setup::new(
+                &exe.to_string_lossy(),
+                &app.name,
+                Some(&install_dir.to_string_lossy()),
+            ));
+        }
         let exe = executable(app)
             .filter(|_| starts_exe(app))
             .filter(|exe| Path::new(exe).is_absolute())

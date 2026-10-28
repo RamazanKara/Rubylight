@@ -274,4 +274,12 @@ public class GameRateChangeTest {
         runUntilAutomaticAsks();
         assertFalse(sent.isEmpty());
     }
+
+    @Test
+    public void theDoctorOffersNoBitrateTrialWhileAutomaticBitrateOnThisDeviceRuns() {
+        assertTrue(Game.healthTrialAllowed(false, false, false));
+        assertFalse("automatic bitrate on this device owns the bitrate", Game.healthTrialAllowed(false, true, false));
+        assertFalse(Game.healthTrialAllowed(true, false, false));
+        assertFalse(Game.healthTrialAllowed(false, false, true));
+    }
 }

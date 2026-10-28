@@ -36,6 +36,8 @@ public class ConnectionContext {
     public FecChoice fecChoice;
     // Ask for mid-stream rate changes (rlRateChange=1, control message 0x553C)
     public boolean rateChange;
+    // Set only for the launch that retries after the user confirmed closing the running game
+    public boolean confirmReplace;
     // The bitrate the stream starts at: the configured one, or lower after a link test
     public int startBitrateKbps;
 

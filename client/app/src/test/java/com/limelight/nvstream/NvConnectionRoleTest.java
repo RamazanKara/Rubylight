@@ -13,6 +13,10 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -56,6 +60,12 @@ public class NvConnectionRoleTest {
 
     private NvHTTP http(ConnectionContext expected, String verb, AtomicInteger requests,
                         HostHttpResponseException... errors) throws IOException {
+        return http(expected, verb, requests, new ArrayList<>(), errors);
+    }
+
+    // Records each request's ConnectionContext.confirmReplace in confirmed.
+    private NvHTTP http(ConnectionContext expected, String verb, AtomicInteger requests, List<Boolean> confirmed,
+                        HostHttpResponseException... errors) throws IOException {
         return new NvHTTP(new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device", null,
                 new LimelightCryptoProvider() {
                     public java.security.cert.X509Certificate getClientCertificate() { return null; }
@@ -69,6 +79,7 @@ public class NvConnectionRoleTest {
                 assertSame(expected, context);
                 assertEquals(verb, actualVerb);
                 assertEquals(expected.streamConfig.getApp().getAppId(), appId);
+                confirmed.add(context.confirmReplace);
                 int index = requests.getAndIncrement();
                 if (index < errors.length) {
                     throw errors[index];
@@ -135,6 +146,51 @@ public class NvConnectionRoleTest {
             assertEquals(2, requests.get());
             assertFalse(context.launchActionCompleted);
         }
+    }
+
+    @Test
+    public void onlyTheRetryAfterAConfirmedReplaceConfirmsIt() throws Exception {
+        // Confirmed: the first request asks nothing, the retry confirms, and nothing after it does.
+        HostHttpResponseException denied = new HostHttpResponseException(403, "Permission denied");
+        for (HostHttpResponseException retryError : new HostHttpResponseException[] {null, denied}) {
+            List<Boolean> confirmed = new ArrayList<>();
+            ConnectionContext context = context(73, request -> request.confirm(LaunchConfirmation.nowMs()),
+                    new AtomicInteger());
+            NvHTTP http = retryError == null ?
+                    http(context, "launch", new AtomicInteger(), confirmed, NvHTTPRoleTest.error("replace-confirm")) :
+                    http(context, "launch", new AtomicInteger(), confirmed, NvHTTPRoleTest.error("replace-confirm"),
+                            retryError);
+            if (retryError == null) {
+                assertTrue(NvConnection.launchApp(http, context, "launch"));
+            } else {
+                assertSame(retryError, assertThrows(HostHttpResponseException.class,
+                        () -> NvConnection.launchApp(http, context, "launch")));
+            }
+            assertEquals(Arrays.asList(false, true), confirmed);
+            assertFalse(context.confirmReplace);
+        }
+        // Cancelled or timed out: no retry, so nothing confirms.
+        for (boolean timeout : new boolean[] {false, true}) {
+            List<Boolean> confirmed = new ArrayList<>();
+            ConnectionContext context = context(73, request -> {
+                if (timeout) {
+                    request.getState(LaunchConfirmation.nowMs() + 60_000);
+                } else {
+                    request.cancel();
+                }
+            }, new AtomicInteger());
+            NvHTTP http = http(context, "launch", new AtomicInteger(), confirmed, NvHTTPRoleTest.error("replace-confirm"));
+            assertThrows(IOException.class, () -> NvConnection.launchApp(http, context, "launch"));
+            assertEquals(Collections.singletonList(false), confirmed);
+            assertFalse(context.confirmReplace);
+        }
+        // A confirmed Terminate is not a replace.
+        List<Boolean> confirmed = new ArrayList<>();
+        ConnectionContext context = context(2147483504, request -> request.confirm(LaunchConfirmation.nowMs()),
+                new AtomicInteger());
+        assertFalse(NvConnection.launchApp(http(context, "launch", new AtomicInteger(), confirmed,
+                NvHTTPRoleTest.error("terminate-confirm"), NvHTTPRoleTest.error("terminate-done")), context, "launch"));
+        assertEquals(Arrays.asList(false, false), confirmed);
     }
 
     @Test

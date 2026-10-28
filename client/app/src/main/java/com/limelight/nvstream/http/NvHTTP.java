@@ -1430,6 +1430,8 @@ public class NvHTTP {
             "&remoteControllersBitmap=" + gamepads +
             "&gcmap=" + gamepads +
             "&gcpersist="+(role != NvApp.Role.REMOTE_MONITOR && context.streamConfig.getPersistGamepadsAfterDisconnect() ? 1 : 0) +
+            (caps.family() != HostCapabilities.Family.RUBYLIGHT ? "" :
+                    "&" + LaunchConfirmation.REPLACE_PARAMETER + "=" + (context.confirmReplace ? 1 : 0)) +
             (context.fecChoice == null || !caps.has(HostCapabilities.Feature.CLIENT_FEC) ? "" :
                     "&" + FecChoice.LAUNCH_PARAMETER + "=" + context.fecChoice.wireValue) +
             // No host offers rate changes before the launch and every host ignores a parameter it

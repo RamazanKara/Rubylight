@@ -170,23 +170,34 @@ pub fn dismiss(document: &mut Value, app: &Value) {
     }
 }
 
-/// The one-time ownership stamp at host start (see `library::stamp_synced`). Steam's apps
-/// are the sync's only when `sunshine.conf` itself turns `steam_enabled` on: that user chose
-/// the opt-in sync of earlier versions. Returns whether `document` changed.
-pub fn stamp_synced(document: &mut Value, config: &butterpollo_core::config::Config) -> bool {
-    let steam_opted_in =
-        config.values.contains_key("steam_enabled") && config.boolean("steam_enabled", false);
-    let Some(stamped) = library::stamp_synced(document, steam_opted_in) else {
-        return false;
+/// The one-time ownership stamp at host start, before any sync runs (see
+/// `library::stamp_synced`). Steam's apps are the sync's only when `sunshine.conf` itself turns
+/// `steam_enabled` on: that user chose the opt-in sync of earlier versions. A library that can't
+/// be saved stays unstamped, which leaves every app to the user, and is tried again next start.
+pub fn stamp_synced(h: &Shared) -> Result<()> {
+    let steam_opted_in = {
+        let config = h.config.read().unwrap();
+        config.values.contains_key("steam_enabled") && config.boolean("steam_enabled", false)
     };
-    tracing::info!(
-        steam = stamped.steam,
-        launcher = stamped.launcher,
-        playnite = stamped.playnite,
-        steam_opted_in,
-        "synced apps stamped with their sync"
-    );
-    true
+    let mut stamped = None;
+    crate::steam::update_library(h, |apps, document| {
+        document["apps"] = Value::Array(std::mem::take(apps));
+        stamped = library::stamp_synced(document, steam_opted_in);
+        if let Value::Array(list) = document["apps"].take() {
+            *apps = list;
+        }
+        stamped.is_some()
+    })?;
+    if let Some(stamped) = stamped {
+        tracing::info!(
+            steam = stamped.steam,
+            launcher = stamped.launcher,
+            playnite = stamped.playnite,
+            steam_opted_in,
+            "synced apps stamped with their sync"
+        );
+    }
+    Ok(())
 }
 
 /// A launcher's PNG cover in the profile's covers folder, converted once.
@@ -508,6 +519,7 @@ mod tests {
             ]});
             std::fs::write(directory.join("apps.json"), apps.to_string()).unwrap();
             let f = Fixture::load(directory.clone());
+            stamp_synced(&f.host).unwrap();
             let saved = butterpollo_core::state::load_json(&f.host.apps_path, json!({})).unwrap();
             assert_eq!(saved[library::SYNC_OWNER_VERSION], 1, "{conf}");
             let stamps: Vec<Value> = saved["apps"]
@@ -536,6 +548,7 @@ mod tests {
             std::fs::write(directory.join("sunshine.conf"), conf).unwrap();
             std::fs::write(directory.join("apps.json"), later.to_string()).unwrap();
             let f = Fixture::load(directory);
+            stamp_synced(&f.host).unwrap();
             assert_eq!(
                 butterpollo_core::state::load_json(&f.host.apps_path, json!({})).unwrap(),
                 later

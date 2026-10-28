@@ -470,8 +470,6 @@ impl Host {
                 assigned |= butterpollo_core::config::replace_retired_in_app(app);
             }
         }
-        // Once: the synced apps an earlier version left get their sync's stamp.
-        assigned |= crate::library::stamp_synced(&mut app_document, &config);
         if assigned {
             butterpollo_core::state::write_json(&apps_path, &app_document)?;
         }

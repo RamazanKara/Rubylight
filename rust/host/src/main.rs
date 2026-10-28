@@ -372,6 +372,9 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the previous host stopped during a session; it was cleared"
         );
     }
+    if let Err(error) = library::stamp_synced(&h) {
+        tracing::error!(error = %format!("{error:#}"), "the synced apps could not be stamped with their sync");
+    }
     // The first launcher scan for the native library runs on its own thread, so the first request
     // finds it done and startup does not wait.
     library::installed(&h);

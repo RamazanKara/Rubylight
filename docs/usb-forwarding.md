@@ -1,4 +1,4 @@
-# USB forwarding (Experimental)
+# USB forwarding
 
 A USB device plugged into the client, such as a flash drive, a USB gamepad or a dongle, can be attached to the host PC during a stream, as if it were plugged into the PC. The client serves the device over USB/IP inside a TLS tunnel on the stream's HTTPS port; on the host, [usbip-win2](https://github.com/vadimgrn/usbip-win2) attaches it. No USB/IP port is open to the network: the host relays the tunnel to the driver on 127.0.0.1. The protocol is in [native-api.md](native-api.md#usb-forwarding) and [control-messages.md](control-messages.md#0x553a-usb-forwarding).
 

@@ -1,8 +1,8 @@
-# WebRTC server (Experimental)
+# WebRTC server
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Features](features.md) · [Hardware matrix](hardware-matrix.md)
 
-Rubylight can stream over WebRTC to a Samsung Tizen TV or to a browser, next to the usual Moonlight stream. It is off by default and Experimental. It speaks the Moonlight WebRTC TV protocol, version 2, which [mlopezsegura](https://github.com/mlopezsegura) designed for the [Tizen TV app](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client) and the [browser client](https://github.com/mlopezsegura/moonlight-webrtc-web). The Moonlight path does not change when this is off, and no WebRTC socket is open.
+Rubylight can stream over WebRTC to a Samsung Tizen TV or to a browser, next to the usual Moonlight stream. It is off by default. It speaks the Moonlight WebRTC TV protocol, version 2, which [mlopezsegura](https://github.com/mlopezsegura) designed for the [Tizen TV app](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client) and the [browser client](https://github.com/mlopezsegura/moonlight-webrtc-web). The Moonlight path does not change when this is off, and no WebRTC socket is open.
 
 The first part is for people who stream. The second part is for people who write a client.
 
@@ -24,7 +24,7 @@ If another program already holds a port, the console shows a `webrtc_server` war
 | Signalling (WebSocket) | TCP 8000 | `webrtc_port` |
 | Media, audio and input | UDP 8001 | `webrtc_media_port` |
 
-TVs send their discovery broadcast to UDP 8000, so discovery stays there even when you move the signalling port. The reply tells the TV which signalling port to use. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so an installed host needs nothing more. On a portable host, allow these three ports. The full list of settings is in [Configuration](configuration.md#webrtc-server-experimental).
+TVs send their discovery broadcast to UDP 8000, so discovery stays there even when you move the signalling port. The reply tells the TV which signalling port to use. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so an installed host needs nothing more. On a portable host, allow these three ports. The full list of settings is in [Configuration](configuration.md#webrtc-server).
 
 Broadcasts do not cross routers. A TV on another subnet needs the PC's address entered by hand.
 
@@ -37,7 +37,9 @@ Broadcasts do not cross routers. A TV on another subnet needs the PC's address e
 
 The app then holds a client ID and a secret, and signs in on its own from then on. The secret is stored in `sunshine_state.json` and is never shown in the console. A request lasts 5 minutes and allows one attempt.
 
-### Stream in the console (Experimental)
+### Stream in the console
+
+<a id="stream-in-the-console-experimental"></a>
 
 The console's **Stream** page plays a game from this PC in the browser tab, with no app and no pairing: H.264 at 1920×1080 and 60 fps, stereo sound, keyboard and mouse.
 
@@ -64,7 +66,7 @@ Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disab
 | Gamepad as a mouse | Hold Start for 750 ms and release it. The stick moves the pointer, the D-pad scrolls, and A, B, X, LB and RB click. Do it again to turn it off. |
 | Keyboard and mouse | From a client that opens the `input` channel (see below), such as the console's Stream page. The browser client does not. |
 
-The host reads how much its encoder can do (AMF's throughput limit per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. A driver that reports no limit gets 60 fps and below. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. Experimental: 720p at 90 and 120, H.264 at 1440p above 60, AV1 at 1440p90 and 1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, GPUs with a lower throughput limit, and drivers that report no limit.
+The host reads how much its encoder can do (AMF's throughput limit per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. A driver that reports no limit gets 60 fps and below. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. Also offered where the encoder reports it can: 720p at 90 and 120, H.264 at 1440p above 60, AV1 at 1440p90 and 1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, GPUs with a lower throughput limit, and drivers that report no limit.
 
 A request for anything the host cannot send is refused with an error. There is no fallback: no SDR for an HDR request, no H.264 for AV1, no stereo for a surround request.
 

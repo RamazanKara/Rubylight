@@ -15,7 +15,9 @@ Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play 
 | **Get my first stream running** | [Getting started](getting-started.md): what you need, installer or portable setup, pairing and a first desktop stream. |
 | Bring my settings or update an existing host | [Import a profile](getting-started.md#bring-an-existing-profile) · [Upgrade safely](getting-started.md#upgrading) |
 | Choose a codec, enable HDR or try PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video settings](configuration.md#capture-and-video) |
-| Let the host adjust bitrate after video packet loss | [Host bitrate adaptation](configuration.md#host-bitrate-adaptation): optional, experimental, and separate from client bitrate control. |
+| Stream Dolby Vision, HDR10+ or HLG to a TV | [Capture and video settings](configuration.md#capture-and-video): what each format needs from the device, and the HDR switches. |
+| Send PCM or Dolby Digital to a receiver, or use 7.1.4, night mode or headphone surround | [PCM and Dolby Digital audio](configuration.md#pcm-and-dolby-digital-audio) · [Surround, night mode and headphone surround](configuration.md#surround-night-mode-and-headphone-surround) |
+| Let the host adjust bitrate after video packet loss | [Host bitrate adaptation](configuration.md#host-bitrate-adaptation): optional, off by default, and separate from client bitrate control. |
 | Stream the game's sound without other applications | [Game-only audio](configuration.md#game-only-audio): supported Windows versions, verified launches and silence on capture failure. |
 | Let a device play while someone keeps using the PC | [Background streaming](configuration.md#background-streaming): how [Nucleus Co-op](nucleus-coop.md) runs it and its limits; or [a Hyper-V VM](configuration.md#background-streaming-from-a-hyper-v-vm) with full input. |
 | Play a game together on one PC from several devices | [Nucleus Co-op](nucleus-coop.md): the install, handlers, “Can join co-op games” and joining from Nightjar. |
@@ -24,14 +26,16 @@ Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play 
 | Keep the stream from stalling on a slow link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Stream presets](configuration.md#stream-presets) |
 | Send frames earlier, or record where each frame's time goes | [Slice delivery](b2-slice-delivery.md) · [Timing record](timing-record.md) |
 | Set up a controller or use my client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
-| Use a USB device plugged into my client on the PC | [USB forwarding (Experimental)](usb-forwarding.md): setup, which devices forward, detaching. |
-| Stream to a Samsung TV or a browser | [WebRTC server (Experimental)](webrtc.md): setup, pairing, what streams, and the protocol extensions for client authors. |
+| Open a menu in the stream to disconnect or close the game | [Couch menu](configuration.md#couch-menu): L3+R3, Ctrl+Alt+Backspace or the top-left corner, and how to change them. |
+| Share the clipboard, folders or files with a device | [Clipboard, files and USB](configuration.md#clipboard-files-and-usb) · [Shared folders](configuration.md#shared-folders) · [File transfer](configuration.md#file-transfer) · [Privacy](privacy.md#your-own-devices) |
+| Use a USB device plugged into my client on the PC | [USB forwarding](usb-forwarding.md): setup, which devices forward, detaching. |
+| Stream to a Samsung TV or a browser | [WebRTC server](webrtc.md): setup, pairing, what streams, and the protocol extensions for client authors. |
 | Launch Steam games from Steam Deck with MoonDeck | [MoonDeck setup](configuration.md#moondeck) |
 | Tell another service when apps start or devices pair | [Webhooks](webhooks.md): signed events, verifying them and the replay window. |
 | Understand an away-from-home Tailscale connection | [Remote connection route](network-path.md): paired route diagnostics and what an unknown result means. |
 | **Fix a stream that will not start or feels wrong** | [Troubleshooting](troubleshooting.md): pairing, black screens, HDR colour, audio, controllers and smoothness. |
 
-The full [configuration guide](configuration.md) starts with the defaults. If a problem needs a bug report, [collect the logs and stream details](troubleshooting.md#logs-and-a-useful-report) so someone else can reproduce it.
+The full [configuration guide](configuration.md) starts with the [defaults in 3.0.0](configuration.md#defaults-in-300) and ends with [every setting](configuration.md#all-settings), its key and its default. If a problem needs a bug report, [collect the logs and stream details](troubleshooting.md#logs-and-a-useful-report) so someone else can reproduce it.
 
 ## Understand Rubylight
 
@@ -55,7 +59,7 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | [Native API v1](native-api.md) | The paired-client API behind Nightjar: capabilities, library, session actions and Radeon settings. The design and contract. |
 | [Control messages](control-messages.md) | Rubylight's own client-to-host messages (phase lock, display luminance, mid-stream resolution change) and how a client finds out the host takes them. |
 | [Hardware metrics](hardware-metrics.md) | Client overlay telemetry: discovery, paired-client authentication, JSON readings, units, polling and errors. |
-| [Hardware matrix](hardware-matrix.md) | What we have tested and what is still Experimental, per GPU generation, Windows version, feature and client, plus the Radeon settings probes per GPU and driver. |
+| [Hardware matrix](hardware-matrix.md) | What we have tested, with the evidence, and what is supported or unsupported, per GPU generation, Windows version, feature and client, plus the Radeon settings probes per GPU and driver. |
 | [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and licensing. |
 | [Detailed performance record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, rejected experiments and reproduction instructions. |
 

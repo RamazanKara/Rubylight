@@ -1343,6 +1343,12 @@ pub struct SetupState {
     /// Windows' default when a record has none.
     #[serde(default = "default_rdp_port")]
     pub rdp_port: u16,
+    /// A restore put `fDenyTSConnections` back and removed the block rule,
+    /// then stopped: RDP is the user's own again, and
+    /// `remote_desktop_rule_ids` holds only the rules it could not turn back
+    /// on. Restoring again skips those steps; setting up again records them anew.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rdp_restored: bool,
 }
 fn default_rdp_port() -> u16 {
     DEFAULT_RDP_PORT as u16
@@ -1425,6 +1431,7 @@ pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState>
             .enabled_rules(REMOTE_DESKTOP_RULES)
             .context("listing the Remote Desktop firewall rules")?,
         rdp_port: live_rdp_port(system)?,
+        rdp_restored: false,
     })
 }
 
@@ -1452,7 +1459,8 @@ const LISTENER_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Set up child sessions. The original values are recorded and saved (through
 /// `save`) before the first change, unless an earlier setup saved them
-/// already: setting up again never overwrites what was there before Rubylight.
+/// already: setting up again never overwrites what was there before Rubylight,
+/// short of what a restore put back already ([`SetupState::rdp_restored`]).
 /// Once RDP is on, the firewall is checked again when RDP listens (`wait`s
 /// for that).
 pub fn setup(
@@ -1487,9 +1495,14 @@ pub fn setup(
         // port), so the block rule and the viewer use the port RDP listens on now.
         Some(mut state) if state.user_sid == user_sid => {
             let live = live_rdp_port(system)?;
-            if state.rdp_port != live {
-                state.rdp_port = live;
-                save(&state).context("saving the new RDP port")?;
+            let mut changed = state.rdp_port != live;
+            state.rdp_port = live;
+            if state.rdp_restored {
+                rerecord_rdp(system, &mut state)?;
+                changed = true;
+            }
+            if changed {
+                save(&state).context("saving the setup record")?;
             }
             state
         }
@@ -1522,6 +1535,28 @@ pub fn setup(
         bail!("{error:#}. {outcome}");
     }
     Ok(state)
+}
+/// Setting up again after a restore that put RDP back and stopped
+/// ([`SetupState::rdp_restored`]): `fDenyTSConnections` and the Remote
+/// Desktop rules are the user's own since, so they are recorded as they are
+/// now, with the rules that restore could not turn back on (still off, on
+/// before setup). The other values keep the record's originals.
+fn rerecord_rdp(system: &dyn SystemSettings, state: &mut SetupState) -> Result<()> {
+    let change = &CHANGES[0];
+    state.deny_ts_connections = system
+        .read_dword(&Hive::LocalMachine, change.path, change.name)
+        .with_context(|| format!("reading {}", change.name))?;
+    let mut ids = system
+        .enabled_rules(REMOTE_DESKTOP_RULES)
+        .context("listing the Remote Desktop firewall rules")?;
+    for id in std::mem::take(&mut state.remote_desktop_rule_ids) {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    state.remote_desktop_rule_ids = ids;
+    state.rdp_restored = false;
+    Ok(())
 }
 /// Setup's firewall changes: the block rule in, Remote Desktop's own rules
 /// off, then checked where it counts, before RDP is on: what is in effect now.
@@ -1615,16 +1650,28 @@ fn turn_on(
 /// Put every value back as it was before setup. Every step runs even when an
 /// earlier one fails; the failures come back together. The firewall rules
 /// come back only once RDP reads back as it was: until then the block rule
-/// keeps it on this PC.
-pub fn restore(system: &mut dyn SystemSettings, state: &SetupState) -> Result<()> {
+/// keeps it on this PC. Once RDP and the block rule are back, `state` says so
+/// ([`SetupState::rdp_restored`], keeping only the rules that failed) and is
+/// saved through `save` before child sessions: a restore that stops after
+/// that resumes from there, never writing RDP's value again.
+pub fn restore(
+    system: &mut dyn SystemSettings,
+    state: &mut SetupState,
+    save: impl FnOnce(&SetupState) -> Result<()>,
+) -> Result<()> {
     let mut problems = Vec::new();
     let originals = [
         state.deny_ts_connections,
         state.dwm_frame_interval,
         state.suppress_when_minimized,
     ];
-    let mut rdp_restored = false;
+    let resumed = state.rdp_restored;
+    let mut rdp_restored = resumed;
     for (index, (change, original)) in CHANGES.iter().zip(originals).enumerate() {
+        // RDP is the user's own since the restore that put it back.
+        if index == 0 && resumed {
+            continue;
+        }
         let hive = hive(change, &state.user_sid);
         // A signed-out account's hive is not under HKEY_USERS until loaded.
         let loaded = match &hive {
@@ -1658,13 +1705,30 @@ pub fn restore(system: &mut dyn SystemSettings, state: &SetupState) -> Result<()
         }
     }
     if rdp_restored {
+        let mut failed = Vec::new();
         for id in &state.remote_desktop_rule_ids {
             if let Err(error) = system.set_rule_enabled(REMOTE_DESKTOP_RULES, id, true) {
                 problems.push(format!("firewall rule {id}: {error:#}"));
+                failed.push(id.clone());
             }
         }
-        if let Err(error) = system.remove_rule(BLOCK_RULE) {
-            problems.push(format!("firewall rule {BLOCK_RULE}: {error:#}"));
+        let blocked = if resumed {
+            Ok(())
+        } else {
+            system.remove_rule(BLOCK_RULE)
+        };
+        match blocked {
+            Ok(()) if !resumed || failed != state.remote_desktop_rule_ids => {
+                state.remote_desktop_rule_ids = failed;
+                state.rdp_restored = true;
+                if let Err(error) = save(state) {
+                    problems.push(format!(
+                        "saving that Remote Desktop and its firewall rules are back: {error:#}"
+                    ));
+                }
+            }
+            Ok(()) => {}
+            Err(error) => problems.push(format!("firewall rule {BLOCK_RULE}: {error:#}")),
         }
     } else {
         problems.push(format!(

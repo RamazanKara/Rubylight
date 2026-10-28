@@ -536,7 +536,9 @@ const CHECK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// finds is never tried again: it turns RDP off at once. It fails closed: a
 /// record that cannot be read turns RDP off too (`enforce(None, _)`), and so
 /// does a settings lock another process holds too long. A record folder
-/// setup never made ([`Foreign`]) changes nothing and is said. The problem
+/// setup never made ([`Foreign`]) changes nothing and is said, and so does a
+/// record a restore left after putting RDP back
+/// ([`SetupState::rdp_restored`]). The problem
 /// for the log and the console, None when there is none or setup never ran.
 fn secure_rdp(
     record: &Record,
@@ -568,6 +570,13 @@ fn secure_rdp(
         };
         let port = match record.load() {
             Ok(None) => return None,
+            // RDP and its firewall rules are back as before setup, so RDP is the user's own: a
+            // check would find the block rule gone and turn it off.
+            Ok(Some(state)) if state.rdp_restored => {
+                return Some(
+                    "child sessions are partly restored: Remote Desktop and its firewall rules are back as they were before setup, the rest is not. Choose Restore Windows settings again to finish, or set up child sessions again; the child session does not start until then.".into(),
+                );
+            }
             Ok(Some(state)) => Some(state.rdp_port),
             // Setup never made that folder, so no setup of Rubylight's turned RDP on: turned off
             // for it, any user who makes one would turn an administrator's own RDP off.
@@ -708,15 +717,15 @@ fn require_elevated(record: &Record, what: &str) -> Result<()> {
 }
 /// Put back what setup changed, through the settings `open` makes, then
 /// forget it; false when setup never ran. The record stays when anything was
-/// not restored, so a retry has it.
+/// not restored, so a retry has it, saying what is back already.
 fn restore_saved<S: SystemSettings>(
     record: &Record,
     open: impl FnOnce() -> Result<S>,
 ) -> Result<bool> {
-    let Some(state) = record.load()? else {
+    let Some(mut state) = record.load()? else {
         return Ok(false);
     };
-    logic::restore(&mut open()?, &state)?;
+    logic::restore(&mut open()?, &mut state, |state| record.save(state))?;
     record.remove()?;
     Ok(true)
 }
@@ -1329,6 +1338,8 @@ mod tests {
         /// Rule ID -> enabled, all in the Remote Desktop group.
         rules: std::collections::BTreeMap<String, bool>,
         block_rules: std::collections::BTreeMap<String, Vec<u16>>,
+        /// Turning child sessions on or off fails.
+        child_sessions_fail: bool,
     }
     #[derive(Clone)]
     struct Pc(std::rc::Rc<std::cell::RefCell<Machine>>);
@@ -1398,7 +1409,9 @@ mod tests {
             Ok(self.0.borrow().child_sessions)
         }
         fn set_child_sessions(&mut self, enabled: bool) -> Result<()> {
-            self.0.borrow_mut().child_sessions = enabled;
+            let mut machine = self.0.borrow_mut();
+            anyhow::ensure!(!machine.child_sessions_fail, "the call failed");
+            machine.child_sessions = enabled;
             Ok(())
         }
         fn firewall_problem(&self) -> Result<Option<String>> {
@@ -1494,6 +1507,44 @@ mod tests {
         assert!(!own.path.exists());
         assert!(restore_saved(&b, pc.open()).unwrap());
         assert_eq!(pc.now(), before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_restore_that_stops_after_rdp_leaves_rdp_to_the_user() {
+        let directory = scratch();
+        let record = record_in(&directory);
+        let pc = Pc::new();
+        let before = pc.now();
+        setup_in(&record, USER, pc.open()).unwrap();
+        // Child sessions, the last step, fail: RDP and the firewall are back, and the record
+        // says so.
+        pc.0.borrow_mut().child_sessions_fail = true;
+        let error = format!("{:#}", restore_saved(&record, pc.open()).unwrap_err());
+        assert!(error.contains("child sessions"), "{error}");
+        let saved = record.load().unwrap().unwrap();
+        assert!(saved.rdp_restored && saved.remote_desktop_rule_ids.is_empty());
+        assert!(pc.now().block_rules.is_empty());
+        // The user turns RDP on since: the check leaves it on, though the block rule is gone.
+        let deny = (
+            "LocalMachine".to_string(),
+            logic::TERMINAL_SERVER.to_string(),
+            "fDenyTSConnections".to_string(),
+        );
+        pc.0.borrow_mut().values.insert(deny.clone(), 0);
+        let never = |_, _| -> Result<Vec<String>> { panic!("RDP is the user's own") };
+        let problem = secure_rdp(&record, never, no_wait).unwrap();
+        assert!(
+            problem.contains("partly restored") && problem.contains("Restore Windows settings"),
+            "{problem}"
+        );
+        // Restoring again finishes without writing RDP's value again.
+        pc.0.borrow_mut().child_sessions_fail = false;
+        assert!(restore_saved(&record, pc.open()).unwrap());
+        assert!(!record.path.exists());
+        let mut expected = before;
+        expected.values.insert(deny, 0);
+        assert_eq!(pc.now(), expected);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2270,6 +2321,7 @@ mod tests {
             child_sessions: false,
             remote_desktop_rule_ids: Vec::new(),
             rdp_port: 3390,
+            rdp_restored: false,
         };
         record.save(&state).unwrap();
         // Checked for the port setup recorded.
@@ -2412,6 +2464,7 @@ mod tests {
             child_sessions: false,
             remote_desktop_rule_ids: Vec::new(),
             rdp_port: 3390,
+            rdp_restored: false,
         }
     }
 
@@ -2709,6 +2762,7 @@ mod tests {
             child_sessions: false,
             remote_desktop_rule_ids: Vec::new(),
             rdp_port: 3390,
+            rdp_restored: false,
         };
         record.save(&state).unwrap();
         assert_eq!(port(&record), Ok(3390));

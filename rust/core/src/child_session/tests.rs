@@ -765,6 +765,11 @@ impl SystemSettings for Fake {
     }
 }
 
+/// [`restore`] of a copy of `state`, with nothing saved.
+fn restore_copy(fake: &mut Fake, state: &SetupState) -> Result<()> {
+    restore(fake, &mut state.clone(), |_| Ok(()))
+}
+
 fn set_up(fake: &mut Fake) -> SetupState {
     let saves = fake.log.clone();
     setup(
@@ -800,6 +805,7 @@ fn setup_saves_the_originals_before_the_first_change() {
                 "RemoteDesktop-UserMode-In-UDP".into(),
             ],
             rdp_port: 3389,
+            rdp_restored: false,
         }
     );
     // What Annex's setup sets, plus the block rule for the RDP port.
@@ -860,7 +866,7 @@ fn uninstall_restores_every_original_value() {
     assert_ne!(fake.machine, before);
     // The state goes through its file between setup and uninstall.
     let state: SetupState = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     assert_eq!(fake.machine, before);
     assert!(
         fake.log
@@ -885,7 +891,7 @@ fn restore_turns_on_only_the_rules_that_were_on_when_names_repeat() {
     let before = fake.machine.clone();
     let state = set_up(&mut fake);
     assert!(fake.enabled_rules(REMOTE_DESKTOP_RULES).unwrap().is_empty());
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     assert_eq!(fake.machine, before);
     assert!(
         !fake
@@ -910,7 +916,7 @@ fn setting_up_again_keeps_the_first_originals() {
     )
     .unwrap();
     assert_eq!(again, first);
-    restore(&mut fake, &again).unwrap();
+    restore_copy(&mut fake, &again).unwrap();
     assert_eq!(fake.machine, before);
 }
 
@@ -940,7 +946,7 @@ fn a_pc_set_up_without_the_record_is_refused() {
     );
     assert_eq!(fake.machine, set_up_by_b);
     assert_eq!(fake.log.borrow().len(), changes);
-    restore(&mut fake, &b).unwrap();
+    restore_copy(&mut fake, &b).unwrap();
     assert_eq!(fake.machine, before);
     // Setup's values with its block rule gone, and the block rule alone, are refused too.
     let mut fake = Fake::new();
@@ -1014,7 +1020,7 @@ fn setup_never_turns_on_rdp_when_group_policy_overrides_the_firewall_rules() {
     assert_eq!(rdp(&fake), Some(1));
     // Either way, restore puts back what setup changed before it stopped.
     let state = record(&Fake::new(), SID).unwrap();
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     assert!(fake.machine.block_rules.is_empty());
 }
 fn no_wait(_: std::time::Duration) {}
@@ -1178,7 +1184,7 @@ fn a_firewall_that_stops_holding_rdp_turns_it_off() {
     )
     .unwrap();
     assert_eq!(rdp(&fake), Some(0));
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     assert_eq!(rdp(&fake), Some(1));
 }
 
@@ -1798,7 +1804,7 @@ fn setting_up_again_past_an_overriding_rule_turns_rdp_off() {
     assert_eq!(rdp(&fake), Some(1));
     // Restore still puts back the value from before setup.
     fake.machine.overriding.clear();
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     assert_eq!(rdp(&fake), Some(1));
     // A first setup finding the user's own RDP on turns it off too; restore turns it back on.
     let mut fake = Fake::new();
@@ -1826,7 +1832,7 @@ fn setting_up_again_past_an_overriding_rule_turns_rdp_off() {
     assert!(error.contains("so it was turned off"), "{error}");
     assert_eq!(rdp(&fake), Some(1));
     fake.machine.overriding.clear();
-    restore(&mut fake, &saved.take().unwrap()).unwrap();
+    restore_copy(&mut fake, &saved.take().unwrap()).unwrap();
     assert_eq!(rdp(&fake), Some(0));
     // Setting up again with RDP off already: it stays off, said as it is.
     let mut fake = Fake::new();
@@ -1885,7 +1891,7 @@ fn restore_finishes_every_step_and_reports_what_failed() {
     let before = fake.machine.clone();
     let state = set_up(&mut fake);
     fake.fail_writes.insert("fDenyTSConnections".into());
-    let error = format!("{:#}", restore(&mut fake, &state).unwrap_err());
+    let error = format!("{:#}", restore_copy(&mut fake, &state).unwrap_err());
     assert!(error.contains("fDenyTSConnections"), "{error}");
     assert!(error.contains("firewall rules stay"), "{error}");
     // Everything else is back, but RDP is still on: the firewall keeps it on
@@ -1904,8 +1910,130 @@ fn restore_finishes_every_step_and_reports_what_failed() {
     assert_eq!(fake.machine, expected);
     // Once RDP can be restored, so can the firewall.
     fake.fail_writes.clear();
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     assert_eq!(fake.machine, before);
+}
+
+const USER_MODE_UDP: &str = "RemoteDesktop-UserMode-In-UDP";
+/// Set up, then a restore that puts RDP back and the block rule away but
+/// fails at SuppressWhenMinimized and at turning [`USER_MODE_UDP`] back on
+/// (gone meanwhile; back, off, after). What it saved.
+fn restore_partly(fake: &mut Fake) -> SetupState {
+    let mut state = set_up(fake);
+    let udp = fake.machine.rules.remove(USER_MODE_UDP).unwrap();
+    fake.fail_writes
+        .insert("RemoteDesktop_SuppressWhenMinimized".into());
+    let mut saves = Vec::new();
+    let error = format!(
+        "{:#}",
+        restore(fake, &mut state, |state| {
+            saves.push(state.clone());
+            Ok(())
+        })
+        .unwrap_err()
+    );
+    assert!(
+        error.contains("RemoteDesktop_SuppressWhenMinimized") && error.contains(USER_MODE_UDP),
+        "{error}"
+    );
+    fake.machine.rules.insert(USER_MODE_UDP.into(), udp);
+    fake.fail_writes.clear();
+    // Saved once, before child sessions.
+    assert_eq!(saves, [state.clone()]);
+    assert!(state.rdp_restored);
+    assert_eq!(state.remote_desktop_rule_ids, [USER_MODE_UDP]);
+    let read = fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections");
+    assert_eq!(read.unwrap(), Some(1));
+    assert!(fake.machine.block_rules.is_empty());
+    // It goes through its file, and an unflagged record has no such field.
+    let text = serde_json::to_string(&state).unwrap();
+    assert!(text.contains("rdp_restored"), "{text}");
+    let mut unflagged = state.clone();
+    unflagged.rdp_restored = false;
+    assert!(
+        !serde_json::to_string(&unflagged)
+            .unwrap()
+            .contains("rdp_restored")
+    );
+    serde_json::from_str(&text).unwrap()
+}
+
+#[test]
+fn a_restore_that_stops_after_rdp_resumes_without_redoing_it() {
+    let mut fake = Fake::new();
+    let before = fake.machine.clone();
+    let mut state = restore_partly(&mut fake);
+    // The user turns RDP on meanwhile.
+    let deny = key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections");
+    fake.machine.values.insert(deny.clone(), 0);
+    fake.log.borrow_mut().clear();
+    let mut saves = Vec::new();
+    restore(&mut fake, &mut state, |state| {
+        saves.push(state.clone());
+        Ok(())
+    })
+    .unwrap();
+    let log = fake.log.borrow().clone();
+    assert!(
+        !log.iter()
+            .any(|entry| entry.contains("fDenyTSConnections") || entry.starts_with("remove")),
+        "{log:?}"
+    );
+    let rules: Vec<_> = log
+        .iter()
+        .filter(|entry| entry.starts_with("rule"))
+        .collect();
+    assert_eq!(rules, [&format!("rule {USER_MODE_UDP} true")]);
+    // The rule that came back is no longer kept.
+    assert!(saves.len() == 1 && saves[0].remote_desktop_rule_ids.is_empty());
+    let mut expected = before;
+    expected.values.insert(deny, 0);
+    assert_eq!(fake.machine, expected);
+}
+
+#[test]
+fn setting_up_after_a_partial_restore_records_rdp_again() {
+    let mut fake = Fake::new();
+    let before = fake.machine.clone();
+    let partial = restore_partly(&mut fake);
+    // The user turns RDP and the Shadow rule on since.
+    let deny = key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections");
+    fake.machine.values.insert(deny.clone(), 0);
+    let shadow = "RemoteDesktop-Shadow-In-TCP";
+    fake.machine.rules.get_mut(shadow).unwrap().2 = true;
+    let mut saves = Vec::new();
+    let again = setup(
+        &mut fake,
+        Some(partial.clone()),
+        SID,
+        |state| {
+            saves.push(state.clone());
+            Ok(())
+        },
+        no_wait,
+    )
+    .unwrap();
+    assert_eq!(saves, std::slice::from_ref(&again));
+    assert_eq!(
+        again,
+        SetupState {
+            deny_ts_connections: Some(0),
+            remote_desktop_rule_ids: vec![
+                shadow.into(),
+                "RemoteDesktop-UserMode-In-TCP".into(),
+                USER_MODE_UDP.into(),
+            ],
+            rdp_restored: false,
+            // SuppressWhenMinimized is still setup's: the record keeps its original.
+            ..partial
+        }
+    );
+    // Restoring puts back what the user has now, and what was there before setup.
+    restore_copy(&mut fake, &again).unwrap();
+    let mut expected = before;
+    expected.values.insert(deny, 0);
+    expected.rules.get_mut(shadow).unwrap().2 = true;
+    assert_eq!(fake.machine, expected);
 }
 
 #[test]
@@ -1916,7 +2044,7 @@ fn restore_loads_a_signed_out_accounts_hive_and_unloads_it_after() {
     // The account signed out, or the uninstaller runs as another one.
     fake.machine.loaded_hives.remove(SID);
     fake.log.borrow_mut().clear();
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     let log = fake.log.borrow().clone();
     let position = |entry: &str| log.iter().position(|e| e == entry).unwrap();
     assert!(
@@ -1932,7 +2060,7 @@ fn restore_loads_a_signed_out_accounts_hive_and_unloads_it_after() {
     fake.machine.loaded_hives.insert(SID.into());
     let state = set_up(&mut fake);
     fake.log.borrow_mut().clear();
-    restore(&mut fake, &state).unwrap();
+    restore_copy(&mut fake, &state).unwrap();
     assert!(!fake.log.borrow().iter().any(|e| e.contains("load")));
     assert!(fake.machine.loaded_hives.contains(SID));
 }

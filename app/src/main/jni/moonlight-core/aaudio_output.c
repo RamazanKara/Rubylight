@@ -152,14 +152,21 @@ static void audioFill(AudioOutput* output, int16_t* pcm, uint32_t frames) {
 
 // Whether the decode thread skips this packet: the concealment already played its time, and it came
 // right behind the one before (under half its duration), as a stall's packets do once the network
-// is back. Audio that comes at its own pace, as after the host paused, is never skipped.
+// is back. Audio that comes at its own pace, as after the host paused, is never skipped. Of a stall's
+// packets only the oldest go: the newest refill the reserve the ring needs to play again, so the
+// stall does not end in silence while live packets refill it.
 static bool audioSkipLate(AudioOutput* output, uint64_t nowNs, uint32_t frames) {
     uint64_t gap = nowNs - output->lastPacketNs;
     output->lastPacketNs = nowNs;
     if (!frames || !output->rate || gap >= (uint64_t)frames * 500000000u / output->rate) return false;
+    uint32_t queued = atomic_load(&output->queue.writtenFrames) - atomic_load(&output->queue.readFrames);
+    uint32_t target = atomic_load(&output->queue.targetFrames);
+    uint32_t need = queued < target ? target - queued : 0;
     uint32_t late = atomic_load(&output->lateFrames);
     while (late >= frames) {
+        // A packet written to refill the reserve also covers stalled time.
         if (atomic_compare_exchange_weak(&output->lateFrames, &late, late - frames)) {
+            if (late - frames < need) return false;
             atomic_fetch_add_explicit(&output->skippedFrames, frames, memory_order_relaxed);
             return true;
         }

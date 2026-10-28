@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Nightjar
+GenericName=Game streaming client
+GenericName[de]=Game-Streaming-Client
+Comment=Stream games from your PC
+Comment[de]=Spiele von deinem PC streamen
+Exec=nightjar
+Icon=io.github.ramazankara.nightjar
+Terminal=false
+Categories=Game;Network;RemoteAccess;
+Keywords=moonlight;streaming;remote;gamestream;sunshine;
+StartupNotify=true
+StartupWMClass=io.github.ramazankara.nightjar

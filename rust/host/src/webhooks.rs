@@ -458,9 +458,11 @@ pub(crate) mod tests {
         );
         let (sender, received) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            for n in 0.. {
+            let mut answered = 0;
+            loop {
                 let (mut stream, _) = listener.accept().await.unwrap();
-                let status = statuses[n.min(statuses.len() - 1)];
+                let status = statuses[answered.min(statuses.len() - 1)];
+                answered += 1;
                 let sender = sender.clone();
                 tokio::spawn(async move {
                     let mut data = Vec::new();

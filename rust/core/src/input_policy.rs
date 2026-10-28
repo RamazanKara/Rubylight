@@ -282,7 +282,15 @@ impl Policy {
         } else {
             0
         };
-        [desired, VHF_XBOX_SERIES, VHF_DUALSENSE, VHF_DS4]
+        // A controller with motion sensors whose profile the driver lacks
+        // (an older driver without the Switch Pro) keeps its gyro on a
+        // DualSense or DS4 rather than becoming an Xbox pad.
+        let fallbacks = if configured == 0 && desired != 0 && capabilities & 0x30 != 0 {
+            [desired, VHF_DUALSENSE, VHF_DS4, VHF_XBOX_SERIES]
+        } else {
+            [desired, VHF_XBOX_SERIES, VHF_DUALSENSE, VHF_DS4]
+        };
+        fallbacks
             .into_iter()
             .find(|p| *p != 0 && available & (1 << (p - 1)) != 0)
     }
@@ -393,6 +401,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plain.controller_profile(0, 1, 0x30 | 8, all), Some(4));
+    }
+    #[test]
+    fn a_nintendo_controller_keeps_its_gyro_on_a_driver_without_the_switch_profile() {
+        let policy = Policy::resolve(&Config::default()).unwrap();
+        let no_switch = (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5);
+        assert_eq!(
+            policy.controller_profile(0, 3, 0x30, no_switch),
+            Some(VHF_DUALSENSE)
+        );
+        assert_eq!(
+            policy.controller_profile(0, 3, 0x30, (1 << 3) | (1 << 4)),
+            Some(VHF_DS4)
+        );
+        // Without motion sensors, or with only Xbox pads, it is an Xbox pad.
+        assert_eq!(
+            policy.controller_profile(0, 3, 0, no_switch),
+            Some(VHF_XBOX_SERIES)
+        );
+        assert_eq!(
+            policy.controller_profile(0, 3, 0x30, 1 << 3),
+            Some(VHF_XBOX_SERIES)
+        );
+        // A PlayStation controller whose DualSense is missing keeps motion on a DS4.
+        assert_eq!(
+            policy.controller_profile(0, 2, 0x30, (1 << 3) | (1 << 4)),
+            Some(VHF_DS4)
+        );
     }
     #[test]
     fn a_steam_deck_with_its_sensors_gets_a_dualsense_and_without_them_an_xbox_pad() {

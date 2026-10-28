@@ -12,3 +12,4 @@
 - A virtual controller that will not unplug when its stream ends is logged, and its slot is kept and freed once it does unplug, so the next client's controller is not plugged over it.
 - Two clients streaming with Steam Deck controllers at once get Decks with different USB serials, so Windows and Steam Input no longer mix them up.
 - When the gamepad driver refuses to plug a controller, the warning and log give the driver's error instead of "no free virtual controller slots".
+- A Nintendo controller on a gamepad driver without the Switch Pro profile plays as a DualSense, which keeps its gyro, instead of an Xbox pad, and the session warns that setup should be run again to update the driver.

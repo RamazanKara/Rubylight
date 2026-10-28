@@ -275,6 +275,9 @@ impl Gamepads {
             slots[global as usize] = true;
             self.active.insert(id, global);
             self.profiles.insert(id, profile);
+            if let Some(warning) = switch_fallback(self.profile, kind, capabilities, profile) {
+                self.warnings.set("input_switch", warning);
+            }
             tracing::info!(
                 controller = id,
                 client_type = kind,
@@ -759,6 +762,29 @@ fn profile_name(profile: u16) -> &'static str {
         _ => "vhf",
     }
 }
+/// The session warning for a Nintendo controller (Moonlight type 3) that automatic
+/// selection made another pad because the driver has no Switch Pro profile.
+fn switch_fallback(configured: u16, kind: u8, capabilities: u16, profile: u16) -> Option<String> {
+    use butterpollo_core::input_policy::{VHF_DS4, VHF_DUALSENSE, VHF_SWITCH};
+    if configured != 0 || kind != 3 || profile == VHF_SWITCH {
+        return None;
+    }
+    let pad = match profile {
+        VHF_DUALSENSE => "a DualSense",
+        VHF_DS4 => "a DualShock 4",
+        _ => "an Xbox controller",
+    };
+    let gyro = if capabilities & 0x30 == 0 {
+        ""
+    } else if matches!(profile, VHF_DUALSENSE | VHF_DS4) {
+        ", which keeps its gyro"
+    } else {
+        ", without its gyro"
+    };
+    Some(format!(
+        "The gamepad driver has no Switch Pro profile, so the Nintendo controller plays as {pad}{gyro}. Run Rubylight setup again to update the gamepad driver, then reconnect."
+    ))
+}
 // The driver has one touch surface and two contact slots. Keep this mapping
 // independent of device IO so unsupported surfaces cannot change slot state.
 pub(super) struct GamepadTouchRequest {
@@ -1215,6 +1241,30 @@ mod tests {
         assert!(tried.contains(&u32::from(global)));
         assert!(!slots[global as usize]);
         assert!(!STRANDED.lock().unwrap().contains(&global));
+    }
+    #[test]
+    fn a_nintendo_controller_without_the_switch_profile_is_warned_about() {
+        use butterpollo_core::input_policy::{VHF_DS4, VHF_DUALSENSE, VHF_SWITCH, VHF_XBOX_SERIES};
+        assert_eq!(switch_fallback(0, 3, 0x30, VHF_SWITCH), None);
+        assert_eq!(
+            switch_fallback(0, 1, 0x30, VHF_DUALSENSE),
+            None,
+            "not Nintendo"
+        );
+        assert_eq!(
+            switch_fallback(VHF_DS4, 3, 0x30, VHF_DS4),
+            None,
+            "a profile chosen in the settings"
+        );
+        let kept = switch_fallback(0, 3, 0x30, VHF_DUALSENSE).unwrap();
+        assert!(kept.contains("a DualSense, which keeps its gyro"), "{kept}");
+        let lost = switch_fallback(0, 3, 0x30, VHF_XBOX_SERIES).unwrap();
+        assert!(
+            lost.contains("an Xbox controller, without its gyro"),
+            "{lost}"
+        );
+        let plain = switch_fallback(0, 3, 0, VHF_XBOX_SERIES).unwrap();
+        assert!(plain.contains("an Xbox controller."), "{plain}");
     }
     #[test]
     fn a_failed_plug_reports_the_drivers_error_not_full_slots() {

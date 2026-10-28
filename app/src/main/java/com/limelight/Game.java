@@ -534,6 +534,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
+    // Clipboard sync (0x5508), when this stream's launch asked a Rubylight PC for it. The C engine has none.
+    private void startClipboardSync() {
+        if (clipboardSync != null) {
+            clipboardSync.stop();
+            clipboardSync = null;
+        }
+        if (conn == null || !conn.askedForClipboardSync()) return;
+        if (!MoonBridge.isRustStream()) {
+            LimeLog.warning("Clipboard sync: needs the New streaming engine; this stream has none");
+            return;
+        }
+        clipboardSync = com.limelight.utils.ClipboardSync.forStream(this,
+                text -> messages.alert(text, Toast.LENGTH_LONG));
+        clipboardSync.connectionStarted(hasWindowFocus());
+    }
+
     private void reportKeyboardLayout() {
         if (!connected || conn == null ||
                 !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_KEYBOARD_LAYOUT)) {
@@ -811,6 +827,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
     // From the first time the user opens USB devices until the stream stops.
     private com.limelight.binding.usb.UsbForwarding usbForwarding;
+    // Clipboard sync (0x5508) while this stream's PC runs it.
+    private com.limelight.utils.ClipboardSync clipboardSync;
     private final Runnable showStreamMenuHint = this::showStreamMenuHint;
     private final Runnable expireStreamMenuHint = () -> dismissStreamMenuHint(true);
     private HardwareMetrics hardwareMetrics;
@@ -1468,6 +1486,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
                 .setVrr(!smallStream && prefConfig.vrr)
+                .setClipboardSync(prefConfig.clipboardSync && prefConfig.rustEngine)
                 .setHostDisplay(prefConfig.hostDisplay)
                 .setAudioConfiguration(smallStream ? MoonBridge.AUDIO_CONFIGURATION_STEREO : prefConfig.audioConfiguration)
                 .setColorSpace(decoderRenderer.getPreferredColorSpace())
@@ -2053,6 +2072,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // so it must be requested again when focus is regained.
         if (inputCaptureProvider != null) {
             inputCaptureProvider.onWindowFocusChanged(hasFocus);
+        }
+        // A copy made in another app goes once the stream is back in front.
+        if (clipboardSync != null) {
+            clipboardSync.focusChanged(hasFocus);
         }
         if (hasFocus) {
             // Let Android finish restoring IME focus before running a menu action.
@@ -6806,6 +6829,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         pyroWaveBitrate = null;
         displayCapsReporter = null;
         stopHostCursorShapes();
+        if (clipboardSync != null) {
+            clipboardSync.stop();
+            clipboardSync = null;
+        }
         // Before the connection stops: detaching tells the host.
         if (usbForwarding != null) {
             usbForwarding.stop();
@@ -7181,6 +7208,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 requestHostTiming();
                 requestLinkNotice();
                 requestTextInput();
+                startClipboardSync();
                 updateHostCursorShapes();
                 if (!conn.canSendInput()) {
                     if (gameTouchControls != null) gameTouchControls.hideForPip(true);
@@ -7395,6 +7423,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void textInput(int kind, int inputType, int flags, int element) {
         runOnUiThread(() -> onHostTextField(kind, inputType, flags, element));
+    }
+
+    @Override
+    public void clipboardSync(String text) {
+        runOnUiThread(() -> {
+            if (clipboardSync != null) clipboardSync.received(text);
+        });
+    }
+
+    @Override
+    public void clipboardSyncRefused(int reason) {
+        runOnUiThread(() -> {
+            if (clipboardSync != null) clipboardSync.refused(reason);
+        });
     }
 
     @Override

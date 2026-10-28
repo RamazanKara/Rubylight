@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Sincronizza appunti</string>
+    <string name="summary_clipboard_sync">Il testo copiato su questo dispositivo va negli appunti del PC, e il testo copiato sul PC arriva qui. Android lascia leggere gli appunti all\'app solo mentre lo stream è in primo piano, quindi una copia fatta in un\'altra app parte quando torni. Il PC deve consentire a questo dispositivo di leggere e scrivere i suoi appunti.</string>
+    <string name="clipboard_sync_not_offered">La sincronizzazione degli appunti è disattivata: il PC non l\'ha offerta. Deve consentire a questo dispositivo di leggere e scrivere i suoi appunti.</string>
+    <string name="clipboard_sync_failed">La sincronizzazione degli appunti non è riuscita ad avviarsi.</string>
+    <string name="clipboard_sync_read_refused">Android non ha lasciato leggere gli appunti alla sincronizzazione, quindi questa copia resta su questo dispositivo.</string>
+    <string name="clipboard_sync_too_large">Questa copia è troppo grande per la sincronizzazione. Inviala con %1$s.</string>
+    <string name="clipboard_sync_send_failed">La sincronizzazione non è riuscita a inviare questa copia al PC.</string>
+    <string name="clipboard_sync_write_failed">La sincronizzazione non è riuscita a mettere la copia del PC negli appunti di questo dispositivo.</string>
+    <string name="clipboard_sync_image">Il PC ha copiato un\'immagine. La sincronizzazione trasporta testo; usa %1$s.</string>
+    <string name="clipboard_sync_refused">La sincronizzazione non è riuscita a usare una copia dal PC.</string>
+</resources>

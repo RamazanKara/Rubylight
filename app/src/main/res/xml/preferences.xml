@@ -498,6 +498,12 @@
             android:title="@string/title_checkbox_keyboard_follows_text_fields"
             android:dialogMessage="@string/summary_checkbox_keyboard_follows_text_fields"
             android:defaultValue="true" />
+        <!-- Rust engine only (SettingRules.clipboardSyncApplies); a Rubylight PC offers it to launches that ask. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_clipboard_sync"
+            android:title="@string/title_clipboard_sync"
+            android:dialogMessage="@string/summary_clipboard_sync"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_pc_keyboard_layout"
             android:title="@string/pc_keyboard_layout_title"

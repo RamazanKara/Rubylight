@@ -49,6 +49,15 @@ public interface NvConnectionListener {
      */
     default void textInput(int kind, int inputType, int flags, int element) {}
 
+    /**
+     * Clipboard sync (0x5508): text the host copied, for this device's clipboard. On the receive
+     * thread.
+     */
+    default void clipboardSync(String text) {}
+
+    /** A host copy clipboard sync refused: MoonBridge.CLIPBOARD_REFUSED_*. On the receive thread. */
+    default void clipboardSyncRefused(int reason) {}
+
     default void setAdaptiveTriggers(short controllerNumber, byte eventFlags, byte typeLeft,
                                      byte typeRight, byte[] left, byte[] right) {}
 

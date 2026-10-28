@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">클립보드 동기화</string>
+    <string name="summary_clipboard_sync">이 기기에서 복사한 텍스트는 PC 클립보드로 가고, PC에서 복사한 텍스트는 여기로 옵니다. Android는 스트림이 앞에 있을 때만 앱이 클립보드를 읽도록 허용하므로, 다른 앱에서 한 복사는 돌아오면 전송됩니다. PC가 이 기기에 클립보드 읽기와 쓰기를 허용해야 합니다.</string>
+    <string name="clipboard_sync_not_offered">클립보드 동기화가 꺼져 있습니다: PC가 제공하지 않았습니다. PC가 이 기기에 클립보드 읽기와 쓰기를 허용해야 합니다.</string>
+    <string name="clipboard_sync_failed">클립보드 동기화를 시작할 수 없습니다.</string>
+    <string name="clipboard_sync_read_refused">Android가 클립보드 읽기를 허용하지 않아 이 복사본은 이 기기에 남습니다.</string>
+    <string name="clipboard_sync_too_large">이 복사본은 동기화하기에 너무 큽니다. %1$s(으)로 보내세요.</string>
+    <string name="clipboard_sync_send_failed">이 복사본을 PC로 보낼 수 없습니다.</string>
+    <string name="clipboard_sync_write_failed">PC의 복사본을 이 기기의 클립보드에 넣을 수 없습니다.</string>
+    <string name="clipboard_sync_image">PC가 이미지를 복사했습니다. 동기화는 텍스트만 전달합니다. %1$s을(를) 사용하세요.</string>
+    <string name="clipboard_sync_refused">PC에서 온 복사본을 사용할 수 없습니다.</string>
+</resources>

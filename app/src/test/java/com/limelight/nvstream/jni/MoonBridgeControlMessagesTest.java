@@ -28,6 +28,7 @@ public class MoonBridgeControlMessagesTest {
         java.put("CONTROL_MESSAGE_PIPELINE_RATES", MoonBridge.CONTROL_MESSAGE_PIPELINE_RATES);
         java.put("CONTROL_MESSAGE_KEYBOARD_LAYOUT", MoonBridge.CONTROL_MESSAGE_KEYBOARD_LAYOUT);
         java.put("CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST", MoonBridge.CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST);
+        java.put("CONTROL_MESSAGE_CLIPBOARD_SYNC", MoonBridge.CONTROL_MESSAGE_CLIPBOARD_SYNC);
 
         Map<String, Integer> listed = new TreeMap<>();
         try (InputStream input = getClass().getResourceAsStream("/protocol/control-messages.txt")) {

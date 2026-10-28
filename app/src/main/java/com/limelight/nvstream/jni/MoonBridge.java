@@ -486,6 +486,12 @@ public class MoonBridge {
     public static void bridgeClTextInput(int kind, int inputType, int flags, int element) {
         if (connectionListener != null) connectionListener.textInput(kind, inputType, flags, element);
     }
+    public static void bridgeClClipboardSync(String text) {
+        if (connectionListener != null) connectionListener.clipboardSync(text);
+    }
+    public static void bridgeClClipboardSyncRefused(int reason) {
+        if (connectionListener != null) connectionListener.clipboardSyncRefused(reason);
+    }
     public static void bridgeClHostTiming(byte[] payload) {
         VideoDecoderRenderer renderer = videoRenderer;
         HostTimingReport report = HostTimingReport.parse(payload);
@@ -979,6 +985,8 @@ public class MoonBridge {
     public static final int CONTROL_MESSAGE_RATE_CHANGE = 0x553C;
     public static final int CONTROL_MESSAGE_PIPELINE_RATES = 0x553D;
     public static final int CONTROL_MESSAGE_KEYBOARD_LAYOUT = 0x553E;
+    // Moonlight V+'s clipboard sync, which Rubylight hosts offer to launches that ask for it.
+    public static final int CONTROL_MESSAGE_CLIPBOARD_SYNC = 0x5508;
 
     // Asks the host to send its cursor image and leave it out of the video (true), or to stop
     // (false). Only call when hostSupportsControlMessage(CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST).
@@ -1009,5 +1017,32 @@ public class MoonBridge {
     // sent or the tag is not a valid one (empty, over 64 characters, not printable ASCII).
     public static boolean sendKeyboardLayout(String bcp47Tag) {
         return rustStream && RustBridge.sendKeyboardLayout(bcp47Tag);
+    }
+
+    // What clipboardSyncStart did: on, the host did not offer it (also the C engine), or the
+    // hello could not be sent.
+    public static final int CLIPBOARD_SYNC_ON = 0;
+    public static final int CLIPBOARD_SYNC_NOT_OFFERED = 1;
+    public static final int CLIPBOARD_SYNC_FAILED = 2;
+    // What clipboardSyncLocal did with a copy: sent, skipped (empty, or the host's own copy coming
+    // back), too large for a frame, or not sent (the sync is off or the send failed).
+    public static final int CLIPBOARD_COPY_SENT = 0;
+    public static final int CLIPBOARD_COPY_SKIPPED = 1;
+    public static final int CLIPBOARD_COPY_TOO_LARGE = 2;
+    public static final int CLIPBOARD_COPY_FAILED = 3;
+    // clipboardSyncRefused reasons: the host copied an image, or sent what the sync cannot use.
+    public static final int CLIPBOARD_REFUSED_IMAGE = 1;
+    public static final int CLIPBOARD_REFUSED_OTHER = 2;
+
+    // Starts clipboard sync (0x5508) once the connection started. current is this device's
+    // clipboard text as it is, which stays here; null when it could not be read. The host's
+    // copies then arrive on the listener's clipboardSync.
+    public static int clipboardSyncStart(String current) {
+        return rustStream ? RustBridge.clipboardSyncStart(current) : CLIPBOARD_SYNC_NOT_OFFERED;
+    }
+
+    // Text copied on this device, for clipboard sync: one of CLIPBOARD_COPY_*.
+    public static int clipboardSyncLocal(String text) {
+        return rustStream ? RustBridge.clipboardSyncLocal(text) : CLIPBOARD_COPY_FAILED;
     }
 }

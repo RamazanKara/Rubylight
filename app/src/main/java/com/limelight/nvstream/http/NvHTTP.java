@@ -1364,6 +1364,16 @@ public class NvHTTP {
                 fractional * 10 : streamFps * 1000;
     }
 
+    /**
+     * Whether the launch asks for clipboard sync: a Rubylight PC offers it only to a launch that
+     * asks, and other hosts get exactly the query they got before.
+     */
+    public static boolean asksClipboardSync(ConnectionContext context) {
+        return context.streamConfig.getClipboardSync() &&
+                context.hostCaps.family() == HostCapabilities.Family.RUBYLIGHT &&
+                context.streamConfig.getApp().getRole() != NvApp.Role.REMOTE_MONITOR;
+    }
+
     /** The launch and resume query, with each extension only for a host that shows it. */
     static String getLaunchQuery(ConnectionContext context, int appId, boolean enableHdr) {
         HostCapabilities caps = context.hostCaps;
@@ -1434,6 +1444,7 @@ public class NvHTTP {
                     "&" + LaunchConfirmation.REPLACE_PARAMETER + "=" + (context.confirmReplace ? 1 : 0)) +
             (context.fecChoice == null || !caps.has(HostCapabilities.Feature.CLIENT_FEC) ? "" :
                     "&" + FecChoice.LAUNCH_PARAMETER + "=" + context.fecChoice.wireValue) +
+            (asksClipboardSync(context) ? "&" + com.limelight.utils.ClipboardSync.LAUNCH_PARAMETER + "=1" : "") +
             // No host offers rate changes before the launch and every host ignores a parameter it
             // does not know, so this goes to any host; the stream's DESCRIBE says whether it took it.
             (context.rateChange ? "&" + RATE_CHANGE_LAUNCH_PARAMETER + "=1" : "");

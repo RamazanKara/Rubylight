@@ -1226,6 +1226,7 @@ public class StreamSettings extends NightjarActivity {
             setShown(PreferenceConfiguration.AUDIO_PASSTHROUGH_PREF_STRING,
                     SettingRules.audioPassthroughApplies(prefs, Build.VERSION.SDK_INT));
             setShown(PreferenceConfiguration.USB_FORWARDING_PREF_STRING, SettingRules.usbForwardingApplies(prefs));
+            setShown(PreferenceConfiguration.CLIPBOARD_SYNC_PREF_STRING, SettingRules.clipboardSyncApplies(prefs));
             boolean modern = SettingRules.modernControllerApplies(prefs);
             setShown(PreferenceConfiguration.OSC_STICK_MODE_PREF_STRING, modern);
             setShown(PreferenceConfiguration.OSC_STICK_DEADZONE_PREF_STRING, modern);

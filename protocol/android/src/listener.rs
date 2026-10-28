@@ -3,6 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use nightjar_core::control::clipboard_sync::{ClipboardItem, Received, Refused};
 use nightjar_core::control::{haptics, ConnectionStatus, ControlEvent};
 use nightjar_core::roaming::RoamEvent;
 use nightjar_core::session::{Listener, Stage};
@@ -80,6 +81,15 @@ fn rate_change_args(result: &RateChangeResult) -> [i32; 7] {
         result.fps.status as i32,
         result.fps.reason as i32,
     ]
+}
+
+/// `bridgeClClipboardSyncRefused(reason)`: `MoonBridge.CLIPBOARD_REFUSED_IMAGE` (1) for an
+/// image, which the sync here does not carry, else `CLIPBOARD_REFUSED_OTHER` (2).
+fn clipboard_refused_code(refused: &Refused) -> i32 {
+    match refused {
+        Refused::Images => 1,
+        _ => 2,
+    }
 }
 
 /// The arguments of `bridgeClTextInput(kind, inputType, flags, element)`, as the wire has them:
@@ -386,6 +396,42 @@ impl Listener for Events {
                 );
             }
             ControlEvent::Usb(message) => crate::usb::on_message(message),
+            ControlEvent::ClipboardSync(frame) => {
+                let refused = match engine::clipboard_sync_received(frame) {
+                    Some(Received::Apply(ClipboardItem::Text(text))) => {
+                        b.with_env(|env| {
+                            let text = env.new_string(text)?;
+                            b.void(env, m.clipboard_sync, &[bridge::object(text.as_ref())]);
+                            Ok(())
+                        });
+                        return;
+                    }
+                    // Images are off here, so the rules never apply one.
+                    Some(Received::Apply(ClipboardItem::Png(_))) => Refused::Images,
+                    Some(Received::Refused(refused)) => refused,
+                    Some(Received::Nothing) => return,
+                    None => {
+                        platform::warn(
+                            "Clipboard sync: dropped a copy from the host, the sync is off",
+                        );
+                        return;
+                    }
+                };
+                platform::warn(&format!(
+                    "Clipboard sync: refused the host's copy: {}",
+                    refused.reason()
+                ));
+                b.post(
+                    m.clipboard_sync_refused,
+                    &[bridge::int(clipboard_refused_code(&refused))],
+                );
+            }
+            ControlEvent::ClipboardSyncRejected(bytes) => {
+                platform::warn(&format!(
+                    "Clipboard sync: dropped a {bytes}-byte message that is not a clipboard frame"
+                ));
+                b.post(m.clipboard_sync_refused, &[bridge::int(2)]);
+            }
             // The session reports terminations through connection_terminated.
             ControlEvent::Terminated { .. } => {}
         }
@@ -419,6 +465,14 @@ mod tests {
         capture_us: 100,
         convert_us: 150,
     };
+
+    #[test]
+    fn a_refused_clipboard_copy_reaches_java_as_image_or_other() {
+        assert_eq!(clipboard_refused_code(&Refused::Images), 1);
+        for other in [Refused::Reference, Refused::Text, Refused::Kind(9)] {
+            assert_eq!(clipboard_refused_code(&other), 2);
+        }
+    }
 
     #[test]
     fn steam_settings_reach_java_as_count_triples() {

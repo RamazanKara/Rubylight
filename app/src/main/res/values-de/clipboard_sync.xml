@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_clipboard_sync">Zwischenablage synchronisieren</string>
+    <string name="summary_clipboard_sync">Auf diesem Gerät kopierter Text kommt in die Zwischenablage des PCs, und auf dem PC kopierter Text kommt hierher. Android lässt die App die Zwischenablage nur lesen, solange der Stream vorne ist; eine Kopie aus einer anderen App geht also, sobald du zurück bist. Der PC muss diesem Gerät erlauben, seine Zwischenablage zu lesen und zu schreiben.</string>
+    <string name="clipboard_sync_not_offered">Die Synchronisierung der Zwischenablage ist aus: Der PC hat sie nicht angeboten. Er muss diesem Gerät erlauben, seine Zwischenablage zu lesen und zu schreiben.</string>
+    <string name="clipboard_sync_failed">Die Synchronisierung der Zwischenablage konnte nicht starten.</string>
+    <string name="clipboard_sync_read_refused">Android hat der Synchronisierung das Lesen der Zwischenablage verweigert, diese Kopie bleibt also auf diesem Gerät.</string>
+    <string name="clipboard_sync_too_large">Diese Kopie ist zu groß für die Synchronisierung. Sende sie mit %1$s.</string>
+    <string name="clipboard_sync_send_failed">Die Synchronisierung konnte diese Kopie nicht an den PC senden.</string>
+    <string name="clipboard_sync_write_failed">Die Synchronisierung konnte die Kopie des PCs nicht in die Zwischenablage dieses Geräts legen.</string>
+    <string name="clipboard_sync_image">Der PC hat ein Bild kopiert. Die Synchronisierung überträgt Text; nutze %1$s.</string>
+    <string name="clipboard_sync_refused">Die Synchronisierung konnte eine Kopie vom PC nicht verwenden.</string>
+</resources>

@@ -70,6 +70,11 @@ final class SettingRules {
         return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
     }
 
+    /** Only the new streaming engine syncs the clipboard. */
+    static boolean clipboardSyncApplies(SharedPreferences prefs) {
+        return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
+    }
+
     /** Continuing on mobile data is a roaming choice, so it shows only while roaming is on. */
     static boolean roamingMeteredApplies(SharedPreferences prefs) {
         return clientRoamingApplies(prefs) &&

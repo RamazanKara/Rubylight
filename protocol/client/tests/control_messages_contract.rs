@@ -1,11 +1,12 @@
-//! The 3.0 control message types `MoonBridge.java` names, from
+//! The 3.0 and adopted control message types `MoonBridge.java` names, from
 //! `app/src/test/resources/protocol/control-messages.txt`, checked against `rubylight_protocol`.
 //! The JUnit `MoonBridgeControlMessagesTest` checks the same file against the Java constants, so
 //! the two cannot drift apart unnoticed.
 
-use rubylight_protocol::ids::{CONTROL_IDS, RUBYLIGHT_3_CONTROL_IDS};
+use rubylight_protocol::ids::{ADOPTED_CONTROL_IDS, CONTROL_IDS, RUBYLIGHT_3_CONTROL_IDS};
 use rubylight_protocol::{
-    cursor_shape, fec_report, keyboard_layout, pipeline_rates, rate_change, text_input, usb,
+    clipboard_sync, cursor_shape, fec_report, keyboard_layout, pipeline_rates, rate_change,
+    text_input, usb,
 };
 use std::collections::BTreeMap;
 
@@ -57,16 +58,22 @@ fn moonbridge_names_the_3_0_control_messages_as_rubylight_protocol_defines_them(
                 "CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST",
                 cursor_shape::CURSOR_SHAPE_REQUEST_MESSAGE_TYPE
             ),
+            (
+                "CONTROL_MESSAGE_CLIPBOARD_SYNC",
+                clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE
+            ),
         ])
     );
-    // Every 3.0 type has a Java name but the host's cursor image, which MoonBridge does not name.
+    // Every 3.0 and adopted type has a Java name but the host's cursor image, which MoonBridge
+    // does not name.
     let mut listed: Vec<u16> = named.into_values().collect();
     listed.sort_unstable();
     let mut defined: Vec<u16> = CONTROL_IDS
         .iter()
         .map(|(id, _)| *id)
         .filter(|id| {
-            RUBYLIGHT_3_CONTROL_IDS.contains(id) && *id != cursor_shape::CURSOR_SHAPE_MESSAGE_TYPE
+            (RUBYLIGHT_3_CONTROL_IDS.contains(id) || ADOPTED_CONTROL_IDS.contains(id))
+                && *id != cursor_shape::CURSOR_SHAPE_MESSAGE_TYPE
         })
         .collect();
     defined.sort_unstable();

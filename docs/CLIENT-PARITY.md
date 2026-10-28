@@ -11,7 +11,7 @@ What the desktop client (Windows and Linux, [protocol/desktop](../protocol/deskt
 | Library, artwork, Home and the game page | Same | |
 | Launch, resume, quit, quit and start another | Same | |
 | Quick resume | Same | Off by default (Settings › App). |
-| Quit on leave per game | Same | On the game page. No progress message while the game quits; a failed quit shows a message. |
+| Quit on leave per game | Same | On the game page. Leaving shows "Quitting … on the PC…" like Android; a failed quit shows a message. |
 | Remote Monitor and Input-only tiles | Same | |
 | Input-only on any PC | Same | Off by default (Settings › App); a 640x360, 30 fps, 500 kbps stream that is neither shown nor played. |
 | Settings per PC and per game, profiles by network | Same | |

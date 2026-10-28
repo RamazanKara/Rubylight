@@ -1176,6 +1176,8 @@ impl Prepared {
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
+            // A game window holds no layout to keep while paused.
+            hold_layout_while_paused: false,
             mode_report,
             recovery_scale: 0,
             recovery_dimensions: (mode.0, mode.1),

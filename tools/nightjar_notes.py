@@ -3,13 +3,16 @@
 Writes LF line endings on any platform.
 
 usage: python tools/nightjar_notes.py --out FILE [--version-code N] [--force] [--keep]
+                                     [--changelog-en FILE] [--changelog-de FILE]
 
 Each fragment (client/notes.d/<topic>.md, see the README there) has a "## en"
 and a "## de" list of bullets. In file name order they become the "What's
 new" draft in --out (the GitHub release text; add the "Tested." paragraph)
 and the store changelogs client/fastlane/metadata/android/{en-US,de}/
 changelogs/<versionCode>.txt, versionCode from client/app/build.gradle unless
-given. The fragments are deleted afterwards unless --keep. Nothing is written
+given. --changelog-en and --changelog-de give a hand-written store changelog
+for that language instead, for a release whose bullets are too long together.
+The fragments are deleted afterwards unless --keep. Nothing is written
 when a fragment is malformed, a changelog would exceed Google Play's 500
 characters, or a changelog for that versionCode exists (unless --force).
 """
@@ -65,6 +68,9 @@ def main(argv=None, root=ROOT):
     parser.add_argument('--version-code', type=int)
     parser.add_argument('--force', action='store_true', help='replace existing changelogs for the versionCode')
     parser.add_argument('--keep', action='store_true', help='keep the fragments')
+    for language in LANGUAGES:
+        parser.add_argument(f'--changelog-{language}', type=pathlib.Path, metavar='FILE',
+                            help=f'a hand-written {language} store changelog instead of the bullets')
     args = parser.parse_args(argv)
     bullets, files = read(root / NOTES_D)
     if not files:
@@ -73,10 +79,16 @@ def main(argv=None, root=ROOT):
     changelogs = {}
     for language, locale in LANGUAGES.items():
         path = root / CHANGELOGS.format(locale=locale, code=code)
-        text = '\n'.join('• ' + plain(b) for b in bullets[language]) + '\n'
+        given = getattr(args, f'changelog_{language}')
+        if given:
+            text = given.read_text(encoding='utf-8').replace('\r\n', '\n').strip('\n') + '\n'
+            if not text.strip():
+                raise SystemExit(f'{given} is empty')
+        else:
+            text = '\n'.join('• ' + plain(b) for b in bullets[language]) + '\n'
         if len(text.rstrip('\n')) > PLAY_LIMIT:
             raise SystemExit(f'{path.relative_to(root)} would have {len(text.rstrip())} characters, over Google '
-                             f"Play's {PLAY_LIMIT}: shorten the fragments or write it by hand")
+                             f"Play's {PLAY_LIMIT}: shorten the fragments or write it by hand (--changelog-{language})")
         if path.exists() and not args.force:
             raise SystemExit(f'{path.relative_to(root)} exists; bump versionCode first or pass --force')
         changelogs[path] = text

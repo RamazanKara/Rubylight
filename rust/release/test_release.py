@@ -288,6 +288,30 @@ class NightjarNotes(unittest.TestCase):
                 self.assertFalse(self.changelog('en-US').exists())
                 self.assertTrue((self.notes / 'x.md').exists())
 
+    def test_a_hand_written_changelog_replaces_long_bullets(self):
+        # 4.0.0-alpha.1: the bullets of 40 fragments made a 19,000-character changelog.
+        (self.notes / 'x.md').write_text('## en\n' + '- A long sentence about streaming.\n' * 20 +
+                                         '## de\n- B.\n', encoding='utf-8')
+        short = self.root / 'play-en.txt'
+        short.write_text('• Streaming, shorter.\r\n\r\n', encoding='utf-8')
+        result = self.run_tool('--changelog-en', str(short))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'), '• Streaming, shorter.\n')
+        self.assertEqual(self.changelog('de').read_text(encoding='utf-8'), '• B.\n')
+        self.assertEqual(self.out.read_text(encoding='utf-8').count('- A long sentence about streaming.'), 20)
+
+    def test_a_hand_written_changelog_over_the_limit_changes_nothing(self):
+        (self.notes / 'x.md').write_text('## en\n- A.\n## de\n- B.\n', encoding='utf-8')
+        long = self.root / 'play-de.txt'
+        long.write_text('x' * 501 + '\n', encoding='utf-8')
+        result = self.run_tool('--changelog-de', str(long))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Google Play's 500", result.stderr)
+        self.assertIn('--changelog-de', result.stderr)
+        self.assertFalse(self.out.exists())
+        self.assertFalse(self.changelog('en-US').exists())
+        self.assertTrue((self.notes / 'x.md').exists())
+
     def test_the_repository_fragments_are_well_formed(self):
         # A fragment with "## English" broke the release only at release time.
         spec = importlib.util.spec_from_file_location('nightjar_notes', ROOT / 'tools/nightjar_notes.py')

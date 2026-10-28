@@ -256,6 +256,58 @@ impl Drop for NativeSink {
     }
 }
 
+/// A co-op player's input, which drives its slot's pad and never the desktop.
+struct CoopSink {
+    h: Shared,
+    player: crate::nucleus::Player,
+    warnings: Arc<butterpollo_core::session::Warnings>,
+}
+
+impl CoopSink {
+    fn create(h: &Shared, s: &Session) -> Result<Box<dyn Sink>> {
+        let c = effective_config(h, &s.launch)?;
+        let player =
+            crate::nucleus::Player::of(h, &s.launch, &c).context("the co-op session ended")?;
+        Ok(Box::new(Self {
+            h: h.clone(),
+            player,
+            warnings: s.launch.warnings.clone(),
+        }))
+    }
+}
+
+impl Sink for CoopSink {
+    fn apply(&mut self, events: &[Input]) -> Vec<anyhow::Error> {
+        for event in events {
+            self.player.input(event.clone(), &self.warnings);
+        }
+        Vec::new()
+    }
+    fn next_due(&self) -> Option<Instant> {
+        None
+    }
+    fn due(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn refresh(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn geometry(&mut self, _output: &str, _width: u32, _height: u32) {}
+    fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
+        self.player
+            .feedback(&self.h)
+            .into_iter()
+            .filter_map(|report| match report {
+                PadReport::Feedback { id, kind, data } => Some((id, kind, data)),
+                _ => None,
+            })
+            .collect()
+    }
+    fn feedback_allowed(&self, kind: u16) -> bool {
+        self.player.feedback_allowed(kind)
+    }
+}
+
 type Make = Box<dyn FnMut(&Session) -> Result<Box<dyn Sink>> + Send>;
 type Reply = Box<dyn FnMut(Vec<u8>) -> bool + Send>;
 
@@ -756,6 +808,9 @@ impl Core {
 pub fn spawn(h: Shared) -> Result<InputHandle> {
     let (tx, rx) = mpsc::channel();
     let make: Make = Box::new(move |session| {
+        if session.launch.nucleus.is_some() {
+            return CoopSink::create(&h, session);
+        }
         #[cfg(test)]
         if let Some(fixture) = &h.reconnect_fixture {
             return fixture.webrtc_input.make();

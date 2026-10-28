@@ -1562,7 +1562,9 @@ fn launch_back_half(
             }
         }
     }
+    // A co-op player's controller drives its slot's pad, never one of its own.
     if let Some(value) = args.get("rlControllers")
+        && launch.nucleus.is_none()
         && let Err(error) = crate::controller_sessions::prepare(h, &launch, value)
     {
         let canceled = h.sessions.lock().unwrap().pending.remove(&id);
@@ -2253,6 +2255,10 @@ fn prepare_launch_display(
     };
     butterpollo_core::stream_policy::apply_color(&mut stream, &config);
     stream.validate()?;
+    // A co-op player streams its game window: no display is prepared.
+    if launch.nucleus.is_some() {
+        return crate::nucleus::prepare(h, launch, &stream, &config, crate::nucleus::WINDOW_WAIT);
+    }
     if launch.role == Role::Stream {
         // Reuse only this client's own retained display; another
         // client streaming the same app keeps its display. One set up for
@@ -2634,7 +2640,7 @@ fn clipboard_client(
     // playing in the background.
     if sessions.iter().any(|s| {
         crate::stream::effective_config(h, &s.launch).map_or(true, |config| {
-            butterpollo_core::background::enabled(&config)
+            butterpollo_core::background::enabled(&config) || crate::nucleus::player(&config)
         })
     }) {
         bail!("clipboard access is off for background streams");

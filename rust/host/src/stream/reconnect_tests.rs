@@ -3294,6 +3294,113 @@ async fn a_replaced_co_op_launch_gives_its_slot_back() -> Result<()> {
     h.finish().await
 }
 
+/// Moonlight's multi-controller packet: controller `id` of the `active` ones.
+fn pad_packet(id: u16, active: u16, buttons: u16) -> Vec<u8> {
+    let mut b = vec![0u8; 34];
+    b[..4].copy_from_slice(&30u32.to_be_bytes());
+    b[4..8].copy_from_slice(&12u32.to_le_bytes());
+    b[10..12].copy_from_slice(&id.to_le_bytes());
+    b[12..14].copy_from_slice(&active.to_le_bytes());
+    b[16..18].copy_from_slice(&buttons.to_le_bytes());
+    b
+}
+/// A key press of A.
+fn key_packet() -> Vec<u8> {
+    let mut b = vec![0u8; 14];
+    b[..4].copy_from_slice(&10u32.to_be_bytes());
+    b[4..8].copy_from_slice(&3u32.to_le_bytes());
+    b[9..11].copy_from_slice(&0x8041u16.to_le_bytes());
+    b
+}
+
+/// Two players' streams drive their own slots' pads and never the desktop:
+/// a keyboard is dropped and said once. When the game crashes both streams
+/// end with the reason, the session is stopped and nothing stays active.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn co_op_streams_drive_their_slots_and_end_with_the_session() -> Result<()> {
+    let (h, pc, id) = coop_harness().await?;
+    assert!(launch_app(&h, 0, id).await?.contains("status_code=\"200\""));
+    assert!(launch_app(&h, 1, id).await?.contains("status_code=\"200\""));
+    let (a, b) = (pending_of(&h, 0).unwrap(), pending_of(&h, 1).unwrap());
+    pc.last().show();
+    let (sa, ca) = h.play(&a).await?;
+    let (sb, cb) = h.play(&b).await?;
+    h.counts(2, 0).await?;
+    ca.send_encrypted(&a.key, 0, 0x0206, &pad_packet(0, 1, 0x1000));
+    ca.send_encrypted(&a.key, 1, 0x0206, &key_packet());
+    ca.send_encrypted(&a.key, 2, 0x0206, &key_packet());
+    cb.send_encrypted(&b.key, 0, 0x0206, &pad_packet(0, 1, 0x2000));
+    until("both players' pads moved", WAIT, || {
+        pc.last().inputs.lock().unwrap().len() == 2
+    })
+    .await;
+    let mut inputs = pc.last().inputs.lock().unwrap().clone();
+    inputs.sort_by_key(|(slot, _)| *slot);
+    assert!(matches!(
+        inputs[..],
+        [
+            (
+                0,
+                butterpollo_core::input::Input::Controller {
+                    buttons: 0x1000,
+                    ..
+                }
+            ),
+            (
+                1,
+                butterpollo_core::input::Input::Controller {
+                    buttons: 0x2000,
+                    ..
+                }
+            )
+        ]
+    ));
+    let codes = |s: &Session| -> Vec<String> {
+        s.launch
+            .warnings
+            .snapshot()
+            .into_iter()
+            .map(|w| w.code)
+            .filter(|code| code.starts_with("coop_"))
+            .collect()
+    };
+    until("the keyboard was said to be dropped", WAIT, || {
+        codes(&sa) == ["coop_keyboard_mouse"]
+    })
+    .await;
+    assert!(codes(&sb).is_empty());
+    pc.last()
+        .session
+        .lock()
+        .unwrap()
+        .end(butterpollo_core::nucleus::coop::End::Crashed(
+            "portal2.exe exited".into(),
+        ));
+    until("both streams ended", WAIT, || {
+        sa.stopping() && sb.stopping()
+    })
+    .await;
+    for s in [&sa, &sb] {
+        let ended = s
+            .launch
+            .warnings
+            .snapshot()
+            .into_iter()
+            .find(|w| w.code == "coop_ended")
+            .unwrap();
+        assert!(
+            ended.message.contains("portal2.exe exited"),
+            "{}",
+            ended.message
+        );
+    }
+    drop((ca, cb, a, b, sa, sb));
+    h.empty().await?;
+    // The streams' last copies of their launches gave the slots back.
+    until("the session stopped", WAIT, || pc.last().stopped()).await;
+    h.finish().await
+}
+
 /// A co-op launch whose device never connects gives its slot back when it
 /// expires, once the expired launch is dropped outside the sessions lock.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

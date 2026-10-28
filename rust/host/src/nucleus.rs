@@ -14,7 +14,7 @@ use anyhow::{Context, Result, anyhow, ensure};
 use butterpollo_core::config::Config;
 use butterpollo_core::input::Input;
 use butterpollo_core::input_policy::Policy;
-use butterpollo_core::nucleus::coop::{self, Admit, End, Kind, Refused};
+use butterpollo_core::nucleus::coop::{self, Admit, End, Kind, Phase, Refused};
 use butterpollo_core::nucleus::handler::{Catalog, Handler, Missing};
 use butterpollo_core::session::{Seat, Warnings};
 use butterpollo_core::state::{App, Client};
@@ -26,7 +26,7 @@ use butterpollo_windows::process::AudioProcess;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 /// A co-op library entry's name: this, then the app's name.
@@ -37,6 +37,15 @@ const CATALOG_TTL: Duration = Duration::from_secs(10);
 /// How long an ended session stays listed once no stream holds it, so the
 /// console and the devices can show why it ended.
 const LINGER: Duration = Duration::from_secs(60);
+/// How many feedback reports a slot keeps for its stream, which takes them
+/// every few milliseconds; rumble is a state, so the newest matter.
+const FEEDBACK_KEPT: usize = 16;
+/// How long a co-op launch waits for its player's game window: Nucleus
+/// Co-op's own start allows a minute from its last step, and Moonlight
+/// waits two for a launch.
+pub const WINDOW_WAIT: Duration = Duration::from_secs(90);
+/// How often a co-op stream looks at its session.
+const WATCH: Duration = Duration::from_millis(100);
 
 /// Why a co-op launch is refused, and the status its answer carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,13 +105,12 @@ pub trait Pc: Send + Sync {
 }
 
 /// A running session: `butterpollo_windows::nucleus::session::Running`.
-#[allow(
-    dead_code,
-    reason = "the co-op stream calls the media methods once it streams a slot"
-)]
+/// No call waits for a [`stop`](Instance::stop) in progress.
 pub trait Instance: Send + Sync {
     /// Read or change the session's players and phase.
     fn with_session(&self, f: &mut dyn FnMut(&mut coop::Session));
+    /// Why the session ended, or None while it runs.
+    fn end(&self) -> Option<End>;
     /// Slot `slot`'s capture target on the GPU of `display`.
     fn capture_target(&self, slot: usize, display: &str) -> Result<String>;
     /// Park slot `slot`'s window at its player's stream size.
@@ -117,7 +125,7 @@ pub trait Instance: Send + Sync {
     /// nothing.
     fn stop(&self);
 }
-impl dyn Instance {
+impl dyn Instance + '_ {
     /// [`Instance::with_session`] with a result.
     pub fn session<R>(&self, f: impl FnOnce(&mut coop::Session) -> R) -> R {
         let mut f = Some(f);
@@ -170,41 +178,45 @@ impl Pc for OnPc {
         warnings: Arc<Warnings>,
     ) -> Result<Box<dyn Instance>> {
         let running = butterpollo_windows::nucleus::session::start_on_pc(start, policy, warnings)?;
-        Ok(Box::new(OnPcInstance(RwLock::new(running))))
+        Ok(Box::new(OnPcInstance(running)))
     }
 }
 
-/// A session on this PC. Its calls share it; [`Instance::stop`] waits for them.
-struct OnPcInstance(RwLock<Running>);
-impl OnPcInstance {
-    fn running(&self) -> RwLockReadGuard<'_, Running> {
-        self.0.read().unwrap_or_else(PoisonError::into_inner)
-    }
-}
+/// A session on this PC.
+#[cfg_attr(test, allow(dead_code, reason = "tests never reach the real PC"))]
+struct OnPcInstance(Running);
 impl Instance for OnPcInstance {
     fn with_session(&self, f: &mut dyn FnMut(&mut coop::Session)) {
-        self.running().with_session(f);
+        self.0.with_session(f);
+    }
+    fn end(&self) -> Option<End> {
+        self.0.with_session(|s| ended(s).cloned())
     }
     fn capture_target(&self, slot: usize, display: &str) -> Result<String> {
-        self.running().capture_target(slot, display)
+        self.0.capture_target(slot, display)
     }
     fn resize(&self, slot: usize, size: (u32, u32)) -> Result<()> {
-        self.running().resize(slot, size)
+        self.0.resize(slot, size)
     }
     fn input(&self, device: &str, event: Input) -> Result<(), Dropped> {
-        self.running().input(device, event)
+        self.0.input(device, event)
     }
     fn feedback(&self) -> Vec<(usize, PadReport)> {
-        self.running().feedback()
+        self.0.feedback()
     }
     fn audio(&self, slot: usize) -> Result<AudioProcess> {
-        self.running().audio(slot)
+        self.0.audio(slot)
     }
     fn stop(&self) {
-        self.0
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
-            .stop();
+        self.0.stop();
+    }
+}
+
+/// Why `session` ended, once it did.
+fn ended(session: &coop::Session) -> Option<&End> {
+    match &session.phase {
+        Phase::Ended(end) => Some(end),
+        _ => None,
     }
 }
 
@@ -358,6 +370,8 @@ struct Entry {
     app_id: u32,
     /// The launch streaming each slot; a leave from any other launch is stale.
     holders: Vec<Option<String>>,
+    /// Each slot's feedback its stream has not taken yet.
+    feedback: Vec<Vec<PadReport>>,
     /// When the registry first saw the session ended.
     ended: Option<Instant>,
 }
@@ -620,6 +634,7 @@ impl Registry {
                         instance,
                         app_id: request.coop.id(),
                         holders,
+                        feedback: (0..players).map(|_| Vec::new()).collect(),
                         ended: None,
                     },
                 );
@@ -633,15 +648,38 @@ impl Registry {
     }
 
     /// The session's instance while the registry has it.
-    #[allow(
-        dead_code,
-        reason = "the co-op stream reaches its slot's capture, input and audio through it"
-    )]
     pub fn instance(&self, session: u32) -> Option<Arc<dyn Instance>> {
         self.lock()
             .sessions
             .get(&session)
             .map(|entry| entry.instance.clone())
+    }
+
+    /// The feedback for `seat`'s player since its last call. One read of
+    /// the pads serves every slot; each slot keeps the last
+    /// [`FEEDBACK_KEPT`] reports until its stream takes them.
+    pub fn feedback(&self, seat: Seat) -> Vec<PadReport> {
+        let Some(instance) = self.instance(seat.session) else {
+            return Vec::new();
+        };
+        let reports = instance.feedback();
+        let mut state = self.lock();
+        let Some(entry) = state.sessions.get_mut(&seat.session) else {
+            return Vec::new();
+        };
+        for (slot, report) in reports {
+            if let Some(kept) = entry.feedback.get_mut(slot) {
+                if kept.len() == FEEDBACK_KEPT {
+                    kept.remove(0);
+                }
+                kept.push(report);
+            }
+        }
+        entry
+            .feedback
+            .get_mut(seat.slot)
+            .map(std::mem::take)
+            .unwrap_or_default()
     }
 
     /// The stream of `launch` ended or its pending launch expired: the device
@@ -838,6 +876,238 @@ pub fn end_streams(h: &Host, session: u32, device: Option<&str>) {
     drop(canceled);
 }
 
+/// What a player's stream says when its session ended.
+fn ended_text(title: &str, end: &End) -> String {
+    match end {
+        End::Ended => format!("The {title} co-op session was ended on the PC"),
+        end => format!("The {title} co-op session ended: {end}"),
+    }
+}
+
+/// A co-op player's input and feedback. Its first controller drives its
+/// slot's pad and nothing else: no event reaches the PC's desktop or a pad
+/// of its own.
+pub struct Player {
+    instance: Arc<dyn Instance>,
+    seat: Seat,
+    device: String,
+    /// The rumble setting of the player's stream.
+    rumble: bool,
+    /// The kinds of dropped input the player was told about.
+    told: Vec<Dropped>,
+}
+impl Player {
+    /// The player `launch` streams; None for any other launch, or once its
+    /// session is gone.
+    pub fn of(h: &Host, launch: &Launch, config: &Config) -> Option<Self> {
+        let seat = launch.nucleus?;
+        Some(Self {
+            instance: h.nucleus.instance(seat.session)?,
+            seat,
+            device: launch.client.uuid.clone(),
+            rumble: Policy::resolve(config).is_ok_and(|policy| policy.forward_rumble),
+            told: Vec::new(),
+        })
+    }
+    /// Drive the slot's pad with `event`. What the pad cannot take is
+    /// dropped, and the stream says so once per kind.
+    pub fn input(&mut self, event: Input, warnings: &Warnings) {
+        let Err(dropped) = self.instance.input(&self.device, event) else {
+            return;
+        };
+        let Some(limit) = dropped.limit() else {
+            return;
+        };
+        if !self.told.contains(&dropped) {
+            self.told.push(dropped);
+            tracing::info!(
+                session = self.seat.session,
+                slot = self.seat.slot,
+                "Nucleus Co-op: {limit}"
+            );
+            warnings.set(dropped_code(dropped), limit);
+        }
+    }
+    /// The slot's rumble and other feedback, for the player's controller 0.
+    pub fn feedback(&self, h: &Host) -> Vec<PadReport> {
+        h.nucleus.feedback(self.seat)
+    }
+    /// Whether feedback of `kind` goes to the device: rumble only where
+    /// the stream's settings forward it.
+    pub fn feedback_allowed(&self, kind: u16) -> bool {
+        !matches!(kind, 0x010b | 0x5500 | 0x5503 | 0x5601) || self.rumble
+    }
+}
+fn dropped_code(dropped: Dropped) -> &'static str {
+    match dropped {
+        Dropped::KeyboardMouse => "coop_keyboard_mouse",
+        _ => "coop_second_controller",
+    }
+}
+
+/// Ends a co-op player's stream once its session ends: a crash, a failed
+/// start, the console's End or every player gone. It runs beside the
+/// stream, never on it, and only for co-op launches.
+pub struct Watch {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl Watch {
+    /// None for a launch that is not a co-op player's.
+    pub fn start(h: &Shared, s: &Arc<crate::state::Session>) -> Result<Option<Self>> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let Some(seat) = s.launch.nucleus else {
+            return Ok(None);
+        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = std::thread::Builder::new().name("nucleus stream".into()).spawn({
+            let (h, s, stop) = (h.clone(), s.clone(), stop.clone());
+            move || {
+                while !stop.load(Ordering::Acquire) && !s.stopping() {
+                    let end = match h.nucleus.instance(seat.session) {
+                        Some(instance) => instance
+                            .end()
+                            .map(|end| (instance.session(|s| s.title.clone()), end)),
+                        None => Some((String::new(), End::Ended)),
+                    };
+                    if let Some((title, end)) = end {
+                        let text = ended_text(&title, &end);
+                        tracing::warn!(session = seat.session, slot = seat.slot, client = %s.launch.client.name, "Nucleus Co-op: {text}");
+                        s.launch.warnings.set("coop_ended", &text);
+                        match end {
+                            End::Crashed(_) | End::Failed(_) => s.fail(),
+                            End::Ended | End::Empty => s.stop(),
+                        }
+                        return;
+                    }
+                    std::thread::park_timeout(WATCH);
+                }
+            }
+        })?;
+        Ok(Some(Self {
+            stop,
+            thread: Some(thread),
+        }))
+    }
+}
+impl Drop for Watch {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            thread.thread().unpark();
+            if thread.join().is_err() {
+                tracing::error!("the Nucleus Co-op stream watch panicked");
+            }
+        }
+    }
+}
+
+/// The stream of a co-op launch: its player's game window at the stream's
+/// size, once Nucleus Co-op shows it within `wait`. No display is prepared,
+/// changed or kept. The capture follows a window Nucleus replaces; a window
+/// that is gone is said loudly and never shown as another window or a
+/// display.
+pub fn prepare(
+    h: &Shared,
+    launch: &Launch,
+    stream: &butterpollo_core::rtsp::Negotiated,
+    config: &Config,
+    wait: Duration,
+) -> Result<crate::display_session::StreamPreparation> {
+    let seat = launch
+        .nucleus
+        .context("the launch has no Nucleus Co-op slot")?;
+    let instance = h
+        .nucleus
+        .instance(seat.session)
+        .ok_or_else(|| Refusal::unavailable("The co-op session ended: launch it again"))?;
+    instance.resize(seat.slot, (stream.width, stream.height))?;
+    // The display only picks the GPU the window is captured on.
+    let display = butterpollo_windows::capture::primary_display()
+        .context("no display is on the desktop to capture the game window on")?;
+    let first = first_window(instance.as_ref(), seat.slot, &display, wait)?;
+    tracing::info!(session = seat.session, slot = seat.slot, target = %first, "Nucleus Co-op: streaming the player's game window");
+    warn_audio(
+        butterpollo_windows::display::windows_build(),
+        &launch.warnings,
+    );
+    crate::display_session::Ready::window(
+        h,
+        stream,
+        config,
+        first,
+        Box::new(move || instance.capture_target(seat.slot, &display)),
+        launch.warnings.clone(),
+    )
+}
+
+/// The game audio a co-op player hears: its own slot's instance.
+pub fn audio(h: &Host, seat: Seat) -> Result<AudioProcess> {
+    h.nucleus
+        .instance(seat.session)
+        .context("the co-op session ended")?
+        .audio(seat.slot)
+}
+
+/// The player's window follows the stream's new size.
+pub fn resize(h: &Host, seat: Seat, size: (u32, u32)) -> Result<()> {
+    h.nucleus
+        .instance(seat.session)
+        .context("the co-op session ended")?
+        .resize(seat.slot, size)
+}
+
+/// Below the build with process loopback capture, the stream says it has
+/// no audio of the player's own game.
+fn warn_audio(build: Option<u32>, warnings: &Warnings) {
+    if let Some(limit) = butterpollo_windows::nucleus::session::audio_limit(build) {
+        warnings.set("coop_audio", limit);
+    }
+}
+
+/// The setting [`isolate`] marks a co-op player's stream with.
+pub const PLAYER: &str = "nucleus_player";
+/// A co-op player shares the PC with its user: the stream drives no
+/// keyboard or mouse of the desktop, captures only its game's audio, moves
+/// no window into focus and leaves the clipboard alone ([`player`]).
+pub fn isolate(config: &mut Config) {
+    config.values.insert(PLAYER.into(), "true".into());
+    for (key, value) in butterpollo_core::background::FORCED {
+        config.values.insert(key.into(), value.into());
+    }
+}
+pub fn player(config: &Config) -> bool {
+    config.boolean(PLAYER, false)
+}
+
+/// Slot `slot`'s first capture target, waiting up to `wait` for its window.
+fn first_window(
+    instance: &dyn Instance,
+    slot: usize,
+    display: &str,
+    wait: Duration,
+) -> Result<String> {
+    let deadline = Instant::now() + wait;
+    loop {
+        if let Some(end) = instance.end() {
+            let title = instance.session(|s| s.title.clone());
+            return Err(Refusal::unavailable(ended_text(&title, &end)).into());
+        }
+        match instance.capture_target(slot, display) {
+            Ok(target) => return Ok(target),
+            Err(error) if Instant::now() >= deadline => {
+                return Err(Refusal::unavailable(format!(
+                    "{error:#}: Nucleus Co-op showed no window for Player {} within {} s",
+                    slot + 1,
+                    wait.as_secs()
+                ))
+                .into());
+            }
+            Err(_) => std::thread::sleep(WATCH),
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod fake {
     //! A PC with Nucleus Co-op and one handler, and sessions that only
@@ -950,28 +1220,56 @@ pub(crate) mod fake {
                 session: Mutex::new(session),
                 stopped: AtomicBool::new(false),
                 sizes: Mutex::new(vec![start.size; start.players]),
+                inputs: Mutex::new(Vec::new()),
+                reports: Mutex::new(Vec::new()),
             });
             self.started.lock().unwrap().push(instance.clone());
             Ok(Box::new(instance))
         }
     }
 
+    /// A session that starts as Nucleus does, without windows until
+    /// [`Instance::show`]; its pads route as the real ones do.
     pub(crate) struct Instance {
         pub session: Mutex<coop::Session>,
         pub stopped: AtomicBool,
         pub sizes: Mutex<Vec<(u32, u32)>>,
+        /// What reached each slot's pad.
+        pub inputs: Mutex<Vec<(usize, Input)>>,
+        /// The pads' feedback the next read returns.
+        pub reports: Mutex<Vec<(usize, PadReport)>>,
     }
     impl Instance {
         pub(crate) fn stopped(&self) -> bool {
             self.stopped.load(Ordering::Relaxed)
+        }
+        /// Every slot's window is there: slot k's is 100 + k.
+        pub(crate) fn show(&self) {
+            let mut session = self.session.lock().unwrap();
+            let windows: Vec<_> = (0..session.slots.len())
+                .map(|k| Some(100 + k as u64))
+                .collect();
+            session.running(&windows);
         }
     }
     impl super::Instance for Arc<Instance> {
         fn with_session(&self, f: &mut dyn FnMut(&mut coop::Session)) {
             f(&mut self.session.lock().unwrap());
         }
+        fn end(&self) -> Option<End> {
+            ended(&self.session.lock().unwrap()).cloned()
+        }
         fn capture_target(&self, slot: usize, display: &str) -> Result<String> {
-            Ok(format!("window:{slot}@{display}"))
+            let window = self
+                .session
+                .lock()
+                .unwrap()
+                .slots
+                .get(slot)
+                .context("no such slot")?
+                .window
+                .with_context(|| format!("Player {}'s game window is not open", slot + 1))?;
+            Ok(format!("window:{window}@{display}"))
         }
         fn resize(&self, slot: usize, size: (u32, u32)) -> Result<()> {
             *self
@@ -982,14 +1280,18 @@ pub(crate) mod fake {
                 .context("no such slot")? = size;
             Ok(())
         }
-        fn input(&self, device: &str, _event: Input) -> Result<(), Dropped> {
-            match self.session.lock().unwrap().route(device) {
-                Some(_) => Ok(()),
-                None => Err(Dropped::Ignored),
-            }
+        fn input(&self, device: &str, event: Input) -> Result<(), Dropped> {
+            let session = self.session.lock().unwrap();
+            let slot = session
+                .slot_of(device)
+                .filter(|_| session.route(device).is_some())
+                .ok_or(Dropped::Ignored)?;
+            let event = pads::route(event, slot, session.slots.len())?;
+            self.inputs.lock().unwrap().push((slot, event));
+            Ok(())
         }
         fn feedback(&self) -> Vec<(usize, PadReport)> {
-            Vec::new()
+            std::mem::take(&mut self.reports.lock().unwrap())
         }
         fn audio(&self, slot: usize) -> Result<AudioProcess> {
             anyhow::bail!("the fake session has no audio for slot {slot}")
@@ -1157,7 +1459,9 @@ mod tests {
         assert_eq!(pc.started.lock().unwrap().len(), 1);
         // The registry hands the stream its session.
         let instance = registry.instance(1).unwrap();
-        assert_eq!(instance.capture_target(1, "d").unwrap(), "window:1@d");
+        assert!(instance.capture_target(1, "d").is_err());
+        pc.last().show();
+        assert_eq!(instance.capture_target(1, "d").unwrap(), "window:101@d");
         assert!(registry.instance(2).is_none());
     }
 
@@ -1375,5 +1679,185 @@ mod tests {
         assert!(session.stopped());
         // Still listed for a while so the console can say why.
         assert_eq!(registry.sessions().len(), 1);
+    }
+
+    fn pad(id: u16, active: u16, buttons: u32) -> Input {
+        Input::Controller {
+            id,
+            active,
+            buttons,
+            left_trigger: 0,
+            right_trigger: 0,
+            sticks: [0; 4],
+        }
+    }
+    fn codes(warnings: &Warnings) -> Vec<String> {
+        warnings.snapshot().into_iter().map(|w| w.code).collect()
+    }
+
+    #[test]
+    fn a_player_drives_its_slot_and_hears_of_each_dropped_kind_once() {
+        let (registry, pc, apps) = setup();
+        let coop = registry.entries(&apps, "").remove(0);
+        admit(&registry, &coop, "a", &client("A", false)).unwrap();
+        let seat = admit(&registry, &coop, "b", &client("B", true)).unwrap();
+        pc.last().show();
+        let mut player = Player {
+            instance: registry.instance(seat.session).unwrap(),
+            seat,
+            device: "B".into(),
+            rumble: true,
+            told: Vec::new(),
+        };
+        let warnings = Warnings::default();
+        player.input(pad(0, 1, 0x1000), &warnings);
+        let key = Input::Keyboard {
+            key: 0x41,
+            modifiers: 0,
+            flags: 0,
+            down: true,
+        };
+        player.input(key.clone(), &warnings);
+        player.input(key, &warnings);
+        assert_eq!(codes(&warnings), ["coop_keyboard_mouse"]);
+        player.input(pad(1, 0b11, 0x1000), &warnings);
+        player.input(pad(1, 0b11, 0), &warnings);
+        assert_eq!(
+            codes(&warnings),
+            ["coop_keyboard_mouse", "coop_second_controller"]
+        );
+        assert_eq!(player.told.len(), 2);
+        // Only the first controller reached the pad, as slot 1's.
+        let inputs = pc.last().inputs.lock().unwrap().clone();
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].0, 1);
+        assert!(matches!(
+            inputs[0].1,
+            Input::Controller {
+                buttons: 0x1000,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rumble_reaches_a_player_only_where_its_stream_forwards_it() {
+        let (registry, pc, apps) = setup();
+        let coop = registry.entries(&apps, "").remove(0);
+        let seat = admit(&registry, &coop, "a", &client("A", false)).unwrap();
+        let mut player = Player {
+            instance: registry.instance(seat.session).unwrap(),
+            seat,
+            device: "A".into(),
+            rumble: false,
+            told: Vec::new(),
+        };
+        assert!(!player.feedback_allowed(0x010b));
+        assert!(player.feedback_allowed(0x5502));
+        player.rumble = true;
+        assert!(player.feedback_allowed(0x010b));
+        drop(pc);
+    }
+
+    #[test]
+    fn each_slot_reads_its_own_feedback_whoever_drains_the_pads() {
+        let (registry, pc, apps) = setup();
+        let coop = registry.entries(&apps, "").remove(0);
+        let a = admit(&registry, &coop, "a", &client("A", false)).unwrap();
+        let b = admit(&registry, &coop, "b", &client("B", true)).unwrap();
+        let rumble = |id, data: u8| PadReport::Feedback {
+            id,
+            kind: 0x010b,
+            data: vec![data],
+        };
+        pc.last()
+            .reports
+            .lock()
+            .unwrap()
+            .extend([(0, rumble(0, 1)), (1, rumble(0, 2))]);
+        let data = |reports: Vec<PadReport>| -> Vec<u8> {
+            reports
+                .into_iter()
+                .filter_map(|r| match r {
+                    PadReport::Feedback { data, .. } => Some(data[0]),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(data(registry.feedback(a)), [1]);
+        // Slot 1's report waited for its own stream.
+        assert_eq!(data(registry.feedback(b)), [2]);
+        assert!(registry.feedback(b).is_empty());
+        // A stream that stopped reading keeps only the newest reports.
+        pc.last()
+            .reports
+            .lock()
+            .unwrap()
+            .extend((0..FEEDBACK_KEPT as u8 + 4).map(|k| (1, rumble(0, k))));
+        assert!(registry.feedback(a).is_empty());
+        let kept = data(registry.feedback(b));
+        assert_eq!(kept.len(), FEEDBACK_KEPT);
+        assert_eq!(kept[0], 4);
+    }
+
+    #[test]
+    fn the_first_window_is_waited_for_and_its_absence_is_refused() {
+        let (registry, pc, apps) = setup();
+        let coop = registry.entries(&apps, "").remove(0);
+        let seat = admit(&registry, &coop, "a", &client("A", false)).unwrap();
+        let instance = registry.instance(seat.session).unwrap();
+        let none = first_window(instance.as_ref(), 0, "d", Duration::ZERO).unwrap_err();
+        assert!(
+            format!("{none:#}").contains("showed no window for Player 1 within 0 s"),
+            "{none:#}"
+        );
+        assert_eq!(none.downcast_ref::<Refusal>().unwrap().status, 503);
+        let shown = std::thread::spawn({
+            let session = pc.last();
+            move || {
+                std::thread::sleep(Duration::from_millis(50));
+                session.show();
+            }
+        });
+        let first = first_window(instance.as_ref(), 0, "d", Duration::from_secs(10)).unwrap();
+        assert_eq!(first, "window:100@d");
+        shown.join().unwrap();
+        pc.last()
+            .session
+            .lock()
+            .unwrap()
+            .end(End::Crashed("gone".into()));
+        let ended = first_window(instance.as_ref(), 0, "d", Duration::from_secs(10)).unwrap_err();
+        assert!(
+            format!("{ended:#}").contains("co-op session ended: "),
+            "{ended:#}"
+        );
+    }
+
+    #[test]
+    fn a_player_stream_leaves_the_desktop_input_and_clipboard_alone() {
+        let mut config = Config::default();
+        assert!(!player(&config));
+        isolate(&mut config);
+        assert!(player(&config));
+        assert!(!config.boolean("keyboard", true));
+        assert!(!config.boolean("mouse", true));
+        assert_eq!(config.get("audio_capture_mode", "system"), "game");
+        // Not a background stream: no isolated display is made for it.
+        assert!(!butterpollo_core::background::enabled(&config));
+        let mut owner = client("A", false);
+        owner.perm = u32::MAX;
+        assert!(!crate::stream::clipboard_sync::allowed(&config, &owner).any());
+    }
+
+    #[test]
+    fn the_stream_says_when_windows_cannot_capture_a_players_audio() {
+        let warnings = Warnings::default();
+        warn_audio(None, &warnings);
+        warn_audio(Some(22631), &warnings);
+        assert!(codes(&warnings).is_empty());
+        warn_audio(Some(19045), &warnings);
+        assert_eq!(codes(&warnings), ["coop_audio"]);
+        assert!(warnings.snapshot()[0].message.contains("20348"));
     }
 }

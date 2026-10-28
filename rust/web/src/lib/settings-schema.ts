@@ -61,14 +61,10 @@ const basicKeys = new Set([
   'origin_web_ui_allowed',
   'playnite_enabled',
   'playnite_auto_sync',
-  'playnite_sync_all_installed',
-  'playnite_recent_games',
   'playnite_sync_categories',
   'playnite_fullscreen_entry_enabled',
   'steam_enabled',
   'steam_auto_sync',
-  'steam_sync_all_installed',
-  'steam_recent_games',
 ]);
 
 export const schema: Schema = {

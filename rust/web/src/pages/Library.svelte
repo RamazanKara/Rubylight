@@ -122,7 +122,7 @@
       </EmptyState>
     </Panel>
   {:else}
-    <LibraryGrid {apps} {status} {reordering} onreorder={reorder} onstatus={refreshStatus} />
+    <LibraryGrid {apps} {status} {reordering} onreorder={reorder} onstatus={refreshStatus} onremoved={load} />
   {/if}
   <LauncherSources onsynced={load} />
   <PlayniteSource onsynced={load} />

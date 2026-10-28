@@ -3,7 +3,8 @@
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
   import AppCover from './AppCover.svelte';
-  import type { App, SessionStatus } from '../../lib/api';
+  import { api, type App, type SessionStatus } from '../../lib/api';
+  import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
   import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
 
@@ -13,6 +14,7 @@
     reordering,
     onreorder,
     onstatus,
+    onremoved,
   }: {
     apps: App[];
     status: SessionStatus | null;
@@ -21,6 +23,8 @@
     onreorder: (next: App[]) => void;
     /** An app was started or closed. */
     onstatus: () => void;
+    /** An app whose game is not installed was removed. */
+    onremoved?: () => void;
   } = $props();
 
   const uid = $props.id();
@@ -60,6 +64,31 @@
     await launchApp(app);
     busy = '';
     onstatus();
+  }
+
+  // The host marks an app `not-installed` when its launcher was read and the game is gone.
+  const notInstalled = (app: App) => app['not-installed'] === true;
+
+  async function remove(app: App) {
+    if (!app.uuid) return;
+    const name = app.name || 'this app';
+    const ok = await confirm({
+      title: `Remove ${name}?`,
+      message: 'Its game is not installed on this PC. It leaves the library, and no sync adds it back.',
+      confirm: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    busy = `remove:${app.uuid}`;
+    try {
+      await api.apps.remove(app.uuid);
+      notify(`Removed ${name}.`, 'ok');
+      onremoved?.();
+    } catch (error) {
+      failed('Removing the app failed', error);
+    } finally {
+      busy = '';
+    }
   }
 
   async function close() {
@@ -175,6 +204,8 @@
                   <span class="state">
                     {#if status?.paused}<Badge tone="warn">Paused</Badge>{:else}<Badge tone="live">Running</Badge>{/if}
                   </span>
+                {:else if notInstalled(app)}
+                  <span class="state"><Badge>Not installed</Badge></span>
                 {/if}
               </div>
               <span class="name">{app.name || 'Unnamed app'}</span>
@@ -190,6 +221,10 @@
             {#if isRunning}
               <Button size="sm" icon="stop" busy={busy === 'close'} onclick={close}>
                 Close<span class="visually-hidden"> {app.name}</span>
+              </Button>
+            {:else if notInstalled(app)}
+              <Button size="sm" icon="trash" busy={busy === `remove:${app.uuid}`} disabled={busy !== ''} onclick={() => remove(app)}>
+                Remove<span class="visually-hidden"> {app.name}</span>
               </Button>
             {:else}
               <Button

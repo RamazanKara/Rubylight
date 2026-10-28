@@ -151,6 +151,7 @@
             <strong id="launcher-{source.source}">{source.name}</strong>
             <span class="state {state.tone}">{#if state.tone === 'warn'}<Icon name="alert" size={14} />{/if}{state.text}</span>
           </span>
+          {#if source.source === 'steam'}<a class="choose" href="/settings/library" use:link>Steam options</a>{/if}
           {#if key}
             <label class="switch-label" title="{source.name}: {source.state === 'disabled' ? 'off' : 'on'}">
               <span class="visually-hidden">Add games from {source.name}</span>
@@ -168,7 +169,7 @@
           <span class="text">
             <strong id="launcher-playnite">Playnite</strong>
             <span class="state {playnite.enabled ? (playnite.installed ? 'ok' : 'warn') : 'muted'}">
-              {!playnite.enabled ? 'Off' : !playnite.installed ? 'Install the Rubylight plugin below' : playnite.active ? `${playnite.game_count} games, kept in step while Playnite runs` : 'Syncs while Playnite runs'}
+              {!playnite.enabled ? 'Off' : !playnite.installed ? 'Install the Rubylight plugin below' : playnite.active ? `${playnite.game_count} ${playnite.game_count === 1 ? 'game' : 'games'}, kept in step while Playnite runs` : 'Syncs while Playnite runs'}
             </span>
           </span>
           <label class="switch-label">
@@ -179,7 +180,8 @@
       {/if}
     </ul>
     <p class="foot muted">
-      {automatic ? 'New games are added by themselves and removed when you uninstall them.' : 'Automatic sync is off: select Sync now after installing a game.'}
+      {automatic ? 'Every installed game is added by itself and removed when you uninstall it.' : 'Automatic sync is off: select Sync now after installing a game.'}
+      {#if playnite?.active}While Playnite runs, it adds the games of every launcher.{/if}
       Pick single games with <a href="/library/import" use:link>Add games</a>; more choices are in <a href="/settings/library" use:link>All settings › Games</a>.
     </p>
   {/if}

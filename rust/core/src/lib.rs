@@ -110,6 +110,7 @@ pub mod stream_preset;
 pub mod text_input;
 pub mod timing_record;
 pub mod topology;
+pub mod touch_profile;
 pub mod tray;
 mod update_files;
 pub mod update_recovery;

@@ -83,6 +83,8 @@ pub struct Injector {
     key_sources: BTreeMap<u32, u32>,
     buttons: BTreeSet<u8>,
     touches: BTreeMap<u32, POINTER_TOUCH_INFO>,
+    /// Touches on their way to mouse input, with a mouse or trackpad touch profile.
+    touch_profile: butterpollo_core::touch_profile::TouchProfile,
     touch_device: Option<HSYNTHETICPOINTERDEVICE>,
     pen_device: Option<HSYNTHETICPOINTERDEVICE>,
     pen: POINTER_PEN_INFO,
@@ -250,6 +252,7 @@ impl Injector {
             key_sources: BTreeMap::new(),
             buttons: BTreeSet::new(),
             touches: BTreeMap::new(),
+            touch_profile: Default::default(),
             touch_device: None,
             pen_device: None,
             pen: Default::default(),
@@ -509,6 +512,35 @@ impl Injector {
             return Ok(());
         }
         use Event::*;
+        if let Touch {
+            event, id, x, y, ..
+        } = *e
+            && self.policy.touch.translates()
+        {
+            // Relative movement and scrolling are measured in stream pixels; the stream sets
+            // its size before input, so 1080p stands in only for a touch that comes earlier.
+            let size = self.stream.or_else(|| {
+                let rect = self.rect?;
+                Some((
+                    u32::try_from(rect.right - rect.left).ok()?,
+                    u32::try_from(rect.bottom - rect.top).ok()?,
+                ))
+            });
+            let inputs = self.touch_profile.translate(
+                &self.policy.touch,
+                event,
+                id,
+                [x, y],
+                size.unwrap_or((1920, 1080)),
+                std::time::Instant::now(),
+            );
+            for input in &inputs {
+                if let Err(error) = self.stage(input) {
+                    self.pending.errors.push(error);
+                }
+            }
+            return Ok(());
+        }
         match e {
             // How a key or button is sent depends on the keys or buttons held,
             // including those pressed earlier in the pass.
@@ -865,6 +897,8 @@ impl Injector {
         };
         self.repeat = None;
         self.scroll = [0; 2];
+        // The buttons a touch held are released below with the rest.
+        self.touch_profile = Default::default();
         if self.left_release.take().is_some() {
             keep(
                 "deferred left button",
@@ -1055,6 +1089,48 @@ mod tests {
     }
     fn click(button: u8, down: bool) -> Event {
         Event::MouseButton { button, down }
+    }
+    #[test]
+    fn a_trackpad_touch_profile_sends_touches_as_mouse_input() {
+        use butterpollo_core::{config::TouchMode, touch_profile::Settings};
+        let touch = |event, x| Event::Touch {
+            event,
+            id: 4,
+            x,
+            y: 0.5,
+            pressure: 1.0,
+            major: 0.0,
+            minor: 0.0,
+            rotation: u16::MAX,
+        };
+        let mut injector = recording();
+        injector.set_stream_size(1000, 500);
+        injector.policy.touch = Settings {
+            mode: TouchMode::Trackpad,
+            sensitivity: 100,
+            gestures: true,
+        };
+        // A swipe of 0.125 of the stream's 1000 pixels moves the mouse, a tap clicks.
+        let events = [touch(1, 0.25), touch(3, 0.375), touch(2, 0.375)];
+        assert!(injector.apply_all(&events).is_empty());
+        assert_eq!(calls(), [vec!["mouse 125 0 0 0x1".to_owned()]]);
+        assert!(
+            injector
+                .apply_all(&[touch(1, 0.375), touch(2, 0.375)])
+                .is_empty()
+        );
+        assert_eq!(
+            calls().concat(),
+            [
+                described(&[Injector::button(1, true)]),
+                described(&[Injector::button(1, false)])
+            ]
+            .concat()
+        );
+        assert!(injector.touches.is_empty(), "no native contact");
+        // With native touch off the device emulates the mouse itself: no touch comes here.
+        injector.policy.native_pen_touch = false;
+        assert!(!injector.policy.allows(&touch(1, 0.25)));
     }
     #[test]
     fn relative_mouse_releases_a_deferred_absolute_click_before_moving() {

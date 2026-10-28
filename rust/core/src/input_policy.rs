@@ -139,6 +139,8 @@ pub struct Policy {
     pub mouse: bool,
     pub controller: bool,
     pub native_pen_touch: bool,
+    /// The device's touch profile: native touches as sent, or as a mouse or trackpad.
+    pub touch: crate::touch_profile::Settings,
     pub always_send_scancodes: bool,
     pub high_resolution_scrolling: bool,
     pub forward_rumble: bool,
@@ -195,6 +197,7 @@ impl Policy {
             mouse: config.boolean("mouse", true),
             controller: config.boolean("controller", true),
             native_pen_touch: config.boolean("native_pen_touch", true),
+            touch: crate::touch_profile::Settings::resolve(config),
             always_send_scancodes: config.boolean("always_send_scancodes", true),
             high_resolution_scrolling: config.boolean("high_resolution_scrolling", true),
             forward_rumble: config.boolean("forward_rumble", true),

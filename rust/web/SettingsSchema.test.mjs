@@ -515,9 +515,12 @@ const live = [
   'audio_surround_714',
   'dd_rotation_option',
   'dd_manual_rotation',
-  // Input: pen barrel roll and the device-drawn cursor.
+  // Input: pen barrel roll, the device-drawn cursor and touch profiles.
   'pen_barrel_roll',
   'client_cursor',
+  'touch_mode',
+  'touch_sensitivity',
+  'touch_gestures',
 ];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
@@ -527,6 +530,20 @@ test('settings still pending stay out of the console, and shipped ones are in it
     assert.equal(setting.pending === true, !shipped, setting.key);
     assert.equal(settings.has(setting.key), shipped, setting.key);
     assert.ok(schema.categories.some(category => category.id === setting.category), setting.key);
+  }
+});
+
+test('touch profiles are Experimental and their options show only as a mouse or trackpad', () => {
+  const mode = settings.get('touch_mode');
+  assert.match(mode.label, /\(Experimental\)$/);
+  assert.match(mode.description, /Needs native pen and touch/);
+  assert.equal(mode.default, 'client');
+  for (const key of ['touch_sensitivity', 'touch_gestures']) {
+    const setting = settings.get(key);
+    assert.equal(setting.visibleWhen({}), false, key);
+    assert.equal(setting.visibleWhen({ touch_mode: 'client' }), false, key);
+    assert.equal(setting.visibleWhen({ touch_mode: 'mouse' }), true, key);
+    assert.equal(setting.visibleWhen({ touch_mode: 'trackpad' }), true, key);
   }
 });
 

@@ -379,9 +379,12 @@ mod tests {
         "audio_surround_714",
         "dd_rotation_option",
         "dd_manual_rotation",
-        // Input: pen barrel roll and the device-drawn cursor.
+        // Input: pen barrel roll, the device-drawn cursor and touch profiles.
         "pen_barrel_roll",
         "client_cursor",
+        "touch_mode",
+        "touch_sensitivity",
+        "touch_gestures",
     ];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line

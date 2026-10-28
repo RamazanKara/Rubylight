@@ -277,6 +277,9 @@
     <string name="summary_content_rate_frame_rate">Android’e oyunun gerçekte hangi kare hızında çalıştığını bildirir; böylece uygun moda sahip bir ekran, kararmadan o moda geçebilir. Kare zamanlarını gönderen bir bilgisayar ve «Daha düşük yenileme hızına izin ver» gerekir; en fazla 2 saniyede bir değişir. PyroWave ve uyarlanabilir yenileme ile kullanılmaz.</string>
     <string name="title_virtual_display_scale">Bilgisayarın işleme çözünürlüğü</string>
     <string name="summary_virtual_display_scale">Bilgisayarın işlediği çözünürlüğün yayın çözünürlüğüne oranı (yüzde). İletilen videonun boyutu değişmez. Daha az piksel gönderip bu cihazda büyütmek için yayın çözünürlüğünü düşürün.</string>
+    <string name="title_virtual_display_dpi">Bilgisayar ekran ölçeği</string>
+    <string name="summary_virtual_display_dpi">Sanal ekrandaki metin ve arayüz boyutu, Rubylight bilgisayarlarda.</string>
+    <string name="virtual_display_dpi_pc_own">Bilgisayardaki gibi</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">henüz veri yok</string>
     <string name="title_export_latency_csv">Gecikme CSV’sini dışa aktar</string>

@@ -1426,7 +1426,9 @@ public class NvHTTP {
             (role == NvApp.Role.REMOTE_MONITOR ? "&remote_monitor=1" :
                     inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ? "&input_only=1" : "") +
             "&mode=" + context.negotiatedWidth + "x" + context.negotiatedHeight + "x" + launchRate +
-            (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
+            (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() +
+                    (context.streamConfig.getVirtualDisplayDpi() == 0 ? "" :
+                            "&rlDisplayScale=" + context.streamConfig.getVirtualDisplayDpi()) : "") +
             (hostDisplay.wireValue == null ? "" :
                     "&" + HostDisplayChoice.LAUNCH_PARAMETER + "=" + hostDisplay.wireValue) +
             vrr +

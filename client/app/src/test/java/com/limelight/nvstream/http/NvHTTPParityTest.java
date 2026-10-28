@@ -755,6 +755,24 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void displayScaleGoesOnlyWithAVirtualDisplayAndOnlyWhenChosen() throws Exception {
+        for (boolean virtualDisplay : new boolean[] {false, true}) {
+            for (int dpi : new int[] {0, 200}) {
+                ConnectionContext context = context("rubylight-serverinfo.xml");
+                context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                        .setVirtualDisplay(virtualDisplay, 100).setVirtualDisplayDpi(dpi).build();
+                String query = NvHTTP.getLaunchQuery(context, 42, false);
+                String expected = virtualDisplay && dpi != 0 ? "200" : null;
+                assertEquals(virtualDisplay + "/" + dpi, expected, query(context, false).queryParameter("rlDisplayScale"));
+                if (expected != null) {
+                    // The same order as the shared Rust LaunchRequest; the render resolution stays 100 %.
+                    assertTrue(query, query.contains("&virtualDisplay=1&scaleFactor=100&rlDisplayScale=200&"));
+                }
+            }
+        }
+    }
+
+    @Test
     public void customFractionalRateReachesHostsThatReadIt() throws Exception {
         // Sunshine reads the rate with atoi and would turn 59.94 into 59.
         for (String host : new String[] {"butterpollo-serverinfo.xml", "rubylight-serverinfo.xml", "apollo-serverinfo.xml",

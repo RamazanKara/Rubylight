@@ -217,6 +217,14 @@
             android:max="200"
             seekbar:step="5"
             android:text="%" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_virtual_display_dpi"
+            android:dependency="checkbox_virtual_display"
+            android:title="@string/title_virtual_display_dpi"
+            android:dialogMessage="@string/summary_virtual_display_dpi"
+            android:entries="@array/virtual_display_dpi_names"
+            android:entryValues="@array/virtual_display_dpi_values"
+            android:defaultValue="0" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_more_display">
         <Preference android:key="more_display" android:title="@string/settings_more" android:persistent="false" />

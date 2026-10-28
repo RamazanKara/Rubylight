@@ -277,6 +277,9 @@
     <string name="summary_content_rate_frame_rate">將遊戲實際執行的影格率告知 Android，讓具有相符更新模式的螢幕可切換到該模式而不會黑屏。需要會傳送影格時間的電腦，並須開啟「允許較低的更新率」；最多每 2 秒變更一次。不適用於 PyroWave 與自動調整更新率。</string>
     <string name="title_virtual_display_scale">電腦轉譯解析度</string>
     <string name="summary_virtual_display_scale">電腦轉譯所用解析度占串流解析度的百分比。傳輸的影片大小不變。若要傳送較少像素並在此裝置上放大，請降低串流解析度。</string>
+    <string name="title_virtual_display_dpi">電腦顯示縮放</string>
+    <string name="summary_virtual_display_dpi">虛擬顯示器上的文字和介面大小，適用於 Rubylight 電腦。</string>
+    <string name="virtual_display_dpi_pc_own">依照電腦</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">尚無資料</string>
     <string name="title_export_latency_csv">匯出延遲 CSV</string>

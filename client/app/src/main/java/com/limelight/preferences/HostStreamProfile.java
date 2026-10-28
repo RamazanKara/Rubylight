@@ -25,6 +25,8 @@ public final class HostStreamProfile {
     public Boolean nativeResolution;
     public Integer width, height;
     public Integer refreshRateX100, bitrate, renderScale;
+    /** The virtual display's Windows scale in percent; 0 is the PC's own. */
+    public Integer displayScale;
     public PreferenceConfiguration.FormatOption codec;
     public Boolean virtualDisplay, hdr, fullRange, yuv444, vrr;
     public UpscalingPolicy.Mode upscalingMode;
@@ -35,7 +37,7 @@ public final class HostStreamProfile {
     /** The values a set can hold; each one falls through on its own. */
     public enum Field {
         RESOLUTION, REFRESH, BITRATE, CODEC, UPSCALING, SHARPNESS, HDR, VRR, YUV444, FULL_RANGE, PACING,
-        VIRTUAL_DISPLAY, RENDER_SCALE
+        VIRTUAL_DISPLAY, RENDER_SCALE, DISPLAY_SCALE
     }
 
     static final String[] PACING_VALUES = {"latency", "balanced", "cap-fps", "smoothness"};
@@ -75,6 +77,13 @@ public final class HostStreamProfile {
         return value;
     }
 
+    static int requireDisplayScale(int percent) {
+        if (!PreferenceConfiguration.isVirtualDisplayDpi(percent)) {
+            throw new IllegalArgumentException("Display scale Windows does not offer");
+        }
+        return percent;
+    }
+
     static int parseRefreshRate(String text) {
         try {
             return requireRange(new BigDecimal(text.trim().replace(',', '.'))
@@ -104,8 +113,8 @@ public final class HostStreamProfile {
 
     public boolean isEmpty() {
         return nativeResolution == null && refreshRateX100 == null && bitrate == null && renderScale == null &&
-                codec == null && virtualDisplay == null && hdr == null && fullRange == null && yuv444 == null &&
-                vrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null;
+                displayScale == null && codec == null && virtualDisplay == null && hdr == null && fullRange == null &&
+                yuv444 == null && vrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null;
     }
 
     public boolean has(Field field) {
@@ -122,6 +131,7 @@ public final class HostStreamProfile {
             case FULL_RANGE: return fullRange != null;
             case PACING: return pacing != null;
             case VIRTUAL_DISPLAY: return virtualDisplay != null;
+            case DISPLAY_SCALE: return displayScale != null;
             default: return renderScale != null;
         }
     }
@@ -145,6 +155,7 @@ public final class HostStreamProfile {
             case FULL_RANGE: fullRange = from.fullRange; break;
             case PACING: pacing = from.pacing; break;
             case VIRTUAL_DISPLAY: virtualDisplay = from.virtualDisplay; break;
+            case DISPLAY_SCALE: displayScale = from.displayScale; break;
             default: renderScale = from.renderScale; break;
         }
     }
@@ -184,6 +195,7 @@ public final class HostStreamProfile {
         }
         if (bitrate != null) config.bitrate = bitrate;
         if (renderScale != null) config.virtualDisplayScale = renderScale;
+        if (displayScale != null) config.virtualDisplayDpi = displayScale;
         if (codec != null) config.videoFormat = codec;
         if (virtualDisplay != null) config.virtualDisplay = virtualDisplay;
         if (hdr != null) config.enableHdr = hdr;
@@ -214,6 +226,7 @@ public final class HostStreamProfile {
         if (refreshRateX100 != null && refreshRateX100 == globalRefresh) refreshRateX100 = null;
         if (bitrate != null && bitrate == global.bitrate) bitrate = null;
         if (renderScale != null && renderScale == global.virtualDisplayScale) renderScale = null;
+        if (displayScale != null && displayScale == global.virtualDisplayDpi) displayScale = null;
         if (codec == global.videoFormat) codec = null;
         if (virtualDisplay != null && virtualDisplay == global.virtualDisplay) virtualDisplay = null;
         if (hdr != null && hdr == global.enableHdr) hdr = null;
@@ -233,6 +246,7 @@ public final class HostStreamProfile {
         if (refreshRateX100 != null) out.append(";refresh=").append(refreshRateX100);
         if (bitrate != null) out.append(";bitrate=").append(bitrate);
         if (renderScale != null) out.append(";scale=").append(renderScale);
+        if (displayScale != null) out.append(";dpi=").append(displayScale);
         if (codec != null) out.append(";codec=").append(codec.name());
         if (virtualDisplay != null) out.append(";virtual=").append(virtualDisplay);
         if (hdr != null) out.append(";hdr=").append(hdr);
@@ -283,6 +297,9 @@ public final class HostStreamProfile {
                     break;
                 case "scale":
                     profile.renderScale = requireRange(Integer.parseInt(field), 50, 200);
+                    break;
+                case "dpi":
+                    profile.displayScale = requireDisplayScale(Integer.parseInt(field));
                     break;
                 case "codec":
                     profile.codec = PreferenceConfiguration.FormatOption.valueOf(field);

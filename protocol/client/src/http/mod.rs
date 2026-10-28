@@ -50,7 +50,8 @@ pub use hardware_metrics::{
 };
 pub use identity::ClientIdentity;
 pub use launch::{
-    parse_launch_reply, HostDisplay, LaunchRequest, Launched, CORE_LAUNCH_PARAMETERS,
+    asks_to_confirm_replace, parse_launch_reply, HostDisplay, LaunchRequest, Launched,
+    CONFIRM_REPLACE, CORE_LAUNCH_PARAMETERS,
 };
 pub use native::{FilePermissions, NativeCapabilities};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};

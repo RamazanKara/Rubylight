@@ -249,6 +249,8 @@ pub struct Seen {
     pub message: Option<String>,
     /// A launch is under way: the network check, the connection or the stream.
     pub busy: bool,
+    /// The launcher asks the user to confirm closing the app the PC runs.
+    pub confirming: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -398,9 +400,14 @@ impl CliLaunch {
     }
 
     /// After the launch was asked for: the stream starts, or the launch ends without one.
-    fn launched(&self, seen: &Seen) -> Step {
+    fn launched(&mut self, seen: &Seen) -> Step {
         if let Some(message) = &seen.message {
             return Step::Fail(message.clone());
+        }
+        if seen.confirming {
+            // The user takes their time; the launch that follows the answer gets the full limit.
+            self.started = Instant::now();
+            return Step::Wait;
         }
         if !seen.busy {
             // The launcher dropped the launch without saying why, or the user cancelled it.
@@ -640,6 +647,7 @@ mod tests {
             }),
             message: None,
             busy: false,
+            confirming: false,
         }
     }
 
@@ -747,6 +755,31 @@ mod tests {
             c.next(&busy),
             Step::Fail("the stream did not start in time".into())
         );
+    }
+
+    #[test]
+    fn the_start_waits_for_the_replace_prompt_and_its_cancel_closes() {
+        let apps = || vec![app(1, "", "Steam"), app(5, "", "Desktop")];
+        let refused = || running(apps(), Some((1, None)), true);
+        let confirming = || Seen { confirming: true, ..refused() };
+        for confirm in [true, false] {
+            let mut c = cli(Some("desktop"), false);
+            assert_eq!(c.next(&refused()), Step::Launch(7, 5, false));
+            // The PC refused the launch and the launcher asks, however long the user takes.
+            c.started = Instant::now() - LAUNCH_LIMIT - Duration::from_secs(1);
+            assert_eq!(c.next(&confirming()), Step::Wait);
+            if confirm {
+                // The launch with the answer gets the full limit.
+                assert_eq!(c.next(&Seen { busy: true, ..refused() }), Step::Wait);
+                c.streaming_began();
+                assert_eq!(c.next(&refused()), Step::Wait);
+            } else {
+                // Cancelling the prompt cancels the start, without an error.
+                c.cancel();
+                assert_eq!(c.next(&refused()), Step::Close);
+                assert!(c.failed.is_none());
+            }
+        }
     }
 
     #[test]

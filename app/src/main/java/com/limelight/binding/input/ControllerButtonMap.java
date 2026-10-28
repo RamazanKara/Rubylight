@@ -38,10 +38,14 @@ public final class ControllerButtonMap {
             DISABLED
     };
 
-    /** The buttons a USB driver report can remap, as the key codes of their flags. */
+    /**
+     * The buttons a USB driver report can remap, as the key codes of their flags. MEDIA_RECORD
+     * stands for the report's Share (MISC_FLAG), as it does for the key Android gives an Xbox pad's
+     * Share, so one stored mapping works over both paths.
+     */
     private static final int[] FLAG_SOURCES = {
             BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y, BUTTON_L1, BUTTON_R1,
-            BUTTON_THUMBL, BUTTON_THUMBR, BUTTON_START, BUTTON_SELECT, BUTTON_MODE
+            BUTTON_THUMBL, BUTTON_THUMBR, BUTTON_START, BUTTON_SELECT, BUTTON_MODE, MEDIA_RECORD
     };
 
     private final TreeMap<Integer, Integer> mappings = new TreeMap<>();
@@ -114,7 +118,8 @@ public final class ControllerButtonMap {
     static int buttonFlag(int keyCode) {
         switch (keyCode) {
             case TARGET_TOUCHPAD: return TOUCHPAD_FLAG;
-            case TARGET_MISC: return MISC_FLAG;
+            case TARGET_MISC:
+            case MEDIA_RECORD: return MISC_FLAG;
             case TARGET_PADDLE1: return PADDLE1_FLAG;
             case TARGET_PADDLE2: return PADDLE2_FLAG;
             case TARGET_PADDLE3: return PADDLE3_FLAG;

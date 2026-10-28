@@ -40,7 +40,7 @@ sanitize=(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame
 for mode in plain sanitized; do
     extra=()
     if [ "$mode" = sanitized ]; then extra=("${sanitize[@]}"); fi
-    for test in pyrowave_schedule pyrowave_present_timing pyrowave_presentation vulkan_output_format; do
+    for test in pyrowave_schedule pyrowave_present_timing pyrowave_presentation vulkan_output_format window_dataspace; do
         c++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic "${extra[@]}" \
             "$tests/${test}_test.cpp" -o "$out/$test-$mode"
         "$out/$test-$mode"

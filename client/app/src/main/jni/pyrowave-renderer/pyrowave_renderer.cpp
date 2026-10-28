@@ -73,6 +73,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include "schedule.h"
 #include "present_timing.h"
 #include "rubylight_protocol.h"
+#include "../window-dataspace/window_dataspace.h"
 
 static_assert(PYRO_DATASPACE_SRGB == ADATASPACE_SRGB && PYRO_DATASPACE_BT2020_PQ == ADATASPACE_BT2020_PQ &&
               PYRO_DATASPACE_BT2020_HLG == ADATASPACE_BT2020_HLG,
@@ -93,7 +94,8 @@ static_assert(PYRO_FORMAT_A2B10G10R10 == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
 namespace {
     // Why the last ten-bit output surface failed, for Java's HDR fallback notice.
     // 0 none, 1 no usable ten-bit surface format (Android 13 and 14 loaders may list none),
-    // 2 the display or driver refused the HDR window dataspace, 3 the same for an HLG stream.
+    // 2 the display or driver refused the HDR window dataspace, 3 the same for an HLG stream,
+    // 4 the window took BT2020_HLG but no longer holds it after the first frame.
     std::atomic<int> hdrSurfaceFailure{0};
 
     // Results returned to Java.
@@ -2041,6 +2043,7 @@ namespace {
             const bool shown = presented == VK_SUCCESS || presented == VK_SUBOPTIMAL_KHR;
             const int64_t releasedNs = int64_t(released.tv_sec) * 1000000000LL + released.tv_nsec;
             pushRelease(ptsUs, shown ? releasedNs : 0, shown);
+            if (shown) checkHlgWindow();
             uint64_t frameEnd = nowUs();
             if (displayTimingSupported && shown) {
                 if (pendingPresents.size() == 8192) pendingPresents.pop_front();
@@ -2271,6 +2274,8 @@ namespace {
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
         VkColorSpaceKHR swapchainColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
         bool dataspaceOverride = false;
+        // An HLG window dataspace was set and the next frame shown reads it back.
+        bool hlgReadbackPending = false;
         // What the surface listed when the format was chosen; a transfer change keeps the format.
         std::vector<PyroSurfaceFormat> surfaceFormats;
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
@@ -2430,26 +2435,64 @@ namespace {
         }
 
     private:
-        // ANativeWindow_setBuffersDataSpace is API 28 and minSdk is 21, so it is looked up at run time.
+        // The API 28 window dataspace calls; minSdk is 21, so they are looked up at run time. The
+        // libraries stay loaded for the life of the process.
+        static void *dataspaceSymbol(const char *name) {
+            return pyroFindSymbol(name, [](const char *library) { return dlopen(library, RTLD_NOW | RTLD_LOCAL); },
+                                  [](void *handle, const char *symbol) { return dlsym(handle, symbol); });
+        }
+
         // False when HDR is on and the window refused it: the stream would look washed out, so it fails loudly.
+        // HLG goes through perform where ANativeWindow_setBuffersDataSpace refuses it (window_dataspace.h);
+        // PQ and SRGB keep the public call, whose refusal means this window has no HDR at all.
         bool applyWindowDataspace() {
             if (!dataspaceOverride || window == nullptr) return true;
             using SetDataSpace = int32_t (*)(ANativeWindow *, int32_t);
-            // The libraries stay loaded for the life of the process.
-            static const auto setDataSpace = reinterpret_cast<SetDataSpace>(pyroFindSymbol(
-                    "ANativeWindow_setBuffersDataSpace", [](const char *library) { return dlopen(library, RTLD_NOW | RTLD_LOCAL); },
-                    [](void *handle, const char *symbol) { return dlsym(handle, symbol); }));
+            static const auto setDataSpace = reinterpret_cast<SetDataSpace>(dataspaceSymbol("ANativeWindow_setBuffersDataSpace"));
             const int32_t dataspace = pyroWindowDataspace(hdr, hlg);
             const char *name = !hdr ? "SRGB" : hlg ? "BT2020_HLG" : "BT2020_PQ";
-            const int32_t result = setDataSpace != nullptr ? setDataSpace(window, dataspace) : -1;
-            if (result != 0) {
-                LOGE("Window dataspace %s (0x%x) was refused (%d%s)", name, uint32_t(dataspace),
-                     result, setDataSpace == nullptr ? ", ANativeWindow_setBuffersDataSpace missing" : "");
+            const nwds::DataspaceOutcome outcome = nwds::setDataspace(
+                    window, dataspace, [](void *w, int32_t d) {
+                        return setDataSpace != nullptr ? setDataSpace(static_cast<ANativeWindow *>(w), d) : nwds::kMissing;
+                    }, hdr && hlg);
+            if (!outcome.accepted()) {
+                LOGE("Window dataspace %s (0x%x) was refused (ANativeWindow_setBuffersDataSpace %d%s, perform %d)", name,
+                     uint32_t(dataspace), outcome.publicResult, setDataSpace == nullptr ? " missing" : "",
+                     outcome.performResult);
                 if (hdr) hdrSurfaceFailure = hlg ? 3 : 2;
+                hlgReadbackPending = false;
                 return !hdr;
             }
-            LOGI("Window dataspace set to %s (0x%x)", name, uint32_t(dataspace));
+            if (outcome.call == nwds::DataspaceCall::kPerform) {
+                LOGI("Window dataspace set to %s (0x%x) through ANativeWindow::perform; "
+                     "ANativeWindow_setBuffersDataSpace refused it (%d)", name, uint32_t(dataspace), outcome.publicResult);
+            } else {
+                LOGI("Window dataspace set to %s (0x%x)", name, uint32_t(dataspace));
+            }
+            // The first frame shown reads it back (checkHlgWindow).
+            hlgReadbackPending = hdr && hlg;
             return true;
+        }
+
+        // After the first frame on an HLG window: the window must still hold BT2020_HLG, or the
+        // stream is not shown as HLG and Java says so (hdrSurfaceFailure 4).
+        void checkHlgWindow() {
+            if (!hlgReadbackPending || window == nullptr) return;
+            hlgReadbackPending = false;
+            using GetDataSpace = int32_t (*)(ANativeWindow *);
+            static const auto getDataSpace = reinterpret_cast<GetDataSpace>(dataspaceSymbol("ANativeWindow_getBuffersDataSpace"));
+            if (getDataSpace == nullptr) {
+                LOGW("PyroWave HLG: ANativeWindow_getBuffersDataSpace missing, the window's dataspace is not read back");
+                return;
+            }
+            const int32_t held = getDataSpace(window);
+            if (held != nwds::kDataspaceBt2020Hlg) {
+                LOGE("PyroWave HLG: the window holds dataspace %d (0x%x) after the first frame, not BT2020_HLG", held,
+                     uint32_t(held));
+                hdrSurfaceFailure = 4;
+                return;
+            }
+            LOGI("PyroWave HLG: the window holds BT2020_HLG after the first frame");
         }
 
         void logHdrOutput() {

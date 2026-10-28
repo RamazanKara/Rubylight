@@ -6,6 +6,7 @@
     <string name="stream_rate_change_fps_invalid">Gib eine Bildrate von 10 bis 500 fps ein</string>
     <string name="stream_rate_change_nothing">Ändere zuerst die Bitrate oder die Bildrate</string>
     <string name="stream_rate_change_not_sent">Die Änderung konnte nicht an den Host gesendet werden.</string>
+    <string name="stream_rate_change_stream_ended">Der Stream endete, bevor die Änderung gesendet wurde. Nichts wurde geändert.</string>
     <string name="stream_rate_change_bitrate_applied">Bitrate: %1$.1f Mbit/s</string>
     <string name="stream_rate_change_bitrate_clamped">Bitrate: %1$.1f Mbit/s, niedriger als gewünscht. %2$s</string>
     <string name="stream_rate_change_bitrate_refused">Bitrate nicht geändert, weiter %1$.1f Mbit/s. %2$s</string>

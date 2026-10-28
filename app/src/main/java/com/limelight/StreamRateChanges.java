@@ -5,6 +5,7 @@ import com.limelight.nvstream.RateChangeResult;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // The stream's 0x553C rate changes: the ones asked for in the stream menu, and the client-hint
 // automatic bitrate's. Each request gets a serial the host echoes, so its result reaches whoever
@@ -29,9 +30,12 @@ final class StreamRateChanges {
         UNKNOWN,
     }
 
+    // Serials count across streams, so a late result of an earlier stream (one queued before a
+    // restart) matches no request of this one. 0 is skipped, as automaticSerial 0 means none.
+    private static final AtomicInteger lastSerial = new AtomicInteger();
+
     private final Sender sender;
     private final Map<Integer, Boolean> outstanding = new HashMap<>();
-    private int nextSerial = 1;
     private int manualOutstanding;
     private int automaticSerial;
     private ClientHintBitrateController automatic;
@@ -40,9 +44,14 @@ final class StreamRateChanges {
         this.sender = sender;
     }
 
+    private static int nextSerial() {
+        int serial = lastSerial.incrementAndGet();
+        return serial != 0 ? serial : lastSerial.incrementAndGet();
+    }
+
     // A request from the menu; 0 keeps that value. False when it could not be sent.
     boolean sendManual(int bitrateKbps, int fpsMillihz) {
-        int serial = nextSerial++;
+        int serial = nextSerial();
         if (!sender.send(serial, bitrateKbps, fpsMillihz)) return false;
         outstanding.put(serial, true);
         manualOutstanding++;
@@ -73,7 +82,7 @@ final class StreamRateChanges {
         if (automatic == null || manualOutstanding > 0) return true;
         int kbps = automatic.sample(nowMs, recentVideo, lossPercent, queueMs);
         if (kbps == 0) return true;
-        int serial = nextSerial++;
+        int serial = nextSerial();
         if (!sender.send(serial, kbps, 0)) {
             stopAutomatic();
             return false;

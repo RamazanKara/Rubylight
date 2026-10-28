@@ -3167,7 +3167,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void toggleAdaptiveBitrateFromMenu() {
         // Automatic bitrate on this device turns on and off for this stream only; the setting stays.
         if (isRateChangeBitrateOn() || (!isAdaptiveBitrateEnabled() && rateChanges != null && prefConfig.rateChangeBitrate)) {
-            setRateChangeBitrateEnabled(!isRateChangeBitrateOn());
+            boolean enable = !isRateChangeBitrateOn();
+            setRateChangeBitrateEnabled(enable);
+            // The setting's own explanation, as the settings screen shows it.
+            if (enable) messages.alert(R.string.summary_rate_change_bitrate, Toast.LENGTH_LONG);
             return;
         }
         boolean enable = !isAdaptiveBitrateEnabled();
@@ -4627,7 +4630,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // Bitrate and frame rate in one 0x553C request; a field left as it is keeps its value.
     private void showRateChangeDialog() {
-        if (rateChanges == null) return;
+        final StreamRateChanges stream = rateChanges;
+        if (stream == null) return;
         float density = getResources().getDisplayMetrics().density;
         int padding = Math.round(24 * density);
         LinearLayout fields = new LinearLayout(this);
@@ -4650,6 +4654,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setPositiveButton(android.R.string.ok, null).create();
         showStreamDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            if (!connected || rateChanges != stream) {
+                // The stream this dialog was opened for ended or restarted: nothing goes out.
+                dialog.dismiss();
+                LimeLog.warning("Rate change: the stream ended before the request was sent");
+                messages.alert(R.string.stream_rate_change_stream_ended, Toast.LENGTH_LONG);
+                return;
+            }
             bitrateField.setError(null);
             if (fpsField != null) fpsField.setError(null);
             int kbps = parseRateChange(bitrateField, bitrateText, 500, StreamConfiguration.MAX_BITRATE_KBPS,
@@ -4661,9 +4672,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 bitrateField.setError(getString(R.string.stream_rate_change_nothing));
                 return;
             }
-            if (!foreground || !connected || rateChanges == null) return;
             dialog.dismiss();
-            if (!rateChanges.sendManual(kbps, millihz)) {
+            if (!stream.sendManual(kbps, millihz)) {
                 LimeLog.warning("Rate change: request not sent");
                 messages.alert(R.string.stream_rate_change_not_sent, Toast.LENGTH_LONG);
                 return;
@@ -4784,7 +4794,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // At the stream's start: rate changes when the host offered them, and the automatic bitrate
     // the settings ask for, on this device or else on the host.
     private void startStreamBitrate() {
-        rateChanges = offersRateChange() ? new StreamRateChanges(MoonBridge::sendRateChange) : null;
+        startStreamBitrate(offersRateChange() ? new StreamRateChanges(MoonBridge::sendRateChange) : null);
+    }
+
+    private void startStreamBitrate(StreamRateChanges changes) {
+        rateChanges = changes;
         if (rateChanges != null && prefConfig.rateChangeBitrate) {
             setRateChangeBitrateEnabled(true);
         } else if (autoBitrateAtStart()) {

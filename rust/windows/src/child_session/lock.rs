@@ -183,7 +183,9 @@ mod tests {
         })
         .join()
         .unwrap();
-        assert!(refused && started.elapsed() >= Duration::from_millis(100));
+        assert!(refused);
+        // A timed wait can end up to one timer tick (15.6 ms) before its timeout.
+        assert!(started.elapsed() >= Duration::from_millis(80));
         // Once it is released, a holder waiting for it gets it.
         let (waiting, wait) = mpsc::channel();
         let (taken, take) = mpsc::channel();

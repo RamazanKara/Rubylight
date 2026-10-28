@@ -61,6 +61,7 @@
     <string name="profiles_location_denied">位置情報へのアクセスがないため、すべての Wi-Fi がその他の Wi-Fi として扱われます。後から Android のアプリ設定で許可できます。</string>
     <string name="profiles_wifi_unreadable">Wi-Fi の名前を読み取れません。このデバイスが Wi-Fi に接続され、位置情報がオンになっていることを確認するか、名前を入力してください。</string>
     <string name="profiles_order">ストリーム開始時、各値は次の順で最初に設定されているものが使われます：このゲーム、この PC、プロファイル、メイン設定。モバイルデータでは、さらに「モバイルデータのビットレート」でビットレートが制限されます。変更は実行中のストリームには適用されません。</string>
+    <string name="profiles_order_no_mobile">ストリーム開始時、各値は次の順で最初に設定されているものが使われます：このゲーム、この PC、プロファイル、メイン設定。変更は実行中のストリームには適用されません。</string>
     <string name="profiles_privacy">自宅の Wi-Fi の名前はこのデバイス内にとどまり、送信や記録されることはありません。</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

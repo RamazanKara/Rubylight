@@ -61,6 +61,7 @@
     <string name="profiles_location_denied">Không có quyền truy cập vị trí: mọi Wi-Fi đều được tính là Wi-Fi khác. Bạn có thể cho phép sau trong phần cài đặt ứng dụng của Android.</string>
     <string name="profiles_wifi_unreadable">Không đọc được tên Wi-Fi. Hãy kiểm tra thiết bị này đang kết nối Wi-Fi và vị trí đang bật, hoặc nhập tên.</string>
     <string name="profiles_order">Khi stream bắt đầu, mỗi giá trị được lấy từ nguồn đầu tiên đặt giá trị đó: trò chơi này, PC này, hồ sơ, rồi đến cài đặt chính. Khi dùng dữ liệu di động, “Tốc độ bit trên dữ liệu di động” sẽ giới hạn tốc độ bit sau đó. Thay đổi không bao giờ áp dụng cho stream đang chạy.</string>
+    <string name="profiles_order_no_mobile">Khi stream bắt đầu, mỗi giá trị được lấy từ nguồn đầu tiên đặt giá trị đó: trò chơi này, PC này, hồ sơ, rồi đến cài đặt chính. Thay đổi không bao giờ áp dụng cho stream đang chạy.</string>
     <string name="profiles_privacy">Tên Wi-Fi gia đình chỉ lưu trên thiết bị này và không bao giờ được gửi đi hay ghi vào nhật ký.</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

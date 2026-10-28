@@ -61,6 +61,7 @@
     <string name="profiles_location_denied">没有位置信息权限：所有 Wi-Fi 都视为其他 Wi-Fi。你可以稍后在 Android 的应用设置中允许。</string>
     <string name="profiles_wifi_unreadable">无法读取 Wi-Fi 名称。请检查此设备是否已连接 Wi-Fi 且位置信息已开启，或手动输入名称。</string>
     <string name="profiles_order">串流开始时，每个值取自以下顺序中第一个设置了它的来源：此游戏、此电脑、配置，然后是主设置。使用移动数据时，“移动数据码率”随后会限制码率。更改不会应用于正在进行的串流。</string>
+    <string name="profiles_order_no_mobile">串流开始时，每个值取自以下顺序中第一个设置了它的来源：此游戏、此电脑、配置，然后是主设置。更改不会应用于正在进行的串流。</string>
     <string name="profiles_privacy">家庭 Wi-Fi 名称只保留在此设备上，绝不会被发送或记录。</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

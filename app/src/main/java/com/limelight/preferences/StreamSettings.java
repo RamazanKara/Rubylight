@@ -2040,7 +2040,7 @@ public class StreamSettings extends NightjarActivity {
             // Mobile data rows only where there is mobile data, unless a value set earlier still acts.
             if (!SettingRules.hasMobileData(getActivity())) {
                 SharedPreferences stored = getPreferenceManager().getSharedPreferences();
-                if ("0".equals(stored.getString(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING, "0"))) {
+                if (!SettingRules.mobileBitrateShown(getActivity(), stored)) {
                     removeSetting(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING);
                 }
                 if (!stored.getBoolean(PreferenceConfiguration.ROAMING_METERED_PREF_STRING, false)) {

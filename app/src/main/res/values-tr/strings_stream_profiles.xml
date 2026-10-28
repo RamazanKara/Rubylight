@@ -62,6 +62,7 @@
     <string name="profiles_location_denied">Konum erişimi yok: her Wi-Fi diğer Wi-Fi sayılır. Daha sonra Android’in uygulama ayarlarından izin verebilirsiniz.</string>
     <string name="profiles_wifi_unreadable">Wi-Fi adı okunamıyor. Bu cihazın Wi-Fi’a bağlı ve konumun açık olduğunu kontrol edin veya adı yazın.</string>
     <string name="profiles_order">Yayın başlarken her değer, onu ayarlayan ilk kaynaktan alınır: bu oyun, bu bilgisayar, profil ve son olarak ana ayarlar. Mobil veride bit hızı ardından “Mobil veride bit hızı” ile sınırlanır. Değişiklikler hiçbir zaman zaten çalışan bir yayına uygulanmaz.</string>
+    <string name="profiles_order_no_mobile">Yayın başlarken her değer, onu ayarlayan ilk kaynaktan alınır: bu oyun, bu bilgisayar, profil ve son olarak ana ayarlar. Değişiklikler hiçbir zaman zaten çalışan bir yayına uygulanmaz.</string>
     <string name="profiles_privacy">Ev Wi-Fi adları bu cihazda kalır; hiçbir zaman gönderilmez veya günlüğe kaydedilmez.</string>
 
     <!-- Bitrate on mobile data (Settings → Video) -->

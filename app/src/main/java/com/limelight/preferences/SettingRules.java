@@ -85,6 +85,12 @@ final class SettingRules {
         return context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
     }
 
+    /** Bitrate on mobile data shows where there is mobile data, or while a cap set earlier still acts. */
+    static boolean mobileBitrateShown(Context context, SharedPreferences prefs) {
+        return hasMobileData(context)
+                || !"0".equals(prefs.getString(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING, "0"));
+    }
+
     /** Continuing on mobile data is a roaming choice, so it shows only while roaming is on. */
     static boolean roamingMeteredApplies(SharedPreferences prefs) {
         return clientRoamingApplies(prefs) &&

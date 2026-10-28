@@ -1397,7 +1397,8 @@ pub struct Wgc {
     item: GraphicsCaptureItem,
     source: Source,
     format: DirectXPixelFormat,
-    /// A window's new size recreates the frame pool in place. The helper
+    high_rate: bool,
+    /// A window's new size restarts the capture at it. The helper
     /// cannot: its shared textures keep the first size, so it fails and the
     /// host reopens it at the new size.
     follow_resize: bool,
@@ -1497,6 +1498,74 @@ fn pin_capture_runtime() -> Result<()> {
         .clone()
         .context("keep the Windows capture runtime loaded during asynchronous shutdown")
 }
+/// A frame pool of `size` and its session on `item`, configured but not started.
+fn open_session(
+    gpu: &Device,
+    item: &GraphicsCaptureItem,
+    format: DirectXPixelFormat,
+    size: windows::Graphics::SizeInt32,
+    window: bool,
+    high_rate: bool,
+) -> Result<(Direct3D11CaptureFramePool, GraphicsCaptureSession)> {
+    use butterpollo_core::os_gate::{Feature, missing};
+    let build = crate::display::windows_build();
+    let dxgi: IDXGIDevice = gpu.device.cast()?;
+    // SAFETY: `dxgi` is the live device the capture runs on.
+    let winrt: IDirect3DDevice = unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi)? }.cast()?;
+    let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+        &winrt,
+        format,
+        WGC_FRAME_POOL_CAPACITY as i32,
+        size,
+    )
+    .context("Windows Graphics Capture frame pool")?;
+    let session = pool
+        .CreateCaptureSession(item)
+        .context("Windows Graphics Capture session")?;
+    // Each switch below needs a Windows build (see `os_gate`); older
+    // builds keep their fixed behaviour and the stream says so. A
+    // game window's stream takes no mouse, so the PC's pointer is not
+    // drawn into it.
+    if let Some(reason) = missing(build, Feature::WgcCursorSwitch) {
+        tracing::info!("{reason}");
+    } else {
+        session
+            .SetIsCursorCaptureEnabled(!window)
+            .context("Windows Graphics Capture cursor capture")?;
+    }
+    if let Some(reason) = missing(build, Feature::WgcBorderSwitch) {
+        tracing::info!("{reason}");
+    } else if let Err(error) = session.SetIsBorderRequired(false) {
+        // Windows asks the user for borderless access or refuses it
+        // for some sessions; the capture itself still works.
+        tracing::warn!(%error, "WGC border could not be removed; Windows draws a yellow border around the captured display or window");
+    }
+    // Leaving this property untouched is not equivalent to zero:
+    // Windows build 26200 reports a 16 ms default, which can deliver
+    // only 50-57 updates/sec when quantized to compositor ticks.
+    // Explicitly remove that throttle at every stream rate. The old
+    // 1 ms workaround remains available for diagnostic comparisons.
+    let interval = windows::Foundation::TimeSpan {
+        Duration: if high_rate { 10_000 } else { 0 },
+    };
+    // Always tried, whatever the build: a Windows servicing update can
+    // bring the property to an older build. Only the log wording
+    // depends on the build.
+    match session.SetMinUpdateInterval(interval) {
+        Ok(()) => tracing::info!(
+            interval_us = interval.Duration / 10,
+            "WGC minimum update interval configured"
+        ),
+        Err(error) => match missing(build, Feature::WgcUpdateInterval) {
+            Some(reason) => tracing::info!(%error, "{reason}"),
+            None => {
+                tracing::warn!(%error, "WGC minimum update interval unavailable; using the Windows default, which may limit capture fps. Update Windows or disable high-rate capture")
+            }
+        },
+    }
+    Ok((pool, session))
+}
+
 impl Wgc {
     pub fn new(name: &str) -> Result<Self> {
         Self::new_format(name, false)
@@ -1562,65 +1631,14 @@ impl Wgc {
                 }))
                 .inspect_err(|error| tracing::warn!(%error, "WGC cannot report the display or window leaving; a capture that stops is found by its monitor or window check"))
                 .ok();
-            let dxgi: IDXGIDevice = gpu.device.cast()?;
-            let winrt: IDirect3DDevice = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)?.cast()?;
             let size = item.Size()?;
             let format = if native_hdr {
                 DirectXPixelFormat::R16G16B16A16Float
             } else {
                 DirectXPixelFormat::B8G8R8A8UIntNormalized
             };
-            let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
-                &winrt,
-                format,
-                WGC_FRAME_POOL_CAPACITY as i32,
-                size,
-            )
-            .context("Windows Graphics Capture frame pool")?;
-            let session = pool
-                .CreateCaptureSession(&item)
-                .context("Windows Graphics Capture session")?;
-            // Each switch below needs a Windows build (see `os_gate`); older
-            // builds keep their fixed behaviour and the stream says so. A
-            // game window's stream takes no mouse, so the PC's pointer is not
-            // drawn into it.
-            if let Some(reason) = missing(build, Feature::WgcCursorSwitch) {
-                tracing::info!("{reason}");
-            } else {
-                session
-                    .SetIsCursorCaptureEnabled(window.is_none())
-                    .context("Windows Graphics Capture cursor capture")?;
-            }
-            if let Some(reason) = missing(build, Feature::WgcBorderSwitch) {
-                tracing::info!("{reason}");
-            } else if let Err(error) = session.SetIsBorderRequired(false) {
-                // Windows asks the user for borderless access or refuses it
-                // for some sessions; the capture itself still works.
-                tracing::warn!(%error, "WGC border could not be removed; Windows draws a yellow border around the captured display or window");
-            }
-            // Leaving this property untouched is not equivalent to zero:
-            // Windows build 26200 reports a 16 ms default, which can deliver
-            // only 50-57 updates/sec when quantized to compositor ticks.
-            // Explicitly remove that throttle at every stream rate. The old
-            // 1 ms workaround remains available for diagnostic comparisons.
-            let interval = windows::Foundation::TimeSpan {
-                Duration: if high_rate { 10_000 } else { 0 },
-            };
-            // Always tried, whatever the build: a Windows servicing update can
-            // bring the property to an older build. Only the log wording
-            // depends on the build.
-            match session.SetMinUpdateInterval(interval) {
-                Ok(()) => tracing::info!(
-                    interval_us = interval.Duration / 10,
-                    "WGC minimum update interval configured"
-                ),
-                Err(error) => match missing(build, Feature::WgcUpdateInterval) {
-                    Some(reason) => tracing::info!(%error, "{reason}"),
-                    None => {
-                        tracing::warn!(%error, "WGC minimum update interval unavailable; using the Windows default, which may limit capture fps. Update Windows or disable high-rate capture")
-                    }
-                },
-            }
+            let (pool, session) =
+                open_session(&gpu, &item, format, size, window.is_some(), high_rate)?;
             let capture = Self {
                 gpu,
                 pool,
@@ -1640,6 +1658,7 @@ impl Wgc {
                 item,
                 source,
                 format,
+                high_rate,
                 follow_resize: true,
                 closed,
                 closed_token,
@@ -1655,20 +1674,23 @@ impl Wgc {
     }
     fn enable_notifications(&mut self) -> Result<()> {
         if self.notifications.is_none() {
-            let arrived = std::sync::Arc::new(crate::timing::Signal::new()?);
-            let wake = arrived.clone();
-            // The callback never takes the D3D11 lock or touches capture frames.
-            let token = self
-                .pool
-                .FrameArrived(&windows::Foundation::TypedEventHandler::new(move |_, _| {
-                    let _ = wake.set();
-                    Ok(())
-                }))?;
-            self.notifications = Some((arrived.clone(), token));
-            // Registration may follow the first frame; make the caller check
-            // the pool before waiting for a subsequent notification.
-            arrived.set()?;
+            self.notify(std::sync::Arc::new(crate::timing::Signal::new()?))?;
         }
+        Ok(())
+    }
+    fn notify(&mut self, arrived: std::sync::Arc<crate::timing::Signal>) -> Result<()> {
+        let wake = arrived.clone();
+        // The callback never takes the D3D11 lock or touches capture frames.
+        let token = self
+            .pool
+            .FrameArrived(&windows::Foundation::TypedEventHandler::new(move |_, _| {
+                let _ = wake.set();
+                Ok(())
+            }))?;
+        self.notifications = Some((arrived.clone(), token));
+        // Registration may follow the first frame; make the caller check
+        // the pool before waiting for a subsequent notification.
+        arrived.set()?;
         Ok(())
     }
     pub fn next_frame(&mut self) -> Result<Option<Image>> {
@@ -1798,34 +1820,51 @@ impl Wgc {
                 size.0,
                 size.1
             );
-            self.recreate_pool(size)?;
+            self.restart_at(size)?;
         }
         Ok(None)
     }
-    fn recreate_pool(&mut self, size: (i32, i32)) -> Result<()> {
+    /// Restarts the capture at the window's new size. Recreating the frame
+    /// pool in place is not enough: WGC sends a window's next frame only when
+    /// the window changes again, so a game that stopped drawing (paused,
+    /// unfocused) would stream its old-size picture until then. A started
+    /// session always sends a first frame.
+    fn restart_at(&mut self, size: (i32, i32)) -> Result<()> {
         // Its frame came from the old buffers and shows the old size.
         if let Some((frame, _, _, _)) = self.held.take() {
             let _ = frame.Close();
         }
-        let dxgi: IDXGIDevice = self.gpu.device.cast()?;
-        // SAFETY: `dxgi` is the live device the pool was made on.
-        let winrt: IDirect3DDevice =
-            unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi)? }.cast()?;
-        self.pool
-            .Recreate(
-                &winrt,
-                self.format,
-                WGC_FRAME_POOL_CAPACITY as i32,
-                windows::Graphics::SizeInt32 {
-                    Width: size.0,
-                    Height: size.1,
-                },
-            )
-            .context("Windows Graphics Capture could not follow the game window's new size")?;
+        let (pool, session) = open_session(
+            &self.gpu,
+            &self.item,
+            self.format,
+            windows::Graphics::SizeInt32 {
+                Width: size.0,
+                Height: size.1,
+            },
+            true,
+            self.high_rate,
+        )
+        .context("Windows Graphics Capture could not follow the game window's new size")?;
+        // Revoked before the old pool closes, as in `close`.
+        let notifications = self.notifications.take();
+        if let Some((_, token)) = &notifications {
+            let _ = self.pool.RemoveFrameArrived(*token);
+        }
+        let _ = self.session.Close();
+        let _ = self.pool.Close();
+        self.pool = pool;
+        self.session = session;
+        if let Some((arrived, _)) = notifications {
+            self.notify(arrived)?;
+        }
+        self.session
+            .StartCapture()
+            .context("Windows Graphics Capture did not restart at the game window's new size")?;
         tracing::info!(
             from = ?self.size,
             to = ?size,
-            "game window resized; WGC frame pool recreated"
+            "game window resized; WGC capture restarted at the new size"
         );
         self.size = size;
         Ok(())

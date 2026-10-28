@@ -118,7 +118,7 @@ pub(super) enum Frame {
     /// Holds no current picture: an empty window, or a frame from before the
     /// frame pool took the window's new size.
     Skip,
-    /// The window has a new size: recreate the frame pool at it and drop this
+    /// The window has a new size: restart the capture at it and drop this
     /// frame, whose surface has the old size.
     Resize((i32, i32)),
 }

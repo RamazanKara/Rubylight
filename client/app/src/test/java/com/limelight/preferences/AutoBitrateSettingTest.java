@@ -83,7 +83,9 @@ public class AutoBitrateSettingTest {
                 if (group.getPreference(i) == slider) at = i;
             }
             assertTrue(at >= 0);
-            assertSame(auto, group.getPreference(at + 1));
+            // The client-hint bitrate switch (0x553C) comes first; both adapt the slider's bitrate.
+            assertSame(video.findPreference("checkbox_rate_change_bitrate"), group.getPreference(at + 1));
+            assertSame(auto, group.getPreference(at + 2));
             assertFalse(PreferenceConfiguration.readPreferences(app()).autoBitrate);
         }
     }

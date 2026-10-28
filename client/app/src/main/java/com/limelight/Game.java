@@ -1028,6 +1028,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_UNIQUEID = "UniqueId";
     public static final String EXTRA_PC_UUID = "UUID";
     public static final String EXTRA_PC_NAME = "PcName";
+    /** The running game this start replaces, named in the host's confirmation prompt. */
+    public static final String EXTRA_REPLACED_APP_NAME = "ReplacedAppName";
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
     private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
@@ -7313,7 +7315,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             launchConfirmationDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(
                     new androidx.appcompat.view.ContextThemeWrapper(this, R.style.StreamTheme))
                     .setTitle(R.string.launch_confirm_title)
-                    .setMessage(confirmation.isTerminate() ? R.string.launch_confirm_terminate : R.string.launch_confirm_replace)
+                    .setMessage(launchConfirmationMessage(confirmation))
                     .setPositiveButton(R.string.launch_confirm, (dialog, which) -> {
                         confirmation.confirm(LaunchConfirmation.nowMs());
                         spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
@@ -7330,6 +7332,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             launchConfirmationDialog.setCanceledOnTouchOutside(false);
             launchConfirmationDialog.show();
         });
+    }
+
+    /** Names the running game and this one when the start knew both; otherwise "the running app". */
+    private String launchConfirmationMessage(LaunchConfirmation confirmation) {
+        if (confirmation.isTerminate()) {
+            return getString(R.string.launch_confirm_terminate);
+        }
+        String replaced = getIntent().getStringExtra(EXTRA_REPLACED_APP_NAME);
+        return replaced != null && appName != null
+                ? getString(R.string.launch_confirm_replace_named, replaced, appName)
+                : getString(R.string.launch_confirm_replace);
     }
 
     @Override

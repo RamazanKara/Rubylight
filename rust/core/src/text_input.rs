@@ -53,6 +53,10 @@ pub struct FocusedElement {
     pub automation_id: String,
     pub class_name: String,
     pub localized_type: String,
+    /// The element is an edit inside a spinner: the text box of a number box (WinUI
+    /// `NumberBox`, a WinForms `NumericUpDown`, a Win32 up-down buddy), which has the focus
+    /// while the spinner around it says what the field holds.
+    pub in_spinner: bool,
 }
 
 /// The keyboard a focused field wants.
@@ -99,7 +103,10 @@ pub fn classify(element: &FocusedElement) -> Option<Field> {
     let named = |words: &[&str]| words.iter().any(|word| hints.contains(word));
     let input_type = if element.password || named(&["password", "passwort", "kennwort"]) {
         InputType::Password
-    } else if element.control_type == control_type::SPINNER || role == "spinbutton" {
+    } else if element.control_type == control_type::SPINNER
+        || role == "spinbutton"
+        || element.in_spinner
+    {
         InputType::Number
     } else if element.control_type == control_type::DOCUMENT {
         InputType::Multiline
@@ -462,6 +469,14 @@ mod tests {
             kind(&FocusedElement {
                 control_type: control_type::SPINNER,
                 ..edit("Count")
+            }),
+            Some(InputType::Number)
+        );
+        // The focused text box of a number box is an edit; the spinner is its parent.
+        assert_eq!(
+            kind(&FocusedElement {
+                in_spinner: true,
+                ..edit("Custom scaling")
             }),
             Some(InputType::Number)
         );

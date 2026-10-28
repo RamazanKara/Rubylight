@@ -408,6 +408,7 @@
     <string name="stream_end_input">End input session</string>
     <string name="launch_confirm_title">Confirm on this device</string>
     <string name="launch_confirm_replace">Quit the running app and start this one?\nConfirm within 60 seconds.</string>
+    <string name="launch_confirm_replace_named">Quit %1$s and start %2$s?\nConfirm within 60 seconds.</string>
     <string name="launch_confirm_terminate">Quit the app?\nMonitor/input clients stay connected.\nConfirm within 60 seconds.</string>
     <string name="launch_confirm">Confirm</string>
     <string name="summary_about">Version %1$s · Based on Moonlight (GPL-3.0)</string>

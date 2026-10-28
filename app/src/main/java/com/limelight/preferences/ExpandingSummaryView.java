@@ -86,11 +86,13 @@ public class ExpandingSummaryView extends AppCompatTextView implements ViewTreeO
     /**
      * Scrolls the grown row above the list's bottom padding. The list's own rectangle request lets it reach into that
      * padding, but a D-pad press only moves the selection when the selected row ends above it: otherwise the press
-     * scrolls instead, and Down took two presses (TV Settings' rail, nightjar#7). The row's top stays in view.
+     * scrolls instead, and Down took two presses (TV Settings' rail, nightjar#7). The row's top stays in view. The last row
+     * has no Down to take and only has to stay on screen: lifting it out of the padding cut the rail's top row in half.
      */
     static void reveal(AbsListView list, View row) {
+        boolean last = list.getPositionForView(row) == list.getCount() - 1;
         // The list's padding here includes its selector's, which the D-pad's check uses.
-        int over = row.getBottom() - (list.getHeight() - list.getListPaddingBottom());
+        int over = row.getBottom() - (list.getHeight() - (last ? 0 : list.getListPaddingBottom()));
         int room = row.getTop() - list.getListPaddingTop();
         if (over > 0 && room > 0) list.scrollListBy(Math.min(over, room));
     }

@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">Le presse-papiers de l’hôte ne contient aucune image</string>
     <string name="stream_clipboard_image_received">Image de l’hôte copiée dans le presse-papiers</string>
     <string name="clipboard_image_too_large">L’image est trop grande pour le presse-papiers de l’hôte</string>
+    <string name="clipboard_image_too_large_here">L’image de l’hôte est trop grande pour être copiée sur cet appareil</string>
     <string name="clipboard_image_not_png">Impossible de lire l’image</string>
     <string name="clipboard_image_no_host">Cet hôte ne peut pas partager d’images du presse-papiers</string>
     <string name="clipboard_image_forbidden">L’hôte n’autorise pas cet appareil à utiliser son presse-papiers</string>

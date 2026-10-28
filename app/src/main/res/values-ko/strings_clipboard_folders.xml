@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">호스트 클립보드에 이미지가 없습니다</string>
     <string name="stream_clipboard_image_received">호스트 이미지를 클립보드에 복사했습니다</string>
     <string name="clipboard_image_too_large">이미지가 호스트 클립보드에 비해 너무 큽니다</string>
+    <string name="clipboard_image_too_large_here">호스트 이미지가 너무 커서 이 기기에 복사할 수 없습니다</string>
     <string name="clipboard_image_not_png">이미지를 읽을 수 없습니다</string>
     <string name="clipboard_image_no_host">이 호스트는 클립보드 이미지를 공유할 수 없습니다</string>
     <string name="clipboard_image_forbidden">호스트가 이 기기의 클립보드 사용을 허용하지 않습니다</string>

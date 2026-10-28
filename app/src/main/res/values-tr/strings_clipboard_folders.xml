@@ -7,6 +7,7 @@
     <string name="stream_clipboard_image_none">Ana bilgisayarın panosunda görüntü yok</string>
     <string name="stream_clipboard_image_received">Ana bilgisayarın görüntüsü panoya kopyalandı</string>
     <string name="clipboard_image_too_large">Görüntü ana bilgisayarın panosu için çok büyük</string>
+    <string name="clipboard_image_too_large_here">Ana bilgisayarın görüntüsü bu cihaza kopyalanamayacak kadar büyük</string>
     <string name="clipboard_image_not_png">Görüntü okunamadı</string>
     <string name="clipboard_image_no_host">Bu ana bilgisayar pano görüntüsü paylaşamıyor</string>
     <string name="clipboard_image_forbidden">Ana bilgisayar bu cihazın panosunu kullanmasına izin vermiyor</string>

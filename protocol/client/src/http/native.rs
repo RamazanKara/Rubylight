@@ -7,6 +7,7 @@
 //! `ErrorCode::Unknown`. A 404 from a path under the prefix that has no error body means the
 //! host has no native API at all (an older Rubylight, Sunshine, Apollo).
 
+use super::coop::{Coop, CoopJoined, JoinRequest};
 use super::native_api::capabilities::Capabilities;
 use super::native_api::error::{ApiError, ErrorBody};
 use super::native_api::library::Library;
@@ -199,6 +200,20 @@ impl HostClient {
     /// the capabilities list `wake`.
     pub fn wake(&self) -> Result<Wake, Error> {
         self.native("wake", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// The Nucleus Co-op sessions this device could join. Only when the capabilities list
+    /// `coop`; without it the host answers 503 `temporarily_unavailable` with the reason.
+    pub fn coop(&self) -> Result<Coop, Error> {
+        self.native("coop", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Takes a free slot in `session`, or this device's own again, and holds it until the
+    /// device launches the answer's `app_id`. [`CoopProblem::of`](super::CoopProblem::of) words a refusal.
+    pub fn join_coop(&self, session: u32) -> Result<CoopJoined, Error> {
+        let body = serde_json::to_vec(&JoinRequest { session })
+            .map_err(|e| Error::InvalidArgument(format!("co-op join: {e}")))?;
+        self.native("coop/join", Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
     }
 
     /// The encode GPU's Radeon settings.

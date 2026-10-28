@@ -101,6 +101,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::PipelineRates => "pipeline_rates",
         Feature::ImageClipboard => "image_clipboard",
         Feature::SharedFolders => "shared_folders",
+        Feature::Coop => "coop",
     }
 }
 

@@ -5,4 +5,5 @@
 //! profile, window choice and placement, the co-op session's state) live in
 //! `butterpollo_core::nucleus`; this module turns them into files, processes,
 //! windows and virtual pads.
+pub mod files;
 pub mod install;

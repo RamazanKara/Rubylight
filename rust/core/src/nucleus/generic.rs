@@ -63,6 +63,9 @@ pub struct Setup {
     /// The anti-cheat the game is known to ship from elsewhere than its
     /// files: Steam's Valve Anti-Cheat flag.
     pub anti_cheat: Option<&'static str>,
+    /// What the game starts with after its .exe: the app's arguments, or
+    /// its Steam launch option's (Portal is `hl2.exe -game portal`).
+    pub arguments: String,
 }
 
 impl Setup {
@@ -83,6 +86,7 @@ impl Setup {
             root,
             steam_app: steam.map(|(app, _)| app),
             anti_cheat: None,
+            arguments: String::new(),
         }
     }
 
@@ -119,7 +123,7 @@ impl Setup {
         } else {
             &self.name
         };
-        let head = [
+        let mut head = vec![
             format!(
                 "{MARKER} v{VERSION}: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place."
             ),
@@ -127,6 +131,10 @@ impl Setup {
             format!("Game.GameName = {};", js(name)),
             format!("Game.ExecutableName = {};", js(file_name(&self.exe_path))),
         ];
+        let arguments = self.arguments.trim();
+        if !arguments.is_empty() {
+            head.push(format!("Game.StartArguments = {};", js(arguments)));
+        }
         let options = [
             "Game.MaxPlayers = 1;",
             "Game.MaxPlayersOneMonitor = 1;",
@@ -559,6 +567,23 @@ mod tests {
                 .skip(1)
                 .all(|l| l.starts_with("Game.") || l.starts_with("//"))
         );
+        assert!(!text.contains("StartArguments"));
+    }
+
+    #[test]
+    fn the_game_starts_with_its_arguments() {
+        // Portal is hl2.exe -game portal: without them it is Half-Life 2.
+        let setup = Setup {
+            arguments: r#" -game portal +map "a b\c" "#.into(),
+            ..Setup::new(r"D:\Steam\steamapps\common\Portal\hl2.exe", "Portal", None)
+        };
+        let text = setup.handler();
+        assert!(
+            text.lines()
+                .any(|l| l == r#"Game.StartArguments = "-game portal +map \"a b\\c\"";"#),
+            "{text}"
+        );
+        assert!(handler::parse(&setup.file(), &text).is_ok());
     }
 
     #[test]

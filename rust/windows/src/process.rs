@@ -2013,6 +2013,18 @@ pub fn command_target(command: &str) -> &str {
         None => command.split(char::is_whitespace).next().unwrap_or(""),
     }
 }
+/// What a command line passes its program: everything after
+/// [`command_target`], trimmed.
+pub fn command_arguments(command: &str) -> &str {
+    let command = command.trim_start();
+    let rest = match command.strip_prefix('"') {
+        Some(rest) => rest.split_once('"').map_or("", |(_, rest)| rest),
+        None => command
+            .split_once(char::is_whitespace)
+            .map_or("", |(_, rest)| rest),
+    };
+    rest.trim()
+}
 /// Whether Windows must open the target through its association: a URL
 /// (`steam://`, `ms-settings:`) or a file that is not a program. cmd.exe
 /// cannot start a URL, so Steam Big Picture and store links failed.
@@ -3042,6 +3054,16 @@ mod tests {
             assert_eq!(shell_command(unchanged), unchanged);
         }
         assert_eq!(command_target("\"C:\\a b\\c.exe\" x"), "C:\\a b\\c.exe");
+    }
+    #[test]
+    fn a_commands_arguments_are_what_follows_its_program() {
+        assert_eq!(
+            command_arguments(r#" "C:\a b\c.exe" -game "x y" "#),
+            r#"-game "x y""#
+        );
+        assert_eq!(command_arguments(r"C:\Ice\Ice.exe  -windowed"), "-windowed");
+        assert_eq!(command_arguments(r"C:\Ice\Ice.exe"), "");
+        assert_eq!(command_arguments(r#""C:\a b\c.exe""#), "");
     }
     #[test]
     fn supervisor_event_is_wait_only_and_outlives_the_source_handle() -> Result<()> {

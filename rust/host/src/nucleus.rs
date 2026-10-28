@@ -248,6 +248,10 @@ impl Pc for OnPc {
                 })?;
             return Ok(Setup {
                 anti_cheat: launch.vac.then_some("Valve Anti-Cheat"),
+                // The launch option's, then any the app adds.
+                arguments: format!("{} {}", launch.arguments, arguments(app))
+                    .trim()
+                    .to_string(),
                 ..Setup::new(
                     &launch.exe.to_string_lossy(),
                     &app.name,
@@ -272,7 +276,10 @@ impl Pc for OnPc {
                 ),
             });
         }
-        Ok(Setup::new(exe, &app.name, None))
+        Ok(Setup {
+            arguments: arguments(app),
+            ..Setup::new(exe, &app.name, None)
+        })
     }
     fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler> {
         if let Some(pid) = self.running()? {
@@ -391,9 +398,9 @@ pub fn configured(config: &Config) -> String {
         .unwrap_or_default()
 }
 
-/// The program an app starts: its command's, else its first detached
-/// command's.
-fn executable(app: &App) -> Option<&str> {
+/// The command line that starts an app's program: its command, else its
+/// first detached command.
+fn command(app: &App) -> Option<&str> {
     let detached = app
         .extra
         .get("detached")
@@ -403,8 +410,21 @@ fn executable(app: &App) -> Option<&str> {
     [Some(app.cmd.as_str()), detached]
         .into_iter()
         .flatten()
-        .map(butterpollo_windows::process::command_target)
-        .find(|target| !target.is_empty())
+        .find(|line| !butterpollo_windows::process::command_target(line).is_empty())
+}
+
+/// The program an app starts: its command's, else its first detached
+/// command's.
+fn executable(app: &App) -> Option<&str> {
+    command(app).map(butterpollo_windows::process::command_target)
+}
+
+/// What an app passes its program, for Rubylight's handler.
+fn arguments(app: &App) -> String {
+    command(app)
+        .map(butterpollo_windows::process::command_arguments)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// The co-op entry's name for the app `name`.
@@ -2002,7 +2022,10 @@ pub(crate) mod fake {
                 return Ok(setup.clone());
             }
             match executable(app).filter(|_| starts_exe(app)) {
-                Some(exe) if Path::new(exe).is_absolute() => Ok(Setup::new(exe, &app.name, None)),
+                Some(exe) if Path::new(exe).is_absolute() => Ok(Setup {
+                    arguments: arguments(app),
+                    ..Setup::new(exe, &app.name, None)
+                }),
                 _ => Err(Refusal::missing(&Missing::NoExecutable {
                     app: app.name.clone(),
                 })),
@@ -2954,6 +2977,8 @@ mod tests {
         assert_eq!(own.len(), 1);
         assert_eq!(own[0].exe_path, r"C:\NoSuchGames\Ice\Ice.exe");
         assert_eq!(own[0].name, "Ice");
+        // The game starts with the app's arguments.
+        assert_eq!(own[0].arguments, "-windowed");
         // One player, our handler's game, listed under the app.
         let listed = registry.sessions();
         assert_eq!(listed[0].session.kind, Kind::Background);

@@ -428,6 +428,8 @@ fn installed(steamapps: &Path, manifest: &Path) -> Option<(u32, Vdf, PathBuf)> {
 pub struct Launch {
     pub exe: PathBuf,
     pub install_dir: PathBuf,
+    /// The launch option's `arguments`, which Steam passes the .exe.
+    pub arguments: String,
     /// Whether the store lists Valve Anti-Cheat for it (`common/category`
     /// `category_8`).
     pub vac: bool,
@@ -451,7 +453,7 @@ pub fn game_executable(appid: u32, roots: &[PathBuf]) -> Result<Launch, String> 
         .ok_or_else(|| {
             format!("Steam's app cache does not list app {appid}: start it once in Steam")
         })?;
-    let relative = launch_executable(&info)
+    let (relative, arguments) = launch_executable(&info)
         .ok_or_else(|| format!("Steam app {appid} has no launch option that starts an .exe"))?;
     let parts: Vec<&str> = relative
         .split(['\\', '/'])
@@ -478,13 +480,14 @@ pub fn game_executable(appid: u32, roots: &[PathBuf]) -> Result<Launch, String> 
     Ok(Launch {
         exe,
         install_dir,
+        arguments,
         vac,
     })
 }
 
 /// The executable of the launch option (`config/launch`) Steam starts on
-/// Windows, relative to the install folder.
-fn launch_executable(info: &Vdf) -> Option<String> {
+/// Windows, relative to the install folder, and its arguments.
+fn launch_executable(info: &Vdf) -> Option<(String, String)> {
     let options = info.at(&["config", "launch"])?.entries();
     options
         .iter()
@@ -507,11 +510,17 @@ fn launch_executable(info: &Vdf) -> Option<String> {
                 && config("betakey").is_empty()
                 && executable.to_ascii_lowercase().ends_with(".exe")
                 && matches!(kind.as_str(), "" | "default" | "none"))
-            .then(|| (config("osarch") == "32", executable.to_string()))
+            .then(|| {
+                let arguments = option.get("arguments").and_then(Vdf::text).unwrap_or("");
+                (
+                    config("osarch") == "32",
+                    (executable.to_string(), arguments.trim().to_string()),
+                )
+            })
         })
         // 64-bit first, then Steam's order.
         .min_by_key(|(only_32, _)| *only_32)
-        .map(|(_, executable)| executable)
+        .map(|(_, launch)| launch)
 }
 fn same_path(a: &Path, b: &Path) -> bool {
     a.to_string_lossy()
@@ -1415,6 +1424,7 @@ mod tests {
             Launch {
                 exe: game.join("bin").join("AC4BFSP.exe"),
                 install_dir: game.clone(),
+                arguments: String::new(),
                 vac: false,
             }
         );
@@ -1422,6 +1432,16 @@ mod tests {
             game_executable(7, &roots).unwrap_err(),
             "Steam app 7 is not installed"
         );
+    }
+    #[test]
+    fn a_steam_launch_options_arguments_come_with_its_exe() {
+        // Portal starts hl2.exe -game portal: without them it is Half-Life 2.
+        let mut launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let end = launch.len() - 1;
+        launch.splice(end..end, text("arguments", " -game portal "));
+        let steam = steam_with_launch_options(&[launch]);
+        let found = game_executable(242050, &[steam.path().to_path_buf()]).unwrap();
+        assert_eq!(found.arguments, "-game portal");
     }
     #[test]
     fn a_steam_game_with_valve_anti_cheat_says_so() {

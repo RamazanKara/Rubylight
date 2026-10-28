@@ -83,6 +83,7 @@ public class HostCapabilitiesContractTest {
             case PIPELINE_RATES: return "pipeline_rates";
             case IMAGE_CLIPBOARD: return "image_clipboard";
             case SHARED_FOLDERS: return "shared_folders";
+            case COOP: return "coop";
             default: return null;
         }
     }

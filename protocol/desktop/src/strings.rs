@@ -204,11 +204,12 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 15] = [
+    const SOURCES: [(&str, &str); 16] = [
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
         ("folders_page.rs", include_str!("folders_page.rs")),
+        ("coop_page.rs", include_str!("coop_page.rs")),
         ("session_ui.rs", include_str!("session_ui.rs")),
         ("session_page.rs", include_str!("session_page.rs")),
         ("main.rs", include_str!("main.rs")),
@@ -546,7 +547,7 @@ pub(crate) mod tests {
         assert!(german.is_empty(), "German text says Experimentell:\n{}", german.join("\n"));
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
         for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui.rs", "Shared folders"),
-            ("ui.rs", "Full chroma"), ("ui.rs", "Client roaming"), ("ui.rs", "USB forwarding")]
+            ("ui.rs", "Full chroma"), ("ui.rs", "Co-op"), ("ui.rs", "Client roaming"), ("ui.rs", "USB forwarding")]
         {
             assert!(shown(file, text), "{file} shows {text:?}");
         }

@@ -15,7 +15,6 @@ use jni::JNIEnv;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
@@ -38,7 +37,6 @@ pub struct Endpoint {
 
 /// The calls of `HostClient` this module makes, so the dispatch is testable without a host.
 pub trait Host {
-    fn capabilities(&self) -> Result<Capabilities, Error>;
     fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error>;
     fn library(&self) -> Result<Library, Error>;
     fn session(&self) -> Result<Session, Error>;
@@ -53,9 +51,6 @@ pub trait Host {
 }
 
 impl Host for HostClient {
-    fn capabilities(&self) -> Result<Capabilities, Error> {
-        self.native_capabilities()
-    }
     fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error> {
         self.native_capabilities_with_files()
     }
@@ -209,16 +204,18 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
     }
 }
 
-/// Runs one operation: `capabilities`, `files.capabilities` (the same with the file, USB and
-/// shared folder permissions), `library`, `session`, `session_action` (argument
-/// `disconnect`, `end` or `close_game`), `couch_menu` (argument: the `CouchMenuRequest` JSON),
-/// `radeon`, `radeon_write` (argument: the `SettingsWrite` JSON), `radeon_restore`, `wake`,
-/// `power.capabilities` and `power.sleep` (argument: the token from `power.capabilities`). Gate
-/// the power ones on `Feature::Sleep`.
+/// Runs one operation: `capabilities` and `files.capabilities` (both with the file, USB and
+/// shared folder permissions: Java's `NativeCapabilities` reads `usb` from either), `library`,
+/// `session`, `session_action` (argument `disconnect`, `end` or `close_game`), `couch_menu`
+/// (argument: the `CouchMenuRequest` JSON), `radeon`, `radeon_write` (argument: the
+/// `SettingsWrite` JSON), `radeon_restore`, `wake`, `power.capabilities` and `power.sleep`
+/// (argument: the token from `power.capabilities`). Gate the power ones on `Feature::Sleep`.
 pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
     match op {
-        "capabilities" => ok(host.capabilities()),
-        "files.capabilities" => capabilities_with_files(host.capabilities_with_files()),
+        // The pinned `Capabilities` drops `permissions.usb`, so the stream menu never offered USB.
+        "capabilities" | "files.capabilities" => {
+            capabilities_with_files(host.capabilities_with_files())
+        }
         "library" => ok(host.library()),
         "session" => ok(host.session()),
         "session_action" => {
@@ -343,6 +340,8 @@ mod tests {
     struct Fake {
         calls: Mutex<Vec<String>>,
         fail: Option<ErrorCode>,
+        /// The host's GET /capabilities body, when not the default one.
+        capabilities: Option<&'static str>,
     }
 
     impl Fake {
@@ -370,18 +369,11 @@ mod tests {
     }
 
     impl Host for Fake {
-        fn capabilities(&self) -> Result<Capabilities, Error> {
-            self.note("capabilities");
-            Ok(serde_json::from_str(
-                r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["library"],"permissions":{"list":true,"view":true,"launch":true,"host_control":false}}"#,
-            )
-            .unwrap())
-        }
         fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error> {
-            self.note("files.capabilities");
-            Ok(serde_json::from_str(
+            self.note("capabilities");
+            Ok(serde_json::from_str(self.capabilities.unwrap_or(
                 r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["files.upload","files.download"],"permissions":{"list":true,"view":true,"launch":true,"host_control":true,"file_upload":true,"file_download":false,"usb":"yes","shared_folders":true}}"#,
-            )
+            ))
             .unwrap())
         }
         fn library(&self) -> Result<Library, Error> {
@@ -473,7 +465,7 @@ mod tests {
         let fake = Fake::default();
         let reply = parse(&execute(&fake, "capabilities", ""));
         assert_eq!(reply["ok"]["api_version"], 1);
-        assert_eq!(reply["ok"]["permissions"]["host_control"], false);
+        assert_eq!(reply["ok"]["permissions"]["host_control"], true);
         let reply = parse(&execute(&fake, "session", ""));
         assert_eq!(reply["ok"]["state"], "suspended");
         assert_eq!(reply["ok"]["actions"][0]["id"], "end");
@@ -492,13 +484,34 @@ mod tests {
         assert_eq!(permissions["shared_folders"], true);
         assert_eq!(permissions["host_control"], true);
         assert_eq!(reply["ok"]["features"][0], "files.upload");
-        assert_eq!(
-            fake.calls.lock().unwrap().last().unwrap(),
-            "files.capabilities"
-        );
-        // The plain capabilities stay as they were.
+        assert_eq!(fake.calls.lock().unwrap().last().unwrap(), "capabilities");
+        // The plain capabilities answer the same.
         let plain = parse(&execute(&fake, "capabilities", ""));
-        assert!(plain["ok"]["permissions"].get("file_upload").is_none());
+        assert_eq!(plain, reply);
+    }
+
+    /// The stream menu's USB row reads `permissions.usb` from the plain `capabilities`: the
+    /// pinned `Capabilities` dropped it, so a host that offered USB never got the row.
+    #[test]
+    fn plain_capabilities_keep_the_usb_permission() {
+        let granted = Fake {
+            capabilities: Some(
+                r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["library","usb"],"permissions":{"list":true,"view":true,"launch":true,"host_control":false,"usb":true}}"#,
+            ),
+            ..Fake::default()
+        };
+        let reply = parse(&execute(&granted, "capabilities", ""));
+        assert_eq!(reply["ok"]["permissions"]["usb"], true);
+        assert_eq!(reply["ok"]["features"][1], "usb");
+        // A host without the permission, or an older one without the field, refuses it.
+        let refused = Fake {
+            capabilities: Some(
+                r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["usb"],"permissions":{"list":true,"view":true,"launch":true,"host_control":false}}"#,
+            ),
+            ..Fake::default()
+        };
+        let reply = parse(&execute(&refused, "capabilities", ""));
+        assert_eq!(reply["ok"]["permissions"]["usb"], false);
     }
 
     #[test]

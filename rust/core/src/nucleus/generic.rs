@@ -169,13 +169,20 @@ fn unreal_root(exe_folder: &str) -> Option<String> {
 }
 
 /// A JavaScript string literal, in the escapes `handler::parse` reads.
+/// Nucleus' ES5 engine (Jint) ends a line at U+2028 and U+2029, even in a
+/// string, so they are escaped.
 fn js(text: &str) -> String {
     let mut out = String::from('"');
     for c in text.chars().filter(|c| !c.is_control()) {
-        if matches!(c, '"' | '\\') {
-            out.push('\\');
+        match c {
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            _ => out.push(c),
         }
-        out.push(c);
     }
     out.push('"');
     out
@@ -430,6 +437,21 @@ mod tests {
         assert!(a.guid().starts_with("Rubylight-puzzle_game-"));
         assert_eq!(a.guid().len(), "Rubylight-puzzle_game-".len() + 8);
         assert!(!a.guid().contains(' '));
+    }
+
+    #[test]
+    fn line_and_paragraph_separators_are_escaped_for_nucleus_es5_engine() {
+        let setup = Setup::new(r"C:\Games\Odd\Odd.exe", "Line\u{2028}Para\u{2029}End", None);
+        let text = setup.handler();
+        assert!(!text.contains('\u{2028}') && !text.contains('\u{2029}'));
+        assert!(
+            text.contains(r#"Game.GameName = "Line\u2028Para\u2029End";"#),
+            "{text}"
+        );
+        assert_eq!(
+            handler::parse(&setup.file(), &text).unwrap().name,
+            "Line\u{2028}Para\u{2029}End"
+        );
     }
 
     #[test]

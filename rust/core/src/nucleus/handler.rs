@@ -58,7 +58,10 @@ const ADMIN_FLAGS: [&str; 16] = [
 const ADMIN_VALUES: [&str; 3] = ["SymlinkFiles", "XInputPlusDll", "FlawlessWidescreen"];
 
 /// Whether `handler` needs Nucleus Co-op to run as administrator: without
-/// it Nucleus would refuse the game or ask for elevation mid-start.
+/// it Nucleus would refuse the game or ask for elevation mid-start. Exact
+/// only for the template Rubylight writes ([`super::generic`]), the only
+/// handler that may ever run without administrator rights: a hub handler
+/// always runs elevated, whatever this says.
 pub fn needs_admin(handler: &Handler) -> bool {
     !handler.admin.is_empty()
 }
@@ -95,6 +98,12 @@ fn unquote(text: &str) -> String {
             match chars.next() {
                 Some('n') => out.push('\n'),
                 Some('t') => out.push('\t'),
+                Some('u') => {
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if let Some(c) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                        out.push(c);
+                    }
+                }
                 Some(other) => out.push(other),
                 None => {}
             }

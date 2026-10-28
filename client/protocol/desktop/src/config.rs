@@ -3,7 +3,7 @@
 //! (`%APPDATA%\Nightjar` on Windows, `~/.config/nightjar` on Linux).
 
 use std::path::{Path, PathBuf};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nightjar_core::http::native_api::library::Library;
 use serde::{Deserialize, Serialize};
@@ -165,7 +165,12 @@ pub struct Settings {
     pub present_at_host_times: bool,
     /// Without VRR: wait for the display's refresh (no tearing).
     pub vsync: bool,
+    /// The performance overlay is on (Android's `checkbox_enable_perf_overlay`), showing
+    /// `overlay_mode` in the `overlay_position` corner. The stream menu and its shortcut change
+    /// these and keep them.
     pub overlay: bool,
+    pub overlay_mode: OverlayMode,
+    pub overlay_position: OverlayCorner,
     pub mouse_mode: MouseMode,
     pub mouse_speed: u32,
     pub mouse_nav_buttons: bool,
@@ -245,6 +250,13 @@ pub struct Settings {
     /// Open on Home (Continue playing, the library across PCs) when a paired PC has the
     /// Rubylight native API. Off starts on the list of PCs. Not a per-PC or per-game override.
     pub console_home: bool,
+    /// A click on a PC that runs a game goes straight back into it instead of opening its
+    /// library (Android's `checkbox_quick_resume`). Not a per-PC or per-game override.
+    pub quick_resume: bool,
+    /// Offer Input-only in a game's menu on PCs whose host has no Input-only mode of its own: a
+    /// small ordinary stream whose video and audio are not shown or played (Android's
+    /// `checkbox_input_only_any_host`). Not a per-PC or per-game override.
+    pub input_only_any_host: bool,
     /// The launcher's size in percent: one of [`UI_ZOOM_STEPS`]. Not a per-PC or per-game override.
     pub ui_zoom: u32,
     /// Brighter text, black surfaces and thicker outlines and focus rings.
@@ -266,6 +278,64 @@ pub fn step_zoom(percent: u32, direction: i32) -> u32 {
     let at = UI_ZOOM_STEPS.iter().position(|s| *s == nearest_zoom(percent)).unwrap_or(1);
     let at = (at as i32 + direction).clamp(0, UI_ZOOM_STEPS.len() as i32 - 1);
     UI_ZOOM_STEPS[at as usize]
+}
+
+/// What the performance overlay shows while it is on, stored as Android's
+/// `performance_overlay_mode` values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayMode {
+    /// Six lines of stream measurements, with the host's CPU and GPU when it offers them.
+    #[serde(alias = "expanded")]
+    Statistics,
+    /// Every measurement and decoder diagnostic, with each GPU's readings in full.
+    #[serde(alias = "advanced")]
+    Debug,
+    /// One line: rendered FPS, network round trip and frame loss behind a health mark. Also
+    /// what an unknown value reads as, as Android's `normalizeMode`; keep it last: serde wants
+    /// the catch-all there.
+    #[default]
+    #[serde(other)]
+    Compact,
+}
+
+impl OverlayMode {
+    pub const ALL: [Self; 3] = [Self::Compact, Self::Statistics, Self::Debug];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Compact => en("Compact"),
+            Self::Statistics => en("Statistics"),
+            Self::Debug => en("Debug"),
+        }
+    }
+}
+
+/// The corner the performance overlay sits in, stored as Android's
+/// `performance_overlay_position` values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayCorner {
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    /// Also what an unknown value reads as; keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    TopLeft,
+}
+
+impl OverlayCorner {
+    pub const ALL: [Self; 4] = [Self::TopLeft, Self::TopRight, Self::BottomLeft, Self::BottomRight];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TopLeft => en("Top left"),
+            Self::TopRight => en("Top right"),
+            Self::BottomLeft => en("Bottom left"),
+            Self::BottomRight => en("Bottom right"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -366,6 +436,8 @@ impl Default for Settings {
             present_at_host_times: false,
             vsync: true,
             overlay: false,
+            overlay_mode: OverlayMode::Compact,
+            overlay_position: OverlayCorner::TopLeft,
             mouse_mode: MouseMode::Capture,
             mouse_speed: 100,
             mouse_nav_buttons: true,
@@ -407,6 +479,8 @@ impl Default for Settings {
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,
             console_home: true,
+            quick_resume: false,
+            input_only_any_host: false,
             ui_zoom: 100,
             high_contrast: false,
             reduce_motion: ReduceMotion::System,
@@ -461,6 +535,9 @@ pub struct HostRecord {
     pub manual: bool,
     pub settings: Option<Overrides>,
     pub app_settings: BTreeMap<String, Overrides>,
+    /// The games whose stream quits them on the PC when the player leaves it, kept as Android's
+    /// `AppQuitOnLeave` does: under `uuid:<uuid>` and `id:<id>`.
+    pub quit_on_leave: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -505,6 +582,22 @@ impl HostRecord {
         for key in keys {
             if settings.is_empty() { self.app_settings.remove(&key); }
             else { self.app_settings.insert(key, settings.clone()); }
+        }
+    }
+
+    /// Whether leaving this game's stream quits it. An ID can be reused for another game on hosts
+    /// with UUIDs, so a known UUID decides alone.
+    pub fn quits_on_leave(&self, uuid: &str, id: i32) -> bool {
+        if !uuid.is_empty() { return self.quit_on_leave.contains(&app_key(uuid, 0)); }
+        id > 0 && self.quit_on_leave.contains(&app_key("", id))
+    }
+
+    pub fn set_quit_on_leave(&mut self, uuid: &str, id: i32, enabled: bool) {
+        let mut keys = Vec::new();
+        if !uuid.is_empty() { keys.push(app_key(uuid, id)); }
+        if id > 0 { keys.push(app_key("", id)); }
+        for key in keys {
+            if enabled { self.quit_on_leave.insert(key); } else { self.quit_on_leave.remove(&key); }
         }
     }
 }
@@ -1430,5 +1523,53 @@ mod tests {
         assert!(own.is_empty());
         assert!(serde_json::from_str::<Overrides>(r#"{"fps":"bad"}"#).is_err());
         assert!(serde_json::from_str::<Overrides>(r#"{"codec":"unknown"}"#).is_err());
+    }
+
+    #[test]
+    fn the_overlay_keeps_androids_values_and_defaults() {
+        let defaults = Settings::default();
+        assert!(!defaults.overlay);
+        assert_eq!((defaults.overlay_mode, defaults.overlay_position), (OverlayMode::Compact, OverlayCorner::TopLeft));
+        let old: Settings = serde_json::from_str(r#"{"overlay":true}"#).unwrap();
+        assert_eq!((old.overlay, old.overlay_mode, old.overlay_position), (true, OverlayMode::Compact, OverlayCorner::TopLeft));
+        let mode = |value: &str| serde_json::from_value::<OverlayMode>(serde_json::json!(value)).unwrap();
+        assert_eq!(["compact", "statistics", "debug"].map(mode), OverlayMode::ALL);
+        // Android's normalizeMode: the old names, and anything else reads as Compact.
+        assert_eq!(["advanced", "expanded", "newer"].map(mode), [OverlayMode::Debug, OverlayMode::Statistics, OverlayMode::Compact]);
+        let corner = |value: &str| serde_json::from_value::<OverlayCorner>(serde_json::json!(value)).unwrap();
+        assert_eq!(["top_left", "top_right", "bottom_left", "bottom_right"].map(corner), OverlayCorner::ALL);
+        assert_eq!(corner("middle"), OverlayCorner::TopLeft);
+        let set = Settings { overlay_mode: OverlayMode::Debug, overlay_position: OverlayCorner::BottomRight, ..Default::default() };
+        let json = serde_json::to_value(&set).unwrap();
+        assert_eq!((&json["overlay_mode"], &json["overlay_position"]), (&serde_json::json!("debug"), &serde_json::json!("bottom_right")));
+    }
+
+    #[test]
+    fn quick_resume_and_input_only_on_any_pc_are_off_by_default_and_in_old_files() {
+        let old: Settings = serde_json::from_str(r#"{"fps":60}"#).unwrap();
+        assert!(!old.quick_resume && !old.input_only_any_host);
+        assert!(!Settings::default().quick_resume && !Settings::default().input_only_any_host);
+        let on: Settings = serde_json::from_str(r#"{"quick_resume":true,"input_only_any_host":true}"#).unwrap();
+        assert!(on.quick_resume && on.input_only_any_host);
+    }
+
+    #[test]
+    fn quit_on_leave_is_kept_per_game_and_a_known_uuid_decides_alone() {
+        let mut record = HostRecord::default();
+        assert!(!record.quits_on_leave("game", 5));
+        record.set_quit_on_leave("game", 5, true);
+        assert_eq!(record.quit_on_leave.iter().map(String::as_str).collect::<Vec<_>>(), ["id:5", "uuid:game"]);
+        assert!(record.quits_on_leave("game", 5) && record.quits_on_leave("game", 9));
+        assert!(record.quits_on_leave("", 5), "a host without UUIDs matches the ID");
+        assert!(!record.quits_on_leave("other", 5), "a reused ID with another UUID does not");
+        record.set_quit_on_leave("", 0, true);
+        assert_eq!(record.quit_on_leave.len(), 2, "no ID and no UUID keeps nothing");
+        assert!(!record.quits_on_leave("", 0));
+        let restored: HostRecord = serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
+        assert_eq!(restored, record);
+        record.set_quit_on_leave("game", 5, false);
+        assert!(record.quit_on_leave.is_empty() && !record.quits_on_leave("", 5));
+        let old: HostRecord = serde_json::from_str(r#"{"name":"PC"}"#).unwrap();
+        assert!(old.quit_on_leave.is_empty());
     }
 }

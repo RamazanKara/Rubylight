@@ -14,6 +14,7 @@ mod microphone;
 mod cursor;
 mod bitrate;
 pub mod doctor;
+pub mod overlay;
 mod recovery;
 mod quality;
 mod touch;
@@ -42,18 +43,19 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nightjar_core::control::{ClientMessage, ControlEvent};
-use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, LaunchRequest, ServerInfo};
+use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
 use nightjar_policy::health::TrialOffer;
+use nightjar_policy::overlay::{HardwareAnswer, HardwarePoll};
 use nightjar_policy::stats::Stats;
 use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PipelineRatesRequest, PIPELINE_RATES_MESSAGE_TYPE, UNKNOWN};
 use rubylight_protocol::present_clock::ClockOffset;
 use sdl3_sys::everything::*;
 
-use crate::config::{self, AudioChannels, CodecPreference, HostRecord, MouseMode, QualityMode, Settings};
+use crate::config::{self, AudioChannels, CodecPreference, HostRecord, MouseMode, OverlayCorner, OverlayMode, QualityMode, Settings};
 use crate::gamepad::{Action, Gamepads};
 use crate::hosts::Waker;
 use crate::strings::{en, tr, trf};
@@ -79,6 +81,8 @@ pub struct LaunchPlan {
     pub info: ServerInfo,
     pub app: App,
     pub resume: bool,
+    /// Input-only on a PC without its own mode: an ordinary small stream, shown and played nowhere.
+    pub small_stream_input_only: bool,
     pub settings: Settings,
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
@@ -754,7 +758,7 @@ fn early_decode(setting: bool) -> bool {
 
 fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     let settings = &plan.settings;
-    let role = plan.app.role(false);
+    let role = plan.app.role(plan.small_stream_input_only);
     let (width, height, fps, bitrate) = stream_mode(settings, plan.display);
     let bitrate = capped_bitrate(bitrate, plan.bitrate_limit_kbps);
     let audio = match settings.audio {
@@ -788,6 +792,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         virtual_display_scale: settings.virtual_display_scale,
         host_display: settings.host_display.into(),
         fec: Some(settings.error_correction.into()),
+        small_stream_input_only: plan.small_stream_input_only,
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -841,11 +846,17 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     } else {
         client.launch(&request, &plan.info)
     };
+    // A host that takes one stream at a time refuses the small stream while another one runs.
+    let refused = |why: String| -> ConnectError {
+        if plan.small_stream_input_only {
+            format!("{why} {}", tr("Input-only on this PC uses a small ordinary stream, and the host refused it. Some hosts allow only one stream at a time: end the other stream or allow more in the host’s settings.")).into()
+        } else { why.into() }
+    };
     let launched = match launched {
         Ok(Some(launched)) => launched,
-        Ok(None) => return Err("The PC declined to start the app.".into()),
+        Ok(None) => return Err(refused("The PC declined to start the app.".into())),
         Err(nightjar_core::http::Error::Status { code, message }) => {
-            return Err(format!("The PC could not start the app ({code}: {message}).").into())
+            return Err(refused(format!("The PC could not start the app ({code}: {message}).")))
         }
         Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}") }),
     };
@@ -1090,9 +1101,38 @@ fn host_lines(w: &Window) -> Vec<(String, String)> {
     lines
 }
 
+/// What the hardware poll makes of the host's answer: a host that does not offer the readings
+/// (not advertised, another schema version, 404, 403 or 409) is not asked again this stream.
+fn hardware_answer(result: &Result<HardwareMetrics, HostApiError>) -> HardwareAnswer {
+    use nightjar_core::http::Error;
+    match result {
+        Ok(m) => HardwareAnswer::Sample { sampled_at_unix_ms: m.sampled_at_unix_ms, interval_ms: m.interval_ms },
+        Err(HostApiError::Unavailable { .. } | HostApiError::UnsupportedVersion) => HardwareAnswer::Unavailable,
+        Err(HostApiError::Host(Error::NotFound(_) | Error::Status { code: 403 | 404 | 409, .. } | Error::Api { status: 403 | 404 | 409, .. })) => HardwareAnswer::Unavailable,
+        Err(_) => HardwareAnswer::Failed,
+    }
+}
+
+/// The overlay's text, all three modes kept up to date so a mode change shows at once.
 #[derive(Default, Clone)]
 pub struct Overlay {
+    /// Debug: every line.
     pub lines: Vec<(String, String)>,
+    pub statistics: Vec<(String, String)>,
+    pub compact: overlay::Compact,
+    /// The host's lowered-bitrate notice, under the Compact line.
+    pub notice: Option<String>,
+}
+
+impl Overlay {
+    /// The lines `mode` shows; Compact has its own line instead.
+    pub fn lines(&self, mode: OverlayMode) -> &[(String, String)] {
+        match mode {
+            OverlayMode::Debug => &self.lines,
+            OverlayMode::Statistics => &self.statistics,
+            OverlayMode::Compact => &[],
+        }
+    }
 }
 
 /// Unwraps 90 kHz RTP timestamps into host microseconds.
@@ -1150,7 +1190,14 @@ pub struct Streaming {
     /// The stream's setup as the last frame showed it, which slice draws need before a frame has.
     race_setup: Option<session::VideoSetup>,
     pub overlay_visible: bool,
+    pub overlay_mode: OverlayMode,
+    pub overlay_corner: OverlayCorner,
+    /// The overlay as last kept in the settings; see `take_overlay_change`.
+    overlay_kept: (bool, OverlayMode, OverlayCorner),
     pub overlay: Overlay,
+    /// When to ask the host for its hardware readings, and the last sample while it may show.
+    hardware_poll: HardwarePoll,
+    hardware: Option<HardwareMetrics>,
     /// What the host last said about holding the bitrate down for the network; `None` while it has not.
     link_notice: Option<LinkNotice>,
     /// The host's latest pipeline frame rates; `None` until it sends them.
@@ -1216,6 +1263,7 @@ pub struct Streaming {
     last_probe: Instant,
     window: Window,
     last_counters: (u64, u64, u64, u64, u64, u64, u64),
+    last_video_bytes: u64,
     host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
@@ -1311,7 +1359,12 @@ impl Streaming {
             race_present: env_flag("NIGHTJAR_BEAM_RACE_PRESENT").unwrap_or(true),
             race_setup: None,
             overlay_visible: settings.overlay,
+            overlay_mode: settings.overlay_mode,
+            overlay_corner: settings.overlay_position,
+            overlay_kept: (settings.overlay, settings.overlay_mode, settings.overlay_position),
             overlay: Overlay::default(),
+            hardware_poll: HardwarePoll::default(),
+            hardware: None,
             link_notice: None,
             pipeline_rates: None,
             exit: None,
@@ -1366,6 +1419,7 @@ impl Streaming {
             last_probe: Instant::now(),
             window: Window::default(),
             last_counters: (0, 0, 0, 0, 0, 0, 0),
+            last_video_bytes: 0,
             host_average: HostAverage::default(),
             last_early: (0, 0),
             last_video: (0, 0),
@@ -1756,6 +1810,17 @@ impl Streaming {
                     if self.adaptive_bitrate || self.quality_mode != QualityMode::Off { self.doctor.trial.clear(); }
                     self.show_toast(toast);
                 }
+                Notice::HardwareMetrics { generation, result } => {
+                    let answer = hardware_answer(&result);
+                    match &result {
+                        Err(error) if answer == HardwareAnswer::Unavailable => eprintln!("nightjar: host hardware readings unavailable: {error}"),
+                        Err(error) => eprintln!("nightjar: host hardware readings failed: {error}"),
+                        Ok(_) => {}
+                    }
+                    if self.hardware_poll.answered(generation, self.started.elapsed().as_millis() as u64, answer) {
+                        self.hardware = result.ok();
+                    }
+                }
                 Notice::Stage(_) | Notice::Reconnecting(_) | Notice::Started => {}
             }
         }
@@ -1960,6 +2025,17 @@ impl Streaming {
                 } else { vec![index as u8, 0, 0, 0] })
             });
             shared.notify(Notice::ServerCommand(result));
+        });
+    }
+
+    /// Asks the host for its hardware readings on a worker; the answer comes back as a notice.
+    fn request_hardware(&self, generation: u32) {
+        let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
+        let capabilities = self.plan.info.capabilities.clone();
+        let shared = self.shared.clone();
+        std::thread::spawn(move || {
+            let result = client.hardware_metrics(&capabilities);
+            shared.notify(Notice::HardwareMetrics { generation, result });
         });
     }
 
@@ -2691,7 +2767,39 @@ impl Streaming {
         if let Some(notice) = &self.link_notice {
             lines.push(("Notice".into(), link_notice_line(notice)));
         }
-        self.overlay = Overlay { lines };
+        let video_bytes = c.video_bytes.load(Ordering::Relaxed);
+        let measures = overlay::Measures {
+            rendered_fps: (w.shown > 0 || received > 0).then(|| (f64::from(w.shown) / secs) as f32),
+            received_fps: (received > 0).then(|| (received as f64 / secs) as f32),
+            video_mbps: (received > 0).then(|| overlay::video_mbps(video_bytes.saturating_sub(self.last_video_bytes), secs)).flatten(),
+            loss_percent: (completed + drops > 0).then_some(loss as f32),
+            network_ms: stats.rtt.map(|(rtt, _)| (rtt.as_secs_f64() * 1000.0) as f32),
+            variance_ms: stats.rtt.map(|(_, var)| (var.as_secs_f64() * 1000.0) as f32),
+            host_ms: (w.host_latency_n > 0).then(|| (avg(w.host_latency as f64, w.host_latency_n) / 10.0) as f32),
+            host_to_network_ms: (w.timing_n > 0).then(|| (avg(w.timing_host_us as f64, w.timing_n) / 1000.0) as f32),
+            decode_ms: (decoded > 0).then_some(decode_ms as f32),
+            render_ms: (w.shown > 0).then(|| (avg(w.render_us as f64, w.shown) / 1000.0) as f32),
+        };
+        self.last_video_bytes = video_bytes;
+        let mut statistics = overlay::statistics(&lines[0].1, &measures);
+        let now_ms = self.started.elapsed().as_millis() as u64;
+        let wanted = self.overlay_visible && self.overlay_mode != OverlayMode::Compact && self.facts.role != AppRole::InputOnly;
+        if let Some(generation) = self.hardware_poll.due(now_ms, wanted) {
+            self.request_hardware(generation);
+        }
+        if !self.hardware_poll.fresh(now_ms) {
+            self.hardware = None;
+        }
+        if let Some(metrics) = &self.hardware {
+            statistics.extend(overlay::hardware(metrics, false));
+            lines.extend(overlay::hardware(metrics, true));
+        }
+        self.overlay = Overlay {
+            lines,
+            statistics,
+            compact: overlay::compact(&measures),
+            notice: self.link_notice.as_ref().map(link_notice_line),
+        };
         let timing = std::mem::take(&mut *lock(&self.shared.decode_window));
         let now_us = session::now_us();
         // The window since the last tick, or since the last requested mode, which reset it.
@@ -2756,9 +2864,26 @@ impl Streaming {
         true
     }
 
+    /// The overlay as the user left it, once it differs from what the settings keep: the stream
+    /// menu and the shortcut change the global setting too, as on Android.
+    pub fn take_overlay_change(&mut self) -> Option<(bool, OverlayMode, OverlayCorner)> {
+        let now = (self.overlay_visible, self.overlay_mode, self.overlay_corner);
+        (now != self.overlay_kept).then(|| { self.overlay_kept = now; now })
+    }
+
     /// Whether the stream has shown its first picture.
     pub fn has_picture(&self) -> bool {
         self.first_frame
+    }
+
+    /// The app this stream started or joined.
+    pub fn app(&self) -> &App {
+        &self.plan.app
+    }
+
+    /// Input-only through a small ordinary stream: video and audio arrive and are discarded.
+    pub fn small_stream_input_only(&self) -> bool {
+        self.plan.small_stream_input_only
     }
 
     pub fn since_start(&self) -> Duration {
@@ -3453,6 +3578,38 @@ mod tests {
         assert!(pipeline_rates_line(&unknown).starts_with("- source, 240.0 captured"));
         crate::strings::set(crate::strings::Lang::De);
         assert_eq!(pipeline_rates_line(&report), "119.9 Quelle, 240.0 erfasst, 120.0 kodiert, 120.0 gesendet, 0.0 wiederholt fps");
+    }
+
+    #[test]
+    fn a_host_without_hardware_readings_is_not_asked_again_but_a_failed_request_is() {
+        use nightjar_core::http::{Availability, Error};
+        let sample = HardwareMetrics::parse(r#"{"version":1,"sampled_at_unix_ms":5,"interval_ms":1000,"cpu":{},"gpus":[]}"#).unwrap();
+        assert_eq!(hardware_answer(&Ok(sample)), HardwareAnswer::Sample { sampled_at_unix_ms: 5, interval_ms: 1000 });
+        let unavailable = [
+            HostApiError::Unavailable { feature: Feature::HardwareMetrics, availability: Availability::Unknown },
+            HostApiError::UnsupportedVersion,
+            HostApiError::Host(Error::NotFound("api/hardware-metrics".into())),
+            HostApiError::Host(Error::Status { code: 403, message: String::new() }),
+            HostApiError::Host(Error::Status { code: 409, message: String::new() }),
+        ];
+        for error in unavailable {
+            assert_eq!(hardware_answer(&Err(error)), HardwareAnswer::Unavailable);
+        }
+        for error in [Error::Status { code: 500, message: String::new() }, Error::Malformed("{".into()), Error::Cancelled] {
+            assert_eq!(hardware_answer(&Err(HostApiError::Host(error))), HardwareAnswer::Failed, "tried again later");
+        }
+    }
+
+    #[test]
+    fn overlay_modes_show_their_own_lines() {
+        let overlay = Overlay {
+            lines: vec![("Decoder".into(), "d3d11va".into())],
+            statistics: vec![("Frames".into(), "60".into())],
+            ..Default::default()
+        };
+        assert_eq!(overlay.lines(OverlayMode::Debug)[0].0, "Decoder");
+        assert_eq!(overlay.lines(OverlayMode::Statistics)[0].0, "Frames");
+        assert!(overlay.lines(OverlayMode::Compact).is_empty(), "Compact draws its one line instead");
     }
 
     #[test]

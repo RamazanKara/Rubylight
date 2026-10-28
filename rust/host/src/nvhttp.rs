@@ -1485,6 +1485,10 @@ fn launch_back_half(
     let role = launch.role;
     let app_id = launch.app_id;
     let id = launch.id.clone();
+    // A stream of Nucleus Co-op's (a co-op or a background launch) streams a
+    // game window of its own: it neither ends the other transport's streams
+    // nor takes the host's session from whoever owns it.
+    let in_nucleus = coop.is_some() || launch.background == Some(true);
     // Stopping streams can still own displays shared with this launch.
     // Read both maps under one lock so a worker moving into teardown
     // cannot disappear from the wait before releasing its resources.
@@ -1492,7 +1496,9 @@ fn launch_back_half(
         let mut sessions = h.sessions.lock().unwrap();
         let mut canceled = sessions.supersede(&launch.client.uuid, role);
         // A Moonlight stream and a WebRTC stream never run together: the newer one ends the older.
-        canceled.extend(sessions.supersede_other_transport(role, launch.transport));
+        if !in_nucleus {
+            canceled.extend(sessions.supersede_other_transport(role, launch.transport));
+        }
         let stopping: Vec<_> = sessions
             .active
             .values()
@@ -1511,8 +1517,8 @@ fn launch_back_half(
     }
     // The state machine follows stream launches; a failure before the
     // reply returns it to what it was.
-    let mut session =
-        (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
+    let mut session = (role == Role::Stream && !in_nucleus)
+        .then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
     let game = match (&coop, launch.background == Some(true)) {
         (Some(coop), _) => Some(crate::nucleus::Game::Coop(coop)),
         // A background stream runs only in Nucleus Co-op: an app it can't
@@ -1810,6 +1816,50 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
             .any(|s| !s.stopping() && s.launch.role != Role::Stream);
     remote_active && game.owner != client
 }
+/// A Nucleus Co-op player's quit (Moonlight's cancel, WebRTC's stop-host-session): its own
+/// streams end, never the other players' or the host's app, and its slot is kept for the grace
+/// period; its private background session ends with it. `None` when `client` streams nothing of
+/// Nucleus's, else the ids of the streams it stopped. The caller holds `launch_transition`.
+fn quit_nucleus_player(h: &Shared, client: &str) -> Option<Vec<String>> {
+    let (canceled, ids, seats) = {
+        let mut sessions = h.sessions.lock().unwrap();
+        let mine = |l: &Launch| l.role == Role::Stream && l.client.uuid == client;
+        let seats: Vec<_> = sessions
+            .pending
+            .values()
+            .chain(sessions.active.values().map(|s| &s.launch))
+            .filter(|l| mine(l))
+            .filter_map(|l| l.nucleus)
+            .collect();
+        if seats.is_empty() {
+            return None;
+        }
+        let ids: Vec<_> = sessions
+            .active
+            .values()
+            .filter(|s| mine(&s.launch))
+            .map(|s| s.launch.id.clone())
+            .collect();
+        (sessions.stop_role(Role::Stream, Some(client)), ids, seats)
+    };
+    drop(canceled);
+    let listed = h.nucleus.sessions();
+    for seat in seats {
+        let background = listed.iter().any(|listed| {
+            listed.session.id == seat.session
+                && listed.session.kind == butterpollo_core::nucleus::coop::Kind::Background
+        });
+        if background {
+            tracing::info!(
+                client,
+                session = seat.session,
+                "a quit ends the device's background stream"
+            );
+            h.nucleus.end(seat.session);
+        }
+    }
+    Some(ids)
+}
 /// What `stop_streams` did.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum StopStreams {
@@ -1824,6 +1874,13 @@ pub(crate) enum StopStreams {
 /// and Remote Input sessions stay, and are not waited for.
 pub(crate) fn stop_streams(h: &Shared, terminate_app: Option<&str>) -> StopStreams {
     let _transition = h.launch_transition.lock().unwrap();
+    if let Some(ids) = terminate_app.and_then(|client| quit_nucleus_player(h, client)) {
+        return if wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10)) {
+            StopStreams::Stopped
+        } else {
+            StopStreams::TimedOut
+        };
+    }
     if terminate_app.is_some_and(|client| terminate_refused(h, client)) {
         return StopStreams::Refused;
     }
@@ -2452,6 +2509,9 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
         Err(e) => return xml(401, &[], Some(e.to_string())),
     };
     let _transition = h.launch_transition.lock().unwrap();
+    if quit_nucleus_player(&h, &client.uuid).is_some() {
+        return xml(200, &[("cancel", "1".into())], None);
+    }
     if remote_game(&h).is_none() {
         return xml(200, &[("cancel", "1".into())], None);
     }

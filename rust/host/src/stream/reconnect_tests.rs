@@ -3329,8 +3329,51 @@ async fn webrtc_co_op_launches_take_seats_and_answer_refusals() -> Result<()> {
     let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
     drop(canceled);
     drop(launch);
-    // The first device's Moonlight launch was ended by the WebRTC launch.
-    assert_eq!(h.h.nucleus.sessions()[0].held, [false, false]);
+    // A co-op player's WebRTC launch leaves the other player's Moonlight launch alone.
+    let other = pending_of(&h, 1).expect("the Moonlight launch stays").id;
+    assert_eq!(h.h.nucleus.sessions()[0].held, [true, false]);
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&other);
+    drop(canceled);
+    h.finish().await
+}
+
+/// A co-op launch never takes the host's session from its owner, and a co-op
+/// player's stock /cancel ends only its own launch: the other player's launch
+/// and the host's app stay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_co_op_player_neither_owns_the_session_nor_cancels_the_others() -> Result<()> {
+    let (h, _pc, id) = coop_harness().await?;
+    let before = h.h.session_snapshot();
+    let generation =
+        h.h.current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .generation
+            .clone();
+    assert!(launch_app(&h, 0, id).await?.contains("status_code=\"200\""));
+    assert!(launch_app(&h, 1, id).await?.contains("status_code=\"200\""));
+    let after = h.h.session_snapshot();
+    assert_eq!((after.state, after.owner), (before.state, before.owner));
+    let response = h.clients[1]
+        .get(format!("https://127.0.0.1:{}/cancel", h.ports.https))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert_eq!(xml(&response, "cancel"), "1", "{response}");
+    assert!(pending_of(&h, 1).is_none());
+    assert!(pending_of(&h, 0).is_some());
+    assert_eq!(h.h.nucleus.sessions()[0].held, [true, false]);
+    assert_eq!(
+        h.h.current_app.lock().unwrap().as_ref().unwrap().generation,
+        generation
+    );
+    let first = pending_of(&h, 0).unwrap().id;
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&first);
+    drop(canceled);
     h.finish().await
 }
 

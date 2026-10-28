@@ -44,6 +44,7 @@ pub trait FileHost {
     fn download(
         &self,
         name: &str,
+        listed: u64,
         sink: &mut dyn Write,
         progress: &mut dyn FnMut(u64, u64),
         stop: &TransferCancel,
@@ -67,11 +68,12 @@ impl FileHost for HostClient {
     fn download(
         &self,
         name: &str,
+        listed: u64,
         sink: &mut dyn Write,
         progress: &mut dyn FnMut(u64, u64),
         stop: &TransferCancel,
     ) -> Result<u64, FileError> {
-        self.download_file(name, sink, progress, stop)
+        self.download_file(name, listed, sink, progress, stop)
     }
 }
 
@@ -289,7 +291,7 @@ pub fn run<H: FileHost>(
                 )
                 .map(FinishedAs::Uploaded),
             Direction::Download => host
-                .download(&start.name, &mut file, &mut report, &start.cancel)
+                .download(&start.name, start.size, &mut file, &mut report, &start.cancel)
                 .and_then(|size| {
                     // What arrived is on disk before the row says done.
                     file.sync_all().map_err(FileError::Local)?;
@@ -646,6 +648,7 @@ mod tests {
         fn download(
             &self,
             _name: &str,
+            _listed: u64,
             sink: &mut dyn Write,
             progress: &mut dyn FnMut(u64, u64),
             stop: &TransferCancel,
@@ -979,11 +982,12 @@ mod tests {
         fn download(
             &self,
             name: &str,
+            listed: u64,
             sink: &mut dyn Write,
             progress: &mut dyn FnMut(u64, u64),
             stop: &TransferCancel,
         ) -> Result<u64, FileError> {
-            (*self).download(name, sink, progress, stop)
+            (*self).download(name, listed, sink, progress, stop)
         }
     }
 }

@@ -1767,6 +1767,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             }
                         });
                     }
+                    let controls = s.menu_controls();
                     if s.facts.runtime_bitrate {
                         if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
                             let mut enabled = s.adaptive_bitrate;
@@ -1774,14 +1775,16 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 s.enable_adaptive_bitrate(enabled);
                             }
                         }
-                        ui.horizontal(|ui| {
-                            ui.add_enabled_ui(!s.adaptive_bitrate && !s.bitrate_busy, |ui| theme::step_value(ui, &mut s.bitrate_kbps, 1..=2_000_000, 1000.0, |d| d.speed(100).suffix(" kbps")));
-                            if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
-                                s.set_bitrate();
-                            }
-                        });
+                        if controls.http_bitrate {
+                            ui.horizontal(|ui| {
+                                ui.add_enabled_ui(!s.adaptive_bitrate && !s.bitrate_busy, |ui| theme::step_value(ui, &mut s.bitrate_kbps, 1..=2_000_000, 1000.0, |d| d.speed(100).suffix(" kbps")));
+                                if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
+                                    s.set_bitrate();
+                                }
+                            });
+                        }
                     }
-                    if let Some(rates) = &mut s.rate_change {
+                    if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
                         let mut apply = false;
                         egui::CollapsingHeader::new(tr("Change bitrate / frame rate")).id_salt("rate-change").show(ui, |ui| {
                             let busy = rates.menu_busy();
@@ -1808,7 +1811,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             });
                         });
                     }
-                    if s.facts.reconfigure {
+                    if controls.size_editor {
                         ui.separator();
                         let mut quality = s.quality_mode;
                         egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
@@ -1822,12 +1825,16 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
                                 ui.label("×");
                                 theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
-                                let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
-                                if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
-                                    s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
+                                // With 0x553C the rate is set above and the size keeps the current one.
+                                if controls.size_editor_fps {
+                                    let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
+                                    if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
+                                        s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
+                                    }
                                 }
                             });
-                            if ui.button(tr("Apply stream size and rate")).clicked() { s.set_mode(s.requested_mode); }
+                            let apply = if controls.size_editor_fps { tr("Apply stream size and rate") } else { tr("Apply stream size") };
+                            if ui.button(apply).clicked() { s.set_mode(s.requested_mode); }
                         });
                     }
                     if s.controller_audio_available() {

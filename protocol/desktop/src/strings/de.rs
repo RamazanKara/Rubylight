@@ -523,6 +523,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Copy PC image here (Experimental)", "PC-Bild hierher kopieren (Experimentell)"),
     ("Apply bitrate", "Bitrate anwenden"),
     ("Apply stream size and rate", "Streamgröße und -rate anwenden"),
+    ("Apply stream size", "Streamgröße anwenden"),
     ("DualSense USB audio and waveform haptics", "DualSense-USB-Audio und Wellenform-Haptik"),
     ("Automatic headset detection", "Automatische Headset-Erkennung"),
     ("Headset", "Headset"),

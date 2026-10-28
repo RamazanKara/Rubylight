@@ -130,9 +130,10 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeOpenAudio(JNIEnv* en
     int burst = output->AAudioStream_getFramesPerBurst(output->stream);
     int capacity = output->AAudioStream_getBufferCapacityInFrames(output->stream);
     if (burst <= 0 || burst > rate / 10 || capacity < burst) goto failed;
-    // A power-of-two ring also preserves the index when the 32-bit counters wrap.
+    // A power-of-two ring also preserves the index when the 32-bit counters wrap. It holds 250 ms,
+    // above the 200 ms the jitter reserve may grow to (AudioBufferPolicy.MAX_RESERVE_MS).
     uint32_t ringCapacity = 1;
-    while (ringCapacity < (uint32_t)burst * 16) ringCapacity *= 2;
+    while (ringCapacity < (uint32_t)burst * 16 || ringCapacity < (uint32_t)rate / 4) ringCapacity *= 2;
     output->queue.samples = calloc(ringCapacity * 2, sizeof(int16_t));
     if (!output->queue.samples) goto failed;
     int target = output->AAudioStream_setBufferSizeInFrames(output->stream, burst * 2);
@@ -181,20 +182,37 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(JNIEnv* e
             (jint)atomic_load(&output->queue.targetFrames),
             (xruns < 0 ? 0 : xruns) + underruns,
             output->AAudioStream_getBufferSizeInFrames(output->stream), xruns, underruns,
-            output->AAudioStream_getDeviceId(output->stream)};
-    jintArray result = (*env)->NewIntArray(env, 8);
-    if (result) (*env)->SetIntArrayRegion(env, result, 0, 8, stats);
+            output->AAudioStream_getDeviceId(output->stream),
+            output->AAudioStream_getBufferCapacityInFrames(output->stream)};
+    jintArray result = (*env)->NewIntArray(env, 9);
+    if (result) (*env)->SetIntArrayRegion(env, result, 0, 9, stats);
     return result;
 }
 
+// The device buffer, sized for hardware xruns only: the callback keeps it full, with silence if it must,
+// so a larger one adds latency without covering a network stall.
 JNIEXPORT jint JNICALL
 Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioBuffer(JNIEnv* env, jclass clazz, jlong handle, jint frames) {
     AudioOutput* output = (AudioOutput*)(intptr_t)handle;
-    output->AAudioStream_setBufferSizeInFrames(output->stream, frames);
-    // Hardware capacity bounds the device queue, not the reserve for network jitter.
+    int32_t granted = output->AAudioStream_setBufferSizeInFrames(output->stream, frames);
+    return granted > 0 ? granted : output->AAudioStream_getBufferSizeInFrames(output->stream);
+}
+
+// The jitter reserve in the ring, sized for its own starvation. Hardware capacity does not bound it.
+JNIEXPORT jint JNICALL
+Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserve(JNIEnv* env, jclass clazz, jlong handle, jint frames) {
+    AudioOutput* output = (AudioOutput*)(intptr_t)handle;
+    if (frames <= 0) return (jint)atomic_load(&output->queue.targetFrames);
     uint32_t target = (uint32_t)frames < output->queue.capacity ? (uint32_t)frames : output->queue.capacity;
     atomic_store(&output->queue.targetFrames, target);
     return (jint)target;
+}
+
+// Frames in the ring that the callback has not taken yet; the decode thread's per-packet drop check.
+JNIEXPORT jint JNICALL
+Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioQueued(JNIEnv* env, jclass clazz, jlong handle) {
+    AudioOutput* output = (AudioOutput*)(intptr_t)handle;
+    return (jint)(atomic_load(&output->queue.writtenFrames) - atomic_load(&output->queue.readFrames));
 }
 
 JNIEXPORT void JNICALL

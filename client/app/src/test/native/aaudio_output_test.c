@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 static int hardwareFrames = 384;
-static jint stats[8];
+static jint stats[9];
 
 static int32_t burst(AAudioStream* stream) { (void)stream; return 192; }
 static int32_t capacity(AAudioStream* stream) { (void)stream; return 384; }
@@ -17,7 +17,7 @@ static int32_t setSize(AAudioStream* stream, int32_t frames) {
 }
 static jintArray newStats(JNIEnv* env, jsize length) {
     (void)env;
-    assert(length <= 8);
+    assert(length <= 9);
     return stats;
 }
 static void copyStats(JNIEnv* env, jintArray array, jsize start, jsize length, const jint* values) {
@@ -46,11 +46,29 @@ int main(void) {
     Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(&env, NULL, handle);
     assert(stats[1] == 4096);
     assert(stats[7] == 42);
-    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioBuffer(NULL, NULL, handle, 768) == 768);
+    assert(stats[8] == 384);
+    // The device buffer and the jitter reserve are sized apart: a larger device buffer only adds latency.
+    hardwareFrames = 192;
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioBuffer(NULL, NULL, handle, 768) == 384);
+    assert(hardwareFrames == 384);
+    assert(atomic_load(&output.queue.targetFrames) == 384);
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserve(NULL, NULL, handle, 768) == 768);
     assert(hardwareFrames == 384);
     assert(atomic_load(&output.queue.targetFrames) == 768);
+    // The ring bounds the reserve, and a refused size keeps the current one.
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserve(NULL, NULL, handle, 9000) == 4096);
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserve(NULL, NULL, handle, 0) == 4096);
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserve(NULL, NULL, handle, 768) == 768);
     Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(&env, NULL, handle);
     assert(stats[2] == 768);
+    assert(stats[4] == 384);
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioQueued(NULL, NULL, handle) == 0);
+    assert(audioQueueWrite(&output.queue, input, 500) == 500);
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioQueued(NULL, NULL, handle) == 500);
+    audioQueueRead(&output.queue, pcm, 192);
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioQueued(NULL, NULL, handle) == 500);
+    audioQueueRead(&output.queue, pcm, 192);
+    audioQueueInit(&output.queue, ring, 4096, 768);
 
     uint32_t offered = 0, written = 0, played = 0;
     bool started = false;

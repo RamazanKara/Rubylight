@@ -34,7 +34,16 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     private AudioTrack track;
     private long nativeAudio;
+    // The AudioTrack buffer, or the AAudio device buffer (hardware xruns; its starvation means fallback).
     private AudioBufferPolicy bufferPolicy;
+    // AAudio only: the jitter reserve in the ring ahead of the stream (network starvation, never fallback).
+    private AudioBufferPolicy reservePolicy;
+    // What the output holds at most for jitter, in frames: the ring's reserve or the track's buffer.
+    private int reserveFrames;
+    // Samples the current AudioTrack accepted; its playback head gives what it still holds.
+    private long trackSamplesWritten;
+    private boolean reserveStarvationShown;
+    private int largestReserveFrames;
     private long lastBufferCheckMs;
     private int channelConfig, sampleRate, samplesPerFrame, channels;
     private boolean stopped;
@@ -67,6 +76,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
     private static native int[] nativeAudioStats(long handle);
     private static native int nativeAudioBuffer(long handle, int frames);
+    private static native int nativeAudioReserve(long handle, int frames);
+    private static native int nativeAudioQueued(long handle);
     private static native void nativeCloseAudio(long handle);
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
@@ -124,6 +135,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
         this.channels = audioConfiguration.channelCount;
         stopped = false;
         lastBufferCheckMs = 0;
+        reserveStarvationShown = false;
+        largestReserveFrames = 0;
         nativeRate = nativeOutputRate();
 
         switch (audioConfiguration.channelCount)
@@ -154,8 +167,12 @@ public class AndroidAudioRenderer implements AudioRenderer {
             nativeAudio = nativeOpenAudio(sampleRate);
             if (nativeAudio != 0) {
                 int[] stats = nativeAudioStats(nativeAudio);
-                bufferPolicy = new AudioBufferPolicy(stats[0], stats[1], stats[2], stats[3], SystemClock.uptimeMillis());
-                LimeLog.info("Audio output: AAudio low latency");
+                long now = SystemClock.uptimeMillis();
+                bufferPolicy = new AudioBufferPolicy(stats[0], stats[8], stats[4], stats[5], now);
+                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], stats[2], stats[6], now, sampleRate);
+                setReserve(stats[2]);
+                LimeLog.info("Audio output: AAudio low latency, burst " + stats[0] + ", reserve " + stats[2] +
+                        " frames (limit " + reservePolicy.limit() + "), device buffer " + stats[4] + " of " + stats[8]);
                 refreshRoute(stats[7]);
                 reportNativeAudio(stats);
                 return 0;
@@ -172,6 +189,9 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     private int buildAudioTrack() {
         bufferPolicy = null;
+        reservePolicy = null;
+        reserveFrames = 0;
+        trackSamplesWritten = 0;
         lastBufferCheckMs = 0;
         int bytesPerFrame = channels * samplesPerFrame * 2;
 
@@ -246,24 +266,29 @@ public class AndroidAudioRenderer implements AudioRenderer {
                         Math.max(bufferSize, AudioBufferPolicy.trackCapacityFrames(samplesPerFrame, minBufferFrames,
                                 outputBurst) * channels * 2) : bufferSize;
                 track = createAudioTrack(channelConfig, sampleRate, capacityBytes, lowLatency);
+                setReserve(capacityBytes / (channels * 2));
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     // The framework may refuse the fast path. Such a track runs on the normal mixer, whose
                     // period is far above two packets, so the buffer must not go below its own minimum.
                     trackPerfMode = trackPerformanceMode();
                     floorFrames = AudioBufferPolicy.trackFloorFrames(Build.VERSION.SDK_INT, trackPerfMode, lowLatency,
-                            samplesPerFrame, minBufferFrames);
+                            samplesPerFrame, minBufferFrames, outputBurst);
                     boolean fast = AudioBufferPolicy.trackIsFast(Build.VERSION.SDK_INT, trackPerfMode, lowLatency);
                     int actual = track.setBufferSizeInFrames(Math.max(bufferSize / (channels * 2), floorFrames));
+                    int granted = actual > 0 ? actual : track.getBufferSizeInFrames();
                     bufferPolicy = AudioBufferPolicy.forTrack(
                             AudioBufferPolicy.trackStepFrames(fast, samplesPerFrame, outputBurst),
                             track.getBufferCapacityInFrames(), floorFrames,
-                            actual > 0 ? actual : track.getBufferSizeInFrames(), track.getUnderrunCount(), SystemClock.uptimeMillis());
+                            granted, track.getUnderrunCount(), SystemClock.uptimeMillis(),
+                            AudioBufferPolicy.maxReserveFrames(sampleRate));
+                    setReserve(granted);
                 }
                 track.play();
                 refreshRoute(-1);
 
                 // Successfully created working AudioTrack. We're done here.
-                LimeLog.info("Audio track configuration: "+bufferSize+" "+lowLatency);
+                LimeLog.info("Audio track configuration: "+bufferSize+" "+lowLatency+", buffer "+reserveFrames+
+                        " frames (limit "+(bufferPolicy != null ? bufferPolicy.limit() : reserveFrames)+")"+pathDetails());
                 ProblemReport.setAudioDiagnostics("AudioTrack: rate=" + sampleRate + ", channels=" + channels +
                         ", packetFrames=" + samplesPerFrame + ", bufferBytes=" + bufferSize + ", lowLatency=" + lowLatency +
                         pathDetails() + outputDetails());
@@ -315,11 +340,13 @@ public class AndroidAudioRenderer implements AudioRenderer {
             }
             if (headphoneSink.write(sound, count, streamVolume)) return;
         }
-        // Only queue up to 40 ms of pending audio data in addition to what AudioTrack is buffering for us.
+        // Only queue up to 40 ms of audio beyond the output's reserve. The output's own level counts: after a
+        // network stall drained it, the burst that follows refills it instead of being dropped.
         int pendingMs = pendingAudioMs();
-        if (pendingMs < 40) {
+        int queuedFrames = outputQueuedFrames();
+        if (!AudioBufferPolicy.dropLate(pendingMs, queuedFrames, reserveFrames, sampleRate)) {
             if (nativeAudio != 0 && bufferPolicy.needsFallback() &&
-                    !fallbackToAudioTrack("AAudio keeps underrunning at its maximum reserve")) {
+                    !fallbackToAudioTrack("AAudio hardware keeps underrunning at its largest device buffer")) {
                 droppedWrites++;
                 return;
             }
@@ -347,8 +374,48 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
         else {
             lateDropped++;
-            LimeLog.info("Too much pending audio data: " + pendingMs + " ms");
+            LimeLog.info("Too much pending audio data: " + pendingMs + " ms, output " +
+                    framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms");
             reportDrops();
+        }
+    }
+
+    private int framesToMs(int frames) {
+        return sampleRate > 0 ? (int)(frames * 1000L / sampleRate) : 0;
+    }
+
+    // One line per stream for comparing outputs: what was dropped, what starved, how large the reserve got.
+    private void logSummary() {
+        String output;
+        if (nativeAudio != 0) {
+            int[] stats = nativeAudioStats(nativeAudio);
+            output = "AAudio, underruns " + stats[6] + ", xruns " + stats[5] + ", device buffer " + stats[4];
+        } else if (track != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            output = "AudioTrack, underruns " + track.getUnderrunCount();
+        } else if (track != null) {
+            output = "AudioTrack";
+        } else {
+            return;
+        }
+        LimeLog.info("Audio summary: " + output + ", reserve " + framesToMs(reserveFrames) + " ms (largest " +
+                framesToMs(largestReserveFrames) + " ms), " + AudioDiagnostics.drops(lateDropped, droppedWrites));
+    }
+
+    private void setReserve(int frames) {
+        reserveFrames = Math.max(0, frames);
+        largestReserveFrames = Math.max(largestReserveFrames, reserveFrames);
+    }
+
+    /** Frames the output holds that are not played yet: the AAudio ring, or the track past its playback head. */
+    int outputQueuedFrames() {
+        if (nativeAudio != 0) return nativeAudioQueued(nativeAudio);
+        AudioTrack current = track;
+        if (current == null || channels <= 0) return 0;
+        try {
+            // Both counters wrap at 32 bits alike; the difference stays right.
+            return Math.max(0, (int)(trackSamplesWritten / channels) - current.getPlaybackHeadPosition());
+        } catch (RuntimeException e) {
+            return 0;
         }
     }
 
@@ -516,6 +583,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
             int written = writeAudioTrack(audioData, offset, length - offset);
             if (written > 0 && written <= length - offset) {
                 offset += written;
+                trackSamplesWritten += written;
             }
             else if ((written == AudioTrack.ERROR_DEAD_OBJECT || failedWrites + 1 >= FAILED_WRITES_BEFORE_RECREATE) &&
                     !recreated && uptimeMillis() >= nextTrackRecreateAt) {
@@ -552,16 +620,37 @@ public class AndroidAudioRenderer implements AudioRenderer {
         lastBufferCheckMs = now;
         if (nativeAudio != 0) {
             int[] stats = nativeAudioStats(nativeAudio);
-            int target = bufferPolicy.sample(stats[3], now);
-            if (target != stats[2]) {
-                bufferPolicy.applied(nativeAudioBuffer(nativeAudio, target));
+            // Starvation of the ring is the network's or the decoder's: only the reserve grows. Device
+            // xruns grow only the device buffer, the callback keeps that one full of whatever it has.
+            int reserve = reservePolicy.sample(stats[6], now);
+            int device = bufferPolicy.sample(stats[5], now);
+            if (reserve != stats[2] || device != stats[4]) {
+                if (reserve != stats[2]) {
+                    int applied = nativeAudioReserve(nativeAudio, reserve);
+                    reservePolicy.applied(applied);
+                    setReserve(applied);
+                }
+                if (device != stats[4]) bufferPolicy.applied(nativeAudioBuffer(nativeAudio, device));
                 stats = nativeAudioStats(nativeAudio);
+                LimeLog.info("AAudio reserve " + stats[2] + " frames, device buffer " + stats[4] + ", underruns " +
+                        stats[6] + ", xruns " + stats[5]);
+            }
+            if (reservePolicy.needsFallback() && !reserveStarvationShown) {
+                // Loud, but no switch: AudioTrack would starve on the same late audio.
+                reserveStarvationShown = true;
+                LimeLog.warning("AAudio reserve starves at its " + framesToMs(reservePolicy.limit()) +
+                        " ms limit: audio arrives too late from the network");
             }
             reportNativeAudio(stats);
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             int underruns = track.getUnderrunCount();
             int target = bufferPolicy.sample(underruns, now);
-            if (target != track.getBufferSizeInFrames()) bufferPolicy.applied(track.setBufferSizeInFrames(target));
+            if (target != track.getBufferSizeInFrames()) {
+                int applied = track.setBufferSizeInFrames(target);
+                bufferPolicy.applied(applied);
+                setReserve(applied > 0 ? applied : track.getBufferSizeInFrames());
+                LimeLog.info("AudioTrack buffer " + reserveFrames + " frames, underruns " + underruns);
+            }
             reportAudioTrack(underruns);
         }
     }
@@ -737,10 +826,13 @@ public class AndroidAudioRenderer implements AudioRenderer {
     @Override
     public synchronized void cleanup() {
         stopped = true;
+        logSummary();
         if (nativeAudio != 0) {
             nativeCloseAudio(nativeAudio);
             nativeAudio = 0;
         }
+        reservePolicy = null;
+        reserveFrames = 0;
         releaseAudioTrack();
         releaseEncodedTrack();
     }

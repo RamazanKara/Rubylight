@@ -86,10 +86,14 @@ public class AndroidAudioRendererTest {
             return now;
         }
 
-        private int pendingMs;
+        private int pendingMs, queuedFrames;
 
         @Override int pendingAudioMs() {
             return pendingMs;
+        }
+
+        @Override int outputQueuedFrames() {
+            return queuedFrames;
         }
 
         void play() {
@@ -112,9 +116,52 @@ public class AndroidAudioRendererTest {
         ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
         ReflectionHelpers.setField(renderer, "bufferPolicy", policy);
         renderer.play();
-        assertEquals("AAudio keeps underrunning at its maximum reserve", renderer.fallbackReason);
+        assertEquals("AAudio hardware keeps underrunning at its largest device buffer", renderer.fallbackReason);
         assertEquals(List.of(0), renderer.offsets);
         assertEquals(List.of(6), renderer.lengths);
+    }
+
+    // TCL C6K TV on Wi-Fi: a 130 ms stall drained the 162 ms reserve to 30 ms, then the stalled audio came at once.
+    private static ScriptedRenderer afterAStall(int... results) {
+        ScriptedRenderer renderer = new ScriptedRenderer(results);
+        ReflectionHelpers.setField(renderer, "sampleRate", 48000);
+        ReflectionHelpers.setField(renderer, "channels", 2);
+        ReflectionHelpers.setField(renderer, "reserveFrames", 9 * 864);
+        renderer.queuedFrames = 1440;
+        renderer.pendingMs = 130;
+        return renderer;
+    }
+
+    @Test public void theBurstAfterANetworkStallPlaysInsteadOfBeingDropped() {
+        ScriptedRenderer renderer = afterAStall(6);
+        renderer.play();
+        assertEquals("written to the drained track", 1, renderer.nextResult);
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+
+        // Audio beyond the reserve and 40 ms is still late.
+        renderer = afterAStall();
+        renderer.pendingMs = 175;
+        renderer.play();
+        assertEquals(0, renderer.nextResult);
+        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+    }
+
+    @Test public void aaudioReserveStarvationDoesNotSwitchToAudioTrack() {
+        ScriptedRenderer renderer = afterAStall();
+        AudioBufferPolicy starved = AudioBufferPolicy.forReserve(192, 384, 384, 0, 0, 0);
+        for (int i = 1; i <= 4; i++) starved.sample(i, i * 1000L);
+        assertTrue(starved.needsFallback());
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
+        ReflectionHelpers.setField(renderer, "reservePolicy", starved);
+        ReflectionHelpers.setField(renderer, "lastBufferCheckMs", Long.MAX_VALUE);
+        renderer.play();
+        // Late network audio would starve AudioTrack the same way: AAudio keeps it.
+        assertNull(renderer.fallbackReason);
+        assertEquals(0, renderer.nextResult);
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
     }
 
     @Test public void deadTrackIsRecreatedWithoutReplayingAcceptedSamples() {
@@ -468,7 +515,8 @@ public class AndroidAudioRendererTest {
 
         // The next periodic report finds the track routed.
         renderer.routedType = AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
-        renderer.pendingMs = 45;
+        // Late beyond the track's buffer too.
+        renderer.pendingMs = 1000;
         renderer.playDecodedAudio(new short[6], 6);
         assertTrue(audioReport(), audioReport().contains("route=bluetooth-a2dp"));
         assertTrue(audioReport(), audioReport().contains("lateDropped=1"));

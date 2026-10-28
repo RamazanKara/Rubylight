@@ -1,15 +1,25 @@
-Streame deinen PC mit geringer Latenz. Nightjar funktioniert mit Sunshine, Apollo, Vibepollo, Rubylight, GeForce Experience und anderen Moonlight-kompatiblen Hosts.
+Streame deine PC-Spiele und deinen Desktop auf dein Android-Smartphone, deinen Handheld, dein Tablet oder deinen Fernseher. Nightjar funktioniert mit Sunshine, Apollo, Vibepollo, Rubylight, GeForce Experience und anderen Moonlight-kompatiblen Hosts.
 
-Nutze deinen Desktop und deine Apps auf deinem Android-Smartphone, Tablet oder Fernseher. Kopple deinen PC, öffne deine Bibliothek und starte einen Stream. Steuere alles per Touch, Controller oder mit Tastatur und Maus.
+Deine Bibliothek
+Start bringt Favoriten, Weiterspielen und die Spiele aller PCs zusammen, mit Covern, die auf deinem Gerät bleiben. Auf dem Fernseher bekommt jeder Store eine eigene Reihe: Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net und Xbox. Jedes Spiel hat eine eigene Seite mit dem PC und genau den Stream-Einstellungen, die es nutzt. Wähle das Spiel eines schlafenden PCs, und Nightjar weckt den PC und startet es. Läuft schon ein anderes Spiel, fragt Nightjar vorher und nennt beide.
 
-Mit der Voreinstellung „Nativ“ streamst du in Auflösung und Bildrate deines Bildschirms. „Akku sparen“ behält die Auflösung bei, begrenzt auf 30 FPS, und schont so den Akku. Speichere eigene Einstellungen für jeden PC.
+Das Bild
+Hardware-Dekodierung von H.264, HEVC und AV1, auf geringe Latenz abgestimmt für Snapdragon-, MediaTek-, Tegra-, Exynos-, Google-Tensor- und Amlogic-Decoder. HDR10, HDR10+, HLG und Dolby Vision, wo dein Bildschirm sie zeigt, 10-Bit-SDR und volle Farbauflösung 4:4:4. Upscaling mit FSR oder Snapdragon GSR, adaptive Bildrate, die dem Spiel folgt, Bild-im-Bild und Streams im Hochformat. Auf einem Retroid Pocket 6 war das Bild im Median 7 ms, nachdem der PC es aufgenommen hatte, auf dem Bildschirm (HEVC 1080p60, unsere Messung vom 23.10.2026).
 
-Schalte die Leistungsanzeige ein: Eine Zeile zeigt Bildrate, Umlaufzeit und Bildverlust; ein Punkt daneben wird gelb oder rot, wenn der Stream hakt. Ausführliche Messwerte liefert die Ansicht „Statistik“. Im Stream-Menü findest du während des Spielens die Bereiche Eingabe, Anzeige, Qualität und Host mit Touch- und Mausmodus, Bildschirmtasten, Bild-im-Bild, Bitrate und Host-Befehlen.
+Steuerung
+Bis zu 16 Controller mit Belegung pro Modell, DualSense per USB mit adaptiven Triggern, Lightbar und Haptik sowie eingebaute USB-Treiber für Xbox- und Switch-Pro-Controller. Touch als Trackpad, direkte Maus oder Multitouch, Bildschirmsteuerung im Stil Klassisch oder Modern, Touch-Layouts pro Spiel, eine vollständige PC-Tastatur mit F-Tasten und Tastenkürzeln, Stift, Maus und Tastatur. Schicke dein Mikrofon an den PC, mit Echounterdrückung und Rauschunterdrückung.
 
-Die integrierte Hilfe erklärt, wie du deinen PC verbindest und koppelst, die Steuerung nutzt und häufige Probleme löst.
+Stream-Qualität
+Die automatische Bitrate folgt Verlusten und den Reserven deines Decoders, die automatische Qualität passt Auflösung und Bildrate an, unterbrochene Streams kommen von selbst zurück, und kurze Netzaussetzer werden überbrückt. Voreinstellungen starten dich in Auflösung und Bildrate deines Bildschirms oder schonen den Akku. Einstellungen pro PC, pro Spiel und pro Netzwerk.
 
-Extras wie der PyroWave-Codec, PC-Displaymodi und Leistungswerte des Hosts funktionieren mit Hosts, die sie unterstützen (derzeit Rubylight).
+Mit einem Rubylight-PC
+Koppeln per QR-Code. Teile die Zwischenablage, sende und lade Dateien, durchsuche freigegebene Ordner und gib ein USB-Gerät wie ein Grafiktablett an den PC weiter. Nimm einen freien Platz in einem Splitscreen-Spiel mit Nucleus Co-op ein. Ändere Bitrate und Bildrate im Stream, wähle die Fehlerkorrektur, gib PCM- oder Dolby-Ton an deinen Receiver weiter, nutze den PyroWave-Codec und ein eigenes Display auf dem PC und sieh CPU- und GPU-Werte des PCs im Overlay.
 
-Nightjar ist kostenlos und quelloffen. Ohne Werbung und In-App-Käufe.
+Sieh, was passiert
+Die Leistungsanzeige zeigt Bildrate, Umlaufzeit und Bildverlust in einer Zeile oder ausführlich in den Ansichten Statistik und Debug. Der Stream-Zustand nennt die wahrscheinliche Ursache eines Rucklers und kann eine umkehrbare Änderung testen. Dazu ein Verbindungstest, eine Messung der Eingabelatenz und Fehlerberichte, die auf deinem Gerät bleiben, bis du sie teilst.
+
+Gemacht für Fernbedienung und Controller genauso wie für Touch, in 15 Sprachen, mit hohem Kontrast, weniger Bewegung und einer Hilfe, die offline funktioniert. Nightjar läuft auch unter Windows und Linux; du bekommst es in den Releases des Projekts.
+
+Nightjar ist kostenlos und quelloffen. Ohne Werbung, ohne Konto und ohne In-App-Käufe.
 
 Lizenziert unter GPL-3.0. Basiert auf Moonlight, mit Dank an alle Mitwirkenden.

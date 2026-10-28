@@ -15,4 +15,7 @@
     <string name="stream_hdr_output_not_pq">HDR увімкнено, але декодер цього пристрою повідомляє вивід без HDR, тому кольори можуть виглядати блідими.</string>
     <string name="stream_hdr_hlg_needs_direct_output">Цей екран показує HDR лише як HLG, а «Рендеринг через Vulkan» не може його намалювати, тому потік іде в SDR.</string>
     <string name="stream_hdr_pq_on_hlg_screen">Цей екран показує HDR лише як HLG, але ПК надсилає HDR10, тому яскравість і кольори можуть виглядати неправильно.</string>
+    <string name="stream_hdr_vulkan_shown_as_sdr">%1$s показується як SDR: екран відхилив HDR від «Рендерингу через Vulkan».</string>
+    <string name="stream_hdr_vulkan_no_dolby_vision">Для Dolby Vision потрібно вимкнути «Рендеринг через Vulkan», тому потік іде в HDR10.</string>
+    <string name="stream_hdr_vulkan_no_hdr10_plus">Для HDR10+ потрібно вимкнути «Рендеринг через Vulkan», тому потік іде в HDR10 без HDR10+.</string>
 </resources>

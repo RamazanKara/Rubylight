@@ -80,6 +80,19 @@ public class GameExpectedVideoTest {
         assertEquals(R.string.stream_hdr_pq_on_hlg_screen, Game.hdrStatusText(HdrPolicy.Status.PQ_ON_HLG_SCREEN));
     }
 
+    @Test public void theVulkanRendererNamesHdrItShowsAsSdrAndWhatItLeavesOut() {
+        Game game = game();
+        assertEquals(R.string.stream_hdr_vulkan_shown_as_sdr, Game.hdrStatusText(HdrPolicy.Status.SHOWN_AS_SDR));
+        assertEquals("HLG shown as SDR: the display refused HDR from “Render through Vulkan”.",
+                game.getString(Game.hdrStatusText(HdrPolicy.Status.SHOWN_AS_SDR), "HLG"));
+        assertEquals(R.string.stream_hdr_vulkan_no_dolby_vision,
+                Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.DOLBY_VISION));
+        // HDR10+ is left out only when the window refuses it (Game.checkHdrStatus).
+        assertEquals("HDR10+ is not passed on with “Render through Vulkan” on this Android version, so the stream is "
+                + "HDR10 without it.", game.getString(R.string.stream_hdr_vulkan_no_hdr10_plus));
+        assertEquals(0, Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.NONE));
+    }
+
     @Test public void theRefreshSwitchPollIsPostedOnConnectAndRemovedOnTeardown() {
         Game game = game();
         Handler handler = ReflectionHelpers.getField(game, "bitrateHandler");

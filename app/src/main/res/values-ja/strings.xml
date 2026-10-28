@@ -392,6 +392,7 @@
     <string name="vulkan_overrides_upscaling">Vulkan描画が有効なため、アップスケーリングは使われません。</string>
     <string name="upscaling_vulkan_short">Vulkan描画中はオフ</string>
     <string name="vulkan_renderer_failed">Vulkanレンダラーが動作しなくなりました: %1$s\n\n映像設定で「Vulkanで描画」をオフにして、ストリームを開始し直してください。</string>
+    <string name="stream_vulkan_behind">この画面では「Vulkanで描画」が追いつきません。滑らかな映像にするには映像設定でオフにしてください。</string>
     <string name="vulkan_failure_unknown">不明なエラー</string>
     <string name="upscaling_fallback">アップスケーリング: 直接出力。%1$s</string>
     <string name="upscaling_hdr">HDR/10 ビットでは、色と精度を保つため直接出力のままにします。</string>

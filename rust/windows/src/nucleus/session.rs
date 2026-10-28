@@ -97,24 +97,27 @@ pub fn open(folder: &Path) -> Result<Opened> {
     Ok(Opened(process))
 }
 
-/// The Nucleus Co-op [`open`] started: the only one the host closes. Its
-/// handle keeps its process id from naming another process.
+/// The Nucleus Co-op [`open`] started: the only one the host closes. It is
+/// every NucleusCoop.exe in the job [`open`] made, so one that restarted
+/// itself (elevating, updating) is still this one; the job's members keep
+/// their ids from naming other processes.
 pub struct Opened(crate::process::Process);
 impl Opened {
+    /// The process [`open`] started.
     pub fn pid(&self) -> u32 {
         self.0.pid
     }
-    /// Whether NucleusCoop.exe itself still runs. What it started (a browser
-    /// from a hub link, a game) is the user's, and doesn't count.
+    /// Whether a NucleusCoop.exe of it still runs. What it started (a
+    /// browser from a hub link, a game) is the user's, and doesn't count.
     pub fn running(&self) -> Result<bool> {
-        self.0.running()
+        self.0.running_image(EXECUTABLE)
     }
-    /// Ask its windows to close and wait up to `timeout`. Nothing is ended,
-    /// and what it started is left alone: one still open (a question it asks
-    /// the user) is an error.
+    /// Ask its NucleusCoop.exe windows to close and wait up to `timeout`.
+    /// Nothing is ended, and what it started is left alone: one still open (a
+    /// question it asks the user) is an error.
     pub fn close(&self, timeout: Duration) -> Result<()> {
         ensure!(
-            self.0.close(timeout)?,
+            self.0.close_image(EXECUTABLE, timeout)?,
             "Nucleus Co-op (process {}) did not close within {} s: close it on the PC",
             self.0.pid,
             timeout.as_secs()

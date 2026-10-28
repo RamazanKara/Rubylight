@@ -13,8 +13,6 @@ import org.robolectric.annotation.Config;
 import org.robolectric.shadow.api.Shadow;
 import org.robolectric.util.ReflectionHelpers;
 
-import java.util.concurrent.TimeUnit;
-
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
@@ -43,18 +41,20 @@ public class DualSenseOutputTest {
 
     @Test
     public void outputNeverWaitsForUsbAndOnlyTheNewestRumbleIsSent() throws Exception {
-        UsbPads.Connection.outputWriteMs = 100;
         DualSenseController pad = startedPad();
+        // The first report goes out and stays in USB until the gate opens.
+        UsbPads.holdOutputs();
         pad.startOutput();
-        long start = System.nanoTime();
-        for (int i = 1; i <= 20; i++) {
+        pad.rumble((short) 1000, (short) 0);
+        UsbPads.awaitOutputHeld();
+        for (int i = 2; i <= 20; i++) {
             pad.rumble((short) (i * 1000), (short) 0);
         }
         pad.setLed((byte) 1, (byte) 2, (byte) 3);
         pad.setPlayerNumber(1);
         pad.setAdaptiveTriggers((byte) DualSenseReport.LEFT_TRIGGER, (byte) 2, (byte) 0, new byte[10], new byte[10]);
-        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-        assertTrue("Output held its caller for " + elapsedMs + " ms", elapsedMs < 50);
+        assertTrue("Output waited for the USB write", UsbPads.Connection.outputHeld.get());
+        UsbPads.releaseOutputs();
 
         // The newest level is 20000 >> 8, in the low-frequency byte.
         UsbPads.await(() -> UsbPads.Connection.outputs.stream().anyMatch(report -> report[4] == (byte) (20000 >> 8)) &&

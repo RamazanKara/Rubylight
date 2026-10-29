@@ -480,6 +480,9 @@ pub struct Start<'a> {
     /// Nucleus Co-op's folder.
     pub folder: &'a Path,
     pub handler: &'a Handler,
+    /// The game's .exe as Nucleus starts it: the user's added game's, or the
+    /// one Rubylight's handler is for.
+    pub exe_path: &'a str,
     /// The Steam app the game was found from, for Rubylight's own handler
     /// ([`environment`]).
     pub steam_app: Option<u32>,
@@ -523,12 +526,13 @@ pub fn start_on_pc(
 
 /// What starting a session needs that doesn't need Nucleus Co-op closed:
 /// administrator rights for the signed-in user, their AppData folder and
-/// their account. Checked before a session closes the console's window, so
-/// a launch refused for one of these leaves the window open.
-pub fn ready() -> Result<()> {
+/// their account, and the compatibility settings an earlier session at
+/// `folder` left put back. Checked before a session closes the console's
+/// window, so a launch refused for one of these leaves the window open.
+pub fn ready(folder: &Path) -> Result<()> {
     require_administrator(crate::process::user_runs_elevated()?)?;
     environment(&BTreeMap::new())?;
-    layers::UserHive::signed_in()?;
+    layers::restore_left_in(&mut layers::UserHive::signed_in()?, folder)?;
     Ok(())
 }
 
@@ -590,8 +594,13 @@ pub fn start(
         "Nucleus Co-op profile {TITLE} written"
     );
     // Restored when the session ends, or here should Nucleus not start.
-    let layers = Guard::take(layers, start.folder, &start.handler.executable)
-        .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
+    let layers = Guard::take(
+        layers,
+        start.folder,
+        &start.handler.executable,
+        start.exe_path,
+    )
+    .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
     let nucleus = launcher.launch(
         start.folder,
         &start.handler.guid,
@@ -1284,6 +1293,7 @@ mod tests {
             kind: kind(players),
             folder,
             handler: &handler,
+            exe_path: r"D:\Games\Game\Game.exe",
             steam_app,
             title: "Game",
             players,
@@ -1615,11 +1625,8 @@ mod tests {
     /// handler `RUBYLIGHT_NUCLEUS_HANDLER` started for
     /// `RUBYLIGHT_NUCLEUS_PLAYERS`, held `RUBYLIGHT_NUCLEUS_HOLD` seconds and
     /// stopped; `RUBYLIGHT_NUCLEUS_STEAM_APP` is the Steam app a game was
-    /// found from. Without a handler file, Rubylight's own one-player handler
-    /// is written for `RUBYLIGHT_NUCLEUS_GAME` (an .exe) or the Steam app's
-    /// .exe, as a background stream without a hub handler does. The user's
-    /// compatibility settings must be as before afterwards. Run as SYSTEM,
-    /// like the service.
+    /// found from. The user's compatibility settings must be as before
+    /// afterwards. Run as SYSTEM, like the service.
     #[test]
     #[ignore = "requires Nucleus Co-op, a handler with its game, the virtual gamepad driver and SYSTEM"]
     fn a_session_on_this_pc() -> Result<()> {
@@ -1638,37 +1645,24 @@ mod tests {
             .ok()
             .map(|app| app.parse().context("RUBYLIGHT_NUCLEUS_STEAM_APP"))
             .transpose()?;
-        let handler = match std::env::var("RUBYLIGHT_NUCLEUS_HANDLER") {
-            Ok(file) => {
-                let path = folder.join("handlers").join(&file);
-                let text = std::fs::read_to_string(&path)
-                    .with_context(|| format!("reading {}", path.display()))?;
-                butterpollo_core::nucleus::handler::parse(&file, &text)
-                    .map_err(anyhow::Error::msg)?
-            }
-            Err(_) => {
-                use butterpollo_core::nucleus::generic::Setup;
-                let setup = match (std::env::var("RUBYLIGHT_NUCLEUS_GAME"), steam_app) {
-                    (Ok(game), _) => Setup::new(&game, "Rubylight hardware case", None),
-                    (Err(_), Some(app)) => {
-                        let launch =
-                            butterpollo_core::steam::game_executable(app, &crate::steam::roots())
-                                .map_err(anyhow::Error::msg)?;
-                        Setup::new(
-                            &launch.exe.to_string_lossy(),
-                            "Rubylight hardware case",
-                            Some((app, &launch.install_dir.to_string_lossy())),
-                        )
-                    }
-                    _ => bail!(
-                        "set RUBYLIGHT_NUCLEUS_HANDLER, RUBYLIGHT_NUCLEUS_GAME or RUBYLIGHT_NUCLEUS_STEAM_APP"
-                    ),
-                };
-                let appdata = crate::user_folder::roaming_app_data()
-                    .map_err(|error| anyhow::anyhow!("{error}"))?;
-                files::write_own(&folder, &appdata, &setup)?
-            }
-        };
+        // A hub handler and the game the user added with it. Rubylight's own
+        // handler goes through admission: the host's nucleus::tests::
+        // a_background_stream_without_a_hub_handler_on_this_pc.
+        let file = std::env::var("RUBYLIGHT_NUCLEUS_HANDLER")
+            .context("set RUBYLIGHT_NUCLEUS_HANDLER to a hub handler's file")?;
+        let path = folder.join("handlers").join(&file);
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let handler =
+            butterpollo_core::nucleus::handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
+        let appdata =
+            crate::user_folder::roaming_app_data().map_err(|error| anyhow::anyhow!("{error}"))?;
+        let exe_path = files::catalog(&folder, Some(&appdata))?
+            .games
+            .into_iter()
+            .find(|game| game.guid == handler.guid)
+            .with_context(|| format!("add {}'s game in Nucleus Co-op first", handler.name))?
+            .exe_path;
         println!("handler {} for {}", handler.file, handler.executable);
         let layers_before = layers::UserHive::signed_in()?.values()?;
         let players = env("RUBYLIGHT_NUCLEUS_PLAYERS", 1usize)?;
@@ -1680,6 +1674,7 @@ mod tests {
             kind: kind(players),
             folder: &folder,
             handler: &handler,
+            exe_path: &exe_path,
             steam_app,
             title: &handler.name,
             players,

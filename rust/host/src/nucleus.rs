@@ -17,7 +17,7 @@ use butterpollo_core::input::Input;
 use butterpollo_core::input_policy::Policy;
 use butterpollo_core::nucleus::coop::{self, Admit, End, Kind, Phase, Refused};
 use butterpollo_core::nucleus::generic::{self, Setup};
-use butterpollo_core::nucleus::handler::{Catalog, Handler, Missing};
+use butterpollo_core::nucleus::handler::{Catalog, Handler, Match, Missing};
 use butterpollo_core::nucleus::mode;
 use butterpollo_core::session::{Seat, Warnings};
 use butterpollo_core::state::{App, Client};
@@ -55,6 +55,8 @@ pub const WINDOW_WAIT: Duration = Duration::from_secs(90);
 const WATCH: Duration = Duration::from_millis(100);
 /// How long the Nucleus Co-op window the console opened gets to close.
 const CLOSE_WAIT: Duration = Duration::from_secs(5);
+/// The stream's warning when Rubylight's replaced or unused handler stays.
+const HANDLER_NOT_REMOVED: &str = "nucleus_handler_not_removed";
 
 /// Why a co-op launch is refused, and the status its answer carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,13 +121,16 @@ pub trait Pc: Send + Sync {
     /// `folder` and add its game for the signed-in user; refused while
     /// Nucleus Co-op runs.
     fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler>;
-    /// Remove Rubylight's handler `own`, which a hub handler superseded,
-    /// and its game; refused while Nucleus Co-op runs.
+    /// Remove Rubylight's handler `own`, which a hub handler replaces or no
+    /// game uses ([`Catalog::stale`]), and its game; refused while Nucleus
+    /// Co-op runs.
     fn remove_own(&self, folder: &Path, own: &Handler) -> Result<()>;
     /// What a session's start needs that doesn't need Nucleus Co-op closed
-    /// (administrator rights, the signed-in user, `own`'s handler file being
-    /// Rubylight's): checked before the console's window closes for it.
-    fn ready(&self, folder: &Path, own: Option<&Setup>) -> Result<()>;
+    /// (administrator rights, the signed-in user, the compatibility settings
+    /// an earlier session left put back, `own`'s handler file being
+    /// Rubylight's, a game list that takes `own`'s game and loses
+    /// `stale`'s): checked before the console's window closes for it.
+    fn ready(&self, folder: &Path, own: Option<&Setup>, stale: &[&Handler]) -> Result<()>;
     fn start(
         &self,
         start: &Start,
@@ -294,13 +299,17 @@ impl Pc for OnPc {
         })?;
         files::remove_own(folder, &appdata, own)
     }
-    fn ready(&self, folder: &Path, own: Option<&Setup>) -> Result<()> {
-        butterpollo_windows::nucleus::session::ready()?;
-        if let Some(setup) = own {
-            butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
+    fn ready(&self, folder: &Path, own: Option<&Setup>, stale: &[&Handler]) -> Result<()> {
+        butterpollo_windows::nucleus::session::ready(folder)?;
+        if own.is_some() || !stale.is_empty() {
+            let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
                 anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
             })?;
-            files::check_own(folder, setup)?;
+            if let Some(setup) = own {
+                files::check_own(folder, setup)?;
+            }
+            let guids: Vec<&str> = stale.iter().map(|h| h.guid.as_str()).collect();
+            files::check_list(&appdata, own, &guids)?;
         }
         Ok(())
     }
@@ -658,14 +667,14 @@ pub fn starts_launcher(app: &App) -> bool {
 /// The handler a session starts with.
 enum Chosen {
     /// A hub or user handler, with the game the user added.
-    Hub(Handler),
+    Hub(Match),
     /// Rubylight's own one-player handler, written as the session starts.
     Own(Setup),
 }
 impl Chosen {
     fn guid(&self) -> String {
         match self {
-            Self::Hub(handler) => handler.guid.clone(),
+            Self::Hub(found) => found.handler.guid.clone(),
             Self::Own(setup) => setup.guid(),
         }
     }
@@ -680,7 +689,7 @@ fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refu
     // at exactly that path keeps its hub handler. A file-name match is
     // another game's (Portal's hl2.exe is not Half-Life 2).
     if let Some(found) = catalog.added(&setup.exe_path) {
-        return Ok(Chosen::Hub(found.handler));
+        return Ok(Chosen::Hub(found));
     }
     refuse_anti_cheat(&setup).map_err(|missing| Refusal::missing(&missing))?;
     Ok(Chosen::Own(setup))
@@ -1296,7 +1305,7 @@ impl Registry {
             // background with ours. Its owner returning to it finds the
             // session's game: no Steam read or folder scan again.
             match executable(app).and_then(|exe| catalog.added(exe)) {
-                Some(found) => (Some(Chosen::Hub(found.handler)), None),
+                Some(found) => (Some(Chosen::Hub(found)), None),
                 None => match self.returning(request.game.app_id(), &client.uuid) {
                     Some(game) => (None, Some(game)),
                     None => (Some(own_handler(pc.as_ref(), &catalog, app)?), None),
@@ -1304,7 +1313,7 @@ impl Registry {
             }
         } else {
             match catalog.find(&app.name, executable(app)) {
-                Ok(found) => (Some(Chosen::Hub(found.handler)), None),
+                Ok(found) => (Some(Chosen::Hub(found)), None),
                 Err(missing) => return Err(Refusal::missing(&missing)),
             }
         };
@@ -1352,8 +1361,8 @@ impl Registry {
                     ))
                 })?;
                 let players = match (kind, &found) {
-                    (Kind::Coop, Chosen::Hub(handler)) => coop::players(
-                        handler.max_players,
+                    (Kind::Coop, Chosen::Hub(found)) => coop::players(
+                        found.handler.max_players,
                         request.config.nucleus_coop_players(),
                         free,
                     ),
@@ -1366,7 +1375,11 @@ impl Registry {
                     Chosen::Own(setup) => Some(setup),
                     Chosen::Hub(_) => None,
                 };
-                pc.ready(&folder, own).map_err(|error| {
+                // Ours that a hub handler replaces or no game uses, but the
+                // one this session starts with.
+                let current = own.map(Setup::guid);
+                let stale = catalog.stale(current.as_deref());
+                pc.ready(&folder, own, &stale).map_err(|error| {
                     Refusal::unavailable(format!(
                         "Nucleus Co-op did not start {}: {error:#}",
                         app.name
@@ -1375,16 +1388,38 @@ impl Registry {
                 // Last, so a launch refused for another reason leaves the
                 // user's window open.
                 self.close_for_session(&app.name)?;
-                // Ours for a game the user has since added with a hub
-                // handler goes while Nucleus is closed. A failure leaves a
-                // handler that is never chosen: no reason to refuse.
-                for own in catalog.superseded() {
+                // They go while Nucleus is closed. A failure leaves a handler
+                // that is never chosen and is tried again next time: the
+                // stream goes on, and its player sees why.
+                let mut kept = Vec::new();
+                let mut why = String::new();
+                for own in stale {
                     if let Err(error) = pc.remove_own(&folder, own) {
-                        tracing::warn!(file = own.file, error = %format!("{error:#}"), "Nucleus Co-op: Rubylight's superseded handler was not removed");
+                        tracing::error!(file = own.file, error = %format!("{error:#}"), "Nucleus Co-op: Rubylight's replaced or unused handler was not removed");
+                        kept.push(own.file.as_str());
+                        why = format!("{error:#}");
                     }
                 }
+                match kept.as_slice() {
+                    [] => {}
+                    [file] => request.warnings.set(
+                        HANDLER_NOT_REMOVED,
+                        format!("Rubylight's Nucleus Co-op handler {file} was not removed: {why}"),
+                    ),
+                    files => request.warnings.set(
+                        HANDLER_NOT_REMOVED,
+                        format!(
+                            "Rubylight's Nucleus Co-op handlers {} were not removed: {why}",
+                            files.join(", ")
+                        ),
+                    ),
+                }
+                let exe_path = match &found {
+                    Chosen::Hub(found) => found.exe_path.clone(),
+                    Chosen::Own(setup) => setup.exe_path.clone(),
+                };
                 let (handler, steam_app) = match found {
-                    Chosen::Hub(handler) => (handler, None),
+                    Chosen::Hub(found) => (found.handler, None),
                     Chosen::Own(setup) => (
                         pc.write_own(&folder, &setup).map_err(|error| {
                             Refusal::unavailable(format!(
@@ -1405,6 +1440,7 @@ impl Registry {
                     kind,
                     folder: &folder,
                     handler: &handler,
+                    exe_path: &exe_path,
                     steam_app,
                     title: &app.name,
                     players,
@@ -1972,8 +2008,14 @@ pub(crate) mod fake {
         pub write_error: Mutex<Option<String>>,
         /// What [`super::Pc::ready`] fails with.
         pub ready_error: Mutex<Option<String>>,
-        /// Rubylight's superseded handler files removed, in order.
+        /// Rubylight's stale handler files removed, in order.
         pub removed: Mutex<Vec<String>>,
+        /// What [`super::Pc::remove_own`] fails with.
+        pub remove_error: Mutex<Option<String>>,
+        /// The stale handlers' files each [`super::Pc::ready`] got.
+        pub ready_stale: Mutex<Vec<Vec<String>>>,
+        /// The game's .exe each started session's Nucleus got, in order.
+        pub exe_paths: Mutex<Vec<String>>,
         /// How often an app's game was looked up for Rubylight's handler.
         pub lookups: AtomicUsize,
     }
@@ -2026,6 +2068,9 @@ pub(crate) mod fake {
                 write_error: Mutex::new(None),
                 ready_error: Mutex::new(None),
                 removed: Mutex::new(Vec::new()),
+                remove_error: Mutex::new(None),
+                ready_stale: Mutex::new(Vec::new()),
+                exe_paths: Mutex::new(Vec::new()),
                 lookups: AtomicUsize::new(0),
             }
         }
@@ -2129,10 +2174,17 @@ pub(crate) mod fake {
                 .map_err(anyhow::Error::msg)
         }
         fn remove_own(&self, _folder: &Path, own: &Handler) -> Result<()> {
+            if let Some(error) = self.remove_error.lock().unwrap().clone() {
+                anyhow::bail!(error);
+            }
             self.removed.lock().unwrap().push(own.file.clone());
             Ok(())
         }
-        fn ready(&self, _folder: &Path, _own: Option<&Setup>) -> Result<()> {
+        fn ready(&self, _folder: &Path, _own: Option<&Setup>, stale: &[&Handler]) -> Result<()> {
+            self.ready_stale
+                .lock()
+                .unwrap()
+                .push(stale.iter().map(|h| h.file.clone()).collect());
             match self.ready_error.lock().unwrap().clone() {
                 Some(error) => anyhow::bail!(error),
                 None => Ok(()),
@@ -2170,6 +2222,10 @@ pub(crate) mod fake {
             });
             self.started.lock().unwrap().push(instance.clone());
             self.steam_apps.lock().unwrap().push(start.steam_app);
+            self.exe_paths
+                .lock()
+                .unwrap()
+                .push(start.exe_path.to_string());
             Ok(Box::new(instance))
         }
     }
@@ -2748,8 +2804,10 @@ mod tests {
 
     #[test]
     fn a_launch_the_pc_cant_start_leaves_the_window_open() {
-        // Refused for administrator rights or a handler file that isn't
-        // ours only after the console's Nucleus window had closed.
+        // Refused for administrator rights, a handler file that isn't ours,
+        // a game list the host can't edit or compatibility settings an
+        // earlier session left that don't come back, only after the
+        // console's Nucleus window had closed.
         use std::sync::atomic::Ordering::Relaxed;
         let (registry, pc, apps) = setup();
         registry.open("").unwrap();
@@ -3254,6 +3312,83 @@ mod tests {
         background(&registry, &apps[1], "a", &owner, &config).unwrap();
         assert_eq!(registry.sessions()[0].session.game, fake::GUID);
         assert_eq!(*pc.removed.lock().unwrap(), [ours.file()]);
+        // Checked, with the list it edits, before the window closed.
+        assert_eq!(
+            pc.ready_stale.lock().unwrap().last().unwrap(),
+            &[ours.file()]
+        );
+        // Nucleus starts the game the user added, at its path.
+        assert_eq!(*pc.exe_paths.lock().unwrap(), [fake::EXE]);
+    }
+
+    #[test]
+    fn ours_goes_as_soon_as_a_hub_handler_for_its_exe_is_installed() {
+        // Nucleus' add-game search skips a path in its list: our entry would
+        // keep the user from adding the game with the hub's handler.
+        let (registry, pc, apps) = setup();
+        let owner = client("A", false);
+        let config = Config::default();
+        let ice = app("Ice", r"C:\Games\Ice\portal2.exe");
+        let ours = Setup::new(r"C:\Games\Ice\portal2.exe", "Ice", None);
+        let unused = Setup::new(r"C:\Games\Old\Old.exe", "Old", None);
+        {
+            let mut catalog = pc.catalog.lock().unwrap();
+            for setup in [&ours, &unused] {
+                catalog.handlers.push(
+                    butterpollo_core::nucleus::handler::parse(&setup.file(), &setup.handler())
+                        .unwrap(),
+                );
+            }
+            catalog
+                .games
+                .push(butterpollo_core::nucleus::handler::Game {
+                    guid: ours.guid(),
+                    exe_path: ours.exe_path.clone(),
+                });
+        }
+        // Ice itself streams with ours (the hub's portal2.exe is another
+        // game's); only the unused one goes.
+        let seat = background(&registry, &ice, "a", &owner, &config).unwrap();
+        assert_eq!(*pc.removed.lock().unwrap(), [unused.file()]);
+        assert_eq!(
+            *pc.exe_paths.lock().unwrap(),
+            std::slice::from_ref(&ours.exe_path)
+        );
+        assert!(registry.end(seat.session));
+        // Another session's start removes ours; a failure is the stream's
+        // warning, and the session still starts.
+        pc.removed.lock().unwrap().clear();
+        *pc.remove_error.lock().unwrap() = Some("access denied".into());
+        let warnings = Arc::new(Warnings::default());
+        let coop = registry.entries(&apps, "").remove(0);
+        registry
+            .admit(Admission {
+                launch: "b",
+                client: &owner,
+                game: Game::Coop(&coop),
+                size: (1280, 720),
+                config: &config,
+                warnings: warnings.clone(),
+            })
+            .unwrap();
+        let shown = warnings.snapshot();
+        assert_eq!(shown.len(), 1, "{shown:?}");
+        assert_eq!(shown[0].code, HANDLER_NOT_REMOVED);
+        assert_eq!(
+            shown[0].message,
+            format!(
+                "Rubylight's Nucleus Co-op handlers {}, {} were not removed: access denied",
+                ours.file(),
+                unused.file()
+            )
+        );
+        assert_eq!(pc.started.lock().unwrap().len(), 2);
+        *pc.remove_error.lock().unwrap() = None;
+        for listed in registry.sessions() {
+            registry.end(listed.session.id);
+        }
+        admit(&registry, &coop, "c", &client("C", false)).unwrap();
+        assert_eq!(*pc.removed.lock().unwrap(), [ours.file(), unused.file()]);
     }
 
     #[test]

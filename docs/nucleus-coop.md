@@ -34,10 +34,14 @@ handler into Nucleus Co-op's `handlers`
 folder (`Rubylight-<game>-<hash>.js`) and adds the game to your Nucleus Co-op
 game list, as Nucleus' own "add game" would. It does that only while Nucleus
 Co-op isn't running, and never over a file it did not write. A hub handler for
-the game you added at the same path always wins, and co-op still needs one:
-once you add the game with a hub handler, the next session removes the host's
-handler and its entry from your game list. Another game with an .exe of the
-same name (Portal's and Half-Life 2's `hl2.exe`) keeps its own.
+the game you added at the same path always wins, and co-op still needs one.
+As soon as a hub handler for the same .exe is installed, the next session of
+another game removes the host's handler and its entry, so Nucleus Co-op lets
+you add the game with the hub's handler. The host also removes a handler of
+its own that no game in your list uses. It only ever removes its own files
+and entries; one it can't remove shows as a warning on the stream and is
+tried again next time. Another game with an .exe of the same name (Portal's
+and Half-Life 2's `hl2.exe`) still streams with the host's handler.
 
 The game runs from its own folder: nothing is copied, linked or written there,
 and Nucleus Co-op needs no extra tools for it. Its window keeps running and
@@ -193,8 +197,14 @@ the Nucleus Co-op panel under **Help**.
   Co-op sets the game's .exe to its DPI mode in your Windows compatibility
   settings (Properties › Compatibility), replacing what you set there. The
   host keeps those settings from before the session and puts them back
-  exactly when it ends, also after a crash or a failed start. Should the
-  host stop mid-session, the next session puts them back before it starts.
+  when it ends, also after a crash or a failed start. It only touches the
+  game's own .exe and Nucleus' instance links, and only where Nucleus' DPI
+  mode is still set: a setting you change meanwhile, or another game's .exe
+  of the same name, stays as you left it. Should the host stop mid-session,
+  the settings come back when you next sign in, when the service starts the
+  host again, or before the next session. If the file that keeps them
+  (`Rubylight-layers-<SID>.json` in Nucleus Co-op's folder) can't be read,
+  the launch says so and names it: delete it to stream again.
 
 ## Status
 

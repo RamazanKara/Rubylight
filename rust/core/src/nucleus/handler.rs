@@ -395,19 +395,50 @@ impl Catalog {
             })
     }
 
-    /// Rubylight's own handlers whose game the user has since added at the
-    /// same path with a hub or user handler: ours is never chosen again, so
-    /// it and its game entry go.
-    pub fn superseded(&self) -> Vec<&Handler> {
+    /// Rubylight's own handlers a hub or user handler replaces, but
+    /// `current`, the GUID of the one a session is about to start with: one
+    /// whose game the user has since added at the same path with a hub or
+    /// user handler, and one for an .exe a hub or user handler is installed
+    /// for. Nucleus Co-op's add-game search skips a path already in its list,
+    /// so our entry would keep the user from adding the game with the hub's
+    /// handler: ours and its game entry go.
+    pub fn superseded(&self, current: Option<&str>) -> Vec<&Handler> {
         self.handlers
             .iter()
-            .filter(|own| own.own)
+            .filter(|own| own.own && Some(own.guid.as_str()) != current)
             .filter(|own| {
                 self.games
                     .iter()
                     .any(|game| game.guid == own.guid && self.added(&game.exe_path).is_some())
+                    || self.handlers.iter().any(|hub| {
+                        !hub.own
+                            && file_name(&hub.executable)
+                                .eq_ignore_ascii_case(file_name(&own.executable))
+                    })
             })
             .collect()
+    }
+
+    /// Rubylight's own handlers, but `current`'s, that no game in the list
+    /// uses: left by a removal or a write that failed halfway. They go.
+    pub fn unused(&self, current: Option<&str>) -> Vec<&Handler> {
+        self.handlers
+            .iter()
+            .filter(|own| own.own && Some(own.guid.as_str()) != current)
+            .filter(|own| !self.games.iter().any(|game| game.guid == own.guid))
+            .collect()
+    }
+
+    /// [`Self::superseded`] and [`Self::unused`], each once: the handlers a
+    /// session's start removes with their game entries.
+    pub fn stale(&self, current: Option<&str>) -> Vec<&Handler> {
+        let mut stale = self.superseded(current);
+        for own in self.unused(current) {
+            if !stale.iter().any(|h| h.guid == own.guid) {
+                stale.push(own);
+            }
+        }
+        stale
     }
 
     /// Every added game that has a handler, for the co-op library entries.
@@ -621,12 +652,81 @@ Game.SupportsKeyboard = true; // { not a block
             guid: "Rubylight-racer".into(),
             exe_path: "d:/games/racer/racer.exe".into(),
         });
-        let superseded = c.superseded();
+        let superseded = c.superseded(None);
         assert_eq!(superseded.len(), 1);
         assert_eq!(superseded[0].file, "Rubylight-racer.js");
-        // Another copy of the game, not added with the hub's: ours stays.
-        c.games.last_mut().unwrap().exe_path = "E:\\Copy\\Racer.exe".into();
-        assert!(c.superseded().is_empty());
+        // A session about to start with it keeps it.
+        assert!(c.superseded(Some("Rubylight-racer")).is_empty());
+    }
+
+    #[test]
+    fn ours_is_superseded_as_soon_as_a_hub_handler_for_its_exe_is_installed() {
+        // Nucleus' add-game search skips a path in its list, so our entry
+        // would keep the user from adding the game with the hub's handler.
+        let mut c = catalog();
+        let mut own = parse(
+            "Rubylight-shooter.js",
+            "// Rubylight one-player handler v1\nGame.GUID='Rubylight-shooter'\nGame.ExecutableName='SHOOTER.exe'",
+        )
+        .unwrap();
+        assert!(own.own);
+        c.handlers.push(own.clone());
+        c.games.push(Game {
+            guid: "Rubylight-shooter".into(),
+            exe_path: "E:\\Shooter\\Shooter.exe".into(),
+        });
+        let names = |handlers: Vec<&Handler>| -> Vec<String> {
+            handlers.into_iter().map(|h| h.guid.clone()).collect()
+        };
+        assert_eq!(names(c.superseded(None)), ["Rubylight-shooter"]);
+        // Except the one a session starts with now (Portal's hl2.exe beside
+        // Half-Life 2's handler).
+        assert!(c.superseded(Some("Rubylight-shooter")).is_empty());
+        // Another of ours for the same .exe is no hub handler.
+        c.handlers.retain(|h| h.guid != "Shooter");
+        own.guid = "Rubylight-shooter-2".into();
+        c.handlers.push(own);
+        assert!(c.superseded(None).is_empty());
+    }
+
+    #[test]
+    fn ours_without_a_game_in_the_list_is_unused() {
+        let mut c = catalog();
+        let own = |guid: &str| {
+            parse(
+                &format!("{guid}.js"),
+                &format!(
+                    "// Rubylight one-player handler v1\nGame.GUID='{guid}'\nGame.ExecutableName='Puzzle.exe'"
+                ),
+            )
+            .unwrap()
+        };
+        c.handlers.push(own("Rubylight-left"));
+        c.handlers.push(own("Rubylight-listed"));
+        c.handlers.push(own("Rubylight-now"));
+        c.games.push(Game {
+            guid: "Rubylight-listed".into(),
+            exe_path: "C:\\Puzzle\\Puzzle.exe".into(),
+        });
+        let guids = |handlers: Vec<&Handler>| -> Vec<String> {
+            handlers.into_iter().map(|h| h.guid.clone()).collect()
+        };
+        assert_eq!(guids(c.unused(Some("Rubylight-now"))), ["Rubylight-left"]);
+        assert_eq!(guids(c.stale(Some("Rubylight-now"))), ["Rubylight-left"]);
+        // A hub handler for its .exe: listed or not, each goes once.
+        c.handlers.push(
+            parse(
+                "Puzzle.js",
+                "Game.GUID='Puzzle'\nGame.ExecutableName='Binaries\\\\puzzle.exe'",
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            guids(c.stale(Some("Rubylight-now"))),
+            ["Rubylight-left", "Rubylight-listed"]
+        );
+        // A hub or user handler is never ours to remove.
+        assert!(c.stale(None).iter().all(|h| h.own));
     }
 
     #[test]

@@ -113,7 +113,7 @@ pub fn write_own(folder: &Path, appdata: &Path, setup: &Setup) -> Result<Handler
             );
         }
     }
-    let profile = appdata.join("Nucleus Coop").join("userprofile.json");
+    let profile = list(appdata);
     crate::user_folder::as_session_user(|| add_game(&profile, setup))
         .context("acting as the signed-in user")??;
     Ok(handler)
@@ -146,20 +146,47 @@ fn replace(path: &Path, text: &str) -> Result<()> {
     std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
 }
 
-/// Remove Rubylight's own handler `own`, one [`Catalog::superseded`] names,
-/// and its game from the signed-in user's game list in `appdata`, as the
-/// user. Like [`write_own`], only while Nucleus Co-op is not running. Only
-/// a handler Rubylight wrote, and only its game, ever go.
+/// The signed-in user's game list in their roaming folder `appdata`.
+fn list(appdata: &Path) -> PathBuf {
+    appdata.join("Nucleus Coop").join("userprofile.json")
+}
+
+/// Refuses the signed-in user's game list in `appdata` when Rubylight could
+/// not add `setup`'s game to it or remove the games of `remove` from it.
+/// Checked before a session closes the console's window, so a list Nucleus
+/// Co-op wrote in a way the host can't edit refuses the launch with the
+/// window still open.
+pub fn check_list(appdata: &Path, setup: Option<&Setup>, remove: &[&str]) -> Result<()> {
+    let path = list(appdata);
+    let Some(text) = read_existing(&path)? else {
+        return Ok(());
+    };
+    let edits = || -> Result<(), String> {
+        if let Some(setup) = setup {
+            generic::add_game(Some(&text), &setup.guid(), &setup.exe_path)?;
+        }
+        for guid in remove {
+            generic::remove_game(&text, guid)?;
+        }
+        Ok(())
+    };
+    edits()
+        .map_err(anyhow::Error::msg)
+        .with_context(|| path.display().to_string())
+}
+
+/// Remove Rubylight's own handler `own`, one [`Catalog::stale`] names, and
+/// its game from the signed-in user's game list in `appdata`, as the user.
+/// Like [`write_own`], only while Nucleus Co-op is not running. Only a
+/// handler Rubylight wrote, and only its game, ever go.
 pub fn remove_own(folder: &Path, appdata: &Path, own: &Handler) -> Result<()> {
     ensure!(
         own.own && own.guid.starts_with(generic::PREFIX),
         "{} is not Rubylight's handler",
         own.file
     );
-    // The game first: a game left without its handler is never found again.
-    let list = appdata.join("Nucleus Coop").join("userprofile.json");
-    crate::user_folder::as_session_user(|| remove_game(&list, &own.guid))
-        .context("acting as the signed-in user")??;
+    // The handler first: Nucleus Co-op drops a game whose handler is gone
+    // as it loads its list, and a handler that stays is found again.
     let path = folder.join("handlers").join(&own.file);
     if let Some(text) = read_existing(&path)? {
         ensure!(
@@ -169,9 +196,19 @@ pub fn remove_own(folder: &Path, appdata: &Path, own: &Handler) -> Result<()> {
         );
         std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     }
+    let list = list(appdata);
+    crate::user_folder::as_session_user(|| remove_game(&list, &own.guid))
+        .context("acting as the signed-in user")?
+        .with_context(|| {
+            format!(
+                "{} is removed, but its game stays in {} until Nucleus Co-op drops it",
+                path.display(),
+                list.display()
+            )
+        })?;
     tracing::info!(
         file = own.file,
-        "Nucleus Co-op: Rubylight's handler removed, the user added its game with a hub handler"
+        "Nucleus Co-op: Rubylight's handler removed, a hub handler replaces it or no game uses it"
     );
     Ok(())
 }
@@ -460,7 +497,7 @@ Game.MaxPlayers = 4;
         )
         .unwrap();
         let before = catalog(nucleus.path(), Some(appdata.path())).unwrap();
-        let superseded = before.superseded();
+        let superseded = before.superseded(None);
         assert_eq!(superseded.len(), 1);
         remove_own(nucleus.path(), appdata.path(), superseded[0]).unwrap();
         assert!(!handlers.join(setup.file()).exists());
@@ -481,6 +518,106 @@ Game.MaxPlayers = 4;
             "{error}"
         );
         assert!(handlers.join("Borderlands 2.js").exists());
+    }
+
+    #[test]
+    fn a_handler_that_cannot_be_removed_keeps_its_game_and_is_found_again() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let nucleus = tempfile::tempdir().unwrap();
+        let appdata = tempfile::tempdir().unwrap();
+        let setup = Setup::new(r"D:\Puzzle\Game.exe", "Puzzle", None);
+        write_own(nucleus.path(), appdata.path(), &setup).unwrap();
+        let file = nucleus.path().join("handlers").join(setup.file());
+        let ours = || {
+            catalog(nucleus.path(), Some(appdata.path()))
+                .unwrap()
+                .handlers
+                .into_iter()
+                .find(|h| h.own)
+        };
+        let own = ours().unwrap();
+        // Open elsewhere without sharing: the removal fails, loudly.
+        let open = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&file)
+            .unwrap();
+        let error = format!(
+            "{:#}",
+            remove_own(nucleus.path(), appdata.path(), &own).unwrap_err()
+        );
+        assert!(error.contains(&setup.file()), "{error}");
+        drop(open);
+        // The game stays listed with it, so the next start finds both again.
+        let left = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        assert!(left.games.iter().any(|g| g.guid == setup.guid()));
+        assert!(ours().is_some());
+        remove_own(nucleus.path(), appdata.path(), &own).unwrap();
+        let after = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        assert!(!file.exists());
+        assert!(after.games.is_empty());
+    }
+
+    #[test]
+    fn an_unused_handler_of_ours_is_swept_and_a_foreign_one_never() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let appdata = tempfile::tempdir().unwrap();
+        let setup = Setup::new(r"D:\Puzzle\Game.exe", "Puzzle", None);
+        write_own(nucleus.path(), appdata.path(), &setup).unwrap();
+        // A removal that took the game but not the handler, as before.
+        let list = list(appdata.path());
+        let text = std::fs::read_to_string(&list).unwrap();
+        std::fs::write(
+            &list,
+            generic::remove_game(&text, &setup.guid()).unwrap().unwrap(),
+        )
+        .unwrap();
+        let handlers = nucleus.path().join("handlers");
+        std::fs::write(handlers.join("Other.js"), HANDLER).unwrap();
+        let before = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        let stale = before.stale(None);
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].guid, setup.guid());
+        remove_own(nucleus.path(), appdata.path(), stale[0]).unwrap();
+        assert!(!handlers.join(setup.file()).exists());
+        assert!(handlers.join("Other.js").exists());
+        let after = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        assert!(after.stale(None).is_empty());
+    }
+
+    #[test]
+    fn a_game_list_the_host_cannot_edit_is_refused_before_anything_changes() {
+        let appdata = tempfile::tempdir().unwrap();
+        let setup = Setup::new(r"D:\Puzzle\Game.exe", "Puzzle", None);
+        // No list yet: a new one is written.
+        check_list(appdata.path(), Some(&setup), &[]).unwrap();
+        let list = list(appdata.path());
+        std::fs::create_dir_all(list.parent().unwrap()).unwrap();
+        std::fs::write(
+            &list,
+            r#"{"Games":[{"GameGuid":"A","ExePath":"C:\\A.exe"}]}"#,
+        )
+        .unwrap();
+        check_list(appdata.path(), Some(&setup), &["Rubylight-x"]).unwrap();
+        // A game list the catalog reads but no edit could keep whole.
+        for broken in ["{", r#"{"Games":7}"#, "[1]"] {
+            std::fs::write(&list, broken).unwrap();
+            let error = format!(
+                "{:#}",
+                check_list(appdata.path(), Some(&setup), &[]).unwrap_err()
+            );
+            assert!(error.contains("userprofile.json"), "{broken}: {error}");
+        }
+        std::fs::write(&list, r#"{"Games":[{"GameGuid":}]}"#).unwrap();
+        let error = format!(
+            "{:#}",
+            check_list(appdata.path(), None, &["Rubylight-x"]).unwrap_err()
+        );
+        assert!(error.contains("userprofile.json"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(&list).unwrap(),
+            r#"{"Games":[{"GameGuid":}]}"#
+        );
     }
 
     #[test]

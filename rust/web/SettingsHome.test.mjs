@@ -129,3 +129,13 @@ test('the wake status never spins silently: a slow first check says why, and the
   assert.match(state, /\{#if lingering\}\{' '\}\{slow\}\{\/if\}/);
   assert.match(await source('lib/api.ts'), /status: \(refresh = false\) => get<PowerStatus>\(`[^`]*`, ACTION_TIMEOUT_MS\)/);
 });
+
+test('full chroma applies when saved: no restart tag, text or notice', async () => {
+  const packed = settings.get('experimental_packed_444');
+  assert.notEqual(packed.restart, true);
+  assert.doesNotMatch(`${packed.label} ${packed.description}`, /restart/i);
+  // The restart notice follows the host's answer, which is false for a save of only live settings.
+  for (const name of ['pages/Settings.svelte', 'pages/SettingsHome.svelte']) {
+    assert.match(await source(name), /saved = result\.restart_required !== false;\n\s*if \(!saved\) notify\('Settings saved\.', 'ok'\);/, name);
+  }
+});

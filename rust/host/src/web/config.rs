@@ -63,7 +63,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if object.keys().any(|key| key.starts_with("library_")) {
                 crate::library::invalidate(h);
             }
-            json!({"status":true,"restart_required":true,"warning":warning})
+            json!({"status":true,"restart_required":restart_required(object.keys()),"warning":warning})
         }
         ("GET", "/api/configLocale") => {
             json!({"status":true,"locale":h.config.read().unwrap().get("locale","en")})
@@ -75,6 +75,17 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
         )?,
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+/// Settings a save applies to the running host. Every other key still answers
+/// that it needs a restart. HEVC and AV1 support do: the startup probe alone
+/// decides which of those codecs clients are offered.
+const LIVE_KEYS: &[&str] = &["experimental_packed_444"];
+
+/// Whether a save of `keys` takes a restart to apply in full, for the
+/// console's "Some changes apply after the host restarts".
+fn restart_required<'a>(mut keys: impl Iterator<Item = &'a String>) -> bool {
+    keys.any(|key| !LIVE_KEYS.contains(&key.as_str()))
 }
 
 /// Saves one setting that a page manages itself: `next` gets the stored text
@@ -297,6 +308,25 @@ mod tests {
         assert_eq!(saved.get("sunshine_name", ""), "Concurrent host");
         assert_eq!(saved.get("locale", ""), "de");
         assert_eq!(fixture.host.config.read().unwrap().values, saved.values);
+    }
+
+    /// Full chroma applies when saved: answering every save with a restart
+    /// showed "Some changes apply after the host restarts" for it.
+    #[test]
+    fn only_a_save_with_a_restart_bound_setting_asks_for_a_restart() {
+        let fixture = Fixture::new();
+        let restart = |patch: Value| {
+            handle(&fixture.host, "PATCH", "/api/config", &patch).unwrap()["restart_required"]
+                .as_bool()
+                .unwrap()
+        };
+        assert!(!restart(json!({"experimental_packed_444": false})));
+        // HEVC support changes the codecs only the startup probe advertises.
+        assert!(restart(json!({"hevc_mode": "1"})));
+        assert!(restart(
+            json!({"experimental_packed_444": false, "av1_mode": "1"})
+        ));
+        assert!(restart(json!({"sunshine_name": "Renamed host"})));
     }
 
     #[test]

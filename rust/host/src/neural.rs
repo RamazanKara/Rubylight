@@ -126,13 +126,10 @@ impl Neural {
 /// `butterpollo.exe --neural-probe`: the GPUs the compute runtime finds and
 /// the AMD Software version, as one line.
 pub fn probe_main() -> i32 {
-    let driver = butterpollo_windows::radeon::adlx::gpus()
+    // AMD Software's own version: the Windows driver version is another scheme.
+    let driver = butterpollo_windows::radeon::adlx::amd_software_version()
         .ok()
-        .and_then(|gpus| {
-            gpus.into_iter()
-                .map(|gpu| gpu.driver)
-                .find(|d| !d.is_empty())
-        });
+        .flatten();
     let probe = match butterpollo_windows::hip::gpus() {
         Ok(gpus) => Probe {
             gpus,
@@ -163,13 +160,44 @@ pub fn capability(h: &Shared) -> Result<String, String> {
     }
     let result = run_probe(h).and_then(|probe| match probe.error {
         Some(error) if probe.gpus.is_empty() => Err(error),
-        _ => neural::capable(&probe.gpus, probe.driver.as_deref()).map(|gpu| gpu.name.clone()),
+        _ => neural::capable(
+            &probe.gpus,
+            probe.driver.as_deref(),
+            &streams_with(h, &probe)?,
+        )
+        .map(|gpu| gpu.name.clone()),
     });
     if let Err(reason) = &result {
         tracing::info!(%reason, "Neural Rendering is not available on this PC");
     }
     h.neural.lock().probe = Some((Instant::now(), result.clone()));
     result
+}
+
+/// The GPU this host captures and encodes with: the Graphics card setting's,
+/// or the one that drives the display it streams.
+#[cfg(not(test))]
+fn streams_with(h: &Shared, _: &Probe) -> Result<neural::Streams, String> {
+    let config = h.config.read().unwrap();
+    let (name, (low, high)) = butterpollo_windows::capture::stream_gpu(
+        config.get("output_name", ""),
+        config.get("adapter_name", ""),
+        config.get("adapter_pnp_id", ""),
+    )
+    .map_err(|e| format!("the GPU Rubylight streams with can't be found: {e:#}"))?;
+    Ok(neural::Streams {
+        name,
+        luid: (u64::from(high as u32) << 32) | u64::from(low),
+    })
+}
+/// Tests stream with the probe's first GPU.
+#[cfg(test)]
+fn streams_with(_: &Shared, probe: &Probe) -> Result<neural::Streams, String> {
+    let gpu = probe.gpus.first().ok_or("no GPU in this test")?;
+    Ok(neural::Streams {
+        name: gpu.name.clone(),
+        luid: gpu.luid.unwrap_or_default(),
+    })
 }
 
 #[cfg(test)]

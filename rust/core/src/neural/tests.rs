@@ -711,11 +711,21 @@ fn gpu(name: &str, arch: &str, compute_units: u32) -> Gpu {
         name: name.into(),
         arch: arch.into(),
         compute_units,
+        luid: None,
+    }
+}
+
+/// The GPU that streams, by name only (the runtime reported no LUID).
+fn streams(name: &str) -> Streams {
+    Streams {
+        name: name.into(),
+        luid: 0x1_99dc,
     }
 }
 
 #[test]
 fn the_switch_is_offered_by_what_the_compute_runtime_reports() {
+    let driver = Some("26.10.1");
     for supported in [
         gpu("AMD Radeon RX 9070 XT", "gfx1201", 64),
         gpu("AMD Radeon RX 7900 XT", "gfx1100", 84),
@@ -726,37 +736,81 @@ fn the_switch_is_offered_by_what_the_compute_runtime_reports() {
         gpu("AMD Radeon 8060S Graphics", "gfx1151", 40),
     ] {
         assert_eq!(
-            capable(std::slice::from_ref(&supported), Some("26.10.1")),
+            capable(
+                std::slice::from_ref(&supported),
+                driver,
+                &streams(&supported.name)
+            ),
             Ok(&supported)
         );
     }
-    let small = capable(&[gpu("AMD Radeon 760M Graphics", "gfx1103", 8)], None).unwrap_err();
+    let name = "AMD Radeon 760M Graphics";
+    let small = capable(&[gpu(name, "gfx1103", 8)], driver, &streams(name)).unwrap_err();
     assert!(
         small.contains("12 or more compute units")
             && small.contains("760M")
             && small.contains("has 8"),
         "{small}"
     );
-    let rdna2 = capable(&[gpu("AMD Radeon RX 6800 XT", "gfx1030", 72)], None).unwrap_err();
+    let name = "AMD Radeon RX 6800 XT";
+    let rdna2 = capable(&[gpu(name, "gfx1030", 72)], driver, &streams(name)).unwrap_err();
     assert!(
         rdna2.contains("RDNA 3 and RDNA 4") && rdna2.contains("gfx1030"),
         "{rdna2}"
     );
-    assert!(capable(&[gpu("Radeon Vega 8", "gfx90c", 8)], None).is_err());
-    // An RDNA 2 integrated GPU beside an RX 7900 XT: the card qualifies.
-    let both = [
+    let name = "Radeon Vega 8";
+    assert!(capable(&[gpu(name, "gfx90c", 8)], driver, &streams(name)).is_err());
+    assert!(
+        capable(&[], driver, &streams(name))
+            .unwrap_err()
+            .contains("finds no GPU")
+    );
+}
+
+/// Only the GPU the host streams with counts, and only with a driver whose
+/// AMD Software version is known and new enough.
+#[test]
+fn the_switch_needs_the_streaming_gpu_and_a_known_new_driver() {
+    let card = "AMD Radeon RX 7900 XT";
+    // An RDNA 2 integrated GPU beside an RX 7900 XT.
+    let mut both = [
         gpu("AMD Radeon(TM) Graphics", "gfx1036", 2),
-        gpu("AMD Radeon RX 7900 XT", "gfx1100", 84),
+        gpu(card, "gfx1100", 84),
     ];
-    assert_eq!(capable(&both, None).unwrap().name, "AMD Radeon RX 7900 XT");
-    assert!(capable(&[], None).unwrap_err().contains("finds no GPU"));
-    let old = capable(&both, Some("25.10.2")).unwrap_err();
+    let driver = Some("26.10.1");
+    assert_eq!(capable(&both, driver, &streams(card)).unwrap().name, card);
+    // Streaming with the integrated GPU: the card doesn't make it capable.
+    let integrated = capable(&both, driver, &streams("AMD Radeon(TM) Graphics")).unwrap_err();
+    assert!(integrated.contains("RDNA 3 and RDNA 4"), "{integrated}");
+    // A GPU the runtime doesn't find at all.
+    let missing = capable(&both, driver, &streams("NVIDIA GeForce RTX 4090")).unwrap_err();
+    assert!(missing.contains("RTX 4090"), "{missing}");
+    // By LUID when the runtime reports one, whatever the names.
+    both[0].luid = Some(7);
+    both[1].luid = Some(0x1_99dc);
+    let by_luid = Streams {
+        name: "Another name".into(),
+        luid: 0x1_99dc,
+    };
+    assert_eq!(capable(&both, driver, &by_luid).unwrap().name, card);
+    // Two cards of one name and neither LUID: which streams is unknown.
+    let twins = [gpu(card, "gfx1100", 84), gpu(card, "gfx1100", 84)];
+    assert!(capable(&twins, driver, &streams(card)).is_err());
+
+    let one = [gpu(card, "gfx1100", 84)];
+    let old = capable(&one, Some("25.10.2"), &streams(card)).unwrap_err();
     assert!(
         old.contains("26.9.1 or newer") && old.contains("25.10.2"),
         "{old}"
     );
-    assert!(capable(&both, Some("26.9.1")).is_ok());
-    assert!(capable(&both, Some("unknown")).is_ok());
+    assert!(capable(&one, Some("26.9.1"), &streams(card)).is_ok());
+    for unknown in [None, Some("unknown"), Some("")] {
+        let error = capable(&one, unknown, &streams(card)).unwrap_err();
+        assert!(
+            error.contains("26.9.1 or newer") && error.contains("can't be read"),
+            "{error}"
+        );
+    }
     assert_eq!(driver_version("26.10.1"), Some((26, 10, 1)));
     assert_eq!(driver_version("26.9"), Some((26, 9, 0)));
 }

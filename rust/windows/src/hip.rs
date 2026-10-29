@@ -15,6 +15,9 @@ const RUNTIMES: [&str; 2] = ["amdhip64_7.dll", "amdhip64_6.dll"];
 /// (hip_runtime_api.h). The runtime writes about 1.5 KB; the buffer is larger.
 const PROPERTIES: usize = 4096;
 const ARCH_AT: usize = 1160;
+/// `luid[8]`, after `name[256]` and the 16-byte `uuid`: the adapter's LUID
+/// as DXGI reports it (Windows only).
+const LUID_AT: usize = 272;
 /// `hipDeviceAttributeMultiprocessorCount`.
 const MULTIPROCESSOR_COUNT: c_int = 63;
 
@@ -77,6 +80,7 @@ pub fn gpus() -> Result<Vec<Gpu>> {
             bail!("the AMD compute runtime reports no architecture for GPU {device}");
         }
         let units = units.max(0) as u32;
+        let luid = u64::from_le_bytes(buffer.0[LUID_AT..LUID_AT + 8].try_into()?);
         gpus.push(Gpu {
             name: text(0),
             compute_units: if arch.starts_with("gfx1") && arch.len() == 7 {
@@ -85,6 +89,7 @@ pub fn gpus() -> Result<Vec<Gpu>> {
                 units
             },
             arch,
+            luid: (luid != 0).then_some(luid),
         });
     }
     Ok(gpus)

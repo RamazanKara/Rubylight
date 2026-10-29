@@ -259,6 +259,30 @@ pub fn stream_adapter(display: Option<&str>, adapter_name: &str, pnp_id: &str) -
         }
     }
 }
+/// The GPU a stream of `display` captures and encodes on, by name and LUID:
+/// the one the Graphics card setting names or [`stream_adapter`] pins,
+/// otherwise the one that drives the display (the primary when it is gone).
+pub fn stream_gpu(display: &str, adapter_name: &str, pnp_id: &str) -> Result<(String, (u32, i32))> {
+    let gpus = gpus()?;
+    let (name, pnp_id) = stream_adapter(Some(display), adapter_name, pnp_id);
+    if let Some(gpu) = select_gpu(&gpus, &name, &pnp_id)? {
+        return Ok((gpu.name.clone(), gpu.luid));
+    }
+    let choices = displays()?;
+    let shown = select_display(&choices, display)
+        .or_else(|_| select_display(&choices, ""))?
+        .context("no display is connected")?;
+    // SAFETY: The factory and adapter are live COM objects, and GetDesc1 returns an owned
+    // descriptor.
+    let desc = unsafe {
+        let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
+        factory.EnumAdapters1(shown.adapter_index)?.GetDesc1()?
+    };
+    Ok((
+        from_wide(&desc.Description),
+        (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart),
+    ))
+}
 /// The PCI vendor of the GPU that drives `name` (the primary if it is gone).
 fn display_vendor(name: &str) -> Option<u32> {
     let choices = displays().ok()?;

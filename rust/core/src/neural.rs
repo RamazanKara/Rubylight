@@ -635,6 +635,9 @@ pub struct Gpu {
     /// `gfx1100` and so on.
     pub arch: String,
     pub compute_units: u32,
+    /// The adapter's LUID (low part, then high part), when the runtime says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub luid: Option<u64>,
 }
 
 /// The fewest compute units the mod's neural runtime runs on (integrated graphics).
@@ -645,18 +648,50 @@ pub const MIN_DRIVER: (u32, u32, u32) = (26, 9, 1);
 /// The GPU the mod can run on, or why none can: RDNA 3 and RDNA 4 graphics
 /// with at least [`MIN_COMPUTE_UNITS`] (RX 7000 and RX 9000 cards, Strix
 /// Halo, Radeon 780M, 880M and 890M class integrated graphics). RDNA 2 needs
-/// a runtime the host does not fetch. `driver` is AMD Software's version
-/// when the driver reports one.
-pub fn capable<'a>(gpus: &'a [Gpu], driver: Option<&str>) -> Result<&'a Gpu, String> {
-    if let Some(version) = driver.and_then(driver_version)
-        && version < MIN_DRIVER
-    {
-        let (major, minor, patch) = MIN_DRIVER;
-        return Err(format!(
-            "Neural Rendering needs AMD Software: Adrenalin Edition {major}.{minor}.{patch} or newer; this PC has {}",
-            driver.unwrap_or_default()
-        ));
+/// a runtime the host does not fetch. `driver` is AMD Software's version,
+/// None when the driver doesn't report one, which refuses: the runtime
+/// needs [`MIN_DRIVER`]. Only the GPU the host streams with counts
+/// (`streams`): matched by its LUID, else by its name when no other GPU the
+/// runtime finds has that name.
+pub fn capable<'a>(
+    gpus: &'a [Gpu],
+    driver: Option<&str>,
+    streams: &Streams,
+) -> Result<&'a Gpu, String> {
+    let (major, minor, patch) = MIN_DRIVER;
+    let needs = format!(
+        "Neural Rendering needs AMD Software: Adrenalin Edition {major}.{minor}.{patch} or newer"
+    );
+    match driver.map(|text| (text, driver_version(text))) {
+        None => return Err(format!("{needs}, and this PC's version can't be read")),
+        Some((text, None)) => {
+            return Err(format!(
+                "{needs}, and this PC's version ({text}) can't be read"
+            ));
+        }
+        Some((text, Some(version))) if version < MIN_DRIVER => {
+            return Err(format!("{needs}; this PC has {text}"));
+        }
+        Some(_) => {}
     }
+    if gpus.is_empty() {
+        return Err("the AMD driver's compute runtime finds no GPU".into());
+    }
+    let gpu = match gpus.iter().find(|gpu| gpu.luid == Some(streams.luid)) {
+        Some(gpu) => gpu,
+        None => {
+            let mut named = gpus.iter().filter(|gpu| gpu.name == streams.name);
+            match (named.next(), named.next()) {
+                (Some(gpu), None) => gpu,
+                _ => {
+                    return Err(format!(
+                        "the AMD driver's compute runtime doesn't find the GPU Rubylight streams with ({})",
+                        streams.name
+                    ));
+                }
+            }
+        }
+    };
     let generation = |gpu: &Gpu| {
         let arch = gpu.arch.to_ascii_lowercase();
         let number = arch.strip_prefix("gfx").unwrap_or("");
@@ -666,26 +701,27 @@ pub fn capable<'a>(gpus: &'a [Gpu], driver: Option<&str>) -> Result<&'a Gpu, Str
             _ => 0,
         }
     };
-    if let Some(gpu) = gpus
-        .iter()
-        .find(|gpu| generation(gpu) >= 3 && gpu.compute_units >= MIN_COMPUTE_UNITS)
-    {
-        return Ok(gpu);
-    }
-    let Some(gpu) = gpus.first() else {
-        return Err("the AMD driver's compute runtime finds no GPU".into());
-    };
-    Err(if generation(gpu) >= 3 {
-        format!(
-            "Neural Rendering needs a GPU with {MIN_COMPUTE_UNITS} or more compute units; this PC's {} has {}",
-            gpu.name, gpu.compute_units
-        )
-    } else {
-        format!(
+    if generation(gpu) < 3 {
+        return Err(format!(
             "Neural Rendering runs on RDNA 3 and RDNA 4 Radeon graphics; this PC's {} ({}) is older",
             gpu.name, gpu.arch
-        )
-    })
+        ));
+    }
+    if gpu.compute_units < MIN_COMPUTE_UNITS {
+        return Err(format!(
+            "Neural Rendering needs a GPU with {MIN_COMPUTE_UNITS} or more compute units; this PC's {} has {}",
+            gpu.name, gpu.compute_units
+        ));
+    }
+    Ok(gpu)
+}
+
+/// The GPU the host captures and encodes with, as DXGI names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Streams {
+    pub name: String,
+    /// Its LUID: the low part, then the high part.
+    pub luid: u64,
 }
 
 /// AMD Software's version (`26.10.1`) as numbers.

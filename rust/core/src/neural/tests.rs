@@ -632,6 +632,7 @@ fn manifest() -> Manifest {
         .into_iter()
         .map(|(path, placed)| (path.to_string(), placed))
         .collect(),
+        previous: BTreeMap::new(),
         folders: vec!["OptiScaler".into()],
     }
 }
@@ -656,6 +657,27 @@ fn a_manifest_is_trusted_only_as_the_host_wrote_it() {
     let mut folder = good.clone();
     folder.folders.push("C:/Windows".into());
     assert!(Manifest::parse(&serde_json::to_string(&folder).unwrap()).is_err());
+    // An update's earlier forms only of files it names.
+    let mut updating = good.clone();
+    updating.previous.insert(
+        "dxgi.dll".into(),
+        Placed {
+            sha256: hash("old dll"),
+            size: 7,
+        },
+    );
+    assert_eq!(
+        Manifest::parse(&serde_json::to_string(&updating).unwrap()),
+        Ok(updating.clone())
+    );
+    updating.previous.insert(
+        "../../Windows/System32/x.dll".into(),
+        Placed {
+            sha256: hash("x"),
+            size: 1,
+        },
+    );
+    assert!(Manifest::parse(&serde_json::to_string(&updating).unwrap()).is_err());
     let mut name = good;
     name.proxy = "kernel32.dll".into();
     assert!(Manifest::parse(&serde_json::to_string(&name).unwrap()).is_err());

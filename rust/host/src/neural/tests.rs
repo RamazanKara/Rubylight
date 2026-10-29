@@ -433,6 +433,9 @@ fn the_games_program_is_found_in_its_install_or_chosen() {
     ));
 }
 
+/// An Unreal game's anti-cheat at its install's root is found however the
+/// install's path is written, and when the chosen program is outside the
+/// install; an install too big to search through is refused.
 #[test]
 fn anti_cheat_is_found_however_the_install_is_written_and_a_huge_one_is_refused() {
     let temp = tempdir();
@@ -510,6 +513,129 @@ fn anti_cheat_installed_for_every_game_does_not_refuse_one() {
         panic!()
     };
     assert!(reason.contains("Easy Anti-Cheat"), "{reason}");
+}
+
+/// `path` open without delete sharing, as a running game or a scanner may
+/// hold a DLL: it can be neither replaced nor deleted until dropped.
+fn hold(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    // FILE_SHARE_READ only.
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(path)
+        .unwrap()
+}
+
+/// An update cut short (a file the game holds open) leaves each file it
+/// replaces in one of its two forms, both the host's: the game does not
+/// launch on half an update, the next launch finishes it, and turning the
+/// switch off takes every file, the mod's DLL included.
+#[test]
+fn an_update_cut_short_leaves_nothing_a_removal_misses() {
+    let temp = tempdir();
+    let old = release(temp.path(), "Alpha0.3.5.7", b"OptiScaler old");
+    let new = package(
+        &temp.path().join("new"),
+        "Alpha0.3.5.8",
+        &[
+            ("OptiScaler.dll", b"OptiScaler new"),
+            ("OptiScaler.ini", b"[Upscalers]\n"),
+            ("LmxxfNrRuntime.dll", b"runtime new"),
+            ("LmxxfNrRuntime.pak", b"model"),
+            ("OptiScaler/libxess.dll", b"xess new"),
+            ("README.md", b"the mod's readme"),
+        ],
+    );
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    let read = |path: &str| std::fs::read(folder.join(path)).unwrap();
+    for finish in [false, true] {
+        assert!(matches!(
+            install(Some(&exe), None, &old),
+            Response::Placed { .. }
+        ));
+        let held = hold(&folder.join("OptiScaler/libxess.dll"));
+        let Response::Error { message } = prepare(&exe, Some(&new)) else {
+            panic!()
+        };
+        drop(held);
+        assert!(message.contains("libxess.dll"), "{message}");
+        // The runtime is the new release's, the mod's DLL still the old
+        // one's (it goes last), and no partial copy stayed.
+        assert_eq!(read("LmxxfNrRuntime.dll"), b"runtime new");
+        assert_eq!(read("d3d12.dll"), b"OptiScaler old");
+        assert_eq!(read("OptiScaler/libxess.dll"), b"xess");
+        assert!(!names(folder).iter().any(|name| name.ends_with("-partial")));
+        let Response::Error { message } = prepare(&exe, None) else {
+            panic!()
+        };
+        assert!(message.contains("cut short"), "{message}");
+        if finish {
+            assert_eq!(
+                prepare(&exe, Some(&new)),
+                Response::Placed {
+                    exe: exe.clone(),
+                    release: "Alpha0.3.5.8".into(),
+                    proxy: "d3d12.dll".into(),
+                    updated: true,
+                }
+            );
+            assert_eq!(read("d3d12.dll"), b"OptiScaler new");
+            assert_eq!(read("OptiScaler/libxess.dll"), b"xess new");
+            let manifest =
+                Manifest::parse(&std::fs::read_to_string(folder.join(MANIFEST)).unwrap()).unwrap();
+            assert!(manifest.previous.is_empty());
+            assert!(matches!(
+                prepare(&exe, Some(&new)),
+                Response::Placed { updated: false, .. }
+            ));
+        }
+        assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+        assert_eq!(names(folder), before);
+    }
+}
+
+/// A first install that fails at any step, its last manifest write
+/// included, takes back every file and folder it made.
+#[test]
+fn a_first_install_cut_short_leaves_nothing_behind() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    // A folder where the manifest is written first: every write of it fails.
+    let blocker = folder.join(format!("{MANIFEST}.rubylight-partial"));
+    std::fs::create_dir(&blocker).unwrap();
+    let before = names(folder);
+    let Response::Error { message } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    assert!(message.contains(MANIFEST), "{message}");
+    assert_eq!(names(folder), before);
+
+    // The first manifest is written; the last fails once every file is copied.
+    std::fs::remove_dir(&blocker).unwrap();
+    let before = names(folder);
+    let response = handle(
+        Request::Install {
+            exe: Some(exe.clone()),
+            install: None,
+            package: cache.clone(),
+        },
+        &|done, total| {
+            if done == total {
+                let _ = std::fs::create_dir(&blocker);
+            }
+        },
+    );
+    let Response::Error { message } = response else {
+        panic!("{response:?}")
+    };
+    assert!(message.contains(MANIFEST), "{message}");
+    std::fs::remove_dir(&blocker).unwrap();
+    assert_eq!(names(folder), before);
 }
 
 fn archive(path: &Path, files: &[(&str, &[u8])]) {
@@ -862,7 +988,9 @@ async fn the_switch_is_offered_only_on_a_capable_gpu_after_the_notice() {
     assert!(matches!(enable(h, "missing", None), Err(Refusal::NotFound)));
 }
 
-/// The real release into `C:\tests\neural\fakegame` and out again:
+/// The real release into `C:\tests\neural\fakegame` and out again, then
+/// the update to it from an older form of it, cut short by a placed file
+/// held open, and turned off; then cut short, finished and turned off:
 /// `cargo test -p butterpollo neural::tests::real_release -- --ignored --nocapture`.
 #[tokio::test]
 #[ignore = "downloads about 1 GB from GitHub"]
@@ -904,4 +1032,72 @@ async fn real_release_into_a_fake_game() {
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
     show("after removal");
     assert_eq!(names(&game), ["FakeGame.exe", "dxgi.dll"]);
+
+    // An older form of the release: its first file, the runtime and the
+    // mod's DLL differ. The update to the real one renames the first,
+    // fails on the runtime the game holds open, and never reaches the DLL.
+    let older = base.join("older");
+    let _ = std::fs::remove_dir_all(&older);
+    let mut previous = package.clone();
+    previous.tag = format!("{}-older", package.tag);
+    let first = previous.files.keys().next().unwrap().clone();
+    for (path, placed) in &mut previous.files {
+        let (source, copy) = (
+            folder.join("files").join(path),
+            older.join("files").join(path),
+        );
+        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+        if [first.as_str(), "LmxxfNrRuntime.dll", "OptiScaler.dll"].contains(&path.as_str()) {
+            let mut bytes = std::fs::read(&source).unwrap();
+            bytes.extend_from_slice(b" older");
+            std::fs::write(&copy, &bytes).unwrap();
+            *placed = Placed {
+                sha256: sha(&bytes),
+                size: bytes.len() as u64,
+            };
+        } else {
+            std::fs::hard_link(&source, &copy)
+                .or_else(|_| std::fs::copy(&source, &copy).map(drop))
+                .unwrap();
+        }
+    }
+    std::fs::write(
+        older.join(PACKAGE),
+        serde_json::to_string(&previous).unwrap(),
+    )
+    .unwrap();
+    let runtime = game.join("LmxxfNrRuntime.dll");
+    for finish in [false, true] {
+        assert!(matches!(
+            install(Some(&exe), None, &older),
+            Response::Placed { .. }
+        ));
+        show(&format!("after installing {}", previous.tag));
+        let held = hold(&runtime);
+        let response = prepare(&exe, Some(&folder));
+        drop(held);
+        println!(
+            "update to {} with the runtime held open: {response:?}",
+            package.tag
+        );
+        assert!(matches!(response, Response::Error { .. }));
+        let manifest =
+            Manifest::parse(&std::fs::read_to_string(game.join(MANIFEST)).unwrap()).unwrap();
+        println!(
+            "   manifest: release {}, both forms kept for {:?}",
+            manifest.release,
+            manifest.previous.keys().collect::<Vec<_>>()
+        );
+        show("after the update was cut short");
+        if finish {
+            let response = prepare(&exe, Some(&folder));
+            println!("the next launch: {response:?}");
+            assert!(matches!(response, Response::Placed { updated: true, .. }));
+            show("after the update finished");
+        }
+        assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+        show("after turning it off");
+        assert_eq!(names(&game), ["FakeGame.exe", "dxgi.dll"]);
+    }
+    let _ = std::fs::remove_dir_all(&older);
 }

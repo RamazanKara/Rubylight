@@ -139,7 +139,7 @@ pub fn handle(request: Request, progress: &dyn Fn(u64, u64)) -> Response {
             install,
             package,
         } => prepare(&exe, install.as_deref(), package, progress),
-        Request::Remove { exe } => remove(folder_of(&exe)).map_err(Failure::Error),
+        Request::Remove { exe } => remove(folder_of(&exe)),
     };
     result.unwrap_or_else(|failure| match failure {
         Failure::ChooseExe(reason) => Response::ChooseExe { reason },
@@ -187,6 +187,13 @@ enum Failure {
     ChooseExe(String),
     Refused(String),
     Error(String),
+}
+impl Failure {
+    fn message(&self) -> String {
+        match self {
+            Self::ChooseExe(text) | Self::Refused(text) | Self::Error(text) => text.clone(),
+        }
+    }
 }
 type Outcome<T> = Result<T, Failure>;
 
@@ -426,17 +433,46 @@ fn sha256_file(path: &Path) -> std::io::Result<(String, u64)> {
     }
 }
 
-/// A placed file as it is now. `quick` checks a big file by its size.
-fn now(folder: &Path, path: &str, placed: &Placed, quick: bool) -> Now {
+/// Which of `forms` the file at `path` is now, [`Now::Missing`] or
+/// [`Now::Changed`] when it is none. `quick` checks a big file by its size.
+fn matched<'a>(
+    folder: &Path,
+    path: &str,
+    forms: &[&'a Placed],
+    quick: bool,
+) -> Result<&'a Placed, Now> {
     let file = folder.join(path);
-    match std::fs::symlink_metadata(&file) {
-        Err(_) => Now::Missing,
-        Ok(meta) if !meta.is_file() || meta.len() != placed.size => Now::Changed,
-        Ok(_) if quick && placed.size >= HASHED_AT_LAUNCH => Now::Same,
-        Ok(_) => match sha256_file(&file) {
-            Ok((hash, _)) if hash == placed.sha256 => Now::Same,
-            _ => Now::Changed,
-        },
+    let meta = std::fs::symlink_metadata(&file).map_err(|_| Now::Missing)?;
+    let sized: Vec<&Placed> = forms
+        .iter()
+        .copied()
+        .filter(|placed| meta.is_file() && meta.len() == placed.size)
+        .collect();
+    match sized.first() {
+        None => Err(Now::Changed),
+        Some(placed) if quick && placed.size >= HASHED_AT_LAUNCH => Ok(placed),
+        Some(_) => {
+            let (hash, _) = sha256_file(&file).map_err(|_| Now::Changed)?;
+            sized
+                .into_iter()
+                .find(|placed| placed.sha256 == hash)
+                .ok_or(Now::Changed)
+        }
+    }
+}
+
+/// A file `manifest` names as it is now: [`Now::Same`] as placed, or during
+/// an update, as the release before placed it.
+fn state(folder: &Path, manifest: &Manifest, path: &str, quick: bool) -> Now {
+    let forms: Vec<&Placed> = manifest
+        .files
+        .get(path)
+        .into_iter()
+        .chain(manifest.previous.get(path))
+        .collect();
+    match matched(folder, path, &forms, quick) {
+        Ok(_) => Now::Same,
+        Err(now) => now,
     }
 }
 
@@ -454,17 +490,27 @@ fn manifest(folder: &Path) -> Result<Option<Manifest>, String> {
     }
 }
 
-fn write_manifest(folder: &Path, manifest: &Manifest) -> Result<(), String> {
+fn write_manifest(folder: &Path, manifest: &Manifest) -> Outcome<()> {
     let path = folder.join(MANIFEST);
-    let partial = folder.join(format!("{MANIFEST}{PARTIAL}"));
-    let text = serde_json::to_string_pretty(manifest).map_err(|e| e.to_string())?;
+    let partial = partial(&path);
+    let text = serde_json::to_string_pretty(manifest).map_err(|e| Failure::Error(e.to_string()))?;
     std::fs::write(&partial, text)
         .and_then(|()| std::fs::rename(&partial, &path))
-        .map_err(|e| format!("cannot write {}: {e}", path.display()))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&partial);
+            Failure::Error(format!("cannot write {}: {e}", path.display()))
+        })
 }
 
-/// Copy `source` to `target` through a partial file, checking it against the
-/// package as it goes; a tampered cache never reaches the game.
+/// What `path` is called until it is complete.
+fn partial(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(PARTIAL);
+    name.into()
+}
+
+/// Copy `source` to `target`'s partial file, checking it against the package
+/// as it goes; a tampered cache never reaches the game.
 fn copy_checked(
     source: &Path,
     target: &Path,
@@ -472,7 +518,7 @@ fn copy_checked(
     done: &mut u64,
     progress: &dyn Fn(u64),
 ) -> Result<(), String> {
-    let partial = PathBuf::from(format!("{}{PARTIAL}", target.display()));
+    let partial = partial(target);
     let _ = std::fs::remove_file(&partial);
     let result = (|| {
         let mut input = std::fs::File::open(source)?;
@@ -505,7 +551,7 @@ fn copy_checked(
                 source.display()
             )));
         }
-        std::fs::rename(&partial, target)
+        Ok(())
     })();
     result.map_err(|e| {
         let _ = std::fs::remove_file(&partial);
@@ -521,10 +567,8 @@ fn occupant(folder: &Path, name: &str, manifest: Option<&Manifest>) -> Occupant 
     }
     if let Some(manifest) = manifest
         && manifest.proxy == name
-        && manifest
-            .files
-            .get(name)
-            .is_some_and(|placed| now(folder, name, placed, false) == Now::Same)
+        && manifest.files.contains_key(name)
+        && state(folder, manifest, name, false) == Now::Same
     {
         return Occupant::Ours;
     }
@@ -558,9 +602,11 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
     }
     let proxy =
         neural::proxy(|name| occupant(folder, name, old.as_ref())).map_err(Failure::Refused)?;
-    // Each file of the package where it goes, the mod's DLL under the proxy name.
+    // Each file of the package where it goes, the mod's DLL under the proxy
+    // name. A file already as this release has it stays; one to copy keeps
+    // the form the release before left, if any.
+    let mut wanted = Vec::new();
     let mut plan = Vec::new();
-    let mut keep_settings = None;
     for (path, placed) in &package.files {
         if path == SUMS {
             continue;
@@ -570,44 +616,56 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
         } else {
             path.clone()
         };
-        let before = old.as_ref().and_then(|m| m.files.get(&target));
-        match before.map(|placed| now(folder, &target, placed, false)) {
-            Some(Now::Changed) if target == SETTINGS => {
-                // The user's settings from the mod's menu stay through an update.
-                keep_settings = before.cloned();
+        let forms: Vec<&Placed> = old
+            .iter()
+            .flat_map(|m| [m.files.get(&target), m.previous.get(&target)])
+            .flatten()
+            .collect();
+        if forms.is_empty() && std::fs::symlink_metadata(folder.join(&target)).is_ok() {
+            if neural::document(&target) {
                 continue;
             }
-            Some(Now::Changed) => {
+            return Err(Failure::Refused(format!(
+                "{target} is already in the game's folder and is not Rubylight's"
+            )));
+        }
+        let before = match matched(folder, &target, &forms, false) {
+            Ok(form) if form == placed => {
+                wanted.push((target, placed.clone()));
+                continue;
+            }
+            Ok(form) => Some(form.clone()),
+            Err(Now::Changed) if target == SETTINGS => {
+                // The user's settings from the mod's menu stay through an update.
+                continue;
+            }
+            Err(Now::Changed) => {
                 return Err(Failure::Error(format!(
                     "{target} changed since Rubylight placed it in {}: turn Neural Rendering off and on again",
                     folder.display()
                 )));
             }
-            Some(_) => {}
-            None if std::fs::symlink_metadata(folder.join(&target)).is_ok() => {
-                if neural::document(&target) {
-                    continue;
-                }
-                return Err(Failure::Refused(format!(
-                    "{target} is already in the game's folder and is not Rubylight's"
-                )));
-            }
-            None => {}
-        }
-        plan.push((path.clone(), target, placed.clone()));
+            Err(_) => None,
+        };
+        plan.push((path.clone(), target.clone(), placed.clone(), before));
+        wanted.push((target, placed.clone()));
     }
     // Folders the files need that are not there yet, parents first.
     let mut folders = old.as_ref().map(|m| m.folders.clone()).unwrap_or_default();
-    for (_, target, _) in &plan {
+    let mut make = Vec::new();
+    for (_, target, _, _) in &plan {
         let parts: Vec<&str> = target.split('/').collect();
         for end in 1..parts.len() {
             let relative = parts[..end].join("/");
             let path = folder.join(&relative);
+            if make.contains(&relative) {
+                continue;
+            }
             if !path.exists() {
-                std::fs::create_dir(&path).map_err(|e| {
-                    Failure::Error(format!("cannot create {}: {e}", path.display()))
-                })?;
-                folders.push(relative);
+                if !folders.contains(&relative) {
+                    folders.push(relative.clone());
+                }
+                make.push(relative);
             } else if !path.is_dir() {
                 return Err(Failure::Refused(format!(
                     "{relative} in the game's folder is not a folder"
@@ -616,57 +674,111 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
         }
     }
     let mut files = old.as_ref().map(|m| m.files.clone()).unwrap_or_default();
-    for (_, target, placed) in &plan {
+    let mut previous = old.as_ref().map(|m| m.previous.clone()).unwrap_or_default();
+    for (target, placed) in &wanted {
         files.insert(target.clone(), placed.clone());
+        previous.remove(target);
     }
-    if let Some(settings) = keep_settings {
-        files.insert(SETTINGS.into(), settings);
-    }
-    // The manifest names every file before it is placed, so a copy cut short
-    // is still removed.
-    let mut manifest = Manifest {
-        by: PLACED_BY.into(),
-        release: old
-            .as_ref()
-            .map_or_else(|| package.tag.clone(), |m| m.release.clone()),
-        proxy: proxy.into(),
-        files,
-        folders,
-    };
-    write_manifest(folder, &manifest).map_err(Failure::Error)?;
-    let total: u64 = plan.iter().map(|(_, _, placed)| placed.size).sum();
-    let mut done = 0;
-    for (source, target, placed) in &plan {
-        let source = cached.folder.join("files").join(source);
-        let copied = copy_checked(&source, &folder.join(target), placed, &mut done, &|done| {
-            progress(done, total)
-        });
-        if let Err(error) = copied {
-            // A first install cut short goes again, so the switch stays off
-            // with nothing left behind; an update stays for the launch to report.
-            if old.is_none() {
-                let _ = remove(folder);
-            }
-            return Err(Failure::Error(error));
-        }
-    }
-    // Files of the release before that this one no longer has.
-    let placed: Vec<&String> = plan.iter().map(|(_, target, _)| target).collect();
-    let stale: Vec<String> = manifest
-        .files
-        .keys()
-        .filter(|path| !placed.contains(path) && path.as_str() != SETTINGS)
-        .cloned()
-        .collect();
-    for path in stale {
-        if now(folder, &path, &manifest.files[&path], false) != Now::Changed {
-            let _ = std::fs::remove_file(folder.join(&path));
-            manifest.files.remove(&path);
+    for (_, target, _, before) in &plan {
+        if let Some(before) = before {
+            previous.insert(target.clone(), before.clone());
         }
     }
     let updated = old.as_ref().is_some_and(|m| m.release != package.tag);
-    manifest.release = package.tag.clone();
-    write_manifest(folder, &manifest).map_err(Failure::Error)?;
+    let first = old.is_none();
+    // The manifest names every file and folder before one is made, each
+    // file it replaces in both forms; whatever a failure or a kill leaves
+    // is the host's, and a removal finds it.
+    let mut manifest = Manifest {
+        by: PLACED_BY.into(),
+        release: old.map_or_else(|| package.tag.clone(), |m| m.release),
+        proxy: proxy.into(),
+        files,
+        previous,
+        folders,
+    };
+    write_manifest(folder, &manifest)?;
+    let placing = (|| {
+        for relative in &make {
+            let path = folder.join(relative);
+            std::fs::create_dir(&path)
+                .map_err(|e| Failure::Error(format!("cannot create {}: {e}", path.display())))?;
+        }
+        // Each file whole and checked beside its place first, then all in
+        // place at once, the mod's DLL last: the game loads the mod only
+        // beside the files it needs.
+        let total: u64 = plan.iter().map(|(_, _, placed, _)| placed.size).sum();
+        let mut done = 0;
+        for (source, target, placed, _) in &plan {
+            let source = cached.folder.join("files").join(source);
+            copy_checked(&source, &folder.join(target), placed, &mut done, &|done| {
+                progress(done, total)
+            })
+            .map_err(Failure::Error)?;
+        }
+        let (dll, others): (Vec<_>, Vec<_>) =
+            plan.iter().partition(|(_, target, _, _)| target == proxy);
+        for (_, target, _, _) in others.into_iter().chain(dll) {
+            let path = folder.join(target);
+            std::fs::rename(partial(&path), &path)
+                .map_err(|e| Failure::Error(format!("cannot place {}: {e}", path.display())))?;
+        }
+        // Files of the release before that this one no longer has.
+        let stale: Vec<String> = manifest
+            .files
+            .keys()
+            .filter(|path| {
+                path.as_str() != SETTINGS && !wanted.iter().any(|(target, _)| target == *path)
+            })
+            .cloned()
+            .collect();
+        for path in stale {
+            let forms: Vec<&Placed> = manifest
+                .files
+                .get(&path)
+                .into_iter()
+                .chain(manifest.previous.get(&path))
+                .collect();
+            let form = match matched(folder, &path, &forms, false) {
+                Ok(form) => form.clone(),
+                Err(Now::Missing) => {
+                    manifest.files.remove(&path);
+                    continue;
+                }
+                // Someone's since: it stays, for a removal to keep too.
+                Err(_) => continue,
+            };
+            match std::fs::remove_file(folder.join(&path)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    // Still the host's, as it is now: a removal takes it.
+                    manifest.files.insert(path, form);
+                }
+                _ => {
+                    manifest.files.remove(&path);
+                }
+            }
+        }
+        manifest.release = package.tag.clone();
+        manifest.previous.clear();
+        write_manifest(folder, &manifest)
+    })();
+    if let Err(failure) = placing {
+        for (_, target, _, _) in &plan {
+            let _ = std::fs::remove_file(partial(&folder.join(target)));
+        }
+        // A first install cut short goes again, so the switch stays off with
+        // nothing left behind. An update cut short leaves each file it
+        // replaces in one of its two forms: the next launch finishes it, and
+        // turning the switch off removes either.
+        if first && let Err(left) = remove(folder) {
+            return Err(Failure::Error(format!(
+                "{}, and what was placed could not be removed again: {}",
+                failure.message(),
+                left.message()
+            )));
+        }
+        return Err(failure);
+    }
     Ok(Response::Placed {
         exe: exe.to_path_buf(),
         release: package.tag.clone(),
@@ -689,14 +801,21 @@ fn prepare(
             folder.display()
         )));
     };
+    // Another release, or the rest of an update cut short.
     if let Some(folder) = package {
         let cached = Package::read(&folder).map_err(Failure::Error)?.with(folder);
-        if cached.package.tag != manifest.release {
+        if cached.package.tag != manifest.release || !manifest.previous.is_empty() {
             return place(exe, &cached, progress);
         }
     }
-    for (path, placed) in &manifest.files {
-        let state = now(folder, path, placed, true);
+    if !manifest.previous.is_empty() {
+        return Err(Failure::Error(format!(
+            "an update of Neural Rendering in {} was cut short: turn it off and on again",
+            folder.display()
+        )));
+    }
+    for path in manifest.files.keys() {
+        let state = state(folder, &manifest, path, true);
         if state != Now::Same && !(path == SETTINGS && state == Now::Changed) {
             let how = if state == Now::Missing {
                 "is missing"
@@ -719,7 +838,7 @@ fn prepare(
 
 /// Delete what the manifest names and is still as placed, the mod's logs and
 /// the folders it created once empty; a file someone changed stays.
-fn remove(folder: &Path) -> Result<Response, String> {
+fn remove(folder: &Path) -> Outcome<Response> {
     // A folder that is gone with its game holds nothing; one on a drive that
     // is not connected may, and is not called removed.
     if !folder.is_dir() && folder.ancestors().last().is_none_or(|root| !root.is_dir()) {
@@ -727,36 +846,39 @@ fn remove(folder: &Path) -> Result<Response, String> {
             folder: folder.display().to_string(),
         });
     }
-    let Some(manifest) = manifest(folder)? else {
+    let Some(manifest) = manifest(folder).map_err(Failure::Error)? else {
         return Ok(Response::Removed { kept: Vec::new() });
     };
-    let removal = neural::removal(&manifest, |path| {
-        now(folder, path, &manifest.files[path], false)
-    });
+    let removal = neural::removal(&manifest, |path| state(folder, &manifest, path, false));
     for path in &removal.delete {
         let file = folder.join(path);
         std::fs::remove_file(&file)
-            .map_err(|e| format!("cannot remove {}: {e}", file.display()))?;
+            .map_err(|e| Failure::Error(format!("cannot remove {}: {e}", file.display())))?;
     }
-    for path in manifest.files.keys() {
-        let _ = std::fs::remove_file(PathBuf::from(format!(
-            "{}{PARTIAL}",
-            folder.join(path).display()
-        )));
-    }
-    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
-        if entry.file_type().is_ok_and(|kind| kind.is_file())
-            && neural::logs(&entry.file_name().to_string_lossy())
-        {
-            let _ = std::fs::remove_file(entry.path());
-        }
+    let mut leftovers: Vec<String> = manifest
+        .files
+        .keys()
+        .map(|path| format!("{path}{PARTIAL}"))
+        .collect();
+    leftovers.extend(
+        std::fs::read_dir(folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| neural::logs(name)),
+    );
+    leftovers.push(format!("{MANIFEST}{PARTIAL}"));
+    for path in leftovers {
+        let _ = std::fs::remove_file(folder.join(path));
     }
     // Deepest first; a folder that still holds someone's files stays.
     for relative in manifest.folders.iter().rev() {
         let _ = std::fs::remove_dir(folder.join(relative));
     }
-    let _ = std::fs::remove_file(folder.join(format!("{MANIFEST}{PARTIAL}")));
     let path = folder.join(MANIFEST);
-    std::fs::remove_file(&path).map_err(|e| format!("cannot remove {}: {e}", path.display()))?;
+    std::fs::remove_file(&path)
+        .map_err(|e| Failure::Error(format!("cannot remove {}: {e}", path.display())))?;
     Ok(Response::Removed { kept: removal.keep })
 }

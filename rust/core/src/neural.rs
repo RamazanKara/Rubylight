@@ -546,6 +546,11 @@ pub struct Manifest {
     pub proxy: String,
     /// Each placed file by its path in the folder (with `/`).
     pub files: BTreeMap<String, Placed>,
+    /// While an update runs: each file it replaces as the release before
+    /// placed it. Such a file is the host's in either form, so an update cut
+    /// short still leaves only files a removal takes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub previous: BTreeMap<String, Placed>,
     /// Folders the host created, parents first.
     #[serde(default)]
     pub folders: Vec<String>,
@@ -562,6 +567,10 @@ impl Manifest {
         let inside = |path: &String| entry_path(path).as_ref() == Some(path);
         if !PROXIES.contains(&manifest.proxy.as_str())
             || !manifest.files.keys().all(inside)
+            || !manifest
+                .previous
+                .keys()
+                .all(|path| manifest.files.contains_key(path))
             || !manifest.folders.iter().all(inside)
         {
             return Err(format!("{MANIFEST} names a file outside the game folder"));

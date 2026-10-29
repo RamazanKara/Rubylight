@@ -48,10 +48,10 @@ pub fn catalog(folder: &Path, appdata: Option<&Path>) -> Result<Catalog> {
         .into_iter()
         .chain([folder.join("content").join("userprofile.json")]);
     for path in profiles {
-        if !path.is_file() {
+        let Some(text) = read_list(&path)? else {
             continue;
-        }
-        let games = handler::user_games(&read_text(&path)?)
+        };
+        let games = handler::user_games(&text)
             .map_err(anyhow::Error::msg)
             .with_context(|| path.display().to_string())?;
         for game in games {
@@ -66,6 +66,64 @@ pub fn catalog(folder: &Path, appdata: Option<&Path>) -> Result<Catalog> {
 fn read_text(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     String::from_utf8(bytes).with_context(|| format!("{} is not UTF-8 text", path.display()))
+}
+
+/// The most of a game list the host reads; Nucleus' own are kilobytes.
+const LIST_CAP: u64 = 16 * 1024 * 1024;
+
+/// The game list at `path`, or None when there is none. It is the signed-in
+/// user's, read with the host's rights: a link is opened itself and refused,
+/// never followed, and only a file on a disk of at most [`LIST_CAP`] bytes
+/// is read.
+fn read_list(path: &Path) -> Result<Option<String>> {
+    use std::io::Read;
+    use std::os::windows::fs::MetadataExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Storage::FileSystem::{FILE_TYPE_DISK, GetFileType};
+    const REPARSE_POINT: u32 = 0x400;
+    let refused = || {
+        anyhow::anyhow!(
+            "{} is a folder, a link or a device, not Nucleus Co-op's game list, so Rubylight does not read it: move it away, and Nucleus Co-op makes a new one",
+            path.display()
+        )
+    };
+    let file = match crate::process::open_unfollowed(path, false) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        // A folder or a link to one can't be opened as a file.
+        Err(_)
+            if std::fs::symlink_metadata(path).is_ok_and(|metadata| {
+                metadata.is_dir() || metadata.file_attributes() & REPARSE_POINT != 0
+            }) =>
+        {
+            return Err(refused());
+        }
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    };
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("reading {}", path.display()))?;
+    // SAFETY: the handle is open for the call.
+    let kind = unsafe { GetFileType(windows::Win32::Foundation::HANDLE(file.as_raw_handle())) };
+    if !metadata.is_file()
+        || metadata.file_attributes() & REPARSE_POINT != 0
+        || kind != FILE_TYPE_DISK
+    {
+        return Err(refused());
+    }
+    let mut bytes = Vec::new();
+    file.take(LIST_CAP + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("reading {}", path.display()))?;
+    ensure!(
+        bytes.len() as u64 <= LIST_CAP,
+        "{} is larger than {} MB, far more than Nucleus Co-op's game list holds, so Rubylight does not read it: move it away, and Nucleus Co-op makes a new one",
+        path.display(),
+        LIST_CAP / (1024 * 1024)
+    );
+    String::from_utf8(bytes)
+        .map(Some)
+        .with_context(|| format!("{} is not UTF-8 text", path.display()))
 }
 
 /// The file's text, or None when there is no file.
@@ -129,7 +187,7 @@ pub fn write_own(folder: &Path, appdata: &Path, setup: &Setup) -> Result<Handler
 /// Add `setup`'s game to the game list at `path`, replacing the file whole
 /// so Nucleus never reads half of it.
 fn add_game(path: &Path, setup: &Setup) -> Result<()> {
-    let old = read_existing(path)?;
+    let old = read_list(path)?;
     let Some(new) = generic::add_game(old.as_deref(), &setup.guid(), &setup.exe_path)
         .map_err(anyhow::Error::msg)
         .with_context(|| path.display().to_string())?
@@ -148,7 +206,20 @@ fn add_game(path: &Path, setup: &Setup) -> Result<()> {
 
 /// Replace the game list at `path` whole, so Nucleus never reads half of it.
 fn replace(path: &Path, text: &str) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
     let temporary = path.with_extension("json.rubylight");
+    // Writing would follow a link to wherever it leads.
+    for file in [path, temporary.as_path()] {
+        match std::fs::symlink_metadata(file) {
+            Ok(metadata) => ensure!(
+                metadata.file_attributes() & 0x400 == 0,
+                "{} is a link to elsewhere, so Rubylight does not write Nucleus Co-op's game list through it: move it away",
+                file.display()
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).with_context(|| format!("reading {}", file.display())),
+        }
+    }
     std::fs::write(&temporary, text).with_context(|| format!("writing {}", temporary.display()))?;
     std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
 }
@@ -165,7 +236,7 @@ fn list(appdata: &Path) -> PathBuf {
 /// window still open.
 pub fn check_list(appdata: &Path, setup: Option<&Setup>, remove: &[&str]) -> Result<()> {
     let path = list(appdata);
-    let Some(text) = read_existing(&path)? else {
+    let Some(text) = read_list(&path)? else {
         return Ok(());
     };
     let edits = || -> Result<(), String> {
@@ -221,7 +292,7 @@ pub fn remove_own(folder: &Path, appdata: &Path, own: &Handler) -> Result<()> {
 }
 
 fn remove_game(path: &Path, guid: &str) -> Result<()> {
-    let Some(old) = read_existing(path)? else {
+    let Some(old) = read_list(path)? else {
         return Ok(());
     };
     match generic::remove_game(&old, guid)
@@ -713,6 +784,109 @@ Game.MaxPlayers = 4;
             std::fs::read_to_string(&list).unwrap(),
             r#"{"Games":[{"GameGuid":}]}"#
         );
+    }
+
+    #[test]
+    fn only_a_game_list_file_on_the_disk_of_sane_size_is_read_never_a_link() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let appdata = tempfile::tempdir().unwrap();
+        let setup = Setup::new(r"D:\Puzzle\Game.exe", "Puzzle", None);
+        let list = list(appdata.path());
+        let shown = list.display().to_string();
+        std::fs::create_dir_all(list.parent().unwrap()).unwrap();
+        let theirs = r#"{"Games":[{"GameGuid":"A","ExePath":"C:\\A.exe"}]}"#;
+        // A list as Nucleus writes it still reads.
+        std::fs::write(&list, theirs).unwrap();
+        let games = catalog(nucleus.path(), Some(appdata.path())).unwrap().games;
+        assert_eq!(games.len(), 1);
+        check_list(appdata.path(), Some(&setup), &[]).unwrap();
+        // Every read of the list refuses it, naming it, and nothing is written.
+        let refused = |why: &str| {
+            let errors = [
+                catalog(nucleus.path(), Some(appdata.path())).map(|_| ()),
+                check_list(appdata.path(), Some(&setup), &[]),
+                write_own(nucleus.path(), appdata.path(), &setup).map(|_| ()),
+                remove_game(&list, "A"),
+            ];
+            for error in errors {
+                let error = format!("{:#}", error.unwrap_err());
+                assert!(error.contains(&shown) && error.contains(why), "{error}");
+            }
+        };
+
+        // Larger than any list: never read whole.
+        let big = std::fs::File::create(&list).unwrap();
+        big.set_len(LIST_CAP + 1).unwrap();
+        drop(big);
+        refused("larger than 16 MB");
+        assert_eq!(std::fs::metadata(&list).unwrap().len(), LIST_CAP + 1);
+        // A folder where the list should be.
+        std::fs::remove_file(&list).unwrap();
+        std::fs::create_dir(&list).unwrap();
+        refused("is a folder, a link or a device");
+        assert!(list.is_dir());
+        std::fs::remove_dir(&list).unwrap();
+        // A junction to a folder elsewhere.
+        let elsewhere = appdata.path().join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        let junction = |link: &Path| {
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(&elsewhere)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "mklink /J failed");
+        };
+        junction(&list);
+        refused("is a folder, a link or a device");
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+        std::fs::remove_dir(&list).unwrap();
+        // A link to a file elsewhere, which takes Developer Mode or
+        // administrator rights to make.
+        let target = appdata.path().join("target.json");
+        std::fs::write(&target, theirs).unwrap();
+        match std::os::windows::fs::symlink_file(&target, &list) {
+            Ok(()) => {
+                refused("is a folder, a link or a device");
+                assert_eq!(std::fs::read_to_string(&target).unwrap(), theirs);
+                std::fs::remove_file(&list).unwrap();
+            }
+            Err(error) => eprintln!(
+                "the symbolic link case is skipped: making one needs Developer Mode or administrator rights ({error})"
+            ),
+        }
+
+        // The list is replaced through neither a link at its name nor one at
+        // the temporary file's.
+        std::fs::write(&list, theirs).unwrap();
+        let temporary = list.with_extension("json.rubylight");
+        junction(&temporary);
+        let error = format!(
+            "{:#}",
+            write_own(nucleus.path(), appdata.path(), &setup).unwrap_err()
+        );
+        assert!(
+            error.contains(&temporary.display().to_string()) && error.contains("is a link"),
+            "{error}"
+        );
+        assert_eq!(std::fs::read_to_string(&list).unwrap(), theirs);
+        std::fs::remove_dir(&temporary).unwrap();
+        std::fs::remove_file(&list).unwrap();
+        junction(&list);
+        let error = format!("{:#}", replace(&list, theirs).unwrap_err());
+        assert!(
+            error.contains(&shown) && error.contains("is a link"),
+            "{error}"
+        );
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+        std::fs::remove_dir(&list).unwrap();
+        // And with none, it is.
+        write_own(nucleus.path(), appdata.path(), &setup).unwrap();
+        let games = catalog(nucleus.path(), Some(appdata.path())).unwrap().games;
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].guid, setup.guid());
     }
 
     #[test]

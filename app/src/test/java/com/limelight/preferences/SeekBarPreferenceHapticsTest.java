@@ -22,7 +22,10 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
-/** The bitrate slider ticks once per value it moves to, from a drag or a button (nightjar#44). */
+/**
+ * The bitrate slider ticks once per value it moves to, from a drag or a button, and a fast drag at
+ * most once per {@link SeekBarPreference#SLIDER_TICK_MS} (nightjar#44).
+ */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34)
 public class SeekBarPreferenceHapticsTest {
@@ -83,6 +86,28 @@ public class SeekBarPreferenceHapticsTest {
         SeekBar slider = find(dialog, SeekBar.class, null);
         assertNotNull(slider);
         slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+        assertEquals(STEP, shadowOf(slider).lastHapticFeedbackPerformed());
+    }
+
+    @Test
+    public void aFastDragTicksAtMostOncePerInterval() {
+        // Times are explicit: Robolectric's clock moves on its own while the slider animates.
+        Context context = new ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme);
+        SeekBarPreference bitrate = new SeekBarPreference(context, Robolectric.buildAttributeSet()
+                .addAttribute(android.R.attr.max, "100000")
+                .build());
+        bitrate.setPersistent(false);
+        SeekBar slider = find(bitrate.onCreateDialogView(), SeekBar.class, null);
+        assertNotNull(slider);
+        bitrate.slideTo(slider, 5000, 1000);
+        assertEquals(STEP, shadowOf(slider).lastHapticFeedbackPerformed());
+
+        // A marker shows whether the next value change ticked.
+        slider.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        bitrate.slideTo(slider, 6000, 1000 + SeekBarPreference.SLIDER_TICK_MS - 1);
+        assertEquals(HapticFeedbackConstants.LONG_PRESS, shadowOf(slider).lastHapticFeedbackPerformed());
+
+        bitrate.slideTo(slider, 7000, 1000 + SeekBarPreference.SLIDER_TICK_MS);
         assertEquals(STEP, shadowOf(slider).lastHapticFeedbackPerformed());
     }
 }

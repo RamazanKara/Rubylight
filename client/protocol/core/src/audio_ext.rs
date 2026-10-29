@@ -44,12 +44,16 @@ pub const LAYOUT_714_HQ_DESCRIBE_ATTRIBUTE: &str = "x-rl-audio.layout714Hq";
 pub const CODEC_ANNOUNCE_ATTRIBUTE: &str = "x-rl-audio.codec";
 
 /// 7.1.4's channel count and its WAVEFORMATEXTENSIBLE mask (FL FR FC LFE BL BR SL SR TFL TFR
-/// TBL TBR). The mask does not fit the launch's 16-bit `surroundAudioInfo`, so a launch
-/// carries 12 with mask 0, and ANNOUNCE carries this mask.
+/// TBL TBR), which the host captures with.
 pub const CHANNELS_714: u8 = 12;
 pub const CHANNEL_MASK_714: u32 = 0x2D63F;
-/// Opus bitrates of [`LAYOUT_714`] and [`LAYOUT_714_HQ`].
-pub const BITRATE_714: u32 = 640_000;
+/// The mask a client sends for 7.1.4 in the launch's `surroundAudioInfo` and ANNOUNCE's
+/// `x-nv-audio.surround.channelMask`: Moonlight V+'s `AUDIO_CONFIGURATION_714_SURROUND`
+/// (its moonlight-common-c `Limelight.h`), which fits the launch's 16 bits. Hosts read the
+/// channel count only.
+pub const WIRE_CHANNEL_MASK_714: u16 = 0xF63F;
+/// Opus bitrates of [`LAYOUT_714`] and [`LAYOUT_714_HQ`], Foundation Sunshine's.
+pub const BITRATE_714: u32 = 600_000;
 pub const BITRATE_714_HQ: u32 = 3_072_000;
 
 /// Bitrates the host encodes AC3 and E-AC3 at, by channel count.
@@ -130,7 +134,7 @@ impl ChunkHeader {
 }
 
 /// An Opus multistream layout of 12 channels: channel count, streams, coupled streams and
-/// the channel mapping, as in `a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9`.
+/// the channel mapping, as in `a=x-rl-audio.layout714:12,8,4,0,1,2,3,4,5,6,7,8,9,10,11`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layout {
     pub channels: u8,
@@ -139,19 +143,21 @@ pub struct Layout {
     pub mapping: [u8; 12],
 }
 
-/// 7.1.4 at [`BITRATE_714`]: five coupled streams for the pairs, two mono.
+/// 7.1.4 at [`BITRATE_714`]: Foundation Sunshine's layout (`audio.cpp` `stream_configs`,
+/// `map_surround714`), which Moonlight V+ also assumes when a host sends no parameters. Four
+/// coupled streams (FL FR, FC LFE, BL BR, SL SR) and the four heights mono, mapped in order.
 pub const LAYOUT_714: Layout = Layout {
     channels: 12,
-    streams: 7,
-    coupled: 5,
-    mapping: [0, 1, 10, 11, 2, 3, 4, 5, 6, 7, 8, 9],
+    streams: 8,
+    coupled: 4,
+    mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 };
 /// 7.1.4 at [`BITRATE_714_HQ`]: one mono stream per channel.
 pub const LAYOUT_714_HQ: Layout = Layout {
     channels: 12,
     streams: 12,
     coupled: 0,
-    mapping: [0, 1, 10, 11, 2, 3, 4, 5, 6, 7, 8, 9],
+    mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 };
 
 impl Layout {
@@ -202,15 +208,19 @@ impl Layout {
     }
 }
 
-/// The two DESCRIBE lines that offer 7.1.4.
+/// The DESCRIBE lines that offer 7.1.4: ours, then Foundation Sunshine's `surround-params`
+/// in its comma form (mapping entries reach 11), normal before high quality as
+/// moonlight-common-c reads them. Stock clients look up `surround-params=6` or `8` only, so
+/// they skip the `12,` lines.
 pub fn layout_714_lines() -> Vec<String> {
-    [
+    let ours = [
         (LAYOUT_714_DESCRIBE_ATTRIBUTE, LAYOUT_714),
         (LAYOUT_714_HQ_DESCRIBE_ATTRIBUTE, LAYOUT_714_HQ),
     ]
-    .iter()
-    .map(|(attribute, layout)| alloc::format!("a={attribute}:{}\r\n", layout.to_attr()))
-    .collect()
+    .map(|(attribute, layout)| alloc::format!("a={attribute}:{}\r\n", layout.to_attr()));
+    let surround_params = [LAYOUT_714, LAYOUT_714_HQ]
+        .map(|layout| alloc::format!("a=fmtp:97 surround-params={}\r\n", layout.to_attr()));
+    ours.into_iter().chain(surround_params).collect()
 }
 
 #[cfg(test)]
@@ -293,16 +303,19 @@ mod tests {
 
     #[test]
     fn layouts_parse_and_print() {
-        assert_eq!(LAYOUT_714.to_attr(), "12,7,5,0,1,10,11,2,3,4,5,6,7,8,9");
-        assert_eq!(LAYOUT_714_HQ.to_attr(), "12,12,0,0,1,10,11,2,3,4,5,6,7,8,9");
+        assert_eq!(LAYOUT_714.to_attr(), "12,8,4,0,1,2,3,4,5,6,7,8,9,10,11");
+        assert_eq!(LAYOUT_714_HQ.to_attr(), "12,12,0,0,1,2,3,4,5,6,7,8,9,10,11");
         for layout in [LAYOUT_714, LAYOUT_714_HQ] {
             assert_eq!(Layout::parse(&layout.to_attr()), Some(layout));
         }
+        // The last two are Foundation Sunshine's 7.1.4 DESCRIBE lines, byte for byte.
         assert_eq!(
             layout_714_lines(),
             [
-                "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n",
-                "a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n",
+                "a=x-rl-audio.layout714:12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n",
+                "a=x-rl-audio.layout714Hq:12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n",
+                "a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n",
+                "a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n",
             ]
         );
         for text in [

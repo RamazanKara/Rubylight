@@ -473,9 +473,9 @@ mod tests {
             .collect()
     }
     #[test]
-    fn seven_one_four_layouts_are_rfc_7845_mapping_tables_with_paired_speakers() {
+    fn seven_one_four_layouts_are_foundations_rfc_7845_mapping_tables() {
         for (quality, streams, coupled, bitrate) in [
-            (false, 7, 5, audio_ext::BITRATE_714),
+            (false, 8, 4, audio_ext::BITRATE_714),
             (true, 12, 0, audio_ext::BITRATE_714_HQ),
         ] {
             let layout = OpusLayout::select(12, quality, None).unwrap();
@@ -498,18 +498,16 @@ mod tests {
             assert_eq!(layout.mapping, offered.mapping);
             let decoded = decoded_channels(&layout);
             if !quality {
-                // The left/right pairs (fronts, backs, sides, top fronts, top backs) share a
-                // coupled stream as family 1 couples them; centre and LFE are mono.
-                for (left, right) in [(0, 1), (4, 5), (6, 7), (8, 9), (10, 11)] {
-                    assert_eq!(decoded[left].0, decoded[right].0, "{left}");
-                    assert_eq!(
-                        (decoded[left].1, decoded[right].1),
-                        (Some(0), Some(1)),
-                        "{left}"
-                    );
+                // Foundation Sunshine's 600 kb/s layout, which V+ clients assume without
+                // parameters: FL FR, FC LFE, BL BR and SL SR share coupled streams in that
+                // order, and the four heights are mono.
+                for (stream, pair) in decoded[..8].chunks(2).enumerate() {
+                    assert_eq!(pair, [(stream, Some(0)), (stream, Some(1))], "{stream}");
                 }
-                assert_eq!(decoded[2].1, None);
-                assert_eq!(decoded[3].1, None);
+                for (height, decoded) in decoded.iter().enumerate().skip(8) {
+                    assert_eq!(*decoded, (height - 4, None), "{height}");
+                }
+                assert_eq!(layout.bitrate, 600_000);
             }
         }
         // surroundParams is single digits, so a custom 12-channel layout cannot be named.

@@ -304,30 +304,173 @@ fn remove_game(path: &Path, guid: &str) -> Result<()> {
     }
 }
 
-/// Set what the host's profile needs in Nucleus' `Settings.ini` (read from
-/// Nucleus' working folder), keeping the user's other settings. Nucleus
-/// needs every key of the file it ships and shows a message box without
-/// one, so a missing file is an error, never one the host writes.
-pub fn write_settings(folder: &Path) -> Result<()> {
+/// The file in Nucleus' folder that keeps the values a session forced in
+/// `Settings.ini` until they are put back.
+fn settings_journal(folder: &Path) -> PathBuf {
+    folder.join("Rubylight-settings.json")
+}
+
+/// Write `path` whole: a temporary file, on the disk before it is renamed
+/// over it, so a crash or power loss never leaves half a file.
+fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
+    let temporary = path.with_extension("rubylight.tmp");
+    let mut file = std::fs::File::create(&temporary)
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    std::io::Write::write_all(&mut file, bytes)
+        .and_then(|()| file.sync_all())
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    drop(file);
+    std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+}
+
+/// Put back the user's values of `forced` in `folder`'s `Settings.ini`
+/// where the session's still are ([`profile::put_back_settings`]).
+fn put_back_settings(folder: &Path, forced: &[profile::Forced]) -> Result<usize> {
+    let path = folder.join("Settings.ini");
+    let text = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let (text, changed) = profile::put_back_settings(&text, forced);
+    if changed > 0 {
+        write_whole(&path, &text)?;
+    }
+    Ok(changed)
+}
+
+/// Remove a journal put back from; one already gone is fine.
+fn remove_settings_journal(journal: &Path) -> Result<()> {
+    match std::fs::remove_file(journal) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("removing {}", journal.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Put back what a session the host never ended forced in the
+/// `Settings.ini` of the Nucleus at `folder`, and remove its journal:
+/// before the next session and as the host starts. Returns how many values
+/// it put back.
+pub fn restore_settings_left(folder: &Path) -> Result<usize> {
+    let journal = settings_journal(folder);
+    let bytes = match std::fs::read(&journal) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "reading {}, which keeps the Nucleus Co-op settings an earlier session changed",
+                    journal.display()
+                )
+            });
+        }
+    };
+    // Created but never written to the disk, as power loss can leave it.
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        tracing::warn!(
+            file = %journal.display(),
+            "Nucleus Co-op: the settings file of an earlier session is empty; removing it"
+        );
+        remove_settings_journal(&journal)?;
+        return Ok(0);
+    }
+    let forced: Vec<profile::Forced> = serde_json::from_slice(&bytes).map_err(|error| {
+        anyhow::anyhow!(
+            "{} can't be read ({error}): delete it, then start the stream again. The Nucleus Co-op settings it kept stay as the earlier session set them",
+            journal.display()
+        )
+    })?;
+    let changed = put_back_settings(folder, &forced).with_context(|| {
+        format!(
+            "the Nucleus Co-op settings an earlier session changed were not put back from {}",
+            journal.display()
+        )
+    })?;
+    tracing::info!(
+        changed,
+        "Nucleus Co-op: an earlier session's changes to Settings.ini are put back"
+    );
+    remove_settings_journal(&journal)?;
+    Ok(changed)
+}
+
+/// The values a session forced in `Settings.ini`, put back once when it is
+/// dropped or [`restore`](SettingsGuard::restore) is called, after Nucleus
+/// closed. Should that fail, its journal keeps them for the next session.
+pub struct SettingsGuard {
+    folder: PathBuf,
+    forced: Vec<profile::Forced>,
+    restored: bool,
+}
+
+impl SettingsGuard {
+    pub fn restore(&mut self) {
+        if std::mem::replace(&mut self.restored, true) || self.forced.is_empty() {
+            return;
+        }
+        let journal = settings_journal(&self.folder);
+        match put_back_settings(&self.folder, &self.forced) {
+            Ok(changed) => {
+                tracing::info!(
+                    changed,
+                    "Nucleus Co-op: Settings.ini is back as the user set it"
+                );
+                if let Err(error) = remove_settings_journal(&journal) {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "Nucleus Co-op: the put-back settings' file was not removed"
+                    );
+                }
+            }
+            Err(error) => tracing::error!(
+                error = format!("{error:#}"),
+                file = %journal.display(),
+                "Nucleus Co-op: Settings.ini was not put back; the next session tries again"
+            ),
+        }
+    }
+}
+
+impl Drop for SettingsGuard {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+
+/// Set what a session needs in Nucleus' `Settings.ini` (read from Nucleus'
+/// working folder), first putting back what an earlier session left
+/// ([`restore_settings_left`]). Nucleus stops with a message box on a
+/// missing key, so a file missing keys (or missing) is completed from its
+/// own defaults ([`profile::settings_ini`]). The user's choices the session
+/// changes come back through the returned guard; every other byte stays.
+pub fn write_settings(folder: &Path) -> Result<SettingsGuard> {
+    restore_settings_left(folder)?;
     let path = folder.join("Settings.ini");
     let text = match std::fs::read(&path) {
-        Ok(bytes) => String::from_utf8(bytes)
-            .with_context(|| format!("{} is not UTF-8 text", path.display()))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => bail!(
-            "Nucleus Co-op's install is incomplete ({} is missing): set it up again in the console's Play together panel",
-            path.display()
-        ),
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
     };
-    let (bom, body) = match text.strip_prefix('\u{feff}') {
-        Some(body) => ("\u{feff}", body),
-        None => ("", text.as_str()),
-    };
-    let updated = format!("{bom}{}", profile::settings_ini(body));
-    if updated != text {
-        std::fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
+    let settings = profile::settings_ini(&text);
+    if !settings.added.is_empty() {
+        tracing::info!(
+            file = %path.display(),
+            keys = settings.added.join(", "),
+            "Nucleus Co-op: Settings.ini completed from Nucleus Co-op {}'s defaults",
+            butterpollo_core::nucleus::install::VERSION
+        );
     }
-    Ok(())
+    // The journal first: a host that stops after the next write finds it.
+    let journal = settings_journal(folder);
+    if !settings.forced.is_empty() {
+        write_whole(&journal, &serde_json::to_vec_pretty(&settings.forced)?)?;
+    }
+    if settings.text != text {
+        write_whole(&path, &settings.text)?;
+    }
+    Ok(SettingsGuard {
+        folder: folder.to_path_buf(),
+        forced: settings.forced,
+        restored: false,
+    })
 }
 
 /// A handler's GUID names its profile folder; one that would name another
@@ -894,38 +1037,128 @@ Game.MaxPlayers = 4;
         assert_eq!(games[0].guid, setup.guid());
     }
 
+    fn ini(folder: &Path, section: &str, key: &str) -> Option<Vec<u8>> {
+        let text = std::fs::read(folder.join("Settings.ini")).unwrap();
+        profile::ini_value(&text, section, key)
+    }
+
+    /// A user's file in the PC's code page (Nucleus writes it through
+    /// kernel32's ANSI calls: ü is 0xFC), with the filters that hid the
+    /// game (#59).
+    const USERS: &[u8] = b"\xef\xbb\xbf[Misc]\r\nSettingsLocation=C:\\M\xfcnchen\r\nGameSortingOpt=Sort_2,Show_Type2\r\n[Dev]\r\nShowFavoriteOnly=True\r\nUseXinputIndex=False\r\n";
+
     #[test]
-    fn settings_are_forced_and_the_rest_kept() {
+    fn settings_are_completed_forced_and_the_users_put_back_after_the_session() {
         let nucleus = tempfile::tempdir().unwrap();
-        let path = nucleus.path().join("Settings.ini");
-        std::fs::write(
-            &path,
-            "\u{feff}[Dev]\r\nUseXinputIndex=False\r\n[Misc]\r\nTheme=Dark\r\n",
-        )
-        .unwrap();
-        write_settings(nucleus.path()).unwrap();
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.starts_with('\u{feff}'), "{text:?}");
-        assert!(text.contains("UseXinputIndex=True"), "{text:?}");
-        assert!(text.contains("DisableGameProfiles=False"), "{text:?}");
-        assert!(text.contains("Theme=Dark"), "{text:?}");
-        assert!(!text.contains("UseXinputIndex=False"), "{text:?}");
-        assert!(text.contains("DisablePathCheck=True"), "{text:?}");
+        let folder = nucleus.path();
+        let path = folder.join("Settings.ini");
+        std::fs::write(&path, USERS).unwrap();
+        let mut guard = write_settings(folder).unwrap();
+        let text = std::fs::read(&path).unwrap();
+        // Edited as bytes: the BOM, the code page's ü and CRLF stay.
+        assert!(
+            text.starts_with(b"\xef\xbb\xbf[Misc]\r\nSettingsLocation=C:\\M\xfcnchen\r\n"),
+            "{}",
+            String::from_utf8_lossy(&text)
+        );
+        assert_eq!(ini(folder, "Dev", "UseXinputIndex").unwrap(), b"True");
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"False");
+        assert_eq!(ini(folder, "Dev", "DisablePathCheck").unwrap(), b"True");
+        assert_eq!(ini(folder, "Misc", "GameSortingOpt").unwrap(), b"Sort_2");
+        // Completed from Nucleus' defaults.
+        assert_eq!(ini(folder, "Dev", "Blur").unwrap(), b"4");
+        assert!(settings_journal(folder).is_file());
+        // Nucleus changed the list's order meanwhile: that stays.
+        let changed = profile::ini_set(
+            &std::fs::read(&path).unwrap(),
+            &[("Misc", "GameSortingOpt", "Sort_3")],
+        );
+        std::fs::write(&path, changed).unwrap();
+        guard.restore();
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"True");
+        assert_eq!(ini(folder, "Dev", "DisablePathCheck").unwrap(), b"False");
+        assert_eq!(ini(folder, "Misc", "GameSortingOpt").unwrap(), b"Sort_3");
+        // Pads by index and the completed keys stay.
+        assert_eq!(ini(folder, "Dev", "UseXinputIndex").unwrap(), b"True");
+        assert_eq!(ini(folder, "Dev", "Blur").unwrap(), b"4");
+        assert_eq!(
+            ini(folder, "Misc", "SettingsLocation").unwrap(),
+            b"C:\\M\xfcnchen"
+        );
+        assert!(!settings_journal(folder).exists());
+        // Once only.
+        std::fs::write(&path, b"[Dev]\r\nShowFavoriteOnly=False\r\n").unwrap();
+        drop(guard);
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"False");
     }
 
     #[test]
-    fn a_missing_settings_file_is_an_incomplete_install_and_none_is_written() {
-        // A two-key file made Nucleus show "unable to load its settings" at
-        // its start, before its window: every key it ships is required.
-        let fresh = tempfile::tempdir().unwrap();
-        let error = format!("{:#}", write_settings(fresh.path()).unwrap_err());
+    fn a_missing_or_partial_settings_file_is_completed_from_nucleus_defaults() {
+        // The host wrote the two-key file where none was; Nucleus then
+        // stopped at its start on the first key missing (#59).
+        for old in [
+            None,
+            Some(&b"[Dev]\r\nUseXinputIndex=True\r\n[Misc]\r\nDisableGameProfiles=False\r\n"[..]),
+        ] {
+            let nucleus = tempfile::tempdir().unwrap();
+            let folder = nucleus.path();
+            if let Some(old) = old {
+                std::fs::write(folder.join("Settings.ini"), old).unwrap();
+            }
+            drop(write_settings(folder).unwrap());
+            let text = std::fs::read(folder.join("Settings.ini")).unwrap();
+            for (section, key) in [
+                ("Hotkeys", "Close"),
+                ("Dev", "ShowFavoriteOnly"),
+                ("Dev", "ProfileAssignGamepadByButonPress"),
+                ("Misc", "VGMOnly"),
+                ("CustomLayout", "MaxPlayers"),
+            ] {
+                assert!(
+                    profile::ini_value(&text, section, key).is_some_and(|v| !v.is_empty()),
+                    "{section}.{key}"
+                );
+            }
+            assert_eq!(ini(folder, "Dev", "UseXinputIndex").unwrap(), b"True");
+            // The completed DisablePathCheck=False came back after the session.
+            assert_eq!(ini(folder, "Dev", "DisablePathCheck").unwrap(), b"False");
+            assert!(!settings_journal(folder).exists());
+        }
+    }
+
+    #[test]
+    fn what_a_session_the_host_never_ended_forced_is_put_back_first() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let folder = nucleus.path();
+        std::fs::write(folder.join("Settings.ini"), USERS).unwrap();
+        // The host stopped mid-session: its guard never ran.
+        std::mem::forget(write_settings(folder).unwrap());
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"False");
+        // The next session keeps the user's value, not the last session's.
+        std::mem::forget(write_settings(folder).unwrap());
+        let journal: Vec<profile::Forced> =
+            serde_json::from_slice(&std::fs::read(settings_journal(folder)).unwrap()).unwrap();
+        let favourites = journal
+            .iter()
+            .find(|f| f.key == "ShowFavoriteOnly")
+            .unwrap();
+        assert_eq!(favourites.before, b"True");
+        // As the host starts.
+        assert_eq!(restore_settings_left(folder).unwrap(), 3);
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"True");
+        assert!(!settings_journal(folder).exists());
+        assert_eq!(restore_settings_left(folder).unwrap(), 0);
+        // An empty journal goes; one that can't be read stops the session
+        // and names itself.
+        std::fs::write(settings_journal(folder), b"").unwrap();
+        assert_eq!(restore_settings_left(folder).unwrap(), 0);
+        assert!(!settings_journal(folder).exists());
+        std::fs::write(settings_journal(folder), b"{").unwrap();
+        let error = format!("{:#}", write_settings(folder).err().unwrap());
         assert!(
-            error.starts_with("Nucleus Co-op's install is incomplete")
-                && error.contains("Settings.ini is missing")
-                && error.contains("set it up again in the console's Play together panel"),
+            error.contains("Rubylight-settings.json can't be read") && error.contains("delete it"),
             "{error}"
         );
-        assert!(!fresh.path().join("Settings.ini").exists());
     }
 
     #[test]

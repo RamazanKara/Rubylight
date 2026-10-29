@@ -132,90 +132,266 @@ pub fn file_number(name: &str) -> Option<u32> {
         .ok()
 }
 
+/// Nucleus Co-op 2.4.2's `Settings.ini` as its release ships it (the pinned
+/// `NucleusApp.zip`'s, line ends aside). Nucleus stops with a message box
+/// when a key it reads is missing (`App_Settings_Loader`), so the host
+/// completes a file from this.
+pub const DEFAULT_SETTINGS: &str = include_str!("settings-2.4.2.ini");
+
 /// What the host's profile needs in Nucleus' `Settings.ini`: pads assigned
 /// by XInput index, which the profile's pad names are, and game profiles
 /// on, or Nucleus would not read the profile. Nucleus' check of its own
 /// folder and of a Documents folder in OneDrive shows a message box before
-/// its window opens, which no one answers in a background stream, and its
-/// favourites-only list would hide the host's game (#59).
-const FORCED: [(&str, &str, &str); 4] = [
+/// its window opens, and its reminder of the End key one before each game
+/// starts (`GenericGameHandler.Play`); no one answers either in a
+/// background stream. Its favourites-only list would hide the host's game
+/// (#59).
+const FORCED: [(&str, &str, &str); 5] = [
     ("Dev", "UseXinputIndex", "True"),
     ("Misc", "DisableGameProfiles", "False"),
     ("Dev", "DisablePathCheck", "True"),
     ("Dev", "ShowFavoriteOnly", "False"),
+    ("Misc", "IgnoreInputLockReminder", "True"),
+];
+
+/// The forced keys a session puts back when it ends: how the user set up
+/// Nucleus' own window. Pads by index and game profiles on stay set.
+const PUT_BACK: [&str; 4] = [
+    "DisablePathCheck",
+    "ShowFavoriteOnly",
+    "IgnoreInputLockReminder",
+    "GameSortingOpt",
 ];
 
 /// Nucleus' list filters in `[Misc] GameSortingOpt` (`SortOptionsPanel.cs`):
 /// only games with gamepad hooks, keyboard or several keyboards. Each would
 /// hide the host's own handler, which has none of them; the `Sort_*`
 /// orders stay.
-const LIST_FILTERS: [&str; 3] = ["Show_Type1", "Show_Type2", "Show_Type3"];
+const LIST_FILTERS: [&[u8]; 3] = [b"Show_Type1", b"Show_Type2", b"Show_Type3"];
 
-/// The line of `key` in `section` and where the section ends, as
-/// `GetPrivateProfileString` finds them: names in any case, the first
-/// section of that name. None without the section.
-fn find(lines: &[String], section: &str, key: &str) -> Option<(Option<usize>, usize)> {
-    let header = format!("[{section}]");
-    let start = lines
-        .iter()
-        .position(|l| l.trim().eq_ignore_ascii_case(&header))?;
-    let end = lines[start + 1..]
-        .iter()
-        .position(|l| l.trim().starts_with('['))
-        .map_or(lines.len(), |i| start + 1 + i);
-    let existing = (start + 1..end).find(|&i| {
-        lines[i]
-            .split('=')
-            .next()
-            .is_some_and(|k| k.trim().eq_ignore_ascii_case(key))
-    });
-    Some((existing, end))
+/// An INI file as bytes: Nucleus writes it through kernel32's ANSI calls,
+/// so a value may be in the PC's code page. Names are matched as ASCII in
+/// any case; every other byte, the BOM and the line ends stay.
+struct Ini {
+    bom: bool,
+    /// Each line's text and its end.
+    lines: Vec<(Vec<u8>, Vec<u8>)>,
+    /// The end a new line gets: the file's first, else CRLF as kernel32 writes.
+    end: Vec<u8>,
 }
 
-/// The value of `key` in `section` of an INI file, as Nucleus reads it.
-pub fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
-    let lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let (line, _) = find(&lines, section, key)?;
-    let (_, value) = lines[line?].split_once('=')?;
-    Some(value.trim().to_string())
-}
+const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// An INI file with each (section, key, value) of `values` set, CRLF line
-/// ends; other lines stay as they are.
-pub fn ini_set(text: &str, values: &[(&str, &str, &str)]) -> String {
-    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    for &(section, key, value) in values {
-        let entry = format!("{key}={value}");
-        match find(&lines, section, key) {
-            Some((Some(i), _)) => lines[i] = entry,
-            Some((None, end)) => lines.insert(end, entry),
+impl Ini {
+    fn parse(bytes: &[u8]) -> Ini {
+        let (bom, mut rest) = match bytes.strip_prefix(BOM) {
+            Some(rest) => (true, rest),
+            None => (false, bytes),
+        };
+        let mut lines = Vec::new();
+        while !rest.is_empty() {
+            let (line, next) = match rest.iter().position(|&b| b == b'\n') {
+                Some(at) => rest.split_at(at + 1),
+                None => (rest, &[][..]),
+            };
+            let text_len = line
+                .strip_suffix(b"\r\n")
+                .or_else(|| line.strip_suffix(b"\n"))
+                .map_or(line.len(), <[u8]>::len);
+            lines.push((line[..text_len].to_vec(), line[text_len..].to_vec()));
+            rest = next;
+        }
+        let end = lines
+            .iter()
+            .map(|(_, end)| end)
+            .find(|end| !end.is_empty())
+            .cloned()
+            .unwrap_or_else(|| b"\r\n".to_vec());
+        Ini { bom, lines, end }
+    }
+
+    fn bytes(&self) -> Vec<u8> {
+        let mut bytes = if self.bom { BOM.to_vec() } else { Vec::new() };
+        for (text, end) in &self.lines {
+            bytes.extend_from_slice(text);
+            bytes.extend_from_slice(end);
+        }
+        bytes
+    }
+
+    fn header(text: &[u8]) -> Option<&[u8]> {
+        text.trim_ascii().strip_prefix(b"[")?.strip_suffix(b"]")
+    }
+
+    fn key(text: &[u8]) -> Option<&[u8]> {
+        let at = text.iter().position(|&b| b == b'=')?;
+        Some(text[..at].trim_ascii())
+    }
+
+    /// The line of `key` in `section` and where the section ends, as
+    /// `GetPrivateProfileString` finds them: the first section of that
+    /// name. None without the section.
+    fn find(&self, section: &str, key: &str) -> Option<(Option<usize>, usize)> {
+        let start = self.lines.iter().position(|(text, _)| {
+            Self::header(text).is_some_and(|name| name.eq_ignore_ascii_case(section.as_bytes()))
+        })?;
+        let end = self.lines[start + 1..]
+            .iter()
+            .position(|(text, _)| text.trim_ascii().starts_with(b"["))
+            .map_or(self.lines.len(), |i| start + 1 + i);
+        let existing = (start + 1..end).find(|&i| {
+            Self::key(&self.lines[i].0).is_some_and(|k| k.eq_ignore_ascii_case(key.as_bytes()))
+        });
+        Some((existing, end))
+    }
+
+    fn get(&self, section: &str, key: &str) -> Option<&[u8]> {
+        let text = &self.lines[self.find(section, key)?.0?].0;
+        let at = text.iter().position(|&b| b == b'=')?;
+        Some(text[at + 1..].trim_ascii())
+    }
+
+    fn push(&mut self, at: usize, text: Vec<u8>) {
+        // A last line without an end gets one before a line follows it.
+        if at > 0 && self.lines[at - 1].1.is_empty() {
+            self.lines[at - 1].1 = self.end.clone();
+        }
+        let end = self.end.clone();
+        self.lines.insert(at, (text, end));
+    }
+
+    fn set(&mut self, section: &str, key: &str, value: &[u8]) {
+        let mut entry = format!("{key}=").into_bytes();
+        entry.extend_from_slice(value);
+        match self.find(section, key) {
+            Some((Some(i), _)) => self.lines[i].0 = entry,
+            Some((None, end)) => self.push(end, entry),
             None => {
-                lines.push(format!("[{section}]"));
-                lines.push(entry);
+                let at = self.lines.len();
+                self.push(at, format!("[{section}]").into_bytes());
+                self.push(at + 1, entry);
             }
         }
     }
-    let mut text = lines.join("\r\n");
-    text.push_str("\r\n");
-    text
+
+    /// Every (section, key, value), in order.
+    fn entries(&self) -> Vec<(String, String, Vec<u8>)> {
+        let mut section = String::new();
+        let mut entries = Vec::new();
+        for (text, _) in &self.lines {
+            if let Some(name) = Self::header(text) {
+                section = String::from_utf8_lossy(name).into_owned();
+            } else if let Some(key) = Self::key(text) {
+                let at = text.iter().position(|&b| b == b'=').unwrap_or(text.len());
+                entries.push((
+                    section.clone(),
+                    String::from_utf8_lossy(key).into_owned(),
+                    text[at + 1..].trim_ascii().to_vec(),
+                ));
+            }
+        }
+        entries
+    }
 }
 
-/// Nucleus' `Settings.ini` with [`FORCED`] set and [`LIST_FILTERS`] off;
-/// other lines stay as they are.
-pub fn settings_ini(text: &str) -> String {
-    let text = ini_set(text, &FORCED);
-    // Nucleus splits the value at commas and matches each entry exactly.
-    let Some(sorting) = ini_value(&text, "Misc", "GameSortingOpt") else {
-        return text;
-    };
-    let kept: Vec<&str> = sorting
-        .split(',')
-        .filter(|entry| !LIST_FILTERS.contains(&entry.trim()))
-        .collect();
-    if kept.len() == sorting.split(',').count() {
-        return text;
+/// The value of `key` in `section` of an INI file, as Nucleus reads it.
+pub fn ini_value(text: &[u8], section: &str, key: &str) -> Option<Vec<u8>> {
+    Ini::parse(text).get(section, key).map(<[u8]>::to_vec)
+}
+
+/// An INI file with each (section, key, value) of `values` set; other bytes
+/// stay as they are.
+pub fn ini_set(text: &[u8], values: &[(&str, &str, &str)]) -> Vec<u8> {
+    let mut ini = Ini::parse(text);
+    for &(section, key, value) in values {
+        ini.set(section, key, value.as_bytes());
     }
-    ini_set(&text, &[("Misc", "GameSortingOpt", &kept.join(","))])
+    ini.bytes()
+}
+
+/// A value a session changed in `Settings.ini` and puts back when it ends.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Forced {
+    pub section: String,
+    pub key: String,
+    /// The user's value.
+    pub before: Vec<u8>,
+    /// The session's.
+    pub forced: Vec<u8>,
+}
+
+/// [`settings_ini`]'s result.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Settings {
+    pub text: Vec<u8>,
+    /// The keys completed from [`DEFAULT_SETTINGS`], as `Section.Key`.
+    pub added: Vec<String>,
+    /// What the session puts back ([`PUT_BACK`]).
+    pub forced: Vec<Forced>,
+}
+
+/// Nucleus' `Settings.ini` (empty when there is none) completed from
+/// [`DEFAULT_SETTINGS`], with [`FORCED`] set and [`LIST_FILTERS`] off;
+/// every other byte stays. A repaired key stays: it is no choice of the
+/// user's. Another Nucleus release (`nucleus_path`) ignores 2.4.2's keys it
+/// doesn't read.
+pub fn settings_ini(text: &[u8]) -> Settings {
+    let mut ini = Ini::parse(text);
+    let mut added = Vec::new();
+    for (section, key, value) in Ini::parse(DEFAULT_SETTINGS.as_bytes()).entries() {
+        if ini.get(&section, &key).is_none() {
+            ini.set(&section, &key, &value);
+            added.push(format!("{section}.{key}"));
+        }
+    }
+    let mut changes: Vec<(&str, &str, Vec<u8>)> = FORCED
+        .iter()
+        .map(|&(section, key, value)| (section, key, value.as_bytes().to_vec()))
+        .collect();
+    // Nucleus splits the value at commas and matches each entry exactly.
+    if let Some(sorting) = ini.get("Misc", "GameSortingOpt") {
+        let kept: Vec<&[u8]> = sorting
+            .split(|&b| b == b',')
+            .filter(|entry| !LIST_FILTERS.contains(&entry.trim_ascii()))
+            .collect();
+        changes.push(("Misc", "GameSortingOpt", kept.join(b",".as_slice())));
+    }
+    let mut forced = Vec::new();
+    for (section, key, value) in changes {
+        let before = ini.get(section, key).unwrap_or_default().to_vec();
+        if before == value {
+            continue;
+        }
+        ini.set(section, key, &value);
+        if PUT_BACK.contains(&key) {
+            forced.push(Forced {
+                section: section.into(),
+                key: key.into(),
+                before,
+                forced: value,
+            });
+        }
+    }
+    Settings {
+        text: ini.bytes(),
+        added,
+        forced,
+    }
+}
+
+/// `Settings.ini` with each of `forced` back to the user's value where it
+/// still has the session's: a value Nucleus or the user changed since
+/// stays. Returns the file and how many values it put back.
+pub fn put_back_settings(text: &[u8], forced: &[Forced]) -> (Vec<u8>, usize) {
+    let mut ini = Ini::parse(text);
+    let mut changed = 0;
+    for value in forced {
+        if ini.get(&value.section, &value.key) == Some(&value.forced[..]) {
+            ini.set(&value.section, &value.key, &value.before);
+            changed += 1;
+        }
+    }
+    (ini.bytes(), changed)
 }
 
 #[cfg(test)]
@@ -308,42 +484,111 @@ mod tests {
         assert_eq!(file_number("notes.txt"), None);
     }
 
-    /// The `[Dev]` lines every rewrite adds after `UseXinputIndex`.
-    const DEV: &str = "DisablePathCheck=True\r\nShowFavoriteOnly=False\r\n";
+    /// The value of `key` in `section` as text.
+    fn value(text: &[u8], section: &str, key: &str) -> Option<String> {
+        ini_value(text, section, key).map(|v| String::from_utf8(v).unwrap())
+    }
+
+    /// Nucleus 2.4.2's own file; a checkout may have turned its line ends
+    /// into CRLF.
+    fn shipped() -> String {
+        DEFAULT_SETTINGS.replace("\r\n", "\n")
+    }
 
     #[test]
-    fn settings_ini_assigns_pads_by_index_and_keeps_the_rest() {
-        let ini = "[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=False\r\nOther=1\r\n[Audio]\r\n";
-        assert_eq!(
-            settings_ini(ini),
-            format!(
-                "[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=True\r\nOther=1\r\n{DEV}[Audio]\r\n"
-            )
-        );
-        assert_eq!(
-            settings_ini("[Dev]\nOther=1\n[Audio]\n"),
-            format!(
-                "[Dev]\r\nOther=1\r\nUseXinputIndex=True\r\n{DEV}[Audio]\r\n[Misc]\r\nDisableGameProfiles=False\r\n"
-            )
-        );
+    fn settings_ini_forces_the_hosts_keys_and_keeps_every_other_byte() {
+        let ini =
+            "[Misc]\r\nDisableGameProfiles=True\r\n[Dev]\r\nUseXinputIndex=False\r\nOther=1\r\n";
+        let settings = settings_ini(ini.as_bytes());
+        let text = &settings.text;
+        assert_eq!(value(text, "Dev", "UseXinputIndex").unwrap(), "True");
         // Profiles switched off would make Nucleus ignore the host's.
+        assert_eq!(value(text, "Misc", "DisableGameProfiles").unwrap(), "False");
+        assert_eq!(value(text, "Dev", "DisablePathCheck").unwrap(), "True");
+        assert_eq!(value(text, "Dev", "ShowFavoriteOnly").unwrap(), "False");
         assert_eq!(
-            settings_ini("[Misc]\nDisableGameProfiles=True\n"),
-            format!("[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=True\r\n{DEV}")
+            value(text, "Misc", "IgnoreInputLockReminder").unwrap(),
+            "True"
         );
-        assert_eq!(
-            settings_ini(""),
-            format!("[Dev]\r\nUseXinputIndex=True\r\n{DEV}[Misc]\r\nDisableGameProfiles=False\r\n")
+        assert!(
+            text.starts_with(b"[Misc]\r\nDisableGameProfiles=False\r\n"),
+            "{}",
+            String::from_utf8_lossy(text)
+        );
+        assert!(String::from_utf8_lossy(text).contains("\r\nOther=1\r\n"));
+        // Pads by index and profiles on stay set; the rest goes back.
+        let keys: Vec<&str> = settings.forced.iter().map(|f| f.key.as_str()).collect();
+        // A key completed from Nucleus' defaults that already has the
+        // session's value is no change.
+        assert_eq!(keys, ["DisablePathCheck"]);
+        assert_eq!(settings.forced[0].before, b"False");
+        assert_eq!(settings.forced[0].forced, b"True");
+    }
+
+    #[test]
+    fn a_partial_empty_or_missing_settings_file_is_completed_so_every_key_parses() {
+        // The host wrote this two-key file where none was: Nucleus then
+        // stopped on bool.Parse("") with a message box (#59).
+        let old = b"[Dev]\r\nUseXinputIndex=True\r\n[Misc]\r\nDisableGameProfiles=False\r\n";
+        let defaults = Ini::parse(DEFAULT_SETTINGS.as_bytes()).entries();
+        assert!(defaults.len() > 100, "{}", defaults.len());
+        for text in [&old[..], b"", b"\n"] {
+            let settings = settings_ini(text);
+            for (section, key, default) in &defaults {
+                let found = ini_value(&settings.text, section, key)
+                    .unwrap_or_else(|| panic!("{section}.{key} missing"));
+                let parses =
+                    |v: &[u8]| v.eq_ignore_ascii_case(b"true") || v.eq_ignore_ascii_case(b"false");
+                if parses(default.as_slice()) {
+                    assert!(parses(found.as_slice()), "{section}.{key}={found:?}");
+                }
+            }
+            assert!(settings.added.contains(&"Dev.Blur".to_string()));
+            assert!(settings.added.contains(&"Hotkeys.Close".to_string()));
+            // Completed, it stays as it is.
+            let again = settings_ini(&settings.text);
+            assert_eq!(again.text, settings.text);
+            assert!(again.added.is_empty() && again.forced.is_empty());
+        }
+        let settings = settings_ini(old);
+        assert!(!settings.added.contains(&"Dev.UseXinputIndex".to_string()));
+        assert!(
+            settings
+                .text
+                .starts_with(b"[Dev]\r\nUseXinputIndex=True\r\n")
         );
     }
 
     #[test]
-    fn ini_values_are_read_and_set_as_nucleus_reads_them() {
-        let ini = "[misc]\r\n GameSortingOpt = Sort_1 \r\n[Dev]\r\nShowFavoriteOnly=True\r\n";
-        assert_eq!(
-            ini_value(ini, "Misc", "gamesortingopt").as_deref(),
-            Some("Sort_1")
+    fn a_value_in_the_pcs_code_page_its_bom_and_line_ends_are_kept() {
+        // Nucleus writes through kernel32's ANSI calls: ü is 0xFC in Latin-1.
+        let mut ini = b"\xef\xbb\xbf[Misc]\nSettingsLocation=C:\\M\xfcnchen\n".to_vec();
+        ini.extend_from_slice(&shipped().as_bytes()[..]);
+        let settings = settings_ini(&ini);
+        assert!(
+            settings
+                .text
+                .starts_with(b"\xef\xbb\xbf[Misc]\nSettingsLocation=C:\\M\xfcnchen\n")
         );
+        // The file's LF stays LF, also for what it changes.
+        assert!(!settings.text.contains(&b'\r'));
+        assert_eq!(
+            ini_value(&settings.text, "Misc", "SettingsLocation").unwrap(),
+            b"C:\\M\xfcnchen"
+        );
+        assert_eq!(
+            value(&settings.text, "Dev", "DisablePathCheck").unwrap(),
+            "True"
+        );
+        // A last line without an end gets one before a new line follows.
+        let text = ini_set(b"[Dev]\r\nA=1", &[("Dev", "B", "2")]);
+        assert_eq!(text, b"[Dev]\r\nA=1\r\nB=2\r\n");
+    }
+
+    #[test]
+    fn ini_values_are_read_and_set_as_nucleus_reads_them() {
+        let ini = b"[misc]\r\n GameSortingOpt = Sort_1 \r\n[Dev]\r\nShowFavoriteOnly=True\r\n";
+        assert_eq!(value(ini, "Misc", "gamesortingopt").unwrap(), "Sort_1");
         assert_eq!(ini_value(ini, "Dev", "Missing"), None);
         assert_eq!(ini_value(ini, "Audio", "Missing"), None);
         assert_eq!(
@@ -351,22 +596,16 @@ mod tests {
                 ini,
                 &[("Dev", "ShowFavoriteOnly", "False"), ("Audio", "On", "1")]
             ),
-            "[misc]\r\n GameSortingOpt = Sort_1 \r\n[Dev]\r\nShowFavoriteOnly=False\r\n[Audio]\r\nOn=1\r\n"
+            b"[misc]\r\n GameSortingOpt = Sort_1 \r\n[Dev]\r\nShowFavoriteOnly=False\r\n[Audio]\r\nOn=1\r\n"
         );
     }
 
-    /// Nucleus Co-op 2.4.2's own Settings.ini as its release ships it.
-    const SHIPPED: &str = include_str!("fixtures/nucleus-2.4.2-Settings.ini");
-
-    #[test]
-    fn settings_ini_lets_nucleus_start_and_list_the_game_without_a_message_box() {
-        // A user's settings that stalled a background stream at Nucleus'
-        // start (#59): its folder check on (a message box for a Documents
-        // folder in OneDrive or a folder under Program Files), favourites
-        // only, and only games for a single keyboard listed.
-        // A checkout may have turned its line ends into CRLF.
-        let seeded = SHIPPED
-            .replace("\r\n", "\n")
+    /// The shipped file with a user's settings that stalled a background
+    /// stream at Nucleus' start (#59): its folder check on (a message box
+    /// for a Documents folder in OneDrive or a folder under Program
+    /// Files), favourites only, and only games for a single keyboard listed.
+    fn seeded() -> String {
+        let seeded = shipped()
             .replace("ShowFavoriteOnly=False", "ShowFavoriteOnly=True")
             .replace("GameSortingOpt=\n", "GameSortingOpt=Sort_2,Show_Type2\n");
         assert!(seeded.contains("DisablePathCheck=False\n"), "{seeded}");
@@ -375,19 +614,20 @@ mod tests {
             seeded.contains("GameSortingOpt=Sort_2,Show_Type2\n"),
             "{seeded}"
         );
-        let fixed = settings_ini(&seeded);
-        let value = |key: &str| {
-            let section = if key == "GameSortingOpt" {
-                "Misc"
-            } else {
-                "Dev"
-            };
-            ini_value(&fixed, section, key).unwrap()
-        };
-        assert_eq!(value("DisablePathCheck"), "True");
-        assert_eq!(value("ShowFavoriteOnly"), "False");
-        assert_eq!(value("GameSortingOpt"), "Sort_2");
-        assert_eq!(value("UseXinputIndex"), "True");
+        seeded
+    }
+
+    #[test]
+    fn settings_ini_lets_nucleus_start_and_list_the_game_without_a_message_box() {
+        let seeded = seeded();
+        let settings = settings_ini(seeded.as_bytes());
+        assert!(settings.added.is_empty(), "{:?}", settings.added);
+        let fixed = String::from_utf8(settings.text.clone()).unwrap();
+        let get = |section: &str, key: &str| value(fixed.as_bytes(), section, key).unwrap();
+        assert_eq!(get("Dev", "DisablePathCheck"), "True");
+        assert_eq!(get("Dev", "ShowFavoriteOnly"), "False");
+        assert_eq!(get("Misc", "GameSortingOpt"), "Sort_2");
+        assert_eq!(get("Dev", "UseXinputIndex"), "True");
         // Every other line is as shipped, in its place.
         let changed = [
             "DisablePathCheck",
@@ -395,8 +635,8 @@ mod tests {
             "GameSortingOpt",
             "UseXinputIndex",
         ];
-        let before: Vec<&str> = seeded.lines().collect();
-        let after: Vec<&str> = fixed.lines().collect();
+        let before: Vec<&str> = seeded.split('\n').collect();
+        let after: Vec<&str> = fixed.split('\n').collect();
         assert_eq!(before.len(), after.len());
         for (old, new) in before.iter().zip(&after) {
             let key = old.split('=').next().unwrap();
@@ -407,7 +647,9 @@ mod tests {
             }
         }
         // A second pass changes nothing.
-        assert_eq!(settings_ini(&fixed), fixed);
+        let again = settings_ini(&settings.text);
+        assert_eq!(again.text, settings.text);
+        assert!(again.forced.is_empty());
         // The Sort_* order is kept, the filters go, an empty value stays.
         for (sorting, kept) in [
             ("Show_Type1,Sort_4,Show_Type3", "Sort_4"),
@@ -415,12 +657,38 @@ mod tests {
             ("Sort_1", "Sort_1"),
             ("", ""),
         ] {
-            let text = settings_ini(&format!("[Misc]\r\nGameSortingOpt={sorting}\r\n"));
+            let text = settings_ini(format!("[Misc]\r\nGameSortingOpt={sorting}\r\n").as_bytes());
             assert_eq!(
-                ini_value(&text, "Misc", "GameSortingOpt").as_deref(),
-                Some(kept),
+                value(&text.text, "Misc", "GameSortingOpt").unwrap(),
+                kept,
                 "{sorting}"
             );
         }
+    }
+
+    #[test]
+    fn the_users_values_come_back_where_the_session_s_still_are() {
+        let seeded = seeded();
+        let settings = settings_ini(seeded.as_bytes());
+        let keys: Vec<&str> = settings.forced.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["DisablePathCheck", "ShowFavoriteOnly", "GameSortingOpt"]
+        );
+        // Put back whole; pads by index stay.
+        let (back, changed) = put_back_settings(&settings.text, &settings.forced);
+        assert_eq!(changed, 3);
+        assert_eq!(
+            String::from_utf8(back).unwrap(),
+            seeded.replace("UseXinputIndex=False", "UseXinputIndex=True")
+        );
+        // Nucleus or the user changed the list's order meanwhile: it stays.
+        let changed_since = ini_set(&settings.text, &[("Misc", "GameSortingOpt", "Sort_3")]);
+        let (back, changed) = put_back_settings(&changed_since, &settings.forced);
+        assert_eq!(changed, 2);
+        assert_eq!(value(&back, "Misc", "GameSortingOpt").unwrap(), "Sort_3");
+        assert_eq!(value(&back, "Dev", "ShowFavoriteOnly").unwrap(), "True");
+        // Again, nothing is left to put back.
+        assert_eq!(put_back_settings(&back, &settings.forced).1, 0);
     }
 }

@@ -4519,40 +4519,41 @@ mod tests {
         }
     }
 
-    /// Nucleus' `Settings.ini` as a user's that stalled a background stream
-    /// at Nucleus' start (#59): its folder check on, favourites only, and
-    /// only games for a single keyboard listed.
-    fn cold_settings(text: &str) -> String {
-        butterpollo_core::nucleus::profile::ini_set(
-            text,
-            &[
-                ("Dev", "DisablePathCheck", "False"),
-                ("Dev", "ShowFavoriteOnly", "True"),
-                ("Misc", "GameSortingOpt", "Sort_2,Show_Type2"),
-            ],
-        )
+    /// The values of a user's Nucleus `Settings.ini` that stalled a
+    /// background stream at Nucleus' start (#59): its folder check on,
+    /// favourites only, and only games for a single keyboard listed.
+    const COLD: [(&str, &str, &str); 3] = [
+        ("Dev", "DisablePathCheck", "False"),
+        ("Dev", "ShowFavoriteOnly", "True"),
+        ("Misc", "GameSortingOpt", "Sort_2,Show_Type2"),
+    ];
+    /// What they are while a session from them runs.
+    const FORCED: [(&str, &str, &str); 6] = [
+        ("Dev", "UseXinputIndex", "True"),
+        ("Misc", "DisableGameProfiles", "False"),
+        ("Dev", "DisablePathCheck", "True"),
+        ("Dev", "ShowFavoriteOnly", "False"),
+        ("Misc", "IgnoreInputLockReminder", "True"),
+        ("Misc", "GameSortingOpt", "Sort_2"),
+    ];
+
+    /// Nucleus' `Settings.ini` with [`COLD`]'s values.
+    fn cold_settings(text: &[u8]) -> Vec<u8> {
+        butterpollo_core::nucleus::profile::ini_set(text, &COLD)
     }
 
-    /// What a session must have left in Nucleus' `Settings.ini`.
-    fn settings_forced(text: &str) -> Result<()> {
-        use butterpollo_core::nucleus::profile::ini_value;
-        for (section, key, value) in [
-            ("Dev", "UseXinputIndex", "True"),
-            ("Misc", "DisableGameProfiles", "False"),
-            ("Dev", "DisablePathCheck", "True"),
-            ("Dev", "ShowFavoriteOnly", "False"),
-        ] {
-            let found = ini_value(text, section, key);
+    /// Fails unless `Settings.ini` has each of `values`, naming the first
+    /// that differs.
+    fn settings_are(text: &[u8], values: &[(&str, &str, &str)]) -> Result<()> {
+        for &(section, key, value) in values {
+            let found = butterpollo_core::nucleus::profile::ini_value(text, section, key)
+                .map(|v| String::from_utf8_lossy(&v).into_owned());
             ensure!(
                 found.as_deref() == Some(value),
-                "Settings.ini has {key}={found:?}, not {value}"
+                "Settings.ini has {key}={}, not {value}",
+                found.as_deref().unwrap_or("nothing")
             );
         }
-        let sorting = ini_value(text, "Misc", "GameSortingOpt").unwrap_or_default();
-        ensure!(
-            !sorting.contains("Show_Type"),
-            "Settings.ini still filters Nucleus' list: GameSortingOpt={sorting}"
-        );
         Ok(())
     }
 
@@ -4574,22 +4575,28 @@ mod tests {
 
     #[test]
     fn the_cold_case_seeds_the_bad_settings_and_checks_the_forced_ones() {
-        let shipped = "[Misc]\r\nGameSortingOpt=\r\nDisableGameProfiles=False\r\n[Dev]\r\nShowFavoriteOnly=False\r\nDisablePathCheck=False\r\nUseXinputIndex=False\r\n";
+        let shipped = butterpollo_core::nucleus::profile::DEFAULT_SETTINGS.as_bytes();
         let cold = cold_settings(shipped);
-        assert!(cold.contains("ShowFavoriteOnly=True"), "{cold}");
-        assert!(cold.contains("GameSortingOpt=Sort_2,Show_Type2"), "{cold}");
-        assert!(cold.contains("DisablePathCheck=False"), "{cold}");
-        assert!(settings_forced(&cold).is_err());
-        // What a session writes passes.
-        let forced = butterpollo_core::nucleus::profile::settings_ini(&cold);
-        settings_forced(&forced).unwrap();
-        // Each forced value is checked.
-        let filtered = forced.replace("GameSortingOpt=Sort_2", "GameSortingOpt=Show_Type1");
-        let error = settings_forced(&filtered).unwrap_err().to_string();
-        assert!(error.contains("GameSortingOpt=Show_Type1"), "{error}");
-        let favourites = forced.replace("ShowFavoriteOnly=False", "ShowFavoriteOnly=True");
-        let error = settings_forced(&favourites).unwrap_err().to_string();
-        assert!(error.contains("ShowFavoriteOnly"), "{error}");
+        settings_are(&cold, &COLD).unwrap();
+        assert!(settings_are(&cold, &FORCED).is_err());
+        // What a session writes passes, and what it puts back is the cold file.
+        let settings = butterpollo_core::nucleus::profile::settings_ini(&cold);
+        settings_are(&settings.text, &FORCED).unwrap();
+        let (back, _) =
+            butterpollo_core::nucleus::profile::put_back_settings(&settings.text, &settings.forced);
+        settings_are(&back, &COLD).unwrap();
+        // Each value is checked and named.
+        let filtered = butterpollo_core::nucleus::profile::ini_set(
+            &settings.text,
+            &[("Misc", "GameSortingOpt", "Show_Type1")],
+        );
+        let error = settings_are(&filtered, &FORCED).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "Settings.ini has GameSortingOpt=Show_Type1, not Sort_2"
+        );
+        let error = settings_are(b"", &FORCED).unwrap_err().to_string();
+        assert_eq!(error, "Settings.ini has UseXinputIndex=nothing, not True");
     }
 
     #[test]
@@ -4726,8 +4733,9 @@ mod tests {
     /// (nucleus-generic-background-cold), Nucleus' Settings.ini first gets
     /// the values that stalled #59 ([`cold_settings`]) and is put back
     /// afterwards, also on a failure; the profile must be clicked within
-    /// 15 s of Nucleus' start, Nucleus must set the game's DPI mode, and
-    /// Settings.ini must hold the forced values after the session.
+    /// 15 s of Nucleus' start, Nucleus must set the game's DPI mode,
+    /// Settings.ini must hold the forced values while the session runs, and
+    /// the user's values must be back after it, with no journal left.
     #[test]
     #[ignore = "starts a game through Nucleus Co-op on this PC as SYSTEM"]
     fn a_background_stream_without_a_hub_handler_on_this_pc() -> Result<()> {
@@ -4764,17 +4772,12 @@ mod tests {
         let _kept_settings = if cold {
             let before =
                 std::fs::read(&settings).with_context(|| settings.display().to_string())?;
-            let text = String::from_utf8(before.clone()).context("Settings.ini is not UTF-8")?;
+            let seeded = cold_settings(&before);
             let kept = KeptSettings {
                 path: settings.clone(),
                 before,
             };
-            let (bom, body) = match text.strip_prefix('\u{feff}') {
-                Some(body) => ("\u{feff}", body),
-                None => ("", text.as_str()),
-            };
-            std::fs::write(&settings, format!("{bom}{}", cold_settings(body)))
-                .with_context(|| settings.display().to_string())?;
+            std::fs::write(&settings, seeded).with_context(|| settings.display().to_string())?;
             println!(
                 "Settings.ini seeded: DisablePathCheck=False, ShowFavoriteOnly=True, GameSortingOpt=Sort_2,Show_Type2"
             );
@@ -4869,6 +4872,11 @@ mod tests {
             &handler.executable,
         );
         println!("compatibility settings Nucleus set: {}", set.len());
+        if cold {
+            let text = std::fs::read(&settings).with_context(|| settings.display().to_string())?;
+            settings_are(&text, &FORCED)?;
+            println!("Settings.ini has the forced values");
+        }
         ensure!(
             !cold || !set.is_empty(),
             "Nucleus Co-op set no DPI mode for {}",
@@ -4994,10 +5002,15 @@ mod tests {
         );
         println!("crashlog.txt unchanged");
         if cold {
-            let text = std::fs::read_to_string(&settings)
-                .with_context(|| settings.display().to_string())?;
-            settings_forced(&text)?;
-            println!("Settings.ini has the forced values");
+            // The session put the user's values back once Nucleus closed.
+            let text = std::fs::read(&settings).with_context(|| settings.display().to_string())?;
+            settings_are(&text, &COLD)?;
+            ensure!(
+                !folder.join("Rubylight-settings.json").exists(),
+                "the session left Rubylight-settings.json in {}",
+                folder.display()
+            );
+            println!("Settings.ini has the user's values back");
         }
         for warning in warnings.snapshot() {
             println!("warning {}: {}", warning.code, warning.message);

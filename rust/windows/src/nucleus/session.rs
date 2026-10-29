@@ -337,8 +337,10 @@ struct Runner {
     deadline: Instant,
     exited: bool,
     failed: u32,
-    /// The game's compatibility settings from before Nucleus started; last,
-    /// so it drops after Nucleus. None for a runner tested alone.
+    /// The user's Nucleus settings the session changed, then the game's
+    /// compatibility settings from before Nucleus started; last, so they
+    /// drop after Nucleus. None for a runner tested alone.
+    settings: Option<files::SettingsGuard>,
     layers: Option<Guard>,
 }
 
@@ -580,6 +582,9 @@ impl Runner {
         if let Some(layers) = &mut self.layers {
             layers.restore();
         }
+        if let Some(settings) = &mut self.settings {
+            settings.restore();
+        }
     }
 }
 
@@ -719,7 +724,8 @@ pub fn start(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    files::write_settings(start.folder)?;
+    // Put back when the session ends, or here should Nucleus not start.
+    let settings = files::write_settings(start.folder)?;
     let number = files::write_profile(start.folder, &start.handler.guid, &players, &screens)?;
     tracing::info!(
         number,
@@ -772,6 +778,7 @@ pub fn start(
         deadline: Instant::now() + START_TIMEOUT,
         exited: false,
         failed: 0,
+        settings: Some(settings),
         layers: Some(layers),
     };
     let (stop, stopped) = mpsc::channel();
@@ -1103,6 +1110,7 @@ mod tests {
             deadline: t0 + START_TIMEOUT,
             exited: false,
             failed: 0,
+            settings: None,
             layers: None,
         }
     }
@@ -1534,11 +1542,6 @@ mod tests {
     ) -> (Result<Running>, Arc<Recorder>) {
         let recorder = Arc::new(Recorder::default());
         let handler = handler();
-        // Nucleus' install ships it.
-        let settings = folder.join("Settings.ini");
-        if !settings.exists() {
-            std::fs::write(&settings, "[Dev]\r\nUseXinputIndex=False\r\n").unwrap();
-        }
         let mut xinput = FakeXInput {
             pads: &recorder,
             taken,
@@ -1695,11 +1698,20 @@ mod tests {
                 .insert(game.into(), text(value))
         };
         set("~ RUNASADMIN");
+        let ini = folder.path().join("Settings.ini");
+        std::fs::write(&ini, "[Dev]\r\nShowFavoriteOnly=True\r\n").unwrap();
+        let favourites = || {
+            let text = std::fs::read(&ini).unwrap();
+            butterpollo_core::nucleus::profile::ini_value(&text, "Dev", "ShowFavoriteOnly").unwrap()
+        };
         let (running, _) = start_with(folder.path(), 1, [false; 4], &screen, &probe);
         let running = running.unwrap();
+        assert_eq!(favourites(), b"False");
         // Nucleus sets the instance's DPI mode as it starts it.
         set("~ HIGHDPIAWARE");
         running.stop();
+        // The user's own Nucleus settings are back too.
+        assert_eq!(favourites(), b"True");
         assert_eq!(
             *probe.layers.values.lock().unwrap(),
             BTreeMap::from([(game.to_string(), text("~ RUNASADMIN"))])
@@ -1712,6 +1724,8 @@ mod tests {
             *probe.layers.values.lock().unwrap(),
             BTreeMap::from([(game.to_string(), text("~ RUNASADMIN"))])
         );
+        assert_eq!(favourites(), b"True");
+        // No journal of the settings is left either.
         let mut files: Vec<_> = std::fs::read_dir(folder.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())

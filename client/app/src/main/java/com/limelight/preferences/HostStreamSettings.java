@@ -782,7 +782,9 @@ public class HostStreamSettings extends NightjarActivity {
                 if (virtualDisplay) {
                     row(display, "virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
                     row(display, "scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
-                    row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
+                    if (gate(HostCapabilities.Feature.DISPLAY_SCALE).isVisible()) {
+                        row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
+                    }
                 }
             }
             Preference footer = new Preference(activity);
@@ -1009,6 +1011,8 @@ public class HostStreamSettings extends NightjarActivity {
                 virtual.setSummary(summary(HostStreamProfile.Field.VIRTUAL_DISPLAY, switchOverride("virtual") != null, onOff(switchValue(config, "virtual"))));
                 scale.setSummary(summary(HostStreamProfile.Field.RENDER_SCALE, own.renderScale != null, config.virtualDisplayScale + "%") +
                         "\n" + getString(R.string.summary_virtual_display_scale));
+            }
+            if (dpi != null) {
                 dpi.setSummary(summary(HostStreamProfile.Field.DISPLAY_SCALE, own.displayScale != null,
                         displayScaleText(config.virtualDisplayDpi)) + "\n" + getString(R.string.summary_virtual_display_dpi));
             }
@@ -1033,7 +1037,9 @@ public class HostStreamSettings extends NightjarActivity {
                 }
                 applyGate(virtual, HostCapabilities.Feature.VIRTUAL_DISPLAY);
                 applyGate(scale, HostCapabilities.Feature.VIRTUAL_DISPLAY);
-                applyGate(dpi, HostCapabilities.Feature.VIRTUAL_DISPLAY);
+            }
+            if (dpi != null) {
+                applyGate(dpi, HostCapabilities.Feature.DISPLAY_SCALE);
             }
             if (display != null) {
                 display.setSummary(getString(displayChoice.label) + "\n" + getString(R.string.settings_profile_display_immediate));

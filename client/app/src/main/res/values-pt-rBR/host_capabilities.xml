@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">Tela virtual</string>
     <string name="host_feature_virtual_display_hdr">Tela virtual HDR</string>
     <string name="host_feature_display_modes">Modos de tela do PC</string>
+    <string name="host_feature_display_scale">Escala da tela do PC</string>
     <string name="host_feature_fractional_refresh">Taxas de atualização fracionárias</string>
     <string name="host_feature_vrr">VRR no host</string>
     <string name="host_feature_runtime_bitrate">Alterar taxa de bits durante a transmissão</string>

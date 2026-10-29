@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">Віртуальний дисплей</string>
     <string name="host_feature_virtual_display_hdr">Віртуальний дисплей HDR</string>
     <string name="host_feature_display_modes">Режими дисплея ПК</string>
+    <string name="host_feature_display_scale">Масштаб екрана ПК</string>
     <string name="host_feature_fractional_refresh">Дробові частоти оновлення</string>
     <string name="host_feature_vrr">VRR на стороні хоста</string>
     <string name="host_feature_runtime_bitrate">Зміна бітрейту під час трансляції</string>

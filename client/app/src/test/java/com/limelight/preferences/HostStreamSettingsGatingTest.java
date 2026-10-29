@@ -81,6 +81,8 @@ public class HostStreamSettingsGatingTest {
             assertTrue(virtual.isEnabled());
             assertFalse(summary(virtual).contains(app.getString(R.string.host_display_exclusive)));
             assertTrue(fragment.findPreference("scale").isEnabled());
+            // Apollo has a virtual display but never reads rlDisplayScale.
+            assertNull(fragment.findPreference("dpi"));
         });
     }
 
@@ -115,7 +117,7 @@ public class HostStreamSettingsGatingTest {
 
     @Test
     public void aPcChoosesItsOwnDisplayScaleApartFromTheRenderResolution() {
-        withSettings("rubylight-dpi-pc", TestHosts.rubylight(), fragment -> {
+        withSettings("rubylight-dpi-pc", TestHosts.rubylightWithDisplayScale(), fragment -> {
             Preference dpi = fragment.findPreference("dpi");
             assertTrue(dpi.isEnabled());
             assertTrue(summary(dpi).startsWith(app.getString(R.string.host_profile_follows,
@@ -133,6 +135,17 @@ public class HostStreamSettingsGatingTest {
     }
 
     @Test
+    public void aRubylightWithoutDisplayScaleExplainsWhyTheRowIsUnavailable() {
+        // 2.6.x and 3.0.0-rc.4 send no DisplayScaleVersion and ignore rlDisplayScale.
+        withSettings("no-dpi-pc", TestHosts.rubylight(), fragment -> {
+            Preference dpi = fragment.findPreference("dpi");
+            assertFalse(dpi.isEnabled());
+            assertTrue(summary(dpi), summary(dpi).endsWith(app.getString(R.string.host_feature_reason_update)));
+            assertTrue(fragment.findPreference("scale").isEnabled());
+        });
+    }
+
+    @Test
     public void olderRubylightExplainsWhyThePickerIsUnavailable() {
         withSettings("old-rubylight-pc", TestHosts.fixture("butterpollo-serverinfo.xml"), fragment -> {
             Preference display = fragment.findPreference("host_display");
@@ -145,7 +158,8 @@ public class HostStreamSettingsGatingTest {
     @Test
     public void aVirtualDisplayTurnedOffOnTheHostDisablesItsRowsWithTheReason() {
         HostCapabilities off = TestHosts.caps(TestHosts.serverInfo("rubylight-serverinfo.xml")
-                .replace("<VirtualDisplayCapable>true", "<VirtualDisplayCapable>false"));
+                .replace("<VirtualDisplayCapable>true", "<VirtualDisplayCapable>false")
+                .replace("</root>", "<DisplayScaleVersion>1</DisplayScaleVersion></root>"));
         withSettings("display-off-pc", off, fragment -> {
             String reason = app.getString(R.string.host_feature_reason_virtual_display_off);
             for (String key : new String[] {"host_display", "virtual", "scale", "dpi"}) {

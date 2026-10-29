@@ -935,16 +935,27 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     /**
-     * A Back a handheld's firmware injects for its own system button: from Android's virtual
-     * keyboard device rather than the gamepad (gamepad and other non-keyboard devices go through
-     * handleButtonDown/Up). Never the navigation bar or gesture, a fallback key, a mouse's right
-     * click, or a device without a built-in gamepad.
+     * Back as Guide on a built-in gamepad, only where Back is a spare button: the pad has its own
+     * Select and does not use Back as Start. An external pad's Back, often its Select, stays Back.
      */
-    public static boolean isInjectedHandheldBack(int keyCode, int flags, int source, boolean virtualDevice,
-                                                 boolean gameController, boolean internalGamepad) {
-        return keyCode == KeyEvent.KEYCODE_BACK && virtualDevice && !gameController && internalGamepad &&
+    static boolean isBuiltInPadBackAsGuide(boolean backAsGuide, int keyCode, int flags, boolean external,
+                                           boolean backIsStart, boolean hasSelectButton) {
+        return isBackAsGuide(backAsGuide, keyCode, flags) && !external && !backIsStart && hasSelectButton;
+    }
+
+    /**
+     * A Back from a handheld's system button that is not on its gamepad device: one its firmware
+     * injects (Android's virtual keyboard device) or a built-in key device such as gpio-keys.
+     * Never the navigation bar or gesture, a fallback key, a mouse's right click, an external or
+     * alphabetic keyboard, a gamepad (handleButtonDown/Up), or a device without a built-in gamepad.
+     */
+    public static boolean isHandheldSystemBack(int keyCode, int flags, int source, boolean virtualDevice,
+                                               boolean external, boolean alphabeticKeyboard, boolean gamepad,
+                                               boolean internalGamepad) {
+        return keyCode == KeyEvent.KEYCODE_BACK && internalGamepad &&
                 (flags & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK | KeyEvent.FLAG_SOFT_KEYBOARD)) == 0 &&
-                (source & InputDevice.SOURCE_CLASS_POINTER) == 0;
+                (source & InputDevice.SOURCE_CLASS_POINTER) == 0 &&
+                (virtualDevice || (!external && !alphabeticKeyboard && !gamepad));
     }
 
     /** Whether this device has a gamepad built in, as handhelds do. */
@@ -960,16 +971,19 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     /**
-     * Back as Guide for a Back a handheld's firmware injects (see isInjectedHandheldBack): Guide goes
-     * out on controller 0, where built-in buttons always sit. Returns whether the event was such a Back.
+     * Back as Guide for a handheld's system button (see isHandheldSystemBack): Guide goes out on
+     * controller 0, where built-in buttons always sit. Returns whether the event was such a Back.
      */
     public boolean handleHandheldBackAsGuide(KeyEvent event) {
         if (!isBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags())) {
             return false;
         }
         InputDevice dev = event.getDevice();
-        if (!isInjectedHandheldBack(event.getKeyCode(), event.getFlags(), event.getSource(),
-                dev == null || dev.isVirtual(), dev != null && isGameControllerDevice(dev), hasInternalGamepad())) {
+        boolean virtualDevice = dev == null || dev.isVirtual();
+        if (!isHandheldSystemBack(event.getKeyCode(), event.getFlags(), event.getSource(), virtualDevice,
+                !virtualDevice && isExternal(dev),
+                !virtualDevice && dev.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
+                !virtualDevice && (hasGamepadButtons(dev) || hasJoystickAxes(dev)), hasInternalGamepad())) {
             return false;
         }
         if (stopped) {
@@ -980,6 +994,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
         }
         else if (event.getAction() == KeyEvent.ACTION_UP) {
+            // Firmware injects the press and release together; hold Guide long enough for games to see it
+            holdForMinimumPress(event);
             defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
         }
         sendControllerInputPacket(defaultContext);
@@ -1079,6 +1095,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         boolean[] buttons = dev.hasKeys(KeyEvent.KEYCODE_BUTTON_MODE, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BACK, 0);
         context.hasMode = buttons[0];
         context.hasSelect = buttons[1] || buttons[2];
+        context.hasSelectButton = buttons[1];
 
         context.touchpadXRange = dev.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_TOUCHPAD);
         context.touchpadYRange = dev.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_TOUCHPAD);
@@ -1708,7 +1725,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Device MAY BE NULL
     private int handleRemapping(InputDeviceContext context, KeyEvent event) {
         // Back as Guide also takes the Back that handhelds otherwise leave to Android
-        if (isBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags())) {
+        if (isBuiltInPadBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags(),
+                context.external, context.backIsStart, context.hasSelectButton)) {
             return KeyEvent.KEYCODE_BUTTON_MODE;
         }
 
@@ -2990,25 +3008,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return true;
         }
 
-        // If the button hasn't been down long enough, sleep for a bit before sending the up event
-        // This allows "instant" button presses (like OUYA's virtual menu button) to work. This
-        // path should not be triggered during normal usage.
-        long buttonDownTime = event.getEventTime() - event.getDownTime();
-        if (buttonDownTime < ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS)
-        {
-            // Since our sleep time is so short (<= 25 ms), it shouldn't cause a problem doing this
-            // in the UI thread.
-            try {
-                Thread.sleep(ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS - buttonDownTime);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-
-                // InterruptedException clears the thread's interrupt status. Since we can't
-                // handle that here, we will re-interrupt the thread to set the interrupt
-                // status back to true.
-                Thread.currentThread().interrupt();
-            }
-        }
+        holdForMinimumPress(event);
 
         switch (keyCode) {
         case KeyEvent.KEYCODE_BUTTON_MODE:
@@ -3221,6 +3221,28 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
 
         return true;
+    }
+
+    // If the button hasn't been down long enough, sleep for a bit before sending the up event
+    // This allows "instant" button presses (like OUYA's virtual menu button) to work. This
+    // path should not be triggered during normal usage.
+    private static void holdForMinimumPress(KeyEvent event) {
+        long buttonDownTime = event.getEventTime() - event.getDownTime();
+        if (buttonDownTime < ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS)
+        {
+            // Since our sleep time is so short (<= 25 ms), it shouldn't cause a problem doing this
+            // in the UI thread.
+            try {
+                Thread.sleep(ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS - buttonDownTime);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+
+                // InterruptedException clears the thread's interrupt status. Since we can't
+                // handle that here, we will re-interrupt the thread to set the interrupt
+                // status back to true.
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     public boolean handleButtonDown(KeyEvent event) {
@@ -3874,6 +3896,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         public int emulatingButtonFlags = 0;
         public boolean hasSelect;
+        // A BUTTON_SELECT of its own, so Back is not its Select
+        public boolean hasSelectButton;
         public boolean hasMode;
         public boolean hasPaddles;
         public boolean hasShare;

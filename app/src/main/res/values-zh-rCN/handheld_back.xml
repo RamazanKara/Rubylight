@@ -3,5 +3,5 @@
     <string name="title_checkbox_back_opens_menu">物理返回键打开串流菜单</string>
     <string name="summary_checkbox_back_opens_menu">使用掌机或手柄的专用返回键打开串流菜单。Select 和 Start 保留原有映射。物理键盘上优先使用“返回键发送 Windows 键”设置。下次串流生效。</string>
     <string name="title_checkbox_back_as_guide">返回键作为 Guide</string>
-    <string name="summary_checkbox_back_as_guide">手柄或掌机上的返回键发送 Guide（Home/PS），适用于系统按钮充当返回键的掌机。“物理返回键打开串流菜单”优先。可使用手柄组合键或 Android 的返回手势打开串流菜单。下次串流生效。</string>
+    <string name="summary_checkbox_back_as_guide">掌机内置按键上的返回键发送 Guide（Home/PS），适用于系统按钮充当返回键的掌机。Select 即返回键的手柄保持不变。“物理返回键打开串流菜单”优先。可使用手柄组合键或 Android 的返回手势打开串流菜单。下次串流生效。</string>
 </resources>

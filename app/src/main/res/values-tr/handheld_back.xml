@@ -3,5 +3,5 @@
     <string name="title_checkbox_back_opens_menu">Fiziksel Geri yayın menüsünü açar</string>
     <string name="summary_checkbox_back_opens_menu">El konsolunun veya kontrolcünün özel Geri tuşu yayın menüsünü açar. Select ve Start eşlemeleri korunur. Fiziksel klavyelerde Geri tuşunun Windows göndermesi önceliklidir. Sonraki yayında uygulanır.</string>
     <string name="title_checkbox_back_as_guide">Geri düğmesi Guide olarak</string>
-    <string name="summary_checkbox_back_as_guide">Kontrolcüdeki veya el konsolundaki Geri, Guide (Home/PS) gönderir; sistem düğmesi Geri gibi çalışan el konsolları için. “Fiziksel Geri yayın menüsünü açar” önceliklidir. Yayın menüsünü kumanda tuş kombinasyonu ya da Android’in Geri hareketiyle açın. Sonraki yayında uygulanır.</string>
+    <string name="summary_checkbox_back_as_guide">El konsolunun yerleşik kontrollerindeki Geri, Guide (Home/PS) gönderir; sistem düğmesi Geri gibi çalışan el konsolları için. Select düğmesi Geri olan kontrolcüler onu korur. “Fiziksel Geri yayın menüsünü açar” önceliklidir. Yayın menüsünü kumanda tuş kombinasyonu ya da Android’in Geri hareketiyle açın. Sonraki yayında uygulanır.</string>
 </resources>

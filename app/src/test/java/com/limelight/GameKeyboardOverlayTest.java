@@ -547,6 +547,8 @@ public class GameKeyboardOverlayTest {
         Game game = Robolectric.buildActivity(Game.class).get();
         ReflectionHelpers.setField(game, "conn", connection);
         ReflectionHelpers.setField(game, "keyboardTranslator", new KeyboardTranslator());
+        // Grabbing input reads Send system keys
+        ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
         ReflectionHelpers.setField(game, "grabbedInput", true);
         ReflectionHelpers.setField(game, "foreground", true);
         ReflectionHelpers.setField(game, "connected", true);

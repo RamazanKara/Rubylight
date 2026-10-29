@@ -5611,6 +5611,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     (event.getFlags() & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK)) != 0,
                     device.isVirtual(), device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
                     ControllerHandler.isGameControllerDevice(device), event.getSource());
+            // Esc only from an external keyboard: a keyboard phone's own keyboard may have no Ctrl
+            // for Ctrl+Alt+Shift+M, and below Android 10 we cannot tell, so Back stays Back there.
+            backAsEscape &= keyboardBack && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && device.isExternal();
         }
         return KeyboardTranslator.remapPhysicalKey(keyCode, keyboardBack, prefConfig.backAsMeta, backAsEscape,
                 prefConfig.rightAltAsMeta);

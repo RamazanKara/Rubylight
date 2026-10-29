@@ -3,5 +3,5 @@
     <string name="title_checkbox_back_opens_menu">Phím Quay lại vật lý mở menu luồng</string>
     <string name="summary_checkbox_back_opens_menu">Phím Quay lại riêng của máy cầm tay hoặc tay cầm mở menu luồng. Select và Start giữ nguyên ánh xạ. Tùy chọn Quay lại gửi phím Windows được ưu tiên trên bàn phím vật lý. Áp dụng từ luồng tiếp theo.</string>
     <string name="title_checkbox_back_as_guide">Nút Quay lại làm Guide</string>
-    <string name="summary_checkbox_back_as_guide">Nút Quay lại trên tay cầm hoặc máy cầm tay gửi Guide (Home/PS), dành cho máy cầm tay có nút hệ thống hoạt động như Quay lại. Tùy chọn Phím Quay lại vật lý mở menu luồng được ưu tiên. Mở menu luồng bằng tổ hợp nút trên tay cầm hoặc cử chỉ Quay lại của Android. Áp dụng từ luồng tiếp theo.</string>
+    <string name="summary_checkbox_back_as_guide">Nút Quay lại trên các nút tích hợp của máy cầm tay gửi Guide (Home/PS), dành cho máy cầm tay có nút hệ thống hoạt động như Quay lại. Tay cầm có nút Select là Quay lại vẫn giữ nguyên. Tùy chọn Phím Quay lại vật lý mở menu luồng được ưu tiên. Mở menu luồng bằng tổ hợp nút trên tay cầm hoặc cử chỉ Quay lại của Android. Áp dụng từ luồng tiếp theo.</string>
 </resources>

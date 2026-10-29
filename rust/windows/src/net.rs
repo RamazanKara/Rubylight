@@ -322,7 +322,7 @@ pub fn datagram_lost(error: &std::io::Error) -> bool {
 /// How long one send, or all of one batch's sends together, wait for room in
 /// a full socket buffer before dropping. Per datagram, 64 refused datagrams
 /// would hold the sender for 256 ms.
-const WRITABLE_WAIT: std::time::Duration = std::time::Duration::from_millis(4);
+pub const WRITABLE_WAIT: std::time::Duration = std::time::Duration::from_millis(4);
 const BUFFER_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(1);
 /// The writable wait left to one send call, started at its first full buffer.
 #[derive(Default)]

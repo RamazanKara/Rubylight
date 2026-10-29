@@ -317,6 +317,8 @@ mod tests {
             idr: false,
             after_invalidation: false,
             frame_cap_bytes: Some(1000),
+            reencoded: false,
+            frame_cap_target: None,
             latency: None,
             presentation: None,
         }

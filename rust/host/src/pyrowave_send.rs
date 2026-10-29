@@ -341,6 +341,8 @@ mod tests {
                 idr: true,
                 after_invalidation: false,
                 frame_cap_bytes: None,
+                reencoded: false,
+                frame_cap_target: None,
                 latency: None,
                 presentation: None,
             }],
@@ -420,6 +422,8 @@ mod tests {
             idr: true,
             after_invalidation: false,
             frame_cap_bytes: None,
+            reencoded: false,
+            frame_cap_target: None,
             latency: Some(Duration::from_millis(3)),
             presentation: Some(ago(6)),
         };
@@ -529,6 +533,8 @@ mod tests {
                 idr: true,
                 after_invalidation: false,
                 frame_cap_bytes: None,
+                reencoded: false,
+                frame_cap_target: None,
                 latency: Some(Duration::from_millis(12)),
                 presentation: None,
             };

@@ -135,6 +135,10 @@ pub fn response(
     b.extend_from_slice(body);
     b
 }
+/// `ML_FF_FEC_STATUS` in [`Negotiated::moonlight_features`]
+/// (moonlight-common-c `Limelight-internal.h:88`): the client sends
+/// `SS_FRAME_FEC_STATUS` (0x5502) for every frame it repaired or lost.
+pub const FEC_STATUS_FEATURE: u32 = 0x01;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Negotiated {
     pub width: u32,

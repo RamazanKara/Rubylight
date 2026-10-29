@@ -26,6 +26,11 @@ pub struct Encoded {
     /// Driver-read AMF frame limit at submission. None means unavailable or
     /// unsupported; Some(0) means the driver's unrestricted/default setting.
     pub frame_cap_bytes: Option<u64>,
+    /// AMF encoded this keyframe again in place of an oversize scene cut.
+    pub reencoded: bool,
+    /// The pace-based budget the host asked AMF to hold this frame to (the
+    /// last `set_frame_cap`), against which a keyframe's size is judged.
+    pub frame_cap_target: Option<u64>,
     /// Submission through completed codec output, including asynchronous work.
     pub latency: Option<std::time::Duration>,
     pub presentation: Option<std::time::Instant>,
@@ -76,9 +81,11 @@ pub enum Encoder {
 impl Encoder {
     /// Best-effort pace-based frame cap. Unsupported backends safely ignore
     /// it; AMF preserves an explicit user setting, including driver default.
-    pub fn set_frame_cap(&mut self, bytes: u64) -> Option<u64> {
+    /// `floor` (two nominal frames) bounds how far AMF's keyframe cap scale
+    /// lowers it.
+    pub fn set_frame_cap(&mut self, bytes: u64, floor: u64) -> Option<u64> {
         match self {
-            Self::Amf(encoder) => encoder.set_frame_cap(bytes),
+            Self::Amf(encoder) => encoder.set_frame_cap(bytes, floor),
             _ => None,
         }
     }
@@ -100,6 +107,19 @@ impl Encoder {
         match self {
             Self::Amf(encoder) => encoder.reencoded_cuts(),
             _ => 0,
+        }
+    }
+    pub fn keyframes_over_cap(&self) -> u64 {
+        match self {
+            Self::Amf(encoder) => encoder.keyframes_over_cap(),
+            _ => 0,
+        }
+    }
+    /// How far under the pace-based target AMF's cap is written; 1 elsewhere.
+    pub fn keyframe_cap_scale(&self) -> f64 {
+        match self {
+            Self::Amf(encoder) => encoder.keyframe_cap_scale(),
+            _ => 1.,
         }
     }
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {

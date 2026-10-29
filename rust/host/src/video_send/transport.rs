@@ -3,10 +3,10 @@ use super::*;
 use butterpollo_core::{
     network_pacing,
     performance::Timing,
-    stream_policy::{SendDrop, SendLoss, SendLossRecovery, SendOutage},
+    stream_policy::{AdapterStall, SendDrop, SendLoss, SendLossRecovery, SendOutage},
 };
 use butterpollo_windows::{
-    net::{Batch, Link, WritableWaits},
+    net::{Batch, Link, WRITABLE_WAIT, WritableWaits},
     timing::Timer,
 };
 
@@ -99,6 +99,9 @@ struct Transport<'a> {
     reported_pacing: Option<u64>,
     slow_reported: Option<Instant>,
     outage: Option<SendOutage>,
+    /// `BUTTERPOLLO_TEST_SEND_OUTAGE=..:stall`: a large frame meets a stalled
+    /// adapter.
+    stall: Option<AdapterStall>,
     send_drop: Option<SendDrop>,
     send_loss: SendLossRecovery,
     batch_kb: usize,
@@ -180,9 +183,36 @@ impl Transport<'_> {
         }
     }
 
+    /// One batch to the socket, or to the test outage or loss in its place.
+    fn send_batch(&mut self, packets: &[Vec<u8>], peer: SocketAddr) -> Result<usize> {
+        Ok(
+            match self
+                .outage
+                .filter(|outage| outage.active(self.start, Instant::now()))
+            {
+                Some(outage) if outage.in_air() => packets.iter().map(Vec::len).sum(),
+                Some(_) => {
+                    self.batch.refuse(packets.len());
+                    0
+                }
+                None => match self.send_drop.as_mut() {
+                    Some(drop) => crate::stream::slices::send_lossy(
+                        &mut self.batch,
+                        &self.socket,
+                        packets,
+                        peer,
+                        drop,
+                    )?,
+                    None => self.batch.send(&self.socket, packets, peer)?,
+                },
+            },
+        )
+    }
+
     /// Send the blocks of one part. Returns whether the stream is stopping.
     fn send_blocks(&mut self, frame: &Prepared, cur: &mut Sending) -> Result<bool> {
-        let s = &self.s;
+        // Its own handle: `send_batch` borrows the whole transport.
+        let s = Arc::clone(&self.s);
         let period = s.stream_mode().period();
         let peer = frame.peer;
         let bps = cur.bps;
@@ -202,6 +232,15 @@ impl Transport<'_> {
             for &(data, parity) in &frame.layout {
                 cur.lost.push_block(data, parity);
             }
+        }
+        if let Some(stall) = self.stall.as_mut()
+            && stall.frame(cur.wire_bytes, Instant::now())
+        {
+            tracing::info!(
+                frame = frame.wire_frame,
+                wire_bytes = cur.wire_bytes,
+                "test adapter stall started"
+            );
         }
         'blocks: for (block, count) in frame.blocks.iter().zip(&frame.counts) {
             let mut remaining = &block[..*count];
@@ -233,27 +272,26 @@ impl Transport<'_> {
                 };
                 let send_started = Instant::now();
                 let refused = self.batch.dropped;
-                let bytes = match self
-                    .outage
-                    .filter(|outage| outage.active(self.start, Instant::now()))
-                {
-                    Some(outage) if outage.in_air() => {
-                        remaining[..count].iter().map(Vec::len).sum()
+                let full_until = self.stall.as_mut().and_then(|stall| {
+                    stall.full_until(remaining[..count].iter().map(Vec::len).sum(), send_started)
+                });
+                let bytes = match full_until {
+                    // The stalled adapter's socket is full: wait for room as a
+                    // refused send does, then send if the stall is over.
+                    Some(end) => {
+                        self.timer.until(end.min(send_started + WRITABLE_WAIT));
+                        if let Some(waits) = self.batch.waits.as_mut() {
+                            waits.count += 1;
+                            waits.elapsed += send_started.elapsed();
+                        }
+                        if Instant::now() >= end {
+                            self.send_batch(&remaining[..count], peer)?
+                        } else {
+                            self.batch.refuse(count);
+                            0
+                        }
                     }
-                    Some(_) => {
-                        self.batch.refuse(count);
-                        0
-                    }
-                    None => match self.send_drop.as_mut() {
-                        Some(drop) => crate::stream::slices::send_lossy(
-                            &mut self.batch,
-                            &self.socket,
-                            &remaining[..count],
-                            peer,
-                            drop,
-                        )?,
-                        None => self.batch.send(&self.socket, &remaining[..count], peer)?,
-                    },
+                    None => self.send_batch(&remaining[..count], peer)?,
                 };
                 let finished = Instant::now();
                 cur.first_send.get_or_insert(send_started);
@@ -366,6 +404,9 @@ impl Transport<'_> {
                 after_invalidation: frame.after_invalidation,
                 payload_bytes: frame.payload_bytes,
                 cap_bytes: frame.frame_cap_bytes,
+                cap_target_bytes: frame.cap_target_bytes,
+                reencoded: frame.reencoded,
+                fec_limited: frame.fec_limited,
                 wire_bytes: wire_bytes as u64,
                 pace_bps: bps,
                 elapsed,
@@ -511,6 +552,7 @@ pub(super) fn run_with(
         32 => 32,
         _ => 64,
     };
+    let outage = SendOutage::from_env();
     let mut transport = Transport {
         shared,
         socket,
@@ -526,7 +568,8 @@ pub(super) fn run_with(
         link_due: Instant::now(),
         reported_pacing: None,
         slow_reported: None,
-        outage: SendOutage::from_env(),
+        outage,
+        stall: outage.and_then(|outage| outage.stall()),
         send_drop,
         send_loss,
         batch_kb,

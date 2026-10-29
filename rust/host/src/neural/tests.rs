@@ -1518,9 +1518,7 @@ async fn a_first_install_cut_short_is_taken_out_by_the_pending_removals() {
     let folder = exe.parent().unwrap();
     let before = names(folder);
     let cache = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
-    // From the cache alone (a stream runs); GitHub is a dead address here.
-    *h.neural.origin.lock().unwrap() = Some("http://127.0.0.1:9".into());
-    f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
+    let _github = no_releases(h).await;
 
     enable(h, "game", Some(exe.clone())).unwrap();
     let job = ended(h, "game").await;
@@ -1876,6 +1874,14 @@ async fn serve(listener: tokio::net::TcpListener, list: Value, files: Files) -> 
     Server { base, log }
 }
 
+/// GitHub listing no release for [`fetch`]: it takes the cached one.
+async fn no_releases(h: &Shared) -> Server {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = serve(listener, json!([]), Arc::new(BTreeMap::new())).await;
+    *h.neural.origin.lock().unwrap() = Some(server.base.clone());
+    server
+}
+
 /// 0.3.5.8R2 as GitHub lists it: the package without the runtime, the
 /// runtime component and the release's checksum list; `sums` may lie.
 fn r2_files() -> BTreeMap<String, Vec<u8>> {
@@ -1965,12 +1971,13 @@ async fn a_download_goes_list_checksums_archives_cache() {
     *h.neural.origin.lock().unwrap() = Some(server.base.clone());
     let stale = release(&cache_root(h), "Alpha0.3.5.6", b"OptiScaler proxy");
     let older = release(&cache_root(h), "Alpha0.3.5.7", b"OptiScaler proxy");
-    // An install about to copy the older release, taken as cached (a
-    // stream runs): GitHub isn't asked, and the release outlasts the newer
+    // An install about to copy the older release: it outlasts the newer
     // one's download.
-    let (using, _) = fetch_using(h, true, &|_, _| {}).await.unwrap();
-    assert_eq!(using.folder, older);
-    assert!(server.log.lock().unwrap().is_empty());
+    *h.neural.lock().using.entry(older.clone()).or_default() += 1;
+    let using = Using {
+        h: h.clone(),
+        folder: older.clone(),
+    };
 
     // A copy from the older release holds the cache: it stays until then.
     let (held, done) = (mpsc::channel(), mpsc::channel::<()>());
@@ -2099,23 +2106,20 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
     assert!(matches!(enable(h, "game", None), Err(Refusal::Streaming)));
     assert!(!h.neural.lock().jobs.contains_key("game"));
-    // With a release downloaded the switch goes on during the stream, from
-    // the cache alone: GitHub (a dead address here) isn't asked.
+    // A release downloaded already changes nothing: its copy of about 1 GB
+    // into the game's folder would take the stream's disk.
     let cache = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
-    *h.neural.origin.lock().unwrap() = Some("http://127.0.0.1:9".into());
+    assert!(matches!(enable(h, "game", None), Err(Refusal::Streaming)));
+    assert!(!h.neural.lock().jobs.contains_key("game"));
+    h.sessions.lock().unwrap().active.clear();
+    // Once it ends, the switch goes on from the cache (GitHub lists no
+    // newer release here).
+    let _github = no_releases(h).await;
     enable(h, "game", None).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let job = loop {
-        let job = h.neural.lock().jobs["game"].clone();
-        if job.phase == "failed" || job.phase == "done" || Instant::now() > deadline {
-            break job;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    };
+    let job = ended(h, "game").await;
     // The app names no program or install: the user chooses the game's.
     assert!(job.choose_exe, "{job:?}");
     std::fs::remove_dir_all(cache.parent().unwrap()).unwrap();
-    h.sessions.lock().unwrap().active.clear();
 
     let mut files = r2_files();
     files.insert(

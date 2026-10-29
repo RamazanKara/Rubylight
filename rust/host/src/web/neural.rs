@@ -81,7 +81,7 @@ pub(super) async fn handle(
         ),
         Ok(Err(Refusal::Streaming)) => error(
             StatusCode::CONFLICT,
-            "Neural Rendering downloads about 1 GB: turn it on when no stream is running",
+            "Neural Rendering downloads and copies about 1 GB: turn it on when no stream is running",
         ),
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }

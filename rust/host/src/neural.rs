@@ -568,21 +568,16 @@ pub fn cached(root: &Path) -> Option<(PathBuf, Package)> {
 /// starts ([`StreamStarted`]).
 pub async fn fetch(h: &Shared, progress: &(dyn Fn(u64, u64) + Sync)) -> Result<(PathBuf, Package)> {
     let _one = h.neural.fetching.lock().await;
-    fetch_locked(h, false, progress).await
+    fetch_locked(h, progress).await
 }
 
 /// [`fetch`] for an install, the release kept in the cache until the
-/// [`Using`] goes; `cached_only` takes the cached release as it is, without
-/// asking GitHub (a stream is running).
-async fn fetch_using(
-    h: &Shared,
-    cached_only: bool,
-    progress: &(dyn Fn(u64, u64) + Sync),
-) -> Result<(Using, Package)> {
+/// [`Using`] goes.
+async fn fetch_using(h: &Shared, progress: &(dyn Fn(u64, u64) + Sync)) -> Result<(Using, Package)> {
     // Older releases go only under this lock: the release is kept before
     // another fetch may clear it.
     let _one = h.neural.fetching.lock().await;
-    let (folder, package) = fetch_locked(h, cached_only, progress).await?;
+    let (folder, package) = fetch_locked(h, progress).await?;
     *h.neural.lock().using.entry(folder.clone()).or_default() += 1;
     Ok((
         Using {
@@ -595,21 +590,11 @@ async fn fetch_using(
 
 async fn fetch_locked(
     h: &Shared,
-    cached_only: bool,
     progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<(PathBuf, Package)> {
     let root = cache_root(h);
     ensure_root(&root)?;
     trusted_root(&root, butterpollo_windows::process::is_system())?;
-    if cached_only {
-        let have = cached(&root).context("no release of the mod is downloaded yet")?;
-        let h = h.clone();
-        return tokio::task::spawn_blocking(move || {
-            verify_cache(&h, &have.0, &have.1)?;
-            Ok(have)
-        })
-        .await?;
-    }
     let (api_origin, files_origin) = origins(h);
     let api = http(h, Duration::from_secs(35))?;
     let list: Value = api
@@ -1106,7 +1091,8 @@ pub enum Refusal {
     Unavailable(String),
     NotFound,
     Busy,
-    /// The download would take a stream's bandwidth.
+    /// A stream runs: the download would take its bandwidth, and the copy
+    /// of about 1 GB into the game's folder its disk.
     Streaming,
 }
 
@@ -1188,9 +1174,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     }
     capability(h).map_err(Refusal::Unavailable)?;
     let app = app(h, uuid).ok_or(Refusal::NotFound)?;
-    // During a stream only a release already downloaded is used.
-    let streaming = crate::updater::streaming(h);
-    if streaming && cached(&cache_root(h)).is_none() {
+    if crate::updater::streaming(h) {
         return Err(Refusal::Streaming);
     }
     start_job(h, uuid, "install", "download")?;
@@ -1202,7 +1186,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
                 job.total = total;
             })
         };
-        let (using, _) = match fetch_using(&h, streaming, &progress).await {
+        let (using, _) = match fetch_using(&h, &progress).await {
             Ok(cached) => cached,
             Err(error) => {
                 // The details name the mod's files; the console says what happened.

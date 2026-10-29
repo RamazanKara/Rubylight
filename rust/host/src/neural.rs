@@ -956,6 +956,17 @@ fn command_exe(app: &App) -> Option<PathBuf> {
     .then_some(target)
 }
 
+/// The app's command when it starts the game itself: no launcher, and in
+/// the game's install when the app says where that is. Otherwise the
+/// game's .exe is found in its install, or the user picks it.
+fn game_command(app: &App) -> Option<PathBuf> {
+    command_exe(app).filter(|exe| {
+        exe.is_file()
+            && !folder::launcher(exe)
+            && install(app).is_none_or(|install| folder::inside(exe, &install))
+    })
+}
+
 /// The .exe the mod sits beside, once it is in.
 fn placed_exe(app: &App) -> Option<PathBuf> {
     app.extra.get(KEY)?.get("exe")?.as_str().map(PathBuf::from)
@@ -1090,7 +1101,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
             (job.phase, job.done, job.total) = ("place", 0, 0)
         });
         let request = Request::Install {
-            exe: exe.or_else(|| command_exe(&app).filter(|exe| exe.is_file())),
+            exe: exe.or_else(|| game_command(&app)),
             install: install(&app),
             package,
         };

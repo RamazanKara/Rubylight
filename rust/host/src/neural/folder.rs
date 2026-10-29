@@ -262,7 +262,18 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
         let program = exe
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
-        return if program && exe.is_absolute() && exe.is_file() {
+        return if launcher(&exe) {
+            Err(Failure::ChooseExe(format!(
+                "{} is a launcher, not the game: choose the game's own program",
+                exe.display()
+            )))
+        } else if let Some(install) = install.filter(|install| !inside(&exe, install)) {
+            Err(Failure::ChooseExe(format!(
+                "{} is not in the game's folder {}: choose the game's own program",
+                exe.display(),
+                install.display()
+            )))
+        } else if program && exe.is_absolute() && exe.is_file() {
             Ok(exe)
         } else {
             Err(Failure::Error(format!(
@@ -314,6 +325,28 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
             install.display()
         ))),
     }
+}
+
+/// A store's or library's launcher: the mod beside it would load into the
+/// launcher and every program it starts, never into the game.
+pub(super) fn launcher(exe: &Path) -> bool {
+    let name = exe
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    [
+        "steam.exe",
+        "upc.exe",
+        "ubisoftconnect.exe",
+        "epicgameslauncher.exe",
+        "battle.net.exe",
+        "battle.net launcher.exe",
+        "eadesktop.exe",
+        "galaxyclient.exe",
+    ]
+    .contains(&name.as_str())
+        || (name.starts_with("playnite.") && name.ends_with(".exe"))
 }
 
 fn helper_program(name: &str) -> bool {
@@ -381,7 +414,7 @@ fn walk<T>(
 
 /// Whether `path` is `root` or inside it, comparing names as Windows does,
 /// whatever their case.
-fn inside(path: &Path, root: &Path) -> bool {
+pub(super) fn inside(path: &Path, root: &Path) -> bool {
     let mut parts = path.components();
     root.components().all(|part| {
         parts.next().is_some_and(|other| {

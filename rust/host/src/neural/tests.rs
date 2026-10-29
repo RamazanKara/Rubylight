@@ -457,18 +457,18 @@ fn anti_cheat_is_found_however_the_install_is_written_and_a_huge_one_is_refused(
         panic!()
     };
     assert!(reason.contains("Easy Anti-Cheat"), "{reason}");
-    // A program chosen outside the install.
+    // A program chosen outside the install is not the game's.
     let elsewhere = temp.path().join("Elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     std::fs::write(elsewhere.join("Game.exe"), "MZ").unwrap();
-    let Response::Refused { reason } = install(
+    let Response::ChooseExe { reason } = install(
         Some(&elsewhere.join("Game.exe")),
         Some(&install_dir),
         &cache,
     ) else {
         panic!()
     };
-    assert!(reason.contains("Easy Anti-Cheat"), "{reason}");
+    assert!(reason.contains("not in the game's folder"), "{reason}");
     assert_eq!(names(&elsewhere), ["Game.exe"]);
 
     // More files than the search looks at (fewer in tests).
@@ -1096,6 +1096,57 @@ fn app_named(name: &str, uuid: &str) -> App {
         aliases: Vec::new(),
         extra: [("uuid".to_string(), json!(uuid))].into_iter().collect(),
     }
+}
+
+/// A launcher is never the game: an app whose command starts Steam or
+/// another store has the game's program found in its install, a launcher
+/// picked is refused, and so is a program outside the game's install.
+#[test]
+fn the_mod_never_goes_beside_a_launcher_or_outside_the_install() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let launchers = temp.path().join("Launchers");
+    std::fs::create_dir(&launchers).unwrap();
+    let mut app = app_named("Game", "game");
+    app.extra.insert("steam-install-dir".into(), json!(folder));
+    for name in [
+        "steam.exe",
+        "upc.exe",
+        "UbisoftConnect.exe",
+        "EpicGamesLauncher.exe",
+        "Battle.net.exe",
+        "EADesktop.exe",
+        "GalaxyClient.exe",
+        "Playnite.DesktopApp.exe",
+    ] {
+        let launcher = launchers.join(name);
+        std::fs::write(&launcher, "MZ").unwrap();
+        let response = install(Some(&launcher), None, &cache);
+        assert!(
+            matches!(response, Response::ChooseExe { .. }),
+            "{name}: {response:?}"
+        );
+        app.cmd = format!("\"{}\" -applaunch 620", launcher.display());
+        assert_eq!(game_command(&app), None, "{name}");
+    }
+    assert_eq!(names(&launchers).len(), 8, "nothing beside a launcher");
+
+    let other = temp.path().join(r"Other\Other.exe");
+    std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+    std::fs::write(&other, "MZ").unwrap();
+    let Response::ChooseExe { reason } = install(Some(&other), Some(folder), &cache) else {
+        panic!("a program outside the install was taken")
+    };
+    assert!(reason.contains("not in the game's folder"), "{reason}");
+    app.cmd = format!("\"{}\"", other.display());
+    assert_eq!(game_command(&app), None);
+    app.cmd = format!("\"{}\"", exe.display());
+    assert_eq!(game_command(&app), Some(exe.clone()));
+    app.extra.remove("steam-install-dir");
+    app.cmd = format!("\"{}\"", other.display());
+    assert_eq!(game_command(&app), Some(other));
 }
 
 /// An app deleted or dropped by the library sync while its install runs

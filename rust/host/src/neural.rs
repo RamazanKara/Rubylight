@@ -615,16 +615,10 @@ pub fn cached(root: &Path) -> Option<(PathBuf, Package)> {
         .map(|(_, folder, package)| (folder, package))
 }
 
-/// The pinned release with the whole mod, in the cache: downloaded and
-/// checked unless it is there already. A download gives up when a stream
-/// starts ([`StreamStarted`]).
-pub async fn fetch(h: &Shared, progress: &(dyn Fn(u64, u64) + Sync)) -> Result<(PathBuf, Package)> {
-    let _one = h.neural.fetching.lock().await;
-    fetch_locked(h, progress).await
-}
-
-/// [`fetch`] for an install, the release kept in the cache until the
-/// [`Using`] goes.
+/// The pinned release with the whole mod for an install, in the cache:
+/// downloaded and checked unless it is there already, and kept there until
+/// the [`Using`] goes. A download gives up when a stream starts
+/// ([`StreamStarted`]).
 async fn fetch_using(h: &Shared, progress: &(dyn Fn(u64, u64) + Sync)) -> Result<(Using, Package)> {
     // Older releases go only under this lock: the release is kept before
     // another fetch may clear it.
@@ -1026,7 +1020,7 @@ fn unpack(
 }
 
 /// An archive's files against its own checksum list; one without a list
-/// needs the release's, which [`fetch`] checked it against.
+/// needs the release's, which [`fetch_using`] checked it against.
 fn checked(
     asset: &str,
     files: &BTreeMap<String, Placed>,

@@ -2162,6 +2162,12 @@ async fn serve(listener: tokio::net::TcpListener, list: Value, files: Files) -> 
     Server { base, log }
 }
 
+/// [`fetch_using`] without holding the release: one fetch at a time.
+async fn fetch(h: &Shared, progress: &(dyn Fn(u64, u64) + Sync)) -> Result<(PathBuf, Package)> {
+    let _one = h.neural.fetching.lock().await;
+    fetch_locked(h, progress).await
+}
+
 /// The cached release `folder` held as [`fetch_using`] holds it for an install.
 fn pin(h: &Shared, folder: &Path) -> Using {
     *h.neural

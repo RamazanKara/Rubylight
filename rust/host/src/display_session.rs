@@ -1453,13 +1453,7 @@ impl Prepared {
         config: &Config,
         physical_only: bool,
     ) -> Result<(Self, limiter::Lease)> {
-        let app = h
-            .apps
-            .read()
-            .unwrap()
-            .iter()
-            .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
-            .cloned();
+        let app = crate::stream::launch_app(h, launch);
         let output_override = app
             .as_ref()
             .and_then(|a| a.extra.get("display-output"))
@@ -2227,13 +2221,7 @@ pub fn retime(
     {
         return Ok(Err(preparation));
     }
-    let app = h
-        .apps
-        .read()
-        .unwrap()
-        .iter()
-        .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
-        .cloned();
+    let app = crate::stream::launch_app(h, launch);
     let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config, true)?;
     let raised = butterpollo_windows::input::on_input_desktop(|| -> Result<Raise> {
         let mut prepared = display._state.lock().unwrap();

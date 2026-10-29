@@ -1473,6 +1473,10 @@ fn launch_back_half(
     resume: bool,
     owner: remote::Owner,
 ) -> Result<Launch> {
+    // The app as this device streams it: the device's block in its `device-overrides` on top,
+    // for its Radeon profile and its managed game files.
+    let app =
+        app.map(|app| butterpollo_core::device_overrides::for_device(&app, &launch.client.uuid));
     let role = launch.role;
     let app_id = launch.app_id;
     let id = launch.id.clone();
@@ -2342,13 +2346,7 @@ fn prepare_launch_display(
         // client streaming the same app keeps its display. One set up for
         // another display choice or layout is replaced.
         let client_display = crate::display_session::client_display(launch);
-        let app = h
-            .apps
-            .read()
-            .unwrap()
-            .iter()
-            .find(|app| app.id() == launch.app_id || app.aliases.contains(&launch.app_id))
-            .cloned();
+        let app = crate::stream::launch_app(h, launch);
         let layout = crate::display_session::virtual_display_layout(
             &config,
             &launch.client,
@@ -2425,6 +2423,15 @@ fn prepare_launch_app(
         process_args.remove(crate::process::BACKGROUND_ARG);
         if background {
             process_args.insert(crate::process::BACKGROUND_ARG.into(), "1".into());
+        }
+        // The frame limiter's rate, which the stream's display set up, for the managed game
+        // files' double limiter warning.
+        process_args.remove(crate::game_files::FRAME_LIMIT_ARG);
+        if let Some(rate) = butterpollo_windows::limiter::active_rate() {
+            process_args.insert(
+                crate::game_files::FRAME_LIMIT_ARG.into(),
+                rate.rounded().to_string(),
+            );
         }
         return crate::process::launch(h, app.context("application not found")?, &process_args)
             .map(Some);
@@ -2551,6 +2558,7 @@ async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connec
     drop(canceled);
     crate::remote_display::disconnect(&h, Some(&client.uuid));
     h.radeon.release_device(&client.uuid);
+    h.game_files.release_device(&h.directory, &client.uuid);
     xml(200, &[("unpaired", "1".into())], None)
 }
 async fn appasset(

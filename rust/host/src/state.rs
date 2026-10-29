@@ -339,6 +339,8 @@ pub struct Host {
     pub codec_missing: Mutex<Vec<butterpollo_core::codec_support::Unavailable>>,
     /// Which session changed Radeon settings, and when they go back.
     pub radeon: crate::radeon_session::Radeon,
+    /// Which session changed keys in games' settings files, and when they go back.
+    pub game_files: crate::game_files::GameFiles,
     /// The Radeon profile applied for the owner's game and a launcher prompt, for the session.
     pub notes: crate::session_notes::SessionNotes,
     /// Wake-on-LAN readiness, the console's fix and sleep after idle.
@@ -697,6 +699,7 @@ impl Host {
             probed_encoder: Mutex::new(""),
             codec_missing: Mutex::new(Vec::new()),
             radeon: crate::radeon_session::Radeon::default(),
+            game_files: crate::game_files::GameFiles::default(),
             notes: crate::session_notes::SessionNotes::default(),
             wake: Default::default(),
             webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,

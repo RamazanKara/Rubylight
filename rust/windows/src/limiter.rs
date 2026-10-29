@@ -336,6 +336,13 @@ impl Drop for Lease {
         }
     }
 }
+/// The rate RTSS holds games to while a stream holds the frame limiter, if it limits.
+pub fn active_rate() -> Option<Rate> {
+    let state = state().lock().unwrap();
+    (state.users > 0 && state.active == "rtss")
+        .then_some(state.rate)
+        .flatten()
+}
 pub fn status(config: &Config) -> Json {
     let root = rtss::root(config);
     let available = rtss::available(&root);

@@ -572,7 +572,7 @@ Input-only sessions and the read-back encode path (`wgc_direct_encoder_input = f
 
 The console shows the selector under **Streaming** and, below it, which covered settings have a value of their own ("Custom"), including one equal to the preset's. Settings the preset covers show its values as their defaults, and Reset returns to them. A name the host does not know still loads, and the host uses Balanced; the console shows the stored name with an error instead of showing Balanced.
 
-A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (app, then device, then host), and it fills only the three settings that none of the three layers set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has a **Stream preset** control for the device's own name; the app editor sets it through the app's overrides.
+A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (an app's settings for the device, then app, then device, then host; see [one game on one device](#one-game-on-one-device)), and it fills only the three settings that no layer set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has a **Stream preset** control for the device's own name; the app editor sets it through the app's overrides, and for one device in its **Per device** panel.
 
 ## Radeon settings per game
 
@@ -587,13 +587,101 @@ An app can ask for Radeon driver settings while it runs. In **Games & apps**, th
 
 The table is `rust/core/src/radeon_profiles.json`. The app stores the choice as two top-level keys of the app, `radeon-profile` and, for Custom only, `radeon-settings` (an object of setting ids and values, such as `{ "anti_lag.enabled": true }`). The host refuses to save an unknown profile, `radeon-settings` with any profile but Custom (or Custom with none), an id that is not lower-case words joined by dots, a value that is not a boolean, a whole number or a short text, or more than 24 custom settings. At launch the host applies the settings through the Radeon control path of the Session API (validated, journaled, read back, undone on failure), and restores them with the other Radeon changes when the session ends or the host restarts after a crash. The app's config is the administrator's consent, so the device needs no Host control for its game's profile; the device's own Radeon writes (the Session API's panel) still do. The settings are written on a thread of their own, so a launch never waits for the driver, and a game launched from another device first has the earlier device's settings put back, so the new profile's originals are the PC's own. Starting another game on the same device puts back only the settings the earlier profile wrote, not what the device changed itself; Disconnect keeps the profile, and it goes with the session's end (or a launch that never connects). A setting the GPU does not list is refused before anything is written, a profile that follows the stream's frame rate is refused when the launch states none, and both are reported in the session's `radeon_profile.message` and in the host log; the game still starts.
 
+## Managed game files
+
+Some games and mods keep a frame limit or similar setting in an `.ini` file of their own: OptiScaler's `FramerateLimit`, for example. An app can have the host set such keys for a stream and put them back when the session ends. In **Games & apps**, the app editor's **Managed game files** panel lists them as rows of file, section, key and value. A device can have its own rows in the **Per device** panel ([one game on one device](#one-game-on-one-device)).
+
+The app stores them in `game-files`, a list of up to 32 entries:
+
+```json
+"game-files": [
+  { "path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": "{stream_fps-1}" }
+]
+```
+
+**What the fields hold**
+
+- **`path`.** An existing `.ini` file. A relative path starts in the app's working directory, else in its program's folder.
+- **`section`.** The name between `[` and `]`. Leave it empty for keys before the first section.
+- **`value`.** Fixed text or a number, or `{stream_fps}`. `{stream_fps}` is the stream's frame rate rounded to a whole number, as for RTSS. It takes an optional whole offset, so `{stream_fps-1}` writes 119 for a 120 fps stream.
+
+**What the host changes**
+
+Only the listed keys change. Every other byte of the file stays as it was, including line endings, a byte order mark, comments and key order. Files in UTF-8 or UTF-16 with a byte order mark are read. Section and key names are matched without regard to case, and the first match counts.
+
+If the file, the section or the key is missing, the host logs a warning and the game still starts. The host never adds a key.
+
+When a frame-limit key (a name with `fps`, `framerate` or `limit`) gets a value other than the host's RTSS frame limit, the host logs a warning: two limiters at different rates cap the game at the lower one.
+
+**When**
+
+The keys are written for a stream from a device, just before the game starts. A launch from the console writes none. The original values go back:
+
+- when the session ends: End session, Close game, or the disconnect grace period running out;
+- when the device is unpaired or disabled;
+- when the host shuts down;
+- at the next start after a crash.
+
+Disconnect keeps them for the suspended session.
+
+**How the restore works**
+
+Before the file is written, the original value of each key and the value written are recorded in `game-files-journal.json` in the config folder. A restore puts the original back only while the key still holds the host's value. A value you changed in the meantime (in the game's own menu, for example) is yours and stays. Restores run on a thread of their own, so a slow file never holds up a session. A restore that fails stays in the journal and is retried: within 5 seconds of a sign-in when nobody is signed in to Windows, otherwise after 30 seconds and then less often, and again at the next start. A game folder deleted since takes its entries with it. When another device's stream changed the same key and its restore is still pending, that restore runs before the new stream writes.
+
+**Which files the host writes**
+
+The host runs as SYSTEM, but it reads and writes game files as the signed-in Windows user, so a link put in a game's folder cannot lead it to a file the user could not change. With nobody signed in, nothing is written, and restores wait. A file the user may not change (often the case under `Program Files`) is skipped with a warning. It writes only:
+
+- an existing `.ini` file of at most 1 MiB;
+- inside the app's working directory, its program's folder or its Steam install folder, after every link and junction is resolved.
+
+It refuses:
+
+- `..` in a path;
+- network and device paths;
+- a link or junction that leads outside these folders;
+- a drive's root or the Windows folder as an app's folder.
+
+The host checks the files when the app is saved and again at every launch. While it reads and writes a file, it holds the folders from the app's folder down to the file open, so none can be swapped for a link meanwhile. A file is written to a temporary file beside it and swapped in, so the game never reads a half-written file, and the file keeps its permissions and attributes. A read-only file is not changed.
+
 ## Settings for one app or device
 
 Edit an app in **Games & apps** or a paired device in **Devices** to set its display, HDR and other overrides. Leave an override unset to inherit the host configuration.
 
-For general configuration overrides, Rubylight applies **host settings → device overrides → app overrides**. Only supported stream, input, display and encoder keys are accepted; host-wide network, identity and path settings cannot be overridden per stream.
+For general configuration overrides, Rubylight applies **host settings → device overrides → app overrides → the app's overrides for that device**. Only supported stream, input, display and encoder keys are accepted; host-wide network, identity and path settings cannot be overridden per stream.
 
 Display selection has dedicated rules: a device's explicit virtual-display mode takes priority over the app's mode, and its **display mode** (`WIDTHxHEIGHTxREFRESH`) overrides the host's resolution/refresh policy. This does not change the frame rate requested for the encoded stream.
+
+### One game on one device
+
+An app can have settings of its own for one paired device, such as a 60 fps frame limit on the TV and 120 on a handheld. In **Games & apps**, the app editor's **Per device** panel adds a paired device and sets its **Stream preset**, **Frame limit** (`frame_limiter_fps_limit`, 0 for the stream's frame rate), **Radeon preset** and [managed game files](#managed-game-files). "Same as the game" leaves the app's own setting in place.
+
+The app stores them in `device-overrides`, an object keyed by the device's id (its uuid in `GET /api/clients/list`). Each block holds the app's own keys for that device: `config-overrides`, `radeon-profile` with `radeon-settings`, and `game-files`.
+
+```json
+"device-overrides": {
+  "0123abcd-...": {
+    "config-overrides": { "stream_preset": "reference", "frame_limiter_fps_limit": 60 },
+    "radeon-profile": "smoothness",
+    "game-files": [ { "path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": 60 } ]
+  }
+}
+```
+
+The block wins everywhere the host resolves a stream's settings: **the app's block for the device → app → device → host**.
+
+- **General settings.** A key of the block's `config-overrides` replaces the app's; an empty value leaves the app's.
+- **Radeon profile.** A `radeon-profile` in the block, `""` for Off, replaces the app's profile together with its settings.
+- **Game files.** An entry replaces the app's entry for the same file, section and key; the block's other entries are added.
+
+The host checks a block when the app is saved, as it checks the app. It refuses:
+
+- a key a block cannot hold;
+- a host-wide setting, such as a port or a path;
+- an unknown preset or Radeon profile;
+- a game file entry the host would not write.
+
+A block for a device that is not paired, or no longer paired, is kept and ignored. The console shows it as such, and it applies again if a device with that id pairs.
 
 ### Display choice from the client
 

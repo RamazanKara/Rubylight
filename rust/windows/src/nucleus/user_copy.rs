@@ -7,12 +7,16 @@
 //! host's data. It is copied from the host's Nucleus folder (its own install
 //! or `nucleus_path`), program files only, and `<key>` changes with them.
 //! SYSTEM makes `nucleus-user` (only SYSTEM and Administrators may open
-//! it) and `<SID>` (its user may add to it and change what is in it, never
-//! its permissions), each with its permissions from the start, and checks
-//! them when they exist, never following a link.
-//! Everything below `<SID>` is done as that user: writing the copy, checking
-//! it, removing an older one, the handlers, the profile and settings. What
-//! the user can change there runs with their rights only.
+//! it), `<SID>` and `<key>` (their user may add to them and change what is
+//! in them, never their permissions, nor rename or delete them), each with
+//! its permissions from the start, and checks them when they exist, never
+//! following a link. SYSTEM also removes an emptied folder from `<SID>`,
+//! never through a link, and opens the copy to start Nucleus from it
+//! ([`hold`]): `<key>` and its `NucleusCoop.exe`, checked by handle and held
+//! so neither can be swapped for a link until it runs.
+//! Everything else below `<SID>` is done as that user: writing the copy,
+//! checking it, emptying an older one, the handlers, the profile and
+//! settings. What the user can change there runs with their rights only.
 use super::{files, install};
 use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::nucleus::generic::Setup;
@@ -38,9 +42,10 @@ const MARKER: &str = "Rubylight-copy.txt";
 const REPARSE_POINT: u32 = 0x400;
 const DIRECTORY: u32 = 0x10;
 
-/// A user's folder: SYSTEM and Administrators own and change it; the user
-/// may list it and add to it, and change and delete what is in it, never
-/// its permissions, its owner or the folder itself.
+/// A user's folder, and each copy in it: SYSTEM and Administrators own and
+/// change it; the user may list it and add to it, and change and delete
+/// what is in it, never its permissions, its owner or the folder itself
+/// (deleting or renaming it: a copy can't be swapped for a link).
 fn user_sddl(sid: &str) -> String {
     format!(
         "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;0x1200af;;;{sid})(A;OICIIO;0x1301bf;;;{sid})"
@@ -127,19 +132,106 @@ fn ensure_with(
     let _folder = made(&folder, &user_sddl(sid), &[sid], steps)?;
     let key = pinned::copy_key(&listing.text);
     let copy = folder.join(&key);
+    let _copy = match made(&copy, &user_sddl(sid), &[sid], steps) {
+        Ok(held) => held,
+        Err(error) => {
+            // An earlier Rubylight's, which the user made, or whatever they
+            // put in its place: theirs to remove, then made by the host.
+            tracing::warn!(copy = %copy.display(), error = format!("{error:#}"), "Nucleus Co-op: the signed-in user's copy is not in a folder the host made; making it again");
+            as_user(token, || remove_entry(&copy))??;
+            made(&copy, &user_sddl(sid), &[sid], steps)?
+        }
+    };
     match as_user(token, || differs(&copy, &listing.text))? {
         None => {}
         Some(Differs::Missing) => {
             tracing::info!(copy = %copy.display(), source = %source.display(), "Nucleus Co-op: copying it for the signed-in user");
-            make(source, &listing, &folder, &key, token)?;
+            make(source, &listing, &copy, token)?;
         }
         Some(Differs::Changed(why)) => {
             tracing::warn!(copy = %copy.display(), source = %source.display(), why, "Nucleus Co-op: the signed-in user's copy is not the host's; copying it again");
-            make(source, &listing, &folder, &key, token)?;
+            make(source, &listing, &copy, token)?;
         }
     }
-    as_user(token, || remove_others(&folder, &key))??;
+    remove_others(&folder, &key, token)?;
     Ok(copy)
+}
+
+/// The user's copy at `copy`, open while Nucleus Co-op starts from it:
+/// SYSTEM opens the program and the working folder by their paths, so
+/// neither may be a link. The folders above it are SYSTEM's and
+/// Administrators', and the user can't rename or delete `<key>` itself;
+/// held, `<key>` and `NucleusCoop.exe` can't be renamed or deleted, nor the
+/// program written, by anyone until this drops.
+pub struct Held {
+    _folder: std::fs::File,
+    _program: std::fs::File,
+}
+
+/// [`Held`] for the user `sid`'s copy at `copy`: an error when `<key>` is a
+/// link or not the host's ([`secured`]), or its `NucleusCoop.exe` is a
+/// link, a folder or a hard link to another file.
+pub fn hold(copy: &Path, sid: &str) -> Result<Held> {
+    hold_with(copy, sid, secured)
+}
+
+fn hold_with(
+    copy: &Path,
+    sid: &str,
+    check: fn(&Path, &[&str]) -> Result<std::fs::File>,
+) -> Result<Held> {
+    let folder = check(copy, &[sid])?;
+    let program = copy.join(pinned::EXECUTABLE);
+    let file = open_program(&program).with_context(|| {
+        format!(
+            "{} is not a program file Rubylight starts Nucleus Co-op from: start the stream again, which copies it again",
+            program.display()
+        )
+    })?;
+    Ok(Held {
+        _folder: folder,
+        _program: file,
+    })
+}
+
+/// The file `path`, never through a link, open for reading only and shared
+/// only for reading: it can't be written, renamed or deleted while it is
+/// open. Refused when it is a link, a folder or one of several names of a
+/// file.
+fn open_program(path: &Path) -> Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_TYPE_DISK,
+        GetFileInformationByHandle, GetFileType,
+    };
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    let handle = HANDLE(file.as_raw_handle());
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle is open for as long as `file` is, and `info` is
+    // writable.
+    unsafe { GetFileInformationByHandle(handle, &mut info) }
+        .with_context(|| format!("reading {}", path.display()))?;
+    // SAFETY: as above.
+    let disk = unsafe { GetFileType(handle) } == FILE_TYPE_DISK;
+    ensure!(
+        info.dwFileAttributes & (REPARSE_POINT | DIRECTORY) == 0 && disk,
+        "{} is a link or a folder",
+        path.display()
+    );
+    ensure!(
+        info.nNumberOfLinks == 1,
+        "{} has {} names",
+        path.display(),
+        info.nNumberOfLinks
+    );
+    Ok(file)
 }
 
 /// What of a Nucleus Co-op folder its user's copy holds ([`pinned::part`]).
@@ -263,38 +355,26 @@ fn difference(expected: &str, found: &str) -> String {
     }
 }
 
-/// Copy `source`'s `listing` into `<folder>\<key>` through a partial folder,
-/// so a copy is whole or not there: written as the user of `token`, each
-/// file read as the host.
-fn make(
-    source: &Path,
-    listing: &Listing,
-    folder: &Path,
-    key: &str,
-    token: Option<&OwnedHandle>,
-) -> Result<()> {
-    let staging = folder.join(format!("{key}.partial"));
-    as_user(token, || remove(&staging))??;
-    let copied = fill(source, listing, &staging, token);
-    let files = match copied {
+/// Copy `source`'s `listing` into the copy's folder `copy`, emptied first:
+/// written as the user of `token`, each file read as the host. Its marker
+/// is written last, so a copy is whole or [`differs`] says so.
+fn make(source: &Path, listing: &Listing, copy: &Path, token: Option<&OwnedHandle>) -> Result<()> {
+    // What is there differs: it is not used.
+    as_user(token, || empty(copy))??;
+    let files = match fill(source, listing, copy, token) {
         Ok(files) => files,
         Err(error) => {
-            let _ = as_user(token, || std::fs::remove_dir_all(&staging));
+            if let Err(left) = as_user(token, || empty(copy)).and_then(|emptied| emptied) {
+                tracing::warn!(copy = %copy.display(), error = format!("{left:#}"), "Nucleus Co-op: a partial copy is left; the next start empties it");
+            }
             return Err(error.context("copying Nucleus Co-op for the signed-in user"));
         }
     };
-    let copy = folder.join(key);
-    as_user(token, || -> Result<()> {
-        // What is there differs: it is not used.
-        remove(&copy)?;
-        std::fs::rename(&staging, &copy)
-            .with_context(|| format!("moving Nucleus Co-op into {}", copy.display()))
-    })??;
     tracing::info!(copy = %copy.display(), files, "Nucleus Co-op: the signed-in user's own copy is made");
     Ok(())
 }
 
-/// Fill the new folder `staging` with `listing`; the number of files.
+/// Fill the empty folder `staging` with `listing`; the number of files.
 fn fill(
     source: &Path,
     listing: &Listing,
@@ -302,7 +382,6 @@ fn fill(
     token: Option<&OwnedHandle>,
 ) -> Result<usize> {
     as_user(token, || -> Result<()> {
-        std::fs::create_dir(staging).with_context(|| format!("creating {}", staging.display()))?;
         for folder in listing.folders.iter().chain(&listing.state) {
             let path = staging.join(folder);
             std::fs::create_dir_all(&path)
@@ -442,39 +521,79 @@ fn verdict(
 }
 
 /// Remove what else is in the user's folder: a copy of another program
-/// (`key` is this one's), a partial copy. One still in use stays until the
-/// next time, with a warning.
-fn remove_others(folder: &Path, key: &str) -> Result<()> {
-    for entry in
-        std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?
-    {
-        let entry = entry.with_context(|| format!("listing {}", folder.display()))?;
-        if entry.file_name() == key {
-            continue;
+/// (`key` is this one's), an earlier Rubylight's partial copy. What is in
+/// it goes as the user of `token`; a folder itself then as the host, which
+/// may remove one it made (the user may not), and never follows a link:
+/// removing one removes the link. One still in use stays until the next
+/// time, with a warning.
+fn remove_others(folder: &Path, key: &str, token: Option<&OwnedHandle>) -> Result<()> {
+    let entries = as_user(token, || -> Result<Vec<(PathBuf, bool)>> {
+        let mut entries = Vec::new();
+        for entry in
+            std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?
+        {
+            let entry = entry.with_context(|| format!("listing {}", folder.display()))?;
+            if entry.file_name() != key {
+                // A link is no folder here: it goes itself.
+                entries.push((
+                    entry.path(),
+                    entry.file_type().is_ok_and(|kind| kind.is_dir()),
+                ));
+            }
         }
-        let path = entry.path();
-        // Neither follows a link: a link itself goes.
-        let removed = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            std::fs::remove_dir_all(&path)
+        Ok(entries)
+    })??;
+    for (path, is_folder) in entries {
+        let removed = if is_folder {
+            as_user(token, || empty(&path))
+                .and_then(|emptied| emptied)
+                .and_then(|()| {
+                    std::fs::remove_dir(&path)
+                        .with_context(|| format!("removing {}", path.display()))
+                })
         } else {
-            std::fs::remove_file(&path).or_else(|_| std::fs::remove_dir(&path))
+            as_user(token, || remove_entry(&path)).and_then(|removed| removed)
         };
         match removed {
             Ok(()) => {
                 tracing::info!(path = %path.display(), "Nucleus Co-op: another copy of the signed-in user's removed")
             }
             Err(error) => {
-                tracing::warn!(path = %path.display(), %error, "Nucleus Co-op: another copy of the signed-in user's was not removed; it is tried again next time")
+                tracing::warn!(path = %path.display(), error = format!("{error:#}"), "Nucleus Co-op: another copy of the signed-in user's was not removed; it is tried again next time")
             }
         }
     }
     Ok(())
 }
 
-fn remove(folder: &Path) -> Result<()> {
-    match std::fs::remove_dir_all(folder) {
+/// Remove everything in `folder`, never following a link: a link itself
+/// goes.
+fn empty(folder: &Path) -> Result<()> {
+    for entry in
+        std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?
+    {
+        let entry = entry.with_context(|| format!("listing {}", folder.display()))?;
+        remove_entry(&entry.path())?;
+    }
+    Ok(())
+}
+
+/// Remove the file, folder or link at `path`, if there: a link itself, never
+/// what it leads to.
+fn remove_entry(path: &Path) -> Result<()> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    };
+    let removed = if metadata.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path))
+    };
+    match removed {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            Err(error).with_context(|| format!("removing {}", folder.display()))
+            Err(error).with_context(|| format!("removing {}", path.display()))
         }
         _ => Ok(()),
     }
@@ -843,7 +962,11 @@ mod tests {
         let error = ensure_with(&named, &host, SID, Some(&user), &TEST).unwrap_err();
         let error = format!("{error:#}");
         assert!(error.contains("(os error 5)"), "{error}");
-        assert!(names(&pinned::user_folder(&named, SID).unwrap()).is_empty());
+        // Only the folders the host makes are there.
+        let folder = pinned::user_folder(&named, SID).unwrap();
+        for copy in names(&folder) {
+            assert!(names(&folder.join(copy)).is_empty());
+        }
     }
 
     #[test]
@@ -1033,6 +1156,186 @@ mod tests {
             std::io::ErrorKind::PermissionDenied
         );
         assert_eq!(reached.unwrap(), b"MZ");
+    }
+
+    thread_local! {
+        /// The folders [`RECORDED`] made, with their permissions.
+        static MADE: std::cell::RefCell<Vec<(PathBuf, String)>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+    fn create_recorded(path: &Path, sddl: &str) -> std::io::Result<()> {
+        std::fs::create_dir(path)?;
+        MADE.with_borrow_mut(|made| made.push((path.to_path_buf(), sddl.to_string())));
+        Ok(())
+    }
+    /// As [`secured`] does, refuses a folder the host did not make.
+    fn check_recorded(path: &Path, user: &[&str]) -> Result<std::fs::File> {
+        ensure!(
+            MADE.with_borrow(|made| made.iter().any(|(made, _)| made == path)),
+            "{} is owned by {SID}",
+            path.display()
+        );
+        open(path, user)
+    }
+    const RECORDED: Steps = Steps {
+        create: create_recorded,
+        check: check_recorded,
+    };
+
+    #[test]
+    fn the_copys_folder_is_the_hosts_and_an_earlier_one_is_replaced() {
+        let data = tempfile::tempdir().unwrap();
+        let host = host_folder();
+        let copy = ensure_with(data.path(), host.path(), SID, None, &RECORDED).unwrap();
+        // Made by the host, with the permissions of the user's folder: the
+        // user fills it and can't move it.
+        let made = MADE.with_borrow(|made| made.clone());
+        assert!(made.contains(&(copy.clone(), user_sddl(SID))), "{made:?}");
+        let forget = || MADE.with_borrow_mut(|made| made.retain(|(path, _)| *path != copy));
+
+        // An earlier Rubylight's, which the user made: removed, then made
+        // by the host and filled.
+        forget();
+        std::fs::remove_dir_all(&copy).unwrap();
+        std::fs::create_dir(&copy).unwrap();
+        std::fs::write(copy.join("old.txt"), b"x").unwrap();
+        assert_eq!(
+            ensure_with(data.path(), host.path(), SID, None, &RECORDED).unwrap(),
+            copy
+        );
+        assert!(MADE.with_borrow(|made| made.iter().any(|(path, _)| *path == copy)));
+        assert!(!copy.join("old.txt").exists());
+        assert!(copy.join("NucleusCoop.exe").is_file());
+        assert!(copy.join(MARKER).is_file());
+
+        // A link the user put in its place goes; what it leads to stays.
+        forget();
+        let elsewhere = tempfile::tempdir().unwrap();
+        std::fs::write(elsewhere.path().join("kept.txt"), b"x").unwrap();
+        std::fs::remove_dir_all(&copy).unwrap();
+        junction(elsewhere.path(), &copy);
+        ensure_with(data.path(), host.path(), SID, None, &RECORDED).unwrap();
+        assert!(
+            std::fs::symlink_metadata(&copy)
+                .unwrap()
+                .file_type()
+                .is_dir()
+        );
+        assert!(copy.join("NucleusCoop.exe").is_file());
+        assert_eq!(names(elsewhere.path()), ["kept.txt"]);
+    }
+
+    #[test]
+    fn the_user_changes_what_is_in_their_copy_but_never_moves_it() {
+        let sid = crate::process::own_sid().unwrap();
+        // Standing in for the user: no rights by this account's name.
+        let user = crate::user_folder::tests::without_own_sid();
+        let root = tempfile::tempdir().unwrap();
+        // As the host makes both, with this account in place of
+        // Administrators and Everyone in place of the user.
+        let sddl = user_sddl("WD").replace("BA", &sid);
+        let theirs = root.path().join(SID);
+        crate::process::create_folder(&theirs, &sddl).unwrap();
+        let copy = theirs.join("0123456789abcdef");
+        crate::process::create_folder(&copy, &sddl).unwrap();
+        let (filled, emptied, renamed, removed) = as_user(Some(&user), || {
+            let filled = (|| -> std::io::Result<()> {
+                std::fs::write(copy.join("NucleusCoop.exe"), b"MZ")?;
+                std::fs::create_dir(copy.join("gui"))?;
+                std::fs::write(copy.join("gui").join("theme.ini"), b"x")
+            })();
+            (
+                filled,
+                empty(&copy),
+                std::fs::rename(&copy, theirs.join("moved")),
+                std::fs::remove_dir(&copy),
+            )
+        })
+        .unwrap();
+        filled.unwrap();
+        emptied.unwrap();
+        assert!(names(&copy).is_empty());
+        for refused in [renamed, removed] {
+            assert_eq!(
+                refused.unwrap_err().kind(),
+                std::io::ErrorKind::PermissionDenied
+            );
+        }
+        // The host removes an emptied one.
+        std::fs::remove_dir(&copy).unwrap();
+    }
+
+    /// A folder `key` in `root` holding a program as NucleusCoop.exe.
+    fn program_copy(root: &Path) -> (PathBuf, PathBuf) {
+        let key = root.join("0123456789abcdef");
+        std::fs::create_dir(&key).unwrap();
+        let program = key.join(pinned::EXECUTABLE);
+        let system = std::env::var("SystemRoot").unwrap();
+        std::fs::copy(Path::new(&system).join(r"System32\where.exe"), &program).unwrap();
+        (key, program)
+    }
+
+    #[test]
+    fn the_copy_and_its_program_are_held_while_nucleus_starts() {
+        let root = tempfile::tempdir().unwrap();
+        let (key, program) = program_copy(root.path());
+        let moved = root.path().join("moved");
+        let held = hold_with(&key, SID, open).unwrap();
+        // Nobody can move or delete either, nor write the program.
+        assert!(std::fs::rename(&key, &moved).is_err());
+        assert!(std::fs::remove_file(&program).is_err());
+        assert!(std::fs::rename(&program, key.join("other.exe")).is_err());
+        assert!(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&program)
+                .is_err()
+        );
+        // Windows starts it all the same, in that folder.
+        let status = std::process::Command::new(&program)
+            .arg("/?")
+            .current_dir(&key)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "{status}");
+        drop(held);
+        std::fs::rename(&key, &moved).unwrap();
+    }
+
+    #[test]
+    fn a_link_in_place_of_the_copy_or_its_program_is_never_started() {
+        let root = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let (real, program) = program_copy(elsewhere.path());
+        // The copy's folder a junction to another.
+        let key = root.path().join("0123456789abcdef");
+        junction(&real, &key);
+        let error = format!("{:#}", hold_with(&key, SID, secured).err().unwrap());
+        assert!(error.contains("is a link to elsewhere"), "{error}");
+        std::fs::remove_dir(&key).unwrap();
+        // Its program a link (a file link needs a privilege or developer
+        // mode), a junction, a folder or a hard link.
+        std::fs::create_dir(&key).unwrap();
+        let link = key.join(pinned::EXECUTABLE);
+        if std::os::windows::fs::symlink_file(&program, &link).is_ok() {
+            let error = format!("{:#}", hold_with(&key, SID, open).err().unwrap());
+            assert!(error.contains("is a link or a folder"), "{error}");
+            std::fs::remove_file(&link).unwrap();
+        }
+        junction(&real, &link);
+        let error = format!("{:#}", hold_with(&key, SID, open).err().unwrap());
+        assert!(error.contains("is not a program file"), "{error}");
+        std::fs::remove_dir(&link).unwrap();
+        std::fs::create_dir(&link).unwrap();
+        assert!(hold_with(&key, SID, open).is_err());
+        std::fs::remove_dir(&link).unwrap();
+        std::fs::hard_link(&program, &link).unwrap();
+        let error = format!("{:#}", hold_with(&key, SID, open).err().unwrap());
+        assert!(error.contains("has 2 names"), "{error}");
+        std::fs::remove_file(&link).unwrap();
+        std::fs::copy(&program, &link).unwrap();
+        hold_with(&key, SID, open).unwrap();
     }
 
     #[test]

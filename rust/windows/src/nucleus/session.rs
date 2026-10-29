@@ -123,7 +123,12 @@ impl Launcher for Unelevated {
         guid: &str,
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
-        started(&launch_of(folder, guid, &environment(extra)?, Run::User))
+        let launch = launch_of(folder, guid, &environment(extra)?, Run::User);
+        // Windows opens the program and its folder as the host: held, the
+        // user can't swap either for a link until it runs.
+        let sid = super::user_copy::sid(&self.user)?;
+        let _held = super::user_copy::hold(folder, &sid)?;
+        started(&launch)
     }
     fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
         super::user_copy::as_user(Some(&self.user), work)?

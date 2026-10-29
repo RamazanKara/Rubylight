@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">A tela fica em %2$s Hz em vez dos %1$s Hz pedidos: a economia de bateria a limita.</string>
     <string name="refresh_diag_thermal">A tela fica em %2$s Hz em vez dos %1$s Hz pedidos: o dispositivo está quente e a limita a 60 Hz.</string>
     <string name="refresh_diag_unexplained">A tela fica em %2$s Hz em vez dos %1$s Hz pedidos. O Android não informa o motivo (modos: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">A taxa variável exige Android 16, então a tela funciona na taxa máxima.</string>
-    <string name="stream_vrr_no_arr">Esta tela não tem taxa de atualização adaptável, então funciona na taxa máxima.</string>
+    <string name="stream_vrr_old_android">A taxa variável exige Android 16, então a tela funciona na taxa máxima. Com um PC com Rubylight, ela só passa para uma taxa menor adequada se a do jogo engasgasse na máxima e ela conseguir mudar sem escurecer.</string>
+    <string name="stream_vrr_no_arr">Esta tela não tem taxa de atualização adaptável, então funciona na taxa máxima. Com um PC com Rubylight, ela só passa para uma taxa menor adequada se a do jogo engasgasse na máxima e ela conseguir mudar sem escurecer.</string>
+    <string name="stream_vrr_arr_half_rate">A tela mostra só %1$d de %2$d FPS: o Android a limita à metade da taxa da transmissão.</string>
     <string name="stream_hdr_mode_unsupported">Este modo de tela não consegue mostrar HDR, então a transmissão está em SDR.</string>
     <string name="stream_hdr_not_negotiated">O HDR foi pedido, mas o PC não enviou vídeo HDR, então a transmissão está em SDR.</string>
     <string name="stream_hdr_host_sdr">O HDR foi pedido, mas o PC informa SDR. Ative o HDR no Windows para a tela transmitida.</string>

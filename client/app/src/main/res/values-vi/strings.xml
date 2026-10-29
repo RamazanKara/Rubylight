@@ -270,7 +270,7 @@
     <string name="title_virtual_display">Màn hình ảo trên máy chủ</string>
     <string name="summary_virtual_display">Yêu cầu PC tạo màn hình khớp với stream. Tắt: cài đặt hiển thị riêng của PC sẽ quyết định.</string>
     <string name="title_vrr">Tần số quét thích ứng (ARR / VRR)</string>
-    <string name="summary_vrr">Trên màn hình Android 16 có tần số quét thích ứng, Android khớp tần số quét với stream; các màn hình khác chạy ở tần số cao nhất. Máy chủ hỗ trợ VRR cũng được yêu cầu dùng VRR, tùy theo cài đặt của máy chủ. Khi bật tùy chọn này, nhịp độ khung hình và tần số quét thấp hơn sẽ không được áp dụng.</string>
+    <string name="summary_vrr">Trên màn hình Android 16 có tần số quét thích ứng, Android khớp tần số quét với stream; các màn hình khác chạy ở tần số cao nhất và, với PC chạy Rubylight, chỉ chuyển sang tần số thấp hơn phù hợp khi tốc độ khung hình của trò chơi sẽ bị giật ở tần số cao nhất và có thể chuyển mà không tối màn hình. Máy chủ hỗ trợ VRR cũng được yêu cầu dùng VRR, tùy theo cài đặt của máy chủ. Khi bật tùy chọn này, nhịp độ khung hình và tần số quét thấp hơn sẽ không được áp dụng.</string>
     <string name="title_host_frame_times">Hiển thị khung hình theo nhịp của PC</string>
     <string name="summary_host_frame_times">Giữ mỗi khung hình vài mili giây để nó hiện ra đúng lúc trò chơi vẽ, thay vì lúc mạng gửi tới. Giảm dao động, nhất là với tần số quét thích ứng. Thay thế cách điều nhịp khung hình. Không dùng với PyroWave.</string>
     <string name="title_content_rate_frame_rate">Khớp màn hình với tốc độ khung hình của trò chơi</string>

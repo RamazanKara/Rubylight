@@ -270,7 +270,7 @@
     <string name="title_virtual_display">호스트 가상 디스플레이</string>
     <string name="summary_virtual_display">PC에 스트림과 일치하는 디스플레이를 요청합니다. 끄면 PC 자체 디스플레이 설정에 따라 결정됩니다.</string>
     <string name="title_vrr">적응형 주사율(ARR / VRR)</string>
-    <string name="summary_vrr">적응형 주사율을 지원하는 Android 16 화면에서는 Android가 주사율을 스트림에 맞추고, 다른 화면은 최고 주사율로 작동합니다. VRR을 지원하는 호스트에도 설정에 따라 VRR 사용을 요청합니다. 이 옵션이 켜져 있으면 프레임 페이싱과 낮은 주사율 설정은 적용되지 않습니다.</string>
+    <string name="summary_vrr">적응형 주사율을 지원하는 Android 16 화면에서는 Android가 주사율을 스트림에 맞추고, 다른 화면은 최고 주사율로 작동하며, Rubylight PC에서는 게임의 프레임 속도가 최고 주사율에서 끊겨 보이고 화면이 꺼지지 않고 전환할 수 있을 때만 맞는 낮은 주사율로 전환합니다. VRR을 지원하는 호스트에도 설정에 따라 VRR 사용을 요청합니다. 이 옵션이 켜져 있으면 프레임 페이싱과 낮은 주사율 설정은 적용되지 않습니다.</string>
     <string name="title_host_frame_times">PC의 프레임 타이밍으로 표시</string>
     <string name="summary_host_frame_times">각 프레임을 몇 밀리초 동안 붙잡아 네트워크가 전달한 시점이 아니라 게임이 그린 시점에 표시합니다. 특히 가변 주사율에서 흔들림을 줄입니다. 프레임 페이싱을 대신합니다. PyroWave에서는 사용되지 않습니다.</string>
     <string name="title_content_rate_frame_rate">화면을 게임의 프레임 속도에 맞추기</string>

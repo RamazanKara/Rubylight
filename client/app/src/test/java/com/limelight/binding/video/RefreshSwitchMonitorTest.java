@@ -155,7 +155,7 @@ public class RefreshSwitchMonitorTest {
     }
 
     /** Builds a Display.Mode whatever this API level's hidden constructor looks like. */
-    static Display.Mode mode(int id, float hz, float... alternatives) {
+    public static Display.Mode mode(int id, float hz, float... alternatives) {
         Constructor<?> best = null;
         int bestScore = -1;
         for (Constructor<?> candidate : Display.Mode.class.getDeclaredConstructors()) {
@@ -199,7 +199,7 @@ public class RefreshSwitchMonitorTest {
         private static final List<Display.Mode> supported = new ArrayList<>();
         @RealObject private Display display;
 
-        static void set(Display.Mode activeMode, Display.Mode... modes) {
+        public static void set(Display.Mode activeMode, Display.Mode... modes) {
             active = activeMode;
             supported.clear();
             supported.addAll(Arrays.asList(modes));
@@ -209,7 +209,7 @@ public class RefreshSwitchMonitorTest {
             active = mode;
         }
 
-        static void clear() {
+        public static void clear() {
             active = null;
             supported.clear();
         }

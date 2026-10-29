@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés : l’économiseur de batterie la limite.</string>
     <string name="refresh_diag_thermal">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés : l’appareil est chaud et la limite à 60 Hz.</string>
     <string name="refresh_diag_unexplained">L’écran reste à %2$s Hz au lieu des %1$s Hz demandés. Android n’indique aucune raison (modes : %3$s Hz).</string>
-    <string name="stream_vrr_old_android">La fréquence variable nécessite Android 16, l’écran tourne donc à sa fréquence maximale.</string>
-    <string name="stream_vrr_no_arr">Cet écran n’a pas de fréquence d’actualisation adaptative, il tourne donc à sa fréquence maximale.</string>
+    <string name="stream_vrr_old_android">La fréquence variable nécessite Android 16, l’écran tourne donc à sa fréquence maximale. Avec un PC Rubylight, il ne passe à une fréquence inférieure adaptée que si celle du jeu saccaderait à la maximale et s’il peut changer sans écran noir.</string>
+    <string name="stream_vrr_no_arr">Cet écran n’a pas de fréquence d’actualisation adaptative, il tourne donc à sa fréquence maximale. Avec un PC Rubylight, il ne passe à une fréquence inférieure adaptée que si celle du jeu saccaderait à la maximale et s’il peut changer sans écran noir.</string>
+    <string name="stream_vrr_arr_half_rate">L’écran n’affiche que %1$d des %2$d FPS : Android le limite à la moitié de la fréquence du flux.</string>
     <string name="stream_hdr_mode_unsupported">Ce mode d’écran ne peut pas afficher le HDR, le flux est donc en SDR.</string>
     <string name="stream_hdr_not_negotiated">Le HDR a été demandé, mais le PC n’a pas envoyé de vidéo HDR, le flux est donc en SDR.</string>
     <string name="stream_hdr_host_sdr">Le HDR a été demandé, mais le PC indique du SDR. Activez le HDR dans Windows pour l’écran diffusé.</string>

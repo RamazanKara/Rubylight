@@ -740,6 +740,22 @@ fn vac(info: &Vdf) -> bool {
         .is_some_and(|flag| flag.trim() == "1")
 }
 
+/// Whether Steam lists Valve Anti-Cheat for a game: for a Steam game's link
+/// (`appid`) its app cache entry's flag, for an .exe started directly its
+/// Steam app's ([`library_app`]), and none for an .exe in a plain folder.
+/// An error when Steam can't say.
+pub fn valve_anti_cheat(
+    appid: Option<u32>,
+    exe: &Path,
+    arguments: &str,
+    roots: &[PathBuf],
+) -> Result<bool, String> {
+    match appid {
+        Some(appid) => cached_app(appid, roots).map(|info| vac(&info)),
+        None => Ok(library_app(exe, arguments, roots)?.is_some_and(|app| app.vac)),
+    }
+}
+
 /// The executable of the launch option (`config/launch`) Steam starts on
 /// Windows, relative to the install folder, and its arguments.
 fn launch_executable(info: &Vdf) -> Option<(String, String)> {
@@ -1735,6 +1751,35 @@ mod tests {
             !game_executable(242050, &[other.path().to_path_buf()])
                 .unwrap()
                 .vac
+        );
+    }
+    /// A link's app and an .exe in a Steam library both answer with their
+    /// app's flag; a plain folder has none, and a cache that can't say is
+    /// an error.
+    #[test]
+    fn valve_anti_cheat_is_read_for_a_link_and_for_an_exe_in_a_library() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let category = |flag| object("category", &[text("category_8", flag)]);
+        let vac = steam_with_appinfo(std::slice::from_ref(&launch), &[category("1")]);
+        let clean = steam_with_appinfo(&[launch], &[category("0")]);
+        let exe = |steam: &tempfile::TempDir| {
+            steam
+                .path()
+                .join(r"steamapps\common\Black Flag\bin\AC4BFSP.exe")
+        };
+        for (steam, listed) in [(&vac, true), (&clean, false)] {
+            let roots = [steam.path().to_path_buf()];
+            let plain = steam.path().join(r"Games\Game.exe");
+            assert_eq!(
+                valve_anti_cheat(Some(242050), &plain, "", &roots),
+                Ok(listed)
+            );
+            assert_eq!(valve_anti_cheat(None, &exe(steam), "", &roots), Ok(listed));
+            assert_eq!(valve_anti_cheat(None, &plain, "", &roots), Ok(false));
+        }
+        assert_eq!(
+            valve_anti_cheat(Some(7), &exe(&vac), "", &[vac.path().to_path_buf()]),
+            Err("Steam's app cache does not list app 7: start it once in Steam".into())
         );
     }
     #[test]

@@ -25,7 +25,7 @@ export const NOTICE = {
   message:
     'Neural Rendering puts a third-party mod into the game’s folder, where the game loads it. ' +
     'This PC downloads it from its authors’ GitHub release; it is not made or endorsed by AMD or NVIDIA.\n\n' +
-    'Rubylight refuses games with anti-cheat, but an online game may still treat a mod as cheating. ' +
+    'Rubylight refuses games with a known anti-cheat in their install and games Steam lists Valve Anti-Cheat for, but an online game may still treat a mod as cheating. ' +
     'Use it at your own risk.',
   confirm: 'Accept and install',
 };

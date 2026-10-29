@@ -1401,6 +1401,74 @@ fn app_named(name: &str, uuid: &str) -> App {
     }
 }
 
+/// A Steam folder with app 242050 installed to `Black Flag` and its Valve
+/// Anti-Cheat flag `vac` in the app cache (format 28).
+fn steam_root(vac: &str) -> Temp {
+    let root = tempdir();
+    let apps = root.path().join("steamapps");
+    std::fs::create_dir_all(apps.join(r"common\Black Flag")).unwrap();
+    std::fs::write(
+        apps.join("appmanifest_242050.acf"),
+        "\"AppState\"\n{\n\t\"appid\"\t\t\"242050\"\n\t\"installdir\"\t\t\"Black Flag\"\n}\n",
+    )
+    .unwrap();
+    let mut kv = Vec::new();
+    for key in ["appinfo", "common", "category"] {
+        kv.push(0x00);
+        kv.extend(key.as_bytes());
+        kv.push(0);
+    }
+    kv.push(0x01);
+    kv.extend(b"category_8\0");
+    kv.extend(vac.as_bytes());
+    kv.push(0);
+    kv.extend([0x08; 5]);
+    let mut data = 0x0756_4428u32.to_le_bytes().to_vec();
+    data.extend(1u32.to_le_bytes());
+    data.extend(242050u32.to_le_bytes());
+    data.extend(((60 + kv.len()) as u32).to_le_bytes());
+    data.extend([0; 60]);
+    data.extend(kv);
+    data.extend(0u32.to_le_bytes());
+    std::fs::create_dir_all(root.path().join("appcache")).unwrap();
+    std::fs::write(root.path().join(r"appcache\appinfo.vdf"), data).unwrap();
+    root
+}
+
+/// A Steam game Steam lists Valve Anti-Cheat for is refused, by its link or
+/// by an .exe in its library, though no file in its install shows it; so is
+/// one Steam can't say about. A game in a plain folder is not asked about.
+#[test]
+fn a_game_steam_lists_valve_anti_cheat_for_is_refused() {
+    let (vac, clean) = (steam_root("1"), steam_root("0"));
+    let mut link = app_named("Black Flag", "flag");
+    link.cmd = "steam://rungameid/242050".into();
+    let direct = app_named("Black Flag", "flag");
+    for (steam, listed) in [(&vac, true), (&clean, false)] {
+        let roots = [steam.path().to_path_buf()];
+        let exe = steam
+            .path()
+            .join(r"steamapps\common\Black Flag\AC4BFSP.exe");
+        for app in [&link, &direct] {
+            let refusal = steam_refusal(app, &exe, &roots);
+            assert_eq!(refusal.is_some(), listed, "{}: {refusal:?}", app.cmd);
+            if let Some(reason) = refusal {
+                assert!(
+                    reason.starts_with("Steam lists Valve Anti-Cheat"),
+                    "{reason}"
+                );
+            }
+        }
+        let plain = steam.path().join(r"Games\Game.exe");
+        assert_eq!(steam_refusal(&direct, &plain, &roots), None);
+    }
+    let reason = steam_refusal(&link, &vac.path().join("Game.exe"), &[]).unwrap();
+    assert!(
+        reason.starts_with("Rubylight can't tell whether the game uses Valve Anti-Cheat"),
+        "{reason}"
+    );
+}
+
 /// A launcher is never the game: an app whose command starts Steam or
 /// another store has the game's program found in its install, a launcher
 /// picked is refused, and so is a program outside the game's install.

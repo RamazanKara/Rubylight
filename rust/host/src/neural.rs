@@ -1082,6 +1082,27 @@ fn install(app: &App) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Why the game is refused when Steam lists Valve Anti-Cheat for it, which
+/// no file in its install shows, or can't say ([`steam::valve_anti_cheat`]
+/// with Steam's `roots`).
+///
+/// [`steam::valve_anti_cheat`]: butterpollo_core::steam::valve_anti_cheat
+fn steam_refusal(app: &App, exe: &Path, roots: &[PathBuf]) -> Option<String> {
+    let appid = serde_json::to_value(app)
+        .ok()
+        .and_then(|app| butterpollo_core::steam::game_of(&app));
+    match butterpollo_core::steam::valve_anti_cheat(appid, exe, "", roots) {
+        Ok(false) => None,
+        Ok(true) => Some(
+            "Steam lists Valve Anti-Cheat for the game, and an anti-cheat treats Neural Rendering's DLL as a cheat"
+                .into(),
+        ),
+        Err(message) => Some(format!(
+            "Rubylight can't tell whether the game uses Valve Anti-Cheat ({message})"
+        )),
+    }
+}
+
 /// The app's command when it starts a program directly.
 fn command_exe(app: &App) -> Option<PathBuf> {
     let target = PathBuf::from(butterpollo_windows::process::command_target(&app.cmd));
@@ -1287,6 +1308,11 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
                     Response::Found { exe } => exe,
                     other => return Ok(other),
                 };
+                if let Some(reason) =
+                    steam_refusal(&app, &exe, &butterpollo_windows::steam::roots())
+                {
+                    return Ok(Response::Refused { reason });
+                }
                 let pending = Pending {
                     name: app.name.clone(),
                     exe: exe.clone(),
@@ -1769,12 +1795,18 @@ fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
     let package = launch_cache(h).context(
         "Neural Rendering's download can't be used; turn Neural Rendering off and on again",
     )?;
-    let request = Request::Prepare {
-        exe,
-        install: install(app),
-        package,
+    let response = match steam_refusal(app, &exe, &butterpollo_windows::steam::roots()) {
+        Some(reason) => Response::Refused { reason },
+        None => run_folder(
+            Request::Prepare {
+                exe,
+                install: install(app),
+                package,
+            },
+            &|_, _| {},
+        )?,
     };
-    match run_folder(request, &|_, _| {})? {
+    match response {
         Response::Placed {
             exe,
             release,

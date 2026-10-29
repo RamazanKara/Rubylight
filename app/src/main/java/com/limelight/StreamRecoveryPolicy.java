@@ -5,6 +5,8 @@ final class StreamRecoveryPolicy {
     static final int MAX_ATTEMPTS = 5;
     static final long WINDOW_MS = 60000;
     static final long STABLE_MS = 30000;
+    /** The resume after the user's own trip: the first retry's delay, never counted as an attempt. */
+    static final long TRIP_RESUME_DELAY_MS = 1000;
     private static final long[] DELAYS_MS = {1000, 2000, 4000, 8000, 12000};
 
     private int attempts;
@@ -29,6 +31,16 @@ final class StreamRecoveryPolicy {
             attempts = 0;
             startedAt = 0;
         }
+    }
+
+    /**
+     * The budget left after the user's own trip away (Home, Files, a lock) that began at
+     * {@code leftAt}: the trip spends nothing. With no failure being recovered the budget is
+     * full; a window already running pauses for the time away instead of running on.
+     */
+    static StreamRecoveryPolicy afterUserTrip(int attempts, long startedAt, long leftAt, long now) {
+        if (attempts <= 0) return new StreamRecoveryPolicy(0, 0);
+        return new StreamRecoveryPolicy(attempts, startedAt + Math.max(0, now - leftAt));
     }
 
     int attempts() { return attempts; }

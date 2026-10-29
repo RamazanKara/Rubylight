@@ -260,6 +260,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private volatile Thread connectionStopThread;
     private StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
     private long connectedAt = -1;
+    // How long the stream had been connected when the user's trip began, carried by its resume.
+    private long connectedBeforeTrip;
     private int recoveryAppId;
     private String recoveryAppUuid;
     private Runnable pendingRecovery;
@@ -1064,6 +1066,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Packed full chroma failed in this session and the reconnect runs without it (not the setting).
     private static final String EXTRA_PACKED_OFF = "PackedChromaOff";
     private static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
+    // On a resume after the user's own trip away: the failure budget {attempts, started, left at,
+    // connected for} as the trip began, which the resumed activity starts with.
+    private static final String EXTRA_TRIP_BUDGET = "rubylight.tripBudget";
+    // When the user returned from that trip: marks the resume and starts its own deadline.
+    private static final String EXTRA_TRIP_RESUME_STARTED = "rubylight.tripResumeStarted";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1136,8 +1143,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         getIntent().putExtra(EXTRA_STREAM_NETWORK, prefConfig.layers.network.name());
         HdrPolicy.setDebugHlgOnly(BuildConfig.DEBUG, prefConfig.debugHdrHlgOnly);
         showStreamLayers(prefConfig, startNetwork == null);
-        recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
-                getIntent().getLongExtra(EXTRA_RECOVERY_STARTED, 0));
+        readRecoveryBudget(SystemClock.elapsedRealtime());
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
                 getVideoDisplay());
         if (prefConfig.vrr) {
@@ -1685,7 +1691,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
         if (foreground && conn != null) reconnectStream();
         else {
-            rememberStreamForResume();
+            rememberStreamForResume(true);
             if (stoppedStreamResumeIntent != null) {
                 stoppedStreamResumeIntent.removeExtra(EXTRA_OUTPUT_DISPLAY);
                 displayedFailureDialog = true;
@@ -2881,7 +2887,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onStop() {
         super.onStop();
         if (adaptiveLayout != null) adaptiveLayout.stop();
-        rememberStreamForResume();
+        rememberStreamForResume(true);
 
         if (streamMenu != null) {
             streamMenu.dismiss();
@@ -4155,6 +4161,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Intent again = LaunchSource.put(new Intent(getIntent()), LaunchSource.again(why, getIntent()));
         // The game this start replaced may be long gone: another device's could be running by now.
         again.removeExtra(EXTRA_REPLACED_APP_NAME);
+        // Only a resume after the user's trip carries them; any other start spends the budget it has.
+        again.removeExtra(EXTRA_TRIP_BUDGET);
+        again.removeExtra(EXTRA_TRIP_RESUME_STARTED);
         return again;
     }
 
@@ -4222,7 +4231,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean isRecoveryAttempt() {
-        return getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0) > 0;
+        return getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0) > 0 || isTripResume();
     }
 
     private boolean isResumeOnlyStream() {
@@ -4238,16 +4247,57 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         bitrateHandler.removeCallbacks(recoveryTimeout);
     }
 
-    private void rememberStreamForResume() {
+    /** {@code userTrip}: the user left (Home, Files, a lock), so no connection failure caused this stop. */
+    private void rememberStreamForResume(boolean userTrip) {
         if (stoppedStreamResumeIntent != null || prefConfig == null || !prefConfig.autoReconnect ||
                 !connected || displayedFailureDialog || isFinishing() || isDestroyed() ||
                 recoveryCancelledOnPause || recoveryHandoffInProgress || recoveryAppId == 0 ||
                 app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return;
         // Count only time actually connected, never time spent locked or in another app.
-        recoveryPolicy.resetAfterStableConnection(SystemClock.elapsedRealtime(), connectedAt);
+        long now = SystemClock.elapsedRealtime();
+        recoveryPolicy.resetAfterStableConnection(now, connectedAt);
+        long connectedFor = connectedAt >= 0 ? now - connectedAt : 0;
         connectedAt = -1;
         stoppedStreamResumeIntent = createStreamHandoffIntent(LaunchSource.RETURN)
                 .putExtra(EXTRA_APP_ID, recoveryAppId).putExtra(EXTRA_APP_UUID, recoveryAppUuid);
+        // A failure already reported as the user left is a failure: its resume spends the budget.
+        if (userTrip && !streamTerminated) {
+            stoppedStreamResumeIntent.putExtra(EXTRA_TRIP_BUDGET,
+                    new long[] {recoveryPolicy.attempts(), recoveryPolicy.startedAt(), now, connectedFor});
+        }
+    }
+
+    private boolean isTripResume() {
+        return getIntent().hasExtra(EXTRA_TRIP_RESUME_STARTED);
+    }
+
+    /**
+     * The failure budget this activity starts with (onCreate). A resume after the user's trip takes
+     * the budget recorded as the trip began, the time since leaving not counted, so a failure while
+     * it starts up continues that budget; any other start takes the one its intent carries. The
+     * time connected before the trip still counts toward the 30 s that earns a new budget.
+     */
+    void readRecoveryBudget(long now) {
+        long[] trip = getIntent().getLongArrayExtra(EXTRA_TRIP_BUDGET);
+        if (trip == null) {
+            recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
+                    getIntent().getLongExtra(EXTRA_RECOVERY_STARTED, 0));
+            return;
+        }
+        recoveryPolicy = StreamRecoveryPolicy.afterUserTrip((int) trip[0], trip[1], trip[2], now);
+        connectedBeforeTrip = recoveryPolicy.attempts() > 0 ? trip[3] : 0;
+        getIntent().removeExtra(EXTRA_TRIP_BUDGET);
+        getIntent().putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
+                .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
+    }
+
+    /**
+     * The stream connected (connectionStarted): stability counts from here, after the time connected
+     * before a trip, and the startup deadline ends.
+     */
+    void onStreamConnected(long now) {
+        connectedAt = now - connectedBeforeTrip;
+        bitrateHandler.removeCallbacks(recoveryTimeout);
     }
 
     // Without stream recovery, leaving the stream (Home, closing PiP) ends it, as it always did.
@@ -4261,7 +4311,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (stoppedStreamResumeIntent == null || !foreground || isFinishing() || isDestroyed()) return false;
         Intent retry = stoppedStreamResumeIntent;
         stoppedStreamResumeIntent = null;
-        if (!queueAutomaticRecovery(retry)) {
+        // After the user's own trip the resume skips the failure budget; after a failure it spends it.
+        if (!queueAutomaticRecovery(retry, false, retry.hasExtra(EXTRA_TRIP_BUDGET))) {
             displayedFailureDialog = true;
             if (spinner != null) { spinner.dismiss(); spinner = null; }
             showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
@@ -4350,28 +4401,43 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return queueAutomaticRecovery(retry, packedOff);
     }
 
-    private boolean queueAutomaticRecovery(final Intent retry) {
-        return queueAutomaticRecovery(retry, false);
+    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting) {
+        return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, false);
     }
 
-    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting) {
+    /**
+     * {@code tripResume}: the resume after the user's own trip. It is never counted or refused by
+     * the failure budget: a fixed delay and a deadline of its own from the return.
+     */
+    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume) {
         if (prefConfig == null || (!ignoreAutoReconnectSetting && !prefConfig.autoReconnect) || !foreground || isFinishing() || isDestroyed() ||
                 recoveryHandoffInProgress || pendingRecovery != null) return false;
-        long delay = recoveryPolicy.nextDelay(SystemClock.elapsedRealtime(), connectedAt);
-        if (delay < 0) {
-            recoveryBudgetExhausted = true;
-            return false;
+        long now = SystemClock.elapsedRealtime();
+        long delay;
+        final long deadlineFrom;
+        if (tripResume) {
+            delay = StreamRecoveryPolicy.TRIP_RESUME_DELAY_MS;
+            deadlineFrom = now;
+            retry.putExtra(EXTRA_TRIP_RESUME_STARTED, now);
+        } else {
+            delay = recoveryPolicy.nextDelay(now, connectedAt);
+            if (delay < 0) {
+                recoveryBudgetExhausted = true;
+                return false;
+            }
+            deadlineFrom = recoveryPolicy.startedAt();
+            retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
+                    .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
         }
 
         displayedFailureDialog = true;
         setInputGrabState(false);
         stopConnection();
         if (spinner != null) spinner.dismiss();
-        spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
+        spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title), tripResume ?
+                getString(R.string.stream_reconnecting) :
                 getString(R.string.stream_recovery_attempt, recoveryPolicy.attempts(), StreamRecoveryPolicy.MAX_ATTEMPTS), true);
-        retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
-                .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt())
-                .putExtra(EXTRA_MICROPHONE_MUTED, getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
+        retry.putExtra(EXTRA_MICROPHONE_MUTED, getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
         pendingRecoveryIntent = retry;
         final int generation = foregroundGeneration;
         final int recovery = recoveryGeneration;
@@ -4393,7 +4459,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> {
                     if (!foreground || generation != foregroundGeneration || recovery != recoveryGeneration || isFinishing() || isDestroyed()) return;
                     if ((stopping != null && stopping.isAlive()) ||
-                            SystemClock.elapsedRealtime() - recoveryPolicy.startedAt() >= StreamRecoveryPolicy.WINDOW_MS) {
+                            SystemClock.elapsedRealtime() - deadlineFrom >= StreamRecoveryPolicy.WINDOW_MS) {
                         recoveryHandoffInProgress = false;
                         if (spinner != null) { spinner.dismiss(); spinner = null; }
                         showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
@@ -7065,7 +7131,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 recoveryBudgetExhausted = false;
                 if (transientFailure && tryAutomaticRecovery()) return;
                 final boolean recoveryExhausted = transientFailure && recoveryBudgetExhausted;
-                if (!foreground && transientFailure) rememberStreamForResume();
+                if (!foreground && transientFailure) rememberStreamForResume(false);
                 // Let the display go to sleep now
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
@@ -7226,8 +7292,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 startRefreshSwitchPolling();
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
-                connectedAt = SystemClock.elapsedRealtime();
-                bitrateHandler.removeCallbacks(recoveryTimeout);
+                onStreamConnected(SystemClock.elapsedRealtime());
                 recoveryAppId = app.getControl() == NvApp.Control.NONE ? app.getAppId() : conn.getHostDetails().runningGameId;
                 recoveryAppUuid = app.getControl() == NvApp.Control.NONE ? app.getAppUuid() : conn.getHostDetails().runningGameUuid;
                 updateGameTouchProfile();
@@ -7235,7 +7300,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
-                if (getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0) == 0) {
+                if (!isRecoveryAttempt()) {
                     com.limelight.update.UpdateFlow.notifyForStream(Game.this, conn.getHostDetails(),
                             () -> foreground && connected, text -> messages.alert(text, Toast.LENGTH_LONG));
                 }
@@ -7521,8 +7586,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         if (!attemptedConnection) {
             if (isRecoveryAttempt()) {
+                long deadlineFrom = isTripResume() ?
+                        getIntent().getLongExtra(EXTRA_TRIP_RESUME_STARTED, 0) : recoveryPolicy.startedAt();
                 long remaining = StreamRecoveryPolicy.WINDOW_MS -
-                        (SystemClock.elapsedRealtime() - recoveryPolicy.startedAt());
+                        (SystemClock.elapsedRealtime() - deadlineFrom);
                 if (remaining <= 0) {
                     if (spinner != null) { spinner.dismiss(); spinner = null; }
                     showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
@@ -7832,11 +7899,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         if (attemptedConnection) {
-            rememberStreamForResume();
+            rememberStreamForResume(true);
             displayedFailureDialog = true;
             stopConnection();
             // The stopped decoder cannot be reused. Resume the captured game in a fresh
-            // activity when foreground returns, with the existing recovery budget.
+            // activity when foreground returns; leaving spends nothing from the recovery budget.
             if (finishesWhenStopped()) finish();
         }
     }

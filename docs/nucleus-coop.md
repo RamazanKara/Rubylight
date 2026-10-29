@@ -57,7 +57,10 @@ the PC's cursor.
   one that is not installed, or that Steam's app cache does not list yet, is
   refused with the reason (start it once in Steam). Other launchers' links
   are refused: set the app's command to the game's .exe. The game gets the
-  arguments the app's command passes it.
+  arguments the app's command passes it. A game's .exe in a Steam library
+  (`steamapps\common\<folder>`) counts as that Steam game: it gets its app id
+  and Valve Anti-Cheat check the same way. Steam libraries on a network share
+  are skipped.
 - **The game, not its launcher.** A launcher (`steam.exe -applaunch`, the Epic
   Games Launcher, Playnite, `Fallout4Launcher.exe`, `PlayGTAV.exe` and the
   like) is refused. The small .exe at an Unreal game's root starts the one
@@ -69,13 +72,16 @@ the PC's cursor.
   BattlEye or Riot Vanguard, or that Steam lists with Valve Anti-Cheat, is
   refused before anything is written: Nucleus Co-op's hooks would look like
   cheating. Well-known ones without anti-cheat files in their folder
-  (Counter-Strike 2, Dota 2, Overwatch and others) are known by name. The
-  host looks only in the game's own folder, never in a folder many games
-  share.
+  (Counter-Strike 2, Dota 2, Overwatch and others) are known by name, and a
+  game Battle.net installed (its `.build.info`) has Blizzard's anti-cheat.
+  The host looks only in the game's own folder, never in a folder many games
+  share: for an Unreal Engine 3 game (`<Game>\Binaries\Win32`) that is
+  `<Game>`.
 - **The Play together panel says why** before you launch: for an app that
   names its .exe it checks the path, launchers, and anti-cheat by name and in
-  the game's folder. A Steam link's game (and Steam's Valve Anti-Cheat flag)
-  is checked when it launches, and the launch says why.
+  the game's folder. A Steam game's Valve Anti-Cheat flag, for a link or an
+  .exe in a Steam library, is checked when it launches, and the launch says
+  why.
 - **Controllers only**, as for every background stream.
 - **Some games pause anyway** when their window is not in front, despite the
   focus hooks. Those need a hub handler made for them.

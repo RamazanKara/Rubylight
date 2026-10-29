@@ -1363,6 +1363,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     "): " + e);
                             return;
                         }
+                        // The decoder, format and frame counts this crash is counted against.
+                        LimeLog.severe("Decoder crash counted: " + e);
 
                         // The renderer reports a decoder it gave up on; the stream ends with its
                         // dialog, and the next one runs without reference frame invalidation.

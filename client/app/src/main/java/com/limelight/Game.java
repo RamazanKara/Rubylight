@@ -771,7 +771,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Follows the content rate measured from the host's frame times (checkbox_content_rate_frame_rate).
     private final com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote contentRateVote =
             new com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote();
-    // Flags ARR showing about half the received frames (see checkArrRate).
+    // Flags ARR showing about half the rendered frames (see checkArrRate).
     private final com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck arrHalfRate =
             new com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck();
     // Whether the vote above allowed only seamless switches (the content rate vote, and every vote on API 30).
@@ -7783,22 +7783,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     // Under ARR the refresh switch check above cannot tell what the screen runs at, so watch what it
-    // shows: about half the received frames for 3 s means Android holds the stream at half its rate.
+    // shows: about half the rendered frames for 3 s, with the display at about half the stream rate,
+    // means Android holds the stream at half its rate.
     private void checkArrRate() {
         if (!useArr || decoderRenderer == null) return;
         float[] rates = decoderRenderer.getFrameRates();
-        float received = rates[0];
-        float shown = PerformanceOverlay.healthFps(rates);
+        float rendered = PerformanceOverlay.renderedFps(rates);
+        float presented = PerformanceOverlay.presentedFps(rates);
+        Display display = getVideoDisplay();
+        float displayHz = display == null ? 0 : display.getRefreshRate();
+        int exactRate = decoderRenderer.getStreamFrameRateMilliHz();
+        float streamHz = exactRate > 0 ? exactRate / 1000f : prefConfig.fps;
         boolean was = arrHalfRate.flagged();
-        boolean flagged = arrHalfRate.update(SystemClock.uptimeMillis(), received, shown);
+        boolean flagged = arrHalfRate.update(SystemClock.uptimeMillis(), rendered, presented, displayHz, streamHz);
         if (flagged && !was) {
-            LimeLog.warning("VRR: ARR shows " + shown + " of " + received + " fps received for " +
+            LimeLog.warning("VRR: ARR shows " + presented + " of " + rendered + " fps rendered for " +
                     com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck.HOLD_MS / 1000 +
-                    " s: the screen is held at half the stream rate (vote " + appSurfaceFrameRateVote + " Hz)");
+                    " s, display at " + displayHz + " Hz: the screen is held at half the stream rate (vote " +
+                    appSurfaceFrameRateVote + " Hz)");
         } else if (!flagged && was) {
-            LimeLog.info("VRR: ARR shows the received frames again (" + shown + " of " + received + " fps)");
+            LimeLog.info("VRR: ARR shows the rendered frames again (" + presented + " of " + rendered + " fps)");
         }
-        String text = flagged ? getString(R.string.stream_vrr_arr_half_rate, Math.round(shown), Math.round(received)) : null;
+        String text = flagged ? getString(R.string.stream_vrr_arr_half_rate, Math.round(presented), Math.round(rendered)) : null;
         if (messages.status("arr", text)) updatePerformanceOverlay();
     }
 
@@ -7940,10 +7946,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         float contentHz = contentRateVote.next(now, contentMilliHz);
         if (contentHz <= 0) return;
-        // With VRR (no ARR here) the base vote is the panel maximum and the game's rate is the point.
-        float vote = com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
-                baseSurfaceFrameRate(), com.limelight.binding.video.DisplayFrameRatePolicy.contentVoteMayLower(
-                        prefConfig.vrr, mayReduceRefreshRate()), panelMaxRefreshRate);
+        // With VRR (no ARR here) the base vote is the panel maximum: only a seamless lower multiple
+        // of the game's rate replaces it, never a rate that waits longer for the next refresh.
+        float vote = prefConfig.vrr ?
+                com.limelight.binding.video.DisplayFrameRatePolicy.vrrContentVote(contentHz, panelMaxRefreshRate,
+                        com.limelight.binding.video.DisplayFrameRatePolicy.seamlessRates(getVideoDisplay())) :
+                com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
+                        baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);
         applySurfaceFrameRate(videoSurface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
         LimeLog.info("Content frame rate vote: " + vote + " Hz (game at " + contentHz + " Hz)");
         logDisplayRefreshPolicy(getVideoDisplay());

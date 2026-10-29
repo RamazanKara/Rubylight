@@ -120,11 +120,15 @@ pub fn display_present(name: &str) -> bool {
         || displays().is_ok_and(|choices| select_display(&choices, name).is_ok_and(|d| d.is_some()))
 }
 /// Refuses a window target whose window closed or is minimised (no frames
-/// would come), or that shows on another display than the one named (or on
-/// none of that name), so a stream of it fails with the reason instead of
-/// freezing or using the wrong GPU and colour space.
+/// would come), that another process than the one named owns (a reused
+/// handle), or that shows on another display than the one named (or on none
+/// of that name), so a stream of it fails with the reason instead of
+/// freezing, showing another window or using the wrong GPU and colour space.
 pub fn check_window(target: &WindowTarget) -> Result<()> {
     window::check(target.handle())?;
+    if let Some(process) = target.process {
+        window::owned_by(target.handle(), window::owner_of(target.handle()), process)?;
+    }
     let shown_on = window::display_of(target.handle())?;
     window::on_display(target.handle(), &shown_on, &target.display)
 }

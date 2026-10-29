@@ -1705,7 +1705,10 @@ impl Media {
                     stream_preparation.report_limiter(&s.launch.warnings, &c);
                     let prepared = stream_preparation.display.clone();
                     // A game window is no display to keep for the device.
-                    if s.launch.role == Role::Stream && s.launch.nucleus.is_none() {
+                    if s.launch.role == Role::Stream
+                        && s.launch.nucleus.is_none()
+                        && prepared.kept_for_reconnect()
+                    {
                         let mut displays = h.app_display.lock().unwrap();
                         if !s.stopping() {
                             displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None));

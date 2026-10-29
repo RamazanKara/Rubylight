@@ -34,6 +34,9 @@ pub const FRAME_LIMIT_ARG: &str = "rubylightFrameLimit";
 /// The first wait before a restore that failed is tried again; it doubles up to [`MAX_RETRY`].
 const RETRY: Duration = Duration::from_secs(30);
 const MAX_RETRY: Duration = Duration::from_secs(600);
+/// The wait while nobody is signed in to Windows: the files are reached as the user, so the
+/// restore runs as soon as someone signs in, before a game is started at the desk.
+const SIGN_IN_POLL: Duration = Duration::from_secs(5);
 
 /// How game files are reached: as the signed-in Windows user; the tests reach theirs as the
 /// test process.
@@ -171,9 +174,9 @@ impl GameFiles {
             Err(error) => {
                 tracing::error!(
                     error = format!("{error:#}"),
-                    "the game files journal could not be read; the keys in it stay changed until it can be"
+                    "the game files journal could not be read or saved; the keys in it stay changed, and it is tried again"
                 );
-                false
+                true
             }
         }
     }
@@ -228,6 +231,25 @@ pub fn start(h: &Shared) {
     h.game_files.release_all(&h.directory);
 }
 
+/// The wait before a restore that failed is tried again, the last wait having been `last`:
+/// [`SIGN_IN_POLL`] while nobody is signed in, otherwise [`RETRY`], doubling up to
+/// [`MAX_RETRY`].
+fn next_wait(last: Option<Duration>, nobody_signed_in: bool) -> Duration {
+    if nobody_signed_in {
+        return SIGN_IN_POLL;
+    }
+    match last {
+        Some(last) if last >= RETRY => (last * 2).min(MAX_RETRY),
+        _ => RETRY,
+    }
+}
+
+/// Whether the host runs as the service at the sign-in screen, with no user to act as.
+fn nobody_signed_in() -> bool {
+    use butterpollo_windows::process;
+    process::is_system() && !process::user_signed_in()
+}
+
 /// The restore thread: a restore for every request (those that queue up meanwhile run as
 /// one), and again later while one fails. It ends with the host.
 fn restorer(host: &Weak<Host>, receiver: &Receiver<()>) {
@@ -249,7 +271,7 @@ fn restorer(host: &Weak<Host>, receiver: &Receiver<()>) {
         let failed = files.restore_ended(&h.directory);
         files.finished(asked);
         retry = failed.then(|| {
-            let wait = retry.map_or(RETRY, |(_, wait)| (wait * 2).min(MAX_RETRY));
+            let wait = next_wait(retry.map(|(_, wait)| wait), nobody_signed_in());
             (Instant::now() + wait, wait)
         });
     }
@@ -473,6 +495,27 @@ mod tests {
         h.game_files.shutdown(&h.directory, Duration::from_secs(10));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), INI);
         assert!(locked(&h.game_files.written).is_empty());
+    }
+
+    #[test]
+    fn a_journal_that_cannot_be_read_is_tried_again() {
+        let f = Fixture::new();
+        let h = &f.host;
+        std::fs::create_dir_all(h.directory.join(JOURNAL_FILE)).unwrap();
+        assert!(h.game_files.restore_ended(&h.directory));
+    }
+
+    #[test]
+    fn a_failed_restore_waits_for_a_sign_in_then_less_and_less_often() {
+        // At the sign-in screen it looks again every few seconds, so a reboot's restore runs
+        // right after the sign-in, before a game starts at the desk.
+        assert_eq!(next_wait(None, true), SIGN_IN_POLL);
+        assert_eq!(next_wait(Some(SIGN_IN_POLL), true), SIGN_IN_POLL);
+        assert_eq!(next_wait(Some(SIGN_IN_POLL), false), RETRY);
+        assert_eq!(next_wait(None, false), RETRY);
+        assert_eq!(next_wait(Some(RETRY), false), RETRY * 2);
+        assert_eq!(next_wait(Some(MAX_RETRY), false), MAX_RETRY);
+        assert_eq!(next_wait(Some(MAX_RETRY), true), SIGN_IN_POLL);
     }
 
     #[test]

@@ -383,7 +383,9 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the Radeon worker could not start; settings from an interrupted session stay in the journal"
         );
     }
-    // Keys in games' settings files a crashed run left changed go back before any stream.
+    // The restore thread for keys in games' settings files starts, and puts back those a crashed
+    // run left changed, as the Windows user once someone is signed in. A stream that writes one
+    // of them first puts the PC's own value back itself.
     game_files::start(&h);
     // The service's keys: SYSTEM and Administrators only, also after a
     // profile was copied in or restored from a backup.

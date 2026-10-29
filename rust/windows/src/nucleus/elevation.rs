@@ -240,15 +240,20 @@ const KEPT_FOR: Duration = Duration::from_secs(60);
 struct Walk {
     need: Need,
     /// Every folder it went into (as the path it reached it by: a link's
-    /// target's time), and the file it stopped at. None when one of them
-    /// has no change time to read: the answer is not kept.
-    seen: Option<Vec<(PathBuf, i64)>>,
+    /// target's time), each link to a folder itself, one to nothing, and
+    /// the file it stopped at. None when one of them has no change time to
+    /// read: the answer is not kept.
+    seen: Option<Vec<Seen>>,
 }
+
+/// A path a [`walk`] looked at, whether a link there was followed, and its
+/// [`change_time`] then: None when it led nowhere.
+type Seen = (PathBuf, bool, Option<i64>);
 
 /// A kept [`Walk`], from `at`.
 struct Kept {
     need: Need,
-    seen: Vec<(PathBuf, i64)>,
+    seen: Vec<Seen>,
     at: Instant,
 }
 
@@ -266,7 +271,7 @@ static WALKED: Mutex<Walked> = Mutex::new(BTreeMap::new());
 /// big, so its answer is kept for up to [`KEPT_FOR`] while no folder it
 /// went into, nor the file it stopped at, changes (their change times: a
 /// file or folder added, removed or renamed, permissions or attributes),
-/// and until [`forget`].
+/// and until [`forget`]. Older answers go as new ones are kept.
 pub fn folder_need(folder: &Path, token: Option<&OwnedHandle>) -> Result<Need> {
     kept(&WALKED, folder, token, Instant::now(), &mut walk)
 }
@@ -320,7 +325,9 @@ fn kept(
     }
     let Walk { need, seen } = walk(folder)?;
     if let Some(seen) = seen {
-        lock().insert(
+        let mut walked = lock();
+        walked.retain(|_, kept| now.saturating_duration_since(kept.at) < KEPT_FOR);
+        walked.insert(
             key,
             Kept {
                 need,
@@ -339,24 +346,32 @@ fn fresh(kept: &Kept, now: Instant) -> bool {
         && kept
             .seen
             .iter()
-            .all(|(path, changed)| change_time(path).is_ok_and(|time| time == *changed))
+            .all(|(path, follow, changed)| match change_time(path, *follow) {
+                Ok(time) => *changed == Some(time),
+                Err(error) => changed.is_none() && error.kind() == std::io::ErrorKind::NotFound,
+            })
 }
 
-/// When `path` (a link to one followed) last changed: for a folder, a file
-/// or folder added, removed or renamed in it; its own attributes or
-/// permissions.
-fn change_time(path: &Path) -> std::io::Result<i64> {
+/// When `path` (a link to one followed when `follow`, else the link itself)
+/// last changed: for a folder, a file or folder added, removed or renamed
+/// in it; its own attributes or permissions; a link's target.
+fn change_time(path: &Path, follow: bool) -> std::io::Result<i64> {
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Storage::FileSystem::{
-        FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, FileBasicInfo, GetFileInformationByHandleEx,
+        FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileBasicInfo,
+        GetFileInformationByHandleEx,
     };
+    let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
+    if !follow {
+        flags |= FILE_FLAG_OPEN_REPARSE_POINT;
+    }
     let file = std::fs::OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES.0)
         .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+        .custom_flags(flags.0)
         .open(path)?;
     let mut info = FILE_BASIC_INFO::default();
     // SAFETY: the handle is open and `info` is a writable FILE_BASIC_INFO of
@@ -379,21 +394,43 @@ fn change_time(path: &Path) -> std::io::Result<i64> {
 /// is passed over), and `File.SetAttributes` changes a file link itself. A
 /// folder reached twice through links is walked once. Each folder's change
 /// time is read before it is listed: a change while it is walked shows on
-/// the next look.
+/// the next look. So is each link's to a folder, which changes with what it
+/// leads to, and one to nothing is kept while it still leads nowhere.
 fn walk(folder: &Path) -> Result<Walk> {
     use std::os::windows::fs::MetadataExt;
     const DIRECTORY: u32 = 0x10;
+    const REPARSE_POINT: u32 = 0x400;
     let mut pending = vec![folder.to_path_buf()];
     let mut walked = std::collections::BTreeSet::new();
     let mut seen = Vec::new();
+    // A link passed (the game's folder too, should it be one), itself.
+    let link = |path: &Path, seen: &mut Vec<Seen>| -> Result<()> {
+        match change_time(path, false) {
+            Ok(time) => seen.push((path.to_path_buf(), false, Some(time))),
+            // Gone meanwhile: its folder's change time shows it.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+        }
+        Ok(())
+    };
     // Stopped at `path`: kept while it and the folders before it stay.
-    let stop = |path: &Path, mut seen: Vec<(PathBuf, i64)>| Walk {
+    let stop = |path: &Path, mut seen: Vec<Seen>| Walk {
         need: locked(path),
-        seen: change_time(path).ok().map(|time| {
-            seen.push((path.to_path_buf(), time));
+        seen: change_time(path, true).ok().map(|time| {
+            seen.push((path.to_path_buf(), true, Some(time)));
             seen
         }),
     };
+    match std::fs::symlink_metadata(folder) {
+        Ok(metadata) if metadata.file_attributes() & REPARSE_POINT != 0 => {
+            link(folder, &mut seen)?;
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            return Ok(stop(folder, seen));
+        }
+        Err(error) => return Err(error).with_context(|| format!("reading {}", folder.display())),
+    }
     while let Some(path) = pending.pop() {
         let below = path != folder;
         match std::fs::canonicalize(&path) {
@@ -402,15 +439,21 @@ fn walk(folder: &Path) -> Result<Walk> {
                     continue;
                 }
             }
-            Err(error) if below && error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if below && error.kind() == std::io::ErrorKind::NotFound => {
+                seen.push((path, true, None));
+                continue;
+            }
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
                 return Ok(stop(&path, seen));
             }
             Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
         }
-        match change_time(&path) {
-            Ok(time) => seen.push((path.clone(), time)),
-            Err(error) if below && error.kind() == std::io::ErrorKind::NotFound => continue,
+        match change_time(&path, true) {
+            Ok(time) => seen.push((path.clone(), true, Some(time))),
+            Err(error) if below && error.kind() == std::io::ErrorKind::NotFound => {
+                seen.push((path, true, None));
+                continue;
+            }
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
                 return Ok(stop(&path, seen));
             }
@@ -434,6 +477,9 @@ fn walk(folder: &Path) -> Result<Walk> {
                 .with_context(|| format!("reading {}", entry.path().display()))?
                 .file_attributes();
             if attributes & DIRECTORY != 0 {
+                if attributes & REPARSE_POINT != 0 {
+                    link(&entry.path(), &mut seen)?;
+                }
                 pending.push(entry.path());
             } else if !attributes_writable(&entry.path())? {
                 return Ok(stop(&entry.path(), seen));
@@ -892,26 +938,79 @@ mod tests {
         assert_eq!(walks.get(), 10);
         // Another game's folder has its own answer.
         let other = tempfile::tempdir().unwrap();
-        look(other.path(), t0);
+        look(other.path(), t0 + KEPT_FOR);
         look(game.path(), t0 + KEPT_FOR);
         assert_eq!(walks.get(), 11);
         // A failed start forgets the game's folder, for every user.
         forget_in(&walked, game.path());
         look(game.path(), t0 + KEPT_FOR);
         assert_eq!(walks.get(), 12);
-        look(other.path(), t0);
+        look(other.path(), t0 + KEPT_FOR);
         assert_eq!(walks.get(), 12);
+        // Answers too old to use go as another is kept.
+        let kept_for = |folder: &Path| {
+            walked
+                .lock()
+                .unwrap()
+                .keys()
+                .any(|(_, kept)| kept == folder)
+        };
+        let later = tempfile::tempdir().unwrap();
+        look(later.path(), t0 + KEPT_FOR * 2 - Duration::from_secs(1));
+        assert!(kept_for(game.path()) && kept_for(other.path()));
+        let last = tempfile::tempdir().unwrap();
+        look(last.path(), t0 + KEPT_FOR * 2);
+        assert!(!kept_for(game.path()) && !kept_for(other.path()));
+        assert!(kept_for(later.path()) && kept_for(last.path()));
         // A walk that fails is not kept.
         let mut failing = |_: &Path| -> Result<Walk> { anyhow::bail!("listing failed") };
         let third = tempfile::tempdir().unwrap();
         let at = Instant::now();
         assert!(kept(&walked, third.path(), None, at, &mut failing).is_err());
-        assert!(
-            !walked
-                .lock()
-                .unwrap()
-                .keys()
-                .any(|(_, f)| f == third.path())
-        );
+        assert!(!kept_for(third.path()));
+    }
+
+    #[test]
+    fn a_link_the_walk_passed_keeps_the_answer_while_it_leads_where_it_did() {
+        use crate::user_folder::tests::mount;
+        let game = tempfile::tempdir().unwrap();
+        let data = game.path().join("data");
+        std::fs::create_dir(&data).unwrap();
+        std::fs::write(game.path().join("game.exe"), b"MZ").unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let locked = elsewhere.path().join("locked");
+        read_only_files(&locked);
+        std::fs::write(locked.join("1.map"), b"x").unwrap();
+        let walked = Mutex::new(Walked::new());
+        let walks = std::cell::Cell::new(0);
+        let mut counted = |folder: &Path| {
+            walks.set(walks.get() + 1);
+            walk(folder)
+        };
+        let t0 = Instant::now();
+        let mut look = |at: Instant| kept(&walked, game.path(), None, at, &mut counted).unwrap();
+        // A second link into a folder already walked, then led elsewhere in
+        // place: walked again.
+        let again = game.path().join("again");
+        junction(&data, &again);
+        assert_eq!(look(t0), Need::Nothing);
+        assert_eq!(look(t0), Need::Nothing);
+        assert_eq!(walks.get(), 1);
+        mount(&again, &locked).unwrap();
+        assert_eq!(look(t0), Need::Administrator(Why::Folder));
+        assert_eq!(walks.get(), 2);
+        std::fs::remove_dir(&again).unwrap();
+        // A link to nothing, until what it names is made.
+        let later = elsewhere.path().join("later");
+        std::fs::create_dir(&later).unwrap();
+        junction(&later, &again);
+        std::fs::remove_dir(&later).unwrap();
+        assert_eq!(look(t0), Need::Nothing);
+        assert_eq!(look(t0), Need::Nothing);
+        assert_eq!(walks.get(), 3);
+        read_only_files(&later);
+        std::fs::write(later.join("1.map"), b"x").unwrap();
+        assert_eq!(look(t0), Need::Administrator(Why::Folder));
+        assert_eq!(walks.get(), 4);
     }
 }

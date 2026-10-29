@@ -662,7 +662,7 @@ pub(super) fn administrators_hold(path: &Path, whole: bool) -> Result<(), String
 /// every folder above it, the drive's root included, are no links and
 /// nobody but administrators may change them. Otherwise an ordinary account
 /// could swap one for a link and send SYSTEM's copies anywhere.
-fn administrators_only(folder: &Path) -> Result<(), String> {
+pub(super) fn administrators_only(folder: &Path) -> Result<(), String> {
     for path in folder.ancestors().filter(|p| !p.as_os_str().is_empty()) {
         let security = security(path, path.parent().is_none())
             .map_err(|e| format!("cannot check who may change {}: {e:#}", path.display()))?;

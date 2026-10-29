@@ -821,6 +821,83 @@ fn a_folder_only_administrators_may_write_is_written_only_by_system_and_only_the
     }
 }
 
+/// This PC's Program Files, as an ordinary user: where a SYSTEM host's check
+/// finds that nobody but administrators may change a program's folder or a
+/// folder above it, the user's helper may not write there and writes
+/// nothing. The helper runs only on those folders, as it writes wherever the
+/// user may:
+/// `cargo test -p butterpollo neural::tests::program_files -- --ignored --nocapture`.
+#[test]
+#[ignore = "reads this PC's Program Files"]
+fn program_files_folders_are_left_to_system() {
+    assert!(
+        !butterpollo_windows::process::elevated().unwrap(),
+        "run it as an ordinary user"
+    );
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let programs = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());
+    // Everything the helper writes starts at the folder's root; some
+    // programs' subfolders are closed to the user.
+    let names = |folder: &Path| {
+        let mut names: Vec<_> = std::fs::read_dir(folder)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let mut closed = Vec::new();
+    for entry in std::fs::read_dir(&programs).unwrap().flatten() {
+        let folder = entry.path();
+        let Some(exe) = std::fs::read_dir(&folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|e| e == "exe"))
+        else {
+            continue;
+        };
+        let system = super::folder::administrators_only(&folder);
+        if let Err(error) = system {
+            println!("{}: SYSTEM's check {error}", folder.display());
+            continue;
+        }
+        let before = names(&folder);
+        let user = install(Some(&exe), None, &cache);
+        println!(
+            "{}: SYSTEM's check Ok; the user's helper {user:?}",
+            folder.display()
+        );
+        assert_eq!(
+            names(&folder),
+            before,
+            "the helper wrote {}",
+            folder.display()
+        );
+        assert!(
+            matches!(
+                user,
+                Response::NotWritable { .. } | Response::Refused { .. }
+            ),
+            "{user:?}"
+        );
+        closed.push((folder, user));
+    }
+    let (folder, user) = closed
+        .iter()
+        .find(|(folder, _)| folder.ends_with("Rubylight"))
+        .expect("Rubylight installed in Program Files");
+    assert_eq!(
+        *user,
+        Response::NotWritable {
+            folder: folder.clone()
+        }
+    );
+}
+
 fn archive(path: &Path, files: &[(&str, &[u8])]) {
     let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
     let options =

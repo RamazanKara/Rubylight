@@ -865,7 +865,7 @@ pub(crate) async fn api(
         return apps::icon(&h, id).await;
     }
     if method == Method::POST && path == "/api/apps/purge_autosync" {
-        return apps::purge_autosync(&h);
+        return apps::purge_autosync(&h).await;
     }
     if method == Method::GET && path == "/api/logs/export_crash" {
         return logs::export_crash(&h).await;

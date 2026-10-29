@@ -326,7 +326,7 @@ pub struct Packed {
     height: i32,
 }
 
-unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core::Result<ID3DBlob> {
+pub(crate) unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core::Result<ID3DBlob> {
     let mut code = None;
     let mut errors: Option<ID3DBlob> = None;
     let result = D3DCompile(

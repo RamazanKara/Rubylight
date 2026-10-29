@@ -34,7 +34,7 @@ fn main() {
         .or_else(|| windows.then(|| r"C:\msys64\ucrt64".to_owned()));
     let mut bindings = bindgen::Builder::default()
         .header_contents("nightjar-media.h", if windows {
-            "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n#include <libavutil/hwcontext_d3d11va.h>\n"
+            "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n#include <libavutil/hwcontext_d3d11va.h>\n#include <libavutil/hdr_dynamic_metadata.h>\n"
         } else {
             "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n"
         })

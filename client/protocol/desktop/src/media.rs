@@ -107,6 +107,9 @@ unsafe impl Send for Hardware {}
 struct Format {
     hardware: AVPixelFormat,
     required: bool,
+    /// D3D11VA: make the decoder's textures readable by shaders (`stream::direct`).
+    #[cfg(windows)]
+    bind_textures: bool,
 }
 
 unsafe extern "C" fn select_format(
@@ -117,6 +120,12 @@ unsafe extern "C" fn select_format(
     let mut next = formats;
     while *next != AV_PIX_FMT_NONE {
         if *next == wanted.hardware {
+            #[cfg(windows)]
+            if wanted.bind_textures && *next == AV_PIX_FMT_D3D11 {
+                if let Err(reason) = bind_frames(context, *next) {
+                    eprintln!("nightjar: the decoder's textures cannot be made readable ({reason}); its pictures are copied instead");
+                }
+            }
             return *next;
         }
         next = next.add(1);
@@ -134,6 +143,35 @@ unsafe extern "C" fn select_format(
         }
     }
     AV_PIX_FMT_NONE
+}
+
+/// Makes the decoder's frames context with shader-readable textures, as Moonlight V+ PC does
+/// (d3d11va.cpp, prepareDecoderContextInGetFormat), so `stream::direct` reads its slices in place.
+/// On failure the context is left to FFmpeg's default.
+#[cfg(windows)]
+unsafe fn bind_frames(context: *mut AVCodecContext, format: AVPixelFormat) -> Result<(), String> {
+    unsafe extern "C" {
+        fn av_hwframe_ctx_init(reference: *mut AVBufferRef) -> c_int;
+    }
+    let context = &mut *context;
+    av_buffer_unref(&mut context.hw_frames_ctx);
+    let status = avcodec_get_hw_frames_parameters(context, context.hw_device_ctx, format, &mut context.hw_frames_ctx);
+    if status < 0 {
+        return Err(format!("frames parameters: {}", error(status)));
+    }
+    let frames = &mut *(*context.hw_frames_ctx).data.cast::<AVHWFramesContext>();
+    let d3d = &mut *frames.hwctx.cast::<AVD3D11VAFramesContext>();
+    d3d.BindFlags |= windows::Win32::Graphics::Direct3D11::D3D11_BIND_SHADER_RESOURCE.0 as u32;
+    // ff_decode_get_hw_frames_ctx adds these 3 to the minimum FFmpeg asks for.
+    if frames.initial_pool_size != 0 {
+        frames.initial_pool_size += 3;
+    }
+    let status = av_hwframe_ctx_init(context.hw_frames_ctx);
+    if status < 0 {
+        av_buffer_unref(&mut context.hw_frames_ctx);
+        return Err(format!("frames context: {}", error(status)));
+    }
+    Ok(())
 }
 
 fn error(code: i32) -> String {
@@ -206,6 +244,8 @@ impl VideoDecoder {
                 _format: Box::new(Format {
                     hardware: AV_PIX_FMT_NONE,
                     required: require_hardware,
+                    #[cfg(windows)]
+                    bind_textures: false,
                 }),
                 name: CStr::from_ptr((*found).name).to_string_lossy().into_owned(),
             };
@@ -257,6 +297,7 @@ impl VideoDecoder {
                                 .cast::<ID3D10Multithread>()
                                 .map_err(|e| format!("D3D11 multithread protection: {e}"))?
                                 .SetMultithreadProtected(true);
+                            video._format.bind_textures = crate::stream::direct::bind_decoder_textures(device);
                             let status = av_hwdevice_ctx_init(reference);
                             if status < 0 {
                                 return Err(format!("D3D11VA: {}", error(status)));
@@ -518,6 +559,83 @@ impl Frame {
         {
             let _ = (texture, width, height);
             false
+        }
+    }
+}
+
+/// A D3D11VA picture: the decoder's texture array and the picture's slice in it.
+#[cfg(windows)]
+pub struct D3d11Surface {
+    pub texture: *mut c_void,
+    pub slice: u32,
+    /// The textures were made with `D3D11_BIND_SHADER_RESOURCE` (`bind_frames`).
+    pub readable: bool,
+}
+
+#[cfg(windows)]
+impl Frame {
+    pub fn d3d11_surface(&self) -> Option<D3d11Surface> {
+        // SAFETY: The fields of the live AVFrame and its frames context.
+        unsafe {
+            let frame = self.raw.as_ref();
+            if frame.format != AV_PIX_FMT_D3D11 || frame.hw_frames_ctx.is_null() || frame.data[0].is_null() {
+                return None;
+            }
+            let frames = &*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>());
+            let d3d = &*frames.hwctx.cast::<AVD3D11VAFramesContext>();
+            let readable = d3d.BindFlags & windows::Win32::Graphics::Direct3D11::D3D11_BIND_SHADER_RESOURCE.0 as u32 != 0;
+            Some(D3d11Surface { texture: frame.data[0].cast(), slice: frame.data[1] as usize as u32, readable })
+        }
+    }
+
+    /// Another reference to the same picture, which keeps its decoder surface out of reuse.
+    pub fn reference(&self) -> Option<Frame> {
+        // SAFETY: Cloning a live AVFrame references its buffers.
+        NonNull::new(unsafe { av_frame_clone(self.raw.as_ptr()) }).map(|raw| Frame { raw, wavelet: self.wavelet })
+    }
+
+    /// Runs `f` under the D3D11VA device's lock, which FFmpeg holds while it decodes.
+    pub fn with_decoder_lock(&self, f: &mut dyn FnMut()) {
+        // SAFETY: The device context of the live frame's frames context.
+        unsafe {
+            let frame = self.raw.as_ref();
+            if frame.hw_frames_ctx.is_null() {
+                return f();
+            }
+            let frames = &*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>());
+            let d3d = &*((*frames.device_ctx).hwctx.cast::<AVD3D11VADeviceContext>());
+            match (d3d.lock, d3d.unlock) {
+                (Some(lock), Some(unlock)) => {
+                    lock(d3d.lock_ctx);
+                    f();
+                    unlock(d3d.lock_ctx);
+                }
+                _ => f(),
+            }
+        }
+    }
+
+    /// The frame's HDR10+ (SMPTE ST 2094-40) scene peak in nits: the largest MaxSCL of its first
+    /// processing window, as libplacebo maps it (`10000 * maxscl`). None without HDR10+ or when
+    /// the peak is 0.
+    pub fn hdr10_plus_peak(&self) -> Option<f32> {
+        // SAFETY: Side data of the live AVFrame, sized as FFmpeg made it.
+        unsafe {
+            let side = av_frame_get_side_data(self.raw.as_ptr(), AV_FRAME_DATA_DYNAMIC_HDR_PLUS);
+            if side.is_null() || (*side).size < std::mem::size_of::<AVDynamicHDRPlus>() {
+                return None;
+            }
+            let metadata = &*(*side).data.cast::<AVDynamicHDRPlus>();
+            if metadata.num_windows == 0 {
+                return None;
+            }
+            let peak = metadata.params[0]
+                .maxscl
+                .iter()
+                .filter(|r| r.den != 0)
+                .map(|r| 10000.0 * f64::from(r.num) / f64::from(r.den))
+                .fold(0.0, f64::max);
+            (peak > 0.0).then_some(peak as f32)
         }
     }
 }

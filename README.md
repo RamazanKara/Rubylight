@@ -26,7 +26,7 @@
 
 <div align="center">
 
-**[Download 3.0.0-rc.4](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.4)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md)
+**[Download 3.0.0-rc.5](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.5)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md)
 
 <sub>Windows 10 and 11 · Any AMD Radeon with AMF · Formerly Butterpollo</sub>
 
@@ -56,7 +56,7 @@
 
 ## Install. Pair. Play.
 
-1. **Install.** Run **`rubylight-setup-3.0.0-rc.4.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.4). It sets up the service, the virtual display driver and controller support in one pass, ready to stream right away. A portable ZIP is there too.
+1. **Install.** Run **`rubylight-setup-3.0.0-rc.5.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.5). It sets up the service, the virtual display driver and controller support in one pass, ready to stream right away. A portable ZIP is there too.
 2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
 3. **Pair and play.** In [Nightjar](https://github.com/RamazanKara/nightjar), scan the QR code on the console's Home page. In Moonlight or any other compatible client, select your PC and enter its PIN on the console's **Devices** page. Then pick **Desktop** or a game and play.
 

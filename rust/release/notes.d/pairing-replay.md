@@ -1,2 +1,0 @@
-# Pairing
-- **A used or expired pairing QR code says so.** Scanning or pasting a pairing link again after it worked once, or after its three minutes, while no other code is shown, now gets the answer "it was used or has expired; show a new one on the PC" instead of the plain "OTP pairing is not available". The answer stays a refusal (status 400) that Nightjar shows as "show a new code", not as a network problem.

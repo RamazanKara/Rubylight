@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -568,4 +568,147 @@ fn transfers_that_would_buffer_too_much_together_hear_enomem_until_one_is_unlink
     assert_eq!(device.kept.lock().unwrap().len(), whole + 1);
     drop(driver);
     served.join().unwrap().unwrap();
+}
+
+/// A device usbipd serves: [`UsbDevice::relay`] connects to `server`, counting connections.
+struct Relayed {
+    server: std::net::SocketAddr,
+    connects: AtomicUsize,
+    closes: AtomicUsize,
+}
+impl UsbDevice for Relayed {
+    fn describe(&self) -> wire::Device {
+        wire::Device {
+            busid: "1-2".into(),
+            ..wire::Device::default()
+        }
+    }
+    fn submit(&self, _: Transfer, _: Completion) {
+        panic!("a relayed device takes no transfers");
+    }
+    fn unlink(&self, _: u32) {}
+    fn close(&self) {
+        self.closes.fetch_add(1, Ordering::SeqCst);
+    }
+    fn relay(&self) -> Option<std::io::Result<Arc<dyn Tunnel>>> {
+        self.connects.fetch_add(1, Ordering::SeqCst);
+        Some(
+            TcpStream::connect(self.server)
+                .and_then(TcpTunnel::new)
+                .map(|t| Arc::new(t) as Arc<dyn Tunnel>),
+        )
+    }
+}
+
+/// A usbipd that answers the import with `status`, then echoes every byte until the client
+/// closes. Returns the import request it got.
+fn usbipd(status: u32) -> (std::net::SocketAddr, std::thread::JoinHandle<Vec<u8>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = vec![0; wire::IMPORT_REQUEST_BYTES];
+        stream.read_exact(&mut request).unwrap();
+        stream.write_all(&wire::import_reply(status)).unwrap();
+        if status == 0 {
+            let device = wire::Device {
+                busid: "1-2".into(),
+                vendor: 0x046d,
+                ..wire::Device::default()
+            };
+            stream.write_all(&device.encode().unwrap()).unwrap();
+            let mut buffer = [0; 1024];
+            loop {
+                match stream.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => stream.write_all(&buffer[..n]).unwrap(),
+                }
+            }
+        }
+        request
+    });
+    (address, server)
+}
+
+fn relaying(
+    server: std::net::SocketAddr,
+) -> (
+    Arc<Relayed>,
+    Driver,
+    std::thread::JoinHandle<Result<(), ServeError>>,
+) {
+    let device = Arc::new(Relayed {
+        server,
+        connects: AtomicUsize::new(0),
+        closes: AtomicUsize::new(0),
+    });
+    let (tunnel, driver) = pipe();
+    let served = {
+        let device = device.clone();
+        std::thread::spawn(move || serve(tunnel, device))
+    };
+    (device, driver, served)
+}
+
+#[test]
+fn a_relayed_device_passes_the_import_and_every_byte_to_usbipd_and_back() {
+    let (address, server) = usbipd(0);
+    let (device, mut driver, served) = relaying(address);
+    let imported = driver.import("1-2").unwrap();
+    assert_eq!(imported.vendor, 0x046d, "the device as usbipd describes it");
+    driver.stream.write_all(b"urb bytes").unwrap();
+    let mut echoed = [0; 9];
+    driver.stream.read_exact(&mut echoed).unwrap();
+    assert_eq!(&echoed, b"urb bytes");
+    drop(driver);
+    served.join().unwrap().unwrap();
+    assert_eq!(server.join().unwrap(), wire::import_request("1-2").unwrap().to_vec());
+    assert_eq!(device.closes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_relayed_import_of_another_device_never_reaches_usbipd() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (device, mut driver, served) = relaying(listener.local_addr().unwrap());
+    assert_eq!(driver.import("1-3").err(), Some(1));
+    assert!(matches!(
+        served.join().unwrap(),
+        Err(ServeError::Protocol(_))
+    ));
+    assert_eq!(device.connects.load(Ordering::SeqCst), 0);
+    assert_eq!(device.closes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn usbipd_refusing_the_import_fails_the_attachment() {
+    let (address, server) = usbipd(1);
+    let (device, mut driver, served) = relaying(address);
+    assert_eq!(driver.import("1-2").err(), Some(1), "the driver hears the refusal");
+    assert!(matches!(served.join().unwrap(), Err(ServeError::Device(_))));
+    server.join().unwrap();
+    assert_eq!(device.closes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn usbipd_closing_ends_the_relay_and_closes_the_tunnel() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = vec![0; wire::IMPORT_REQUEST_BYTES];
+        stream.read_exact(&mut request).unwrap();
+        stream.write_all(&wire::import_reply(0)).unwrap();
+        let device = wire::Device {
+            busid: "1-2".into(),
+            ..wire::Device::default()
+        };
+        stream.write_all(&device.encode().unwrap()).unwrap();
+        // The device went away: the kernel closes the connection.
+    });
+    let (device, mut driver, served) = relaying(address);
+    driver.import("1-2").unwrap();
+    server.join().unwrap();
+    assert!(driver.closed(), "the host sees the tunnel close");
+    served.join().unwrap().unwrap();
+    assert_eq!(device.closes.load(Ordering::SeqCst), 1);
 }

@@ -10,8 +10,10 @@
 use super::layers::{self, Layers};
 use anyhow::{Context, Result, bail};
 use butterpollo_core::nucleus::elevation::{self as rule, Need, Why};
+use std::collections::BTreeMap;
 use std::os::windows::io::OwnedHandle;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 use windows::Win32::Foundation::FreeLibrary;
 use windows::Win32::System::LibraryLoader::{
     FindResourceW, LOAD_LIBRARY_AS_DATAFILE, LOAD_LIBRARY_AS_IMAGE_RESOURCE, LoadLibraryExW,
@@ -228,35 +230,124 @@ fn thirty_two_bit(exe: &Path) -> Result<bool> {
     Ok(kind == SCS_32BIT_BINARY)
 }
 
+/// Each user's (by SID) [`folder_need`] answer for a game folder, kept
+/// while the folder's change time stays.
+type Walked = BTreeMap<(String, PathBuf), (i64, Need)>;
+
 /// [`Need::Administrator`] ([`Why::Folder`]) when the user of `token` may
 /// not change the attributes of a file in `folder` or list one of its
 /// folders: Nucleus Co-op clears every file's attributes there before it
 /// starts the game (`StartGameUtil.UnlockGameFiles`) and stops on the first
-/// it can't. Read as that user (None: as the host); links are not followed,
-/// and the walk stops at the first such file.
+/// it can't. Read as that user (None: as the host, in tests), the walk
+/// stopping at the first such file. The answer is kept until the folder
+/// changes (its change time): the walk takes as long as the folder is big.
 pub fn folder_need(folder: &Path, token: Option<&OwnedHandle>) -> Result<Need> {
+    static WALKED: Mutex<Walked> = Mutex::new(BTreeMap::new());
+    kept(&WALKED, folder, token, &mut walk)
+}
+
+/// [`folder_need`] with the answers kept in `walked`, from `walk`.
+fn kept(
+    walked: &Mutex<Walked>,
+    folder: &Path,
+    token: Option<&OwnedHandle>,
+    walk: &mut dyn FnMut(&Path) -> Result<Need>,
+) -> Result<Need> {
+    let user = token
+        .map(crate::process::token_user_sid)
+        .transpose()?
+        .unwrap_or_default();
     let _user =
         crate::user_folder::Impersonation::begin(token).context("acting as the signed-in user")?;
+    let changed = match change_time(folder) {
+        Ok(changed) => changed,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            return Ok(locked(folder));
+        }
+        Err(error) => return Err(error).with_context(|| format!("reading {}", folder.display())),
+    };
+    let key = (user, folder.to_path_buf());
+    let lock = || walked.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(&(_, need)) = lock().get(&key).filter(|(at, _)| *at == changed) {
+        return Ok(need);
+    }
+    let need = walk(folder)?;
+    lock().insert(key, (changed, need));
+    Ok(need)
+}
+
+/// When `folder` (a link to one followed) last changed: a file or folder
+/// added, removed or renamed in it, or its own attributes or permissions.
+fn change_time(folder: &Path) -> std::io::Result<i64> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FileBasicInfo, GetFileInformationByHandleEx,
+    };
+    let file = std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(folder)?;
+    let mut info = FILE_BASIC_INFO::default();
+    // SAFETY: the handle is open and `info` is a writable FILE_BASIC_INFO of
+    // the size passed.
+    unsafe {
+        GetFileInformationByHandleEx(
+            HANDLE(file.as_raw_handle()),
+            FileBasicInfo,
+            (&raw mut info).cast(),
+            size_of::<FILE_BASIC_INFO>() as u32,
+        )
+    }
+    .map_err(crate::user_folder::os_error)?;
+    Ok(info.ChangeTime)
+}
+
+/// The walk [`folder_need`] keeps the answer of, as Nucleus' own goes:
+/// `Directory.GetFileSystemEntries(.., AllDirectories)` of .NET Framework
+/// goes into every folder, a junction or a link to one too (one to nothing
+/// is passed over), and `File.SetAttributes` changes a file link itself. A
+/// folder reached twice through links is walked once.
+fn walk(folder: &Path) -> Result<Need> {
+    use std::os::windows::fs::MetadataExt;
+    const DIRECTORY: u32 = 0x10;
     let mut pending = vec![folder.to_path_buf()];
+    let mut walked = std::collections::BTreeSet::new();
     while let Some(path) = pending.pop() {
+        let below = path != folder;
+        match std::fs::canonicalize(&path) {
+            Ok(real) => {
+                if !walked.insert(real) {
+                    continue;
+                }
+            }
+            Err(error) if below && error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Ok(locked(&path));
+            }
+            Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+        }
         let entries = match std::fs::read_dir(&path) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
                 return Ok(locked(&path));
             }
+            Err(error) if below && error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => {
                 return Err(error).with_context(|| format!("listing {}", path.display()));
             }
         };
         for entry in entries {
             let entry = entry.with_context(|| format!("listing {}", path.display()))?;
-            let kind = entry
-                .file_type()
-                .with_context(|| format!("reading {}", entry.path().display()))?;
-            if kind.is_symlink() || is_link(&entry)? {
-                continue;
-            }
-            if kind.is_dir() {
+            // The entry itself, as listed: a link is not followed here.
+            let attributes = entry
+                .metadata()
+                .with_context(|| format!("reading {}", entry.path().display()))?
+                .file_attributes();
+            if attributes & DIRECTORY != 0 {
                 pending.push(entry.path());
             } else if !attributes_writable(&entry.path())? {
                 return Ok(locked(&entry.path()));
@@ -269,15 +360,6 @@ pub fn folder_need(folder: &Path, token: Option<&OwnedHandle>) -> Result<Need> {
 fn locked(path: &Path) -> Need {
     tracing::info!(path = %path.display(), "Nucleus Co-op: the signed-in user may not change this file of the game, so Nucleus Co-op runs elevated");
     Need::Administrator(Why::Folder)
-}
-
-/// A junction or other reparse point, which `file_type` calls a folder.
-fn is_link(entry: &std::fs::DirEntry) -> Result<bool> {
-    use std::os::windows::fs::MetadataExt;
-    let metadata = entry
-        .metadata()
-        .with_context(|| format!("reading {}", entry.path().display()))?;
-    Ok(metadata.file_attributes() & 0x400 != 0)
 }
 
 /// Whether this thread may change the file's attributes, as
@@ -593,14 +675,92 @@ mod tests {
     }
 
     #[test]
-    fn links_in_the_game_folder_are_not_followed() {
+    fn links_in_the_game_folder_are_followed_as_nucleus_does() {
         let elsewhere = tempfile::tempdir().unwrap();
         let locked = elsewhere.path().join("locked");
         read_only_files(&locked);
         std::fs::write(locked.join("1.map"), b"x").unwrap();
         let game = tempfile::tempdir().unwrap();
         std::fs::write(game.path().join("game.exe"), b"MZ").unwrap();
+        // .NET's walk goes into it and stops on the file it can't change.
         junction(&locked, &game.path().join("data"));
-        assert_eq!(folder_need(game.path(), None).unwrap(), Need::Nothing);
+        assert_eq!(walk(game.path()).unwrap(), Need::Administrator(Why::Folder));
+        // One to nothing is passed over, as .NET does.
+        std::fs::remove_dir(game.path().join("data")).unwrap();
+        let gone = elsewhere.path().join("gone");
+        std::fs::create_dir(&gone).unwrap();
+        junction(&gone, &game.path().join("data"));
+        std::fs::remove_dir(&gone).unwrap();
+        assert_eq!(walk(game.path()).unwrap(), Need::Nothing);
+    }
+
+    #[test]
+    fn a_link_back_into_the_game_folder_is_walked_once() {
+        let game = tempfile::tempdir().unwrap();
+        std::fs::create_dir(game.path().join("data")).unwrap();
+        std::fs::write(game.path().join("data").join("1.map"), b"x").unwrap();
+        junction(game.path(), &game.path().join("data").join("loop"));
+        junction(game.path(), &game.path().join("again"));
+        assert_eq!(walk(game.path()).unwrap(), Need::Nothing);
+    }
+
+    #[test]
+    fn the_game_folder_is_walked_as_the_user() {
+        let sid = crate::process::own_sid().unwrap();
+        let game = tempfile::tempdir().unwrap();
+        // Only this account by name may list it: the token without its SID,
+        // standing in for the user, is refused, as Nucleus run as them is.
+        let named = game.path().join("named");
+        crate::process::create_folder(&named, &format!("D:P(A;OICI;FA;;;{sid})")).unwrap();
+        std::fs::write(named.join("1.map"), b"x").unwrap();
+        let user = crate::user_folder::tests::without_own_sid();
+        let walked = Mutex::new(Walked::new());
+        assert_eq!(
+            kept(&walked, &named, None, &mut walk).unwrap(),
+            Need::Nothing
+        );
+        assert_eq!(
+            kept(&walked, &named, Some(&user), &mut walk).unwrap(),
+            Need::Administrator(Why::Folder)
+        );
+    }
+
+    #[test]
+    fn the_walk_is_kept_until_the_game_folder_changes() {
+        let game = tempfile::tempdir().unwrap();
+        std::fs::create_dir(game.path().join("data")).unwrap();
+        std::fs::write(game.path().join("game.exe"), b"MZ").unwrap();
+        let walked = Mutex::new(Walked::new());
+        let walks = std::cell::Cell::new(0);
+        let mut counted = |folder: &Path| {
+            walks.set(walks.get() + 1);
+            walk(folder)
+        };
+        for _ in 0..3 {
+            assert_eq!(
+                kept(&walked, game.path(), None, &mut counted).unwrap(),
+                Need::Nothing
+            );
+        }
+        // A launch after the first adds no walk.
+        assert_eq!(walks.get(), 1);
+        // A file added, removed or renamed in the folder walks it again.
+        std::fs::write(game.path().join("patch.dll"), b"MZ").unwrap();
+        kept(&walked, game.path(), None, &mut counted).unwrap();
+        assert_eq!(walks.get(), 2);
+        std::fs::rename(game.path().join("patch.dll"), game.path().join("old.dll")).unwrap();
+        kept(&walked, game.path(), None, &mut counted).unwrap();
+        assert_eq!(walks.get(), 3);
+        // Another game's folder has its own answer.
+        let other = tempfile::tempdir().unwrap();
+        kept(&walked, other.path(), None, &mut counted).unwrap();
+        kept(&walked, game.path(), None, &mut counted).unwrap();
+        assert_eq!(walks.get(), 4);
+        // A walk that fails is not kept.
+        let mut failing = |_: &Path| -> Result<Need> { anyhow::bail!("listing failed") };
+        let third = tempfile::tempdir().unwrap();
+        assert!(kept(&walked, third.path(), None, &mut failing).is_err());
+        kept(&walked, third.path(), None, &mut counted).unwrap();
+        assert_eq!(walks.get(), 5);
     }
 }

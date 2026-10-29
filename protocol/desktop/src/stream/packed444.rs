@@ -54,7 +54,7 @@ fn verify(
     ten_bit: bool,
     packing: u32,
 ) -> Result<(), String> {
-    let mut decoder = media::VideoDecoder::open(codec, hardware, 1, true)?;
+    let mut decoder = media::VideoDecoder::open_first(codec, hardware, true, |_, _| {})?;
     let status = decoder.send(data, 0);
     if status < 0 {
         return Err(format!("decoder rejected the sampling fixture ({status})"));

@@ -299,6 +299,8 @@ pub struct Decoder {
     slices: u32,
     /// The renderer's GPU device when PyroWave is to be decoded on the GPU (`pyrowave_decoder = gpu`).
     gpu: Option<GpuDevice>,
+    /// The presenter imports VAAPI pictures as DMA-BUFs (`crate::dmabuf`).
+    dmabuf: bool,
     /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
     /// and how many were written.
     dump: Option<(std::path::PathBuf, u32)>,
@@ -376,6 +378,7 @@ impl Decoder {
             early: false,
             slices: 0,
             gpu: None,
+            dmabuf: false,
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
             failing: Failing::default(),
             lost: false,
@@ -475,6 +478,21 @@ impl Decoder {
         self.slices = slices;
         self
     }
+
+    /// VAAPI pictures go to the presenter as DMA-BUFs, which it imports into its textures.
+    pub fn with_dmabuf(mut self, dmabuf: bool) -> Self {
+        self.dmabuf = dmabuf;
+        self
+    }
+}
+
+/// Whether a stream's VAAPI pictures go to the presenter as DMA-BUFs: it imports them, and they
+/// are what its import takes (SDL's NV12 texture: 8-bit 4:2:0, not packed).
+fn exports_dmabuf(presenter_imports: bool, setup: &VideoSetup) -> bool {
+    presenter_imports
+        && setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT == 0
+        && setup.format & VIDEO_FORMAT_MASK_YUV444 == 0
+        && setup.chroma_packing == 0
 }
 
 /// The SDK's decoder (on the renderer's adapter on Windows), with a plane set per picture that can be waiting.
@@ -546,8 +564,12 @@ impl VideoDecoder for Decoder {
             Hardware::None => {
                 media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false)
             }
-            hardware => media::VideoDecoder::open(codec, hardware, 1, setup.chroma_packing != 0)
-                .or_else(|e| {
+            // Each backend that does not open is logged as the next one is tried.
+            hardware => {
+                let failed = |backend: Hardware, error: &str| {
+                    eprintln!("nightjar: {} decoding is unavailable: {error}", backend.label());
+                };
+                media::VideoDecoder::open_first(codec, hardware, setup.chroma_packing != 0, failed).or_else(|e| {
                     if setup.chroma_packing != 0 {
                         return Err(e);
                     }
@@ -555,10 +577,14 @@ impl VideoDecoder for Decoder {
                         "Hardware decoding unavailable: {e}"
                     )));
                     media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false)
-                }),
+                })
+            }
         };
         match opened {
-            Ok(decoder) => {
+            Ok(mut decoder) => {
+                if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
+                    eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
+                }
                 *lock(&self.shared.decoder_name) = decoder.name.clone();
                 self.decoder = Some(decoder);
                 Ok(())
@@ -1152,6 +1178,22 @@ mod tests {
         assert!(text.contains("stopped working"), "{text}");
         decoder.frame_failed(3_000_000);
         assert!(notices(&shared).is_empty(), "said once");
+    }
+
+    #[test]
+    fn only_8_bit_4_2_0_unpacked_streams_go_to_an_importing_presenter_as_dmabufs() {
+        use nightjar_core::sdp::{VIDEO_FORMAT_H264, VIDEO_FORMAT_MASK_10BIT};
+        let setup = VideoSetup { format: VIDEO_FORMAT_H264, width: 1920, height: 1080, fps: 60, chroma_packing: 0, logical_width: 1920, logical_height: 1080, color_space: 1, color_range: 0 };
+        assert!(exports_dmabuf(true, &setup));
+        assert!(!exports_dmabuf(false, &setup), "a presenter that does not import gets mappings");
+        assert!(!exports_dmabuf(true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_10BIT, ..setup }), "SDL's GL renderers have no P010 texture");
+        assert!(!exports_dmabuf(true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_YUV444, ..setup }));
+        assert!(!exports_dmabuf(true, &VideoSetup { chroma_packing: 1, ..setup }), "packed pictures are rebuilt from memory");
+        // A software decoder asked for DMA-BUFs decodes as before.
+        let (decoder, _shared) = decoder();
+        let mut decoder = decoder.with_dmabuf(true);
+        decoder.setup(&VideoSetup { width: 128, height: 128, logical_width: 128, logical_height: 128, ..setup }).unwrap();
+        assert_eq!(decoder.decoder.as_ref().map(|d| d.hardware), Some(Hardware::None));
     }
 
     #[test]

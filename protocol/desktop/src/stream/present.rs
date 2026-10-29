@@ -279,6 +279,19 @@ pub struct VideoTexture {
     /// The session negotiated HDR (asked for it and got a 10-bit format), for pictures before or
     /// without the host's HDR mode; a 10-bit SDR stream is not HDR.
     hdr_stream: bool,
+    /// The texture's planes are imported DMA-BUFs (`crate::dmabuf`): its NV12 shader reads the
+    /// chroma plane as red-green, where uploaded chroma is luminance-alpha.
+    #[cfg(unix)]
+    imported: bool,
+    #[cfg(unix)]
+    importer: Option<crate::dmabuf::Importer>,
+    /// The picture whose surface the imported texture samples, kept from the decoder until the
+    /// next picture replaces it.
+    #[cfg(unix)]
+    held: Option<media::Frame>,
+    /// A picture could not be imported: the stream's pictures are mapped to memory from then on.
+    #[cfg(unix)]
+    dmabuf_declined: bool,
 }
 
 impl Default for VideoTexture {
@@ -306,6 +319,14 @@ impl Default for VideoTexture {
             hdr_mode: None,
             hdr_metadata: None,
             hdr_stream: false,
+            #[cfg(unix)]
+            imported: false,
+            #[cfg(unix)]
+            importer: None,
+            #[cfg(unix)]
+            held: None,
+            #[cfg(unix)]
+            dmabuf_declined: false,
         }
     }
 }
@@ -707,22 +728,9 @@ impl VideoTexture {
                     }
                     copied
                 }
-                media::FRAME_NV12 | media::FRAME_P010 => {
-                    let format = if info.kind == media::FRAME_P010 {
-                        SDL_PIXELFORMAT_P010
-                    } else {
-                        SDL_PIXELFORMAT_NV12
-                    };
-                    self.ensure(renderer, format, w, h, space, white_level)
-                        && SDL_UpdateNVTexture(
-                            self.texture,
-                            std::ptr::null(),
-                            info.data[0],
-                            info.linesize[0],
-                            info.data[1],
-                            info.linesize[1],
-                        )
-                }
+                media::FRAME_NV12 | media::FRAME_P010 => self.upload_nv(renderer, &info, space, white_level),
+                #[cfg(unix)]
+                media::FRAME_DMABUF => self.upload_dmabuf(renderer, frame, &info, space, white_level),
                 media::FRAME_YUV420P => {
                     self.ensure(renderer, SDL_PIXELFORMAT_IYUV, w, h, space, white_level)
                         && SDL_UpdateYUVTexture(
@@ -739,6 +747,73 @@ impl VideoTexture {
                 _ => false,
             }
         }
+    }
+
+    /// Uploads an NV12 or P010 picture from memory.
+    fn upload_nv(&mut self, renderer: *mut SDL_Renderer, info: &FrameInfo, space: SDL_Colorspace, white_level: f32) -> bool {
+        // A texture made for imports reads its chroma as red-green, uploads are luminance-alpha.
+        #[cfg(unix)]
+        if self.imported {
+            self.destroy();
+        }
+        let format = if info.kind == media::FRAME_P010 { SDL_PIXELFORMAT_P010 } else { SDL_PIXELFORMAT_NV12 };
+        self.ensure(renderer, format, info.width, info.height, space, white_level)
+            // SAFETY: plane pointers and pitches come from the live AVFrame.
+            && unsafe {
+                SDL_UpdateNVTexture(self.texture, std::ptr::null(), info.data[0], info.linesize[0], info.data[1], info.linesize[1])
+            }
+    }
+
+    /// Imports a VAAPI picture's DMA-BUFs into the NV12 texture. When that cannot be done it says
+    /// why once and maps the picture to memory instead, and the decoder maps the stream's next
+    /// ones itself.
+    #[cfg(unix)]
+    fn upload_dmabuf(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, info: &FrameInfo, space: SDL_Colorspace, white_level: f32) -> bool {
+        let Some(export) = frame.dmabuf() else { return false };
+        if !self.dmabuf_declined {
+            match self.import(renderer, export, info, space, white_level) {
+                Ok(()) => {
+                    // The texture samples the decoder's surface: it stays out of the decoder's
+                    // hands until the next picture replaces it.
+                    self.held = frame.reference();
+                    return true;
+                }
+                Err(error) => {
+                    eprintln!("nightjar: VAAPI pictures cannot be imported as DMA-BUFs ({error}); mapping them to memory instead");
+                    self.dmabuf_declined = true;
+                    self.destroy();
+                }
+            }
+        }
+        export.decline();
+        let Some(mapped) = frame.map_to_memory() else {
+            self.fail(format!("mapping a {}x{} VAAPI picture to memory failed", info.width, info.height), "the picture could not be read".into());
+            return false;
+        };
+        self.upload_nv(renderer, &mapped.info(), space, white_level)
+    }
+
+    #[cfg(unix)]
+    fn import(&mut self, renderer: *mut SDL_Renderer, export: &crate::dmabuf::Export, info: &FrameInfo, space: SDL_Colorspace, white_level: f32) -> Result<(), String> {
+        if !self.imported && !self.texture.is_null() {
+            self.destroy();
+        }
+        // The hint is read when SDL makes the texture: only textures for imports get it.
+        let hint = c"SDL_RENDER_OPENGL_NV12_RG_SHADER";
+        crate::sdl::set_hint(hint.as_ptr(), c"1");
+        let made = self.ensure(renderer, SDL_PIXELFORMAT_NV12, info.width, info.height, space, white_level);
+        // SAFETY: a hint name.
+        unsafe { SDL_ResetHint(hint.as_ptr()) };
+        if !made {
+            return Err(self.failure.take().unwrap_or_else(|| "SDL made no NV12 texture".into()));
+        }
+        self.imported = true;
+        if self.importer.is_none() {
+            self.importer = Some(crate::dmabuf::Importer::new()?);
+        }
+        let importer = self.importer.as_mut().expect("made above");
+        // SAFETY: on the renderer's thread, with its live texture.
+        unsafe { importer.import(renderer, self.texture, export, info.width as u32, info.height as u32) }
     }
 
     pub fn draw(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect) -> bool {
@@ -926,6 +1001,8 @@ impl VideoTexture {
             hdr_frame: self.hdr_frame,
             logged_failure: self.logged_failure.take(),
             pyrowave_stages: stages,
+            #[cfg(unix)]
+            dmabuf_declined: self.dmabuf_declined,
             ..Self::default()
         };
     }

@@ -85,8 +85,8 @@ no usable GPU) or 1 (did not load).
 
 `package-linux.sh -f <FFmpeg prefix> [-s <PyroWave SDK>] [-v <version>]` builds the release binary against
 the decode-only FFmpeg that `ffmpeg-decode-only.sh <ffmpeg 8 source> <prefix>` builds on Linux (libavcodec
-and libavutil with the H.264, HEVC and AV1 decoders, their VAAPI paths and dav1d; needs `nasm`,
-`libdav1d-dev` and `libva-dev`), and ships `libavcodec`, `libavutil` and `libdav1d` in `lib/` beside the
+and libavutil with the H.264, HEVC and AV1 decoders, their VAAPI and NVDEC paths, the V4L2 M2M
+decoders and dav1d; needs `nasm`, `libdav1d-dev`, `libva-dev` and `libffmpeg-nvenc-dev`), and ships `libavcodec`, `libavutil` and `libdav1d` in `lib/` beside the
 executable. The executable and the libraries have the run path `$ORIGIN/lib` and `$ORIGIN`, so the FFmpeg of the
 machine (another version on a Steam Deck, or none) is never used; FFmpeg stays dynamic (LGPL) and its
 licence, source offer and dav1d's licence are in `licenses-ffmpeg/` and `licenses-dav1d/`. libopus, libva and the desktop libraries stay the system's
@@ -187,10 +187,18 @@ Why this combination:
   On Windows the decoder uses D3D11VA on the renderer's own D3D11 device, and each decoded
   surface is copied on the GPU into the renderer's NV12/P010 texture under FFmpeg's device
   lock (no CPU copy). The device is made multithread-protected, since the decoder thread and
-  the renderer share the immediate context. On Linux the decoder uses VAAPI and maps each
-  picture for reading on the decoder thread (the driver copies the surface into an image); the
-  presenter uploads from that mapping, with no second copy into a new frame. Either falls back to
-  software decoding. Packets go to FFmpeg in pooled, reused buffers: a fresh allocation per frame
+  the renderer share the immediate context. On Linux the decoder tries VAAPI, then the V4L2
+  memory-to-memory decoders (ARM handhelds and boards, H.264 and HEVC), then NVDEC, the order
+  moonlight-qt and Moonlight V+ use; each that does not open is logged and the next is tried.
+  With the OpenGL renderer (on EGL: `SDL_HINT_VIDEO_FORCE_EGL` makes X11 use it too) an 8-bit
+  4:2:0 VAAPI picture never crosses the CPU (`src/dmabuf.rs`): the decoder thread exports the
+  surface as DMA-BUFs, one layer per plane, and the presenter binds an EGL image of each to the
+  GL texture of that plane in SDL's NV12 texture, keeping the picture until the next replaces
+  it. Otherwise (the GPU renderer, 10-bit, packed, or an import that fails, which is logged once)
+  the decoder maps each picture for reading (the driver copies the surface into an image) and the
+  presenter uploads from that mapping, with no second copy into a new frame; NVDEC pictures are
+  copied out of CUDA memory. `NIGHTJAR_DMABUF=0` turns the import off for A/B measurements. All
+  fall back to software decoding. Packets go to FFmpeg in pooled, reused buffers: a fresh allocation per frame
   costs page faults once frames reach about 1 MiB on Windows (high bitrates, key frames).
 - Pacing (`src/stream/present.rs`), chosen at stream start:
   - VRR with "Show frames at the PC's frame times" (the default when the display path can
@@ -328,8 +336,8 @@ Done, on Windows and Linux unless noted:
   stream setting can be overridden per PC and per game, and an overridden folded row stays
   in view. Profiles are picked by hand or by network (mobile, home Wi-Fi, other Wi-Fi), with a
   bitrate cap on mobile data. The launcher is in English and German.
-- Video: H.264, HEVC and AV1 with hardware decoding (D3D11VA zero-copy on Windows, VAAPI on
-  Linux). A fallback to software decoding is announced, never silent. PyroWave decodes on
+- Video: H.264, HEVC and AV1 with hardware decoding (D3D11VA zero-copy on Windows; VAAPI,
+  zero-copy with the OpenGL renderer, then V4L2 M2M and NVDEC on Linux). A fallback to software decoding is announced, never silent. PyroWave decodes on
   the GPU or the CPU, with a bandwidth test and a frame pace calibration per network. The
   stream follows the display's refresh, fractional rates included; virtual display, PC
   display mode, full range and upscaling (bilinear, FSR 1 or SGSR 1) are settings.
@@ -387,7 +395,8 @@ Not yet checked on our hardware:
 
 Partial:
 
-- Linux decoding uploads VAAPI pictures from a CPU mapping (no dmabuf import yet).
+- Linux: 10-bit and HDR VAAPI pictures, and every picture under the GPU renderer, go through a
+  CPU mapping (SDL's OpenGL renderers have no P010 texture to import into).
 - Controllers: rumble, trigger rumble, LEDs, motion, touchpad, battery, DualSense adaptive
   triggers and controller audio and haptics are wired to SDL's gamepad API but were not
   tried with physical controllers yet.

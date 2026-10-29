@@ -95,6 +95,8 @@ pub struct LaunchPlan {
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
     pub hardware: Hardware,
+    /// VAAPI pictures go to the renderer as DMA-BUFs (`crate::dmabuf`), not through memory.
+    pub dmabuf: bool,
     /// The renderer's Direct3D 11 device when PyroWave decodes on the GPU (`pyrowave_decoder`).
     pub gpu_decoder: Option<pipeline::GpuDevice>,
     pub packed_modes: u8,
@@ -1270,7 +1272,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let session = Session::start(
         &host,
         session_config(settings, role, stream, location_override(), watch.is_some() && settings.client_roaming),
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
         Arc::new(pipeline::Events::new(shared)),
         interrupt,
@@ -4557,6 +4559,7 @@ mod replace_tests {
             identity: Arc::new(ClientIdentity::generate().expect("an identity")),
             display: Display { width: 1920, height: 1080, refresh_hz: 60.0 },
             hardware: Hardware::None,
+            dmabuf: false,
             gpu_decoder: None,
             packed_modes: 0,
             color_decodable: (0, String::new()),

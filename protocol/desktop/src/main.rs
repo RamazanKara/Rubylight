@@ -17,6 +17,7 @@ mod coop_page;
 mod folders_page;
 mod controller_audio;
 mod controller_mouse;
+mod dmabuf;
 mod gamepad;
 mod gui;
 mod host_page;
@@ -305,6 +306,10 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         sdl::set_hint(SDL_HINT_RENDER_DRIVER, c"direct3d11");
         sdl::set_hint(SDL_HINT_RENDER_DIRECT3D_THREADSAFE, c"1");
     }
+    // VAAPI pictures reach the OpenGL renderer as EGL images (`dmabuf`), which needs an EGL
+    // context on X11 as well (Wayland's always is), as moonlight-qt forces it.
+    #[cfg(unix)]
+    sdl::set_hint(SDL_HINT_VIDEO_FORCE_EGL, c"1");
     // Keep Alt+Tab and the Windows key for the host while the keyboard is grabbed.
     sdl::set_hint(SDL_HINT_ALLOW_ALT_TAB_WHILE_GRABBED, c"0");
     sdl::set_hint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, c"0");
@@ -1198,6 +1203,17 @@ impl App {
         }
     }
 
+    /// Whether VAAPI pictures go to the renderer as DMA-BUFs (`dmabuf`): its OpenGL renderer on
+    /// EGL, unless `NIGHTJAR_DMABUF=0`.
+    fn dmabuf_import(&self) -> bool {
+        #[cfg(unix)]
+        {
+            dmabuf::enabled_by_environment(std::env::var_os("NIGHTJAR_DMABUF").as_deref()) && dmabuf::renderer_imports(self.renderer)
+        }
+        #[cfg(not(unix))]
+        false
+    }
+
     /// Resends the wake packets while the PC stays away, and ends the wait when it answers or the
     /// time is up.
     fn wake_step(&mut self) {
@@ -1454,6 +1470,7 @@ impl App {
             identity,
             display,
             hardware: self.hardware(&settings),
+            dmabuf: self.dmabuf_import(),
             gpu_decoder,
             packed_modes,
             color_decodable,

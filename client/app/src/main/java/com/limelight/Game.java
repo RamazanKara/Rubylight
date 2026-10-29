@@ -71,6 +71,7 @@ import com.limelight.preferences.AutoBitrateChoice;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.BitrateSlider;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.HostKeyboard;
@@ -4848,19 +4849,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         field.setBoxBackgroundMode(com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE);
         field.setHint(getString(R.string.stream_bitrate));
         int padding = Math.round(24 * getResources().getDisplayMetrics().density);
-        field.setPadding(padding, 0, padding, 0);
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(padding, 0, padding, 0);
         EditText input = new com.google.android.material.textfield.TextInputEditText(this);
         input.setMinHeight(Math.round(48 * getResources().getDisplayMetrics().density));
         input.setSingleLine(true);
         field.addView(input);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        input.setText(BigDecimal.valueOf(currentBitrate == 0 ? prefConfig.bitrate : currentBitrate, 3)
-                .stripTrailingZeros().toPlainString());
+        int bitrateKbps = currentBitrate == 0 ? prefConfig.bitrate : currentBitrate;
+        input.setText(BigDecimal.valueOf(bitrateKbps, 3).stripTrailingZeros().toPlainString());
         input.selectAll();
         AlertDialog bitrateDialog = new NavigationDialogBuilder(this).setTitle(R.string.stream_bitrate)
-                .setMessage(R.string.stream_bitrate_help).setView(field)
+                .setMessage(R.string.stream_bitrate_help).setView(fields)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok, null).create();
+        fields.addView(BitrateSlider.create(this, input, bitrateKbps, () -> applyFromSlider(bitrateDialog)));
+        fields.addView(field);
         showStreamDialog(bitrateDialog);
         bitrateDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             final int kbps;
@@ -4907,6 +4912,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
     }
 
+    // A settled bitrate slider sends through its dialog's OK, with the same checks as a typed value.
+    private static void applyFromSlider(AlertDialog dialog) {
+        if (dialog != null && dialog.isShowing()) dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    }
+
     // Bitrate and frame rate in one 0x553C request; a field left as it is keeps its value.
     private void showRateChangeDialog() {
         final StreamRateChanges stream = rateChanges;
@@ -4920,6 +4930,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         String bitrateText = BigDecimal.valueOf(bitrateKbps, 3).stripTrailingZeros().toPlainString();
         com.google.android.material.textfield.TextInputLayout bitrateField = rateChangeField(
                 getString(R.string.stream_bitrate), bitrateText, density);
+        final AlertDialog[] opened = new AlertDialog[1];
+        fields.addView(BitrateSlider.create(this, bitrateField.getEditText(), bitrateKbps,
+                () -> applyFromSlider(opened[0])));
         fields.addView(bitrateField);
         // Automatic quality owns the frame rate while it runs.
         int fpsMillihz = reconfigureRequester.fpsMillihz() > 0 ? reconfigureRequester.fpsMillihz() : streamFps * 1000;
@@ -4931,6 +4944,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setMessage(R.string.stream_rate_change_help).setView(fields)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok, null).create();
+        opened[0] = dialog;
         showStreamDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             // connected stays true until stopConnection, which closes this dialog: a termination

@@ -118,7 +118,8 @@ Both are made from the finished archives, so they carry exactly their files (`pa
   (Flatpak) from `packaging/linux/aur` and `packaging/linux/flatpak` with the archive's version and SHA-256; those
   recipes are kept here and not published.
 - `packaging/make-icons.py` makes the icons (hicolor PNGs, `nightjar.ico`, the installer's side panel) from the
-  store icon.
+  store icon. `build.rs` embeds `nightjar.ico` in `nightjar.exe` (the Windows build needs `windres`, which MSYS2's
+  UCRT64 binutils bring).
 
 The release workflow pins nfpm, appimagetool, the AppImage runtime and Inno Setup by version and SHA-256, installs
 the .deb on its Ubuntu 24.04 runner, the .rpm in a clean Fedora container and the AppImage in another one with only

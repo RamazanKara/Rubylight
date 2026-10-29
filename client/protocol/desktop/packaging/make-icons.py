@@ -4,7 +4,8 @@
 
 fastlane/metadata/android/en-US/images/icon.png (512 px, the moon and the nightjar on a square)
 gets rounded corners, then becomes icons/<size>.png for the Linux packages (hicolor sizes),
-icons/nightjar.ico for the Windows installer, shortcuts and the uninstall entry, and
+icons/nightjar.ico for nightjar.exe (build.rs embeds it), the Windows installer, shortcuts and
+the uninstall entry, and
 icons/wizard.png, the installer's side panel (the icon on its dark background). Needs Pillow.
 The results are committed; run it again only when the store icon changes.
 """

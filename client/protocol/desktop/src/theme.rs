@@ -700,4 +700,28 @@ mod tests {
         let body = at(33, 40);
         assert!(body[0] < 80, "bird pixels are dark: {body:?}");
     }
+
+    /// build.rs embeds this file as nightjar.exe's icon; the shell picks the size it needs from
+    /// small taskbar and title bar icons up to Explorer's extra large view.
+    #[test]
+    fn windows_icon_has_every_shell_size() {
+        let ico = include_bytes!("../packaging/icons/nightjar.ico");
+        let u16_at = |i: usize| u16::from_le_bytes([ico[i], ico[i + 1]]);
+        let u32_at = |i: usize| u32::from_le_bytes([ico[i], ico[i + 1], ico[i + 2], ico[i + 3]]) as usize;
+        assert_eq!((u16_at(0), u16_at(2)), (0, 1), "an icon directory");
+        let mut sizes = Vec::new();
+        for entry in 0..usize::from(u16_at(4)) {
+            let at = 6 + entry * 16;
+            // A side of 0 means 256.
+            let side = |byte: u8| if byte == 0 { 256 } else { usize::from(byte) };
+            let (width, height) = (side(ico[at]), side(ico[at + 1]));
+            assert_eq!(width, height, "square images");
+            assert_eq!(u16_at(at + 6), 32, "{width} px has an alpha channel");
+            assert!(u32_at(at + 12) + u32_at(at + 8) <= ico.len(), "{width} px lies inside the file");
+            sizes.push(width);
+        }
+        for size in [16, 20, 24, 32, 40, 48, 64, 128, 256] {
+            assert!(sizes.contains(&size), "{size} px missing from {sizes:?}");
+        }
+    }
 }

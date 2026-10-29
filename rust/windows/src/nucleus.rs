@@ -6,9 +6,11 @@
 //! `butterpollo_core::nucleus`; this module turns them into files, processes,
 //! windows and virtual pads.
 pub mod desktop;
+pub mod elevation;
 pub mod files;
 pub mod install;
 pub mod instances;
 pub mod layers;
 pub mod pads;
 pub mod session;
+pub mod user_copy;

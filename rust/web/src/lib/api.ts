@@ -629,7 +629,8 @@ export interface CoopSession {
  * `ready` with a handler and the added game, `launcher` for an app a launcher's link starts (no handler can
  * match it), `taken` when another app already lists under its co-op entry's name, `anti_cheat` for a game that
  * ships anti-cheat (Rubylight never hooks it), `refused` for one Rubylight's own handler never starts (a game on
- * a network share, Windows' own program, a missing .exe), otherwise why not, in the host's words (`reason`).
+ * a network share, Windows' own program, a missing .exe, a game that needs administrator rights on an account
+ * Windows doesn't elevate), otherwise why not, in the host's words (`reason`).
  */
 export type CoopGameStatus =
   | 'unknown'
@@ -651,6 +652,12 @@ export interface CoopGame {
   handler: string | null;
   /** The most players a session seats when ready. */
   players: number | null;
+  /**
+   * How a background stream of it runs Nucleus Co-op with Rubylight's own handler: as the signed-in user
+   * or elevated. Null when the hub handler runs it (always elevated) or the game is checked at launch;
+   * older hosts leave it out.
+   */
+  runs?: 'user' | 'elevated' | null;
   /** The co-op entry's name in the library: `<name> (Co-op)`. */
   entry: string;
 }
@@ -676,6 +683,18 @@ export interface CoopStatus {
   available: boolean;
   /** Why this host runs no Nucleus Co-op sessions; null when it does. */
   reason: string | null;
+  /**
+   * Whether Windows gives the account signed in on the PC an elevated token, which hub handlers, co-op and
+   * games that need administrator rights run with. Null when the host can't tell; older hosts leave it out.
+   */
+  elevates?: boolean | null;
+  /**
+   * An administrator whom Windows' Administrator protection gives no elevated token Rubylight can use (older
+   * hosts leave it out).
+   */
+  admin_protection?: boolean;
+  /** Why Open Nucleus Co-op on this PC would be refused (an account Windows doesn't elevate); null otherwise. */
+  open_refusal?: string | null;
   /** The Nucleus Co-op window the console opened is still open (older hosts leave it out). */
   opened?: boolean;
   /** Every app that starts an .exe (older hosts leave it out). */

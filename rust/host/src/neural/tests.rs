@@ -1084,18 +1084,79 @@ fn a_game_the_library_sync_drops_loses_the_mod_or_has_its_removal_pending() {
     assert_eq!(pending(h).len(), 2);
 }
 
-#[test]
-fn the_console_cannot_set_the_hosts_key() {
-    let app = |exe: &str| App {
-        name: "Game".into(),
+fn app_named(name: &str, uuid: &str) -> App {
+    App {
+        name: name.into(),
         cmd: String::new(),
         working_dir: String::new(),
         prep: Vec::new(),
         computed_id: None,
         aliases: Vec::new(),
-        extra: [(KEY.to_string(), json!({"exe": exe}))]
+        extra: [("uuid".to_string(), json!(uuid))].into_iter().collect(),
+    }
+}
+
+/// An app deleted or dropped by the library sync while its install runs
+/// has no key to remove the mod by: a delete waits for the job, and an
+/// install whose app is gone takes the mod out again or leaves its removal
+/// pending.
+#[test]
+fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    let gone = app_named("Gone", "gone");
+
+    start_job(h, "gone", "install", "place").unwrap();
+    let error = before_delete(h, &gone).unwrap_err();
+    assert!(error.is::<Busy>(), "{error:#}");
+    let placed = install(Some(&exe), None, &cache);
+    assert!(matches!(placed, Response::Placed { .. }), "{placed:?}");
+    finish_install(h, "gone", &gone, Ok(placed));
+    assert_eq!(names(folder), before);
+    let job = h.neural.lock().jobs["gone"].clone();
+    assert_eq!(job.phase, "failed");
+    assert!(job.error.unwrap().contains("taken out again"));
+    assert!(pending(h).is_empty());
+    before_delete(h, &gone).unwrap();
+
+    // A folder that can't be reached now: its removal is pending.
+    let away = unconnected_drive().join(r"Games\Away\Away.exe");
+    start_job(h, "gone", "install", "place").unwrap();
+    finish_install(
+        h,
+        "gone",
+        &gone,
+        Ok(Response::Placed {
+            exe: away.clone(),
+            release: "Alpha0.3.5.8".into(),
+            proxy: "dxgi.dll".into(),
+            updated: false,
+        }),
+    );
+    let job = h.neural.lock().jobs["gone"].clone();
+    assert!(job.error.unwrap().contains("pending"));
+    assert_eq!(
+        pending(h),
+        [Pending {
+            name: "Gone".into(),
+            exe: away
+        }]
+    );
+}
+
+#[test]
+fn the_console_cannot_set_the_hosts_key() {
+    let app = |exe: &str| {
+        let mut app = app_named("Game", "game");
+        app.extra = [(KEY.to_string(), json!({"exe": exe}))]
             .into_iter()
-            .collect(),
+            .collect();
+        app
     };
     let stored = app(r"C:\Games\Game.exe");
     let mut saved = app(r"C:\Windows\System32\x.exe");

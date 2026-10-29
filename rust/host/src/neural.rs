@@ -856,18 +856,36 @@ pub enum Refusal {
     Busy,
 }
 
-fn start_job(
+/// An app delete refused while the switch is busy with the app: the
+/// install's files would have no app left to be removed with.
+#[derive(Debug)]
+pub struct Busy(pub String);
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Neural Rendering is busy with {}; try again once it is done",
+            self.0
+        )
+    }
+}
+impl std::error::Error for Busy {}
+
+fn running(state: &State, uuid: &str) -> bool {
+    state
+        .jobs
+        .get(uuid)
+        .is_some_and(|job| !matches!(job.phase, "done" | "failed"))
+}
+
+pub(crate) fn start_job(
     h: &Shared,
     uuid: &str,
     action: &'static str,
     phase: &'static str,
 ) -> Result<(), Refusal> {
     let mut state = h.neural.lock();
-    if state
-        .jobs
-        .get(uuid)
-        .is_some_and(|job| !matches!(job.phase, "done" | "failed"))
-    {
+    if running(&state, uuid) {
         return Err(Refusal::Busy);
     }
     state.jobs.insert(
@@ -956,10 +974,18 @@ fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>)
         }) => {
             let value = json!({"exe": exe, "release": release, "proxy": proxy});
             if let Err(error) = set_key(h, uuid, Some(value)) {
+                // The app went while the job ran (a library sync dropped it)
+                // or could not be saved: nothing would remove the mod later.
+                tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the app could not be saved with the mod; taking it out again");
+                let after = match take_back(h, &app.name, &exe) {
+                    Ok(true) => "Neural Rendering was taken out again".to_owned(),
+                    Ok(false) => "Neural Rendering's removal is pending until the game's folder can be changed".to_owned(),
+                    Err(error) => format!("{error:#}"),
+                };
                 return fail_job(
                     h,
                     uuid,
-                    format!("the mod is in place but the app could not be saved: {error:#}"),
+                    format!("the app could not be saved ({error:#}); {after}"),
                     false,
                 );
             }
@@ -1063,6 +1089,12 @@ fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
 /// a drive that is not connected becomes a pending removal instead, so a
 /// game on a drive that is gone for good can still be deleted. Blocks.
 pub fn before_delete(h: &Shared, app: &App) -> Result<()> {
+    // An install not finished has no key to remove by yet.
+    if let Some(uuid) = app.extra.get("uuid").and_then(Value::as_str)
+        && running(&h.neural.lock(), uuid)
+    {
+        return Err(Busy(app.name.clone()).into());
+    }
     if !app.extra.contains_key(KEY) {
         return Ok(());
     }
@@ -1095,6 +1127,28 @@ impl Pending {
 
 fn pending(h: &Shared) -> Vec<Pending> {
     serde_json::from_value(settings(h)[PENDING].clone()).unwrap_or_default()
+}
+
+/// Take the mod placed beside `exe` out again (true), or leave its removal
+/// pending when that fails (false); Err only when neither worked. Blocks.
+fn take_back(h: &Shared, name: &str, exe: &Path) -> Result<bool> {
+    let why = match remove_at(name, exe) {
+        Ok(Removed::Done(_)) => return Ok(true),
+        Ok(Removed::Unreachable(folder)) => format!("{folder} can't be reached"),
+        Err(error) => format!("{error:#}"),
+    };
+    let pending = Pending {
+        name: name.into(),
+        exe: exe.into(),
+    };
+    record_pending(h, std::slice::from_ref(&pending)).with_context(|| {
+        format!(
+            "the mod could not be taken out of {} ({why}), and its removal could not be saved",
+            exe.parent().unwrap_or(exe).display()
+        )
+    })?;
+    tracing::warn!(app = %name, reason = %why, "Neural Rendering: taking the mod out again failed; its removal is pending");
+    Ok(false)
 }
 
 /// Add removals to the record (once each).

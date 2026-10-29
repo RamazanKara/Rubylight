@@ -1210,6 +1210,7 @@ pub(crate) async fn api(
     .unwrap_or_else(|e| Err(e.into()));
     match result {
         Ok(v) => Json(v).into_response(),
+        Err(e) if e.is::<crate::neural::Busy>() => error(StatusCode::CONFLICT, &e.to_string()),
         Err(e) => error(StatusCode::BAD_REQUEST, &e.to_string()),
     }
 }

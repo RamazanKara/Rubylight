@@ -82,3 +82,149 @@ pub(super) async fn handle(
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::parity_tests::{request, value};
+    use crate::state::test_support::Fixture;
+    use axum::{
+        Extension,
+        body::Body,
+        extract::Request,
+        http::{StatusCode, header},
+    };
+    use serde_json::{Value, json};
+    use tower::ServiceExt;
+
+    /// An app is kept while its switch is busy (409) and when the mod can't
+    /// be taken out of its folder.
+    #[tokio::test]
+    async fn an_app_whose_mod_cannot_go_now_is_kept() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let folder = h.directory.join("Game");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("Game.exe"), "MZ").unwrap();
+        std::fs::write(folder.join(butterpollo_core::neural::MANIFEST), "damaged").unwrap();
+        crate::steam::update_library(h, |apps, _| {
+            apps.push(json!({"name": "Game", "uuid": "game",
+                crate::neural::KEY: {"exe": folder.join("Game.exe")}}));
+            apps.push(json!({"name": "Busy", "uuid": "busy"}));
+            true
+        })
+        .unwrap();
+        let stored = |uuid: &str| {
+            h.apps
+                .read()
+                .unwrap()
+                .iter()
+                .any(|app| app.extra.get("uuid") == Some(&json!(uuid)))
+        };
+        let refused = value(
+            request(&f, "POST", "/api/apps/delete", json!({"uuid": "game"})).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert!(
+            refused["error"].as_str().unwrap().contains("app was kept"),
+            "{refused}"
+        );
+        assert!(stored("game"));
+
+        crate::neural::start_job(h, "busy", "install", "download").unwrap();
+        for (method, path, data) in [
+            ("POST", "/api/apps/delete", json!({"uuid": "busy"})),
+            ("DELETE", "/api/apps/busy", Value::Null),
+        ] {
+            let busy = value(request(&f, method, path, data).await, StatusCode::CONFLICT).await;
+            assert!(busy["error"].as_str().unwrap().contains("busy"), "{busy}");
+        }
+        assert!(stored("busy"));
+    }
+
+    /// API tokens never reach the switch, and a browser session needs its
+    /// CSRF token.
+    #[tokio::test]
+    async fn the_switch_is_the_consoles_alone() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let scopes = value(
+            request(&f, "GET", "/api/token/routes", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await["routes"]
+            .clone();
+        let issued = value(
+            request(&f, "POST", "/api/token", json!({"scopes": scopes})).await,
+            StatusCode::OK,
+        )
+        .await;
+        let secret = issued["token"].as_str().unwrap();
+        let send = |method: &str, path: &str, headers: Vec<(header::HeaderName, String)>| {
+            let mut builder = Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::CONTENT_TYPE, "application/json");
+            for (name, text) in headers {
+                builder = builder.header(name, text);
+            }
+            super::super::router(f.host.clone())
+                .layer(Extension(f.connection(true)))
+                .oneshot(builder.body(Body::from(r#"{"uuid":"game"}"#)).unwrap())
+        };
+        for (method, path) in [
+            ("GET", "/api/neural?uuid=game"),
+            ("POST", "/api/neural/accept"),
+            ("POST", "/api/neural/enable"),
+            ("POST", "/api/neural/disable"),
+        ] {
+            let bearer = vec![(header::AUTHORIZATION, format!("Bearer {secret}"))];
+            let response = send(method, path, bearer).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {path}"
+            );
+        }
+        assert!(!crate::neural::accepted(h));
+
+        let (access, _, csrf, _) = h
+            .new_web_session(
+                "parity".into(),
+                false,
+                "test".into(),
+                "127.0.0.1".into(),
+                None,
+            )
+            .unwrap();
+        let cookie = (header::COOKIE, format!("__Host-apollo_session={access}"));
+        let csrf_header = header::HeaderName::from_static("x-csrf-token");
+        for headers in [
+            vec![cookie.clone()],
+            vec![cookie.clone(), (csrf_header.clone(), "wrong".into())],
+        ] {
+            let refused = value(
+                send("POST", "/api/neural/accept", headers).await.unwrap(),
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+            assert!(
+                refused["error"].as_str().unwrap().contains("CSRF"),
+                "{refused}"
+            );
+        }
+        assert!(!crate::neural::accepted(h));
+        value(
+            send(
+                "POST",
+                "/api/neural/accept",
+                vec![cookie, (csrf_header, csrf)],
+            )
+            .await
+            .unwrap(),
+            StatusCode::OK,
+        )
+        .await;
+        assert!(crate::neural::accepted(h));
+    }
+}

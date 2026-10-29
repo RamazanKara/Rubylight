@@ -4499,7 +4499,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         long waitStarted = SystemClock.elapsedRealtime();
         while (recovery == recoveryGeneration && !isFinishing() && !isDestroyed()) {
             long checkedAt = SystemClock.elapsedRealtime();
-            String unreachable = routeProblem(host, port);
+            String unreachable = routeProbe.problem(host, port);
             long next = wait.next(SystemClock.elapsedRealtime(), unreachable == null);
             if (next == 0) {
                 if (wait.unreachableChecks() > 0) {
@@ -4520,20 +4520,32 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    /** Null when a connection toward the PC's HTTP port gets an answer (refused counts), else why not. */
+    interface RouteProbe { String problem(String host, int port); }
+
+    // A recovery's route check toward the PC (tests replace it).
+    private RouteProbe routeProbe = Game::routeProblem;
+
+    /**
+     * Why there is no route toward the PC's HTTP port yet, or null to go on with the attempt: an
+     * answer, refused included, and also a check that timed out or failed otherwise (a slow link
+     * is not a missing one; the attempt itself decides, loudly).
+     */
     private static String routeProblem(String host, int port) {
         try (java.net.Socket socket = new java.net.Socket()) {
             socket.connect(new java.net.InetSocketAddress(host, port), NetworkReturnRecovery.PROBE_TIMEOUT_MS);
             return null;
         } catch (java.io.IOException e) {
-            // Refused: the PC answered, so the route is there; the attempt itself decides.
-            Throwable cause = e.getCause();
-            if (cause instanceof android.system.ErrnoException &&
-                    ((android.system.ErrnoException) cause).errno == android.system.OsConstants.ECONNREFUSED) {
-                return null;
-            }
-            return e.toString();
+            return routeMissing(e) ? e.toString() : null;
         }
+    }
+
+    /** An immediate no-route error: no address toward the PC (yet), or its name does not resolve. */
+    static boolean routeMissing(java.io.IOException e) {
+        if (e instanceof java.net.UnknownHostException || e instanceof java.net.NoRouteToHostException) return true;
+        if (!(e.getCause() instanceof android.system.ErrnoException)) return false;
+        int errno = ((android.system.ErrnoException) e.getCause()).errno;
+        return errno == android.system.OsConstants.ENETUNREACH || errno == android.system.OsConstants.EHOSTUNREACH ||
+                errno == android.system.OsConstants.EADDRNOTAVAIL;
     }
 
     private void showReconnectDialog(int title, String message) {

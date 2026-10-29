@@ -1912,9 +1912,19 @@ impl Encoder {
                     && self.frame_cap.automatic()
                     && self.slice_blocks == 0
                     && let (Some(target), Some(written)) = (frame_cap_target, frame_cap_bytes)
+                    && let Some((lowered, now)) =
+                        self.keyframe_cap
+                            .observe(frame_bytes as u64, target, written)
                 {
-                    self.keyframe_cap
-                        .observe(frame_bytes as u64, target, written);
+                    tracing::warn!(
+                        codec = self.codec,
+                        lowered_overshoot = (lowered * 100.).round() / 100.,
+                        overshoot = (now * 100.).round() / 100.,
+                        keyframe_bytes = frame_bytes,
+                        cap_bytes = written,
+                        target_bytes = target,
+                        "AMF keyframes did not shrink under a lower frame cap; the driver ignores it for keyframes, so the cap returns to its target for this encoder"
+                    );
                 }
                 self.references.encoded(idr, frame_bytes);
             }

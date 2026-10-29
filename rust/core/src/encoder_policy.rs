@@ -258,23 +258,26 @@ impl KeyframeCapScale {
         ((target as f64 * self.scale).round() as u64).clamp(floor.min(target), target)
     }
     /// A keyframe of `bytes` came out against `target`, with `written` the
-    /// cap the driver held at its submission.
-    pub fn observe(&mut self, bytes: u64, target: u64, written: u64) {
-        if target == 0 || written == 0 {
-            return;
-        }
-        if self.ignored {
-            return;
+    /// cap the driver held at its submission. Returns, once, the overshoots
+    /// (bytes over target) of the keyframe that lowered the cap and of this
+    /// one when the driver proved to ignore the lower cap and the scale went
+    /// back to 1 for good.
+    pub fn observe(&mut self, bytes: u64, target: u64, written: u64) -> Option<(f64, f64)> {
+        if target == 0 || written == 0 || self.ignored {
+            return None;
         }
         let (bytes, target, written) = (bytes as f64, target as f64, written as f64);
         let next = (self.scale * Self::RELAX).min(1.);
         if bytes > 1.1 * target {
             let overshoot = bytes / target;
-            if written < target && self.lowered_at.is_some_and(|at| overshoot >= at) {
+            if let Some(lowered) = self
+                .lowered_at
+                .filter(|at| written < target && overshoot >= *at)
+            {
                 self.scale = 1.;
                 self.lowered_at = None;
                 self.ignored = true;
-                return;
+                return Some((lowered, overshoot));
             }
             self.lowered_at = Some(overshoot);
             self.scale = self.scale.min(written / bytes).max(Self::FLOOR);
@@ -286,6 +289,7 @@ impl KeyframeCapScale {
             // larger as the next step's cap would still fit.
             self.scale = next;
         }
+        None
     }
 }
 
@@ -712,15 +716,20 @@ mod tests {
     fn a_cap_the_driver_ignores_for_keyframes_returns_the_scale_to_one_for_good() {
         // RX 9070 XT: keyframes come out the same size whatever the cap.
         let mut scale = KeyframeCapScale::default();
-        scale.observe(1_908_217, TARGET, TARGET);
+        assert_eq!(scale.observe(1_908_217, TARGET, TARGET), None);
         assert!(scale.scale() < 0.62);
         let written = scale.apply(TARGET, TWO_FRAMES);
-        scale.observe(1_908_217, TARGET, written);
+        let (lowered, now) = scale.observe(1_908_217, TARGET, written).unwrap();
+        assert!(
+            (lowered - 1.635).abs() < 1e-3 && lowered == now,
+            "{lowered} {now}"
+        );
         assert_eq!(scale.scale(), 1.);
         assert_eq!(scale.apply(TARGET, TWO_FRAMES), TARGET);
-        // Inter frames are not held under the target again.
+        // Inter frames are not held under the target again, and the switch
+        // is reported once.
         for bytes in [1_908_217, 4 * TARGET, TARGET, TARGET / 2] {
-            scale.observe(bytes, TARGET, TARGET);
+            assert_eq!(scale.observe(bytes, TARGET, TARGET), None);
             assert_eq!(scale.scale(), 1.);
         }
         // A lower cap that shrank the keyframe, if not enough, lowers it more.

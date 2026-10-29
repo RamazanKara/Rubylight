@@ -50,6 +50,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Add current Wi-Fi", "Aktuelles WLAN hinzufügen"),
     ("More", "Mehr"),
     ("Rename", "Umbenennen"),
+    ("Connection address", "Verbindungsadresse"),
+    ("Automatic tries the address that answered last, then the PC's other addresses. Choose one to always connect through it.", "Automatisch versucht die Adresse, die zuletzt geantwortet hat, dann die anderen Adressen des PCs. Wähle eine, um immer über sie zu verbinden."),
     ("Duplicate", "Duplizieren"),
     ("Delete", "Löschen"),
     ("Unchecked settings follow your main settings.", "Nicht markierte Einstellungen folgen deinen Haupteinstellungen."),

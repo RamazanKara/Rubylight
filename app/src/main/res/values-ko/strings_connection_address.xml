@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_connection_address">연결 주소</string>
+    <string name="host_address_automatic">자동</string>
+</resources>

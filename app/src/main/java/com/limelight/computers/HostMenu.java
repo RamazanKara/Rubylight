@@ -47,6 +47,7 @@ public final class HostMenu {
     public static final int SHARED_FOLDERS = 17;
     public static final int FILES = 18;
     public static final int COOP = 19;
+    public static final int CONNECTION_ADDRESS = 20;
 
     private HostMenu() {
     }
@@ -115,6 +116,10 @@ public final class HostMenu {
         }
         add(sheet, onAction, PC_SETTINGS, R.drawable.ic_settings, activity.getString(R.string.pc_menu_settings));
         add(sheet, onAction, RENAME, R.drawable.ic_edit, activity.getString(R.string.host_menu_rename));
+        if (details.knownAddresses().size() > 1 || details.pinnedAddress != null) {
+            add(sheet, onAction, CONNECTION_ADDRESS, R.drawable.ic_settings,
+                    activity.getString(R.string.host_menu_connection_address));
+        }
         if (ready) {
             add(sheet, onAction, UNPAIR, R.drawable.ic_unpair, activity.getString(R.string.pcview_menu_unpair_pc));
         }

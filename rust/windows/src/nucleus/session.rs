@@ -1283,6 +1283,11 @@ mod tests {
     ) -> (Result<Running>, Arc<Recorder>) {
         let recorder = Arc::new(Recorder::default());
         let handler = handler();
+        // Nucleus' install ships it.
+        let settings = folder.join("Settings.ini");
+        if !settings.exists() {
+            std::fs::write(&settings, "[Dev]\r\nUseXinputIndex=False\r\n").unwrap();
+        }
         let mut xinput = FakeXInput {
             pads: &recorder,
             taken,

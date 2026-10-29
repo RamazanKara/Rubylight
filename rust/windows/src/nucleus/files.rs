@@ -305,13 +305,18 @@ fn remove_game(path: &Path, guid: &str) -> Result<()> {
 }
 
 /// Set what the host's profile needs in Nucleus' `Settings.ini` (read from
-/// Nucleus' working folder), keeping the user's other settings.
+/// Nucleus' working folder), keeping the user's other settings. Nucleus
+/// needs every key of the file it ships and shows a message box without
+/// one, so a missing file is an error, never one the host writes.
 pub fn write_settings(folder: &Path) -> Result<()> {
     let path = folder.join("Settings.ini");
     let text = match std::fs::read(&path) {
         Ok(bytes) => String::from_utf8(bytes)
             .with_context(|| format!("{} is not UTF-8 text", path.display()))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => bail!(
+            "Nucleus Co-op's install is incomplete ({} is missing): set it up again in the console's Play together panel",
+            path.display()
+        ),
         Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
     };
     let (bom, body) = match text.strip_prefix('\u{feff}') {
@@ -905,14 +910,22 @@ Game.MaxPlayers = 4;
         assert!(text.contains("DisableGameProfiles=False"), "{text:?}");
         assert!(text.contains("Theme=Dark"), "{text:?}");
         assert!(!text.contains("UseXinputIndex=False"), "{text:?}");
+        assert!(text.contains("DisablePathCheck=True"), "{text:?}");
+    }
 
+    #[test]
+    fn a_missing_settings_file_is_an_incomplete_install_and_none_is_written() {
+        // A two-key file made Nucleus show "unable to load its settings" at
+        // its start, before its window: every key it ships is required.
         let fresh = tempfile::tempdir().unwrap();
-        write_settings(fresh.path()).unwrap();
-        let text = std::fs::read_to_string(fresh.path().join("Settings.ini")).unwrap();
+        let error = format!("{:#}", write_settings(fresh.path()).unwrap_err());
         assert!(
-            text.contains("[Dev]") && text.contains("UseXinputIndex=True"),
-            "{text:?}"
+            error.starts_with("Nucleus Co-op's install is incomplete")
+                && error.contains("Settings.ini is missing")
+                && error.contains("set it up again in the console's Play together panel"),
+            "{error}"
         );
+        assert!(!fresh.path().join("Settings.ini").exists());
     }
 
     #[test]

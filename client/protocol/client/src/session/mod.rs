@@ -27,7 +27,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub use audio::AUDIO_QUEUE_BOUND;
-pub use net::{is_nat64_with, is_private};
+pub use net::{is_nat64_with, is_private, ReceiveBuffer};
 pub use roam::{NetworkChange, NetworkHint, RoamingConfig};
 pub use video::DECODE_UNIT_QUEUE_BOUND;
 
@@ -448,6 +448,8 @@ struct Parts {
     /// An input-only session's video pings, with no receive side behind them.
     video_pinger: Option<net::Pinger>,
     video_shared: Option<Arc<video::VideoShared>>,
+    /// The video socket's receive buffer, as asked and as granted.
+    video_receive_buffer: Option<net::ReceiveBuffer>,
     audio_shared: Arc<audio::AudioShared>,
     control: Option<ControlHandle>,
     control_thread: Option<JoinHandle<driver::Outcome>>,
@@ -548,6 +550,7 @@ impl Session {
             audio_pinger: None,
             video_pinger: None,
             video_shared: None,
+            video_receive_buffer: None,
             audio_shared: Arc::new(audio::AudioShared::default()),
             control: None,
             control_thread: None,
@@ -601,6 +604,12 @@ impl Session {
             .outcome
             .as_ref()
             .expect("a started session has negotiated")
+    }
+
+    /// The video socket's receive buffer as asked and as the OS granted it; None without video
+    /// or when the size could not be read back.
+    pub fn video_receive_buffer(&self) -> Option<ReceiveBuffer> {
+        self.parts.video_receive_buffer
     }
 
     /// `LiGetPendingAudioDuration`: the milliseconds of audio queued for the renderer, counted
@@ -1106,10 +1115,17 @@ fn start(
         if let Err(code) = decoder.setup(&setup) {
             return Err(video_fail(code, "the video decoder setup failed".into()));
         }
-        let socket = match net::bind_udp(local, video_buffer, Qos::Video, config.network_priority, |m| {
+        let socket = match net::bind_udp_sized(local, video_buffer, Qos::Video, config.network_priority, |m| {
             listener.warn(m)
         }) {
-            Ok(socket) => socket,
+            Ok((socket, buffer)) => {
+                if let Some(buffer) = buffer {
+                    let text = buffer.describe("Video");
+                    if buffer.short() { listener.warn(&text) } else { listener.log(&text) }
+                }
+                parts.video_receive_buffer = buffer;
+                socket
+            }
             Err(e) => {
                 decoder.cleanup();
                 return Err(video_fail(io_code(&e), e.to_string()));

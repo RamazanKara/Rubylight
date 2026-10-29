@@ -1722,6 +1722,8 @@ impl Streaming {
         if vrr_sync == present::VrrSync::Scan && !vrr_check {
             eprintln!("nightjar: VRR sync scan reads the scan line; the display check's verdict changes no pacing on this stream");
         }
+        let mut doctor = doctor::Doctor::default();
+        doctor.receive_buffer = session.video_receive_buffer();
         let mut streaming = Self {
             usb,
             usb_refused,
@@ -1776,7 +1778,7 @@ impl Streaming {
             bitrate_kbps,
             adaptive_bitrate: false,
             bitrate_policy: None,
-            doctor: doctor::Doctor::default(),
+            doctor,
             rate_change,
             quality_mode,
             quality_policy,
@@ -2635,6 +2637,10 @@ impl Streaming {
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         let offer = self.trial_offer(&report);
         let mut text = doctor::report_text(&report);
+        if let Some(hint) = self.doctor.receive_buffer_hint() {
+            text.push_str("\n\n");
+            text.push_str(&hint);
+        }
         if offer != TrialOffer::None {
             text.push_str("\n\n");
             text.push_str(doctor::trial_help());
@@ -2679,7 +2685,10 @@ impl Streaming {
         if self.facts.role == AppRole::InputOnly { return None; }
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         eprintln!("nightjar: stream health: {}", doctor::log_line(&report));
-        doctor::summary(&report)
+        doctor::summary(&report).map(|summary| match self.doctor.receive_buffer_hint() {
+            Some(hint) => format!("{summary}\n\n{hint}"),
+            None => summary,
+        })
     }
 
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {

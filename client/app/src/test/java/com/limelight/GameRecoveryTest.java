@@ -1073,8 +1073,9 @@ public class GameRecoveryTest {
 
     // A network back where the connection cannot carry on (another address, not roamed): the
     // overlay said a reconnect follows, and the recovery starts with no delay instead of after the
-    // connection's timeout. It waits while the PC has no route (DHCP still running), starts once
-    // it does, and resumes the captured game.
+    // connection's timeout, also when that answer only comes once the network's address arrived.
+    // It waits while the PC has no route (DHCP still running), starts once it does, and resumes
+    // the captured game.
     @Test public void aNetworkBackTheConnectionCannotCarryOnOverReconnectsOnceThePcIsReachable() throws Exception {
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
         Game game = establishedGame();
@@ -1098,6 +1099,12 @@ public class GameRecoveryTest {
             org.robolectric.shadows.ShadowLooper.idleMainLooper();
             assertEquals(android.view.View.VISIBLE, overlay.getVisibility());
 
+            // Back with no route yet: the connection carries on, and the notice goes.
+            game.streamNetworkReturned(MoonBridge.NETWORK_CARRIES_ON, false);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.GONE, overlay.getVisibility());
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            // Its address arrives, another one: the same return, reported again, reconnects.
             game.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, false);
             org.robolectric.shadows.ShadowLooper.idleMainLooper();
             assertEquals(android.view.View.GONE, overlay.getVisibility());
@@ -1206,6 +1213,8 @@ public class GameRecoveryTest {
     @Test public void onlyAnImmediateNoRouteErrorWaitsForTheRoute() {
         assertTrue(Game.routeMissing(new java.net.UnknownHostException("pc.test")));
         assertTrue(Game.routeMissing(new java.net.NoRouteToHostException("EHOSTUNREACH")));
+        // What Android throws for EADDRNOTAVAIL: no errno cause.
+        assertTrue(Game.routeMissing(new java.net.BindException("Address not available")));
         for (int errno : new int[] {android.system.OsConstants.ENETUNREACH, android.system.OsConstants.EHOSTUNREACH,
                 android.system.OsConstants.EADDRNOTAVAIL}) {
             assertTrue("errno " + errno, Game.routeMissing(connectFailure(errno)));

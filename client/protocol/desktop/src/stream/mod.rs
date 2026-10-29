@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 
 use nightjar_core::color;
 use nightjar_core::control::{ClientMessage, ControlEvent};
-use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, ServerInfo};
+use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, NativeCapabilities, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
@@ -83,7 +83,10 @@ pub struct LaunchPlan {
     pub record: HostRecord,
     /// What this device calls the PC: the name chosen here, else the PC's own.
     pub host_name: String,
+    /// Serverinfo with the native read merged in (`hosts::merge_native`).
     pub info: ServerInfo,
+    /// The native read, merged into the serverinfo a resume reads again.
+    pub native: Option<NativeCapabilities>,
     pub app: App,
     pub resume: bool,
     /// Input-only on a PC without its own mode: an ordinary small stream, shown and played nowhere.
@@ -167,6 +170,9 @@ pub struct Facts {
     pub pace_mbps: u32,
     /// What "Prefer YUV 4:4:4" and "10-bit color (SDR)" came to, told once the stream starts.
     pub color_notice: Option<String>,
+    /// PyroWave was chosen and the stream runs another codec: what to tell the player, once per
+    /// PC (`pyrowave_notice`).
+    pub pyrowave_fallback: Option<String>,
     pub app_name: String,
     pub host_name: String,
 }
@@ -363,6 +369,45 @@ fn color_notice(offer: &color::Offer, negotiated: u32) -> Option<String> {
         });
     }
     (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// When PyroWave was chosen and the stream runs another codec: the log line saying why, and
+/// what to tell the player. A device that can't decode PyroWave never gets here: the launch
+/// stops first with its reason (`pyrowave_mode::availability`).
+/// `scm` is the codec support trusted for the offer, `reported` the serverinfo value before
+/// `trusted_codec_mode_support`.
+fn pyrowave_fallback(codec: CodecPreference, (scm, reported): (u32, u32), offered: u32, negotiated: u32) -> Option<(String, String)> {
+    if !codec.is_pyrowave() || negotiated & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+        return None;
+    }
+    let name = codec_name(negotiated);
+    let why = if offered & VIDEO_FORMAT_MASK_PYROWAVE == 0 {
+        "the host does not offer it"
+    } else if scm == 0 {
+        "the host reports no trusted codec support and chose another codec"
+    } else {
+        "the host chose another codec"
+    };
+    Some((
+        format!("nightjar: PyroWave was chosen, but {why} (codec support {scm:#x}, reported {reported:#x}); streaming {name}"),
+        trf("This PC doesn’t offer PyroWave, so Nightjar uses {}.", &[&name]),
+    ))
+}
+
+/// The PyroWave fallback notice once per PC, like Android's `HostNotices`: the text the first time
+/// a stream from it falls back, then nothing until PyroWave streams from it again. Reconnects
+/// and later streams stay quiet. `fallback` and `format` are the stream's (`Facts`). Returns the
+/// text to show and whether `record` changed.
+pub fn pyrowave_notice(record: &mut HostRecord, chosen: bool, fallback: Option<&str>, format: u32) -> (Option<String>, bool) {
+    use crate::config::NOTICE_PYROWAVE_FALLBACK;
+    match fallback {
+        Some(text) => {
+            let first = record.claim_notice(NOTICE_PYROWAVE_FALLBACK);
+            (first.then(|| text.to_owned()), first)
+        }
+        None if chosen && format & VIDEO_FORMAT_MASK_PYROWAVE != 0 => (None, record.reset_notice(NOTICE_PYROWAVE_FALLBACK)),
+        None => (None, false),
+    }
 }
 
 fn stage_text(stage: Stage) -> &'static str {
@@ -953,6 +998,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         plan.info = client.server_info_https().map_err(|e| ConnectError {
             retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"), asks_replace: false,
         })?;
+        crate::hosts::merge_native(&mut plan.info, plan.native.as_ref());
         if !plan.info.paired || !plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref()) {
             return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
         }
@@ -1103,7 +1149,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch, outcome.host_roaming);
-    let facts = Facts {
+    let mut facts = Facts {
         role,
         width: outcome.config.width,
         height: outcome.config.height,
@@ -1151,9 +1197,16 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         beam_race: race_runs(slices, early_state(early, outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
             outcome.pyrowave_records_enabled)),
         color_notice: color_notice(&offer, outcome.negotiated_video_format),
+        pyrowave_fallback: None,
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
+    let reported = plan.info.server_codec_mode_support;
+    if let Some((log, notice)) = pyrowave_fallback(settings.codec, (scm, reported), offer.formats, outcome.negotiated_video_format) {
+        eprintln!("{log}");
+        // Shown once per PC (`pyrowave_notice`); the log says it on every stream.
+        facts.pyrowave_fallback = Some(notice);
+    }
     if facts.early_without_records {
         eprintln!("{EARLY_NO_RECORDS}");
     }
@@ -4001,6 +4054,60 @@ mod tests {
     }
 
     #[test]
+    fn a_chosen_pyrowave_that_does_not_stream_is_logged_and_told() {
+        let fallback = |codec: CodecPreference, scm: u32, negotiated: u32| {
+            let offered = offered_formats(&Settings { codec, ..Default::default() }, scm, &decodes_all()).formats;
+            pyrowave_fallback(codec, (scm, scm), offered, negotiated)
+        };
+        // The PC lists its codecs, and PyroWave is not among them: it was never offered.
+        let (log, notice) = fallback(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC, VIDEO_FORMAT_H265).expect("a fallback");
+        assert_eq!(log, "nightjar: PyroWave was chosen, but the host does not offer it (codec support 0x101, reported 0x101); streaming HEVC");
+        assert_eq!(notice, "This PC doesn’t offer PyroWave, so Nightjar uses HEVC.");
+        // Offered, and the PC picked another codec.
+        let (log, notice) = fallback(CodecPreference::PyroWave444, 0, VIDEO_FORMAT_H264).expect("a fallback");
+        assert_eq!(log, "nightjar: PyroWave was chosen, but the host reports no trusted codec support and chose another codec (codec support 0x0, reported 0x0); streaming H.264");
+        assert_eq!(notice, "This PC doesn’t offer PyroWave, so Nightjar uses H.264.");
+        let (log, _) = fallback(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC | SCM_PYROWAVE, VIDEO_FORMAT_H265).expect("a fallback");
+        assert!(log.contains("but the host chose another codec (codec support"), "{log}");
+        // The log keeps what serverinfo said when the trusted value stripped PyroWave.
+        let (log, _) = pyrowave_fallback(CodecPreference::PyroWave, (SCM_H264 | SCM_HEVC, SCM_H264 | SCM_HEVC | SCM_PYROWAVE),
+            video_formats(CodecPreference::PyroWave, false, SCM_H264 | SCM_HEVC), VIDEO_FORMAT_H265).expect("a fallback");
+        assert!(log.contains(&format!("(codec support 0x101, reported {:#x})", SCM_H264 | SCM_HEVC | SCM_PYROWAVE)), "{log}");
+        // PyroWave streams, or was not chosen: nothing to say.
+        assert_eq!(fallback(CodecPreference::PyroWave, SCM_H264 | SCM_PYROWAVE, VIDEO_FORMAT_PYROWAVE), None);
+        assert_eq!(fallback(CodecPreference::PyroWave444, SCM_H264 | SCM_PYROWAVE, VIDEO_FORMAT_PYROWAVE), None);
+        assert_eq!(fallback(CodecPreference::Auto, SCM_H264 | SCM_HEVC, VIDEO_FORMAT_H265), None);
+        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || {
+            fallback(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC, VIDEO_FORMAT_H265).map(|(_, notice)| notice)
+        });
+        assert_eq!(german.as_deref(), Some("Dieser PC bietet PyroWave nicht an, daher nutzt Nightjar HEVC."));
+    }
+
+    #[test]
+    fn the_pyrowave_fallback_is_told_once_per_pc_until_pyrowave_streams_again() {
+        let text = "This PC doesn’t offer PyroWave, so Nightjar uses HEVC.";
+        let mut pc = HostRecord::default();
+        let mut other = HostRecord::default();
+        assert_eq!(pyrowave_notice(&mut pc, true, Some(text), VIDEO_FORMAT_H265), (Some(text.to_owned()), true), "the first time");
+        // A reconnect, automatic or from the menu, and every later stream from this PC: the log only.
+        assert_eq!(pyrowave_notice(&mut pc, true, Some(text), VIDEO_FORMAT_H265), (None, false));
+        // Kept with the PC's record, so a restart of Nightjar stays quiet too.
+        let mut saved: HostRecord = serde_json::from_str(&serde_json::to_string(&pc).unwrap()).unwrap();
+        assert_eq!(pyrowave_notice(&mut saved, true, Some(text), VIDEO_FORMAT_H265), (None, false));
+        assert_eq!(pyrowave_notice(&mut other, true, Some(text), VIDEO_FORMAT_H265), (Some(text.to_owned()), true), "another PC is told");
+        // Streams that say nothing of PyroWave leave it as it is.
+        assert_eq!(pyrowave_notice(&mut pc, false, None, VIDEO_FORMAT_H265), (None, false));
+        assert_eq!(pyrowave_notice(&mut pc, true, None, VIDEO_FORMAT_H265), (None, false));
+        // PyroWave streams from the PC again: losing it later is told again.
+        assert_eq!(pyrowave_notice(&mut pc, true, None, VIDEO_FORMAT_PYROWAVE), (None, true));
+        assert_eq!(pyrowave_notice(&mut pc, true, None, VIDEO_FORMAT_PYROWAVE), (None, false), "nothing to save then");
+        assert_eq!(pyrowave_notice(&mut pc, true, Some(text), VIDEO_FORMAT_H265), (Some(text.to_owned()), true));
+        // A record saved before the notices existed reads with none shown.
+        let old: HostRecord = serde_json::from_str(r#"{"name":"PC","address":"192.0.2.1"}"#).unwrap();
+        assert!(old.notices.is_empty());
+    }
+
+    #[test]
     fn rtp_clock_unwraps() {
         let mut c = RtpClock::default();
         let a = c.host_us(u32::MAX - 899);
@@ -4148,6 +4255,7 @@ mod replace_tests {
             record: Default::default(),
             host_name: "PC".into(),
             info: ServerInfo::parse(xml, 47989).expect("the answer parses"),
+            native: None,
             app: nightjar_core::http::App {
                 name: "Zelda".into(),
                 id: 9,

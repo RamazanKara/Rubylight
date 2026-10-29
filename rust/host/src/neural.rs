@@ -1249,7 +1249,7 @@ fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>)
                 // The app went while the job ran (a library sync dropped it)
                 // or could not be saved: nothing would remove the mod later.
                 tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the app could not be saved with the mod; taking it out again");
-                let after = match take_back(h, &app.name, &exe) {
+                let after = match take_back(h, uuid, &app.name, &exe) {
                     Ok(true) => "Neural Rendering was taken out again".to_owned(),
                     Ok(false) => "Neural Rendering's removal is pending until the game's folder can be changed".to_owned(),
                     Err(error) => format!("{error:#}"),
@@ -1360,23 +1360,58 @@ fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
 /// folder, or keep the app so nothing is left behind unnoticed. A folder on
 /// a drive that is not connected becomes a pending removal instead, so a
 /// game on a drive that is gone for good can still be deleted. Blocks.
-pub fn before_delete(h: &Shared, app: &App) -> Result<()> {
-    // An install not finished has no key to remove by yet.
-    if let Some(uuid) = app.extra.get("uuid").and_then(Value::as_str)
-        && running(&h.neural.lock(), uuid)
-    {
-        return Err(Busy(app.name.clone()).into());
-    }
+/// The switch's slot is held from the removal until the caller drops the
+/// [`Removing`], once the app is gone.
+pub fn before_delete(h: &Shared, app: &App) -> Result<Removing> {
+    let uuid = app.extra.get("uuid").and_then(Value::as_str);
+    // An install not finished has no key to remove by yet, and a launch's
+    // update would race the removal.
+    let slot = Removing::take(h, uuid).map_err(|_| Busy(app.name.clone()))?;
     if !app.extra.contains_key(KEY) {
-        return Ok(());
+        return Ok(slot);
     }
     let kept = "Neural Rendering could not be removed from the game's folder, so the app was kept";
-    if let Removed::Unreachable(folder) = remove(app).context(kept)? {
-        let pending = Pending::of(app).context(kept)?;
-        record_pending(h, std::slice::from_ref(&pending)).context(kept)?;
-        tracing::warn!(app = %app.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal is pending");
+    let removed = (|| {
+        if let Removed::Unreachable(folder) = remove(app).context(kept)? {
+            let pending = Pending::of(app).context(kept)?;
+            record_pending(h, std::slice::from_ref(&pending)).context(kept)?;
+            tracing::warn!(app = %app.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal is pending");
+        }
+        anyhow::Ok(())
+    })();
+    if let (Err(error), Some(uuid)) = (&removed, uuid) {
+        fail_job(h, uuid, format!("{error:#}"), false);
     }
-    Ok(())
+    removed.map(|()| slot)
+}
+
+/// The switch's slot taken for an app's removal, so no install or launch
+/// update writes its folder meanwhile; done when dropped.
+pub struct Removing {
+    h: Shared,
+    uuid: Option<String>,
+}
+impl Removing {
+    fn take(h: &Shared, uuid: Option<&str>) -> Result<Self, Refusal> {
+        if let Some(uuid) = uuid {
+            start_job(h, uuid, "remove", "remove")?;
+        }
+        Ok(Self {
+            h: h.clone(),
+            uuid: uuid.map(str::to_owned),
+        })
+    }
+}
+impl Drop for Removing {
+    fn drop(&mut self) {
+        if let Some(uuid) = &self.uuid {
+            update_job(&self.h, uuid, |job| {
+                if job.phase == "remove" {
+                    job.phase = "done";
+                }
+            });
+        }
+    }
 }
 
 // ---- Removals left for later ----
@@ -1387,12 +1422,20 @@ pub fn before_delete(h: &Shared, app: &App) -> Result<()> {
 struct Pending {
     name: String,
     exe: PathBuf,
+    /// The app's, whose switch slot the removal takes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    uuid: Option<String>,
 }
 impl Pending {
     fn of(app: &App) -> Option<Self> {
         Some(Self {
             name: app.name.clone(),
             exe: placed_exe(app)?,
+            uuid: app
+                .extra
+                .get("uuid")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
         })
     }
 }
@@ -1403,7 +1446,7 @@ fn pending(h: &Shared) -> Vec<Pending> {
 
 /// Take the mod placed beside `exe` out again (true), or leave its removal
 /// pending when that fails (false); Err only when neither worked. Blocks.
-fn take_back(h: &Shared, name: &str, exe: &Path) -> Result<bool> {
+fn take_back(h: &Shared, uuid: &str, name: &str, exe: &Path) -> Result<bool> {
     let why = match remove_at(name, exe) {
         Ok(Removed::Done(_)) => return Ok(true),
         Ok(Removed::Unreachable(folder)) => format!("{folder} can't be reached"),
@@ -1412,6 +1455,7 @@ fn take_back(h: &Shared, name: &str, exe: &Path) -> Result<bool> {
     let pending = Pending {
         name: name.into(),
         exe: exe.into(),
+        uuid: Some(uuid.into()),
     };
     record_pending(h, std::slice::from_ref(&pending)).with_context(|| {
         format!(
@@ -1510,6 +1554,10 @@ fn try_pending(h: &Shared, also: &[Pending]) {
     }
     let mut done = Vec::new();
     for removal in &removals {
+        let Ok(_slot) = Removing::take(h, removal.uuid.as_deref()) else {
+            tracing::info!(app = %removal.name, "Neural Rendering is busy with the game; its removal stays pending");
+            continue;
+        };
         match remove_at(&removal.name, &removal.exe) {
             Ok(Removed::Done(_)) => done.push(removal.exe.clone()),
             Ok(Removed::Unreachable(folder)) => {

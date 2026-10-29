@@ -1180,6 +1180,7 @@ fn a_game_the_library_sync_drops_loses_the_mod_or_has_its_removal_pending() {
     let away_pending = Pending {
         name: "Away".into(),
         exe: away.clone(),
+        uuid: Some("away".into()),
     };
     assert_eq!(pending(h), std::slice::from_ref(&away_pending));
     // Tried again: the drive is still not there.
@@ -1201,6 +1202,7 @@ fn a_game_the_library_sync_drops_loses_the_mod_or_has_its_removal_pending() {
         &[Pending {
             name: "Back".into(),
             exe: back_exe.clone(),
+            uuid: None,
         }],
     )
     .unwrap();
@@ -1362,7 +1364,9 @@ fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
     let gone = app_named("Gone", "gone");
 
     start_job(h, "gone", "install", "place").unwrap();
-    let error = before_delete(h, &gone).unwrap_err();
+    let Err(error) = before_delete(h, &gone) else {
+        panic!("deleted during the install")
+    };
     assert!(error.is::<Busy>(), "{error:#}");
     let placed = install(Some(&exe), None, &cache);
     assert!(matches!(placed, Response::Placed { .. }), "{placed:?}");
@@ -1394,9 +1398,47 @@ fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
         pending(h),
         [Pending {
             name: "Gone".into(),
-            exe: away
+            exe: away,
+            uuid: Some("gone".into()),
         }]
     );
+}
+
+/// A delete holds the switch's slot until the app is gone, so no launch's
+/// update writes the folder meanwhile; a pending removal waits while the
+/// switch is busy with its game.
+#[test]
+fn a_removal_holds_the_switch_until_the_app_is_gone() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    let placed = || {
+        let placed = install(Some(&exe), None, &cache);
+        assert!(matches!(placed, Response::Placed { .. }), "{placed:?}");
+    };
+    placed();
+    let app: App = serde_json::from_value(switched_on("Game", "game", &exe)).unwrap();
+    let removing = before_delete(h, &app).unwrap();
+    assert_eq!(names(folder), before);
+    let error = format!("{:#}", before_launch(h, &app).unwrap_err());
+    assert!(error.contains("busy"), "{error}");
+    drop(removing);
+    assert_eq!(h.neural.lock().jobs["game"].phase, "done");
+
+    placed();
+    record_pending(h, &[Pending::of(&app).unwrap()]).unwrap();
+    start_job(h, "game", "update", "place").unwrap();
+    remove_pending(h);
+    assert_ne!(names(folder), before);
+    assert_eq!(pending(h).len(), 1);
+    update_job(h, "game", |job| job.phase = "done");
+    remove_pending(h);
+    assert_eq!(names(folder), before);
+    assert!(pending(h).is_empty());
 }
 
 /// A launch's check and update hold the switch's slot, so a disable or a

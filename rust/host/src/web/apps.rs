@@ -428,8 +428,10 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
         .filter(|a| matches(a))
         .cloned()
         .collect();
+    // Each holds the app's Neural Rendering slot until it is gone.
+    let mut removing = Vec::new();
     for app in &doomed {
-        crate::neural::before_delete(h, app)?;
+        removing.push(crate::neural::before_delete(h, app)?);
     }
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();

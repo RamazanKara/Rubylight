@@ -113,7 +113,7 @@ public class TvSettingsFocusTest {
             assertTrue(list.hasFocus());
             visited.add(keyAt(list, list.getSelectedItemPosition()));
         }
-        assertEquals(Arrays.asList(StreamSettings.SEARCH_ROW_KEY, "input", "stream_presets", "video", "display",
+        assertEquals(Arrays.asList(StreamSettings.SEARCH_ROW_KEY, "input", "stream_presets", "stream_profiles", "video", "display",
                 "audio", "streaming", "app", "advanced"), visited);
         for (int i = list.getCount() - 2; i >= 0; i--) {
             press(screen, KeyEvent.KEYCODE_DPAD_UP);

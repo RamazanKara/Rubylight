@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="help_profiles_title">Profili e impostazioni per gioco</string>
-    <string name="help_profiles_body">I profili sono insiemi di valori dello stream con un nome, come «Casa 4K120» o «Hotel». Creali in Impostazioni, Video, Profili e scegli il profilo in uso, oppure lascia che sia la rete a sceglierne uno all’avvio dello stream: dati mobili, Wi-Fi di casa o altra Wi-Fi. I valori propri di un gioco (Impostazioni dello stream per questo gioco, nel suo menu della libreria) prevalgono su quelli del PC, quelli del PC sul profilo e il profilo sulle impostazioni principali. Bitrate con dati mobili limita il bitrate con i dati mobili.</string>
+    <string name="help_profiles_body">I profili sono insiemi di valori dello stream con un nome, come «Casa 4K120» o «Hotel». Creali in Impostazioni, Profili e scegli il profilo in uso, oppure lascia che sia la rete a sceglierne uno all’avvio dello stream: dati mobili, Wi-Fi di casa o altra Wi-Fi. I valori propri di un gioco (Impostazioni dello stream per questo gioco, nel suo menu della libreria) prevalgono su quelli del PC, quelli del PC sul profilo e il profilo sulle impostazioni principali. Bitrate con dati mobili limita il bitrate con i dati mobili.</string>
     <string name="help_profiles_link">Guida ai profili</string>
 </resources>

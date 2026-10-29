@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Named profiles (Settings → Video → Profiles) -->
+    <!-- Named profiles (Settings → Profiles, under the presets) -->
     <string name="profiles_title">Profiles</string>
     <string name="profiles_subtitle">Profile</string>
     <string name="profiles_summary_none">None: streams use the main settings</string>

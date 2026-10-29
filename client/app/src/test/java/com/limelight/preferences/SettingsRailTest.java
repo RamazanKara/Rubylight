@@ -180,7 +180,7 @@ public class SettingsRailTest {
     public void theRailsRowsHaveTheirIcons() {
         StreamSettings screen = open(Motion.FULL);
         ListView list = sections(screen);
-        for (String key : new String[] {"input", "video", "display", "audio", "streaming", "app", "advanced"}) {
+        for (String key : new String[] {"input", "stream_profiles", "video", "display", "audio", "streaming", "app", "advanced"}) {
             reveal(screen, key);
             View row = list.getChildAt(StreamSettings.RootFragment.positionOf(list, key) - list.getFirstVisiblePosition());
             assertNotNull(key, row);

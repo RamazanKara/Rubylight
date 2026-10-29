@@ -47,10 +47,21 @@ pub enum Finding {
     Bursts,
 }
 
-/// [`Finding::Bursts`] needs late frames ([`Stats::late_frames`]) in at least this many samples
-/// and in a third of them: a launch or a switch to fullscreen holds frames back for a few seconds
-/// once, a Wi-Fi that bunches packets does it all the time.
-pub const BURST_MIN_VOTES: u32 = 5;
+/// [`Finding::Bursts`] needs this many votes and a third of the samples. A sample with late frames
+/// ([`Stats::late_frames`]) is a vote, but a run of consecutive late samples gives at most
+/// [`BURST_RUN_VOTES`] unless it is longer than [`BURST_LONG_RUN`]: a launch or a switch to
+/// fullscreen holds frames back for a few seconds in a row once, a Wi-Fi that bunches packets does
+/// it again and again, or without a break.
+pub const BURST_MIN_VOTES: u32 = 6;
+/// The votes of one short run of late samples: one transition can never reach [`BURST_MIN_VOTES`].
+pub const BURST_RUN_VOTES: u32 = 2;
+/// A run of late samples longer than this is no transition and votes in full.
+pub const BURST_LONG_RUN: u32 = 10;
+
+/// The [`Finding::Bursts`] votes of a run of `run` consecutive late samples.
+fn run_votes(run: u32) -> u32 {
+    if run > BURST_LONG_RUN { run } else { run.min(BURST_RUN_VOTES) }
+}
 
 impl Finding {
     pub const ALL: [Finding; 7] = [
@@ -180,6 +191,8 @@ impl StreamHealth {
         let mut valid = 0usize;
         let (mut loss, mut decode, mut host, mut display) = (-1f32, -1f32, -1f32, -1f32);
         let mut host_includes_send = false;
+        // Burst votes per run of late samples (`late_samples` keeps every late sample).
+        let (mut burst_votes, mut run) = (0u32, 0u32);
         for s in &self.samples {
             let budget = budget_ms(s);
             if !s.recent_video || !budget.is_finite() {
@@ -223,14 +236,22 @@ impl StreamHealth {
             }
             if s.late_frames.is_some_and(|late| late > 0) {
                 votes[Finding::Bursts as usize] += 1;
+                run += 1;
+            } else {
+                burst_votes += run_votes(std::mem::take(&mut run));
             }
         }
+        burst_votes += run_votes(run);
         let bursts = BURST_MIN_VOTES.max(valid.div_ceil(3) as u32);
         let mut findings: Vec<Finding> = Finding::ALL
             .into_iter()
             .filter(|&finding| {
-                let needed = if finding == Finding::Bursts { bursts } else { 2 };
-                valid >= 3 && votes[finding as usize] >= needed
+                let (have, needed) = if finding == Finding::Bursts {
+                    (burst_votes, bursts)
+                } else {
+                    (votes[finding as usize], 2)
+                };
+                valid >= 3 && have >= needed
             })
             .collect();
         // A rhythm spans minutes, so it stands on its own rather than on the last 30 seconds.
@@ -683,11 +704,26 @@ mod tests {
     /// Recorded arrivals (desktop Nightjar on a laptop over Wi-Fi 6E against a Rubylight host): the
     /// frames' RTP and receive time deltas, replayed as one-second ticks. The reports of each tick.
     fn replay(recording: &str) -> Vec<Report> {
+        replay_from(recording, 0)
+    }
+
+    /// [`replay`] of the recording without its first `skip_us` of arrivals, as if the stream had
+    /// started there.
+    fn replay_from(recording: &str, skip_us: u64) -> Vec<Report> {
         let mut lines = recording.lines().filter(|line| !line.starts_with('#'));
         let fps: u32 = lines.next().and_then(|l| l.strip_prefix("fps ")).unwrap().parse().unwrap();
         let (mut late, mut health) = (crate::stats::LateFrames::default(), StreamHealth::default());
         let (mut rtp, mut at_us, mut tick_us) = (0u32, 1_000_000u64, 2_000_000u64);
         let mut reports = Vec::new();
+        let mut skipped = 0u64;
+        let mut lines = lines.skip_while(|line| {
+            skipped += line.split_once(' ').unwrap().1.parse::<u64>().unwrap();
+            skipped <= skip_us
+        });
+        // The first frame kept starts the stream: its deltas lead from a frame that is gone.
+        if skip_us > 0 {
+            lines.next();
+        }
         for line in lines {
             let (ticks, us) = line.split_once(' ').unwrap();
             rtp = rtp.wrapping_add(ticks.parse::<i64>().unwrap() as u32);
@@ -698,7 +734,7 @@ mod tests {
                 reports.push(health.report(now_ms));
                 tick_us += 1_000_000;
             }
-            late.push(rtp, at_us, fps);
+            late.push(rtp, 0, at_us, fps);
         }
         reports
     }
@@ -709,11 +745,56 @@ mod tests {
         // on time. The stream's health line had no findings.
         let reports = replay(include_str!("../tests/arrivals/wifi-bursts-hevc-60.txt"));
         assert!(reports.len() >= 50, "{}", reports.len());
-        for (second, report) in reports.iter().enumerate().skip(10) {
+        for (second, report) in reports.iter().enumerate().skip(14) {
             assert_eq!(report.findings, [Finding::Bursts], "second {second}: {report:?}");
             assert!(report.late_samples >= BURST_MIN_VOTES as usize);
         }
         assert!(reports.last().unwrap().late_samples >= 20, "{:?}", reports.last());
+    }
+
+    #[test]
+    fn a_launch_early_in_the_stream_is_not_bursts() {
+        // The launch recording with its start cut off, so its launch and fullscreen switch fall in
+        // the first seconds, where a third of the samples is fewer than BURST_MIN_VOTES.
+        let recording = include_str!("../tests/arrivals/launch-and-fullscreen-hevc-120.txt");
+        for skip_ms in (0..=30_000).step_by(500) {
+            let reports = replay_from(recording, skip_ms * 1000);
+            for (second, report) in reports.iter().enumerate() {
+                assert!(!report.findings.contains(&Finding::Bursts), "skip {skip_ms} ms, second {second}: {report:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn one_run_of_late_seconds_is_not_bursts_unless_it_goes_on() {
+        let late = |health: &mut StreamHealth, from: u64, to: u64, frames: u32| {
+            for n in from..=to {
+                health.add(&Stats { late_frames: Some(frames), ..sample(n * 1000, 0.5) });
+            }
+        };
+        // Five late seconds in a row right after the start: one transition, two votes.
+        let mut start = StreamHealth::default();
+        late(&mut start, 1, 2, 0);
+        late(&mut start, 3, 7, 14);
+        late(&mut start, 8, 15, 0);
+        for now in [7_000, 10_000, 15_000] {
+            let report = start.report(now);
+            assert!(report.findings.is_empty(), "{now}: {report:?}");
+        }
+        assert_eq!(start.report(15_000).late_samples, 5, "the report still counts every late second");
+        // Late seconds without a break are no transition: they vote in full once the run is long.
+        let mut steady = StreamHealth::default();
+        late(&mut steady, 1, BURST_LONG_RUN as u64, 2);
+        assert!(steady.report(BURST_LONG_RUN as u64 * 1000).findings.is_empty());
+        late(&mut steady, BURST_LONG_RUN as u64 + 1, BURST_LONG_RUN as u64 + 1, 2);
+        assert_eq!(steady.report((BURST_LONG_RUN as u64 + 1) * 1000).findings, [Finding::Bursts]);
+        // Three short runs apart are a pattern.
+        let mut repeating = StreamHealth::default();
+        for start in [1, 5, 9] {
+            late(&mut repeating, start, start + 1, 1);
+            late(&mut repeating, start + 2, start + 3, 0);
+        }
+        assert_eq!(repeating.report(12_000).findings, [Finding::Bursts]);
     }
 
     #[test]

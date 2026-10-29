@@ -201,10 +201,11 @@ pub(super) fn offered_rates(modes: &[(u32, u32, u32)], width: u32, height: u32) 
     rates.dedup();
     rates
 }
-/// Whether a display's modes (refresh in whole hertz) list `mode`: Windows
-/// truncates or rounds a rational rate such as 59.94 Hz to a whole one.
-pub(super) fn lists_mode(modes: &[(u32, u32, u32)], (width, height, rate): Timing) -> bool {
-    offered_rates(modes, width, height)
+/// Whether the refreshes (whole hertz) a display lists at a size include
+/// `rate` (millihertz): Windows truncates or rounds a rational rate such as
+/// 59.94 Hz to a whole one.
+pub(super) fn lists_rate(offered_hz: &[u32], rate: u32) -> bool {
+    offered_hz
         .iter()
         .any(|hz| hz.saturating_mul(1000).abs_diff(rate) < 1000)
 }
@@ -344,14 +345,14 @@ mod tests {
         assert!(offered_rates(&modes, 1920, 1080).is_empty());
     }
     #[test]
-    fn a_mode_is_listed_only_at_its_size_and_whole_hertz_rate() {
-        let modes = [(1920, 1080, 59), (1920, 1080, 120), (2560, 1440, 1000)];
-        assert!(lists_mode(&modes, (1920, 1080, 120_000)));
-        assert!(lists_mode(&modes, (1920, 1080, 59_940)));
+    fn a_rate_is_listed_only_at_its_whole_hertz_value() {
+        let rates = [59, 120];
+        assert!(lists_rate(&rates, 120_000));
+        assert!(lists_rate(&rates, 59_940));
         // The shared display before the driver published the VRR stream's rate.
-        assert!(!lists_mode(&modes, (1920, 1080, 1_000_000)));
-        assert!(!lists_mode(&modes, (1920, 1080, 121_000)));
-        assert!(!lists_mode(&modes, (1280, 720, 120_000)));
+        assert!(!lists_rate(&rates, 1_000_000));
+        assert!(!lists_rate(&rates, 121_000));
+        assert!(!lists_rate(&[], 120_000));
     }
     #[test]
     fn a_refused_rate_falls_back_to_the_fastest_slower_one() {

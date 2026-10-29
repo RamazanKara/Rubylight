@@ -1419,6 +1419,7 @@ impl App {
             record: host.record.clone(),
             host_name: host.display_name().to_owned(),
             info,
+            native: host.native.capabilities.clone(),
             app,
             resume,
             small_stream_input_only: small,

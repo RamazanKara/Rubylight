@@ -64,7 +64,15 @@ class FrameLatencyStats {
     // Every renderer, decoder and display callback touches these per frame, under this lock:
     // primitive keys and recycled frames keep that path free of boxing and garbage.
     private final PendingFrames pending = new PendingFrames(MAX_PENDING);
+    // Frames by output index. MediaCodec's buffer indices are small and live in a growing array;
+    // any other index (PyroWave passes its presentation time truncated to an int, which can be
+    // in the hundreds of millions or negative) goes to a fixed table keyed by Frame.outputIndex,
+    // so no index can size an allocation (the array once grew to 3 GB and threw OutOfMemoryError).
+    private static final int MAX_DENSE_OUTPUTS = 1024;
+    private static final int MAX_SPARSE_OUTPUTS = MAX_PENDING;
     private Frame[] outputs = new Frame[64];
+    private Frame[] sparseOutputs; // allocated on the first index past the array
+    private int sparseOutputCount;
     private final ArrayDeque<Frame> spareFrames = new ArrayDeque<>();
     private static final int MAX_SPARE_FRAMES = 64;
     private Frame lastRenderRelease;
@@ -304,22 +312,82 @@ class FrameLatencyStats {
         }
     }
 
-    private Frame output(int index) {
-        return index >= 0 && index < outputs.length ? outputs[index] : null;
+    private static boolean isDenseOutput(int index) {
+        return index >= 0 && index < MAX_DENSE_OUTPUTS;
     }
 
+    // The table is never full (at most MAX_SPARSE_OUTPUTS of twice as many slots), so this ends.
+    private int sparseOutputSlot(int index) {
+        int mask = sparseOutputs.length - 1;
+        int i = hashSlot(index, mask);
+        while (sparseOutputs[i] != null && sparseOutputs[i].outputIndex != index) i = (i + 1) & mask;
+        return i;
+    }
+
+    private Frame output(int index) {
+        if (isDenseOutput(index)) return index < outputs.length ? outputs[index] : null;
+        return index == -1 || sparseOutputs == null ? null : sparseOutputs[sparseOutputSlot(index)];
+    }
+
+    // Sets frame.outputIndex; a frame already at that index loses it, as an overwritten slot would.
     private void putOutput(int index, Frame frame) {
-        if (index < 0) return;
-        if (index >= outputs.length) {
-            outputs = Arrays.copyOf(outputs, Math.max(index + 1, outputs.length * 2));
+        if (frame.outputIndex != -1 && frame.outputIndex != index) removeOutput(frame.outputIndex);
+        if (index == -1) return;
+        Frame previous;
+        if (isDenseOutput(index)) {
+            if (index >= outputs.length) {
+                outputs = Arrays.copyOf(outputs,
+                        Math.min(MAX_DENSE_OUTPUTS, Math.max(index + 1, outputs.length * 2)));
+            }
+            previous = outputs[index];
+            outputs[index] = frame;
+        } else {
+            if (sparseOutputs == null) {
+                sparseOutputs = new Frame[Integer.highestOneBit(MAX_SPARSE_OUTPUTS * 2 - 1) << 1];
+            }
+            int i = sparseOutputSlot(index);
+            previous = sparseOutputs[i];
+            if (previous == null) {
+                // Entries are frames still tracked, so this needs about MAX_PENDING outputs in
+                // flight; the frame then finishes as output_unobserved in the CSV.
+                if (sparseOutputCount == MAX_SPARSE_OUTPUTS) return;
+                sparseOutputCount++;
+            }
+            sparseOutputs[i] = frame;
         }
-        outputs[index] = frame;
+        if (previous != null && previous != frame) previous.outputIndex = -1;
+        frame.outputIndex = index;
     }
 
     private Frame removeOutput(int index) {
-        Frame frame = output(index);
-        if (frame != null) outputs[index] = null;
+        Frame frame;
+        if (isDenseOutput(index)) {
+            if (index >= outputs.length || (frame = outputs[index]) == null) return null;
+            outputs[index] = null;
+        } else {
+            if (index == -1 || sparseOutputs == null) return null;
+            Frame[] table = sparseOutputs;
+            int mask = table.length - 1;
+            int hole = sparseOutputSlot(index);
+            if ((frame = table[hole]) == null) return null;
+            // Backward-shift deletion keeps every probe chain unbroken.
+            for (int j = (hole + 1) & mask; table[j] != null; j = (j + 1) & mask) {
+                int home = hashSlot(table[j].outputIndex, mask);
+                if (((j - home) & mask) >= ((j - hole) & mask)) {
+                    table[hole] = table[j];
+                    hole = j;
+                }
+            }
+            table[hole] = null;
+            sparseOutputCount--;
+        }
+        frame.outputIndex = -1;
         return frame;
+    }
+
+    /** Slots the output index tables hold, for tests: bounded whatever the indices. */
+    synchronized int outputSlotCount() {
+        return outputs.length + (sparseOutputs == null ? 0 : sparseOutputs.length);
     }
 
     private Frame newFrame() {
@@ -449,7 +517,6 @@ class FrameLatencyStats {
         }
         Frame frame = pending.get(ptsUs);
         if (frame != null) {
-            frame.outputIndex = index;
             frame.outputNs = outputNs;
             if (vrr) {
                 frame.previousOutputNs = lastOutputNs;
@@ -473,7 +540,6 @@ class FrameLatencyStats {
     synchronized void onOutputReleased(int index, long releaseNs, boolean render, boolean hasRenderCallback) {
         Frame frame = removeOutput(index);
         if (frame != null) {
-            frame.outputIndex = -1;
             frame.releaseNs = releaseNs;
             frame.awaitingRender = render && hasRenderCallback;
             if (render) {

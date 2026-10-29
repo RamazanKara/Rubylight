@@ -2,6 +2,7 @@ package com.limelight;
 
 import com.limelight.nvstream.ClientHintBitrateController;
 import com.limelight.nvstream.RateChangeResult;
+import com.limelight.preferences.StreamLayers;
 
 import org.junit.Test;
 
@@ -137,6 +138,39 @@ public class StreamRateChangesTest {
         assertTrue(changes.automaticOn());
         assertEquals("the new run keeps its own start", 30_000, changes.automatic().currentKbps());
         assertFalse(changes.automatic().pending());
+    }
+
+    // R8: from 28000 kbps the range reaches twice the start by design (V+'s balanced range, as on
+    // desktop); on a mobile network the mobile data limit caps it, as desktop's bitrate_limit does.
+    @Test
+    public void theMobileDataLimitCapsAutomaticBitrateOnlyOnAMobileNetwork() {
+        assertEquals(25_000, StreamRateChanges.clientLimitKbps(
+                StreamLayers.Network.MOBILE, 25_000));
+        assertEquals("no limit set", 0, StreamRateChanges.clientLimitKbps(
+                StreamLayers.Network.MOBILE, 0));
+        for (StreamLayers.Network other : new StreamLayers.Network[] {
+                StreamLayers.Network.HOME_WIFI, StreamLayers.Network.WIFI,
+                StreamLayers.Network.OTHER, null}) {
+            assertEquals(String.valueOf(other), 0, StreamRateChanges.clientLimitKbps(other, 25_000));
+        }
+
+        changes.startAutomatic(28_000, 0);
+        assertEquals("twice the start without a cap", 56_000, changes.automatic().maxKbps());
+        changes.startAutomatic(20_000, StreamRateChanges.clientLimitKbps(
+                StreamLayers.Network.MOBILE, 25_000), 0);
+        assertEquals(25_000, changes.automatic().maxKbps());
+        // Clean seconds probe up to the cap and never past it.
+        long now = ClientHintBitrateController.START_DELAY_MS;
+        for (int i = 0; i < 20; i++, now += 10_000) {
+            int[] request = automaticRequest(now);
+            assertTrue(request[1] <= 25_000);
+            changes.onResult(bitrate(request[0], request[1], STATUS_APPLIED, REASON_NONE), now);
+            if (request[1] == 25_000) break;
+        }
+        assertEquals(25_000, changes.automatic().currentKbps());
+        int before = sent.size();
+        for (long t = now + 10_000; t < now + 40_000; t += 1000) assertTrue(changes.sampleAutomatic(t, true, 0, 0));
+        assertEquals("no probe past the cap", before, sent.size());
     }
 
     @Test

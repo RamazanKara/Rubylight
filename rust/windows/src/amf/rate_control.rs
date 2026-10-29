@@ -263,6 +263,23 @@ mod tests {
     }
 
     #[test]
+    fn each_keyframe_cap_relax_step_reaches_the_driver() {
+        use butterpollo_core::encoder_policy::KeyframeCapScale;
+        let warnings = Warnings::default();
+        let mut cap = FrameCap::new(true);
+        let mut writes = Vec::new();
+        let mut bytes = 583_447u64;
+        for _ in 0..4 {
+            cap.update(2, bytes, &warnings, |_, bits| {
+                writes.push(bits);
+                (Ok(()), Some(bits))
+            });
+            bytes = (bytes as f64 * KeyframeCapScale::RELAX) as u64;
+        }
+        assert_eq!(writes.len(), 4, "{writes:?}");
+    }
+
+    #[test]
     fn explicit_cap_and_driver_default_are_observed_but_never_overridden() {
         for bits in [0, 800_000, 800_001] {
             let warnings = Warnings::default();

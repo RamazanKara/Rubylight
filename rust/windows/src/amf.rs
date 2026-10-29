@@ -19,6 +19,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use butterpollo_core::encoder_backlog::{AMF_SURFACE_LIMIT, AmfBacklog, QUERY_TIMEOUT};
+use butterpollo_core::encoder_policy::KeyframeCapScale;
 use std::{
     ptr,
     time::{Duration, Instant},
@@ -308,6 +309,8 @@ pub struct Encoder {
     /// The last [`Encoder::set_frame_cap`] request, the target submissions carry.
     frame_cap_target: Option<u64>,
     keyframes_over_cap: u64,
+    /// How far under the target the automatic cap is written.
+    keyframe_cap: KeyframeCapScale,
     reencode_failures: u64,
     /// An input is prepared and not yet accepted: no re-encode may change the
     /// references its plan names.
@@ -662,6 +665,7 @@ impl Encoder {
                 reencoded_cuts: 0,
                 frame_cap_target: None,
                 keyframes_over_cap: 0,
+                keyframe_cap: KeyframeCapScale::default(),
                 reencode_failures: 0,
                 preparing: false,
                 references: Default::default(),
@@ -1897,6 +1901,15 @@ impl Encoder {
                 if idr && over_cap_target(frame_bytes as u64, frame_cap_target) {
                     self.keyframes_over_cap += 1;
                 }
+                // The written cap is what the driver held at submission.
+                if idr
+                    && self.frame_cap.automatic()
+                    && self.slice_blocks == 0
+                    && let (Some(target), Some(written)) = (frame_cap_target, frame_cap_bytes)
+                {
+                    self.keyframe_cap
+                        .observe(frame_bytes as u64, target, written);
+                }
                 self.references.encoded(idr, frame_bytes);
             }
             let bytes: &[u8] = &sent;
@@ -2190,8 +2203,18 @@ impl Encoder {
     /// Apply a pace-based encoded-byte budget. An explicit user setting,
     /// including driver default (zero), is preserved. Optional property failures
     /// warn without interrupting the stream; return only the observed limit.
-    pub fn set_frame_cap(&mut self, bytes: u64) -> Option<u64> {
+    /// An automatic cap in frame mode is written under `bytes` while AMF's
+    /// keyframes overshoot it ([`KeyframeCapScale`]), never under `floor`;
+    /// submissions keep `bytes` as their target.
+    pub fn set_frame_cap(&mut self, bytes: u64, floor: u64) -> Option<u64> {
         self.frame_cap_target = (bytes > 0).then_some(bytes);
+        let bytes = butterpollo_core::encoder_policy::keyframe_cap_bytes(
+            self.frame_cap.automatic(),
+            self.slice_blocks,
+            &self.keyframe_cap,
+            bytes,
+            floor,
+        );
         let component = self.component;
         self.frame_cap
             .update(self.codec, bytes, &self.warnings, |name, bits| {
@@ -2221,6 +2244,9 @@ impl Encoder {
     /// Keyframes AMF made more than 1.1 times the cap the host asked for.
     pub fn keyframes_over_cap(&self) -> u64 {
         self.keyframes_over_cap
+    }
+    pub fn keyframe_cap_scale(&self) -> f64 {
+        self.keyframe_cap.scale()
     }
     fn set_bitrate(&mut self, bitrate: u32) -> Result<()> {
         let changed = bitrate != self.rate_control.requested();

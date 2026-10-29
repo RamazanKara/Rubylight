@@ -275,7 +275,7 @@ pub fn recovery_frame_cap(
     ipv6: bool,
 ) -> u64 {
     let average = f64::from(bitrate_kbps) * 125. * period.as_secs_f64();
-    let minimum = (average * 2.).ceil() as u64;
+    let minimum = two_frames(bitrate_kbps, period);
     let maximum = ((average * 8.).floor() as u64).max(minimum);
     // Conventional packet_size includes the video headers but excludes the
     // extra 16-byte RTP allowance and optional 32-byte encryption wrapper.
@@ -302,8 +302,13 @@ pub fn fec_whole_frame_cap(cap: u64, fec_whole: usize, bitrate_kbps: u32, period
 /// parity, so the encoder re-encodes an inter frame that large as a keyframe;
 /// with no bound, a keyframe at the cap would lose it as well, so none is.
 pub fn fec_whole_frame_limit(fec_whole: usize, bitrate_kbps: u32, period: Duration) -> Option<u64> {
-    let minimum = (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64;
-    (minimum <= fec_whole as u64).then_some(fec_whole as u64)
+    (two_frames(bitrate_kbps, period) <= fec_whole as u64).then_some(fec_whole as u64)
+}
+
+/// Two nominal frames at `bitrate_kbps`: the least [`recovery_frame_cap`]
+/// gives, and the least the keyframe cap scale lowers a cap to.
+pub fn two_frames(bitrate_kbps: u32, period: Duration) -> u64 {
+    (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64
 }
 
 /// How long one send, or all of one batch's sends together, wait for room in
@@ -360,6 +365,22 @@ impl Pacer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn two_frames_is_the_recovery_cap_floor() {
+        // 64 FPS, a period f64 holds exactly: 857,421.875 B rounds up.
+        let period = Duration::from_micros(15_625);
+        assert_eq!(two_frames(219_500, period), 857_422);
+        // A pace too slow for two frames still gets them.
+        assert_eq!(
+            recovery_frame_cap(1, 219_500, period, 20, 1392, false),
+            857_422
+        );
+        assert_eq!(fec_whole_frame_limit(857_421, 219_500, period), None);
+        assert_eq!(
+            fec_whole_frame_limit(857_422, 219_500, period),
+            Some(857_422)
+        );
+    }
     #[test]
     fn a_full_socket_holds_a_frame_for_its_own_wire_time_and_never_less_than_today() {
         let ms = Duration::from_millis;

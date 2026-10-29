@@ -214,6 +214,75 @@ pub fn amf_frame_cap_automatic(config: &Config) -> bool {
         .eq_ignore_ascii_case("auto")
 }
 
+/// How much under the pace-based frame cap the host writes to AMF, learned
+/// from keyframes. #59's rc.4 logs had an AV1 recovery keyframe of 1,908,217 B
+/// against a 1,166,893 B cap (1.64 times): AMF does not hold keyframes to the
+/// cap, so they left without full FEC. A keyframe over 1.1 times its target
+/// lowers the scale to what would have fit (`written / bytes`), never below
+/// [`KeyframeCapScale::FLOOR`]; a keyframe that kept to the lower cap and
+/// would still fit at the next step up relaxes it by
+/// [`KeyframeCapScale::RELAX`], back to 1. Only keyframes feed it (IDR,
+/// recovery, a re-encoded cut); a new encoder starts at 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KeyframeCapScale {
+    scale: f64,
+}
+impl Default for KeyframeCapScale {
+    fn default() -> Self {
+        Self { scale: 1. }
+    }
+}
+impl KeyframeCapScale {
+    pub const FLOOR: f64 = 0.5;
+    /// More than the 10% rise AMF's frame cap filter ignores as jitter, so
+    /// each step reaches the driver.
+    pub const RELAX: f64 = 1.125;
+    pub fn scale(&self) -> f64 {
+        self.scale
+    }
+    /// The cap to write for `target`: scaled, but never under `floor` (two
+    /// nominal frames) unless the target itself is.
+    pub fn apply(&self, target: u64, floor: u64) -> u64 {
+        ((target as f64 * self.scale).round() as u64).clamp(floor.min(target), target)
+    }
+    /// A keyframe of `bytes` came out against `target`, with `written` the
+    /// cap the driver held at its submission.
+    pub fn observe(&mut self, bytes: u64, target: u64, written: u64) {
+        if target == 0 || written == 0 {
+            return;
+        }
+        let (bytes, target, written) = (bytes as f64, target as f64, written as f64);
+        let next = (self.scale * Self::RELAX).min(1.);
+        if bytes > 1.1 * target {
+            self.scale = self.scale.min(written / bytes).max(Self::FLOOR);
+        } else if self.scale < 1.
+            && bytes >= 0.9 * written
+            && bytes * next / self.scale <= 1.1 * target
+        {
+            // Bound by the lower cap but within it, and a keyframe as much
+            // larger as the next step's cap would still fit.
+            self.scale = next;
+        }
+    }
+}
+
+/// The cap AMF gets for the pace-based `target`: scaled by `scale` for an
+/// automatic cap in frame mode only. An explicit `amd_max_frame_size` is the
+/// user's, and slice delivery plans its blocks from the cap itself.
+pub fn keyframe_cap_bytes(
+    automatic: bool,
+    slice_blocks: u8,
+    scale: &KeyframeCapScale,
+    target: u64,
+    floor: u64,
+) -> u64 {
+    if automatic && slice_blocks == 0 {
+        scale.apply(target, floor)
+    } else {
+        target
+    }
+}
+
 /// Apply after the frame rate and target bitrate. Start automatic AMF caps at
 /// two nominal budgets until the host supplies its current pace before input;
 /// an explicit value wins over pacing and zero keeps the driver's limit.
@@ -558,6 +627,110 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
 
 #[cfg(test)]
 mod tests {
+    use super::{KeyframeCapScale, keyframe_cap_bytes};
+
+    /// #59 rc.4 run 1's cap, and two nominal 219.5 Mbps frames at 100 FPS.
+    const TARGET: u64 = 1_166_893;
+    const TWO_FRAMES: u64 = 548_750;
+
+    #[test]
+    fn a_keyframe_cap_scale_is_inert_while_keyframes_keep_to_the_cap() {
+        let mut scale = KeyframeCapScale::default();
+        for target in [50_000, 300_000, TARGET, 4_000_000] {
+            for share in [0.1, 0.5, 0.9, 1.0, 1.1] {
+                let bytes = (target as f64 * share) as u64;
+                scale.observe(bytes, target, target);
+                assert_eq!(scale.scale(), 1.);
+                assert_eq!(scale.apply(target, TWO_FRAMES.min(target)), target);
+                assert_eq!(scale.apply(target, TWO_FRAMES), target);
+            }
+        }
+        // Nothing to learn without a target or a cap the driver held.
+        scale.observe(5_000_000, 0, TARGET);
+        scale.observe(5_000_000, TARGET, 0);
+        assert_eq!(scale.scale(), 1.);
+    }
+
+    #[test]
+    fn a_proportional_overshoot_lands_within_the_cap_in_two_keyframes() {
+        let mut scale = KeyframeCapScale::default();
+        let mut keyframes = 0;
+        loop {
+            let written = scale.apply(TARGET, TWO_FRAMES);
+            let bytes = (written as f64 * 1.64) as u64;
+            keyframes += 1;
+            if bytes as f64 <= 1.1 * TARGET as f64 {
+                break;
+            }
+            assert!(keyframes < 3, "still {bytes} B after {keyframes} keyframes");
+            scale.observe(bytes, TARGET, written);
+        }
+        assert!(keyframes <= 2, "{keyframes}");
+        assert!(
+            (scale.scale() - 1. / 1.64).abs() < 1e-3,
+            "{}",
+            scale.scale()
+        );
+    }
+
+    #[test]
+    fn an_ignored_cap_floors_the_scale_and_the_cap_at_two_frames() {
+        let mut scale = KeyframeCapScale::default();
+        for _ in 0..5 {
+            let written = scale.apply(TARGET, TWO_FRAMES);
+            assert!(written >= TWO_FRAMES);
+            scale.observe(1_908_217, TARGET, written);
+        }
+        assert_eq!(scale.scale(), KeyframeCapScale::FLOOR);
+        assert_eq!(scale.apply(TARGET, TWO_FRAMES), 583_447);
+        // Two frames above the scaled cap hold it there; a target under two
+        // frames is not raised.
+        assert_eq!(scale.apply(TARGET, 700_000), 700_000);
+        assert_eq!(scale.apply(400_000, 700_000), 400_000);
+    }
+
+    #[test]
+    fn a_keyframe_cap_scale_relaxes_back_once_keyframes_keep_to_the_lower_cap() {
+        let mut scale = KeyframeCapScale::default();
+        scale.observe(1_908_217, TARGET, TARGET);
+        let lowered = scale.scale();
+        assert!(lowered < 0.62);
+        // Small keyframes say nothing about the cap: it holds.
+        let written = scale.apply(TARGET, TWO_FRAMES);
+        scale.observe(written / 3, TARGET, written);
+        assert_eq!(scale.scale(), lowered);
+        // Keyframes as large as the lower cap allows, and no larger.
+        let mut keyframes = 0;
+        while scale.scale() < 1. {
+            let written = scale.apply(TARGET, TWO_FRAMES);
+            scale.observe(written, TARGET, written);
+            keyframes += 1;
+            assert!(keyframes <= 5, "scale {} after {keyframes}", scale.scale());
+        }
+        assert_eq!(scale.apply(TARGET, TWO_FRAMES), TARGET);
+    }
+
+    #[test]
+    fn only_an_automatic_cap_in_frame_mode_is_scaled() {
+        let mut scale = KeyframeCapScale::default();
+        scale.observe(1_908_217, TARGET, TARGET);
+        let scaled = scale.apply(TARGET, TWO_FRAMES);
+        assert!(scaled < TARGET);
+        assert_eq!(
+            keyframe_cap_bytes(true, 0, &scale, TARGET, TWO_FRAMES),
+            scaled
+        );
+        // An explicit amd_max_frame_size, and slice delivery, keep the target.
+        assert_eq!(
+            keyframe_cap_bytes(false, 0, &scale, TARGET, TWO_FRAMES),
+            TARGET
+        );
+        assert_eq!(
+            keyframe_cap_bytes(true, 2, &scale, TARGET, TWO_FRAMES),
+            TARGET
+        );
+    }
+
     #[test]
     fn the_probe_accepts_amf_and_auto_and_rejects_any_other_encoder() {
         assert!(super::probe_option("amf").is_ok());

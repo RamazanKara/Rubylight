@@ -289,7 +289,7 @@ fn native_runtime_frame_caps_survive_bitrate_changes_and_follow_submissions() ->
                 false,
             );
             assert_eq!(
-                encoder.set_frame_cap(cap),
+                encoder.set_frame_cap(cap, 0),
                 Some(cap),
                 "codec {codec}: runtime cap rejected at pace {pace}"
             );

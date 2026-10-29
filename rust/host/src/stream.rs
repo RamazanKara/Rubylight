@@ -2544,6 +2544,7 @@ impl Media {
                                             // Inter frames past the full-FEC bound, sent as keyframes instead.
                                             reencoded_cuts=encoder.as_ref().map_or(0, |encoder| encoder.reencoded_cuts()),
                                             keyframes_over_cap=encoder.as_ref().map_or(0, |encoder| encoder.keyframes_over_cap()),
+                                            keyframe_cap_scale=encoder.as_ref().map_or(1., |encoder| encoder.keyframe_cap_scale()),
                                             keyframes_past_fec=s.stats.keyframes_past_fec.load(Ordering::Relaxed),
                                             fec_reports=timing["fec_reports"].as_u64().unwrap_or(0),
                                             fec_invalid_reports=timing["fec_invalid_reports"].as_u64().unwrap_or(0),
@@ -3071,7 +3072,7 @@ impl Media {
                                     fec_whole_due = now + Duration::from_secs(1);
                                 }
                                 let cap = butterpollo_core::network_pacing::fec_whole_frame_cap(cap, fec_whole.1, bitrate, period);
-                                let _ = active.set_frame_cap(cap);
+                                let _ = active.set_frame_cap(cap, butterpollo_core::network_pacing::two_frames(bitrate, period));
                                 // AMF does not hold a scene cut's inter frame to the cap: one
                                 // past this bound is encoded again as a keyframe.
                                 active.set_cut_limit(

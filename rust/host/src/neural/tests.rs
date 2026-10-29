@@ -112,12 +112,17 @@ fn walkdir(folder: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// The cached release `folder` as the host hands it to the helper.
+fn cached_at(folder: &Path) -> super::folder::Cached {
+    Package::read(folder).unwrap().with(folder.to_path_buf())
+}
+
 fn install(exe: Option<&Path>, install: Option<&Path>, package: &Path) -> Response {
     handle(
         Request::Install {
             exe: exe.map(Path::to_path_buf),
             install: install.map(Path::to_path_buf),
-            package: package.to_path_buf(),
+            package: cached_at(package),
         },
         Writer::User,
         &|_, _| {},
@@ -137,7 +142,7 @@ fn prepare(exe: &Path, package: Option<&Path>) -> Response {
         Request::Prepare {
             exe: exe.to_path_buf(),
             install: None,
-            package: package.map(Path::to_path_buf),
+            package: package.map(cached_at),
         },
         Writer::User,
         &|_, _| {},
@@ -311,6 +316,62 @@ fn a_cached_file_that_changed_never_reaches_the_game() {
     assert_eq!(names(folder), before);
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
     assert_eq!(names(folder), before);
+}
+
+/// The helper copies against the hashes the host holds, never the cache's
+/// package.json read again: a file changed with the record rewritten to
+/// match after the host read it still never reaches the game. A package
+/// naming a file outside the cache is refused.
+#[test]
+fn the_helper_checks_the_files_against_the_hashes_the_host_holds() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let held = cached_at(&cache);
+    std::fs::write(cache.join("files/LmxxfNrRuntime.pak"), "tampered").unwrap();
+    let mut rewritten = held.package.clone();
+    rewritten.files.insert(
+        "LmxxfNrRuntime.pak".into(),
+        Placed {
+            sha256: sha(b"tampered"),
+            size: 8,
+        },
+    );
+    std::fs::write(
+        cache.join(PACKAGE),
+        serde_json::to_string(&rewritten).unwrap(),
+    )
+    .unwrap();
+    let exe = game(temp.path());
+    let before = names(exe.parent().unwrap());
+    let install = |package| {
+        handle(
+            Request::Install {
+                exe: Some(exe.clone()),
+                install: None,
+                package,
+            },
+            Writer::User,
+            &|_, _| {},
+        )
+    };
+    let Response::Error { message } = install(held.clone()) else {
+        panic!("a changed cache was copied")
+    };
+    assert!(message.contains("does not match its release"), "{message}");
+    assert_eq!(names(exe.parent().unwrap()), before);
+    let mut outside = held;
+    outside.package.files.insert(
+        "../evil.dll".into(),
+        Placed {
+            sha256: sha(b"evil"),
+            size: 4,
+        },
+    );
+    let Response::Error { message } = install(outside) else {
+        panic!("a file outside the cache was named")
+    };
+    assert!(message.contains("names a file outside it"), "{message}");
+    assert_eq!(names(exe.parent().unwrap()), before);
 }
 
 /// A launch never applies another release on its own; turning the switch
@@ -685,7 +746,7 @@ fn a_first_install_cut_short_leaves_nothing_behind() {
         Request::Install {
             exe: Some(exe.clone()),
             install: None,
-            package: cache.clone(),
+            package: cached_at(&cache),
         },
         Writer::User,
         &|done, total| {
@@ -761,7 +822,7 @@ fn nothing_goes_through_a_link_in_the_games_folder() {
         Request::Install {
             exe: Some(through.clone()),
             install: None,
-            package: old.clone(),
+            package: cached_at(&old),
         },
         Writer::System,
         &|_, _| {},
@@ -922,7 +983,7 @@ fn a_folder_only_administrators_may_write_is_written_only_by_system_and_only_the
         Request::Install {
             exe: Some(exe.clone()),
             install: None,
-            package: cache.clone(),
+            package: cached_at(&cache),
         },
         Writer::System,
         &|_, _| {},
@@ -1986,7 +2047,7 @@ fn a_cache_is_used_only_as_this_host_keeps_it() {
     // A release Rubylight does not pin is never applied.
     assert_eq!(launch_cache(h).unwrap(), None);
     pin_to(h, &folder);
-    assert_eq!(launch_cache(h).unwrap(), Some(folder.clone()));
+    assert_eq!(launch_cache(h).unwrap(), Some(cached_at(&folder)));
     assert_eq!(h.neural.lock().verified, None);
     let exe = game(temp.path());
     let before = names(exe.parent().unwrap());

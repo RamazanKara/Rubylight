@@ -562,7 +562,7 @@ fn verify_cache(h: &Shared, folder: &Path, package: &Package) -> Result<()> {
 /// from a cache this host trusts. None when it is not cached. Not rehashed:
 /// an update copies each file checked against the release as it goes, and
 /// most launches copy nothing.
-fn launch_cache(h: &Shared) -> Result<Option<PathBuf>> {
+fn launch_cache(h: &Shared) -> Result<Option<folder::Cached>> {
     let root = cache_root(h);
     if !root.exists() {
         return Ok(None);
@@ -571,7 +571,7 @@ fn launch_cache(h: &Shared) -> Result<Option<PathBuf>> {
     let pin = pinned(h);
     Ok(cached(&root)
         .filter(|(_, package)| serves(package, &pin))
-        .map(|(folder, _)| folder))
+        .map(|(folder, package)| package.with(folder)))
 }
 
 /// Where GitHub's release list and the release files are: GitHub, or a
@@ -1252,7 +1252,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
                 job.total = total;
             })
         };
-        let (using, _) = match fetch_using(&h, &progress).await {
+        let (using, package) = match fetch_using(&h, &progress).await {
             Ok(cached) => cached,
             Err(error) => {
                 // The details name the mod's files; the console says what happened.
@@ -1271,7 +1271,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
         let (exe, install, package) = (
             exe.or_else(|| game_command(&app)),
             install(&app),
-            using.folder.clone(),
+            package.with(using.folder.clone()),
         );
         let worker = h.clone();
         let task_uuid = uuid.clone();

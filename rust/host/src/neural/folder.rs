@@ -91,17 +91,23 @@ impl Package {
         })?;
         let package: Self = serde_json::from_str(&text)
             .map_err(|e| format!("the cached release in {} is damaged: {e}", folder.display()))?;
-        if !package
+        package.inside(folder)?;
+        Ok(package)
+    }
+    /// Whether each file it names is one inside the cached release `folder`.
+    fn inside(&self, folder: &Path) -> Result<(), String> {
+        if self
             .files
             .keys()
             .all(|path| neural::entry_path(path).as_ref() == Some(path))
         {
-            return Err(format!(
+            Ok(())
+        } else {
+            Err(format!(
                 "the cached release in {} names a file outside it",
                 folder.display()
-            ));
+            ))
         }
-        Ok(package)
     }
 }
 
@@ -118,14 +124,14 @@ pub enum Request {
     Install {
         exe: Option<PathBuf>,
         install: Option<PathBuf>,
-        package: PathBuf,
+        package: Cached,
     },
     /// Before a launch: refuse anti-cheat, finish an update cut short with
     /// `package`, and check that the placed files are still as placed.
     Prepare {
         exe: PathBuf,
         install: Option<PathBuf>,
-        package: Option<PathBuf>,
+        package: Option<Cached>,
     },
     Remove {
         exe: PathBuf,
@@ -186,9 +192,10 @@ pub fn handle(request: Request, writer: Writer, progress: &dyn Fn(u64, u64)) -> 
             package,
         } => find_exe(exe, install.as_deref()).and_then(|exe| {
             let exe = followed(exe, writer);
-            let package = Package::read(&package)
-                .map_err(Failure::Error)?
-                .with(package);
+            package
+                .package
+                .inside(&package.folder)
+                .map_err(Failure::Error)?;
             refuse_anti_cheat(&exe, install.as_deref())?;
             place(&exe, &package, writer, progress)
         }),
@@ -264,12 +271,15 @@ impl Failure {
 }
 type Outcome<T> = Result<T, Failure>;
 
-struct Cached {
-    folder: PathBuf,
-    package: Package,
+/// A cached release and the files it holds as the host checked them: the
+/// helper takes these hashes, never the cache's package.json read again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cached {
+    pub folder: PathBuf,
+    pub package: Package,
 }
 impl Package {
-    fn with(self, folder: PathBuf) -> Cached {
+    pub fn with(self, folder: PathBuf) -> Cached {
         Cached {
             folder,
             package: self,
@@ -1219,7 +1229,7 @@ fn place(
 fn prepare(
     exe: &Path,
     install: Option<&Path>,
-    package: Option<PathBuf>,
+    package: Option<Cached>,
     writer: Writer,
     progress: &dyn Fn(u64, u64),
 ) -> Outcome<Response> {
@@ -1233,8 +1243,11 @@ fn prepare(
     };
     // The rest of an update cut short; another release is never applied
     // on its own.
-    if let Some(folder) = package.filter(|_| !manifest.previous.is_empty()) {
-        let cached = Package::read(&folder).map_err(Failure::Error)?.with(folder);
+    if let Some(cached) = package.filter(|_| !manifest.previous.is_empty()) {
+        cached
+            .package
+            .inside(&cached.folder)
+            .map_err(Failure::Error)?;
         return place(exe, &cached, writer, progress);
     }
     if !manifest.previous.is_empty() {

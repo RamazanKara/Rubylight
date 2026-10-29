@@ -106,9 +106,11 @@ the host copies from the elevated one (the downloaded release, or
 when a program file changes on either side. The copy starts from Nucleus
 Co-op's own default settings, never another account's nicknames or Steam
 IDs. It keeps the copy's handlers in step with the elevated one's. Only
-SYSTEM and Administrators can change the folders above it; the user can
-change only what is inside their own copy, never move or delete the copy's
-folder.
+SYSTEM and Administrators can change the folders above it; the user can only
+list `<SID>`, and can change only what is inside their own copy, never move
+or delete the copy's folder. While Nucleus Co-op starts, the host holds the
+copy's folder and `NucleusCoop.exe` open so neither can be made a link or
+replaced, and starts it only when the program opened in that folder.
 
 A game needs administrator rights when:
 

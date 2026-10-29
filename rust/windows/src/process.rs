@@ -471,6 +471,11 @@ pub fn open_file_writers(file: &std::fs::File) -> Result<Vec<String>> {
 pub fn open_file_child_movers(file: &std::fs::File) -> Result<Vec<String>> {
     open_file_allowed(file, CHILD_MOVE)
 }
+/// Who may move or delete the file or folder `file` has open itself, or what a folder holds, or
+/// change its permissions or owner: as [`open_file_child_movers`], with those who may delete it.
+pub fn open_file_movers(file: &std::fs::File) -> Result<Vec<String>> {
+    open_file_allowed(file, CHILD_MOVE | 0x1_0000)
+}
 fn open_file_allowed(file: &std::fs::File, mask: u32) -> Result<Vec<String>> {
     use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
     let mut dacl: *mut ACL = std::ptr::null_mut();

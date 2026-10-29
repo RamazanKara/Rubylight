@@ -864,6 +864,56 @@ pub(crate) mod tests {
         }
     }
 
+    /// Make the folder `folder` a junction to `target` in place, as a user
+    /// with write access to it can (`FSCTL_SET_REPARSE_POINT`): it must be
+    /// empty, or already a junction. Done as this thread is.
+    pub(crate) fn mount(folder: &Path, target: &Path) -> io::Result<()> {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_DATA,
+        };
+        use windows::Win32::System::IO::DeviceIoControl;
+        const FSCTL_SET_REPARSE_POINT: u32 = 0x9_00A4;
+        const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
+        let file = OpenOptions::new()
+            .access_mode(FILE_WRITE_DATA.0)
+            .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+            .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT).0)
+            .open(folder)?;
+        let mut substitute: Vec<u16> = r"\??\".encode_utf16().collect();
+        substitute.extend(target.as_os_str().encode_wide());
+        let print: Vec<u16> = target.as_os_str().encode_wide().collect();
+        let names = (substitute.len() + 1 + print.len() + 1) * 2;
+        let mut buffer = Vec::with_capacity(16 + names);
+        buffer.extend(IO_REPARSE_TAG_MOUNT_POINT.to_le_bytes());
+        buffer.extend(((8 + names) as u16).to_le_bytes());
+        buffer.extend(0u16.to_le_bytes());
+        buffer.extend(0u16.to_le_bytes());
+        buffer.extend(((substitute.len() * 2) as u16).to_le_bytes());
+        buffer.extend((((substitute.len() + 1) * 2) as u16).to_le_bytes());
+        buffer.extend(((print.len() * 2) as u16).to_le_bytes());
+        for unit in substitute.iter().chain(&[0]).chain(&print).chain(&[0]) {
+            buffer.extend(unit.to_le_bytes());
+        }
+        let mut bytes = 0;
+        // SAFETY: the handle is open and the buffer valid for its length
+        // for this synchronous call.
+        unsafe {
+            DeviceIoControl(
+                raw(&file),
+                FSCTL_SET_REPARSE_POINT,
+                Some(buffer.as_ptr().cast()),
+                buffer.len() as u32,
+                None,
+                0,
+                Some(&mut bytes),
+                None,
+            )
+        }
+        .map_err(|error| io::Error::from_raw_os_error(error.code().0 & 0xFFFF))
+    }
+
     /// The 8.3 short name of the file at `path`, when the volume makes one.
     fn short_name(path: &Path) -> Option<String> {
         let long = HSTRING::from(path);

@@ -347,6 +347,9 @@ pub struct Evidence {
     /// variable one.
     pub content_hz: f64,
     pub display_hz: f64,
+    /// The highest rate the stream presented at while the check took its presents, 0 before it
+    /// took any: a check is judged at the rate it ran at, not at a later one.
+    pub check_hz: f64,
 }
 
 /// The first thing that rules racing out, as the word the overlay shows after "off".
@@ -434,7 +437,8 @@ pub fn decide(e: &Evidence) -> Verdict {
     // panel read 12%, taken while it still scanned at its top rate, so the share alone decides
     // nothing: with `FIXED_FRAMES` presents after it and none of them starting a scan, the check
     // is not waited for.
-    let fixed = e.content_hz > 0.0 && e.display_hz > 0.0 && !busy(e.content_hz, e.display_hz) && beam.vblank_fraction < 0.3;
+    let check_hz = if e.check_hz > 0.0 { e.check_hz } else { e.content_hz };
+    let fixed = check_hz > 0.0 && e.display_hz > 0.0 && !busy(check_hz, e.display_hz) && beam.vblank_fraction < 0.3;
     if fixed && e.check.running() && e.check.frames >= FIXED_FRAMES && e.check.tested == e.check.missed {
         return Verdict::Off(Reason::NoVrr, capability);
     }
@@ -445,9 +449,9 @@ pub fn decide(e: &Evidence) -> Verdict {
     if e.check.starved() {
         // Enough presents went by without the display ever idling after a scan. At a rate near
         // the display's own that is the stream's doing; below it, the display scans all the time.
-        // A check that starved at a busy rate is measured again when the rate falls (the probe's
-        // `apply_surroundings`), so the rate here is the one it starved at.
-        let busy = busy(e.content_hz, e.display_hz);
+        // The rate is the one it starved at: a check that starved at a busy rate is measured again
+        // when the stream slows well below it (the probe's `apply_surroundings`).
+        let busy = busy(check_hz, e.display_hz);
         return Verdict::Off(if busy { Reason::NoIdle } else { Reason::NoVrr }, capability);
     }
     capability.vrr = true;
@@ -760,7 +764,7 @@ mod tests {
     fn evidence() -> Evidence {
         let mut check = RestartCheck::default();
         for _ in 0..CHECK_TESTED { check.push(Restart::Began); }
-        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0 }
+        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0, check_hz: 0.0 }
     }
 
     fn missed() -> RestartCheck {
@@ -900,6 +904,21 @@ mod tests {
         assert_eq!(line(240.0), "off (no idle at this frame rate)");
         assert_eq!(line(200.0), "off (no idle at this frame rate)");
         assert_eq!(line(60.0), "off (no VRR)", "a display that scans all the time under a slow stream");
+    }
+
+    #[test]
+    fn a_check_is_judged_at_the_rate_it_ran_at_not_a_later_one() {
+        let mut starved = RestartCheck::default();
+        for _ in 0..CHECK_FRAMES { starved.push(Restart::NotTested); }
+        // Starved and failed at 200 fps on a 240 Hz VRR panel calibrated near its top rate; the
+        // stream has slowed to 60 since.
+        let later = Evidence { beam: Some(Ok(beam(0.12))), content_hz: 60.0, check_hz: 200.0, ..evidence() };
+        assert_eq!(decide(&Evidence { check: starved, ..later }).line(), "off (no idle at this frame rate)");
+        assert_eq!(decide(&Evidence { check: missed(), ..later }).line(), "off (no VRR scan restart)");
+        // Run at 60 fps, they say what they did.
+        let slow = Evidence { check_hz: 60.0, content_hz: 200.0, ..later };
+        assert_eq!(decide(&Evidence { check: starved, ..slow }).line(), "off (no VRR)");
+        assert_eq!(decide(&Evidence { check: missed(), ..slow }).line(), "off (no VRR)");
     }
 
     #[test]

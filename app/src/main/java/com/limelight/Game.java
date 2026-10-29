@@ -382,8 +382,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     return renderer.healthSample(SystemClock.uptimeMillis(), fps,
                             rtt == -1 ? -1 : (float) (rtt & 0xffffffffL));
                 }, streamHealth::add)) {
+                    renderer.skipHealthSample();
                     LimeLog.info("Stream health: the last sample is still running; this one is skipped");
                 }
+            } else {
+                decoderRenderer.skipHealthSample();
             }
             bitrateHandler.postDelayed(this, 1000);
         }
@@ -3437,6 +3440,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             text.append("\n\n").append(finding == com.limelight.utils.StreamHealth.Finding.PERIODIC ?
                     context.getString(R.string.health_periodic,
                             com.limelight.utils.WifiDiagnostics.period(context, report.stallPeriodMs), report.stalls) :
+                    finding == com.limelight.utils.StreamHealth.Finding.BURSTS ?
+                    context.getString(R.string.health_bursts, report.lateSamples, report.samples) :
                     context.getString(descriptions[finding.ordinal()]));
         }
         text.append("\n\n").append(context.getString(

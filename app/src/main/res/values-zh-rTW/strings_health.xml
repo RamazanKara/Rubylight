@@ -18,4 +18,5 @@
     <string name="health_trial_replaced">試用後主機位元速率已變更。已取消復原以保留該變更。</string>
     <string name="health_bitrate_minimum">編碼器已經是最低的試用位元速率。未進行任何變更。</string>
     <string name="health_periodic">週期性卡頓：過去 20 分鐘內有 %2$d 次網路卡頓，大約每 %1$s 發生一次。這種穩定的節奏通常來自這部裝置或電腦上的背景 Wi-Fi 掃描。若要減少卡頓：\n• Android：設定 → 位置 → 定位服務，關閉 Wi-Fi 掃描和藍牙掃描。\n• Android：讓開發人員選項 → Wi-Fi 掃描節流保持開啟。\n• 串流時關閉會搜尋網路或附近裝置的應用程式。\n• 電腦：改用網路線連接，或停止會掃描 Wi-Fi 網路的工具。\nNightjar 在串流時已啟用 Android 的低延遲 Wi-Fi 鎖定，要求系統延後掃描；但有些裝置仍會掃描。</string>
+    <string name="health_bursts">突發到達：在最近 %2$d 秒中有 %1$d 秒，主機準時送出了畫面，但網路把畫面扣住後多格一起送達；使用有線連線或較空閒的 5 或 6 GHz Wi-Fi 頻道會有幫助。</string>
 </resources>

@@ -18,4 +18,5 @@
     <string name="health_trial_replaced">Tốc độ bit của máy chủ đã thay đổi kể từ lần thử. Đã hủy hoàn tác để giữ thay đổi đó.</string>
     <string name="health_bitrate_minimum">Bộ mã hóa đã ở tốc độ bit thử tối thiểu. Không có thay đổi nào.</string>
     <string name="health_periodic">Giật lặp lại: %2$d lần mạng bị khựng trong 20 phút qua, bắt đầu khoảng mỗi %1$s một lần. Nhịp đều như vậy thường do quét Wi-Fi chạy nền trên thiết bị này hoặc trên PC. Để giảm:\n• Android: Cài đặt → Vị trí → Dịch vụ vị trí, tắt Quét tìm Wi-Fi và Quét tìm Bluetooth.\n• Android: để bật Tùy chọn cho nhà phát triển → Hạn chế quét tìm Wi-Fi.\n• Đóng các ứng dụng tìm mạng hoặc thiết bị lân cận trong khi stream.\n• PC: nối bằng cáp mạng hoặc dừng các công cụ quét mạng Wi-Fi.\nNightjar đã giữ khóa Wi-Fi độ trễ thấp của Android trong khi stream để yêu cầu hệ thống hoãn quét; một số thiết bị vẫn quét.</string>
+    <string name="health_bursts">Dồn khung hình: trong %1$d trên %2$d giây gần nhất, mạng đã giữ khung hình lại rồi giao nhiều khung cùng lúc dù máy chủ đã gửi đúng giờ; dùng cáp mạng hoặc kênh Wi-Fi 5 hay 6 GHz ít đông đúc hơn sẽ giúp ích.</string>
 </resources>

@@ -32,7 +32,7 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 - CI: `.github/workflows/rust-windows.yml` (windows-2022, 2× minutes) on pushes to main touching `rust/**`, `client/protocol/**`, Cargo or toolchain files; docs-only commits skip it. `nightjar-android.yml` runs on `client/**` (`client/.github/workflows` only run in the nightjar mirror). Always pass `-R RamazanKara/Rubylight` to `gh`.
 - Versions: patch bump for fixes, minor for features; fewer, well-tested releases. Commit style: `fix(stream): ...`, no model names.
 - Release (details in rust/release/README.md): changes go in `rust/release/notes.d/<topic>.md` fragments (Nightjar: `client/notes.d`, English only, assembled by `tools/nightjar_notes.py`). Run `python rust/release/bump.py X.Y.Z`, fill in `## New in X.Y.Z` with a "Tested." paragraph of our own measurements, check it with `python rust/release/notes.py vX.Y.Z --out body.md`, commit, push main.
-- Tag the exact SHA whose main run is green, not HEAD: `git tag -a vX.Y.Z -m "Rubylight X.Y.Z" <sha> && git push origin vX.Y.Z`. Expect 3 assets (setup exe, zip, SHA256SUMS), then run `rust/release/check.ps1 vX.Y.Z` on this PC.
+- Tag the exact SHA whose main run is green, not HEAD: `git tag -a vX.Y.Z -m "Rubylight X.Y.Z" <sha> && git push origin vX.Y.Z`. CI publishes 3 assets (setup exe, zip, SHA256SUMS); then run `rust/release/check.ps1 vX.Y.Z` on this PC, which adds VALIDATION.json (the laptop's `smoke.ps1` adds REAL-CLIENT.json).
 - Never delete a published release or move a tag unless the user says so.
 
 ## Product rules

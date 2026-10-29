@@ -12,9 +12,13 @@ param(
     [Parameter(Mandatory)][string] $Package,
     [Parameter(Mandatory)][string] $Client,
     [Parameter(Mandatory)][string] $GpuLoad,
-    [string] $Work = (Join-Path $PSScriptRoot '../../target/soak')
+    [string] $Work = (Join-Path $PSScriptRoot '../../target/soak'),
+    # Comma-separated case names to run alone, e.g. 'hevc-60-load,hevc-120-load'.
+    [string] $Only = '',
+    # Host settings for an A/B arm, e.g. 'amd_ltr_frames=0'.
+    [string[]] $Config = @()
 )
 $ErrorActionPreference = 'Stop'
 $python = if ($env:BUTTERPOLLO_TEST_PYTHON) { $env:BUTTERPOLLO_TEST_PYTHON } else { 'python' }
-& $python "$PSScriptRoot/soak.py" --mode $Mode --package $Package --client $Client --gpu-load $GpuLoad --work $Work
+& $python "$PSScriptRoot/soak.py" --mode $Mode --package $Package --client $Client --gpu-load $GpuLoad --work $Work @(if ($Only) { '--only', $Only }) @($Config | ForEach-Object { '--config', $_ })
 exit $LASTEXITCODE

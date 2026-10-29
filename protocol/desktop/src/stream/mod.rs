@@ -1248,6 +1248,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         remote_input_aes_iv: iv,
         video_capabilities: 0,
         audio_capabilities: CAPABILITY_DIRECT_SUBMIT,
+        video_fec: settings.error_correction.into(),
         ..Default::default()
     };
     let host = HostInfo {

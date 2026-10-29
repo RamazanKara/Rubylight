@@ -2539,7 +2539,7 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["auto_reconnect"], "Recover interrupted streams", "Try to resume the same running app up to five times within one minute.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
             });
-            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "How much recovery data the PC adds to the video. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
                 egui::ComboBox::from_id_salt("error-correction")
                     .selected_text(error_correction_name(s.error_correction))
                     .show_ui(ui, |ui| {

@@ -533,6 +533,7 @@ public class MoonBridge {
     private static volatile boolean roamingRequested = true;
     private static volatile boolean roamingMeteredRequested;
     private static volatile int audioPassthroughRequested;
+    private static volatile int videoFecRequested = -2;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
@@ -587,6 +588,15 @@ public class MoonBridge {
      */
     public static void requestHdrFormat(int format) {
         hdrFormatRequested = format;
+    }
+
+    /**
+     * Call before startConnection(): the video FEC the next stream asks a Foundation Sunshine host
+     * for in its ANNOUNCE (FecChoice.summaryPercentage(): -2 host, -1 automatic, 0-100 fixed).
+     * Rubylight hosts take the choice at launch; other hosts ignore it.
+     */
+    public static void requestVideoFec(int percentage) {
+        videoFecRequested = Math.max(-2, Math.min(percentage, 100));
     }
 
     /** The HDR format this stream's ANNOUNCE asked for, 0 for stock (and before the ANNOUNCE). */
@@ -658,14 +668,14 @@ public class MoonBridge {
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
-                    audioPassthroughRequested, hdrFormatRequested);
+                    audioPassthroughRequested, hdrFormatRequested, videoFecRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,
                 supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                 colorSpace, colorRange, unbatchedInput, networkPriority, hostFeatures, inputOnly,
                 remoteMonitor, enableMic, hapticsPcm, pyrowaveLinkMbps, pyrowavePaceMbps,
-                clientWireless, hdrFormatRequested);
+                clientWireless, hdrFormatRequested, videoFecRequested);
     }
     private static native int cStartConnection(String address, String appVersion, String gfeVersion,
                                                String rtspSessionUrl, int serverCodecModeSupport,
@@ -680,7 +690,7 @@ public class MoonBridge {
                                                boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                                boolean hapticsPcm,
                                                int pyrowaveLinkMbps, int pyrowavePaceMbps,
-                                               boolean clientWireless, int hdrFormat);
+                                               boolean clientWireless, int hdrFormat, int videoFecPercentage);
 
     /** Call before startConnection(); 0 keeps the native 10 second control timeout. */
     public static void setNetworkGracePeriodMs(int gracePeriodMs) {
@@ -1004,6 +1014,9 @@ public class MoonBridge {
     public static final int CONTROL_MESSAGE_KEYBOARD_LAYOUT = 0x553E;
     // Moonlight V+'s clipboard sync, which Rubylight hosts offer to launches that ask for it.
     public static final int CONTROL_MESSAGE_CLIPBOARD_SYNC = 0x5508;
+    // Moonlight V+'s FEC summary, which android_control.c sends to Foundation Sunshine hosts that
+    // offer FEC control in DESCRIBE (no a=x-rl-control entry).
+    public static final int CONTROL_MESSAGE_FEC_SUMMARY = 0x5510;
 
     // Asks the host to send its cursor image and leave it out of the video (true), or to stop
     // (false). Only call when hostSupportsControlMessage(CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST).

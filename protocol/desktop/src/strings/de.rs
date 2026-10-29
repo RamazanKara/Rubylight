@@ -421,7 +421,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("More {} settings ({})", "Weitere Einstellungen für {0} ({1})"),
     ("Fewer {} settings", "Weniger Einstellungen für {}"),
     ("Diagnostics", "Diagnose"),
-    ("How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", "Wie viele Wiederherstellungsdaten ein Rubylight-PC dem Video hinzufügt. Automatisch richtet sich nach den Verlusten dieses Geräts. Andere PCs nutzen ihre eigene Einstellung."),
+    ("How much recovery data the PC adds to the video. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", "Wie viele Wiederherstellungsdaten der PC dem Video hinzufügt. Automatisch richtet sich nach den Verlusten dieses Geräts. PCs, die diese Wahl nicht übernehmen, nutzen ihre eigene Einstellung."),
     ("PC's setting", "Einstellung des PCs"),
     ("Link test before the first bitrate", "Verbindungstest vor der ersten Bitrate"),
     ("A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.", "Ein neuer Stream mit automatischer Bitrate testet zuerst die Verbindung zu einem Rubylight-PC und startet nicht höher, als sie trägt."),

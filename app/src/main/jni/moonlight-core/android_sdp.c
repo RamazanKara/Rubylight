@@ -4,6 +4,7 @@
 #include "pyrowave_protocol.h"
 #include "android_microphone.h"
 #include "hdr_format.h"
+#include "fec_report.h"
 
 // Moonlight common-c 874ac954 (GPL-3.0), with Rubylight PyroWave negotiation.
 
@@ -346,6 +347,13 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
     }
     snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.packetSize);
     err |= addAttributeString(&optionHead, "x-nv-video[0].packetSize", payloadStr);
+
+    // Foundation Sunshine's client FEC control, where V+'s SdpGenerator.c puts it.
+    if (RlFecSummariesEnabled) {
+        snprintf(payloadStr, sizeof(payloadStr), "%d", AndroidVideoFecPercentage);
+        err |= addAttributeString(&optionHead, "x-ml-video.fecPercentage", payloadStr);
+        err |= addAttributeString(&optionHead, "x-ml-video.fecSummaryVersion", "1");
+    }
 
     err |= addAttributeString(&optionHead, "x-nv-video[0].rateControlMode", "4");
 

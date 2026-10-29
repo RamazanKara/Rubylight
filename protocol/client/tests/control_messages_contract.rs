@@ -62,6 +62,10 @@ fn moonbridge_names_the_3_0_control_messages_as_rubylight_protocol_defines_them(
                 "CONTROL_MESSAGE_CLIPBOARD_SYNC",
                 clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE
             ),
+            (
+                "CONTROL_MESSAGE_FEC_SUMMARY",
+                fec_report::FEC_SUMMARY_MESSAGE_TYPE
+            ),
         ])
     );
     // Every 3.0 and adopted type has a Java name but the host's cursor image, which MoonBridge

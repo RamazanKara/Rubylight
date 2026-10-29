@@ -4,7 +4,7 @@
 use rubylight_protocol::control::{
     ClockSyncRequest, DisplayCaps, HostTimingRequest, LinkNoticeRequest, Reconfigure,
 };
-use rubylight_protocol::fec_report::FecReport;
+use rubylight_protocol::fec_report::{FecReport, FecSummary};
 use rubylight_protocol::phase_lock;
 use rubylight_protocol::pipeline_rates::PipelineRatesRequest;
 use rubylight_protocol::rate_change::RateChangeRequest;
@@ -90,6 +90,8 @@ pub enum ClientMessage {
     LinkNoticeRequest(LinkNoticeRequest),
     /// The once-a-second video FEC loss report (0x5539).
     FecReport(FecReport),
+    /// Foundation Sunshine's once-a-second video FEC summary (0x5510, V+'s `SS_FEC_SUMMARY`).
+    FecSummary(FecSummary),
     /// Asks the host for its pipeline frame rates (0x553D) every interval, or to stop.
     PipelineRatesRequest(PipelineRatesRequest),
     /// Asks the host for a new video bitrate, frame rate or both (0x553C), on a stream
@@ -138,6 +140,7 @@ impl ClientMessage {
             Self::ClockSync(_) => ptype::CLOCK_SYNC,
             Self::LinkNoticeRequest(_) => ptype::LINK_NOTICE,
             Self::FecReport(_) => ptype::FEC_REPORT,
+            Self::FecSummary(_) => ptype::FEC_SUMMARY,
             Self::PipelineRatesRequest(_) => ptype::PIPELINE_RATES,
             Self::RateChange(_) => ptype::RATE_CHANGE,
             Self::CursorShapeRequest { .. } => ptype::CURSOR_SHAPE_REQUEST,
@@ -176,6 +179,7 @@ impl ClientMessage {
             Self::ClockSync(request) => request.encode().to_vec(),
             Self::LinkNoticeRequest(request) => request.encode().to_vec(),
             Self::FecReport(report) => report.encode().to_vec(),
+            Self::FecSummary(summary) => summary.encode().to_vec(),
             Self::PipelineRatesRequest(request) => request.encode().to_vec(),
             Self::RateChange(request) => request.encode().to_vec(),
             Self::CursorShapeRequest { enabled } => {
@@ -213,8 +217,11 @@ impl ClientMessage {
             Self::FrameFecStatus(_) | Self::ClockSync(_) | Self::ControllerMicrophone(_) => {
                 Delivery::Unsequenced
             }
-            // A lost report is replaced half a second later, a lost FEC report a second later.
-            Self::PhaseLockReport(_) | Self::FecReport(_) => Delivery::Unreliable,
+            // A lost report is replaced half a second later, a lost FEC report or summary a
+            // second later.
+            Self::PhaseLockReport(_) | Self::FecReport(_) | Self::FecSummary(_) => {
+                Delivery::Unreliable
+            }
             _ => Delivery::Reliable,
         }
     }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Hata düzeltme</string>
-    <string name="summary_fec_choice">Rubylight PC\'nin videoya eklediği kurtarma verisi miktarı. Otomatik, bu cihazın kayıplarına göre ayarlanır. Diğer PC\'ler kendi ayarlarını kullanır.</string>
+    <string name="summary_fec_choice">PC\'nin videoya eklediği kurtarma verisi miktarı. Otomatik, bu cihazın kayıplarına göre ayarlanır. Bu seçimi desteklemeyen PC\'ler kendi ayarlarını kullanır.</string>
     <string name="fec_choice_host">PC ayarı</string>
     <string name="fec_choice_auto">Otomatik</string>
     <string name="title_link_probe">İlk bit hızından önce bağlantı testi</string>

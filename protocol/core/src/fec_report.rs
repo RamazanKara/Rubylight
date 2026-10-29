@@ -243,6 +243,112 @@ impl FecTally {
     }
 }
 
+// Foundation Sunshine's client FEC control, as Moonlight V+ speaks it (qiin2333's
+// moonlight-common-c 2aa14ff: RtspConnection.c, SdpGenerator.c, ControlStream.c; host side in
+// Foundation's rtsp.cpp and stream.cpp). A host that says `a=x-ss-video[0].fecControlVersion:1`
+// in DESCRIBE takes the client's choice as [`FEC_PERCENTAGE_ATTRIBUTE`] in the ANNOUNCE (with
+// [`FEC_SUMMARY_VERSION_ATTRIBUTE`]) and a [`FecSummary`] once a second. Rubylight hosts never
+// say it; they take [`LAUNCH_PARAMETER`] and [`FecReport`]s instead.
+
+/// DESCRIBE attribute of a host that takes [`FEC_PERCENTAGE_ATTRIBUTE`] and [`FecSummary`]s.
+pub const FEC_CONTROL_DESCRIBE_ATTRIBUTE: &str = "x-ss-video[0].fecControlVersion";
+/// The [`FEC_CONTROL_DESCRIBE_ATTRIBUTE`] version this client speaks.
+pub const FEC_CONTROL_VERSION: u32 = 1;
+/// ANNOUNCE attribute: [`FecChoice::summary_percentage`].
+pub const FEC_PERCENTAGE_ATTRIBUTE: &str = "x-ml-video.fecPercentage";
+/// ANNOUNCE attribute, always `1`: the client sends [`FecSummary`]s.
+pub const FEC_SUMMARY_VERSION_ATTRIBUTE: &str = "x-ml-video.fecSummaryVersion";
+/// Control-stream message type of [`FecSummary`] (client to host, `SS_FEC_SUMMARY_PTYPE`).
+pub const FEC_SUMMARY_MESSAGE_TYPE: u16 = 0x5510;
+/// Encoded size of [`FecSummary`].
+pub const FEC_SUMMARY_BYTES: usize = 12;
+/// The highest fixed percentage [`FEC_PERCENTAGE_ATTRIBUTE`] carries; the host refuses more.
+pub const FEC_SUMMARY_MAX_PERCENTAGE: u8 = 100;
+/// Data shards one summary counts at most (V+'s bound).
+const FEC_SUMMARY_MAX_DATA: u32 = 1_000_000;
+
+impl FecChoice {
+    /// The [`FEC_PERCENTAGE_ATTRIBUTE`] value (V+'s `videoFecPercentage`): -2 for the host's
+    /// own, -1 for automatic, else the fixed share, at most [`FEC_SUMMARY_MAX_PERCENTAGE`].
+    pub fn summary_percentage(&self) -> i32 {
+        match self {
+            Self::Host => -2,
+            Self::Auto => -1,
+            Self::Fixed(percentage) => i32::from((*percentage).min(FEC_SUMMARY_MAX_PERCENTAGE)),
+        }
+    }
+}
+
+/// `SS_FEC_SUMMARY`: one second of finished video FEC blocks, three big-endian u32s.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FecSummary {
+    /// 1 for the stream's first summary, then +1 every second, also for one not sent.
+    pub seq: u32,
+    pub data_shards: u32,
+    /// Data shards that had not arrived when their block finished.
+    pub missing_data_shards: u32,
+}
+
+impl FecSummary {
+    pub fn encode(&self) -> [u8; FEC_SUMMARY_BYTES] {
+        let mut out = [0; FEC_SUMMARY_BYTES];
+        out[0..4].copy_from_slice(&self.seq.to_be_bytes());
+        out[4..8].copy_from_slice(&self.data_shards.to_be_bytes());
+        out[8..12].copy_from_slice(&self.missing_data_shards.to_be_bytes());
+        out
+    }
+
+    /// Parses exactly [`FEC_SUMMARY_BYTES`] bytes, as the host does.
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        let data: &[u8; FEC_SUMMARY_BYTES] = data.try_into().ok()?;
+        let u32_at = |at: usize| u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
+        Some(Self {
+            seq: u32_at(0),
+            data_shards: u32_at(4),
+            missing_data_shards: u32_at(8),
+        })
+    }
+}
+
+/// The data shards of the blocks finished since the last [`FecSummary`]
+/// (`connectionRecordFecBlock`): each block counts once, at its first final status.
+#[derive(Clone, Debug, Default)]
+pub struct FecSummaryTally {
+    data_shards: u32,
+    missing_data_shards: u32,
+    last_block: Option<(u32, u8)>,
+    seq: u32,
+}
+
+impl FecSummaryTally {
+    /// Counts block `block` of frame `frame`: `data` data shards, `received` of them arrived.
+    /// A repeat of the last block, an empty block, more received than sent and a block past
+    /// the bound of data shards per summary count nothing.
+    pub fn block(&mut self, frame: u32, block: u8, data: u16, received: u16) {
+        let (data, received) = (u32::from(data), u32::from(received));
+        if data == 0 || received > data || self.last_block == Some((frame, block)) {
+            return;
+        }
+        if data <= FEC_SUMMARY_MAX_DATA - self.data_shards {
+            self.data_shards += data;
+            self.missing_data_shards += data - received;
+            self.last_block = Some((frame, block));
+        }
+    }
+
+    /// Closes the second: the next sequence number is used either way, but a second without
+    /// data shards sends nothing.
+    pub fn take(&mut self) -> Option<FecSummary> {
+        self.seq = self.seq.wrapping_add(1);
+        let summary = FecSummary {
+            seq: self.seq,
+            data_shards: core::mem::take(&mut self.data_shards),
+            missing_data_shards: core::mem::take(&mut self.missing_data_shards),
+        };
+        (summary.data_shards != 0).then_some(summary)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,5 +565,88 @@ mod tests {
         wrap.block(block(u32::MAX, 10, 4, 14, 0, false), 0);
         wrap.block(block(1, 10, 4, 14, 0, false), 10);
         assert_eq!(wrap.take(1_000).unwrap().unrecovered_blocks, 1);
+    }
+
+    #[test]
+    fn fec_summaries_have_the_v_plus_wire_form() {
+        // V+'s SS_FEC_SUMMARY: sequence, data packets, missing data packets, all BE32, which
+        // Foundation's 0x5510 handler reads with util::endian::big after a 12-byte check.
+        let summary = FecSummary {
+            seq: 0x0102_0304,
+            data_shards: 0x0000_0190,
+            missing_data_shards: 0x0000_000c,
+        };
+        assert_eq!(
+            summary.encode(),
+            [1, 2, 3, 4, 0, 0, 1, 0x90, 0, 0, 0, 0x0c]
+        );
+        assert_eq!(FecSummary::decode(&summary.encode()), Some(summary));
+        assert_eq!(FecSummary::decode(&summary.encode()[..11]), None);
+        assert_eq!(FecSummary::decode(&[0; 13]), None);
+        assert_eq!(FEC_SUMMARY_MESSAGE_TYPE, 0x5510);
+        assert_eq!(FEC_CONTROL_DESCRIBE_ATTRIBUTE, "x-ss-video[0].fecControlVersion");
+        assert_eq!(FEC_PERCENTAGE_ATTRIBUTE, "x-ml-video.fecPercentage");
+        assert_eq!(FEC_SUMMARY_VERSION_ATTRIBUTE, "x-ml-video.fecSummaryVersion");
+    }
+
+    #[test]
+    fn the_summary_percentage_is_v_plus_video_fec_percentage() {
+        // STREAM_CONFIGURATION.videoFecPercentage: -2 host, -1 auto, 0-100 fixed; Foundation
+        // answers 400 to anything else.
+        assert_eq!(FecChoice::Host.summary_percentage(), -2);
+        assert_eq!(FecChoice::Auto.summary_percentage(), -1);
+        assert_eq!(FecChoice::Fixed(0).summary_percentage(), 0);
+        assert_eq!(FecChoice::Fixed(50).summary_percentage(), 50);
+        assert_eq!(FecChoice::Fixed(100).summary_percentage(), 100);
+        assert_eq!(FecChoice::Fixed(255).summary_percentage(), 100);
+    }
+
+    #[test]
+    fn the_summary_tally_counts_each_block_once_like_v_plus() {
+        let mut tally = FecSummaryTally::default();
+        // The first second: nothing finished, so nothing goes out, but the sequence moves on.
+        assert_eq!(tally.take(), None);
+        // A recovered block reports its final status first; the completion that follows is the
+        // same block and doesn't count again.
+        tally.block(1, 0, 10, 8);
+        tally.block(1, 0, 10, 10);
+        tally.block(1, 1, 6, 6);
+        // Empty blocks and more received than sent count nothing.
+        tally.block(2, 0, 0, 0);
+        tally.block(2, 0, 4, 5);
+        assert_eq!(
+            tally.take(),
+            Some(FecSummary {
+                seq: 2,
+                data_shards: 16,
+                missing_data_shards: 2,
+            })
+        );
+        // Counts start over each second; a block repeated after a take still doesn't count.
+        tally.block(1, 1, 6, 0);
+        tally.block(3, 0, 5, 0);
+        assert_eq!(
+            tally.take(),
+            Some(FecSummary {
+                seq: 3,
+                data_shards: 5,
+                missing_data_shards: 5,
+            })
+        );
+        // A second holds at most a million data shards; the block that would pass it is left out.
+        for frame in 0..15 {
+            tally.block(10 + frame, 0, u16::MAX, u16::MAX);
+        }
+        let full = tally.take().unwrap();
+        assert_eq!(full.data_shards, 15 * u32::from(u16::MAX));
+        tally.block(100, 0, u16::MAX, 0);
+        for frame in 0..14 {
+            tally.block(200 + frame, 0, u16::MAX, u16::MAX);
+        }
+        tally.block(300, 0, u16::MAX, u16::MAX);
+        let capped = tally.take().unwrap();
+        assert!(capped.data_shards <= 1_000_000);
+        assert_eq!(capped.data_shards, 15 * u32::from(u16::MAX));
+        assert_eq!(capped.missing_data_shards, u32::from(u16::MAX));
     }
 }

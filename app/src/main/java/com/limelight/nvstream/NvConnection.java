@@ -56,6 +56,7 @@ import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
@@ -1285,6 +1286,9 @@ public class NvConnection {
                         // The session's choice (Game turns it off after a packed failure), not the saved setting.
                         MoonBridge.requestPacked444(context.streamConfig.isPacked444());
                         MoonBridge.requestHdrFormat(context.hdrFormat);
+                        // Sent only to a host whose DESCRIBE offers Foundation's FEC control.
+                        MoonBridge.requestVideoFec((context.fecChoice != null ? context.fecChoice : FecChoice.HOST)
+                                .summaryPercentage());
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
                                 context.streamConfig.getAudioConfiguration().channelCount));

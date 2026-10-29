@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">The screen stays at %2$s Hz, not the %1$s Hz asked for: battery saver limits it.</string>
     <string name="refresh_diag_thermal">The screen stays at %2$s Hz, not the %1$s Hz asked for: the device is hot and limits it to 60 Hz.</string>
     <string name="refresh_diag_unexplained">The screen stays at %2$s Hz, not the %1$s Hz asked for. Android gives no reason (modes: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">Variable refresh needs Android 16, so the screen runs at its top rate.</string>
-    <string name="stream_vrr_no_arr">This screen has no adaptive refresh rate, so variable refresh runs at the top rate.</string>
+    <string name="stream_vrr_old_android">Variable refresh needs Android 16, so the screen follows the game’s rate only where it can switch without blanking.</string>
+    <string name="stream_vrr_no_arr">This screen has no adaptive refresh rate, so variable refresh follows the game’s rate only where the screen can switch without blanking.</string>
+    <string name="stream_vrr_arr_half_rate">The screen shows only %1$d of the %2$d FPS received: Android is holding it at half the stream’s rate.</string>
     <string name="stream_hdr_mode_unsupported">This screen mode can’t show HDR, so the stream is in SDR.</string>
     <string name="stream_hdr_not_negotiated">HDR was asked for, but the PC sent no HDR video, so the stream is in SDR.</string>
     <string name="stream_hdr_host_sdr">HDR was asked for, but the PC reports SDR. Turn on HDR for the streamed display in Windows.</string>

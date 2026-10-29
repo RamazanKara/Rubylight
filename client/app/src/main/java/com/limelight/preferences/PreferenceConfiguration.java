@@ -819,7 +819,10 @@ public class PreferenceConfiguration {
             config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
                     .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit;
         }
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
+        config.contentRateFrameRate = com.limelight.binding.video.DisplayFrameRatePolicy.tracksContentRate(
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false), config.reduceRefreshRate,
+                config.vrr, config.useTextureView);
         return config;
     }
 
@@ -1407,10 +1410,12 @@ public class PreferenceConfiguration {
             config.reduceRefreshRate = false;
         }
         config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
-        config.contentRateFrameRate = prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false);
-        // The vote is for a SurfaceView on a fixed-rate panel; VRR has its own vote. It needs the lower refresh
-        // rate switch: the settings screen greys it without that, so a stored choice must not act on its own.
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
+        // The vote is for a SurfaceView. It needs the lower refresh rate switch: the settings screen greys it
+        // without that, so a stored choice must not act on its own. VRR turns it on: without ARR (known only
+        // once the stream's display is) the content rate is the only way down from the panel maximum.
+        config.contentRateFrameRate = com.limelight.binding.video.DisplayFrameRatePolicy.tracksContentRate(
+                prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false), config.reduceRefreshRate,
+                config.vrr, config.useTextureView);
         if (config.hostFrameTimes) {
             // Each frame is released at its scheduled time and the compositor shows it then.
             config.framePacing = FRAME_PACING_MIN_LATENCY;

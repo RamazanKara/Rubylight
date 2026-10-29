@@ -312,7 +312,7 @@
     <string name="title_virtual_display">Host virtual display</string>
     <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
     <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>
-    <string name="summary_vrr">On Android 16 screens with adaptive refresh, Android matches the refresh rate to the stream; other screens run at their highest rate. Hosts that support VRR are asked to use it too, depending on their settings. While this is on, frame pacing and a lower refresh rate don’t apply.</string>
+    <string name="summary_vrr">On Android 16 screens with adaptive refresh, Android matches the refresh rate to the stream; other screens start at their highest rate and follow the game’s rate where they can switch without blanking. Hosts that support VRR are asked to use it too, depending on their settings. While this is on, frame pacing and a lower refresh rate don’t apply.</string>
     <string name="title_host_frame_times">Show frames at the PC\'s frame times</string>
     <string name="summary_host_frame_times">Hold each frame a few milliseconds so it appears when the game drew it, instead of when the network delivered it. Evens out jitter, especially with adaptive refresh. Replaces frame pacing. Not used with PyroWave.</string>
     <string name="title_content_rate_frame_rate">Match the screen to the game\'s frame rate</string>

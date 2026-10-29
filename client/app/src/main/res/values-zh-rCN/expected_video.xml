@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">屏幕停留在 %2$s Hz，而不是请求的 %1$s Hz：省电模式限制了它。</string>
     <string name="refresh_diag_thermal">屏幕停留在 %2$s Hz，而不是请求的 %1$s Hz：设备过热，已限制为 60 Hz。</string>
     <string name="refresh_diag_unexplained">屏幕停留在 %2$s Hz，而不是请求的 %1$s Hz。Android 没有给出原因（模式：%3$s Hz）。</string>
-    <string name="stream_vrr_old_android">可变刷新率需要 Android 16，因此屏幕以最高刷新率运行。</string>
-    <string name="stream_vrr_no_arr">此屏幕没有自适应刷新率，因此以最高刷新率运行。</string>
+    <string name="stream_vrr_old_android">可变刷新率需要 Android 16，因此屏幕仅在能无黑屏切换时跟随游戏的帧率。</string>
+    <string name="stream_vrr_no_arr">此屏幕没有自适应刷新率，因此仅在能无黑屏切换时跟随游戏的帧率。</string>
+    <string name="stream_vrr_arr_half_rate">屏幕只显示了收到的 %2$d FPS 中的 %1$d FPS：Android 将其限制在串流速率的一半。</string>
     <string name="stream_hdr_mode_unsupported">此屏幕模式无法显示 HDR，因此视频流为 SDR。</string>
     <string name="stream_hdr_not_negotiated">已请求 HDR，但电脑没有发送 HDR 视频，因此视频流为 SDR。</string>
     <string name="stream_hdr_host_sdr">已请求 HDR，但电脑报告为 SDR。请在 Windows 中为串流的显示器打开 HDR。</string>

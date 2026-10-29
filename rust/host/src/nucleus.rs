@@ -248,10 +248,7 @@ impl Pc for OnPc {
                 })?;
             return Ok(Setup {
                 anti_cheat: launch.vac.then_some("Valve Anti-Cheat"),
-                // The launch option's, then any the app adds.
-                arguments: format!("{} {}", launch.arguments, arguments(app))
-                    .trim()
-                    .to_string(),
+                arguments: steam_arguments(&launch.arguments, command(app).unwrap_or_default()),
                 ..Setup::new(
                     &launch.exe.to_string_lossy(),
                     &app.name,
@@ -417,6 +414,20 @@ fn command(app: &App) -> Option<&str> {
 /// command's.
 fn executable(app: &App) -> Option<&str> {
     command(app).map(butterpollo_windows::process::command_target)
+}
+
+/// What a Steam game started from an app's link gets: its launch option's
+/// `launch` arguments, then what the app's command adds after the
+/// `steam://` link. Never the rest of the command: an imported game's
+/// `cmd /c start "" steam://rungameid/<id>` passes the link to cmd.
+fn steam_arguments(launch: &str, command: &str) -> String {
+    let after = command
+        .split_once("steam://")
+        .and_then(|(_, link)| link.split_once(char::is_whitespace))
+        .map_or("", |(_, after)| after);
+    format!("{} {}", launch.trim(), after.trim())
+        .trim()
+        .to_string()
 }
 
 /// What an app passes its program, for Rubylight's handler.
@@ -3130,6 +3141,20 @@ mod tests {
         background(&registry, &apps[1], "a", &owner, &config).unwrap();
         assert_eq!(registry.sessions()[0].session.game, fake::GUID);
         assert_eq!(*pc.removed.lock().unwrap(), [ours.file()]);
+    }
+
+    #[test]
+    fn a_steam_link_passes_only_its_launch_options_arguments() {
+        // An imported Steam game's command handed cmd's own arguments on.
+        assert_eq!(
+            steam_arguments("-game portal", r#"cmd /c start "" steam://rungameid/400"#),
+            "-game portal"
+        );
+        assert_eq!(
+            steam_arguments(" -game portal ", "steam://rungameid/400  -novid"),
+            "-game portal -novid"
+        );
+        assert_eq!(steam_arguments("", "steam://rungameid/400"), "");
     }
 
     #[test]

@@ -49,13 +49,17 @@ final class AudioBufferPolicy {
     }
 
     /**
-     * AAudio jitter reserve in the ring ahead of the stream: two bursts, growing a burst at a time on
-     * starvation up to eight bursts, or fewer where that is over MAX_RESERVE_MS, within the ring. The
-     * renderer counts only jitter gaps as starvation here; stalls are concealed instead.
+     * AAudio jitter reserve in the ring ahead of the stream: initial, at least two bursts, growing a burst
+     * at a time on starvation up to eight bursts or two above the start, whichever is more, within
+     * MAX_RESERVE_MS (never below the start) and the ring. The renderer counts only jitter gaps as
+     * starvation here; stalls are concealed instead.
      */
     static AudioBufferPolicy forReserve(int burst, int capacity, int initial, int underruns, long nowMs,
                                         int sampleRate) {
-        int limit = Math.min(8 * burst, Math.max(2 * burst, maxReserveFrames(sampleRate) / burst * burst));
+        int start = Math.max(2 * burst, initial);
+        // From the start, not from two bursts: a 1 ms burst starts at 11 of them, above eight.
+        int limit = Math.max(start, Math.min(maxReserveFrames(sampleRate) / burst * burst,
+                Math.max(8 * burst, start + 2 * burst)));
         return new AudioBufferPolicy(burst, Math.min(capacity, Math.max(burst * 2, initial)), initial, underruns,
                 nowMs, Math.min(capacity / burst * burst, limit));
     }
@@ -176,6 +180,33 @@ final class AudioBufferPolicy {
 
     int limit() {
         return maximum;
+    }
+
+    /**
+     * Whether stalls keep repeating: STALL_WARN_COUNT of them, gaps no reserve within the limit covers,
+     * within STALL_WARN_WINDOW_MS. They are concealed rather than buffered for, so the log has to say so.
+     * The TCL C6K's 130 ms stalls every 1.2 s trip it within about 3 s.
+     */
+    static final class StallWatch {
+        static final int STALL_WARN_COUNT = 3;
+        static final long STALL_WARN_WINDOW_MS = 60000;
+        // When the latest STALL_WARN_COUNT stalls were seen, oldest first.
+        private final long[] seenMs = new long[STALL_WARN_COUNT];
+        private int seen, lastStalls;
+
+        StallWatch(int stalls) {
+            lastStalls = stalls;
+        }
+
+        boolean repeating(int stalls, long nowMs) {
+            for (int i = lastStalls; i < stalls; i++) {
+                System.arraycopy(seenMs, 1, seenMs, 0, STALL_WARN_COUNT - 1);
+                seenMs[STALL_WARN_COUNT - 1] = nowMs;
+                seen = Math.min(STALL_WARN_COUNT, seen + 1);
+            }
+            lastStalls = stalls;
+            return seen == STALL_WARN_COUNT && nowMs - seenMs[0] <= STALL_WARN_WINDOW_MS;
+        }
     }
 
     static boolean useAAudio(int sdk, int channels, boolean effects, int sampleRate, int nativeRate) {

@@ -10,6 +10,9 @@ final class AudioBufferPolicy {
     // The most a reserve grows for network jitter. A longer stall, such as the TCL C6K's Wi-Fi going quiet
     // for up to 130 ms every 1.2 s, is concealed (aaudio_output.c) rather than buffered for.
     static final int MAX_RESERVE_MS = 40;
+    // How often a host sends audio: Windows hands its loopback capture over every 10 ms, and the
+    // packets of that period go out at once (Sunshine and Rubylight alike).
+    static final int HOST_PERIOD_MS = 10;
 
     private final int burst;
     private final int minimum;
@@ -54,6 +57,17 @@ final class AudioBufferPolicy {
         int limit = Math.min(8 * burst, Math.max(2 * burst, maxReserveFrames(sampleRate) / burst * burst));
         return new AudioBufferPolicy(burst, Math.min(capacity, Math.max(burst * 2, initial)), initial, underruns,
                 nowMs, Math.min(capacity / burst * burst, limit));
+    }
+
+    /**
+     * The AAudio reserve a stream starts with, and never shrinks below: one host delivery period
+     * (HOST_PERIOD_MS) plus one burst, at least two bursts. Hosts send the packets of each capture
+     * period together, so a 5 ms packet can come 5 ms after its pair, and the callback takes a whole
+     * burst at once; two 4 ms bursts held 1 to 3 ms of jitter and underran within a second of the
+     * first audio.
+     */
+    static int reserveStartFrames(int burst, int sampleRate) {
+        return Math.max(2 * burst, Math.max(0, sampleRate) / 1000 * HOST_PERIOD_MS + burst);
     }
 
     static int maxReserveFrames(int sampleRate) {

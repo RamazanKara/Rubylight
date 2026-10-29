@@ -214,6 +214,24 @@ public class AudioBufferPolicyTest {
         assertEquals(1920, AudioBufferPolicy.maxReserveFrames(48000));
     }
 
+    @Test public void aaudioReserveStartsWithAHostPeriodAndABurst() {
+        // Retroid: 4 ms bursts. Two (8 ms) underran within a second of the first audio, as the host's
+        // 5 ms packets come in pairs every 10 ms; it starts, and stays at least, at 10 ms plus a burst.
+        int retroid = AudioBufferPolicy.reserveStartFrames(192, 48000);
+        assertEquals(480 + 192, retroid);
+        AudioBufferPolicy policy = AudioBufferPolicy.forReserve(192, 4096, retroid, 0, 0, 48000);
+        assertEquals(672, policy.frames());
+        assertEquals(8 * 192, policy.limit());
+        assertEquals(864, policy.sample(1, 1000));
+        for (long t = 2000; t < 120000; t += 1000) policy.sample(1, t);
+        assertEquals(672, policy.frames());
+        // A 2 ms burst gets the same 10 ms plus its burst; a TV's two 18 ms bursts already cover it.
+        assertEquals(576, AudioBufferPolicy.reserveStartFrames(96, 48000));
+        assertEquals(2 * 864, AudioBufferPolicy.reserveStartFrames(864, 48000));
+        assertEquals(2 * 864, AudioBufferPolicy.forReserve(864, 16384,
+                AudioBufferPolicy.reserveStartFrames(864, 48000), 0, 0, 48000).frames());
+    }
+
     @Test public void fastTrackHoldsAtLeastOneOutputBurstAndAPacket() {
         // TV: the fast mixer takes 864 frames a cycle. A 480-frame buffer starved every cycle and the
         // stream lost 10% of its packets to the 40 ms bound.

@@ -170,7 +170,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 int[] stats = nativeAudioStats(nativeAudio);
                 long now = SystemClock.uptimeMillis();
                 bufferPolicy = new AudioBufferPolicy(stats[0], stats[8], stats[4], stats[5], now);
-                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], stats[2], stats[6], now, sampleRate);
+                // Before the first packet: the ring has not primed, so the larger start only delays that.
+                int start = nativeAudioReserve(nativeAudio, AudioBufferPolicy.reserveStartFrames(stats[0], sampleRate));
+                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], start, stats[6], now, sampleRate);
+                stats = nativeAudioStats(nativeAudio);
                 setReserve(stats[2]);
                 LimeLog.info("Audio output: AAudio low latency, burst " + stats[0] + ", reserve " + stats[2] +
                         " frames (limit " + reservePolicy.limit() + "), device buffer " + stats[4] + " of " + stats[8]);

@@ -35,8 +35,9 @@ fn background_mode_survives_a_deferred_launch() {
 #[test]
 fn a_launch_fails_when_neural_rendering_is_broken_or_busy() {
     let fixture = Fixture::new();
-    // In a library's `common`, where the anti-cheat search stops.
-    let folder = fixture.host.directory.join(r"library\common\Game");
+    // In the temp folder, under `%LOCALAPPDATA%`: other games' anti-cheat
+    // there (BattlEye's own folder) doesn't refuse this one.
+    let folder = fixture.host.directory.join("Game");
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join("Game.exe"), "MZ").unwrap();
     let app: App = serde_json::from_value(json!({"name": "Game", "uuid": "game",

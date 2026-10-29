@@ -520,6 +520,47 @@ fn anti_cheat_installed_for_every_game_does_not_refuse_one() {
     assert!(reason.contains("Easy Anti-Cheat"), "{reason}");
 }
 
+/// A game in the user's profile whose install is not known: BattlEye's own
+/// folder in `%LOCALAPPDATA%` is no game's, so the search above the .exe
+/// stops at the profile's folders, whatever their case. A studio's
+/// anti-cheat beside its game below them still refuses it.
+#[test]
+fn anti_cheat_in_the_users_profile_does_not_refuse_a_game_there() {
+    let temp = tempdir();
+    let profile = temp.path().join("Player");
+    let local = profile.join(r"AppData\Local");
+    std::fs::create_dir_all(local.join("BattlEye")).unwrap();
+    std::fs::create_dir_all(local.join(r"Games\Game")).unwrap();
+    let exe = local.join(r"Games\Game\Game.exe");
+    std::fs::write(&exe, "MZ").unwrap();
+    let shared = [
+        profile.clone(),
+        profile.join(r"AppData\Roaming"),
+        PathBuf::from(local.to_string_lossy().to_uppercase()),
+    ];
+    let refusal =
+        |exe: &Path, shared: &[PathBuf]| super::folder::anti_cheat_refusal(exe, None, shared);
+    // Without the profile's folders the search reaches BattlEye's.
+    let error = refusal(&exe, &[]).unwrap_err();
+    assert!(error.contains("BattlEye"), "{error}");
+    assert_eq!(refusal(&exe, &shared), Ok(()));
+
+    let studio = local.join("Studio");
+    std::fs::create_dir_all(studio.join("EasyAntiCheat")).unwrap();
+    std::fs::create_dir_all(studio.join(r"Game\Bin")).unwrap();
+    let exe = studio.join(r"Game\Bin\Game.exe");
+    std::fs::write(&exe, "MZ").unwrap();
+    let error = refusal(&exe, &shared).unwrap_err();
+    assert!(error.contains("Easy Anti-Cheat"), "{error}");
+
+    // This account's own.
+    let by_place = super::folder::shared_folders();
+    for name in ["USERPROFILE", "LOCALAPPDATA", "APPDATA"] {
+        let root = PathBuf::from(std::env::var_os(name).unwrap());
+        assert!(by_place.contains(&root), "{name}");
+    }
+}
+
 /// `path` open without delete sharing, as a running game or a scanner may
 /// hold a DLL: it can be neither replaced nor deleted until dropped.
 fn hold(path: &Path) -> std::fs::File {

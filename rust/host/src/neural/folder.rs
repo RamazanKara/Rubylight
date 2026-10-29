@@ -427,9 +427,10 @@ fn same(a: &Path, b: &Path) -> bool {
     a.components().count() == b.components().count() && inside(a, b)
 }
 
-/// A folder that holds other programs: a drive's root, a library's `common`
-/// folder or a Program Files folder.
-fn holds_others(folder: &Path) -> bool {
+/// A folder that holds other programs or their data: a drive's root, a
+/// library's `common` folder, or one of the `shared` folders
+/// ([`shared_folders`]).
+fn holds_others(folder: &Path, shared: &[PathBuf]) -> bool {
     let Some(name) = folder.file_name() else {
         return true;
     };
@@ -437,18 +438,49 @@ fn holds_others(folder: &Path) -> bool {
     ["common", "Program Files", "Program Files (x86)"]
         .iter()
         .any(|other| name.eq_ignore_ascii_case(other))
-        || ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
-            .into_iter()
-            .filter_map(std::env::var_os)
-            .any(|root| same(folder, Path::new(&root)))
+        || shared.iter().any(|root| same(folder, root))
+}
+
+/// The folders known by place to hold other programs or their data: the
+/// Program Files folders and the user's profile and `AppData` folders
+/// (`%LOCALAPPDATA%\BattlEye` is no game's own).
+pub(super) fn shared_folders() -> Vec<PathBuf> {
+    [
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+    ]
+    .into_iter()
+    .filter_map(std::env::var_os)
+    .filter(|root| !root.is_empty())
+    .map(PathBuf::from)
+    .collect()
+}
+
+/// [`refuse_anti_cheat_in`] with this account's [`shared_folders`].
+fn refuse_anti_cheat(exe: &Path, install: Option<&Path>) -> Outcome<()> {
+    refuse_anti_cheat_in(exe, install, &shared_folders())
+}
+/// [`refuse_anti_cheat_in`] for a test's own shared folders, and why it refused.
+#[cfg(test)]
+pub(super) fn anti_cheat_refusal(
+    exe: &Path,
+    install: Option<&Path>,
+    shared: &[PathBuf],
+) -> Result<(), String> {
+    refuse_anti_cheat_in(exe, install, shared).map_err(|failure| failure.message())
 }
 
 /// Refuse a game with anti-cheat anywhere in its install or below its .exe,
 /// or beside the three folders above the .exe (an Unreal game's
-/// `EasyAntiCheat` sits three up). That last search stays in the install
-/// and stops at a folder that holds other programs ([`holds_others`]). An
-/// install too big to search through is refused too.
-fn refuse_anti_cheat(exe: &Path, install: Option<&Path>) -> Outcome<()> {
+/// `EasyAntiCheat` sits three up): only each folder's own entries, and the
+/// search stays in the install and stops at a folder that holds other
+/// programs ([`holds_others`]). An install too big to search through is
+/// refused too.
+fn refuse_anti_cheat_in(exe: &Path, install: Option<&Path>, shared: &[PathBuf]) -> Outcome<()> {
     let found = |path: &Path| {
         let name = path.file_name()?.to_string_lossy().into_owned();
         neural::anti_cheat(&name).map(|which| (which, path.to_path_buf()))
@@ -471,7 +503,7 @@ fn refuse_anti_cheat(exe: &Path, install: Option<&Path>) -> Outcome<()> {
     let within = install.filter(|install| inside(own, install));
     for above in own.ancestors().skip(1).take(3) {
         if hit.is_some()
-            || holds_others(above)
+            || holds_others(above, shared)
             || within.is_some_and(|install| !inside(above, install))
         {
             break;

@@ -791,12 +791,12 @@ async fn otp_handshake_persists_the_device_name_and_consumes_the_pin_once() {
     assert!(!saved.clients[0].extra.contains_key("host_control"));
     assert!(!saved.clients[0].allows_host_control());
     assert!(f.host.pairings.lock().unwrap().sessions.is_empty());
-    assert!(
+    assert_eq!(
         do_pair(f.host.clone(), &args, peer)
             .await
             .unwrap_err()
-            .to_string()
-            .contains("not available")
+            .to_string(),
+        crate::state::ONE_TIME_PIN_SPENT
     );
 }
 
@@ -986,7 +986,75 @@ async fn the_qr_code_and_the_typed_pin_each_pair_once_with_their_own_access() {
     // Each worked once.
     let again = device_request(&scanned, "scanned", Some(("5678", "qr phrase")));
     let error = do_pair(f.host.clone(), &again, peer).await.unwrap_err();
-    assert!(error.to_string().contains("not available"), "{error}");
+    assert_eq!(error.to_string(), crate::state::ONE_TIME_PIN_SPENT);
+}
+
+/// What a client reads from `/pair` over plain HTTP, as Moonlight asks for the
+/// server certificate: the HTTP status and the XML body.
+async fn pair_over_http(f: &Fixture, args: &Args) -> (StatusCode, String) {
+    let query = args
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let plain = Connection {
+        peer: "127.0.0.1:50000".parse().unwrap(),
+        local: "127.0.0.1:47989".parse().unwrap(),
+        certificate: None,
+        tls: false,
+    };
+    let request = Request::builder()
+        .uri(format!("/pair?{query}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = router(f.host.clone(), false)
+        .layer(Extension(plain))
+        .oneshot(request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), 65536).await.unwrap();
+    (status, String::from_utf8(body.to_vec()).unwrap())
+}
+
+#[tokio::test]
+async fn a_replayed_pairing_link_with_no_live_code_is_refused_with_400() {
+    let f = Fixture::new();
+    let scanned = crypto::Identity::generate().unwrap();
+    let link = device_request(&scanned, "scanned", Some(("5678", "qr phrase")));
+    let refused = |body: &str| {
+        // A refusal in the XML status, as every other pairing refusal: Nightjar
+        // shows "show a new code" for a 4xx and network advice for anything else.
+        body.contains("status_code=\"400\"")
+            && body.contains("<paired>0</paired>")
+            && body.contains("show a new one on the PC")
+    };
+    // No code was ever shown.
+    let (status, body) = pair_over_http(&f, &link).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(refused(&body), "{body}");
+
+    // The link pairs once...
+    f.host.otp.lock().unwrap().qr = Some(one_time_pin("5678", "qr phrase", None));
+    let (status, body) = pair_over_http(&f, &link).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("<paired>1</paired>"), "{body}");
+    finish_pairing(&f, &scanned, "scanned", "5678")
+        .await
+        .unwrap();
+    // ...and replaying it, with no code live, is refused rather than dropped.
+    let (status, body) = pair_over_http(&f, &link).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(refused(&body), "{body}");
+
+    // So is a link whose code expired.
+    let mut expired = one_time_pin("5678", "qr phrase", None);
+    expired.created -= crate::state::ONE_TIME_PIN_LIFETIME;
+    f.host.otp.lock().unwrap().qr = Some(expired);
+    let (status, body) = pair_over_http(&f, &link).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(refused(&body), "{body}");
+    assert!(f.host.otp.lock().unwrap().qr.is_none());
 }
 
 #[tokio::test]

@@ -145,6 +145,9 @@ impl OtpMisses {
     }
 }
 pub const ONE_TIME_PIN_LIFETIME: Duration = Duration::from_secs(180);
+/// Why a one-time PIN pairing found no live PIN.
+pub const ONE_TIME_PIN_SPENT: &str =
+    "no one-time pairing code is live: it was used or has expired; show a new one on the PC";
 impl OneTimePin {
     pub fn live(&self) -> bool {
         self.created.elapsed() < ONE_TIME_PIN_LIFETIME
@@ -193,7 +196,9 @@ impl OneTimePins {
             }
         }
         if !live {
-            anyhow::bail!("OTP pairing is not available");
+            // Used, expired or never shown: `pair` answers 400, which clients
+            // show as a refused code rather than an unreachable PC.
+            anyhow::bail!("{ONE_TIME_PIN_SPENT}");
         }
         if !tried {
             anyhow::bail!("too many wrong one-time PIN answers from this address");

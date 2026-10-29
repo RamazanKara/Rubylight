@@ -101,6 +101,8 @@ Expand-Archive $zip -DestinationPath $out
 
 . "$PSScriptRoot\check_streams.ps1"
 Initialize-CheckLocks $LockDirectory -GpuLockHeld:$GpuLockHeld
+# Gone with this process if the check stops early: build-lock.ps1 checks the pid.
+$priority = Enter-CheckPriority
 
 Step 'test receivers and probes'
 git -C $checkout submodule update --init --recursive --depth 1 third-party/moonlight-common-c
@@ -191,6 +193,8 @@ if (-not $NoInstall) {
     }
 }
 
+# The streams are done: builds may queue again.
+Exit-CheckPriority $priority
 Step 'record results'
 $gpu = (Get-CimInstance Win32_VideoController | Where-Object Name -NotMatch 'Virtual|Basic|Idd' | Select-Object -First 1).Name
 $record = @('--version', $Version, '--package', $package, '--work', $run, '--out', "$run\VALIDATION.json",

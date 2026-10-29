@@ -1074,6 +1074,17 @@ Set-Content -LiteralPath (Join-Path $Locks 'ready') 'go'
 Exit-CheckLocks @{ gpu = 'G'; build = 'B' }
 'DONE'
 """
+# Prints the ticket it wrote, the file while held, and the file after Exit.
+PRIORITY_DRIVER = """param([string]$Locks)
+$ErrorActionPreference = 'Stop'
+. $env:CHECK_STREAMS
+Initialize-CheckLocks $Locks 3>$null
+$written = Enter-CheckPriority
+"$written"
+"$(Read-Lock (Join-Path $Locks 'PRIORITY'))"
+Exit-CheckPriority $written
+if (Test-Path -LiteralPath (Join-Path $Locks 'PRIORITY')) { 'left' } else { 'gone' }
+"""
 
 
 @unittest.skipUnless(shutil.which('pwsh'), 'PowerShell 7')
@@ -1281,6 +1292,37 @@ class CheckStreams(unittest.TestCase):
         self.assertNotIn('$tools\\e2e.py', check)
         builds = check[check.index('$held = Enter-CheckBuildLock'):check.index('Exit-CheckLocks $held')]
         self.assertIn('cargo build', builds)
+        # Other sessions' builds wait from the first fixture build to the last stream.
+        streams = check[check.index('$priority = Enter-CheckPriority'):check.index('Exit-CheckPriority $priority')]
+        self.assertIn('$held = Enter-CheckBuildLock', streams)
+        self.assertIn('Invoke-StreamCase $case $stream $run', streams)
+
+    def test_the_priority_ticket_names_this_run_and_replaces_only_a_dead_one(self):
+        (self.root / 'priority.ps1').write_text(PRIORITY_DRIVER)
+        ticket = self.locks / 'PRIORITY'
+        def run(**env):
+            return subprocess.run(['pwsh', '-NoProfile', '-File', str(self.root / 'priority.ps1'), '-Locks', str(self.locks)],
+                                  capture_output=True, text=True, timeout=60,
+                                  env=dict(os.environ, CHECK_STREAMS=str(ROOT / 'rust/release/check_streams.ps1'), **env))
+        first = run()
+        written, during, after = first.stdout.splitlines()[-3:]
+        self.assertRegex(written, r'^release check\.ps1 \S+ pid=\d+ start=\S+$', first.stdout + first.stderr)
+        self.assertEqual(during, written)
+        self.assertEqual(after, 'gone')
+        gone = subprocess.Popen([sys.executable, '-c', ''])
+        gone.wait()
+        # This test's process is alive but started at another time: its id was reused.
+        for left, kept in ((f'release check.ps1 x pid={os.getpid()} start=2001-01-01T00:00:00.0000000Z', False),
+                           (f'release check.ps1 x pid={os.getpid()}', True), (f'release check.ps1 x pid={gone.pid}', False)):
+            with self.subTest(left=left):
+                ticket.write_text(left)
+                second = run()
+                written = second.stdout.splitlines()[-3]
+                self.assertEqual(written == '', kept, second.stdout + second.stderr)
+                self.assertEqual(ticket.exists(), kept)
+                ticket.unlink(missing_ok=True)
+        (self.locks / 'build-lock.ps1').unlink()
+        self.assertEqual(run().stdout.splitlines()[-3:], ['', '', 'gone'])
 
     @unittest.skipUnless(os.name == 'nt', 'a .cmd stand-in for Python')
     def test_soak_stops_when_the_quiet_wait_fails(self):

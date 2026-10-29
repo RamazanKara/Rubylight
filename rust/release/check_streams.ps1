@@ -17,6 +17,7 @@ function Initialize-CheckLocks([string] $Directory, [switch] $GpuLockHeld) {
     $script:CheckLocks = Test-Path -LiteralPath (Join-Path $Directory 'build-lock.ps1')
     $script:CheckBuildLock = Join-Path $Directory 'BUILD-LOCK'
     $script:CheckGpuLock = Join-Path $Directory 'GPU-LOCK'
+    $script:CheckPriority = Join-Path $Directory 'PRIORITY'
     $script:CheckGpuHeld = [bool] $GpuLockHeld
     $script:CheckAncestors = $null
     # Waiters poll BUILD-LOCK every 15 s (build-lock.ps1) and GPU-LOCK every
@@ -144,6 +145,44 @@ function Enter-CheckBuildLock {
         if (Remove-StaleBuildLock) { continue }
         Write-Holder 'the build lock' $script:CheckBuildLock
         Start-Sleep -Seconds 15
+    }
+}
+
+# The priority ticket: while this process lives, build-lock.ps1's
+# Enter-BuildLock gives other sessions no new BUILD-LOCK, so their builds
+# cannot queue up between the check's steps (rc.5's check waited hours behind
+# them). "start=" tells a reused process id from this run. A ticket of
+# another live check stays; one left by a process that is gone is replaced.
+function Enter-CheckPriority {
+    if (-not $script:CheckLocks) { return $null }
+    $start = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
+    $text = "release check.ps1 $(Get-Date -Format o) pid=$PID start=$start"
+    while ($true) {
+        try { $file = [IO.File]::Open($script:CheckPriority, 'CreateNew', 'Write', 'None') } catch [IO.IOException] {
+            if (Test-PriorityAlive (Read-Lock $script:CheckPriority)) { return $null }
+            Invoke-LockFile { [IO.File]::Delete($script:CheckPriority) }
+            continue
+        }
+        try {
+            $writer = [IO.StreamWriter]::new($file)
+            $writer.Write($text)
+            $writer.Flush()
+        } finally { $file.Dispose() }
+        return $text
+    }
+}
+
+function Test-PriorityAlive([string] $Ticket) {
+    if (-not $Ticket -or $Ticket -notmatch '\bpid=(\d+)') { return $false }
+    $process = Get-Process -Id ([int] $Matches[1]) -ErrorAction SilentlyContinue
+    if (-not $process) { return $false }
+    if ($Ticket -notmatch '\bstart=(\S+)') { return $true }
+    $process.StartTime.ToUniversalTime().ToString('o') -eq $Matches[1]
+}
+
+function Exit-CheckPriority([string] $Written) {
+    if ($Written -and (Read-Lock $script:CheckPriority) -ceq $Written) {
+        Invoke-LockFile { [IO.File]::Delete($script:CheckPriority) }
     }
 }
 

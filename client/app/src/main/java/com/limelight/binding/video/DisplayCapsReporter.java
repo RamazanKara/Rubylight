@@ -1,5 +1,7 @@
 package com.limelight.binding.video;
 
+import com.limelight.utils.HdrBrightness;
+
 import java.util.Locale;
 import java.util.Objects;
 
@@ -40,8 +42,24 @@ public final class DisplayCapsReporter {
          * whose average is above the peak, or whose black level is 1 nit or more.
          */
         public static Caps of(boolean hdr, float maxNits, float maxAverageNits, float minNits) {
+            return of(hdr, maxNits, maxAverageNits, minNits, Float.NaN);
+        }
+
+        /**
+         * As above; a missing peak is estimated from Android's HDR/SDR ratio (NaN when it has
+         * none), as Moonlight V+ does (HdrBrightness.fromDisplay, 3e954d8).
+         */
+        public static Caps of(boolean hdr, float maxNits, float maxAverageNits, float minNits, float hdrSdrRatio) {
             float max = known(maxNits);
-            if (max < 1 || max > 10000) max = 0;
+            if (max < 1 || max > 10000) {
+                HdrBrightness estimate = HdrBrightness.fromDisplay(maxNits, minNits, maxAverageNits, hdrSdrRatio);
+                if (estimate != null) {
+                    // An estimate is no SDR level a phone reports as its peak: no plausibility floor.
+                    float min = estimate.minNits >= 0.9999f ? 0 : estimate.minNits;
+                    return new Caps(hdr, estimate.maxNits, estimate.maxFullFrameNits, min);
+                }
+                max = 0;
+            }
             float average = known(maxAverageNits);
             if (average > 10000) average = 0;
             // HDR panels peak well above 500 nits, but some phones report their SDR level as the
@@ -108,11 +126,17 @@ public final class DisplayCapsReporter {
      * the current output stay fixed until another output is selected. Failed sends remain retryable.
      */
     public synchronized Caps update(String display, boolean hdr, float maxNits, float maxAverageNits, float minNits) {
+        return update(display, hdr, maxNits, maxAverageNits, minNits, Float.NaN);
+    }
+
+    /** As above, with the output's HDR/SDR ratio (NaN when unknown) for a missing peak. */
+    public synchronized Caps update(String display, boolean hdr, float maxNits, float maxAverageNits, float minNits,
+                                    float hdrSdrRatio) {
         Objects.requireNonNull(display);
         if (display.equals(lastDisplay)) {
             return null;
         }
-        Caps caps = Caps.of(hdr, maxNits, maxAverageNits, minNits);
+        Caps caps = Caps.of(hdr, maxNits, maxAverageNits, minNits, hdrSdrRatio);
         if (caps.equals(lastSent)) {
             lastDisplay = display;
             return null;

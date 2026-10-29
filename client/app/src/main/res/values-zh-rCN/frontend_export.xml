@@ -29,4 +29,5 @@
     <string name="frontend_sync_failed">%2$s 的 %1$s 游戏已不再同步：文件夹不可用。请在此电脑的设置中重新选择文件夹。</string>
     <string name="frontend_sync_failed_message">文件夹不可用，这些游戏已不再同步。请重新选择文件夹，或停止同步。</string>
     <string name="frontend_sync_failed_summary">同步已停止，文件夹不可用：%1$s</string>
+    <string name="frontend_sync_unavailable">此文件夹只允许本次访问，%1$s 无法保持同步。请选择本机或 SD 卡上的文件夹，以便保持最新。</string>
 </resources>

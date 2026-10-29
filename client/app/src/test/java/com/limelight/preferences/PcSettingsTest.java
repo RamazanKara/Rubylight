@@ -389,6 +389,56 @@ public class PcSettingsTest {
     }
 
     @Test
+    @Config(sdk = 25) // The test folder provider answers the pre-O query format only.
+    public void anExportWithoutLastingAccessSaysItCannotSync() throws Exception {
+        java.io.File root = java.nio.file.Files.createTempDirectory("export").toFile();
+        new java.io.File(root, "roms").mkdirs();
+        com.limelight.utils.FrontendExporterTest.TestDocuments provider = new com.limelight.utils.FrontendExporterTest.TestDocuments();
+        provider.root = root;
+        android.content.pm.ProviderInfo info = new android.content.pm.ProviderInfo();
+        info.authority = "com.limelight.test.grants";
+        info.exported = true;
+        info.grantUriPermissions = true;
+        info.readPermission = "android.permission.MANAGE_DOCUMENTS";
+        info.writePermission = "android.permission.MANAGE_DOCUMENTS";
+        provider.attachInfo(app, info);
+        org.robolectric.shadows.ShadowContentResolver.registerProviderInternal(info.authority, provider);
+        Uri roms = android.provider.DocumentsContract.buildTreeDocumentUri(info.authority, "roms");
+        try (OutputStream out = CacheHelper.openCacheFileForOutput(app.getCacheDir(), "applist", "grant-pc")) {
+            out.write("<root status_code=\"200\"><App><AppTitle>Game</AppTitle><ID>2</ID></App></root>"
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+        // The provider granted only that visit: no persisted permission for the folder.
+        FrontendExportStore store = new FrontendExportStore(app, "grant-pc", FrontendLauncher.BEACON);
+        store.save(roms, null);
+        ActivityController<HostStreamSettings> controller = open("grant-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            click(row(screen, "frontend_export"));
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView()
+                    .performItemClick(null, FrontendLauncher.BEACON.ordinal(), 0);
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView().performItemClick(null, 0, 0);
+            String unavailable = app.getString(R.string.frontend_sync_unavailable, app.getString(R.string.app_name));
+            String message = "";
+            for (int i = 0; i < 500 && !message.contains(unavailable); i++) {
+                Thread.sleep(10);
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                TextView text = ShadowDialog.getLatestDialog().findViewById(android.R.id.message);
+                message = text == null ? "" : text.getText().toString();
+            }
+
+            assertTrue(message, message.contains(unavailable));
+            assertFalse(message.contains(app.getString(R.string.frontend_sync_note, app.getString(R.string.app_name))));
+            assertTrue(new java.io.File(root, "roms/butterpollo/Game.art").isFile());
+            assertTrue(store.failed());
+            assertEquals(app.getString(R.string.frontend_sync_failed_summary, "Beacon"),
+                    row(screen, "frontend_export").getSummary().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void aLostExportFolderIsShownOnThePcAndOffersANewOne() throws Exception {
         new FrontendExportStore(app, "lost-pc", FrontendLauncher.ES_DE)
                 .save(Uri.parse("content://documents/tree/roms"), null);

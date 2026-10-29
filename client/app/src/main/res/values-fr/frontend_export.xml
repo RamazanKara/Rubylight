@@ -31,4 +31,5 @@
     <string name="frontend_sync_failed">Les jeux %1$s pour %2$s ne sont plus synchronisés : le dossier est indisponible. Choisissez-le à nouveau dans les paramètres du PC.</string>
     <string name="frontend_sync_failed_message">Le dossier est indisponible, ces jeux ne sont donc plus synchronisés. Choisissez-le à nouveau ou arrêtez la synchronisation.</string>
     <string name="frontend_sync_failed_summary">Synchronisation arrêtée, dossier indisponible : %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s ne peut pas garder ce dossier synchronisé, car il n\'a autorisé l\'accès qu\'une seule fois. Choisissez un dossier local ou sur la carte SD pour le tenir à jour.</string>
 </resources>

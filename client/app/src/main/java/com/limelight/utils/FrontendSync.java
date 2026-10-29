@@ -83,30 +83,33 @@ public final class FrontendSync {
         String fingerprint = null;
         for (FrontendLauncher launcher : FrontendExportStore.exported(context, computer.uuid)) {
             FrontendExportStore store = new FrontendExportStore(context, computer.uuid, launcher);
-            Uri roms = store.romsTree();
-            Uri esde = store.esdeTree();
-            if (roms == null || store.failed()) continue;
             if (apps == null) {
                 apps = exporter.loadApps();
                 // No cached list (or every game hidden) is no reason to empty the launcher.
                 if (apps.isEmpty()) return failed;
                 fingerprint = fingerprint(computer.name, apps);
             }
-            if (fingerprint.equals(store.fingerprint())) continue;
-            try {
-                if (!hasAccess(context, roms) || (esde != null && !hasAccess(context, esde))) {
-                    throw new IOException("No lasting access to the folder");
-                }
-                Map<String, String> covers = store.covers(esde);
-                synchronized (EXPORT_LOCK) {
+            Uri roms = null;
+            Uri esde = null;
+            // The folders, the cover record and the result are read and saved with the folder
+            // writes, so a manual export in between can't leave a stale cover record.
+            synchronized (EXPORT_LOCK) {
+                try {
+                    roms = store.romsTree();
+                    esde = store.esdeTree();
+                    if (roms == null || store.failed() || fingerprint.equals(store.fingerprint())) continue;
+                    if (!hasAccess(context, roms) || (esde != null && !hasAccess(context, esde))) {
+                        throw new IOException("No lasting access to the folder");
+                    }
+                    Map<String, String> covers = store.covers(esde);
                     exporter.export(apps, roms, esde, covers);
+                    store.saveIfUnchanged(roms, esde, fingerprint, covers);
+                    LimeLog.info("Frontend sync wrote " + apps.size() + " games for " + launcher.label);
+                } catch (IOException | RuntimeException e) {
+                    LimeLog.warning("Frontend sync for " + launcher.label + " stopped: " + e);
+                    // Stopped by the user or moved meanwhile: not this folder's failure to report.
+                    if (roms != null && store.markFailed(roms, esde)) failed.add(launcher);
                 }
-                store.saveIfUnchanged(roms, esde, fingerprint, covers);
-                LimeLog.info("Frontend sync wrote " + apps.size() + " games for " + launcher.label);
-            } catch (IOException | RuntimeException e) {
-                LimeLog.warning("Frontend sync for " + launcher.label + " stopped: " + e);
-                store.markFailed(roms);
-                failed.add(launcher);
             }
         }
         return failed;
@@ -132,7 +135,7 @@ public final class FrontendSync {
     }
 
     /** A folder picked once stays writable only with a persisted grant. */
-    static boolean hasAccess(Context context, Uri tree) {
+    public static boolean hasAccess(Context context, Uri tree) {
         for (UriPermission permission : context.getContentResolver().getPersistedUriPermissions()) {
             if (permission.getUri().equals(tree) && permission.isReadPermission() && permission.isWritePermission()) {
                 return true;

@@ -30,4 +30,5 @@
     <string name="frontend_sync_failed">%1$s games for %2$s are no longer kept in sync: the folder is unavailable. Pick it again in the PC\'s settings.</string>
     <string name="frontend_sync_failed_message">The folder is unavailable, so these games are no longer kept in sync. Pick it again, or stop syncing.</string>
     <string name="frontend_sync_failed_summary">Syncing stopped, folder unavailable: %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s can\'t keep this folder in sync because it only allowed access this once. Pick a local or SD card folder to keep it up to date.</string>
 </resources>

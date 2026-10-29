@@ -31,4 +31,5 @@
     <string name="frontend_sync_failed">Los juegos de %1$s para %2$s ya no se sincronizan: la carpeta no está disponible. Vuelve a elegirla en los ajustes del PC.</string>
     <string name="frontend_sync_failed_message">La carpeta no está disponible, así que estos juegos ya no se sincronizan. Vuelve a elegirla o deja de sincronizar.</string>
     <string name="frontend_sync_failed_summary">Sincronización detenida, carpeta no disponible: %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s no puede mantener esta carpeta sincronizada porque solo permitió el acceso esta vez. Elige una carpeta local o de la tarjeta SD para mantenerla al día.</string>
 </resources>

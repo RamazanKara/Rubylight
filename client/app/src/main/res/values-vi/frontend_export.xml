@@ -29,4 +29,5 @@
     <string name="frontend_sync_failed">Trò chơi %1$s của %2$s không còn được đồng bộ: không truy cập được thư mục. Hãy chọn lại thư mục trong cài đặt của PC.</string>
     <string name="frontend_sync_failed_message">Không truy cập được thư mục nên các trò chơi này không còn được đồng bộ. Hãy chọn lại thư mục hoặc dừng đồng bộ.</string>
     <string name="frontend_sync_failed_summary">Đã dừng đồng bộ, không truy cập được thư mục: %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s không thể giữ thư mục này đồng bộ vì nó chỉ cho phép truy cập lần này. Hãy chọn một thư mục trong máy hoặc thẻ SD để luôn được cập nhật.</string>
 </resources>

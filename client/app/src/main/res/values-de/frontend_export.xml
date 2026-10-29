@@ -30,4 +30,5 @@
     <string name="frontend_sync_failed">%1$s-Spiele für %2$s werden nicht mehr synchronisiert: Der Ordner ist nicht verfügbar. Wähle ihn in den Einstellungen des PCs erneut.</string>
     <string name="frontend_sync_failed_message">Der Ordner ist nicht verfügbar, daher werden diese Spiele nicht mehr synchronisiert. Wähle ihn erneut oder beende die Synchronisierung.</string>
     <string name="frontend_sync_failed_summary">Synchronisierung gestoppt, Ordner nicht verfügbar: %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s kann diesen Ordner nicht synchron halten, weil er den Zugriff nur einmal erlaubt hat. Wähle einen lokalen Ordner oder die SD-Karte, damit er aktuell bleibt.</string>
 </resources>

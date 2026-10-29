@@ -18,7 +18,8 @@ use std::{
 
 const PIPE_PREFIX: &str = r"\\.\pipe\Butterpollo.CodecProbe.";
 const TIMEOUT: Duration = Duration::from_secs(15);
-/// A probe takes about 0.4 s per mode; an AMF call over 2 s has hung.
+/// A packed probe takes about 0.4 s per mode; an AMF call over 2 s has hung.
+/// PyroWave's Vulkan probe takes about 2 s when healthy and is not judged.
 const HANG: Duration = Duration::from_secs(2);
 const FLAGS: u32 = 0x0780_0000;
 const STATUS_DLL_INIT_FAILED: u32 = 0xC000_0142;
@@ -73,9 +74,13 @@ fn early_exit(code: u32) -> anyhow::Error {
         anyhow::anyhow!(message)
     }
 }
-/// `requested` is when the worker got its request. A worker still running
-/// [`HANG`] after it when a stream stops it may hold an AMF call that hung,
-/// and the stream opens the encoder at once: that is warned about.
+/// `requested` is when the worker got a packed request, None for PyroWave
+/// or before the request. A worker still running [`HANG`] after it when a
+/// stream stops it may hold an AMF call that hung, and the stream opens the
+/// encoder at once: that is warned about.
+fn hang_watch(packed: Option<&Negotiated>) -> Option<Instant> {
+    packed.map(|_| Instant::now())
+}
 fn check_worker(
     exit_code: Option<u32>,
     now: Instant,
@@ -202,7 +207,7 @@ fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) ->
             BTreeMap::new()
         },
     })?;
-    let requested = Some(Instant::now());
+    let requested = hang_watch(packed);
     let reply = loop {
         if let Some(reply) = pipe.receive::<Reply>()? {
             break reply;
@@ -494,6 +499,21 @@ mod tests {
         assert!(log.contains("WARN"), "{log}");
         assert!(log.contains("the encoder may have hung"), "{log}");
         assert!(log.contains("elapsed_ms=2500"), "{log}");
+    }
+    /// PyroWave's healthy probe takes about 2 s, so a stream that stops a
+    /// slow one is no sign of a hung encoder; a packed request is judged.
+    #[test]
+    fn only_a_packed_probe_is_judged_for_an_encoder_hang() {
+        assert!(hang_watch(Some(&Negotiated::default())).is_some());
+        let requested = hang_watch(None);
+        assert!(requested.is_none());
+        let start = Instant::now();
+        let log = warnings(|| {
+            let now = start + Duration::from_millis(2500);
+            let error = check_worker(None, now, start + TIMEOUT, true, requested).unwrap_err();
+            assert!(error.is::<Interrupted>());
+        });
+        assert!(log.is_empty(), "{log}");
     }
     #[test]
     fn only_a_session_desktop_failure_is_worth_probing_again() {

@@ -1067,13 +1067,15 @@ impl Host {
         };
         // Only the modes the save newly allows are probed: the others keep
         // what their last probe found. During the startup probe the codecs
-        // are not known yet, and the probe after it checks them.
+        // are not known yet, and the probe after it checks them. With no
+        // standard codec found yet, the codec retry's next pass probes them.
         let mut new = now & !was;
+        let codecs = self.codecs.load(Ordering::Acquire);
         if !self.probing_codecs.load(Ordering::Acquire) {
-            let offerable = packed_modes_offerable(
-                &self.config.read().unwrap(),
-                self.codecs.load(Ordering::Acquire),
-            );
+            if codecs & STANDARD_CODECS == 0 {
+                new = 0;
+            }
+            let offerable = packed_modes_offerable(&self.config.read().unwrap(), codecs);
             self.warn_packed_codec_missing(new & !offerable);
             new &= offerable;
         }
@@ -1168,7 +1170,11 @@ impl Host {
         let live = || packed_modes_allowed(&self.config.read().unwrap());
         let codecs = self.codecs.load(Ordering::Acquire);
         let offerable = packed_modes_offerable(&config, codecs);
-        self.warn_packed_codec_missing(pending & packed_modes_allowed(&config) & !offerable);
+        // With no standard codec found, the codec retry's next pass probes
+        // the packed modes as well: nothing is missing yet.
+        if codecs & STANDARD_CODECS != 0 {
+            self.warn_packed_codec_missing(pending & packed_modes_allowed(&config) & !offerable);
+        }
         let modes = pending & offerable;
         if modes == 0 {
             return true;
@@ -2066,6 +2072,38 @@ mod tests {
             for mode in ["HEVC 8-bit", "HEVC 10-bit"] {
                 assert_eq!(log.matches(&format!("mode=\"{mode}\"")).count(), 1, "{log}");
             }
+            assert!(
+                log.contains("HEVC not found by the startup probe; restart the host"),
+                "{log}"
+            );
+        }
+
+        /// While the startup probe found no standard codec and retries, a
+        /// save leaves the packed modes to the next pass: no probe, and no
+        /// restart warning that would use up the one a missing codec gets.
+        #[test]
+        fn a_save_before_any_codec_is_found_leaves_the_modes_to_the_next_pass() {
+            fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                panic!("the next codec pass probes them")
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(0, Ordering::Release);
+            let path = f.host.directory.join("no-codec.log");
+            let log = logged(&path, || save(&f, "experimental_packed_444", "true", probe));
+            assert!(log.is_empty(), "{log}");
+            assert!(!f.host.packed_reprobing.load(Ordering::Acquire));
+            assert_eq!(f.host.packed_probe_pending.load(Ordering::Acquire), 0);
+            assert_eq!(offered(&f), 0);
+            // The next pass finds AV1 but not HEVC: the warning is still due.
+            f.host
+                .codecs
+                .store(0x1 | 0x10000 | 0x20000, Ordering::Release);
+            f.host
+                .packed_modes
+                .store(mode_bit(2, false) | mode_bit(2, true), Ordering::Release);
+            save(&f, "hevc_mode", "1", probe);
+            let path = f.host.directory.join("hevc-missing.log");
+            let log = logged(&path, || save(&f, "hevc_mode", "0", probe));
             assert!(
                 log.contains("HEVC not found by the startup probe; restart the host"),
                 "{log}"

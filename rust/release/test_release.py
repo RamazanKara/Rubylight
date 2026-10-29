@@ -998,6 +998,10 @@ class CheckStreams(unittest.TestCase):
         (self.locks / 'BUILD-LOCK').write_text('pacing2 narrow 2026-10-29T02:00:00 pid=4242')
         gpu_while_waiting = []
         def builder():
+            # From the check's first try on, as PowerShell takes a while to start.
+            deadline = time.monotonic() + 60
+            while not (self.locks / 'GPU-LOCK').exists() and time.monotonic() < deadline:
+                time.sleep(.01)
             for _ in range(20):
                 time.sleep(.1)
                 gpu_while_waiting.append((self.locks / 'GPU-LOCK').exists())

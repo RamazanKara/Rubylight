@@ -910,6 +910,7 @@ mod tests {
             supports_keyboard: false,
             hides_taskbar: false,
             own: false,
+            owner: None,
             admin: Vec::new(),
         }
     }

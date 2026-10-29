@@ -25,6 +25,9 @@ pub struct Handler {
     /// Rubylight's own one-player handler ([`super::generic`]), which only
     /// background streams use.
     pub own: bool,
+    /// The account (SID) one of Rubylight's own was written for; None in
+    /// one an earlier build wrote.
+    pub owner: Option<String>,
     /// The settings it uses that need Nucleus Co-op to run as administrator
     /// ([`needs_admin`]).
     pub admin: Vec<&'static str>,
@@ -178,6 +181,23 @@ fn literals(text: &str) -> Vec<(String, Literal)> {
     out
 }
 
+/// The account one of Rubylight's own handlers was written for: the SID
+/// on the line after its marker. None in another handler, or one an earlier
+/// build wrote.
+fn owner(text: &str) -> Option<String> {
+    if !super::generic::owns(text) {
+        return None;
+    }
+    let sid = text
+        .lines()
+        .nth(1)?
+        .trim()
+        .strip_prefix(super::generic::OWNER)?
+        .trim();
+    (sid.starts_with("S-1-") && sid[2..].chars().all(|c| c.is_ascii_digit() || c == '-'))
+        .then(|| sid.to_string())
+}
+
 /// Read a handler's file. An error names what is missing.
 pub fn parse(file: &str, text: &str) -> Result<Handler, String> {
     let values = literals(text);
@@ -212,6 +232,7 @@ pub fn parse(file: &str, text: &str) -> Result<Handler, String> {
         supports_keyboard: flag("SupportsKeyboard"),
         hides_taskbar: flag("HideTaskbar"),
         own: super::generic::owns(text),
+        owner: owner(text),
         // A value the script works out may be true.
         admin: ADMIN_FLAGS
             .into_iter()
@@ -326,11 +347,11 @@ fn same_path(a: &str, b: &str) -> bool {
 pub struct Catalog {
     pub handlers: Vec<Handler>,
     pub games: Vec<Game>,
-    /// The games in every account's list on this PC. The handlers folder is
+    /// The account (SID) whose list `games` holds. The handlers folder is
     /// the Nucleus Co-op folder's, which every account shares, and each
-    /// account's list is its own: a handler of ours another account's game
-    /// uses is not unused. None when a list could not be read.
-    pub everyone: Option<Vec<Game>>,
+    /// account's list is its own: only handlers written for this account
+    /// can be unused.
+    pub user: Option<String>,
 }
 impl Catalog {
     /// A hub or user handler: Rubylight's own are for background streams
@@ -424,23 +445,19 @@ impl Catalog {
             .collect()
     }
 
-    /// Rubylight's own handlers, but `current`'s, that no game in any
-    /// account's list uses: left by a removal or a write that failed
-    /// halfway. They go. None while an account's list is unknown.
+    /// Rubylight's own handlers written for [`Self::user`], but `current`'s,
+    /// that no game in their list uses: left by a removal or a write that
+    /// failed halfway. They go. Another account's, or one without an owner,
+    /// may be in a list only that account reads, and stays.
     pub fn unused(&self, current: Option<&str>) -> Vec<&Handler> {
-        let Some(everyone) = &self.everyone else {
+        let Some(user) = self.user.as_deref() else {
             return Vec::new();
         };
         self.handlers
             .iter()
             .filter(|own| own.own && Some(own.guid.as_str()) != current)
-            .filter(|own| {
-                !self
-                    .games
-                    .iter()
-                    .chain(everyone)
-                    .any(|game| game.guid == own.guid)
-            })
+            .filter(|own| own.owner.as_deref() == Some(user))
+            .filter(|own| !self.games.iter().any(|game| game.guid == own.guid))
             .collect()
     }
 
@@ -477,6 +494,9 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The account at the console in these tests.
+    const USER: &str = "S-1-5-21-1-2-3-1001";
 
     const HANDLER: &str = r#"
 // A test handler in the hub's style.
@@ -621,7 +641,7 @@ Game.SupportsKeyboard = true; // { not a block
                     exe_path: "C:\\Old\\Old.exe".into(),
                 },
             ],
-            everyone: Some(Vec::new()),
+            user: Some(USER.into()),
         }
     }
 
@@ -714,7 +734,7 @@ Game.SupportsKeyboard = true; // { not a block
             parse(
                 &format!("{guid}.js"),
                 &format!(
-                    "// Rubylight one-player handler v1\nGame.GUID='{guid}'\nGame.ExecutableName='Puzzle.exe'"
+                    "// Rubylight one-player handler v1\n// Written for {USER}\nGame.GUID='{guid}'\nGame.ExecutableName='Puzzle.exe'"
                 ),
             )
             .unwrap()
@@ -748,31 +768,60 @@ Game.SupportsKeyboard = true; // { not a block
     }
 
     #[test]
-    fn ours_another_account_uses_is_not_unused() {
+    fn only_ours_written_for_this_account_can_be_unused() {
+        // The handlers are the Nucleus folder's, shared by every account;
+        // each account's list is in its own profile, which the host never
+        // reads for another account.
         let mut c = catalog();
-        for guid in ["Rubylight-mine", "Rubylight-theirs"] {
+        for (guid, owner) in [
+            ("Rubylight-mine", format!("\n// Written for {USER}")),
+            (
+                "Rubylight-theirs",
+                "\n// Written for S-1-5-21-9-9-9-1002".into(),
+            ),
+            ("Rubylight-earlier", String::new()),
+            ("Rubylight-forged", "\n// Written for ..\\x".into()),
+        ] {
             c.handlers.push(
                 parse(
                     &format!("{guid}.js"),
                     &format!(
-                        "// Rubylight one-player handler v1\nGame.GUID='{guid}'\nGame.ExecutableName='{guid}.exe'"
+                        "// Rubylight one-player handler v1{owner}\nGame.GUID='{guid}'\nGame.ExecutableName='{guid}.exe'"
                     ),
                 )
                 .unwrap(),
             );
         }
-        // The handlers are the Nucleus folder's; the other account's list
-        // is in their own profile.
-        c.everyone = Some(vec![Game {
-            guid: "Rubylight-theirs".into(),
-            exe_path: "C:\\Theirs\\Theirs.exe".into(),
-        }]);
+        let owners: Vec<Option<&str>> =
+            c.handlers[3..].iter().map(|h| h.owner.as_deref()).collect();
+        assert_eq!(
+            owners,
+            [Some(USER), Some("S-1-5-21-9-9-9-1002"), None, None]
+        );
         let unused: Vec<&str> = c.unused(None).iter().map(|h| h.guid.as_str()).collect();
         assert_eq!(unused, ["Rubylight-mine"]);
-        // An account's list that could not be read could use any of them.
-        c.everyone = None;
+        // Nobody signed in: none.
+        c.user = None;
         assert!(c.unused(None).is_empty());
         assert!(c.stale(None).is_empty());
+        // A hub handler's comment never makes it ours.
+        let hub = parse(
+            "Hub.js",
+            &format!("// Written for {USER}\nGame.GUID='Hub'\nGame.ExecutableName='Hub.exe'"),
+        )
+        .unwrap();
+        assert_eq!((hub.own, hub.owner), (false, None));
+    }
+
+    #[test]
+    fn ours_names_the_account_it_was_written_for() {
+        let setup = super::super::generic::Setup::new(r"D:\Puzzle\Puzzle.exe", "Puzzle", None);
+        let written = parse(&setup.file(), &setup.handler_of(Some(USER))).unwrap();
+        assert!(written.own);
+        assert_eq!(written.owner.as_deref(), Some(USER));
+        assert_eq!(written.guid, setup.guid());
+        let earlier = parse(&setup.file(), &setup.handler()).unwrap();
+        assert_eq!((earlier.own, earlier.owner), (true, None));
     }
 
     #[test]

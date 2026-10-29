@@ -38,9 +38,11 @@ while Nucleus Co-op isn't running, and never over a file it did not write.
 Installing a hub handler for the same .exe doesn't remove the host's handler
 right away: the next Nucleus Co-op session of another game removes it and its
 entry, so Nucleus Co-op lets you add the game with the hub's handler. That
-session also removes a handler of the host's that no game uses in any
-Windows account's list (the `handlers` folder is shared, each account's list
-is its own). The host only ever removes its own files and entries. One it
+session also removes a handler the host wrote for you that no game in your
+list uses. The `handlers` folder is shared by every Windows account and each
+account's list is its own, so a handler written for another account, or by
+an earlier version, stays. The host only ever removes its own files and
+entries. One it
 can't remove shows as a warning on the stream and is tried again next time;
 an entry whose handler is gone does no harm, as Nucleus Co-op leaves it out
 when it loads the list. Another game with an .exe of the same name (Portal's

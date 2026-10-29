@@ -18,6 +18,9 @@ pub const PREFIX: &str = "Rubylight-";
 /// The first line of every handler Rubylight writes: the file is ours to
 /// rewrite. A file without it is never touched.
 pub const MARKER: &str = "// Rubylight one-player handler";
+/// The line after [`MARKER`] that names the account that wrote the handler
+/// (its SID): only that account's sweep removes it.
+pub const OWNER: &str = "// Written for ";
 /// Bumped when the template changes; a handler with another version is
 /// rewritten.
 const VERSION: u32 = 1;
@@ -117,21 +120,29 @@ impl Setup {
         format!("{}.js", self.guid())
     }
 
-    /// The handler's text.
+    /// The handler's text, as an earlier build wrote it: without an owner.
     pub fn handler(&self) -> String {
+        self.handler_of(None)
+    }
+
+    /// The handler's text, written for the account `owner` (a SID).
+    pub fn handler_of(&self, owner: Option<&str>) -> String {
         let name = if self.name.is_empty() {
             file_name(&self.exe_path)
         } else {
             &self.name
         };
-        let mut head = vec![
-            format!(
-                "{MARKER} v{VERSION}: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place."
-            ),
+        let mut head = vec![format!(
+            "{MARKER} v{VERSION}: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place."
+        )];
+        if let Some(owner) = owner {
+            head.push(format!("{OWNER}{owner}"));
+        }
+        head.extend([
             format!("Game.GUID = {};", js(&self.guid())),
             format!("Game.GameName = {};", js(name)),
             format!("Game.ExecutableName = {};", js(file_name(&self.exe_path))),
-        ];
+        ]);
         let arguments = self.arguments.trim();
         if !arguments.is_empty() {
             head.push(format!("Game.StartArguments = {};", js(arguments)));

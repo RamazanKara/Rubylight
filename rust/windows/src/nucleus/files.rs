@@ -12,19 +12,13 @@ use std::path::{Path, PathBuf};
 /// `folder`. `appdata` is the signed-in user's roaming folder, where release
 /// builds keep `Nucleus Coop\userprofile.json` (ALPHA builds keep it in
 /// `content`). A handler that cannot be read is left out with a log line;
-/// an unreadable game list is an error. Every account's list comes too
-/// ([`Catalog::everyone`]).
+/// an unreadable game list is an error. With `appdata`, the list is the
+/// signed-in user's ([`Catalog::user`]); another account's is never read.
 pub fn catalog(folder: &Path, appdata: Option<&Path>) -> Result<Catalog> {
-    catalog_in(folder, appdata, crate::child_session::profile_folders())
-}
-
-/// [`catalog`], with `accounts` the profile folder of each account on the PC.
-fn catalog_in(
-    folder: &Path,
-    appdata: Option<&Path>,
-    accounts: Result<Vec<PathBuf>>,
-) -> Result<Catalog> {
-    let mut catalog = Catalog::default();
+    let mut catalog = Catalog {
+        user: appdata.and_then(|_| crate::process::user_sid()),
+        ..Catalog::default()
+    };
     let handlers = folder.join("handlers");
     let entries = match std::fs::read_dir(&handlers) {
         Ok(entries) => entries.collect::<std::io::Result<Vec<_>>>()?,
@@ -66,36 +60,7 @@ fn catalog_in(
             }
         }
     }
-    catalog.everyone = match accounts.and_then(|accounts| everyones_games(&accounts)) {
-        Ok(games) => Some(games),
-        Err(error) => {
-            tracing::error!(
-                error = format!("{error:#}"),
-                "Nucleus Co-op: another account's game list was not read, so no handler of Rubylight's counts as unused"
-            );
-            None
-        }
-    };
     Ok(catalog)
-}
-
-/// The games in the release builds' list of each account whose profile
-/// folder is in `profiles` (`AppData\Roaming\Nucleus Coop`). A list that is
-/// there but can't be read is an error.
-fn everyones_games(profiles: &[PathBuf]) -> Result<Vec<handler::Game>> {
-    let mut games = Vec::new();
-    for profile in profiles {
-        let path = list(&profile.join("AppData").join("Roaming"));
-        let Some(text) = read_existing(&path)? else {
-            continue;
-        };
-        games.extend(
-            handler::user_games(&text)
-                .map_err(anyhow::Error::msg)
-                .with_context(|| path.display().to_string())?,
-        );
-    }
-    Ok(games)
 }
 
 fn read_text(path: &Path) -> Result<String> {
@@ -134,7 +99,10 @@ pub fn check_own(folder: &Path, setup: &Setup) -> Result<()> {
 /// changed. Returns the handler as Nucleus reads it.
 pub fn write_own(folder: &Path, appdata: &Path, setup: &Setup) -> Result<Handler> {
     let file = setup.file();
-    let text = setup.handler();
+    // Only its account's sweep may find it unused: the list it is in is theirs.
+    let owner = crate::process::user_sid()
+        .context("finding the signed-in user, whose game list the handler is for")?;
+    let text = setup.handler_of(Some(&owner));
     let handler = handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
     let handlers = folder.join("handlers");
     std::fs::create_dir_all(&handlers)
@@ -447,6 +415,11 @@ Game.MaxPlayers = 4;
         assert!(error.contains("userprofile.json"), "{error}");
     }
 
+    /// The handler as written for the account running the tests.
+    fn ours(setup: &Setup) -> String {
+        setup.handler_of(crate::process::user_sid().as_deref())
+    }
+
     #[test]
     fn rubylights_handler_is_written_and_its_game_added_beside_the_users() {
         let nucleus = tempfile::tempdir().unwrap();
@@ -464,7 +437,7 @@ Game.MaxPlayers = 4;
         assert_eq!(handler.guid, setup.guid());
         assert!(handler.own);
         let file = handlers.join(setup.file());
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), setup.handler());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), ours(&setup));
         assert_eq!(
             std::fs::read_to_string(handlers.join("Borderlands 2.js")).unwrap(),
             HANDLER
@@ -485,7 +458,7 @@ Game.MaxPlayers = 4;
         assert_eq!(std::fs::read_to_string(&list).unwrap(), written);
         std::fs::write(&file, format!("{}\r\n// v0", generic::MARKER)).unwrap();
         write_own(nucleus.path(), appdata.path(), &setup).unwrap();
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), setup.handler());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), ours(&setup));
         assert_eq!(std::fs::read_to_string(&list).unwrap(), written);
 
         // A file with our name that someone else wrote stays as it is.
@@ -613,56 +586,55 @@ Game.MaxPlayers = 4;
         .unwrap();
         let handlers = nucleus.path().join("handlers");
         std::fs::write(handlers.join("Other.js"), HANDLER).unwrap();
-        // Another account with a list, and one without.
-        let (theirs, empty) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let profiles = || Ok(vec![theirs.path().into(), empty.path().into()]);
-        let theirs_list = super::list(&theirs.path().join("AppData").join("Roaming"));
-        std::fs::create_dir_all(theirs_list.parent().unwrap()).unwrap();
-        std::fs::write(&theirs_list, r#"{"Games":[]}"#).unwrap();
-        let before = catalog_in(nucleus.path(), Some(appdata.path()), profiles()).unwrap();
+        let before = catalog(nucleus.path(), Some(appdata.path())).unwrap();
         let stale = before.stale(None);
         assert_eq!(stale.len(), 1);
         assert_eq!(stale[0].guid, setup.guid());
         remove_own(nucleus.path(), appdata.path(), stale[0]).unwrap();
         assert!(!handlers.join(setup.file()).exists());
         assert!(handlers.join("Other.js").exists());
-        let after = catalog_in(nucleus.path(), Some(appdata.path()), profiles()).unwrap();
+        let after = catalog(nucleus.path(), Some(appdata.path())).unwrap();
         assert!(after.stale(None).is_empty());
     }
 
     #[test]
-    fn ours_another_account_plays_stays() {
+    fn ours_another_account_or_an_earlier_build_wrote_stays() {
         let nucleus = tempfile::tempdir().unwrap();
-        let (mine, theirs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let setup = Setup::new(r"D:\Puzzle\Game.exe", "Puzzle", None);
-        // Another account wrote it, into the shared handlers folder and its
-        // own list in its profile.
-        let their_appdata = theirs.path().join("AppData").join("Roaming");
-        write_own(nucleus.path(), &their_appdata, &setup).unwrap();
-        let catalog = |profiles: Result<Vec<PathBuf>>| {
-            catalog_in(nucleus.path(), Some(mine.path()), profiles).unwrap()
-        };
-        assert!(
-            catalog(Ok(vec![theirs.path().into()]))
-                .stale(None)
-                .is_empty()
-        );
-        // A list that can't be read, or no account list at all: none goes.
-        assert!(
-            catalog(Err(anyhow::anyhow!("access denied")))
-                .stale(None)
-                .is_empty()
-        );
-        std::fs::write(list(&their_appdata), "{").unwrap();
-        let unread = catalog(Ok(vec![theirs.path().into()]));
-        assert!(unread.everyone.is_none());
-        assert!(unread.stale(None).is_empty());
-        // Once their list no longer has it, it goes.
-        std::fs::write(list(&their_appdata), r#"{"Games":[]}"#).unwrap();
-        assert_eq!(
-            catalog(Ok(vec![theirs.path().into()])).stale(None)[0].guid,
-            setup.guid()
-        );
+        let appdata = tempfile::tempdir().unwrap();
+        let handlers = nucleus.path().join("handlers");
+        std::fs::create_dir_all(&handlers).unwrap();
+        // Another account wrote one for its own list, which the host never
+        // reads; an earlier build wrote one without an owner.
+        let theirs = Setup::new(r"D:\Theirs\Game.exe", "Theirs", None);
+        std::fs::write(
+            handlers.join(theirs.file()),
+            theirs.handler_of(Some("S-1-5-21-9-9-9-1002")),
+        )
+        .unwrap();
+        let earlier = Setup::new(r"D:\Earlier\Game.exe", "Earlier", None);
+        std::fs::write(handlers.join(earlier.file()), earlier.handler()).unwrap();
+        // This account's, whose entry is gone.
+        let mine = Setup::new(r"D:\Mine\Game.exe", "Mine", None);
+        write_own(nucleus.path(), appdata.path(), &mine).unwrap();
+        let list = list(appdata.path());
+        let text = std::fs::read_to_string(&list).unwrap();
+        std::fs::write(
+            &list,
+            generic::remove_game(&text, &mine.guid()).unwrap().unwrap(),
+        )
+        .unwrap();
+        let catalog = catalog(nucleus.path(), Some(appdata.path())).unwrap();
+        assert_eq!(catalog.user, crate::process::user_sid());
+        let stale: Vec<&str> = catalog
+            .stale(None)
+            .iter()
+            .map(|h| h.guid.as_str())
+            .collect();
+        assert_eq!(stale, [mine.guid()]);
+        // Without a signed-in user's list, none.
+        let nobody = super::catalog(nucleus.path(), None).unwrap();
+        assert!(nobody.user.is_none());
+        assert!(nobody.stale(None).is_empty());
     }
 
     #[test]
@@ -689,14 +661,14 @@ Game.MaxPlayers = 4;
             error.contains("leaves a game whose handler is gone out"),
             "{error}"
         );
-        let left = catalog_in(nucleus.path(), Some(appdata.path()), Ok(Vec::new())).unwrap();
+        let left = catalog(nucleus.path(), Some(appdata.path())).unwrap();
         assert!(left.handlers.iter().all(|h| !h.own));
         assert!(left.stale(None).is_empty());
         assert!(left.playable().is_empty());
         // The game's next background stream writes the handler and keeps
         // the one entry.
         write_own(nucleus.path(), appdata.path(), &setup).unwrap();
-        let again = catalog_in(nucleus.path(), Some(appdata.path()), Ok(Vec::new())).unwrap();
+        let again = catalog(nucleus.path(), Some(appdata.path())).unwrap();
         assert_eq!(
             again
                 .games

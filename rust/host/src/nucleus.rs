@@ -2053,6 +2053,8 @@ pub(crate) mod fake {
 
     pub(crate) const GUID: &str = "Portal 2";
     pub(crate) const EXE: &str = r"C:\Games\Portal 2\portal2.exe";
+    /// The account signed in at the fake PC.
+    pub(crate) const USER: &str = "S-1-5-21-1-2-3-1001";
 
     pub(crate) struct Pc {
         pub unavailable: Mutex<Option<String>>,
@@ -2133,13 +2135,14 @@ pub(crate) mod fake {
                         supports_keyboard: false,
                         hides_taskbar: false,
                         own: false,
+                        owner: None,
                         admin: Vec::new(),
                     }],
                     games: vec![Game {
                         guid: GUID.into(),
                         exe_path: EXE.into(),
                     }],
-                    everyone: Some(Vec::new()),
+                    user: Some(USER.into()),
                 }),
                 free: Mutex::new(4),
                 start_error: Mutex::new(None),
@@ -2254,7 +2257,7 @@ pub(crate) mod fake {
                 anyhow::bail!(butterpollo_windows::nucleus::session::already_running(pid));
             }
             self.own.lock().unwrap().push(setup.clone());
-            butterpollo_core::nucleus::handler::parse(&setup.file(), &setup.handler())
+            butterpollo_core::nucleus::handler::parse(&setup.file(), &setup.handler_of(Some(USER)))
                 .map_err(anyhow::Error::msg)
         }
         fn remove_own(&self, _folder: &Path, own: &Handler) -> Result<()> {
@@ -3503,8 +3506,11 @@ mod tests {
             let mut catalog = pc.catalog.lock().unwrap();
             for setup in [&ours, &unused] {
                 catalog.handlers.push(
-                    butterpollo_core::nucleus::handler::parse(&setup.file(), &setup.handler())
-                        .unwrap(),
+                    butterpollo_core::nucleus::handler::parse(
+                        &setup.file(),
+                        &setup.handler_of(Some(fake::USER)),
+                    )
+                    .unwrap(),
                 );
             }
             catalog

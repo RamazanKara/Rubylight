@@ -3855,8 +3855,16 @@ mod tests {
         );
         assert!(pc.own.lock().unwrap().is_empty());
         assert!(pc.started.lock().unwrap().is_empty());
-        // The game page says so before a launch.
-        let statuses = registry.games(&apps, &config).unwrap().unwrap();
+        // The game page says so before a launch, of a game on this PC: one
+        // that is not says that first, as the launch does.
+        let dir = std::env::temp_dir().join(format!("nucleus-own-{}", uuid::Uuid::new_v4()));
+        let exe = dir.join("Ice").join("Ice.exe");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, b"").unwrap();
+        let mut here = apps.clone();
+        here[3] = app("Ice", &format!("\"{}\"", exe.display()));
+        let statuses = registry.games(&here, &config).unwrap().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
         assert!(
             matches!(&statuses[3], GameStatus::Missing(Missing::Refused { reason }) if reason.contains("nucleus_path")),
             "{:?}",
@@ -4097,11 +4105,13 @@ mod tests {
     }
 
     #[test]
-    fn a_user_copy_that_is_not_made_refuses_the_stream_with_the_window_open() {
+    fn a_user_copy_that_is_not_made_refuses_the_stream() {
         let (registry, pc, _) = setup();
         registry.open("").unwrap();
-        *pc.copy_error.lock().unwrap() =
-            Some(r"delete C:\ProgramData\Butterpollo\nucleus-user".into());
+        *pc.copy_error.lock().unwrap() = Some(
+            r"an administrator of this PC can delete C:\ProgramData\Butterpollo\nucleus-user"
+                .into(),
+        );
         let refused = background(
             &registry,
             &app("Ice", r"C:\NoSuchGames\Ice\Ice.exe"),
@@ -4112,14 +4122,15 @@ mod tests {
         .unwrap_err();
         assert_eq!(refused.status, 503);
         assert!(
-            refused
-                .message
-                .contains("the signed-in user's own copy of Nucleus Co-op was not made: delete"),
+            refused.message.contains(
+                "the signed-in user's own copy of Nucleus Co-op was not made: an administrator"
+            ),
             "{refused:?}"
         );
         assert!(pc.started.lock().unwrap().is_empty());
+        // Made only once the console's Nucleus Co-op is closed.
         assert!(
-            pc.windows.lock().unwrap()[0]
+            !pc.windows.lock().unwrap()[0]
                 .open
                 .load(std::sync::atomic::Ordering::Relaxed)
         );
@@ -5961,7 +5972,7 @@ mod tests {
         let config = Config::default();
         let warnings = Arc::new(Warnings::default());
         let mut desktop = butterpollo_windows::nucleus::desktop::Win32::default();
-        let before = windows_boxes(&mut desktop)?;
+        let boxes_before = windows_boxes(&mut desktop)?;
         let since = butterpollo_windows::process::now();
         let seat = registry
             .admit(Admission {
@@ -6052,7 +6063,7 @@ mod tests {
                 Phase::Running => break,
                 Phase::Ended(why) => anyhow::bail!("{why}"),
                 Phase::Starting => {
-                    no_message_box(&mut desktop, &before, since, &handler.executable)?;
+                    no_message_box(&mut desktop, &boxes_before, since, &handler.executable)?;
                     ensure!(
                         started.elapsed() < Duration::from_secs(180),
                         "not running after {:?}",
@@ -6194,7 +6205,7 @@ mod tests {
         println!("pad A held and released at XInput index {index}");
         let holding = Instant::now();
         while holding.elapsed() < hold {
-            no_message_box(&mut desktop, &before, since, &handler.executable)?;
+            no_message_box(&mut desktop, &boxes_before, since, &handler.executable)?;
             std::thread::sleep(Duration::from_millis(250));
         }
         let phase = instance.session(|s| s.phase.clone());

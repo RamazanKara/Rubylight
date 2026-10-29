@@ -608,7 +608,7 @@ fn verdict(
 ) -> Result<()> {
     let refused = |why: String| {
         anyhow::anyhow!(
-            "{why}, so Rubylight doesn't use it for Nucleus Co-op: delete {} and start the stream again",
+            "{why}, so Rubylight doesn't use it for Nucleus Co-op: an administrator of this PC can delete {}, then start the stream again",
             path.display()
         )
     };
@@ -658,7 +658,7 @@ fn remove_others(folder: &Path, key: &str, token: Option<&OwnedHandle>) -> Resul
         .file_attributes();
     ensure!(
         attributes & REPARSE_POINT == 0 && attributes & DIRECTORY != 0,
-        "{} is a link to elsewhere, so Rubylight removes nothing in it: delete it and start the stream again",
+        "{} is a link to elsewhere, so Rubylight removes nothing in it: an administrator of this PC can delete it, then start the stream again",
         folder.display()
     );
     let entries = as_user(token, || -> Result<Vec<(PathBuf, bool)>> {
@@ -1270,7 +1270,7 @@ mod tests {
         );
         assert!(
             other.to_string().ends_with(
-                r"delete C:\ProgramData\Butterpollo\nucleus-user and start the stream again"
+                r"an administrator of this PC can delete C:\ProgramData\Butterpollo\nucleus-user, then start the stream again"
             ),
             "{other}"
         );
@@ -1746,7 +1746,7 @@ mod tests {
         // the host's or %APPDATA%'s: the game is there with its handler.
         assert_eq!(
             files::listed_by_nucleus(copy.path()).unwrap(),
-            [own.guid.clone()]
+            std::slice::from_ref(&own.guid)
         );
         assert!(files::list(copy.path()).is_file());
         // A list the copy's Nucleus wrote in a way Rubylight can't edit

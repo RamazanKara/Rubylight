@@ -44,6 +44,7 @@
     <string name="host_details_features_none">No extra features reported</string>
 
     <string name="host_pyrowave_unavailable">This PC can’t stream PyroWave, so it uses %1$s.</string>
+    <string name="stream_pyrowave_device_unavailable">This device can’t run PyroWave, so the stream uses %1$s.\n%2$s</string>
     <string name="connection_test_intro_delay">Test the delay to your PC.</string>
     <string name="host_feature_cursor_shape">Cursor shapes</string>
 </resources>

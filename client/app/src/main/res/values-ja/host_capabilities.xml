@@ -39,6 +39,7 @@
     <string name="host_details_features_unknown">対応機能を確認するには、この PC に一度接続してください。</string>
     <string name="host_details_features_none">追加機能は報告されていません</string>
     <string name="host_pyrowave_unavailable">この PC は PyroWave でストリーミングできないため、%1$s を使用します。</string>
+    <string name="stream_pyrowave_device_unavailable">このデバイスでは PyroWave を使えないため、ストリームは %1$s を使用します。\n%2$s</string>
     <string name="connection_test_intro_delay">PC までの遅延をテストします。</string>
     <string name="host_feature_cursor_shape">カーソルの形状</string>
 </resources>

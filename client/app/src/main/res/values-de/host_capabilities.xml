@@ -42,6 +42,7 @@
     <string name="host_details_features_none">Keine zusätzlichen Funktionen gemeldet</string>
 
     <string name="host_pyrowave_unavailable">Dieser PC kann kein PyroWave streamen, daher wird %1$s verwendet.</string>
+    <string name="stream_pyrowave_device_unavailable">Dieses Gerät kann PyroWave nicht ausführen, daher nutzt der Stream %1$s.\n%2$s</string>
     <string name="connection_test_intro_delay">Teste die Latenz zum PC.</string>
     <string name="host_feature_cursor_shape">Mauszeigerformen</string>
 </resources>

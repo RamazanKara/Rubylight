@@ -1,4 +1,4 @@
-use super::folder::{Package, Request, Response, handle};
+use super::folder::{Package, Request, Response, Writer, handle};
 use super::*;
 use butterpollo_core::neural::{MANIFEST, Manifest};
 use std::io::Write as _;
@@ -117,6 +117,7 @@ fn install(exe: Option<&Path>, install: Option<&Path>, package: &Path) -> Respon
             install: install.map(Path::to_path_buf),
             package: package.to_path_buf(),
         },
+        Writer::User,
         &|_, _| {},
     )
 }
@@ -125,6 +126,7 @@ fn remove(exe: &Path) -> Response {
         Request::Remove {
             exe: exe.to_path_buf(),
         },
+        Writer::User,
         &|_, _| {},
     )
 }
@@ -135,6 +137,7 @@ fn prepare(exe: &Path, package: Option<&Path>) -> Response {
             install: None,
             package: package.map(Path::to_path_buf),
         },
+        Writer::User,
         &|_, _| {},
     )
 }
@@ -624,6 +627,7 @@ fn a_first_install_cut_short_leaves_nothing_behind() {
             install: None,
             package: cache.clone(),
         },
+        Writer::User,
         &|done, total| {
             if done == total {
                 let _ = std::fs::create_dir(&blocker);
@@ -636,6 +640,183 @@ fn a_first_install_cut_short_leaves_nothing_behind() {
     assert!(message.contains(MANIFEST), "{message}");
     std::fs::remove_dir(&blocker).unwrap();
     assert_eq!(names(folder), before);
+}
+
+/// A junction at `link` to `target`, as another account sharing a library
+/// could plant one.
+fn junction(link: &Path, target: &Path) {
+    // cmd takes a `/` in a path for an option.
+    let made = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .args([link, target].map(|path| path.to_string_lossy().replace('/', "\\")))
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{made:?}");
+}
+
+/// A link in the game's folder, or the folder itself a link, sends neither
+/// a copy nor a delete elsewhere.
+#[test]
+fn nothing_goes_through_a_link_in_the_games_folder() {
+    let temp = tempdir();
+    let old = release(temp.path(), "Alpha0.3.5.7", b"OptiScaler old");
+    let new = release(&temp.path().join("new"), "Alpha0.3.5.8", b"OptiScaler new");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    assert!(matches!(
+        install(Some(&exe), None, &old),
+        Response::Placed { .. }
+    ));
+    // The mod's folder swapped for a junction to one with the same file.
+    let elsewhere = temp.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("libxess.dll"), "xess").unwrap();
+    std::fs::remove_dir_all(folder.join("OptiScaler")).unwrap();
+    junction(&folder.join("OptiScaler"), &elsewhere);
+    let Response::Refused { reason } = remove(&exe) else {
+        panic!()
+    };
+    assert!(reason.contains("link"), "{reason}");
+    let Response::Refused { reason } = prepare(&exe, Some(&new)) else {
+        panic!()
+    };
+    assert!(reason.contains("link"), "{reason}");
+    assert_eq!(names(&elsewhere), ["libxess.dll"]);
+    assert_eq!(
+        std::fs::read(elsewhere.join("libxess.dll")).unwrap(),
+        b"xess"
+    );
+    std::fs::remove_dir(folder.join("OptiScaler")).unwrap();
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    assert_eq!(names(folder), before);
+
+    let linked = temp.path().join("library/common/Linked");
+    junction(&linked, folder);
+    let Response::Refused { reason } = install(Some(&linked.join("Game.exe")), None, &old) else {
+        panic!()
+    };
+    std::fs::remove_dir(&linked).unwrap();
+    assert!(reason.contains("link"), "{reason}");
+    assert_eq!(names(folder), before);
+}
+
+/// Everyone denied adding to `folder` until dropped, as Program Files is to users.
+struct Unwritable<'a>(&'a Path);
+impl<'a> Unwritable<'a> {
+    fn new(folder: &'a Path) -> Self {
+        let denied = std::process::Command::new("icacls")
+            .arg(folder)
+            .args(["/deny", "*S-1-1-0:(WD,AD)"])
+            .output()
+            .unwrap();
+        assert!(denied.status.success(), "{denied:?}");
+        Self(folder)
+    }
+}
+impl Drop for Unwritable<'_> {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("icacls")
+            .arg(self.0)
+            .args(["/remove:d", "*S-1-1-0"])
+            .output();
+    }
+}
+
+/// A folder the user may not write is the helper's answer, not an error: a
+/// SYSTEM host writes it only when nobody but administrators may change it
+/// or a folder above it, and a host that is not SYSTEM refuses.
+#[test]
+fn a_folder_only_administrators_may_write_is_written_only_by_system_and_only_then() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    let denied = Response::NotWritable {
+        folder: folder.to_path_buf(),
+    };
+    {
+        let _unwritable = Unwritable::new(folder);
+        assert_eq!(install(Some(&exe), None, &cache), denied);
+        assert_eq!(names(folder), before);
+    }
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    {
+        let _unwritable = Unwritable::new(folder);
+        assert_eq!(remove(&exe), denied);
+    }
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    assert_eq!(names(folder), before);
+
+    // This folder's user may change it: SYSTEM does not write it.
+    let response = handle(
+        Request::Install {
+            exe: Some(exe.clone()),
+            install: None,
+            package: cache.clone(),
+        },
+        Writer::System,
+        &|_, _| {},
+    );
+    let Response::Refused { reason } = response else {
+        panic!("{response:?}")
+    };
+    assert!(reason.contains("nobody but administrators"), "{reason}");
+    assert_eq!(names(folder), before);
+
+    // What the host does with the answer.
+    let placed = || Response::Placed {
+        exe: exe.clone(),
+        release: "Alpha0.3.5.8".into(),
+        proxy: "dxgi.dll".into(),
+        updated: false,
+    };
+    assert_eq!(as_system(denied.clone(), true, placed), placed());
+    let Response::Refused { reason } = as_system(denied, false, || unreachable!()) else {
+        panic!()
+    };
+    assert!(reason.contains(&folder.display().to_string()), "{reason}");
+    assert_eq!(as_system(placed(), true, || unreachable!()), placed());
+
+    // Who may change a folder: Program Files' owners only.
+    let trusted = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+    let security = |link, owner: &str, writers: &[&str]| super::folder::Security {
+        link,
+        owner: owner.into(),
+        writers: writers.iter().map(|sid| sid.to_string()).collect(),
+    };
+    let path = Path::new(r"C:\Program Files\Game");
+    let admins = ["S-1-5-18", "S-1-5-32-544", trusted];
+    assert_eq!(
+        super::folder::verdict(path, &security(false, trusted, &admins)),
+        Ok(())
+    );
+    assert_eq!(
+        super::folder::verdict(path, &security(false, "S-1-5-32-544", &[])),
+        Ok(())
+    );
+    for (security, problem) in [
+        (security(true, trusted, &admins), "link"),
+        (
+            security(false, "S-1-5-21-1-2-3-1001", &admins),
+            "owned by S-1-5-21-1-2-3-1001",
+        ),
+        (
+            security(false, trusted, &["S-1-5-18", "S-1-5-32-545"]),
+            "changed by S-1-5-32-545",
+        ),
+        (
+            security(false, trusted, &["S-1-5-18", "ACE type 9"]),
+            "changed by ACE type 9",
+        ),
+    ] {
+        let error = super::folder::verdict(path, &security).unwrap_err();
+        assert!(error.contains(problem), "{error}");
+    }
 }
 
 fn archive(path: &Path, files: &[(&str, &[u8])]) {

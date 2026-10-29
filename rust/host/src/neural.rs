@@ -21,7 +21,7 @@ use butterpollo_core::{
     neural::{self, Download, Gpu, Placed, Release},
     state::App,
 };
-use folder::{PACKAGE, Package, Request, Response};
+use folder::{PACKAGE, Package, Request, Response, Writer};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -258,28 +258,54 @@ fn run_child(flag: &str, input: &str, timeout: Duration, mut line: impl FnMut(&s
 }
 
 /// Run one folder request: in a helper with the signed-in user's token when
-/// this host is SYSTEM (game folders are the user's), here otherwise.
+/// this host is SYSTEM (game folders are the user's), here otherwise. A
+/// folder the user may not write goes to [`as_system`].
 fn run_folder(request: Request, progress: &dyn Fn(u64, u64)) -> Result<Response> {
-    if !butterpollo_windows::process::is_system() || cfg!(test) {
-        return Ok(folder::handle(request, progress));
-    }
-    let mut answer = None;
-    run_child(
-        folder::FLAG,
-        &serde_json::to_string(&request)?,
-        Duration::from_secs(30 * 60),
-        |line| {
-            if let Some(json) = line.strip_prefix(folder::ANSWER) {
-                answer = serde_json::from_str(json).ok();
-            } else if let Some((done, total)) = line
-                .strip_prefix(folder::PROGRESS)
-                .and_then(|rest| rest.split_once(' '))
-            {
-                progress(done.parse().unwrap_or(0), total.parse().unwrap_or(0));
-            }
+    let system = butterpollo_windows::process::is_system();
+    let answer = if !system || cfg!(test) {
+        folder::handle(request.clone(), Writer::User, progress)
+    } else {
+        let mut answer = None;
+        run_child(
+            folder::FLAG,
+            &serde_json::to_string(&request)?,
+            Duration::from_secs(30 * 60),
+            |line| {
+                if let Some(json) = line.strip_prefix(folder::ANSWER) {
+                    answer = serde_json::from_str(json).ok();
+                } else if let Some((done, total)) = line
+                    .strip_prefix(folder::PROGRESS)
+                    .and_then(|rest| rest.split_once(' '))
+                {
+                    progress(done.parse().unwrap_or(0), total.parse().unwrap_or(0));
+                }
+            },
+        )?;
+        answer.context("the Neural Rendering helper gave no answer")?
+    };
+    Ok(as_system(answer, system, || {
+        folder::handle(request, Writer::System, progress)
+    }))
+}
+
+/// The helper's answer, but for a folder the signed-in user may not write
+/// (a game in Program Files) this SYSTEM host's own: it writes the folder
+/// only when nobody but administrators may change it, and refuses
+/// otherwise ([`Writer::System`]). A host that is not SYSTEM refuses.
+fn as_system(answer: Response, system: bool, again: impl FnOnce() -> Response) -> Response {
+    match answer {
+        Response::NotWritable { folder } if system => {
+            tracing::info!(folder = %folder.display(), "Neural Rendering: only administrators may write the game's folder; the service checks it and writes it itself");
+            again()
+        }
+        Response::NotWritable { folder } => Response::Refused {
+            reason: format!(
+                "only administrators may change {}, and this Rubylight doesn't run as its service, which could",
+                folder.display()
+            ),
         },
-    )?;
-    answer.context("the Neural Rendering helper gave no answer")
+        answer => answer,
+    }
 }
 
 // ---- The user's acceptance and the update check's record ----
@@ -952,9 +978,9 @@ fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>)
             tracing::warn!(app = %app.name, error = %message, "Neural Rendering could not be installed");
             fail_job(h, uuid, message, false);
         }
-        Ok(Response::Removed { .. } | Response::Unreachable { .. }) => {
-            fail_job(h, uuid, "unexpected helper answer".into(), false)
-        }
+        Ok(
+            Response::Removed { .. } | Response::Unreachable { .. } | Response::NotWritable { .. },
+        ) => fail_job(h, uuid, "unexpected helper answer".into(), false),
         Err(error) => {
             tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering could not be installed");
             fail_job(h, uuid, format!("{error:#}"), false);
@@ -1026,7 +1052,9 @@ fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
             tracing::warn!(app = %name, error = %message, "Neural Rendering could not be removed");
             bail!("{message}")
         }
-        Response::Placed { .. } => bail!("unexpected helper answer"),
+        Response::Placed { .. } | Response::NotWritable { .. } => {
+            bail!("unexpected helper answer")
+        }
     }
 }
 
@@ -1238,7 +1266,7 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
             tracing::warn!(app = %app.name, error = %message, "Neural Rendering's check failed before the launch");
             bail!("{message}")
         }
-        Response::Removed { .. } | Response::Unreachable { .. } => {
+        Response::Removed { .. } | Response::Unreachable { .. } | Response::NotWritable { .. } => {
             bail!("unexpected helper answer")
         }
     }

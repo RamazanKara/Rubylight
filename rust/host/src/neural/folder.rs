@@ -2,10 +2,12 @@
 //! anti-cheat and other upscaler mods, place a cached package under a free
 //! proxy name, check it before a launch, and remove exactly what was placed.
 //!
-//! Game folders are the user's to write, so a SYSTEM host never touches them
-//! itself: it runs `butterpollo.exe --neural-folder` with the signed-in
-//! user's token ([`super::run_folder`]), and a junction planted in a game
-//! folder gains nothing the user could not do anyway.
+//! Game folders are the user's to write, so a SYSTEM host runs
+//! `butterpollo.exe --neural-folder` with the signed-in user's token
+//! ([`super::run_folder`]). It writes a folder itself only when the user may
+//! not and nobody but administrators may change it ([`Writer::System`]).
+//! Neither changes a folder through a link: one planted in a library that
+//! other accounts share would send a copy or a delete elsewhere.
 use butterpollo_core::neural::{
     self, MANIFEST, Manifest, Now, Occupant, PLACED_BY, PROXY_SOURCE, Placed, SETTINGS, SUMS,
 };
@@ -14,6 +16,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, VecDeque},
     io::{BufRead, Read, Write},
+    os::windows::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
@@ -26,6 +29,9 @@ pub const PROGRESS: &str = "NEURAL-FOLDER-PROGRESS ";
 pub const PACKAGE: &str = "package.json";
 /// What a copy is called until it is complete.
 const PARTIAL: &str = ".rubylight-partial";
+/// What the user's helper creates and deletes to learn whether it may write
+/// the game's folder.
+const PROBE: &str = "rubylight-neural.probe";
 /// Files at least this big are checked by size before a launch; hashing the
 /// 760 MB model at every launch would delay the game.
 const HASHED_AT_LAUNCH: u64 = 64 << 20;
@@ -33,6 +39,26 @@ const HASHED_AT_LAUNCH: u64 = 64 << 20;
 /// much they see before they give up (less in tests, which fill a folder).
 const DEPTH: usize = 6;
 const ENTRIES: usize = if cfg!(test) { 1_000 } else { 50_000 };
+/// SYSTEM's, the Administrators group's and TrustedInstaller's (what Program
+/// Files holds).
+const ADMINISTRATORS: [&str; 3] = [
+    "S-1-5-18",
+    "S-1-5-32-544",
+    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+];
+/// A junction, symbolic link or other reparse point.
+const LINK: u32 = 0x400;
+
+/// Who writes the game's folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Writer {
+    /// The signed-in user's helper, or a host that is not SYSTEM.
+    User,
+    /// A SYSTEM host, in a folder the user may not write: only when it and
+    /// every folder above it are no links and nobody but administrators may
+    /// change them ([`administrators_only`]).
+    System,
+}
 
 /// A release in the host's cache: `files/` holds the package's contents and
 /// the runtime from the release's component, each checked against the
@@ -70,7 +96,7 @@ impl Package {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     /// Place `package` beside `exe`, or beside the game's .exe found in `install`.
@@ -91,7 +117,7 @@ pub enum Request {
     },
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Response {
     Placed {
@@ -119,9 +145,14 @@ pub enum Response {
     Error {
         message: String,
     },
+    /// The signed-in user may not write the game's folder (a game in
+    /// Program Files): a SYSTEM host may write it itself ([`Writer::System`]).
+    NotWritable {
+        folder: PathBuf,
+    },
 }
 
-pub fn handle(request: Request, progress: &dyn Fn(u64, u64)) -> Response {
+pub fn handle(request: Request, writer: Writer, progress: &dyn Fn(u64, u64)) -> Response {
     let result = match request {
         Request::Install {
             exe,
@@ -132,19 +163,20 @@ pub fn handle(request: Request, progress: &dyn Fn(u64, u64)) -> Response {
                 .map_err(Failure::Error)?
                 .with(package);
             refuse_anti_cheat(&exe, install.as_deref())?;
-            place(&exe, &package, progress)
+            place(&exe, &package, writer, progress)
         }),
         Request::Prepare {
             exe,
             install,
             package,
-        } => prepare(&exe, install.as_deref(), package, progress),
-        Request::Remove { exe } => remove(folder_of(&exe)),
+        } => prepare(&exe, install.as_deref(), package, writer, progress),
+        Request::Remove { exe } => remove(folder_of(&exe), writer),
     };
     result.unwrap_or_else(|failure| match failure {
         Failure::ChooseExe(reason) => Response::ChooseExe { reason },
         Failure::Refused(reason) => Response::Refused { reason },
         Failure::Error(message) => Response::Error { message },
+        Failure::NotWritable(folder) => Response::NotWritable { folder },
     })
 }
 
@@ -162,7 +194,7 @@ pub fn helper() -> i32 {
         }
     } else {
         match serde_json::from_str(&line) {
-            Ok(request) => handle(request, &|done, total| {
+            Ok(request) => handle(request, Writer::User, &|done, total| {
                 let mut out = std::io::stdout().lock();
                 let _ = writeln!(out, "{PROGRESS}{done} {total}");
                 let _ = out.flush();
@@ -187,11 +219,13 @@ enum Failure {
     ChooseExe(String),
     Refused(String),
     Error(String),
+    NotWritable(PathBuf),
 }
 impl Failure {
     fn message(&self) -> String {
         match self {
             Self::ChooseExe(text) | Self::Refused(text) | Self::Error(text) => text.clone(),
+            Self::NotWritable(folder) => format!("cannot write {}", folder.display()),
         }
     }
 }
@@ -476,6 +510,149 @@ fn state(folder: &Path, manifest: &Manifest, path: &str, quick: bool) -> Now {
     }
 }
 
+/// Refuse a link on the way from the game's folder to `relative` in it, the
+/// two included: a junction or symbolic link planted there would send a
+/// copy or a delete elsewhere. A SYSTEM host also refuses a folder on the
+/// way that anyone but administrators may change.
+fn guard(folder: &Path, relative: &str, writer: Writer) -> Outcome<()> {
+    let parts: Vec<&str> = relative
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
+    let mut path = folder.to_path_buf();
+    for depth in 0..=parts.len() {
+        if depth > 0 {
+            path.push(parts[depth - 1]);
+        }
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => {
+                return Err(Failure::Error(format!(
+                    "cannot read {}: {e}",
+                    path.display()
+                )));
+            }
+        };
+        if meta.file_attributes() & LINK != 0 {
+            return Err(Failure::Refused(format!(
+                "{} is a link to elsewhere, and Rubylight changes nothing through one",
+                path.display()
+            )));
+        }
+        if writer == Writer::System && depth > 0 && meta.is_dir() {
+            security(&path, false)
+                .map_err(|e| {
+                    Failure::Error(format!(
+                        "cannot check who may change {}: {e:#}",
+                        path.display()
+                    ))
+                })
+                .and_then(|security| verdict(&path, &security).map_err(Failure::Refused))?;
+        }
+    }
+    Ok(())
+}
+
+/// Who may change a folder, as [`verdict`] judges it.
+#[derive(Debug)]
+pub(super) struct Security {
+    pub link: bool,
+    pub owner: String,
+    /// Those its permissions let change it, or for a drive's root, move or
+    /// delete what it holds: a root lets users add folders, which moves nothing.
+    pub writers: Vec<String>,
+}
+
+fn security(path: &Path, root: bool) -> anyhow::Result<Security> {
+    use butterpollo_windows::process::{
+        open_file_child_movers, open_file_owner, open_file_writers, open_unfollowed,
+    };
+    let file = open_unfollowed(path, true)?;
+    Ok(Security {
+        link: file.metadata()?.file_attributes() & LINK != 0,
+        owner: open_file_owner(&file)?,
+        writers: if root {
+            open_file_child_movers(&file)
+        } else {
+            open_file_writers(&file)
+        }?,
+    })
+}
+
+/// Whether only administrators may change `path`.
+pub(super) fn verdict(path: &Path, security: &Security) -> Result<(), String> {
+    if security.link {
+        return Err(format!("{} is a link to elsewhere", path.display()));
+    }
+    if !ADMINISTRATORS.contains(&security.owner.as_str()) {
+        return Err(format!(
+            "{} is owned by {}, not by SYSTEM or Administrators",
+            path.display(),
+            security.owner
+        ));
+    }
+    match security
+        .writers
+        .iter()
+        .find(|sid| !ADMINISTRATORS.contains(&sid.as_str()))
+    {
+        Some(other) => Err(format!("{} can be changed by {other}", path.display())),
+        None => Ok(()),
+    }
+}
+
+/// A SYSTEM host's check before it writes `folder` for the user: it and
+/// every folder above it, the drive's root included, are no links and
+/// nobody but administrators may change them. Otherwise an ordinary account
+/// could swap one for a link and send SYSTEM's copies anywhere.
+fn administrators_only(folder: &Path) -> Result<(), String> {
+    for path in folder.ancestors().filter(|p| !p.as_os_str().is_empty()) {
+        let security = security(path, path.parent().is_none())
+            .map_err(|e| format!("cannot check who may change {}: {e:#}", path.display()))?;
+        verdict(path, &security)?;
+    }
+    Ok(())
+}
+
+/// Whether this process may change the game's folder. The user's helper
+/// tries, and answers [`Failure::NotWritable`] for a folder only
+/// administrators may write; a SYSTEM host writes only such a folder, and
+/// only when nobody else may change it ([`administrators_only`]).
+fn writable(folder: &Path, writer: Writer) -> Outcome<()> {
+    match writer {
+        Writer::User => {
+            guard(folder, PROBE, writer)?;
+            let probe = folder.join(PROBE);
+            let tried = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&probe)
+                .and_then(|file| {
+                    drop(file);
+                    std::fs::remove_file(&probe)
+                });
+            match tried {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    Err(Failure::NotWritable(folder.to_path_buf()))
+                }
+                Err(e) => Err(Failure::Error(format!(
+                    "cannot write {}: {e}",
+                    folder.display()
+                ))),
+            }
+        }
+        Writer::System => administrators_only(folder).map_err(|problem| {
+            Failure::Refused(format!(
+                "you may not change the game's folder {}, and Rubylight changes it for you only when nobody but administrators may: {problem}",
+                folder.display()
+            ))
+        }),
+    }
+}
+
 /// The manifest in `folder`, None when there is none.
 fn manifest(folder: &Path) -> Result<Option<Manifest>, String> {
     match std::fs::read_to_string(folder.join(MANIFEST)) {
@@ -490,9 +667,11 @@ fn manifest(folder: &Path) -> Result<Option<Manifest>, String> {
     }
 }
 
-fn write_manifest(folder: &Path, manifest: &Manifest) -> Outcome<()> {
+fn write_manifest(folder: &Path, manifest: &Manifest, writer: Writer) -> Outcome<()> {
     let path = folder.join(MANIFEST);
     let partial = partial(&path);
+    guard(folder, MANIFEST, writer)?;
+    guard(folder, &format!("{MANIFEST}{PARTIAL}"), writer)?;
     let text = serde_json::to_string_pretty(manifest).map_err(|e| Failure::Error(e.to_string()))?;
     std::fs::write(&partial, text)
         .and_then(|()| std::fs::rename(&partial, &path))
@@ -578,9 +757,15 @@ fn occupant(folder: &Path, name: &str, manifest: Option<&Manifest>) -> Occupant 
     }
 }
 
-fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Response> {
+fn place(
+    exe: &Path,
+    cached: &Cached,
+    writer: Writer,
+    progress: &dyn Fn(u64, u64),
+) -> Outcome<Response> {
     let folder = folder_of(exe);
     let package = &cached.package;
+    guard(folder, MANIFEST, writer)?;
     let old = manifest(folder).map_err(Failure::Error)?;
     let ours = |name: &str| {
         old.as_ref().is_some_and(|m| {
@@ -602,6 +787,7 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
     }
     let proxy =
         neural::proxy(|name| occupant(folder, name, old.as_ref())).map_err(Failure::Refused)?;
+    writable(folder, writer)?;
     // Each file of the package where it goes, the mod's DLL under the proxy
     // name. A file already as this release has it stays; one to copy keeps
     // the form the release before left, if any.
@@ -616,6 +802,7 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
         } else {
             path.clone()
         };
+        guard(folder, &target, writer)?;
         let forms: Vec<&Placed> = old
             .iter()
             .flat_map(|m| [m.files.get(&target), m.previous.get(&target)])
@@ -697,9 +884,10 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
         previous,
         folders,
     };
-    write_manifest(folder, &manifest)?;
+    write_manifest(folder, &manifest, writer)?;
     let placing = (|| {
         for relative in &make {
+            guard(folder, relative, writer)?;
             let path = folder.join(relative);
             std::fs::create_dir(&path)
                 .map_err(|e| Failure::Error(format!("cannot create {}: {e}", path.display())))?;
@@ -710,6 +898,8 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
         let total: u64 = plan.iter().map(|(_, _, placed, _)| placed.size).sum();
         let mut done = 0;
         for (source, target, placed, _) in &plan {
+            guard(folder, target, writer)?;
+            guard(folder, &format!("{target}{PARTIAL}"), writer)?;
             let source = cached.folder.join("files").join(source);
             copy_checked(&source, &folder.join(target), placed, &mut done, &|done| {
                 progress(done, total)
@@ -719,6 +909,7 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
         let (dll, others): (Vec<_>, Vec<_>) =
             plan.iter().partition(|(_, target, _, _)| target == proxy);
         for (_, target, _, _) in others.into_iter().chain(dll) {
+            guard(folder, target, writer)?;
             let path = folder.join(target);
             std::fs::rename(partial(&path), &path)
                 .map_err(|e| Failure::Error(format!("cannot place {}: {e}", path.display())))?;
@@ -748,6 +939,7 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
                 // Someone's since: it stays, for a removal to keep too.
                 Err(_) => continue,
             };
+            guard(folder, &path, writer)?;
             match std::fs::remove_file(folder.join(&path)) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                     // Still the host's, as it is now: a removal takes it.
@@ -760,17 +952,19 @@ fn place(exe: &Path, cached: &Cached, progress: &dyn Fn(u64, u64)) -> Outcome<Re
         }
         manifest.release = package.tag.clone();
         manifest.previous.clear();
-        write_manifest(folder, &manifest)
+        write_manifest(folder, &manifest, writer)
     })();
     if let Err(failure) = placing {
         for (_, target, _, _) in &plan {
-            let _ = std::fs::remove_file(partial(&folder.join(target)));
+            if guard(folder, &format!("{target}{PARTIAL}"), writer).is_ok() {
+                let _ = std::fs::remove_file(partial(&folder.join(target)));
+            }
         }
         // A first install cut short goes again, so the switch stays off with
         // nothing left behind. An update cut short leaves each file it
         // replaces in one of its two forms: the next launch finishes it, and
         // turning the switch off removes either.
-        if first && let Err(left) = remove(folder) {
+        if first && let Err(left) = remove(folder, writer) {
             return Err(Failure::Error(format!(
                 "{}, and what was placed could not be removed again: {}",
                 failure.message(),
@@ -791,6 +985,7 @@ fn prepare(
     exe: &Path,
     install: Option<&Path>,
     package: Option<PathBuf>,
+    writer: Writer,
     progress: &dyn Fn(u64, u64),
 ) -> Outcome<Response> {
     let folder = folder_of(exe);
@@ -805,7 +1000,7 @@ fn prepare(
     if let Some(folder) = package {
         let cached = Package::read(&folder).map_err(Failure::Error)?.with(folder);
         if cached.package.tag != manifest.release || !manifest.previous.is_empty() {
-            return place(exe, &cached, progress);
+            return place(exe, &cached, writer, progress);
         }
     }
     if !manifest.previous.is_empty() {
@@ -838,7 +1033,7 @@ fn prepare(
 
 /// Delete what the manifest names and is still as placed, the mod's logs and
 /// the folders it created once empty; a file someone changed stays.
-fn remove(folder: &Path) -> Outcome<Response> {
+fn remove(folder: &Path, writer: Writer) -> Outcome<Response> {
     // A folder that is gone with its game holds nothing; one on a drive that
     // is not connected may, and is not called removed.
     if !folder.is_dir() && folder.ancestors().last().is_none_or(|root| !root.is_dir()) {
@@ -846,11 +1041,18 @@ fn remove(folder: &Path) -> Outcome<Response> {
             folder: folder.display().to_string(),
         });
     }
+    guard(folder, MANIFEST, writer)?;
     let Some(manifest) = manifest(folder).map_err(Failure::Error)? else {
         return Ok(Response::Removed { kept: Vec::new() });
     };
+    writable(folder, writer)?;
+    // A link anywhere refuses the removal before anything goes.
+    for path in manifest.files.keys().chain(&manifest.folders) {
+        guard(folder, path, writer)?;
+    }
     let removal = neural::removal(&manifest, |path| state(folder, &manifest, path, false));
     for path in &removal.delete {
+        guard(folder, path, writer)?;
         let file = folder.join(path);
         std::fs::remove_file(&file)
             .map_err(|e| Failure::Error(format!("cannot remove {}: {e}", file.display())))?;
@@ -869,14 +1071,17 @@ fn remove(folder: &Path) -> Outcome<Response> {
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .filter(|name| neural::logs(name)),
     );
-    leftovers.push(format!("{MANIFEST}{PARTIAL}"));
+    leftovers.extend([format!("{MANIFEST}{PARTIAL}"), PROBE.into()]);
     for path in leftovers {
+        guard(folder, &path, writer)?;
         let _ = std::fs::remove_file(folder.join(path));
     }
     // Deepest first; a folder that still holds someone's files stays.
     for relative in manifest.folders.iter().rev() {
+        guard(folder, relative, writer)?;
         let _ = std::fs::remove_dir(folder.join(relative));
     }
+    guard(folder, MANIFEST, writer)?;
     let path = folder.join(MANIFEST);
     std::fs::remove_file(&path)
         .map_err(|e| Failure::Error(format!("cannot remove {}: {e}", path.display())))?;

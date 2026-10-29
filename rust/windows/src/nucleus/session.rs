@@ -182,14 +182,40 @@ fn started(launch: &Launch) -> Result<Box<dyn Nucleus>> {
             }
         )
     })?;
+    let elevated = process.elevated();
     tracing::info!(
         pid = process.pid,
         arguments = ?launch.arguments,
-        elevated = launch.elevated,
+        asked = if launch.elevated { "elevated" } else { "user" },
+        rights = match &elevated {
+            Ok(true) => "administrator",
+            Ok(false) => "standard",
+            Err(_) => "unknown",
+        },
         environment = ?launch.environment,
         "Nucleus Co-op started"
     );
+    if let Some(note) = rights_note(launch.elevated, &elevated) {
+        tracing::warn!(pid = process.pid, "{note}");
+    }
     Ok(Box::new(Started { process, since }))
+}
+
+/// What the log adds when Nucleus Co-op's rights are not what its launch
+/// asked for (`asked`: elevated), or can't be read.
+fn rights_note(asked: bool, elevated: &Result<bool>) -> Option<String> {
+    match (asked, elevated) {
+        (false, Ok(true)) => Some(
+            "Nucleus Co-op: started as the signed-in user, it runs with administrator rights all the same: Windows gives this account only its full token (User Account Control is off)".into(),
+        ),
+        (true, Ok(false)) => Some(
+            "Nucleus Co-op: started elevated, it runs without administrator rights".into(),
+        ),
+        (_, Err(error)) => Some(format!(
+            "Nucleus Co-op: Rubylight could not read whether it runs with administrator rights: {error:#}"
+        )),
+        _ => None,
+    }
 }
 
 /// Open Nucleus Co-op's own window on the PC's screen, as the signed-in user
@@ -889,6 +915,26 @@ mod tests {
             ["SteamAppId", "SteamGameId", "WEBVIEW2_USER_DATA_FOLDER"]
         );
         assert_eq!(environment["SteamAppId"], "400");
+    }
+
+    #[test]
+    fn the_log_says_what_rights_nucleus_really_has() {
+        assert_eq!(rights_note(false, &Ok(false)), None);
+        assert_eq!(rights_note(true, &Ok(true)), None);
+        // An administrator with User Account Control off: a "user" run
+        // gets their full token.
+        let uac_off = rights_note(false, &Ok(true)).unwrap();
+        assert!(
+            uac_off.contains("runs with administrator rights all the same"),
+            "{uac_off}"
+        );
+        assert!(
+            rights_note(true, &Ok(false))
+                .unwrap()
+                .contains("without administrator rights")
+        );
+        let unread = rights_note(false, &Err(anyhow::anyhow!("access denied"))).unwrap();
+        assert!(unread.ends_with(": access denied"), "{unread}");
     }
 
     #[test]

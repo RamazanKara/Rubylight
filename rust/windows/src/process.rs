@@ -1310,6 +1310,20 @@ impl Process {
     pub(crate) fn handle(&self) -> HANDLE {
         raw(&self.handle)
     }
+    /// Whether Windows gave this process administrator rights: its token,
+    /// which is not always what its [`Target`] asked for (an administrator
+    /// with User Account Control off has only their full token).
+    pub fn elevated(&self) -> Result<bool> {
+        // SAFETY: `self.handle` is the child's owned process handle, and
+        // `token` a valid out-pointer whose handle is owned once filled.
+        let token = unsafe {
+            let mut token = HANDLE::default();
+            OpenProcessToken(raw(&self.handle), TOKEN_QUERY, &mut token)
+                .context("opening the process's token")?;
+            owned(token)
+        };
+        token_elevated(&token)
+    }
     /// Import an unnamed resource from this owned child. The child never gets
     /// a handle to the service process or its credentials.
     pub(crate) fn duplicate_resource(&self, handle: usize) -> Result<OwnedHandle> {
@@ -2254,6 +2268,29 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_process_says_whether_windows_gave_it_administrator_rights() {
+        use super::*;
+        let ping = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap())
+            .join("System32")
+            .join("ping.exe");
+        // Runs where the test runs: as this user, elevated or not.
+        let elevated = is_system() || token_elevated(&token().unwrap()).unwrap();
+        let args = ["-n", "30", "127.0.0.1"].map(OsString::from);
+        let process = Process::spawn(
+            &ping,
+            &args,
+            None,
+            Target::User { elevated },
+            &BTreeMap::new(),
+            true,
+        )
+        .unwrap();
+        let rights = process.elevated();
+        process.terminate().unwrap();
+        assert_eq!(rights.unwrap(), elevated);
+    }
+
     #[test]
     fn a_pipe_end_can_be_used_by_its_creator() {
         use super::*;

@@ -97,12 +97,25 @@ public class DecoderFailureTest {
         ReflectionHelpers.callInstanceMethod(renderer, "startRendererThread");
         Thread rendererThread = ReflectionHelpers.getField(renderer, "rendererThread");
 
-        // The input thread: every dequeue throws, as in the TV's crash (fetchNextInputBuffer).
-        for (int i = 0; i < 200 && !(boolean) ReflectionHelpers.getField(renderer, "stopping"); i++) {
-            assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        // The input thread: every dequeue throws, as in the TV's crash (fetchNextInputBuffer). It
+        // runs beside the test, so a recovery that never ends fails the test instead of hanging it.
+        List<Boolean> fetched = new CopyOnWriteArrayList<>();
+        Thread input = new Thread(() -> {
+            for (int i = 0; i < 200 && !(boolean) ReflectionHelpers.getField(renderer, "stopping"); i++) {
+                fetched.add(ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+            }
+        });
+        input.setDaemon(true);
+        input.start();
+        try {
+            input.join(30_000);
+            rendererThread.join(5000);
+            assertFalse("Input thread still running", input.isAlive());
+        } finally {
+            renderer.prepareForStop();
         }
-        rendererThread.join(5000);
 
+        assertFalse(fetched.toString(), fetched.contains(true));
         assertFalse("Renderer thread still running", rendererThread.isAlive());
         assertEquals(Collections.emptyList(), uncaught);
         assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
@@ -165,6 +178,43 @@ public class DecoderFailureTest {
         assertEquals(Collections.emptyList(), terminated);
         assertNull(renderer.getDecoderFailure());
         assertEquals(2, backoff.recoveriesWithoutFrame());
+    }
+
+    @Test
+    public void aThreadWaitingForARecoveryLeavesOnceItIsDoneEvenIfTheDecoderFailedAgain() throws Exception {
+        // The renderer thread has quiesced and waits for the input thread to recover the codec.
+        failOnce();
+        int renderThread = ReflectionHelpers.getStaticField(MediaCodecDecoderRenderer.class, "CR_FLAG_RENDER_THREAD");
+        int inputThread = ReflectionHelpers.getStaticField(MediaCodecDecoderRenderer.class, "CR_FLAG_INPUT_THREAD");
+        Thread waiting = new Thread(() -> ReflectionHelpers.callInstanceMethod(renderer, "doCodecRecoveryIfRequired",
+                ReflectionHelpers.ClassParameter.from(int.class, renderThread)));
+        waiting.setDaemon(true);
+        waiting.start();
+        Object monitor = ReflectionHelpers.getField(renderer, "codecRecoveryMonitor");
+        long deadline = System.nanoTime() + 30_000_000_000L;
+        while (waiting.getState() != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) Thread.sleep(1);
+        try {
+            assertEquals(Thread.State.TIMED_WAITING, waiting.getState());
+            // The input thread recovers, and its next dequeue throws before the waiting thread
+            // looked again (a busy CPU): a new recovery is due. Holding the monitor makes that order
+            // certain. The waiting thread kept waiting for this one, which needs it to quiesce
+            // first, and the input thread waited for it: both decoder threads hung for good.
+            synchronized (monitor) {
+                assertTrue((boolean) ReflectionHelpers.callInstanceMethod(renderer, "doCodecRecoveryIfRequired",
+                        ReflectionHelpers.ClassParameter.from(int.class, inputThread)));
+                failOnce();
+            }
+            waiting.join(5000);
+            assertFalse("The waiting thread never left its finished recovery", waiting.isAlive());
+            assertEquals(1, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+
+            // Both threads quiesce again, and the next recovery runs.
+            recoverOnTheInputThread();
+            assertEquals(2, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+        } finally {
+            renderer.prepareForStop();
+            waiting.join(5000);
+        }
     }
 
     @Test

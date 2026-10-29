@@ -1084,6 +1084,35 @@ class CheckStreams(unittest.TestCase):
         self.assertEqual((self.locks / 'GPU-LOCK').read_text(), holder)
         self.assertFalse((self.locks / 'BUILD-LOCK').exists())
 
+    def test_waiting_for_the_build_lock_does_not_count_against_the_gpu_deadline(self):
+        import threading, time
+        (self.locks / 'BUILD-LOCK').write_text('pacing2 narrow 2026-10-29T02:00:00 pid=4242')
+        gpu = self.locks / 'GPU-LOCK'
+        def others():
+            deadline = time.monotonic() + 60
+            while not gpu.exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            # Past the 1 s GPU deadline in give-backs, a takelocks.sh waiter holds the GPU for 0.5 s.
+            time.sleep(1.5)
+            while time.monotonic() < deadline:
+                try:
+                    with open(gpu, 'x') as f:
+                        f.write('rc4 pass tv t6 4242 2026-10-29T02:00:00+01:00')
+                    break
+                except (FileExistsError, PermissionError):
+                    time.sleep(.01)
+            time.sleep(.5)
+            gpu.unlink()
+            (self.locks / 'BUILD-LOCK').unlink()
+        thread = threading.Thread(target=others)
+        thread.start()
+        run, held, _ = self.stream('0', FAKE_GPU_DEADLINE='1')
+        thread.join()
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('waiting for the GPU lock: rc4 pass tv', run.stdout)
+        self.assertTrue(held[0]['GPU-LOCK'].startswith('release check.ps1 '), held)
+        self.assertReleased()
+
     @unittest.skipUnless(os.name == 'nt', 'Windows file sharing')
     def test_a_lock_open_in_a_reader_is_still_released(self):
         import threading, time

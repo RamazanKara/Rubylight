@@ -158,12 +158,13 @@ function Update-CheckBuildLock([hashtable] $Held) {
 # for a while and both are tried again.
 function Enter-StreamLocks {
     if (-not $script:CheckLocks) { return @{} }
-    $waiting = [Diagnostics.Stopwatch]::StartNew()
-    $warned = 0
     while ($true) {
         $held = @{}
         try {
             if (-not $script:CheckGpuHeld -and -not (Test-LockOurs $script:CheckGpuLock)) {
+                # Per GPU wait: time spent waiting for BUILD-LOCK is not the GPU holder's.
+                $waiting = [Diagnostics.Stopwatch]::StartNew()
+                $warned = 0
                 while (-not ($held.gpu = Lock-Try $script:CheckGpuLock 'release check.ps1')) {
                     Write-Holder 'the GPU lock' $script:CheckGpuLock
                     $seconds = $waiting.Elapsed.TotalSeconds

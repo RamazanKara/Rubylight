@@ -41,6 +41,10 @@ pub const ENTRY_KEY: &str = "coop-entry";
 /// How long one read of the handlers and games serves the library:
 /// Moonlight asks for `/applist` every few seconds.
 const CATALOG_TTL: Duration = Duration::from_secs(10);
+/// How long the console's answer for one .exe ([`own_status`]) stands while
+/// the .exe is unchanged: the console asks every few seconds, and each
+/// answer scans the game's folders.
+const OWN_STATUS_TTL: Duration = Duration::from_secs(60);
 /// How long an ended session stays listed once no stream holds it, so the
 /// console and the devices can show why it ended.
 const LINGER: Duration = Duration::from_secs(60);
@@ -648,8 +652,8 @@ fn refuse_anti_cheat(setup: &Setup) -> Result<(), Missing> {
     }
 }
 
-/// Why a background stream of `app`, which has no hub handler, would be
-/// refused, as far as the console can tell without Steam: a relative or
+/// Why a background stream of `app`, which has no hub handler with the game
+/// added, would be refused, as far as the console can tell without Steam: a relative or
 /// missing .exe, a path the host must not open, a launcher, anti-cheat by
 /// name or in the game's folder. A Steam link's game is checked at launch.
 fn own_status(app: &App) -> Option<Missing> {
@@ -829,6 +833,13 @@ struct Cached {
     catalog: Result<Arc<Catalog>, String>,
 }
 
+/// [`own_status`]'s answer for one .exe, as it was modified then.
+struct OwnStatus {
+    at: Instant,
+    modified: Option<std::time::SystemTime>,
+    missing: Option<Missing>,
+}
+
 /// The host's Nucleus Co-op sessions.
 pub struct Registry {
     pc: RwLock<Arc<dyn Pc>>,
@@ -839,6 +850,9 @@ pub struct Registry {
     /// Signalled when an install finishes.
     install_done: Condvar,
     catalog: Mutex<Option<Cached>>,
+    /// The console's [`own_status`] answers by .exe path; only the console
+    /// reads them.
+    own_statuses: Mutex<BTreeMap<String, OwnStatus>>,
     /// The Nucleus Co-op the console opened: the only one the host closes,
     /// for a session or the user.
     opened: Mutex<Option<Box<dyn Window>>>,
@@ -852,6 +866,7 @@ impl Registry {
             state: Mutex::default(),
             install_done: Condvar::new(),
             catalog: Mutex::new(None),
+            own_statuses: Mutex::default(),
             opened: Mutex::new(None),
         }
     }
@@ -1251,14 +1266,60 @@ impl Registry {
                 Listing::Taken => GameStatus::Taken {
                     entry: entry_name(&app.name),
                 },
-                // Shown as a background launch would answer it.
-                Listing::Missing(missing @ Missing::NoHandler { .. }) => {
-                    GameStatus::Missing(own_status(app).unwrap_or(missing))
-                }
+                // Shown as a background launch would answer it: one without
+                // the user's added game streams with ours.
+                Listing::Missing(
+                    missing @ (Missing::NoHandler { .. } | Missing::NotAdded { .. }),
+                ) => GameStatus::Missing(self.own_status(app).unwrap_or(missing)),
                 Listing::Missing(missing) => GameStatus::Missing(missing),
             })
             .collect();
         Some(Ok(statuses))
+    }
+
+    /// [`own_status`] for the console, read again once [`OWN_STATUS_TTL`]
+    /// passed or the .exe changed. The path is checked before anything opens
+    /// it, and nothing else waits while the answer is worked out.
+    fn own_status(&self, app: &App) -> Option<Missing> {
+        let Some(exe) = executable(app)
+            .filter(|_| starts_exe(app))
+            .filter(|exe| Path::new(exe).is_absolute())
+        else {
+            return own_status(app);
+        };
+        if let Err(missing) = refuse_path(exe) {
+            return Some(missing);
+        }
+        let modified = std::fs::metadata(exe)
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        let fresh = |status: &&OwnStatus| {
+            status.modified == modified && status.at.elapsed() < OWN_STATUS_TTL
+        };
+        if let Some(status) = self
+            .own_statuses
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(exe)
+            .filter(fresh)
+        {
+            return status.missing.clone();
+        }
+        let missing = own_status(app);
+        let mut statuses = self
+            .own_statuses
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        statuses.retain(|_, status| status.at.elapsed() < OWN_STATUS_TTL);
+        statuses.insert(
+            exe.to_string(),
+            OwnStatus {
+                at: Instant::now(),
+                modified,
+                missing: missing.clone(),
+            },
+        );
+        missing
     }
 
     /// Admit a launch: start a session of its game, or seat the device in
@@ -2613,15 +2674,99 @@ mod tests {
                 players: 1
             }
         );
-        // Not added in Nucleus Co-op yet.
+        // Not added in Nucleus Co-op yet, and the .exe isn't on this PC: a
+        // background stream would say so.
         pc.catalog.lock().unwrap().games.clear();
         registry.use_pc(pc.clone());
         assert!(matches!(
             &registry.games(&apps, &config).unwrap().unwrap()[1],
-            GameStatus::Missing(Missing::NotAdded { .. })
+            GameStatus::Missing(Missing::Refused { reason }) if reason.contains("is not on this PC")
         ));
         *pc.installed.lock().unwrap() = None;
         assert!(registry.games(&apps, &config).is_none());
+    }
+
+    #[test]
+    fn a_hub_handler_without_the_added_game_shows_the_background_answer() {
+        // A background stream of a game the user never added streams with
+        // ours, or is refused: the console showed only "not added".
+        let (registry, pc, _) = setup();
+        pc.catalog.lock().unwrap().games.clear();
+        registry.use_pc(pc.clone());
+        let dir = std::env::temp_dir().join(format!("nucleus-own-{}", uuid::Uuid::new_v4()));
+        let game = dir.join("Portal 2");
+        std::fs::create_dir_all(game.join("EasyAntiCheat")).unwrap();
+        std::fs::write(game.join("portal2.exe"), b"").unwrap();
+        let apps = [app(
+            "Portal 2",
+            &format!("\"{}\"", game.join("portal2.exe").display()),
+        )];
+        assert!(matches!(
+            &registry.games(&apps, &Config::default()).unwrap().unwrap()[0],
+            GameStatus::Missing(Missing::AntiCheat { anti_cheat, .. }) if anti_cheat == "Easy Anti-Cheat"
+        ));
+        // A game ours streams keeps the hint to add it for co-op.
+        let other = dir.join("Clean");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("portal2.exe"), b"").unwrap();
+        let apps = [app(
+            "Portal 2",
+            &format!("\"{}\"", other.join("portal2.exe").display()),
+        )];
+        assert!(matches!(
+            &registry.games(&apps, &Config::default()).unwrap().unwrap()[0],
+            GameStatus::Missing(Missing::NotAdded { .. })
+        ));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_consoles_answer_for_an_exe_is_kept_until_it_changes_or_ages() {
+        let (registry, _pc, _) = setup();
+        let dir = std::env::temp_dir().join(format!("nucleus-own-{}", uuid::Uuid::new_v4()));
+        let exe = dir.join("Ice").join("Ice.exe");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, b"").unwrap();
+        let apps = [app("Ice", &format!("\"{}\"", exe.display()))];
+        let status = || registry.games(&apps, &Config::default()).unwrap().unwrap()[0].clone();
+        assert!(matches!(
+            status(),
+            GameStatus::Missing(Missing::NoHandler { .. })
+        ));
+        // Anti-cheat added beside it: the console asks again within the
+        // minute and gets the kept answer, without a scan.
+        std::fs::create_dir(dir.join("Ice").join("EasyAntiCheat")).unwrap();
+        assert!(matches!(
+            status(),
+            GameStatus::Missing(Missing::NoHandler { .. })
+        ));
+        // The .exe changed: read again.
+        let file = std::fs::File::options().write(true).open(&exe).unwrap();
+        file.set_modified(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000))
+            .unwrap();
+        drop(file);
+        assert!(matches!(
+            status(),
+            GameStatus::Missing(Missing::AntiCheat { .. })
+        ));
+        // Aged out: read again.
+        std::fs::remove_dir(dir.join("Ice").join("EasyAntiCheat")).unwrap();
+        assert!(matches!(
+            status(),
+            GameStatus::Missing(Missing::AntiCheat { .. })
+        ));
+        for kept in registry.own_statuses.lock().unwrap().values_mut() {
+            kept.at = Instant::now() - OWN_STATUS_TTL;
+        }
+        assert!(matches!(
+            status(),
+            GameStatus::Missing(Missing::NoHandler { .. })
+        ));
+        // A share is refused before anything opens it, and never kept.
+        let shared = [app("Shared", r"\\nas\games\Ice\Ice.exe")];
+        let _ = registry.games(&shared, &Config::default());
+        assert_eq!(registry.own_statuses.lock().unwrap().len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

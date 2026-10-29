@@ -767,6 +767,33 @@ fn nothing_goes_through_a_link_in_the_games_folder() {
     assert_eq!(names(folder), before);
 }
 
+/// A game folder moved and linked back whose link leads nowhere now (the
+/// drive it went to is gone for good) is unreachable, not refused: the
+/// app can still be deleted, its removal pending.
+#[test]
+fn a_link_that_leads_nowhere_is_unreachable() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let moved = temp.path().join("moved");
+    std::fs::create_dir(&moved).unwrap();
+    let linked = temp.path().join("library/common/Linked");
+    std::fs::create_dir_all(linked.parent().unwrap()).unwrap();
+    junction(&linked, &moved);
+    std::fs::remove_dir(&moved).unwrap();
+    let exe = linked.join("Game.exe");
+    assert_eq!(
+        remove(&exe),
+        Response::Unreachable {
+            folder: linked.display().to_string()
+        }
+    );
+    let app: App = serde_json::from_value(switched_on("Game", "game", &exe)).unwrap();
+    drop(before_delete(h, &app).unwrap());
+    assert_eq!(pending(h), [Pending::of(&app).unwrap()]);
+    std::fs::remove_dir(&linked).unwrap();
+}
+
 /// Everyone denied adding to `folder` until dropped, as Program Files is to users.
 struct Unwritable<'a>(&'a Path);
 impl<'a> Unwritable<'a> {

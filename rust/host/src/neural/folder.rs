@@ -1226,8 +1226,13 @@ fn prepare(
 /// the folders it created once empty; a file someone changed stays.
 fn remove(folder: &Path, writer: Writer) -> Outcome<Response> {
     // A folder that is gone with its game holds nothing; one on a drive that
-    // is not connected may, and is not called removed.
-    if !folder.is_dir() && folder.ancestors().last().is_none_or(|root| !root.is_dir()) {
+    // is not connected may, and is not called removed. So may a game folder
+    // moved and linked back whose link leads nowhere now ([`followed`]).
+    let dangling = std::fs::symlink_metadata(folder)
+        .is_ok_and(|meta| meta.file_attributes() & LINK != 0)
+        && std::fs::canonicalize(folder).is_err();
+    if dangling || (!folder.is_dir() && folder.ancestors().last().is_none_or(|root| !root.is_dir()))
+    {
         return Ok(Response::Unreachable {
             folder: folder.display().to_string(),
         });

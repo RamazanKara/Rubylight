@@ -250,6 +250,33 @@ test('a game that needs administrator rights on an account Windows doesn’t ele
   assert.doesNotMatch(out, /A background stream runs it|Open Nucleus Co-op/);
 });
 
+test('on an account Windows doesn’t elevate, a hub handler’s game says so before launch in the host’s words', () => {
+  const words = 'Nucleus Co-op needs administrator rights for a hub handler, and Windows gives the account signed in on this PC no administrator rights to start it with (a standard account, or Windows\' Administrator protection)';
+  const refused = status({ elevates: false }, { reason: words });
+  const view = playTogether(refused, 'portal');
+  assert.equal(view.kind, 'ready');
+  assert.equal(view.refusal, `${words}.`);
+  assert.equal(view.runs, null);
+  const out = html(refused);
+  assert.match(out, /No co-op or background streams on this account/);
+  assert.match(out, /Administrator protection\)\./);
+  assert.doesNotMatch(out, /Start “Portal 2 \(Co-op\)” from Nightjar|A background stream runs it as administrator/);
+  // An account that elevates, one the host can't tell, or an older host: nothing new.
+  for (const elevates of [true, null, undefined]) {
+    const fixture = status({ elevates }, { reason: elevates === true ? null : words });
+    const ready = playTogether(fixture, 'portal');
+    assert.equal(ready.refusal, null, String(elevates));
+    assert.equal(ready.runs, 'A background stream runs it as administrator.', String(elevates));
+    assert.doesNotMatch(html(fixture), /on this account/, String(elevates));
+  }
+  // A game that runs as the user stays as it is.
+  const user = status({ elevates: false }, { status: 'no_handler', handler: null, players: null, runs: 'user' });
+  const own = playTogether(user, 'portal');
+  assert.equal(own.kind, 'handler');
+  assert.match(own.runs, /as the signed-in user, without administrator rights/);
+  assert.doesNotMatch(html(user), /on this account|Administrator protection/);
+});
+
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {
   const view = playTogether(fixtures.launcher, 'portal');
   assert.equal(view.text, 'Co-op finds a game by its .exe, and Counter-Strike 2 starts through a launcher. To play it together, set the command above to the game’s .exe.');

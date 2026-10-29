@@ -156,14 +156,18 @@
           <p class="muted note">{AWAY_FROM_PC}</p>
         </details>
       {:else if view.kind === 'ready'}
-        <p class="lead"><strong>{view.players}</strong> {view.start}</p>
+        {#if view.refusal}
+          <Banner tone="warn" title="No co-op or background streams on this account">{view.refusal}</Banner>
+        {:else}
+          <p class="lead"><strong>{view.players}</strong> {view.start}</p>
+        {/if}
         <Toggle
           label="Show “{view.entry}” in the library"
           hint="Saves with the app."
           bind:checked={() => draft.flag('coop-entry'), (value) => draft.setFlag('coop-entry', value)}
         />
         <p class="muted note">{COOP_LIMITS}</p>
-        <p class="muted note">{view.runs}</p>
+        {#if view.runs}<p class="muted note">{view.runs}</p>{/if}
         {#if status?.opened}
           <div class="action">
             <span class="muted note">{OPEN_ON_PC}</span>

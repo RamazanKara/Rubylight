@@ -977,6 +977,9 @@ pub struct Registry {
     /// The console's [`own_status`] answers by .exe path; only the console
     /// reads them.
     own_statuses: Mutex<BTreeMap<String, OwnStatus>>,
+    /// Whether the signed-in account elevates, as the console last read it
+    /// ([`Self::elevates`]), and when.
+    elevates: Mutex<Option<(Instant, bool)>>,
     /// The Nucleus Co-op the console opened: the only one the host closes,
     /// for a session or the user.
     opened: Mutex<Option<Box<dyn Window>>>,
@@ -991,6 +994,7 @@ impl Registry {
             install_done: Condvar::new(),
             catalog: Mutex::new(None),
             own_statuses: Mutex::default(),
+            elevates: Mutex::new(None),
             opened: Mutex::new(None),
         }
     }
@@ -1007,6 +1011,8 @@ impl Registry {
     pub fn use_pc(&self, pc: Arc<dyn Pc>) {
         *self.pc.write().unwrap() = pc;
         *self.catalog.lock().unwrap() = None;
+        self.own_statuses.lock().unwrap().clear();
+        *self.elevates.lock().unwrap() = None;
     }
     fn pc(&self) -> Arc<dyn Pc> {
         self.pc
@@ -1285,6 +1291,31 @@ impl Registry {
         tracing::info!(pid = window.pid(), folder = %folder.display(), "Nucleus Co-op: opened on the PC from the console");
         *opened = Some(window);
         Ok(())
+    }
+
+    /// Whether Windows gives the account signed in on this PC an elevated
+    /// token, which hub handlers, co-op and games that need administrator
+    /// rights run with: for the console, read again once [`OWN_STATUS_TTL`]
+    /// passed, so its poll asks Windows once a minute. None when Rubylight
+    /// could not tell (nobody signed in yet), asked again at the next poll.
+    pub fn elevates(&self) -> Option<bool> {
+        let mut kept = self.elevates.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((at, elevates)) = *kept
+            && at.elapsed() < OWN_STATUS_TTL
+        {
+            return Some(elevates);
+        }
+        match self.pc().elevates() {
+            Ok(elevates) => {
+                *kept = Some((Instant::now(), elevates));
+                Some(elevates)
+            }
+            Err(error) => {
+                *kept = None;
+                tracing::debug!("Nucleus Co-op: whether the signed-in account elevates: {error:#}");
+                None
+            }
+        }
     }
 
     /// Whether the Nucleus Co-op the console opened still runs. One that
@@ -2279,6 +2310,10 @@ pub(crate) mod fake {
         pub lookups: AtomicUsize,
         /// Whether the signed-in user has an elevated token.
         pub elevates: Mutex<bool>,
+        /// Why reading that fails (nobody signed in).
+        pub elevates_error: Mutex<Option<String>>,
+        /// How often it was read.
+        pub elevations: AtomicUsize,
         /// What each game's .exe asks of Windows, by path; Nothing else.
         pub needs: Mutex<BTreeMap<String, Need>>,
         /// What walking each game's folder adds, by .exe path.
@@ -2354,6 +2389,8 @@ pub(crate) mod fake {
                 exe_paths: Mutex::new(Vec::new()),
                 lookups: AtomicUsize::new(0),
                 elevates: Mutex::new(true),
+                elevates_error: Mutex::new(None),
+                elevations: AtomicUsize::new(0),
                 needs: Mutex::new(BTreeMap::new()),
                 folder_needs: Mutex::new(BTreeMap::new()),
                 walks: AtomicUsize::new(0),
@@ -2456,6 +2493,10 @@ pub(crate) mod fake {
             }
         }
         fn elevates(&self) -> Result<bool> {
+            self.elevations.fetch_add(1, Ordering::Relaxed);
+            if let Some(error) = self.elevates_error.lock().unwrap().clone() {
+                anyhow::bail!(error);
+            }
             Ok(*self.elevates.lock().unwrap())
         }
         fn game_need(&self, exe: &str, folder: bool) -> Result<Need> {
@@ -3950,6 +3991,28 @@ mod tests {
                 .open
                 .load(std::sync::atomic::Ordering::Relaxed)
         );
+    }
+
+    #[test]
+    fn the_console_reads_whether_the_account_elevates_once_a_minute() {
+        let (registry, pc, _) = setup();
+        let reads = || pc.elevations.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(registry.elevates(), Some(true));
+        // The 3 s poll asks Windows once.
+        *pc.elevates.lock().unwrap() = false;
+        assert_eq!(registry.elevates(), Some(true));
+        assert_eq!(reads(), 1);
+        // A minute later it reads the account again.
+        registry.elevates.lock().unwrap().as_mut().unwrap().0 = Instant::now() - OWN_STATUS_TTL;
+        assert_eq!(registry.elevates(), Some(false));
+        assert_eq!(reads(), 2);
+        // One Rubylight could not tell is unknown, and asked again next time.
+        registry.elevates.lock().unwrap().as_mut().unwrap().0 = Instant::now() - OWN_STATUS_TTL;
+        *pc.elevates_error.lock().unwrap() = Some("nobody is signed in".into());
+        assert_eq!(registry.elevates(), None);
+        *pc.elevates_error.lock().unwrap() = None;
+        assert_eq!(registry.elevates(), Some(false));
+        assert_eq!(reads(), 4);
     }
 
     #[test]

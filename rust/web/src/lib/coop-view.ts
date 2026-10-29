@@ -13,7 +13,8 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  * ships anti-cheat, so neither co-op nor background streams hook it) and `refused` (Rubylight's own handler
  * never starts it: a game on a network share, Windows' own program, a missing .exe, a game that needs
  * administrator rights on an account Windows doesn't elevate), shown alike. `handler` and `ready` also say
- * how a background stream runs: as the signed-in user or as administrator.
+ * how a background stream runs: as the signed-in user or as administrator. On an account Windows doesn't
+ * elevate, `ready` carries the host's refusal instead: its hub handler can't run, for co-op or alone.
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -27,7 +28,7 @@ export type PlayTogetherView =
   | { kind: 'handler'; added: boolean; text: string; steps: string; runs: string | null }
   | { kind: 'taken'; reason: string }
   | { kind: 'anti_cheat'; reason: string }
-  | { kind: 'ready'; players: string; entry: string; start: string; runs: string };
+  | { kind: 'ready'; players: string; entry: string; start: string; runs: string | null; refusal: string | null };
 
 /** Megabytes as the release page counts them, kept on one line. */
 export function megabytes(bytes: number): string {
@@ -107,13 +108,16 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
   switch (game.status) {
     case 'ready': {
       const players = game.players ?? 1;
+      // The host's refusal for a hub handler on an account Windows doesn't elevate; older hosts don't say.
+      const refusal = status.elevates === false && game.reason ? sentence(game.reason) : null;
       return {
         kind: 'ready',
         players: `Up to ${players} ${players === 1 ? 'player' : 'players'}.`,
         entry: game.entry,
         start: `Start “${game.entry}” from Nightjar or Moonlight. Each device that starts it next joins as the next player.`,
         // The hub handler runs it, and a hub handler always runs elevated.
-        runs: RUNS_ELEVATED,
+        runs: refusal ? null : RUNS_ELEVATED,
+        refusal,
       };
     }
     case 'taken':

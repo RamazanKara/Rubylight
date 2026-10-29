@@ -22,7 +22,7 @@ use butterpollo_core::{
     native_api::coop as wire,
     nucleus::{
         coop::Phase,
-        elevation::Run,
+        elevation::{self, Need, Run, Script},
         handler::Missing,
         install::{SIZE, VERSION},
         mode::{Decision, KEY},
@@ -160,6 +160,19 @@ fn status(h: &Shared) -> Value {
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
+    let unavailable = h.nucleus.unavailable();
+    // Whether the account signed in on this PC elevates: None on a host that
+    // runs no sessions, or when Rubylight could not tell.
+    let elevates = unavailable
+        .is_none()
+        .then(|| h.nucleus.elevates())
+        .flatten();
+    // A hub handler (background streams and co-op) needs an elevated token:
+    // without one, the refusal a launch would answer.
+    let hub_refusal = match elevates {
+        Some(false) => elevation::choose(Script::Hub, Need::Nothing, false).err(),
+        _ => None,
+    };
     let (games, catalog_error) = match h.nucleus.games(&apps, &config) {
         Some(Ok(statuses)) => (statuses.into_iter().map(Some).collect(), None),
         Some(Err(error)) => (vec![None; apps.len()], Some(error)),
@@ -193,7 +206,7 @@ fn status(h: &Shared) -> Value {
                 }
                 None => ("unknown", None, None, None),
                 Some(GameStatus::Ready { handler, players }) => {
-                    ("ready", None, Some(handler), Some(players))
+                    ("ready", hub_refusal.clone(), Some(handler), Some(players))
                 }
                 Some(GameStatus::Missing(missing) | GameStatus::Own { missing, .. }) => (
                     missing_status(&missing),
@@ -222,7 +235,6 @@ fn status(h: &Shared) -> Value {
             }))
         })
         .collect();
-    let unavailable = h.nucleus.unavailable();
     let sessions: Vec<Value> = h
         .nucleus
         .sessions()
@@ -289,6 +301,10 @@ fn status(h: &Shared) -> Value {
         "catalog_error": catalog_error,
         "available": unavailable.is_none(),
         "reason": unavailable,
+        // Whether Windows gives the signed-in account an elevated token,
+        // which hub handlers, co-op and games that need administrator
+        // rights run with; null when unknown.
+        "elevates": elevates,
         // The Nucleus Co-op window the console opened is still open.
         "opened": h.nucleus.opened(),
         "sessions": sessions,
@@ -449,7 +465,10 @@ mod tests {
             butterpollo_core::nucleus::coop::GRACE.as_secs()
         );
         assert_eq!(body["sessions"][0]["players"][0]["rejoin_in"], Value::Null);
+        assert_eq!(body["elevates"], true);
         // Unavailable on this host: the reason shows.
+        let elevations = || c.pc.elevations.load(std::sync::atomic::Ordering::Relaxed);
+        let asked = elevations();
         *c.pc.unavailable.lock().unwrap() = Some("not on this test PC".into());
         let body = value(
             request(&c.f, "GET", "/api/coop", Value::Null).await,
@@ -458,6 +477,9 @@ mod tests {
         .await;
         assert_eq!(body["available"], false);
         assert_eq!(body["reason"], "not on this test PC");
+        // A host that runs no sessions doesn't ask whether the account elevates.
+        assert_eq!(body["elevates"], Value::Null);
+        assert_eq!(elevations(), asked);
     }
 
     #[tokio::test]
@@ -800,7 +822,6 @@ mod tests {
             StatusCode::OK,
         )
         .await;
-        std::fs::remove_dir_all(&dir).unwrap();
         let no_handler = |name: &str| {
             format!(
                 "No Nucleus Co-op handler for {name}.exe: add one in Nucleus Co-op's handler hub"
@@ -828,6 +849,46 @@ mod tests {
             ])
         );
         assert_eq!(body["catalog_error"], Value::Null);
+        assert_eq!(body["elevates"], true);
+        // On an account Windows doesn't elevate: the hub handler's game says
+        // so before a launch, in the launch's words; ours as the user stays.
+        *pc.elevates.lock().unwrap() = false;
+        f.host.nucleus.use_pc(pc.clone());
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(body["elevates"], false);
+        let games = body["games"].as_array().unwrap();
+        assert_eq!(
+            (&games[0]["status"], &games[0]["reason"]),
+            (
+                &json!("ready"),
+                &json!(format!(
+                    "Nucleus Co-op needs administrator rights for a hub handler, and {}",
+                    butterpollo_core::nucleus::elevation::NO_ELEVATION
+                ))
+            )
+        );
+        assert_eq!(
+            (&games[4]["status"], &games[4]["reason"], &games[4]["runs"]),
+            (
+                &json!("no_handler"),
+                &json!(no_handler("Ice")),
+                &json!("user")
+            )
+        );
+        assert_eq!(games[5]["status"], "refused");
+        assert!(
+            games[5]["reason"]
+                .as_str()
+                .unwrap()
+                .ends_with(butterpollo_core::nucleus::elevation::NO_ELEVATION),
+            "{}",
+            games[5]
+        );
         // Before the install nothing is known yet.
         *pc.installed.lock().unwrap() = None;
         let body = value(

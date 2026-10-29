@@ -679,6 +679,11 @@ export interface CoopStatus {
   available: boolean;
   /** Why this host runs no Nucleus Co-op sessions; null when it does. */
   reason: string | null;
+  /**
+   * Whether Windows gives the account signed in on the PC an elevated token, which hub handlers, co-op and
+   * games that need administrator rights run with. Null when the host can't tell; older hosts leave it out.
+   */
+  elevates?: boolean | null;
   /** The Nucleus Co-op window the console opened is still open (older hosts leave it out). */
   opened?: boolean;
   /** Every app that starts an .exe (older hosts leave it out). */

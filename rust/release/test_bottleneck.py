@@ -101,6 +101,9 @@ PACING_LOG = '\n'.join((
     'why="only the host\'s socket refused video, nothing since for 10 s"',
     f'2026-10-29T10:00:20.000Z  WARN {SESSION}: the client reported video loss after the host\'s send loss; pacing '
     'video like a Wi-Fi route for the rest of the stream reason="video frames were reported lost" detail=""',
+    f'2026-10-29T10:00:24.000Z  WARN {SESSION}: the host\'s socket refused video packets in a stream that already '
+    'slowed down; pacing video like a Wi-Fi route for the rest of the stream reason="a keyframe was lost on send" '
+    'detail=""',
 ))
 
 
@@ -108,7 +111,7 @@ class PacingEvents(unittest.TestCase):
     def test_latch_kinds_lifts_and_ignored_requests(self):
         events = pacing_events(PACING_LOG)
         self.assertEqual([(latch['at_s'], latch['kind']) for latch in events['latches']],
-                         [(2.5, 'send'), (20.0, 'confirmed_send')])
+                         [(2.5, 'send'), (20.0, 'confirmed_send'), (24.0, 'host_sustained')])
         self.assertEqual(events['latches'][0]['reason'], 'three recent video frames were lost on send')
         self.assertEqual(events['lifts'], [14.0])
         self.assertEqual((events['ignored_evidence'], events['ignored_repeated_requests']), (1, 1))

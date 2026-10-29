@@ -2234,6 +2234,28 @@ mod tests {
         }
     }
     #[test]
+    fn host_only_loss_on_a_remembered_route_names_the_host_s_adapter() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = Session::new(launch("onn", Role::Stream), Negotiated::default());
+        s.configure_remembered_keyframe_loss(true, true);
+        for frame in 1..=20 {
+            assert_eq!(s.keyframe_loss_bps(FAST, SAFE, frame, frame == 20), SAFE);
+        }
+        // The socket refuses keyframe 20: held for the stream, never saved,
+        // and the warning points at the host, not the network path.
+        s.keyframe_abandoned(20);
+        assert!(s.keyframe_loss_active());
+        assert!(s.keyframe_loss_sustained_at().is_none());
+        let message = s.info()["warnings"][0]["message"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(message.contains("host's network adapter"), "{message}");
+        assert!(message.contains("rest of the stream"), "{message}");
+        assert!(!message.contains("network path"), "{message}");
+    }
+    #[test]
     fn a_lost_keyframe_paces_the_rest_of_the_stream_like_wifi() {
         const FAST: u64 = 800_000_000;
         const SAFE: u64 = 62_000_000;
@@ -4091,6 +4113,7 @@ impl<P, A> Session<P, A> {
             kind,
             confirmed,
             from,
+            host_only,
         }) = latched
         {
             use crate::keyframe_loss::LatchKind;
@@ -4113,6 +4136,9 @@ impl<P, A> Session<P, A> {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "the host's socket refused video packets; pacing video like a Wi-Fi route until it has been clean for 10 s");
             } else if kind == LatchKind::Startup {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "the stream's first keyframe was lost; pacing video like a Wi-Fi route until it has been clean for 10 s");
+            } else if host_only {
+                // After a lift, or on a remembered route: held, never saved.
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the host's socket refused video packets in a stream that already slowed down; pacing video like a Wi-Fi route for the rest of the stream");
             } else {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
             }
@@ -4120,6 +4146,8 @@ impl<P, A> Session<P, A> {
                 self.launch.warnings.set("network_keyframe_loss", format!("The first video frame was lost on the way to this device ({reason}), so video is paced like Wi-Fi for now. This limits packet bursts without reducing the encoder bitrate. The host returns to the normal rate after 10 seconds without further loss."));
             } else if kind == LatchKind::Send {
                 self.launch.warnings.set("network_keyframe_loss", format!("The host's network adapter refused video packets ({reason}), so video is paced like Wi-Fi for now. This limits packet bursts without reducing the encoder bitrate. The host returns to the normal rate after 10 seconds without further loss."));
+            } else if host_only {
+                self.launch.warnings.set("network_keyframe_loss", format!("The host's network adapter refused video packets ({reason}), so video is paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. The device reported no loss; check the host's network adapter and its driver if this continues."));
             } else {
                 self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
             }

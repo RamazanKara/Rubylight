@@ -117,6 +117,8 @@ pub struct Latched {
     pub confirmed: bool,
     /// With `confirmed`, the kind of the latch the client's report confirmed.
     pub from: Option<LatchKind>,
+    /// Only the host's socket refused video; the client reported nothing.
+    pub host_only: bool,
 }
 
 #[derive(Debug, Default)]
@@ -589,12 +591,15 @@ impl KeyframeLoss {
             gap.unwrap_or_default().as_millis(),
             self.since_keyframe
         );
+        // A keyframe the host's socket refused never reached the client:
+        // asking again for it is the host's loss, counted on send.
+        let reported = !keyframe.is_some_and(|frame| self.abandoned.contains(&Some(frame)));
         self.latch(
             "the client asked again for the keyframe it was just sent",
             detail,
             now,
             keyframe,
-            true,
+            reported,
         )
     }
     /// `keyframe` is the one this evidence is about, if any. A latch about the
@@ -631,6 +636,7 @@ impl KeyframeLoss {
                         kind: LatchKind::Sustained,
                         confirmed: true,
                         from: kind,
+                        host_only: false,
                     });
                 }
                 return None;
@@ -656,6 +662,7 @@ impl KeyframeLoss {
                 kind: LatchKind::Sustained,
                 confirmed: true,
                 from: kind,
+                host_only: false,
             });
         }
         if !reported {
@@ -681,6 +688,7 @@ impl KeyframeLoss {
                 kind,
                 confirmed: false,
                 from: None,
+                host_only: true,
             });
         }
         let evidence = self
@@ -716,6 +724,7 @@ impl KeyframeLoss {
             kind,
             confirmed: false,
             from: None,
+            host_only: false,
         })
     }
     fn provisional(&self) -> bool {
@@ -1461,6 +1470,58 @@ mod tests {
         assert_eq!(confirmed.from, Some(LatchKind::Sustained));
         assert_eq!(loss.sustained_at(), Some(late));
         assert_eq!(loss.unrecoverable(frame, frame, PERIOD, late), None);
+    }
+
+    /// After the host's socket refused frames, the client asks for a
+    /// keyframe, the socket refuses recovery keyframe 104 too, and the client
+    /// asks again 55 ms later. It never got 104: the host's loss.
+    fn asked_again_for_a_refused_keyframe(loss: &mut KeyframeLoss, t: Instant) -> Option<Latched> {
+        assert_eq!(loss.requested(t), None);
+        let sent = t + Duration::from_millis(5);
+        loss.sending_at(104, true, sent);
+        loss.abandoned(104, PERIOD, sent);
+        for frame in 105..=107 {
+            loss.sending_at(frame, false, sent + PERIOD);
+        }
+        loss.requested(t + Duration::from_millis(55))
+    }
+
+    #[test]
+    fn asking_again_for_a_keyframe_the_host_refused_does_not_confirm_a_send_latch() {
+        let t0 = Instant::now();
+        let mut loss = send_latched(t0);
+        let t = t0 + Duration::from_millis(20);
+        assert_eq!(asked_again_for_a_refused_keyframe(&mut loss, t), None);
+        assert_eq!(loss.kind(), Some(LatchKind::Send));
+        assert!(loss.sustained_at().is_none());
+        // It lifts 10 s after the last of it, like any send latch.
+        let frame = flow(&mut loss, 108, t, t + Duration::from_millis(10_300));
+        assert!(!loss.latched(), "{frame}");
+        assert!(loss.sustained_at().is_none());
+    }
+
+    #[test]
+    fn asking_again_for_a_keyframe_the_host_refused_does_not_renew_a_remembered_route() {
+        let t = Instant::now();
+        let mut loss = KeyframeLoss::remembered("remembered from the previous session");
+        loss.sending_at(1, true, started_long_ago());
+        for frame in 2..=103 {
+            loss.sending(frame, false);
+        }
+        assert_eq!(asked_again_for_a_refused_keyframe(&mut loss, t), None);
+        assert!(loss.latched());
+        assert!(loss.sustained_at().is_none());
+        // A keyframe that did reach the client still renews it.
+        let mut loss = KeyframeLoss::remembered("remembered from the previous session");
+        loss.sending_at(1, true, started_long_ago());
+        for frame in 2..=103 {
+            loss.sending(frame, false);
+        }
+        assert_eq!(loss.requested(t), None);
+        loss.sending_at(104, true, t + Duration::from_millis(5));
+        let renewed = loss.requested(t + Duration::from_millis(55)).unwrap();
+        assert_eq!(renewed.kind, LatchKind::Sustained);
+        assert!(loss.sustained_at().is_some());
     }
 
     #[test]

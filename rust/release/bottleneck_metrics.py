@@ -87,6 +87,7 @@ def latch_flags(host_log):
 LATCH_KINDS = (
     ("the client reported video loss after the host's send loss", 'confirmed_send'),
     ('more video loss after the start-up keyframe', 'confirmed'),
+    ("the host's socket refused video packets in a stream that already slowed down", 'host_sustained'),
     ("the host's socket refused video packets", 'send'),
     ("the stream's first keyframe was lost", 'startup'),
     ('video frames are not arriving', 'sustained'),

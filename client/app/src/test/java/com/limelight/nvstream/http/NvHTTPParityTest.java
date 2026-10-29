@@ -775,7 +775,7 @@ public class NvHTTPParityTest {
 
     @Test
     public void hostsWithoutDisplayScaleVersionGetNoDisplayScale() throws Exception {
-        // Older Rubylight hosts (2.6.x, 3.0.0-rc.4) ignore rlDisplayScale, so a chosen scale would silently do nothing.
+        // Older Rubylight hosts (2.6.x, 3.0.0-rc.5) ignore rlDisplayScale, so a chosen scale would silently do nothing.
         ConnectionContext context = context("rubylight-serverinfo.xml");
         assertEquals(HostCapabilities.Availability.unsupported(HostCapabilities.Reason.UPDATE_HOST),
                 context.hostCaps.availability(HostCapabilities.Feature.DISPLAY_SCALE));

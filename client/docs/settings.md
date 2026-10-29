@@ -303,6 +303,7 @@ These controls are created in [HostStreamSettings.java](../app/src/main/java/com
 | Frame pacing | Same as all PCs, Lowest latency, Balanced, Balanced with FPS limit, Smoothest video | Pick this PC's trade-off between latency and smoothness. Adaptive refresh replaces it with Lowest latency. |
 | Host virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. |
 | PC render resolution | Same as all PCs, or 50–200% | Change the PC's render resolution relative to the stream. Used with the virtual-display request. |
+| PC display scaling | Same as all PCs, PC’s own, or 100–500% in Windows' steps | Larger text and interface on this PC's virtual display; the resolution does not change. Shown only for PCs whose host reads it, and turned off with the reason on an older Rubylight host. |
 | Prefer YUV 4:4:4 / Force full-range video | Same as all PCs, On, Off | Request supported chroma/range behavior for this PC. |
 | Save | Action | Stores this PC's own values. Takes effect next stream. |
 

@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn hosts_without_display_scale_version_get_no_display_scale() {
-        // Older Rubylight hosts (2.6.x, 3.0.0-rc.4) ignore rlDisplayScale.
+        // Older Rubylight hosts (2.6.x, 3.0.0-rc.5) ignore rlDisplayScale.
         let request = LaunchRequest { virtual_display: true, virtual_display_dpi: 200, ..request() };
         let older = rubylight_host(false);
         assert_eq!(

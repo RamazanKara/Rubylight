@@ -90,12 +90,61 @@ pub fn transient_startup(stage: Option<&str>, port_flags: i32, error: i32) -> bo
         && stage.is_some_and(|stage| !stage.to_lowercase().contains("video"))
 }
 
+/// Between two route checks while the PC is not reachable (Android's `NetworkReturnRecovery`).
+pub const ROUTE_RETRY_MS: u64 = 500;
+/// One route check's connect timeout: below [`ROUTE_RETRY_MS`], so checks keep their pace.
+pub const ROUTE_PROBE_TIMEOUT_MS: u64 = 400;
+
+/// A network is back after the stream's was lost. True: reconnect now, since the connection
+/// cannot carry on over it (the PC times it out after 10 s of silence). Not when the stream
+/// roamed onto it, with automatic reconnection off, or with a network drop tolerance (it holds
+/// the connection, and decides).
+pub fn reconnects_at_once(roamed: bool, auto_reconnect: bool, network_grace_ms: u32) -> bool {
+    !roamed && auto_reconnect && network_grace_ms == 0
+}
+
+/// The wait for a route to the PC before a recovery attempt. A Wi-Fi network is often back
+/// before it has an address toward the PC (DHCP after the reconnect), so the attempt waits,
+/// checking every [`ROUTE_RETRY_MS`], instead of failing at once and backing off.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RouteWait {
+    deadline_ms: u64,
+    unreachable: u32,
+}
+
+impl RouteWait {
+    /// `deadline_ms`: when the recovery gives up (its window ends).
+    pub fn new(deadline_ms: u64) -> Self {
+        Self { deadline_ms, unreachable: 0 }
+    }
+
+    /// After a route check at `now_ms`: `Some(0)` to start the attempt, `Some(delay)` before the
+    /// next check, `None` when the window ended without a route (the recovery gives up, loudly).
+    pub fn next(&mut self, now_ms: u64, reachable: bool) -> Option<u64> {
+        if reachable {
+            return Some(0);
+        }
+        self.unreachable += 1;
+        if now_ms >= self.deadline_ms {
+            return None;
+        }
+        Some(ROUTE_RETRY_MS.min(self.deadline_ms - now_ms))
+    }
+
+    /// Route checks that found the PC unreachable so far.
+    pub fn unreachable_checks(&self) -> u32 {
+        self.unreachable
+    }
+}
+
 /// The desktop client's reconnect budget: the same delays within one minute of the first drop,
 /// renewed only after a connection that lasted [`STABLE_MS`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Backoff {
     attempts: u32,
     started_at_ms: Option<u64>,
+    /// The next attempt starts without its delay (a network came back); it still spends one.
+    now: bool,
 }
 
 impl Backoff {
@@ -123,7 +172,12 @@ impl Backoff {
             return None;
         }
         self.attempts += 1;
-        Some(delay)
+        Some(if std::mem::take(&mut self.now) { 0 } else { delay })
+    }
+
+    /// The next attempt starts at once: the network came back without the stream roaming.
+    pub fn retry_now(&mut self) {
+        self.now = true;
     }
 
     pub fn attempts(&self) -> u32 {
@@ -205,6 +259,41 @@ impl Subject for Backoff {
                 Ok(trace::optional_ms(delay))
             }
             "attempts" => Args::new(args, 0).map(|_| self.attempts().into()),
+            "retry_now" => {
+                Args::new(args, 0)?;
+                self.retry_now();
+                Ok(Value::Null)
+            }
+            _ => Err(format!("unknown method {method}")),
+        }
+    }
+}
+
+/// Java's `NetworkReturnRecovery`: `new` is the deadline, or null for the static decision.
+pub(crate) fn traced_route_wait(args: &Value) -> Result<Box<dyn Subject>, String> {
+    let wait = match args {
+        Value::Null => None,
+        _ => Some(RouteWait::new(Args::new(args, 1)?.int(0)?)),
+    };
+    Ok(Box::new(TracedRouteWait(wait)))
+}
+
+struct TracedRouteWait(Option<RouteWait>);
+
+impl Subject for TracedRouteWait {
+    fn call(&mut self, method: &str, args: &Value) -> Result<Value, String> {
+        if method == "reconnects_at_once" {
+            // Java takes the drop tolerance in seconds, the desktop in ms: only 0 (off) matters.
+            let a = Args::new(args, 3)?;
+            return Ok(reconnects_at_once(a.flag(0)?, a.flag(1)?, a.int(2)?).into());
+        }
+        let wait = self.0.as_mut().ok_or("no instance (new is null)")?;
+        match method {
+            "next" => {
+                let a = Args::new(args, 2)?;
+                Ok(trace::optional_ms(wait.next(a.int(0)?, a.flag(1)?)))
+            }
+            "unreachable_checks" => Args::new(args, 0).map(|_| wait.unreachable_checks().into()),
             _ => Err(format!("unknown method {method}")),
         }
     }

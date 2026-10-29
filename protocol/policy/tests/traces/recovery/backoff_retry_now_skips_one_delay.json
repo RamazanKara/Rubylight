@@ -1,0 +1,14 @@
+{
+  "source": "desktop Streaming::reconnect_plan after a network return without roaming",
+  "rust": "recovery::Backoff",
+  "java": null,
+  "new": [],
+  "calls": [
+    {"call": "begin", "args": [1000], "expect": null},
+    {"call": "retry_now", "args": [], "expect": null},
+    {"call": "next_delay", "args": [1000], "expect": 0},
+    {"call": "attempts", "args": [], "expect": 1},
+    {"call": "next_delay", "args": [1500], "expect": 2000},
+    {"call": "attempts", "args": [], "expect": 2}
+  ]
+}

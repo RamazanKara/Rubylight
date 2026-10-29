@@ -591,6 +591,8 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
                 if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
                 std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
             }
+            let port = if plan.record.http_port == 0 { nightjar_core::http::DEFAULT_HTTP_PORT } else { plan.record.http_port };
+            wait_for_route(&plan.record.address, port, recovery.remaining(recovery::now_ms()), interrupt)?;
         }
         match connect(plan, shared.clone(), interrupt) {
             Err(error) if error.retryable && plan.recovery.is_some() && !interrupt.is_interrupted() => {
@@ -599,6 +601,59 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
             }
             result => return result,
         }
+    }
+}
+
+/// Before a recovery attempt: returns once the PC is reachable, or when the recovery window ends
+/// (the attempt then fails and the budget says so), Err when cancelled. A network is often back
+/// before its address toward the PC (DHCP), so the attempt waits for a route instead of failing
+/// at once and backing off.
+fn wait_for_route(address: &str, port: u16, remaining_ms: u64, interrupt: &Interrupt) -> Result<(), ConnectError> {
+    let started = Instant::now();
+    let mut wait = recovery::RouteWait::new(recovery::now_ms() + remaining_ms);
+    loop {
+        if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
+        let checked = Instant::now();
+        let problem = route_problem(address, port);
+        match wait.next(recovery::now_ms(), problem.is_none()) {
+            Some(0) => {
+                if wait.unreachable_checks() > 0 {
+                    eprintln!("nightjar: recovery: the PC is reachable again after {} ms", started.elapsed().as_millis());
+                }
+                return Ok(());
+            }
+            None => {
+                eprintln!("nightjar: recovery: the PC stayed unreachable until the recovery window ended: {}",
+                    problem.unwrap_or_default());
+                return Ok(());
+            }
+            Some(delay) => {
+                if wait.unreachable_checks() == 1 {
+                    eprintln!("nightjar: recovery: no route to the PC yet ({}), checking every {} ms",
+                        problem.unwrap_or_default(), recovery::ROUTE_RETRY_MS);
+                }
+                let until = checked + Duration::from_millis(delay);
+                while Instant::now() < until {
+                    if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
+                    std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
+                }
+            }
+        }
+    }
+}
+
+/// None when a connection toward the PC's HTTP port gets an answer (refused counts: the route is
+/// there and the attempt itself decides), else why not.
+fn route_problem(address: &str, port: u16) -> Option<String> {
+    let remote = match (address, port).to_socket_addrs().map(|mut found| found.next()) {
+        Ok(Some(remote)) => remote,
+        Ok(None) => return Some(format!("{address} did not resolve")),
+        Err(error) => return Some(error.to_string()),
+    };
+    match std::net::TcpStream::connect_timeout(&remote, Duration::from_millis(recovery::ROUTE_PROBE_TIMEOUT_MS)) {
+        Ok(_) => None,
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => None,
+        Err(error) => Some(error.to_string()),
     }
 }
 
@@ -871,27 +926,32 @@ fn roaming_config(settings: &Settings, watching: bool) -> RoamingConfig {
     }
 }
 
-/// Client roaming's network watcher toward the PC, feeding the stream through `Notice`s, or None
-/// with why on stderr.
+/// The stream's network watcher toward the PC, feeding the stream through `Notice`s, or None
+/// with why on stderr. It runs for every stream: a lost route that comes back without roaming
+/// reconnects at once; with client roaming its changes are also the session's hints.
 fn roam_watch(settings: &Settings, address: &str, shared: &Arc<Shared>) -> Option<crate::network::RoamWatch> {
-    if !settings.client_roaming { return None; }
+    let unwatched = if !settings.client_roaming || settings.roaming_metered { "" } else { " and roaming is off" };
     let Some(remote) = (address, 47989).to_socket_addrs().ok().and_then(|mut found| found.next()) else {
-        eprintln!("nightjar: roaming: {address} did not resolve, network changes go unwatched{}",
-            if settings.roaming_metered { "" } else { " and roaming is off" });
+        eprintln!("nightjar: roaming: {address} did not resolve, network changes go unwatched{unwatched}");
         return None;
     };
     let shared = Arc::downgrade(shared);
-    let on_change = move |metered| shared.upgrade().map(|s| s.notify(Notice::NetworkChanged(NetworkHint { metered }))).is_some();
+    let on_change = move |event| {
+        let notice = match event {
+            crate::network::LinkEvent::Lost => Notice::NetworkLost,
+            crate::network::LinkEvent::Changed { metered, after_loss } => Notice::NetworkChanged(NetworkHint { metered }, after_loss),
+        };
+        shared.upgrade().map(|s| s.notify(notice)).is_some()
+    };
     crate::network::RoamWatch::start(remote, on_change)
-        .map_err(|e| eprintln!("nightjar: roaming: network changes go unwatched{}: {e}",
-            if settings.roaming_metered { "" } else { " and roaming is off" }))
+        .map_err(|e| eprintln!("nightjar: roaming: network changes go unwatched{unwatched}: {e}"))
         .ok()
 }
 
-/// Keeps the watcher for the stream only when the host roams; otherwise its hints go nowhere, so
-/// it stops instead of looking at the network every second.
-fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>, host_roaming: bool) {
-    *lock(&shared.roam_watch) = watch.filter(|_| host_roaming);
+/// Keeps the watcher for the stream. It feeds the session's roaming only when the host roams
+/// and client roaming is on, and tells a lost network's return on every stream.
+fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>) {
+    *lock(&shared.roam_watch) = watch;
 }
 
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
@@ -1140,7 +1200,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let passthrough = stream.audio_passthrough;
     let session = Session::start(
         &host,
-        session_config(settings, role, stream, location_override(), watch.is_some()),
+        session_config(settings, role, stream, location_override(), watch.is_some() && settings.client_roaming),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
         Arc::new(pipeline::Events::new(shared)),
@@ -1148,7 +1208,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     )
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
     let outcome = session.outcome();
-    keep_roam_watch(&roam_shared, watch, outcome.host_roaming);
+    keep_roam_watch(&roam_shared, watch);
     let mut facts = Facts {
         role,
         width: outcome.config.width,
@@ -1230,11 +1290,14 @@ pub enum Exit {
     Terminated(i32),
     /// The host ended it or the connection failed; Some carries the message.
     Ended(Option<String>),
+    /// A lost network came back without the stream roaming onto it: reconnect at once.
+    NetworkReturned,
 }
 
 impl Exit {
     pub fn retryable(&self) -> bool {
-        matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
+        matches!(self, Self::NetworkReturned) ||
+            matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
     }
 }
 
@@ -1410,6 +1473,10 @@ pub struct Streaming {
     pipeline_rates: Option<PipelineRatesReport>,
     pub exit: Option<Exit>,
     pub toast: Option<(String, Instant)>,
+    /// The route toward the PC is gone: the lost-network notice stays until one returns.
+    pub network_lost: bool,
+    /// The next automatic reconnect starts without its delay (a network came back).
+    retry_now: bool,
     pub host_id: u64,
     settings: Settings,
     plan: LaunchPlan,
@@ -1602,6 +1669,8 @@ impl Streaming {
             pipeline_rates: None,
             exit: None,
             toast: None,
+            network_lost: false,
+            retry_now: false,
             host_id: connecting.host_id,
             absolute: settings.mouse_mode == MouseMode::Absolute,
             settings,
@@ -1740,6 +1809,30 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
+    /// The route toward the PC went away: a frozen picture is never silent. The notice stays
+    /// until a network returns.
+    fn network_lost(&mut self) {
+        eprintln!("nightjar: the stream's network was lost");
+        self.network_lost = true;
+        self.show_toast(tr("Network lost. Reconnecting as soon as it is back…"));
+    }
+
+    /// A network is back after the route was gone; `roamed`: the stream moved onto it. Otherwise
+    /// the connection cannot carry on and would only time out, so the stream reconnects now.
+    fn network_returned(&mut self, roamed: bool) {
+        if !std::mem::take(&mut self.network_lost) { return; }
+        if self.toast.as_ref().is_some_and(|(text, _)| text == tr("Network lost. Reconnecting as soon as it is back…")) {
+            self.toast = None;
+            self.needs_redraw = true;
+        }
+        if self.exit.is_some() || !recovery::reconnects_at_once(roamed, self.settings.auto_reconnect, self.settings.network_grace_ms) {
+            return;
+        }
+        eprintln!("nightjar: the network is back without roaming: reconnecting now");
+        self.retry_now = true;
+        self.exit = Some(Exit::NetworkReturned);
+    }
+
     /// The plan that starts the stream again; `automatic` after a drop, `away` while the window is
     /// minimized or hidden.
     pub fn reconnect_plan(&self, automatic: bool, away: bool) -> Option<LaunchPlan> {
@@ -1751,6 +1844,7 @@ impl Streaming {
         if automatic {
             let recovery = plan.recovery.get_or_insert_with(Default::default);
             recovery.reset_after(self.started.elapsed().as_millis() as u64);
+            if self.retry_now { recovery.retry_now(); }
         } else {
             plan.recovery = None;
         }
@@ -2033,9 +2127,12 @@ impl Streaming {
                         self.show_toast(error);
                     }
                 }
-                Notice::NetworkChanged(hint) => {
-                    self.session.network_changed(hint);
+                Notice::NetworkChanged(hint, after_loss) => {
+                    // A session without roaming (off, or a host that does not roam) answers false.
+                    let roamed = self.session.network_changed(hint);
+                    if after_loss { self.network_returned(roamed); }
                 }
+                Notice::NetworkLost => self.network_lost(),
                 Notice::AdaptiveBitrate(result) => {
                     self.bitrate_busy = false;
                     match result {
@@ -3807,16 +3904,12 @@ mod tests {
     }
 
     #[test]
-    fn the_roaming_watcher_stops_when_the_host_does_not_roam() {
+    fn the_network_watcher_runs_for_the_stream_and_stops_with_it() {
         use std::sync::mpsc::RecvTimeoutError;
         let shared = Shared::new(Arc::new(|| {}), 8);
+        // Kept whether the host roams or not: a lost network's return reconnects every stream.
         let (watch, ended) = crate::network::RoamWatch::idle();
-        keep_roam_watch(&shared, Some(watch), false);
-        assert!(lock(&shared.roam_watch).is_none());
-        assert_eq!(ended.recv_timeout(Duration::from_secs(5)), Err(RecvTimeoutError::Disconnected), "the thread ended");
-        // A roaming host keeps it running for the stream.
-        let (watch, ended) = crate::network::RoamWatch::idle();
-        keep_roam_watch(&shared, Some(watch), true);
+        keep_roam_watch(&shared, Some(watch));
         assert!(lock(&shared.roam_watch).is_some());
         assert_eq!(ended.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
         lock(&shared.roam_watch).take();

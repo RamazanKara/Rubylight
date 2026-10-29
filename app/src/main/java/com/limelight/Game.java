@@ -265,7 +265,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private int recoveryAppId;
     private String recoveryAppUuid;
     private Runnable pendingRecovery;
-    private int recoveryGeneration;
+    // Volatile: a recovery's route wait on its worker stops when this changes.
+    private volatile int recoveryGeneration;
     private boolean recoveryHandoffInProgress;
     // The replacement stream a queued recovery will start; a packed-chroma failure meanwhile marks it.
     private Intent pendingRecoveryIntent;
@@ -316,6 +317,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private AdaptiveBitrateController adaptiveBitrate;
     private PyroWaveBitrateController pyroWaveBitrate;
     private boolean poorConnection;
+    // The stream's network is lost: the overlay says so until one returns (or the stream ends).
+    private boolean streamNetworkLost;
     private long adaptiveBitrateRetryAt;
     private int adaptiveBitrateRetryTarget;
     // Claims of the host's encoder bitrate that failed in a row. Some hosts report 0 for good.
@@ -4372,6 +4375,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean tryAutomaticRecovery(boolean packedOff) {
+        return tryAutomaticRecovery(packedOff, false);
+    }
+
+    /** {@code immediate}: no delay before the attempt (it still spends one); a network came back. */
+    private boolean tryAutomaticRecovery(boolean packedOff, boolean immediate) {
         if (prefConfig == null || (!packedOff && !prefConfig.autoReconnect) || displayedFailureDialog ||
                 (!connected && !connecting) || !foreground || isFinishing() || isDestroyed() ||
                 app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
@@ -4393,18 +4401,24 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Intent retry = createStreamHandoffIntent(LaunchSource.RECOVERY)
                 .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid);
         if (packedOff) retry.putExtra(EXTRA_PACKED_OFF, true);
-        return queueAutomaticRecovery(retry, packedOff);
+        return queueAutomaticRecovery(retry, packedOff, false, immediate);
     }
 
     private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting) {
         return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, false);
     }
 
+    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume) {
+        return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, tripResume, false);
+    }
+
     /**
      * {@code tripResume}: the resume after the user's own trip. It is never counted or refused by
      * the failure budget: a fixed delay and a deadline of its own from the return.
+     * {@code immediate}: no delay. Every recovery waits for a route to the PC before it starts.
      */
-    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume) {
+    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume,
+                                           boolean immediate) {
         if (prefConfig == null || (!ignoreAutoReconnectSetting && !prefConfig.autoReconnect) || !foreground || isFinishing() || isDestroyed() ||
                 recoveryHandoffInProgress || pendingRecovery != null) return false;
         long now = SystemClock.elapsedRealtime();
@@ -4420,10 +4434,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 recoveryBudgetExhausted = true;
                 return false;
             }
+            if (immediate) delay = 0;
             deadlineFrom = recoveryPolicy.startedAt();
             retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
                     .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
         }
+        final String routeHost = getIntent().getStringExtra(EXTRA_HOST);
+        final int routePort = getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
 
         displayedFailureDialog = true;
         setInputGrabState(false);
@@ -4447,6 +4464,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 try {
                     // Never overlap the native global connection with a previous stop.
                     if (stopping != null) stopping.join(10000);
+                    waitForRouteToHost(routeHost, routePort, deadlineFrom + StreamRecoveryPolicy.WINDOW_MS, recovery);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     return;
@@ -4468,6 +4486,54 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         };
         bitrateHandler.postDelayed(pendingRecovery, delay);
         return true;
+    }
+
+    /**
+     * On a recovery's worker: returns once the PC is reachable, at {@code deadline}, or when the
+     * recovery is cancelled. A network is often back before its address toward the PC (DHCP),
+     * so the attempt waits for a route instead of failing at once and backing off.
+     */
+    private void waitForRouteToHost(String host, int port, long deadline, int recovery) throws InterruptedException {
+        if (host == null) return;
+        NetworkReturnRecovery wait = new NetworkReturnRecovery(deadline);
+        long waitStarted = SystemClock.elapsedRealtime();
+        while (recovery == recoveryGeneration && !isFinishing() && !isDestroyed()) {
+            long checkedAt = SystemClock.elapsedRealtime();
+            String unreachable = routeProblem(host, port);
+            long next = wait.next(SystemClock.elapsedRealtime(), unreachable == null);
+            if (next == 0) {
+                if (wait.unreachableChecks() > 0) {
+                    LimeLog.info("Recovery: the PC is reachable again after " +
+                            (SystemClock.elapsedRealtime() - waitStarted) + " ms");
+                }
+                return;
+            }
+            if (next < 0) {
+                LimeLog.warning("Recovery: the PC stayed unreachable until the recovery window ended: " + unreachable);
+                return;
+            }
+            if (wait.unreachableChecks() == 1) {
+                LimeLog.info("Recovery: no route to the PC yet (" + unreachable + "), checking every " +
+                        NetworkReturnRecovery.RETRY_MS + " ms");
+            }
+            Thread.sleep(Math.max(0, next - (SystemClock.elapsedRealtime() - checkedAt)));
+        }
+    }
+
+    /** Null when a connection toward the PC's HTTP port gets an answer (refused counts), else why not. */
+    private static String routeProblem(String host, int port) {
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress(host, port), NetworkReturnRecovery.PROBE_TIMEOUT_MS);
+            return null;
+        } catch (java.io.IOException e) {
+            // Refused: the PC answered, so the route is there; the attempt itself decides.
+            Throwable cause = e.getCause();
+            if (cause instanceof android.system.ErrnoException &&
+                    ((android.system.ErrnoException) cause).errno == android.system.OsConstants.ECONNREFUSED) {
+                return null;
+            }
+            return e.toString();
+        }
     }
 
     private void showReconnectDialog(int title, String message) {
@@ -7246,7 +7312,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     return;
                 }
                 poorConnection = connectionStatus == MoonBridge.CONN_STATUS_POOR;
-                if (prefConfig.disableWarnings) {
+                // The lost-network notice stays until a network returns.
+                if (prefConfig.disableWarnings || streamNetworkLost) {
                     return;
                 }
 
@@ -7267,6 +7334,36 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (!isHidingOverlays) {
                     notificationOverlayView.setVisibility(requestedNotificationOverlayVisibility);
                 }
+            }
+        });
+    }
+
+    @Override
+    public void streamNetworkLost() {
+        runOnUiThread(() -> {
+            if (!connected || displayedFailureDialog || isFinishing() || isDestroyed()) return;
+            // A frozen picture is never silent: say what happened, even with warnings off.
+            streamNetworkLost = true;
+            notificationOverlayView.setText(getString(R.string.stream_network_lost));
+            requestedNotificationOverlayVisibility = View.VISIBLE;
+            if (!isHidingOverlays) notificationOverlayView.setVisibility(View.VISIBLE);
+        });
+    }
+
+    @Override
+    public void streamNetworkReturned(final boolean roamed) {
+        runOnUiThread(() -> {
+            if (!streamNetworkLost) return;
+            streamNetworkLost = false;
+            requestedNotificationOverlayVisibility = View.GONE;
+            if (!isHidingOverlays) notificationOverlayView.setVisibility(View.GONE);
+            if (!connected || displayedFailureDialog || isFinishing() || isDestroyed() || prefConfig == null ||
+                    !NetworkReturnRecovery.reconnectsAtOnce(roamed, prefConfig.autoReconnect,
+                            prefConfig.networkGraceSeconds)) return;
+            // The connection cannot carry on over this network and would only time out first.
+            LimeLog.info("The network is back without roaming: reconnecting now");
+            if (!tryAutomaticRecovery(false, true)) {
+                LimeLog.warning("The network is back, but no automatic reconnection is possible now");
             }
         });
     }

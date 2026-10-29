@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_network_lost">Rede perdida. Reconectando assim que ela voltar…</string>
+</resources>

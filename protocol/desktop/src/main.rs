@@ -1556,6 +1556,7 @@ impl App {
                 Exit::User => "left by the user".to_owned(),
                 Exit::CloseWindow => "window closed".to_owned(),
                 Exit::Reconnect => "reconnecting".to_owned(),
+                Exit::NetworkReturned => "the network is back without roaming, reconnecting".to_owned(),
                 Exit::Terminated(code) => format!("host or transport error {code}"),
                 Exit::Ended(None) => "ended by the PC".to_owned(),
                 Exit::Ended(Some(m)) => m.clone(),
@@ -1589,6 +1590,8 @@ impl App {
             Exit::CloseWindow => { self.running = false; None }
             Exit::User | Exit::Reconnect | Exit::Ended(None) => None,
             Exit::Terminated(code) => stream::termination_text(code),
+            // Not reconnecting after all (minimized, or not a game stream): the connection is lost.
+            Exit::NetworkReturned => stream::termination_text(nightjar_core::session::error::FAILED),
             Exit::Ended(Some(message)) => Some(message),
         };
         if let Some((title, body)) = stream::doctor::after_stream(ended, health).filter(|_| self.running) {
@@ -1654,7 +1657,8 @@ impl App {
             }
         }
         if let Some((_, at)) = &streaming.toast {
-            if at.elapsed() > Duration::from_secs(4) {
+            // The lost-network notice stays until a network returns.
+            if at.elapsed() > Duration::from_secs(4) && !streaming.network_lost {
                 streaming.toast = None;
                 streaming.needs_redraw = true;
             }

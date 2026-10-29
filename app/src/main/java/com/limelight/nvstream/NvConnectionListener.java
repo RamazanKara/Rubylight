@@ -14,6 +14,15 @@ public interface NvConnectionListener {
     void displayMessage(String message);
     void displayTransientMessage(String message);
 
+    /** The stream's network went away. On ConnectivityManager's thread. */
+    default void streamNetworkLost() {}
+
+    /**
+     * A network is back after the stream's was lost; roamed: the stream moves onto it. Otherwise
+     * the connection cannot carry on and only times out. On ConnectivityManager's thread.
+     */
+    default void streamNetworkReturned(boolean roamed) {}
+
     default void launchConfirmationRequired(LaunchConfirmation confirmation) { confirmation.cancel(); }
     default void launchConfirmationFinished() {}
     default void launchActionCompleted(String message) {}

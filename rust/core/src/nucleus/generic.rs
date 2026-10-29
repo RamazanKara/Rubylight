@@ -4,8 +4,8 @@
 //! Nucleus Co-op is the only way a game streams in the background, and it
 //! starts a game only through a handler. For a one-player game without one
 //! the host writes this handler into Nucleus' `handlers` folder and adds the
-//! game to the user's `userprofile.json`, the way Nucleus' own "add game"
-//! does. Co-op still needs a hub handler, and a hub handler for the same
+//! game to Nucleus' game list `content\userprofile.json`, the way Nucleus'
+//! own "add game" does (2.4.2 reads no other list). Co-op still needs a hub handler, and a hub handler for the same
 //! executable always wins: [`super::handler::Catalog`] skips ours.
 //!
 //! Every `Game.*` option below is one Nucleus Co-op 2.4.2 reads
@@ -499,8 +499,8 @@ fn battle_net(exe_folder: &str) -> Option<&'static str> {
     None
 }
 
-/// `json` (Nucleus' `userprofile.json`, None when there is none yet) with
-/// the game added as Nucleus' "add game" does (`UserGameInfo
+/// `json` (Nucleus' `content\userprofile.json`, None when there is none yet)
+/// with the game added as Nucleus' "add game" does (`UserGameInfo
 /// .InitializeDefault`). Every other byte stays: the user's games, their
 /// order and the file's layout. None when the game is already there.
 pub fn add_game(json: Option<&str>, guid: &str, exe_path: &str) -> Result<Option<String>, String> {

@@ -31,9 +31,14 @@ streaming the PC's monitors.
 A background stream needs no handler from the hub. A game you added at that
 exact path with a hub handler always uses it, and co-op still needs one.
 Otherwise the host writes its own one-player handler into Nucleus Co-op's
-`handlers` folder (`Rubylight-<game>-<hash>.js`) and adds the game to your
-Nucleus Co-op game list, as Nucleus' own "add game" would. It does that only
+`handlers` folder (`Rubylight-<game>-<hash>.js`) and adds the game to
+Nucleus Co-op's game list (`content\userprofile.json` in its folder, the only
+one 2.4.2 reads), as Nucleus' own "add game" would. It does that only
 while Nucleus Co-op isn't running, and never over a file it did not write.
+Earlier Rubylight versions added the game to
+`%APPDATA%\Nucleus Coop\userprofile.json` instead, which Nucleus Co-op never
+reads, so it showed no game and the stream hung at its start (#59); the host
+removes those entries, and only those, from that file.
 
 Installing a hub handler for the same .exe doesn't remove the host's handler
 right away: the next Nucleus Co-op session of another game removes it and its
@@ -155,9 +160,10 @@ Co-op release set with `nucleus_path` ignores keys it doesn't read.
 
 A start that times out says what Nucleus Co-op shows instead: a message on the
 PC's screen, from Nucleus Co-op or from Windows on its behalf, before or after
-the click on the profile (answer or fix it there), no profile Rubylight (open
-Nucleus Co-op and load the profile Rubylight once, then launch again), or no
-window at all, with the last error from its `crashlog.txt` if it wrote one.
+the click on the profile (answer or fix it there), that it doesn't list the
+game (naming the game list it reads), no profile Rubylight (open Nucleus
+Co-op and load the profile Rubylight once, then launch again), or no window
+at all, with the last error from its `crashlog.txt` if it wrote one.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs elevated as the signed-in user. A portable host refuses

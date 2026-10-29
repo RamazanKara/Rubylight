@@ -11,7 +11,7 @@
 //! leave do nothing. [`Pc`] and [`Instance`] are the seams to
 //! `butterpollo_windows::nucleus`; the tests use the fakes in `fake`.
 use crate::state::{Host, Launch, Shared};
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Context, Result, ensure};
 use butterpollo_core::config::Config;
 use butterpollo_core::input::Input;
 use butterpollo_core::input_policy::Policy;
@@ -113,7 +113,7 @@ pub trait Pc: Send + Sync {
     fn open(&self, folder: &Path) -> Result<Box<dyn Window>>;
     /// A Nucleus Co-op process running on the PC, whoever started it.
     fn running(&self) -> Result<Option<u32>>;
-    /// The handlers and the signed-in user's games of the Nucleus at `folder`.
+    /// The handlers and the games in the game list of the Nucleus at `folder`.
     fn catalog(&self, folder: &Path) -> Result<Catalog>;
     /// The XInput slots the PC's own controllers leave free.
     fn free_pads(&self) -> Result<usize>;
@@ -122,7 +122,7 @@ pub trait Pc: Send + Sync {
     /// link names none.
     fn one_player(&self, app: &App) -> Result<Setup, Refusal>;
     /// Write Rubylight's one-player handler for `setup` into the Nucleus at
-    /// `folder` and add its game for the signed-in user; refused while
+    /// `folder` and add its game to Nucleus' game list; refused while
     /// Nucleus Co-op runs.
     fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler>;
     /// Remove Rubylight's handler `own`, which a hub handler replaces or no
@@ -232,10 +232,7 @@ impl Pc for OnPc {
         butterpollo_windows::nucleus::session::running()
     }
     fn catalog(&self, folder: &Path) -> Result<Catalog> {
-        let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
-            anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
-        })?;
-        files::catalog(folder, Some(&appdata))
+        files::catalog(folder, true)
     }
     fn free_pads(&self) -> Result<usize> {
         pads::free(&mut pads::System::open()?)
@@ -310,31 +307,40 @@ impl Pc for OnPc {
         if let Some(pid) = self.running()? {
             anyhow::bail!(butterpollo_windows::nucleus::session::already_running(pid));
         }
-        let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
-            anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
-        })?;
-        files::write_own(folder, &appdata, setup)
+        let own = files::write_own(folder, setup)?;
+        // Earlier builds added their games to a list Nucleus Co-op never
+        // reads; they go from it once. The list is inert, so a failure is
+        // only logged.
+        match butterpollo_windows::user_folder::roaming_app_data() {
+            Ok(appdata) => {
+                if let Err(error) = files::forget_appdata_games(&appdata) {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "Nucleus Co-op: Rubylight's games left in the AppData list it does not read"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(
+                %error,
+                "Nucleus Co-op: the AppData list it does not read was not checked for Rubylight's games"
+            ),
+        }
+        Ok(own)
     }
     fn remove_own(&self, folder: &Path, own: &Handler) -> Result<()> {
         if let Some(pid) = self.running()? {
             anyhow::bail!(butterpollo_windows::nucleus::session::already_running(pid));
         }
-        let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
-            anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
-        })?;
-        files::remove_own(folder, &appdata, own)
+        files::remove_own(folder, own)
     }
     fn ready(&self, folder: &Path, own: Option<&Setup>, stale: &[&Handler]) -> Result<()> {
         butterpollo_windows::nucleus::session::ready(folder)?;
         if own.is_some() || !stale.is_empty() {
-            let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
-                anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
-            })?;
             if let Some(setup) = own {
                 files::check_own(folder, setup)?;
             }
             let guids: Vec<&str> = stale.iter().map(|h| h.guid.as_str()).collect();
-            files::check_list(&appdata, own, &guids)?;
+            files::check_list(folder, own, &guids)?;
         }
         Ok(())
     }
@@ -2447,6 +2453,7 @@ pub(crate) mod fake {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
     use butterpollo_core::nucleus::coop::{Phase, Refused};
     use serde_json::json;
 
@@ -4723,7 +4730,7 @@ mod tests {
     /// player's A press and release at the session's XInput index (where
     /// Nucleus' input hooks read the pad; whether the game reacts is not
     /// observable here); and the game's compatibility settings as before once
-    /// it stops. The user's game list, Rubylight's handlers (an earlier one
+    /// it stops. Nucleus Co-op's game list, Rubylight's handlers (an earlier one
     /// the session's sweep took included) and the settings at the game's
     /// paths are then exactly as before, also on a failure. Run as SYSTEM,
     /// like the service, with Nucleus Co-op
@@ -4786,10 +4793,8 @@ mod tests {
             None
         };
         let registry = Arc::new(Registry::new(Arc::new(OnPc)));
-        let list = butterpollo_windows::user_folder::roaming_app_data()
-            .map_err(|error| anyhow!("the user's AppData folder: {error}"))?
-            .join("Nucleus Coop")
-            .join("userprofile.json");
+        // The game list Nucleus Co-op reads (#59).
+        let list = files::list(&folder);
         let before = pc.catalog(&folder)?;
         let mut cleanup = CaseCleanup {
             registry: registry.clone(),
@@ -4834,7 +4839,13 @@ mod tests {
             .games
             .iter()
             .find(|g| g.guid == guid)
-            .with_context(|| format!("{guid} is not in the user's game list"))?;
+            .with_context(|| format!("{guid} is not in Nucleus Co-op's game list"))?;
+        // As Nucleus Co-op 2.4.2 loads its list: shown, so it can be selected.
+        ensure!(
+            files::listed_by_nucleus(&folder)?.contains(&guid),
+            "Nucleus Co-op does not show {guid} from {}",
+            files::list(&folder).display()
+        );
         cleanup.game = Some((entry.exe_path.clone(), handler.executable.clone()));
         println!(
             "handler {} for {} at {}",

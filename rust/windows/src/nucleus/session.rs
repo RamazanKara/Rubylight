@@ -331,6 +331,9 @@ struct Runner {
     /// Nucleus' crashlog.txt as it was at the launch. None for a runner
     /// tested alone.
     crashlog: Option<Crashlog>,
+    /// Nucleus Co-op's folder and the game's GUID, to tell whether Nucleus
+    /// lists the game. None for a runner tested alone.
+    game: Option<(PathBuf, String)>,
     /// Clicked, instances found, windows found.
     progress: (bool, usize, usize),
     windows: Vec<Option<u64>>,
@@ -526,10 +529,12 @@ impl Runner {
             );
         }
         let why = if self.shown {
-            format!(
-                "Nucleus Co-op shows no profile {TITLE} for {}; open Nucleus Co-op and load the profile {TITLE} once",
-                self.title
-            )
+            self.unlisted().unwrap_or_else(|| {
+                format!(
+                    "Nucleus Co-op shows no profile {TITLE} for {}; open Nucleus Co-op and load the profile {TITLE} once",
+                    self.title
+                )
+            })
         } else if let Some(unseen) = &self.unseen {
             format!("Nucleus Co-op's windows could not be listed: {unseen}")
         } else {
@@ -538,6 +543,24 @@ impl Runner {
         match self.crashlog.as_ref().and_then(Crashlog::newest) {
             Some(line) => format!("{why}. Its crashlog.txt says: {line}"),
             None => why,
+        }
+    }
+
+    /// Why Nucleus Co-op shows no entry for the game, when it doesn't: no
+    /// profile of a game it doesn't list ever appears (#59).
+    fn unlisted(&self) -> Option<String> {
+        let (folder, guid) = self.game.as_ref()?;
+        let list = files::list(folder);
+        match files::listed_by_nucleus(folder) {
+            Ok(listed) if listed.contains(guid) => None,
+            Ok(_) => Some(format!(
+                "Nucleus Co-op does not list {}: {} has no entry for it with its handler and an .exe that is there",
+                self.title,
+                list.display()
+            )),
+            Err(error) => Some(format!(
+                "Nucleus Co-op's game list can't be read: {error:#}"
+            )),
         }
     }
 
@@ -787,6 +810,7 @@ pub fn start(
         shown: false,
         unseen: None,
         crashlog: Some(crashlog),
+        game: Some((start.folder.to_path_buf(), start.handler.guid.clone())),
         progress: (false, 0, 0),
         windows: vec![None; start.players],
         deadline: Instant::now() + START_TIMEOUT,
@@ -1119,6 +1143,7 @@ mod tests {
             shown: false,
             unseen: None,
             crashlog: None,
+            game: None,
             progress: (false, 0, 0),
             windows: vec![None; players],
             deadline: t0 + START_TIMEOUT,
@@ -1273,6 +1298,47 @@ mod tests {
             runner.step(t0 + START_TIMEOUT),
             Some(End::Failed(format!(
                 "Nucleus Co-op shows no profile Rubylight for Game; {HINT}. Its crashlog.txt says: [29.10.2026 12:00:00] System.NullReferenceException: no game"
+            )))
+        );
+    }
+
+    #[test]
+    fn a_game_nucleus_does_not_list_is_named_with_its_list() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let folder = tempfile::tempdir().unwrap();
+        let exe = folder.path().join("Game.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let setup =
+            butterpollo_core::nucleus::generic::Setup::new(&exe.to_string_lossy(), "Game", None);
+        let own = files::write_own(folder.path(), &setup).unwrap();
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .windows
+            .push(window(5, NUCLEUS, ON_SCREEN));
+        let timeout = || {
+            let mut runner = runner(1, &screen, &probe, t0);
+            runner.game = Some((folder.path().to_path_buf(), own.guid.clone()));
+            assert_eq!(runner.step(t0), None);
+            runner.step(t0 + START_TIMEOUT)
+        };
+        // Listed: the profile is what's missing.
+        assert_eq!(
+            timeout(),
+            Some(End::Failed(format!(
+                "Nucleus Co-op shows no profile Rubylight for Game; {HINT}"
+            )))
+        );
+        // Not in the list Nucleus reads (#59).
+        let list = files::list(folder.path());
+        std::fs::remove_file(&list).unwrap();
+        assert_eq!(
+            timeout(),
+            Some(End::Failed(format!(
+                "Nucleus Co-op does not list Game: {} has no entry for it with its handler and an .exe that is there",
+                list.display()
             )))
         );
     }
@@ -2004,9 +2070,7 @@ mod tests {
             .with_context(|| format!("reading {}", path.display()))?;
         let handler =
             butterpollo_core::nucleus::handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
-        let appdata =
-            crate::user_folder::roaming_app_data().map_err(|error| anyhow::anyhow!("{error}"))?;
-        let exe_path = files::catalog(&folder, Some(&appdata))?
+        let exe_path = files::catalog(&folder, true)?
             .games
             .into_iter()
             .find(|game| game.guid == handler.guid)

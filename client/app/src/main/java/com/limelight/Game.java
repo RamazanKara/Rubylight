@@ -3429,6 +3429,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             text.append("\n\n").append(finding == com.limelight.utils.StreamHealth.Finding.PERIODIC ?
                     context.getString(R.string.health_periodic,
                             com.limelight.utils.WifiDiagnostics.period(context, report.stallPeriodMs), report.stalls) :
+                    finding == com.limelight.utils.StreamHealth.Finding.BURSTS ?
+                    context.getString(R.string.health_bursts, report.lateSamples, report.samples) :
                     context.getString(descriptions[finding.ordinal()]));
         }
         text.append("\n\n").append(context.getString(

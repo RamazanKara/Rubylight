@@ -42,16 +42,25 @@ pub enum Finding {
     Presentation,
     Heat,
     Periodic,
+    /// Frames arrived in bursts: late against the host's clock in many seconds (see
+    /// [`BURST_MIN_VOTES`]).
+    Bursts,
 }
 
+/// [`Finding::Bursts`] needs late frames ([`Stats::late_frames`]) in at least this many samples
+/// and in a third of them: a launch or a switch to fullscreen holds frames back for a few seconds
+/// once, a Wi-Fi that bunches packets does it all the time.
+pub const BURST_MIN_VOTES: u32 = 5;
+
 impl Finding {
-    pub const ALL: [Finding; 6] = [
+    pub const ALL: [Finding; 7] = [
         Finding::Network,
         Finding::Decoder,
         Finding::Host,
         Finding::Presentation,
         Finding::Heat,
         Finding::Periodic,
+        Finding::Bursts,
     ];
 
     /// Java's enum name, as the traces spell it.
@@ -63,6 +72,7 @@ impl Finding {
             Finding::Presentation => "PRESENTATION",
             Finding::Heat => "HEAT",
             Finding::Periodic => "PERIODIC",
+            Finding::Bursts => "BURSTS",
         }
     }
 }
@@ -91,6 +101,8 @@ pub struct Report {
     pub stall_period_ms: u64,
     /// True when `worst_host_p95_ms` comes from a sample whose host time includes the send.
     pub host_includes_send: bool,
+    /// Counted samples with late frames, the evidence of [`Finding::Bursts`].
+    pub late_samples: usize,
 }
 
 impl Report {
@@ -165,7 +177,7 @@ impl StreamHealth {
     pub fn report(&mut self, now_ms: u64) -> Report {
         self.expire(now_ms);
         let mut votes = [0u32; Finding::ALL.len()];
-        let mut valid = 0;
+        let mut valid = 0usize;
         let (mut loss, mut decode, mut host, mut display) = (-1f32, -1f32, -1f32, -1f32);
         let mut host_includes_send = false;
         for s in &self.samples {
@@ -209,10 +221,17 @@ impl StreamHealth {
             if s.thermal_level >= 2 {
                 votes[Finding::Heat as usize] += 1;
             }
+            if s.late_frames.is_some_and(|late| late > 0) {
+                votes[Finding::Bursts as usize] += 1;
+            }
         }
+        let bursts = BURST_MIN_VOTES.max(valid.div_ceil(3) as u32);
         let mut findings: Vec<Finding> = Finding::ALL
             .into_iter()
-            .filter(|&finding| valid >= 3 && votes[finding as usize] >= 2)
+            .filter(|&finding| {
+                let needed = if finding == Finding::Bursts { bursts } else { 2 };
+                valid >= 3 && votes[finding as usize] >= needed
+            })
             .collect();
         // A rhythm spans minutes, so it stands on its own rather than on the last 30 seconds.
         if self.stall_period_ms > 0 {
@@ -232,6 +251,7 @@ impl StreamHealth {
             stalls: self.stall_starts.len(),
             stall_period_ms: self.stall_period_ms,
             host_includes_send,
+            late_samples: votes[Finding::Bursts as usize] as usize,
         }
     }
 }
@@ -500,6 +520,7 @@ impl Subject for StreamHealth {
                 "stalls" => report.stalls.into(),
                 "stall_period_ms" => report.stall_period_ms.into(),
                 "host_includes_send" => report.host_includes_send.into(),
+                "late_samples" => report.late_samples.into(),
                 "can_suggest_bitrate" => report.can_suggest_bitrate().into(),
                 _ => return Err(format!("unknown method {method}")),
             });
@@ -508,6 +529,16 @@ impl Subject for StreamHealth {
             "add" => {
                 let a = Args::new(args, 13)?;
                 self.add(&traced_sample(&a, args, 1, a.int(0)?)?);
+                Ok(Value::Null)
+            }
+            // `add` with the tick's late frames last (Java's -1 when unknown).
+            "add_late" => {
+                let a = Args::new(args, 14)?;
+                let late: i64 = a.int(13)?;
+                self.add(&Stats {
+                    late_frames: u32::try_from(late).ok(),
+                    ..traced_sample(&a, args, 1, a.int(0)?)?
+                });
                 Ok(Value::Null)
             }
             // The same sample `count` times, `step_ms` apart, as steady stats ticks.
@@ -647,6 +678,60 @@ mod tests {
             slow.add(&sample(n * 1000, 20.0));
         }
         assert_eq!(slow.report(4000).findings, [Finding::Decoder]);
+    }
+
+    /// Recorded arrivals (desktop Nightjar on a laptop over Wi-Fi 6E against a Rubylight host): the
+    /// frames' RTP and receive time deltas, replayed as one-second ticks. The reports of each tick.
+    fn replay(recording: &str) -> Vec<Report> {
+        let mut lines = recording.lines().filter(|line| !line.starts_with('#'));
+        let fps: u32 = lines.next().and_then(|l| l.strip_prefix("fps ")).unwrap().parse().unwrap();
+        let (mut late, mut health) = (crate::stats::LateFrames::default(), StreamHealth::default());
+        let (mut rtp, mut at_us, mut tick_us) = (0u32, 1_000_000u64, 2_000_000u64);
+        let mut reports = Vec::new();
+        for line in lines {
+            let (ticks, us) = line.split_once(' ').unwrap();
+            rtp = rtp.wrapping_add(ticks.parse::<i64>().unwrap() as u32);
+            at_us += us.parse::<u64>().unwrap();
+            while at_us >= tick_us {
+                let now_ms = tick_us / 1000;
+                health.add(&Stats { late_frames: Some(late.tick()), fps, ..sample(now_ms, 0.5) });
+                reports.push(health.report(now_ms));
+                tick_us += 1_000_000;
+            }
+            late.push(rtp, at_us, fps);
+        }
+        reports
+    }
+
+    #[test]
+    fn frames_that_wifi_bunches_up_are_reported_as_bursts() {
+        // HEVC at 60 fps: 31-50 ms receive gaps about once a second, while the host sent every frame
+        // on time. The stream's health line had no findings.
+        let reports = replay(include_str!("../tests/arrivals/wifi-bursts-hevc-60.txt"));
+        assert!(reports.len() >= 50, "{}", reports.len());
+        for (second, report) in reports.iter().enumerate().skip(10) {
+            assert_eq!(report.findings, [Finding::Bursts], "second {second}: {report:?}");
+            assert!(report.late_samples >= BURST_MIN_VOTES as usize);
+        }
+        assert!(reports.last().unwrap().late_samples >= 20, "{:?}", reports.last());
+    }
+
+    #[test]
+    fn a_launch_and_a_switch_to_fullscreen_are_not_bursts() {
+        // 120 fps. The first: the launch at 20 fps of still pictures, the game's switch to
+        // fullscreen, and three seconds of frames that came in fives (seconds 29-31). The second:
+        // the same arm on a clean run.
+        for recording in [
+            include_str!("../tests/arrivals/launch-and-fullscreen-hevc-120.txt"),
+            include_str!("../tests/arrivals/clean-hevc-120.txt"),
+        ] {
+            let reports = replay(recording);
+            assert!(reports.len() >= 50, "{}", reports.len());
+            for (second, report) in reports.iter().enumerate() {
+                assert!(!report.findings.contains(&Finding::Bursts), "second {second}: {report:?}");
+            }
+            assert!(reports.iter().any(|r| r.late_samples > 0), "late frames were seen, just not often");
+        }
     }
 
     #[test]

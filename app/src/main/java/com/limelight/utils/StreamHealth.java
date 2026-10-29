@@ -14,11 +14,21 @@ public final class StreamHealth {
     private static final int MAX_STALLS = 64;
     public enum Finding { NETWORK, DECODER, HOST, PRESENTATION, HEAT, PERIODIC, BURSTS }
     /**
-     * BURSTS needs late frames in at least this many samples and in a third of them: a launch or a
-     * switch to fullscreen holds frames back for a few seconds once, a Wi-Fi that bunches packets
-     * does it all the time.
+     * BURSTS needs this many votes and a third of the samples. A sample with late frames is a vote,
+     * but a run of consecutive late samples gives at most {@link #BURST_RUN_VOTES} unless it is
+     * longer than {@link #BURST_LONG_RUN}: a launch or a switch to fullscreen holds frames back for
+     * a few seconds in a row once, a Wi-Fi that bunches packets does it again and again, or without
+     * a break. As nightjar-policy's health.rs.
      */
-    public static final int BURST_MIN_VOTES = 5;
+    public static final int BURST_MIN_VOTES = 6;
+    /** The votes of one short run of late samples: one transition can never reach BURST_MIN_VOTES. */
+    public static final int BURST_RUN_VOTES = 2;
+    /** A run of late samples longer than this is no transition and votes in full. */
+    public static final int BURST_LONG_RUN = 10;
+
+    private static int runVotes(int run) {
+        return run > BURST_LONG_RUN ? run : Math.min(run, BURST_RUN_VOTES);
+    }
 
     public static final class Sample {
         public final long atMs;
@@ -136,6 +146,8 @@ public final class StreamHealth {
         int valid = 0;
         float loss = -1, decode = -1, host = -1, display = -1;
         boolean hostIncludesSend = false;
+        // Burst votes per run of late samples (lateSamples keeps every late sample).
+        int burstVotes = 0, run = 0;
         for (Sample s : samples) {
             if (!s.fresh || !Float.isFinite(s.budgetMs)) continue;
             valid++;
@@ -155,12 +167,20 @@ public final class StreamHealth {
                 votes[Finding.PRESENTATION.ordinal()]++;
             }
             if (s.thermal >= 2) votes[Finding.HEAT.ordinal()]++;
-            if (s.lateFrames > 0) votes[Finding.BURSTS.ordinal()]++;
+            if (s.lateFrames > 0) {
+                votes[Finding.BURSTS.ordinal()]++;
+                run++;
+            } else {
+                burstVotes += runVotes(run);
+                run = 0;
+            }
         }
+        burstVotes += runVotes(run);
         int bursts = Math.max(BURST_MIN_VOTES, (valid + 2) / 3);
         List<Finding> findings = new ArrayList<>();
         if (valid >= 3) for (Finding finding : Finding.values()) {
-            if (votes[finding.ordinal()] >= (finding == Finding.BURSTS ? bursts : 2)) findings.add(finding);
+            boolean burst = finding == Finding.BURSTS;
+            if ((burst ? burstVotes : votes[finding.ordinal()]) >= (burst ? bursts : 2)) findings.add(finding);
         }
         // A rhythm spans minutes, so it stands on its own rather than on the last 30 seconds.
         if (stallPeriodMs > 0) findings.add(Finding.PERIODIC);

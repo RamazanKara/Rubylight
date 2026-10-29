@@ -23,10 +23,10 @@ pub struct Doctor {
 }
 
 impl Doctor {
-    /// A decoded frame: its RTP timestamp and when its first packet arrived (session clock), at
-    /// the stream's frame rate.
-    pub fn arrived(&mut self, rtp: u32, receive_us: u64, fps: u32) {
-        self.late.push(rtp, receive_us, fps);
+    /// A decoded frame: its RTP timestamp, the frame header's host processing time (0.1 ms, 0
+    /// unknown) and when its first packet arrived (session clock), at the stream's frame rate.
+    pub fn arrived(&mut self, rtp: u32, host_latency: u16, receive_us: u64, fps: u32) {
+        self.late.push(rtp, u32::from(host_latency) * 100, receive_us, fps);
     }
 
     /// A picture was shown: its header's processing time (100 us units, 0 when the host sends

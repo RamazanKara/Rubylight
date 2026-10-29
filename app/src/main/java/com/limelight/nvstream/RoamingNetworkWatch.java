@@ -3,6 +3,8 @@ package com.limelight.nvstream;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Build;
@@ -16,7 +18,8 @@ import com.limelight.nvstream.jni.MoonBridge;
  * (Experimental) on both sides the engine can move the stream (docs/protocol/client-roaming.md),
  * and never moves onto a network not reported here; otherwise it only answers whether the
  * connection carries on. It tells the listener when the stream's network is lost and when one
- * returns, so a stream whose connection cannot carry on reconnects at once.
+ * returns, so a stream whose connection cannot carry on reconnects at once; a network back
+ * before its address toward the PC is asked about again as its addresses arrive.
  * The callbacks run on ConnectivityManager's thread, never the stream's.
  */
 @TargetApi(Build.VERSION_CODES.N)
@@ -67,6 +70,16 @@ final class RoamingNetworkWatch {
             @Override
             public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
                 tracker.capabilities(network, caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED));
+            }
+
+            @Override
+            public void onLinkPropertiesChanged(Network network, LinkProperties properties) {
+                // Only the addresses: DNS and other updates do not move the route.
+                java.util.Set<java.net.InetAddress> addresses = new java.util.HashSet<>();
+                for (LinkAddress address : properties.getLinkAddresses()) {
+                    addresses.add(address.getAddress());
+                }
+                tracker.addresses(network, addresses);
             }
 
             @Override

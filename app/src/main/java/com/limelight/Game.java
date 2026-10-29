@@ -4554,7 +4554,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     /** An immediate no-route error: no address toward the PC (yet), or its name does not resolve. */
     static boolean routeMissing(java.io.IOException e) {
-        if (e instanceof java.net.UnknownHostException || e instanceof java.net.NoRouteToHostException) return true;
+        // Android's socket layer throws NoRouteToHostException for EHOSTUNREACH and
+        // BindException ("Address not available") for EADDRNOTAVAIL, without the errno.
+        if (e instanceof java.net.UnknownHostException || e instanceof java.net.NoRouteToHostException ||
+                e instanceof java.net.BindException) return true;
         if (!(e.getCause() instanceof android.system.ErrnoException)) return false;
         int errno = ((android.system.ErrnoException) e.getCause()).errno;
         return errno == android.system.OsConstants.ENETUNREACH || errno == android.system.OsConstants.EHOSTUNREACH ||
@@ -7382,10 +7385,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void streamNetworkReturned(final int change, final boolean metered) {
         runOnUiThread(() -> {
-            if (!streamNetworkLost) return;
-            streamNetworkLost = false;
-            requestedNotificationOverlayVisibility = View.GONE;
-            if (!isHidingOverlays) notificationOverlayView.setVisibility(View.GONE);
+            // A return the connection carried on over (no route yet) is reported again once
+            // the engine's answer changes (the address arrived): only the first clears the notice.
+            if (streamNetworkLost) {
+                streamNetworkLost = false;
+                requestedNotificationOverlayVisibility = View.GONE;
+                if (!isHidingOverlays) notificationOverlayView.setVisibility(View.GONE);
+            }
             // Roamed, or carrying on (the same address back, or no route yet): the stream goes on,
             // and its own timeout decides if it cannot.
             if (!connected || displayedFailureDialog || isFinishing() || isDestroyed() || prefConfig == null ||

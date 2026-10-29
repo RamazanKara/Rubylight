@@ -719,9 +719,11 @@ pub(crate) mod tests {
     fn a_renamed_transfer_is_titled_in_glyphs_the_font_has() {
         let mut transfers = Transfers::new();
         let down = transfers.queue_download("report.pdf", "report (1).pdf", 1);
-        let up = transfers.queue_upload("notes.txt", 1);
+        // The PC takes no colon in a name, so the upload is sent under another one.
+        let up = transfers.queue_upload("a:b.txt", 1);
         let (down, up) = (title(transfers.get(down).unwrap()), title(transfers.get(up).unwrap()));
         assert_eq!(down, "report.pdf › report (1).pdf");
+        assert_eq!(up, "a:b.txt › a_b.txt");
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
         // The fonts load with the first frame; its textures are let go like the other tests do.

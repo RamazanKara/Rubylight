@@ -1071,7 +1071,7 @@ impl Launcher {
             }
             ui.add_space(8.0);
             ui.label(
-                RichText::new(tr("Options for a PC: F2, right-click, the three dots, or the controller's X button. Ctrl+N adds a PC."))
+                RichText::new(trf("Options for a PC: F2, right-click, the three dots, or the controller's {} button. Ctrl+N adds a PC.", &[&crate::glyphs::Style::of(view.pads).face(crate::glyphs::Face::West)]))
                     .color(OUTLINE)
                     .font(regular(text::CAPTION)),
             );
@@ -1104,7 +1104,7 @@ impl Launcher {
                     ui.label(RichText::new(tr("This PC lists no apps.")).color(ON_SURFACE_VARIANT));
                     return;
                 }
-                ui.label(RichText::new(tr("Game settings: right-click a game, press F2, or use the controller's left face button.")).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(trf("Game settings: right-click a game, press F2, or use the controller's {} button.", &[&crate::glyphs::Style::of(view.pads).face(crate::glyphs::Face::West)])).color(ON_SURFACE_VARIANT));
                 ui.add_space(12.0);
                 scroll(ui, "apps", |ui| {
                     let gap = 20.0;

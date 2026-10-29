@@ -18,6 +18,7 @@ mod folders_page;
 mod controller_audio;
 mod controller_mouse;
 mod gamepad;
+mod glyphs;
 mod gui;
 mod host_page;
 mod hosts;
@@ -2119,7 +2120,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                     if ui.button(tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
                     if ui.button(tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
-                    ui.label(tr("Ctrl+Alt+Shift+Tab or Start+Select opens this menu."));
+                    let style = glyphs::Style::of(pads);
+                    ui.label(trf("Ctrl+Alt+Shift+Tab or {}+{} opens this menu.", &[&style.start(), &style.select()]));
                 });
         }
         if visible {

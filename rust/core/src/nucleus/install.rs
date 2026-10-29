@@ -57,6 +57,35 @@ pub fn folder(data: &Path) -> PathBuf {
     data.join("nucleus").join(VERSION)
 }
 
+/// The verified release archive the host keeps beside its copy, which the
+/// users' own copies are unpacked from.
+pub fn archive(data: &Path) -> PathBuf {
+    data.join("nucleus")
+        .join(format!("NucleusApp-{VERSION}.zip"))
+}
+
+/// The folder holding each user's own copy, which runs with that user's
+/// standard rights: never one an elevated Nucleus runs from.
+pub fn user_root(data: &Path) -> PathBuf {
+    data.join("nucleus-user")
+}
+
+/// The folder of the user `sid`'s own copies; None for a text that is no
+/// SID (`S-1-` and numbers), which could name another folder.
+pub fn user_folder(data: &Path, sid: &str) -> Option<PathBuf> {
+    let parts = sid.strip_prefix("S-1-")?;
+    let valid = sid.len() <= 184
+        && parts
+            .split('-')
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()));
+    valid.then(|| user_root(data).join(sid))
+}
+
+/// The user `sid`'s own copy of this version.
+pub fn user_copy(data: &Path, sid: &str) -> Option<PathBuf> {
+    Some(user_folder(data, sid)?.join(VERSION))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +134,42 @@ mod tests {
         assert_eq!(
             folder(Path::new("data")),
             Path::new("data").join("nucleus").join("2.4.2")
+        );
+        assert_eq!(
+            archive(Path::new("data")),
+            Path::new("data")
+                .join("nucleus")
+                .join("NucleusApp-2.4.2.zip")
+        );
+    }
+
+    #[test]
+    fn each_user_has_a_copy_of_their_own_outside_the_hosts() {
+        let data = Path::new("data");
+        let sid = "S-1-5-21-1004336348-1177238915-682003330-1001";
+        assert_eq!(
+            user_copy(data, sid),
+            Some(data.join("nucleus-user").join(sid).join("2.4.2"))
+        );
+        // An Entra ID account.
+        assert!(user_folder(data, "S-1-12-1-1234-5678").is_some());
+        assert!(!user_root(data).starts_with(data.join("nucleus")));
+        for bad in [
+            "",
+            "S-1-",
+            "S-1-5--21",
+            "S-1-5-21-",
+            "S-1-5-21-1\\..\\..",
+            "S-1-5-21-1/x",
+            "..",
+            "s-1-5-21-1",
+            "S-1-5-21-1 ",
+        ] {
+            assert_eq!(user_folder(data, bad), None, "{bad:?}");
+        }
+        assert_eq!(
+            user_folder(data, &format!("S-1-{}", "1-".repeat(100) + "1")),
+            None
         );
     }
 }

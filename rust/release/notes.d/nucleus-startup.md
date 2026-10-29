@@ -1,0 +1,4 @@
+# Nucleus Co-op
+- A background stream through Nucleus Co-op no longer hangs at its start when Nucleus Co-op would ask something first ([#59](https://github.com/RamazanKara/Rubylight/issues/59)). Rubylight turns off its install-folder check, which on Windows 11 warns about a Documents folder in OneDrive on every start, and its favourites-only and game-type list filters, which could hide the game. Your other Nucleus Co-op settings stay as they are.
+- When Nucleus Co-op still doesn't start the game, the stream says why: the message it shows on the PC's screen, that it shows no profile Rubylight, or that it showed no window, with the error it logged if there is one.
+- A Nucleus Co-op install without its Settings.ini is refused with a request to set it up again from the console, instead of a start that hangs.

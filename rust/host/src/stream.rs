@@ -64,6 +64,49 @@ fn server_command(
             .unwrap_or(false),
     ))
 }
+/// How soon the stream looks again when another thread held the running app.
+const QUIT_SCAN_RETRY: Duration = Duration::from_millis(50);
+/// Hand the program the stream's display shows (`pid`) to the running app, for
+/// quitting it later. Only the stream of the client that launched the app:
+/// another client's display shows its own programs; an app started from the
+/// console has no owner. False, having waited for nothing, when another thread
+/// holds the app: the stream thread never waits behind housekeeping. Whether
+/// the program is a game a store client started takes the PC's process list,
+/// read on a thread of its own with the app released.
+fn observe_foreground_game(h: &Shared, client: &str, program: &str, pid: u32) -> bool {
+    let Some(mut current) = h.try_current_app() else {
+        return false;
+    };
+    if let Some(app) = current.as_mut()
+        && (app.owner.is_empty() || app.owner == client)
+        && let Some(check) = app.observe_foreground(pid, program)
+    {
+        let host = h.clone();
+        let started = thread::Builder::new()
+            .name("foreground-game".into())
+            .spawn(move || {
+                let verdict = check.run();
+                if let Some(app) = host.current_app.lock().unwrap().as_mut() {
+                    app.finish_foreground(check, verdict);
+                }
+            });
+        if let Err(error) = started {
+            tracing::warn!(%error, pid, "the program in front was not checked; looking again");
+            app.abandon_foreground();
+        }
+    }
+    true
+}
+/// Expire controller sessions once a second (`last` is the last time). Input
+/// never waits behind housekeeping: a held app is looked at on the next pass.
+fn expire_controllers(h: &crate::state::Host, last: &mut Instant) {
+    if last.elapsed() >= Duration::from_secs(1)
+        && let Some(app_running) = h.try_current_app().map(|current| current.is_some())
+    {
+        h.controller_sessions.expire(app_running);
+        *last = Instant::now();
+    }
+}
 /// A WebRTC HDR stream carries the display's HDR or nothing: SDR content labelled HDR, or HDR
 /// tone-mapped to SDR, is not what the client asked for, so the session ends with an error.
 /// `display_in_hdr` is the capture's reading of the output's colour space (HDR10 or not); the
@@ -1853,6 +1896,7 @@ impl Media {
                         &s.launch.id,
                         Some(crate::stall_watch::GpuProbe::start(&output, &s.launch.id)),
                     );
+                    progress.set_period(rates.period);
                     // Since when encoding has failed without a frame getting through.
                     let mut recovery = EncoderRecovery {
                         progress: Some(progress.clone()),
@@ -2642,6 +2686,7 @@ impl Media {
                                 paced_rate = stream.fps_millihz();
                                 rates = butterpollo_core::reconfigure::Rates::new(&stream, c.get("minimum_fps_target", "20"));
                                 stream_period.set(rates.period);
+                                progress.set_period(rates.period);
                                 cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("wgc_pacing_smoothing", true));
                                 pacer = new_pacer(rates.period);
                                 unlocked_grid_period = None;
@@ -2861,13 +2906,12 @@ impl Media {
                                 if let Some((program, pid)) = quit_scan
                                     .get_or_insert_with(butterpollo_windows::foreground::Tracker::default)
                                     .poll_process(&[], &image.gpu.display)
-                                    && let Some(app) = h.current_app.lock().unwrap().as_mut()
-                                    // Only the stream of the client that launched the app:
-                                    // another client's display shows its own programs.
-                                    // An app started from the console has no owner.
-                                    && (app.owner.is_empty() || app.owner == s.launch.client.uuid)
                                 {
-                                    app.observe_foreground(pid, &program);
+                                    progress.mark(crate::stall_watch::Phase::AppTracking);
+                                    if !observe_foreground_game(&h, &s.launch.client.uuid, &program, pid) {
+                                        quit_scan_due = Instant::now() + QUIT_SCAN_RETRY;
+                                    }
+                                    progress.mark(crate::stall_watch::Phase::Picture);
                                 }
                             }
                             let rebuilt = rebuild_encoder;
@@ -3652,11 +3696,7 @@ impl Media {
         let mut controller_cleanup = Instant::now();
         while !h.stop.load(Ordering::Acquire) {
             while self.control_wake_receiver.recv(&mut [0]).is_ok() {}
-            if controller_cleanup.elapsed() >= Duration::from_secs(1) {
-                let app_running = h.current_app.lock().unwrap().is_some();
-                h.controller_sessions.expire(app_running);
-                controller_cleanup = Instant::now();
-            }
+            expire_controllers(&h, &mut controller_cleanup);
             let (ping_timeout, client_roaming) = {
                 let c = h.config.read().unwrap();
                 (crate::network::ping_timeout(&c), c.client_roaming())
@@ -5648,6 +5688,116 @@ mod tests {
             Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
         assert_eq!(server_command(&f.host, &client, &[0], true, &mut at), None);
         assert!(at.is_none());
+    }
+    #[test]
+    fn the_stream_thread_skips_its_game_look_while_another_thread_holds_the_app() {
+        use crate::state::test_support::Fixture;
+        let f = Fixture::new();
+        *f.host.current_app.lock().unwrap() = Some(
+            crate::process::RunningApp::with_environment(
+                &butterpollo_core::state::App::desktop(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+        // Housekeeping holds the app for 400 ms, as on a PC busy loading a game.
+        let (held, holding) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let host = &f.host;
+            scope.spawn(move || {
+                let _current = host.current_app.lock().unwrap();
+                held.send(()).unwrap();
+                let _ = released.recv_timeout(Duration::from_millis(400));
+            });
+            holding.recv().unwrap();
+            // A blocking look would wait the whole 400 ms and then report true.
+            assert!(!observe_foreground_game(
+                &f.host, "client", "game.exe", 4242
+            ));
+            release.send(()).unwrap();
+        });
+        // Free again, the look goes through.
+        assert!(observe_foreground_game(&f.host, "client", "game.exe", 4242));
+    }
+    #[test]
+    fn a_program_another_program_started_is_checked_off_the_stream_thread() {
+        use crate::state::test_support::Fixture;
+        let f = Fixture::new();
+        let mut app = crate::process::RunningApp::with_environment(
+            &butterpollo_core::state::App::desktop(),
+            Default::default(),
+        )
+        .unwrap();
+        app.mark_launching();
+        *f.host.current_app.lock().unwrap() = Some(app);
+        // A "game" started after the launch by a program other than the
+        // desktop (this test), as a store client starts one.
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let program = format!(r"{root}\System32\PING.EXE");
+        /// Ends the stand-in game however the test ends.
+        struct Game(std::process::Child);
+        impl Drop for Game {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let game = Game(
+            std::process::Command::new(&program)
+                .args(["-n", "30", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let game_up = || {
+            f.host
+                .current_app
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .launch_progress()
+                .map(|(up, _)| up)
+        };
+        // Each look hands a check off and returns, as the stream's once-a-second
+        // look does: the process list is read and the result applied on the
+        // check's own thread.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while game_up() != Some(true) {
+            assert!(Instant::now() < deadline, "the check never found the game");
+            assert!(observe_foreground_game(
+                &f.host,
+                "client",
+                &program,
+                game.0.id()
+            ));
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+    #[test]
+    fn input_skips_controller_cleanup_while_another_thread_holds_the_app() {
+        use crate::state::test_support::Fixture;
+        let f = Fixture::new();
+        let due = Instant::now() - Duration::from_secs(2);
+        let mut last = due;
+        let (held, holding) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let host = &f.host;
+            scope.spawn(move || {
+                let _current = host.current_app.lock().unwrap();
+                held.send(()).unwrap();
+                let _ = released.recv_timeout(Duration::from_secs(5));
+            });
+            holding.recv().unwrap();
+            expire_controllers(&f.host, &mut last);
+            // Skipped, not waited for: still due.
+            assert_eq!(last, due);
+            release.send(()).unwrap();
+        });
+        expire_controllers(&f.host, &mut last);
+        assert!(last > due);
     }
     #[test]
     fn app_overrides_win_over_device_and_host_without_changing_saved_configuration() {

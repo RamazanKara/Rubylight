@@ -36,6 +36,8 @@ mod steam;
 mod stream;
 mod stream_focus;
 mod telemetry;
+#[cfg(test)]
+mod test_log;
 mod timing_record;
 mod tls;
 mod updater;

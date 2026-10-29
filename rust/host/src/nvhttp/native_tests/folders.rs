@@ -472,7 +472,7 @@ async fn a_refused_upload_is_logged_as_a_shared_folder_upload() {
         .with_ansi(false)
         .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
         .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
+    let guard = crate::test_log::capture(subscriber);
     f.put("games", "new.sav", b"new")
         .await
         .assert_error(403, "forbidden");

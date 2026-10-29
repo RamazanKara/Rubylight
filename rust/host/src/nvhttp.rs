@@ -3059,7 +3059,7 @@ mod tests {
             .with_target(false)
             .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
             .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        crate::test_log::capture_during(subscriber, || {
             // The host asks first: nothing stops yet.
             assert!(super::replace_launch_app(&f.host, &launch, false, Owner::None).is_err());
             assert!(f.host.current_app.lock().unwrap().is_some());

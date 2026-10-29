@@ -2060,7 +2060,7 @@ mod tests {
                 .with_target(false)
                 .with_writer(std::sync::Mutex::new(std::fs::File::create(path).unwrap()))
                 .finish();
-            tracing::subscriber::with_default(subscriber, run);
+            crate::test_log::capture_during(subscriber, run);
             std::fs::read_to_string(path).unwrap()
         }
 

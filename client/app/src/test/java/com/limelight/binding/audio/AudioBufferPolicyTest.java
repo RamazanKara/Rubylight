@@ -232,6 +232,40 @@ public class AudioBufferPolicyTest {
                 AudioBufferPolicy.reserveStartFrames(864, 48000), 0, 0, 48000).frames());
     }
 
+    @Test public void aaudioReserveOfSmallBurstsGrowsAboveItsStart() {
+        // 1 ms bursts start at 10 ms plus one: 528 frames, above eight bursts (384). Capped at eight, the
+        // reserve could never grow and every jitter gap starved it at its limit.
+        int start = AudioBufferPolicy.reserveStartFrames(48, 48000);
+        assertEquals(528, start);
+        AudioBufferPolicy policy = AudioBufferPolicy.forReserve(48, 4096, start, 0, 0, 48000);
+        assertEquals(528, policy.frames());
+        assertEquals(528 + 2 * 48, policy.limit());
+        assertEquals(576, policy.sample(1, 1000));
+        assertEquals(624, policy.sample(2, 2000));
+        assertEquals(624, policy.sample(3, 3000));
+        assertFalse(policy.needsFallback());
+        // Still within 40 ms: a 10 ms burst starts at 20 ms and grows to 40 ms, not to 80.
+        assertEquals(1920, AudioBufferPolicy.forReserve(480, 16384,
+                AudioBufferPolicy.reserveStartFrames(480, 48000), 0, 0, 48000).limit());
+    }
+
+    @Test public void repeatingStallsAreReportedOnce() {
+        // TCL C6K: a 130 ms stall every 1.2 s, read once a second: the third within a minute trips it.
+        AudioBufferPolicy.StallWatch tv = new AudioBufferPolicy.StallWatch(0);
+        assertFalse(tv.repeating(1, 1000));
+        assertFalse(tv.repeating(2, 2000));
+        assertTrue(tv.repeating(3, 3000));
+        // Retroid: a Wi-Fi stall every 30 s or so is not a repeating problem.
+        AudioBufferPolicy.StallWatch phone = new AudioBufferPolicy.StallWatch(4);
+        assertFalse(phone.repeating(4, 1000));
+        assertFalse(phone.repeating(5, 1000));
+        assertFalse(phone.repeating(6, 31000));
+        assertFalse(phone.repeating(7, 62000));
+        assertFalse(phone.repeating(7, 63000));
+        // Several between two samples count each.
+        assertTrue(phone.repeating(9, 64000));
+    }
+
     @Test public void fastTrackHoldsAtLeastOneOutputBurstAndAPacket() {
         // TV: the fast mixer takes 864 frames a cycle. A 480-frame buffer starved every cycle and the
         // stream lost 10% of its packets to the 40 ms bound.

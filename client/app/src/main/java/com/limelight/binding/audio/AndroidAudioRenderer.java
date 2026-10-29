@@ -38,6 +38,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private AudioBufferPolicy bufferPolicy;
     // AAudio only: the jitter reserve in the ring ahead of the stream (network starvation, never fallback).
     private AudioBufferPolicy reservePolicy;
+    private AudioBufferPolicy.StallWatch stallWatch;
     // What the output holds at most for jitter, in frames: the ring's reserve or the track's buffer.
     private int reserveFrames;
     // Samples the current AudioTrack accepted; its playback head gives what it still holds.
@@ -79,6 +80,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private static native int[] nativeAudioStats(long handle);
     private static native int nativeAudioBuffer(long handle, int frames);
     private static native int nativeAudioReserve(long handle, int frames);
+    private static native void nativeAudioReserveLimit(long handle, int frames);
     private static native int nativeAudioQueued(long handle);
     private static native boolean nativeAudioSkipLate(long handle, int frames, int pendingFrames);
     private static native void nativeCloseAudio(long handle);
@@ -175,7 +177,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 bufferPolicy = new AudioBufferPolicy(stats[0], stats[8], stats[4], stats[5], now);
                 // Before the first packet: the ring has not primed, so the larger start only delays that.
                 int start = nativeAudioReserve(nativeAudio, AudioBufferPolicy.reserveStartFrames(stats[0], sampleRate));
-                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], start, stats[11], now, sampleRate);
+                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], start,
+                        reserveStarvations(stats), now, sampleRate);
+                nativeAudioReserveLimit(nativeAudio, reservePolicy.limit());
+                stallWatch = new AudioBufferPolicy.StallWatch(stats[STAT_STALLS]);
                 stats = nativeAudioStats(nativeAudio);
                 setReserve(stats[2]);
                 LimeLog.info("Audio output: AAudio low latency, burst " + stats[0] + ", reserve " + stats[2] +
@@ -197,6 +202,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private int buildAudioTrack() {
         bufferPolicy = null;
         reservePolicy = null;
+        stallWatch = null;
         reserveFrames = 0;
         trackSamplesWritten = 0;
         lastBufferCheckMs = 0;
@@ -401,7 +407,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
         String output;
         if (nativeAudio != 0) {
             int[] stats = nativeAudioStats(nativeAudio);
-            output = "AAudio, underruns " + stats[6] + " (stalls " + stats[12] + "), xruns " + stats[5] +
+            output = "AAudio, underruns " + stats[6] + " (stalls " + stats[STAT_STALLS] + "), xruns " + stats[5] +
                     ", device buffer " + stats[4] +
                     ", concealed " + framesToMs(stats[9]) + " ms, skipped late " + framesToMs(stats[10]) + " ms";
         } else if (track != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -554,6 +560,18 @@ public class AndroidAudioRenderer implements AudioRenderer {
         return setupAudioTrack() == 0;
     }
 
+    // nativeAudioStats: gaps the reserve could still grow to cover (aaudio_output.c), and longer ones.
+    static final int STAT_JITTER_GAPS = 11, STAT_STALLS = 12;
+
+    /**
+     * What starves the AAudio reserve for its growth: the jitter gaps only. A stall it could not grow
+     * to cover is concealed; counting every underrun (stats[6]) took the Retroid's reserve from 14 to
+     * 32 ms on 37 to 56 ms Wi-Fi stalls without covering the next.
+     */
+    static int reserveStarvations(int[] stats) {
+        return stats[STAT_JITTER_GAPS];
+    }
+
     static void downmixStereo(short[] input, int length, int channels, short[] stereo) {
         for (int frame = 0; frame < length / channels; frame++) {
             for (int side = 0; side < 2; side++) {
@@ -644,9 +662,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
             int[] stats = nativeAudioStats(nativeAudio);
             // Starvation of the ring is the network's or the decoder's: only the reserve grows. Device
             // xruns grow only the device buffer, the callback keeps that one full of whatever it has. Only
-            // jitter grows the reserve: a stall longer than a host period is concealed (aaudio_output.c), and
-            // on the Retroid the 37 to 56 ms ones took the reserve from 14 to 32 ms without covering the next.
-            int reserve = reservePolicy.sample(stats[11], now);
+            // jitter grows the reserve (reserveStarvations).
+            int reserve = reservePolicy.sample(reserveStarvations(stats), now);
             int device = bufferPolicy.sample(stats[5], now);
             boolean resized = reserve != stats[2] || device != stats[4];
             if (resized) {
@@ -661,13 +678,14 @@ public class AndroidAudioRenderer implements AudioRenderer {
             if (resized || stats[6] != loggedUnderruns) {
                 loggedUnderruns = stats[6];
                 LimeLog.info("AAudio reserve " + stats[2] + " frames, device buffer " + stats[4] + ", underruns " +
-                        stats[6] + ", stalls " + stats[12] + ", xruns " + stats[5]);
+                        stats[6] + ", stalls " + stats[STAT_STALLS] + ", xruns " + stats[5]);
             }
-            if (reservePolicy.needsFallback() && !reserveStarvationShown) {
+            if (stallWatch.repeating(stats[STAT_STALLS], now) && !reserveStarvationShown) {
                 // Loud, but no switch: AudioTrack would starve on the same late audio.
                 reserveStarvationShown = true;
                 LimeLog.warning("AAudio reserve starves at its " + framesToMs(reservePolicy.limit()) +
-                        " ms limit: audio arrives too late from the network, its gaps are concealed");
+                        " ms limit: audio arrives too late from the network (" +
+                        AudioBufferPolicy.StallWatch.STALL_WARN_COUNT + " stalls within a minute), its gaps are concealed");
             }
             reportNativeAudio(stats);
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -860,6 +878,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
             nativeAudio = 0;
         }
         reservePolicy = null;
+        stallWatch = null;
         reserveFrames = 0;
         releaseAudioTrack();
         releaseEncodedTrack();

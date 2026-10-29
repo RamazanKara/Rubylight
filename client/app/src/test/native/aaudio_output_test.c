@@ -129,15 +129,31 @@ static void stallsAreConcealedAndTheirPacketsSkipped(void) {
     concealResult = -1;
 }
 
-// Retroid: 192-frame callbacks, a 672-frame reserve. A gap the ring is dry for up to a host period is
-// jitter, which grows the reserve; a longer one is a stall, concealed. The wait for the reserve to fill
-// again once audio is back is not part of the gap.
+// One gap after the ring last refilled to its reserve: the callbacks drain it, the last one short, then
+// `empty` callbacks find nothing, then the whole reserve comes at once. Returns the gap's dry frames.
+static uint32_t gap(AudioOutput* output, int16_t* pcm, const int16_t* input, int empty) {
+    while (atomic_load(&output->queue.writtenFrames) - atomic_load(&output->queue.readFrames) >= 192)
+        audioFill(output, pcm, 192);
+    audioFill(output, pcm, 192);
+    for (int i = 0; i < empty; i++) audioFill(output, pcm, 192);
+    uint32_t dry = output->dryRun, target = atomic_load(&output->queue.targetFrames);
+    assert(audioQueueWrite(&output->queue, input, target) == target);
+    audioFill(output, pcm, 192);
+    assert(!output->concealing);
+    return dry;
+}
+
+// Retroid: 192-frame callbacks, a 672-frame reserve that grows up to 1536. A gap counts as jitter, which
+// grows the reserve, while the reserve can still grow to cover it: the ring dry for at most the limit less
+// the reserve. A longer one is a stall, concealed. The wait for the reserve to fill again once audio is
+// back is not part of the gap.
 static void gapsAreJitterOrStalls(void) {
     static AudioOutput output;
     static int16_t ring[4096 * 2], input[4096 * 2], pcm[192 * 2];
     memset(&output, 0, sizeof(output));
     audioQueueInit(&output.queue, ring, 4096, 672);
     output.rate = 48000;
+    atomic_store(&output.limitFrames, 1536);
     assert(audioQueueWrite(&output.queue, input, 672) == 672);
     for (int i = 0; i < 3; i++) audioFill(&output, pcm, 192);
     // A packet 2 ms late: the ring runs dry for 96 frames, then refills for three more callbacks.
@@ -159,6 +175,33 @@ static void gapsAreJitterOrStalls(void) {
     audioFill(&output, pcm, 192);
     assert(atomic_load(&output.jitterGaps) == 1 && atomic_load(&output.stallGaps) == 1);
     assert(atomic_load(&output.queue.underruns) == 2);
+
+    // The boundary at a 672-frame reserve: 864 frames of room. Dry for 18 ms is jitter, a burst more a stall.
+    assert(gap(&output, pcm, input, 4) == 96 + 4 * 192);
+    assert(atomic_load(&output.jitterGaps) == 2 && atomic_load(&output.stallGaps) == 1);
+    assert(gap(&output, pcm, input, 5) == 96 + 5 * 192);
+    assert(atomic_load(&output.jitterGaps) == 2 && atomic_load(&output.stallGaps) == 2);
+    // Grown to 1344, one burst of room is left: an empty callback is jitter, two are a stall.
+    atomic_store(&output.queue.targetFrames, 1344);
+    assert(audioQueueWrite(&output.queue, input, 672) == 672);
+    assert(gap(&output, pcm, input, 0) == 192);
+    assert(atomic_load(&output.jitterGaps) == 3 && atomic_load(&output.stallGaps) == 2);
+    assert(gap(&output, pcm, input, 1) == 2 * 192);
+    assert(atomic_load(&output.jitterGaps) == 3 && atomic_load(&output.stallGaps) == 3);
+    // At the limit, and with no limit set, nothing is left to grow: every gap is a stall.
+    atomic_store(&output.queue.targetFrames, 1536);
+    assert(audioQueueWrite(&output.queue, input, 192) == 192);
+    gap(&output, pcm, input, 0);
+    atomic_store(&output.limitFrames, 0);
+    atomic_store(&output.queue.targetFrames, 672);
+    gap(&output, pcm, input, 0);
+    assert(atomic_load(&output.jitterGaps) == 3 && atomic_load(&output.stallGaps) == 5);
+    // The JNI setter: a negative limit is no limit.
+    jlong handle = (jlong)(intptr_t)&output;
+    Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserveLimit(NULL, NULL, handle, 1536);
+    assert(atomic_load(&output.limitFrames) == 1536);
+    Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserveLimit(NULL, NULL, handle, -1);
+    assert(atomic_load(&output.limitFrames) == 0);
 }
 
 static void copyStats(JNIEnv* env, jintArray array, jsize start, jsize length, const jint* values) {

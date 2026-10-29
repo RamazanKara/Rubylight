@@ -1570,7 +1570,7 @@ impl App {
             return;
         };
         let host = streaming.host_id;
-        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable() {
+        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.has_picture()) {
             // SAFETY: the window lives as long as the app.
             let away = unsafe { SDL_GetWindowFlags(self.window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
             streaming.reconnect_plan(!matches!(exit, Exit::Reconnect), away)

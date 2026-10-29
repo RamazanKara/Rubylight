@@ -1364,9 +1364,15 @@ pub enum Exit {
 }
 
 impl Exit {
-    pub fn retryable(&self) -> bool {
-        matches!(self, Self::NetworkReturned) ||
-            matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
+    /// Whether the stream reconnects on its own after this exit. Only once its video started
+    /// (`video_started`, [`recovery::recovers_termination`]): a stream that never showed a picture
+    /// failed to start, and its error shows at once instead of after a minute of retries.
+    pub fn retryable(&self, video_started: bool) -> bool {
+        match self {
+            Self::NetworkReturned => video_started,
+            Self::Terminated(code) => recovery::recovers_termination(*code, video_started),
+            _ => false,
+        }
     }
 }
 
@@ -1924,10 +1930,10 @@ impl Streaming {
         self.exit = Some(Exit::NetworkReturned);
     }
 
-    /// Whether a dropped stream would reconnect on its own now: [`automatic_rejoin`] has a plan
-    /// with an attempt left in its budget. Spends nothing.
+    /// Whether a dropped stream would reconnect on its own now: its video started ([`Exit::retryable`])
+    /// and [`automatic_rejoin`] has a plan with an attempt left in its budget. Spends nothing.
     fn reconnects_on_its_own(&self, away: bool) -> bool {
-        automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false)
+        self.first_frame && automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false)
             .and_then(|plan| plan.recovery)
             .is_some_and(|budget| budget.allows_attempt(recovery::now_ms()))
     }
@@ -4020,7 +4026,7 @@ mod tests {
     fn a_lost_or_reset_render_device_ends_the_stream_saying_why() {
         for kind in [SDL_EVENT_RENDER_DEVICE_RESET, SDL_EVENT_RENDER_DEVICE_LOST] {
             let reason = render_device_ended(kind).expect("ends the stream");
-            assert!(!Exit::Ended(Some(reason.into())).retryable(), "{reason}");
+            assert!(!Exit::Ended(Some(reason.into())).retryable(true), "{reason}");
         }
         assert_eq!(render_device_ended(SDL_EVENT_RENDER_TARGETS_RESET), None);
     }
@@ -4604,8 +4610,22 @@ mod replace_tests {
         assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &tolerant, true));
         let manual = Settings { auto_reconnect: false, ..Settings::default() };
         assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &manual, true));
-        // The exit it takes reconnects.
-        assert!(Exit::NetworkReturned.retryable());
+        // The exit it takes reconnects, once the stream had video.
+        assert!(Exit::NetworkReturned.retryable(true));
+        assert!(!Exit::NetworkReturned.retryable(false));
+    }
+
+    // A blocked media port: the stream never shows a picture and its error shows at once, not after
+    // five reconnects and a minute (Moonlight V+ PC 6792aeed).
+    #[test]
+    fn a_stream_that_never_showed_video_does_not_reconnect() {
+        use nightjar_core::session::error;
+        for code in [error::NO_VIDEO_TRAFFIC, error::NO_VIDEO_FRAME, -1, 10054] {
+            assert!(!Exit::Terminated(code).retryable(false), "{code}");
+            assert!(Exit::Terminated(code).retryable(true), "{code}");
+        }
+        assert!(!Exit::Terminated(error::GRACEFUL).retryable(true));
+        assert!(!Exit::Reconnect.retryable(true), "the user's own reconnect is not an automatic one");
     }
 
     #[test]

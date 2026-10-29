@@ -873,6 +873,13 @@ fn rejoin(mut plan: LaunchPlan, role: AppRole) -> Option<LaunchPlan> {
     Some(plan)
 }
 
+/// Whether a dropped stream of `role` reconnects on its own: the setting is on and the window is on
+/// screen. A window without focus still shows the stream behind another one, so it reconnects; a
+/// minimized or hidden one (`away`) waits for the user, as the Android app does in the background.
+fn reconnects_automatically(auto_reconnect: bool, away: bool, role: AppRole) -> bool {
+    auto_reconnect && !away && role == AppRole::Stream
+}
+
 /// Whether a refused launch of `plan` is the PC's prompt to close the running app, which the
 /// user answers. A launch that already confirmed is not asked again, nor is a resume.
 fn asks_replace(plan: &LaunchPlan, role: AppRole, error: &nightjar_core::http::Error) -> bool {
@@ -1680,8 +1687,10 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
-    pub fn reconnect_plan(&self, automatic: bool) -> Option<LaunchPlan> {
-        if automatic && (!self.settings.auto_reconnect || !self.focused || self.facts.role != AppRole::Stream) {
+    /// The plan that starts the stream again; `automatic` after a drop, `away` while the window is
+    /// minimized or hidden.
+    pub fn reconnect_plan(&self, automatic: bool, away: bool) -> Option<LaunchPlan> {
+        if automatic && !reconnects_automatically(self.settings.auto_reconnect, away, self.facts.role) {
             return None;
         }
         let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
@@ -4193,6 +4202,16 @@ mod replace_tests {
         assert!(!asks_replace(&rejoined, AppRole::Stream, &prompt));
         let monitor = rejoin(plan, AppRole::RemoteMonitor).expect("a plan");
         assert!(!monitor.resume && !monitor.confirm_replace);
+    }
+
+    #[test]
+    fn a_dropped_stream_reconnects_without_focus_but_not_minimized() {
+        // L4 on the laptop: a system dialog held the focus, so the drop never reconnected.
+        assert!(reconnects_automatically(true, false, AppRole::Stream));
+        assert!(!reconnects_automatically(true, true, AppRole::Stream), "minimized or hidden waits for the user");
+        assert!(!reconnects_automatically(false, false, AppRole::Stream), "the setting is off");
+        assert!(!reconnects_automatically(true, false, AppRole::InputOnly));
+        assert!(!reconnects_automatically(true, false, AppRole::RemoteMonitor));
     }
 
     #[test]

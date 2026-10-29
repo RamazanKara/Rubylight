@@ -1533,7 +1533,9 @@ impl App {
         };
         let host = streaming.host_id;
         let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable() {
-            streaming.reconnect_plan(!matches!(exit, Exit::Reconnect))
+            // SAFETY: the window lives as long as the app.
+            let away = unsafe { SDL_GetWindowFlags(self.window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
+            streaming.reconnect_plan(!matches!(exit, Exit::Reconnect), away)
         } else { None };
         // The stream doctor's report when it found something, unless the stream goes on.
         let health = streaming.health_summary().filter(|_| reconnect.is_none());

@@ -17,7 +17,8 @@ fn main() {
     if windows {
         // packaging/icons/nightjar.ico (packaging/make-icons.py) becomes icon resource 1 of
         // nightjar.exe: Explorer, the taskbar, pins and the window (SDL takes the executable's
-        // first icon) show it.
+        // first icon) show it. Without windres (MSYS2 binutils) or rc.exe the build fails rather
+        // than ship an exe with no icon at all.
         let icon = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/icons/nightjar.ico");
         println!("cargo:rerun-if-changed={}", icon.display());
         let rc = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("nightjar.rc");
@@ -25,8 +26,8 @@ fn main() {
         std::fs::write(&rc, format!("1 ICON \"{path}\"\n"))
             .unwrap_or_else(|e| panic!("write {}: {e}", rc.display()));
         embed_resource::compile_for(&rc, ["nightjar"], embed_resource::NONE)
-            .manifest_optional()
-            .unwrap_or_else(|e| panic!("embed the icon: {e}"));
+            .manifest_required()
+            .unwrap_or_else(|e| panic!("embed the icon (needs windres or rc.exe on PATH): {e}"));
     }
     let prefix = std::env::var("NIGHTJAR_FFMPEG_DIR")
         .ok()

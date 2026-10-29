@@ -57,7 +57,7 @@ Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTe
 | Render through Vulkan | Tested | N/A | N/A | TCL C6K, 2026-10-28: HDR10 and HDR10+ shown; the TV shows fewer frames than the stream carries there, which the pace message reports. |
 | Snapdragon GPU drivers | Done | N/A | N/A | |
 | Resolution, fractional refresh, virtual display, PC display mode | Done | Done | Done | |
-| Adaptive refresh and VRR | Done | Done | Done | Desktop: VRR host-time pacing and V-Sync. |
+| Adaptive refresh and VRR | Done | Tested | Done | Desktop: presents on decode with tearing for VRR, host-time pacing and V-Sync; a display that keeps its own refresh gets V-Sync. Windows, 2026-10-29: on this PC's 240 Hz FreeSync panel the stream stays on decode, and 12% of a 60 fps stream's presents land mid-scan. The laptop's fixed 120 Hz panel turns to V-Sync 2.2 s in ([measurement](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one)). Android: VRR and ARR presentation not measured (no device with either we may use). Linux: not streamed on our hardware. |
 | Frame pacing modes (Balanced, Smoothest, drop late) | Done | Missing | Missing | |
 | Phase-lock frame timing | Done | Done | Partial | Linux: X11 with the OpenGL renderer only. |
 | Beam racing and early decode (PyroWave, wired) | N/A | Done | Done | Both off by default; see [beam racing](beam-racing.md). |

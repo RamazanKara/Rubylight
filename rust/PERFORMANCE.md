@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Nightjar desktop presenting for VRR: the display check on a 240 Hz FreeSync panel and a fixed 120 Hz laptop panel, what it costs, mid-scan presents, sync interval 1 and waiting out the scan (not kept as defaults) | [October 29, Nightjar desktop on a VRR panel and a fixed one](#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one) |
 | False slow-pace latches from #59's rc.4 logs: a decoder asking twice for a keyframe, a host adapter refusing packets (lifted after 10 s), holding frames for a full socket (not kept), the keyframe cap scale (inert here); latches, stalls, picture age, presentation gaps (ABBA) | [October 29, false slow-pace latches and a stalled adapter](#october-29-false-slow-pace-latches-and-a-stalled-adapter-rc4-field-logs) |
 | The console's Stream page against the browser page: glass-to-glass split at the frame's arrival, page part against the network and host part | [October 28, the console's Stream page against the browser page](#october-28-the-consoles-stream-page-against-the-browser-page-d4) |
 | Scene cuts AMF encodes past the full-FEC bound, encoded again as keyframes: lost cuts, freezes, keyframe requests, end-to-end picture age, encode time (ABBA) | [October 28, oversize scene cuts encoded again as keyframes](#october-28-oversize-scene-cuts-encoded-again-as-keyframes) |
@@ -56,6 +57,53 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 29: Nightjar desktop on a VRR panel and a fixed one
+
+Until now the VRR evidence was the host's: capture under the VRR hint and arrival at the client. This is the first measurement of how Nightjar desktop shows a VRR stream. VRR is on by default and presents on decode with tearing allowed. On a display that keeps its own refresh, that tears. Nightjar now runs the beam race's display check (the scan line around each present) on every VRR stream that tears in fullscreen. A display that scans at its own rate gets V-Sync.
+
+Fixture: this PC (RX 7900 XT, Samsung G9 5120x1440, FreeSync 48-240 Hz) ran an isolated 3.0.0-rc.5 test host on 127.0.0.1 through `client/scripts/pyrowave-loopback.ps1`, with the scrolling content of `pyrowave-anim.ps1`. Nightjar desktop ran from `C:\tests\nightjar\a` in borderless fullscreen (branch build `f3d2b5393`), PyroWave 1080p60 at 399 Mbps with GPU decode, and PresentMon 2.6.0 on the client. Each arm got one 60 s leg; the first 300 frames are dropped.
+
+The laptop (Radeon 780M, fixed 120 Hz 2880x1800) ran the same build from `C:\tests\dn-nj`, HEVC 1080p60 at 20 Mbps over Wi-Fi. Its host was an rc.2 test host on this PC, because the rc.5 exe has no firewall rule.
+
+Columns:
+
+- **Mid-scan**: the scan line at the present call was outside the blanking. A tearing present there shows the new picture from the beam down.
+- **receive_to_present**: the frame received to the present call returned.
+- **Until displayed**: PresentMon's `MsUntilDisplayed`, from the present call to the display.
+
+**The display check (D1).**
+
+| Leg | Display check | Pacing | Mid-scan | receive_to_present p50 / p95, ms | Until displayed p50 / p95, ms |
+| --- | --- | --- | ---: | --- | --- |
+| G9, check off (`NIGHTJAR_VRR_CHECK=0`) | none | Immediate | not read | 4.39 / 5.11 | 0.52 / 1.49 |
+| G9, check on (default) | on at 2.6 s | Immediate | 12.3% | 4.27 / 5.13 | 0.50 / 1.30 |
+| Laptop, check on (default) | no VRR at 2.2 s after the first frame | V-Sync from then | 97.8% before the switch | | |
+
+- **Cost:** the check added 0.02 ms at p95 receive_to_present.
+- **The G9's calibration:** it read 12% of the scan line in the blanking. The panel was still scanning at its top rate, as one calibration in eight did on October 26. The restart check passed (30 tested, 0 missed), so the stream stayed Immediate.
+- **Why the rule waits:** a rule on the calibration alone would have put this PC on V-Sync. The kept rule also waits for 60 presents that start no scan.
+- **The laptop:** it read 1% in the blanking, and no present started a scan. It switched at frame 134, logged `pacing: V-Sync, this display does not refresh on present`, and the overlay says so on its Pacing line.
+
+**Presenting while the panel still scans (D2, `NIGHTJAR_VRR_SYNC`).** These legs ran with `NIGHTJAR_BEAM_RACE=1 NIGHTJAR_BEAM_RACE_PRESENT=0`, the October 26 beam-race setup:
+
+- `present1`: sync interval 1 while VRR is on.
+- `scan`: while the beam is in the picture's rows, wait until it leaves the last one, then present with tearing.
+
+"Received to shown" adds the two percentiles, so its p95 is an upper bound. The 240 fps legs ran at the client's 530 Mbps for that rate. The host delivered about 90 of the 240 fps.
+
+| Arm | Shown fps | Mid-scan | receive_to_present p50 / p95, ms | Until displayed p50 / p95, ms | Received to shown p50 / p95, ms |
+| --- | ---: | ---: | --- | --- | --- |
+| off, 60 fps | 60.4 | 7.6% | 3.81 / 4.70 | 0.46 / 1.19 | 4.27 / 5.89 |
+| present1, 60 fps | 59.3 | 0 (9.2% waited for the scan) | 4.20 / 5.10 | 0.55 / 8.28 | 4.75 / 13.38 |
+| scan, 60 fps | 46.7 | 0 (574 waits, 2.11 ms each) | 4.53 / 7.51 | 0.49 / 1.21 | 5.02 / 8.72 |
+| off, 240 fps | 96.3 | 3.4% | 1.96 / 2.51 | 0.45 / 1.06 | 2.41 / 3.58 |
+| scan, 240 fps | 87.7 | 0 (140 waits, 2.40 ms each) | 2.03 / 2.62 | 0.45 / 1.00 | 2.48 / 3.62 |
+
+- **present1:** PresentMon saw every present as "Hardware Composed: Independent Flip" (off: 85% "Hardware: Independent Flip"). Its until-displayed p95 rose from 1.19 to 8.28 ms.
+- **scan:** it stopped the mid-scan presents but added 0.75 ms at p50 and 2.8 ms at p95 at 60 fps. In that leg the host delivered 47 fps, and a slower, irregular rate meets more scans that the panel starts on its own below 48 Hz. At 240 fps it stayed within the bounds: +0.07 ms at p50 and +0.04 ms at p95, with mid-scan presents going from 3.4% to 0.
+- **Result:** the bar for a default was under 1% mid-scan presents, and received to shown within 0.2 ms at p50 and 0.5 ms at p95 of off. Neither arm passes it at 60 fps, so both stay off. `NIGHTJAR_VRR_SYNC` stays a measurement switch.
+- **Not run:** the 240 fps scan result is one leg and was not repeated. Exclusive fullscreen keeping the panel's top refresh (D3) has unit tests only. Running it would have switched the mode of the main monitor while the user was at it.
 
 ## October 29: false slow-pace latches and a stalled adapter (rc.4 field logs)
 

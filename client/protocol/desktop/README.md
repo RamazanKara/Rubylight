@@ -200,7 +200,16 @@ Why this combination:
     UI thread sleeps to the scheduled time with a 1 ms timer.
   - VRR without it: presented as soon as decoded.
   - No VRR: V-Sync (newest picture each refresh), or immediate.
-  The launch asks the host for VRR handling when pacing by host times.
+  The launch asks the host for VRR handling when pacing by host times. A VRR stream that
+  presents with tearing in fullscreen runs the beam race's display check (the scan line around
+  each present, `src/stream/race_probe.rs`). A display that keeps its own refresh turns the
+  stream to V-Sync, and the overlay's Pacing line says "V-Sync: this display does not refresh
+  on present". To be found fixed, the calibration must show little blanking under a slow stream
+  and 60 presents must start no scan, or the restart check must fail or starve.
+  `NIGHTJAR_VRR_CHECK=0` turns the check off. `NIGHTJAR_VRR_SYNC=present1|scan` is a
+  measurement switch for VRR presents: `present1` uses sync interval 1, and `scan` waits out a
+  scan under way. Neither made the default ([measured](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one)).
+  Exclusive fullscreen with VRR asks for the display's top refresh, not the stream's rate.
 - Audio: Opus multistream (libopus) into an SDL3 audio stream; the queue is capped at
   40 ms plus one packet (late packets are dropped rather than letting latency grow), and
   when it runs dry 10 ms of silence goes ahead of the next packet.

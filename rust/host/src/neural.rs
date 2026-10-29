@@ -1280,14 +1280,23 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    if h.neural
-        .lock()
-        .jobs
-        .get(&uuid)
-        .is_some_and(|job| !matches!(job.phase, "done" | "failed"))
-    {
-        bail!("Neural Rendering is still being set up for {}", app.name);
+    // The launch's check and update hold the switch's slot: a disable or a
+    // delete meanwhile would race the update's files and key.
+    if start_job(h, &uuid, "update", "place").is_err() {
+        bail!(
+            "Neural Rendering is busy with {}; launch it again once that is done",
+            app.name
+        );
     }
+    let result = launch_check(h, app, &uuid, exe);
+    match &result {
+        Ok(()) => update_job(h, &uuid, |job| job.phase = "done"),
+        Err(error) => fail_job(h, &uuid, format!("{error:#}"), false),
+    }
+    result
+}
+
+fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
     let request = Request::Prepare {
         exe,
         install: install(app),
@@ -1303,7 +1312,7 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
             if updated {
                 tracing::info!(app = %app.name, %release, %proxy, "Neural Rendering updated");
                 let value = json!({"exe": exe, "release": release, "proxy": proxy});
-                if let Err(error) = set_key(h, &uuid, Some(value)) {
+                if let Err(error) = set_key(h, uuid, Some(value)) {
                     tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the updated release could not be saved with the app");
                 }
             }

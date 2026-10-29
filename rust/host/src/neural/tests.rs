@@ -1149,6 +1149,33 @@ fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
     );
 }
 
+/// A launch's check and update hold the switch's slot, so a disable or a
+/// delete can't race them, and give it back however they end.
+#[test]
+fn a_launch_holds_the_switch_while_it_checks() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    let mut app = app_named("Game", "game");
+    app.extra.insert(KEY.into(), json!({"exe": exe}));
+    before_launch(h, &app).unwrap();
+    let job = h.neural.lock().jobs["game"].clone();
+    assert_eq!((job.action, job.phase), ("update", "done"));
+    std::fs::remove_file(exe.with_file_name(MANIFEST)).unwrap();
+    assert!(before_launch(h, &app).is_err());
+    assert_eq!(h.neural.lock().jobs["game"].phase, "failed");
+    start_job(h, "game", "remove", "remove").unwrap();
+    let error = before_launch(h, &app).unwrap_err().to_string();
+    assert!(error.contains("busy"), "{error}");
+    assert_eq!(h.neural.lock().jobs["game"].action, "remove");
+}
+
 #[test]
 fn the_console_cannot_set_the_hosts_key() {
     let app = |exe: &str| {

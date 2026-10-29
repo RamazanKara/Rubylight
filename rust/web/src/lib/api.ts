@@ -290,6 +290,10 @@ export interface App {
   'radeon-profile'?: string;
   /** The Radeon settings of a custom profile: setting id to value. */
   'radeon-settings'?: Record<string, string | number | boolean>;
+  /** Keys in the game's .ini files the host sets for a stream and puts back. */
+  'game-files'?: { path: string; section: string; key: string; value: string | number | boolean }[];
+  /** The app's settings on one device, by device uuid: the keys above for that device. */
+  'device-overrides'?: Record<string, Record<string, unknown>>;
   [extra: string]: unknown;
 }
 export interface AppsDocument {

@@ -1,6 +1,7 @@
 // The editable copy of an app. The host replaces the whole record on save, so
 // every key it sent is kept, including the ones this editor never shows.
 import type { App, PrepCommand } from '../../lib/api';
+import { GAME_FILES_KEY, gameFileEntries, gameFileRows, gameFilesError, type GameFileRow } from './gamefiles';
 import { PROFILE_KEY, SETTINGS_KEY, profileError, profileOf, rowsOf, settingsOf, type SettingRow } from './radeon';
 
 export interface PrepRow extends PrepCommand {
@@ -100,8 +101,39 @@ function textRows(value: unknown): TextRow[] {
   return value.flatMap((entry: unknown) => (typeof entry === 'string' ? [textRow(entry)] : []));
 }
 
+/** The app's settings for single devices, by device id: each block holds the app's own keys. */
+export const DEVICES_KEY = 'device-overrides';
+export const CONFIG_KEY = 'config-overrides';
+/** The general settings the editor offers for one device. */
+export const STREAM_PRESET = 'stream_preset';
+export const FRAME_LIMIT = 'frame_limiter_fps_limit';
+
+type Block = Record<string, unknown>;
+const isObject = (value: unknown): value is Block => !!value && typeof value === 'object' && !Array.isArray(value);
+
+function blocksOf(app: App): Block {
+  const blocks = app[DEVICES_KEY];
+  return isObject(blocks) ? blocks : {};
+}
+
+function deviceFileRows(app: App): Record<string, GameFileRow[]> {
+  return Object.fromEntries(
+    Object.entries(blocksOf(app)).flatMap(([device, block]) =>
+      isObject(block) ? [[device, gameFileRows(block[GAME_FILES_KEY])]] : [],
+    ),
+  );
+}
+
 /** The record to send: blank command rows are dropped. */
-function assemble(app: App, prep: PrepRow[], detached: TextRow[], keepDetached: boolean, radeon: SettingRow[]): App {
+function assemble(
+  app: App,
+  prep: PrepRow[],
+  detached: TextRow[],
+  keepDetached: boolean,
+  radeon: SettingRow[],
+  files: GameFileRow[],
+  deviceFiles: Record<string, GameFileRow[]>,
+): App {
   const record: App = { ...app };
   record['prep-cmd'] = prep
     .filter((row) => row.do.trim() || row.undo.trim())
@@ -113,12 +145,53 @@ function assemble(app: App, prep: PrepRow[], detached: TextRow[], keepDetached: 
   const settings = settingsOf(radeon);
   if (profileOf(record[PROFILE_KEY]) === 'custom' && Object.keys(settings).length) record[SETTINGS_KEY] = settings;
   else delete record[SETTINGS_KEY];
+  const entries = gameFileEntries(files);
+  if (entries.length) record[GAME_FILES_KEY] = entries;
+  else delete record[GAME_FILES_KEY];
+  // A device's block with nothing set is not kept. Blocks of devices that are not paired are
+  // kept as they are; the host ignores them.
+  if (isObject(record[DEVICES_KEY])) {
+    const blocks: Block = {};
+    for (const [device, stored] of Object.entries(blocksOf(record))) {
+      if (!isObject(stored)) {
+        blocks[device] = stored;
+        continue;
+      }
+      const block = { ...stored };
+      const rows = deviceFiles[device];
+      if (rows) {
+        const listed = gameFileEntries(rows);
+        if (listed.length) block[GAME_FILES_KEY] = listed;
+        else delete block[GAME_FILES_KEY];
+      }
+      const config = block[CONFIG_KEY];
+      if (isObject(config) && !Object.keys(config).length) delete block[CONFIG_KEY];
+      if (Object.keys(block).length) blocks[device] = block;
+    }
+    if (Object.keys(blocks).length) record[DEVICES_KEY] = blocks as App[typeof DEVICES_KEY];
+    else delete record[DEVICES_KEY];
+  }
   return record;
 }
 
 function normalise(source: App): App {
   const copy = $state.snapshot(source) as App;
-  return assemble(copy, prepRows(copy['prep-cmd']), textRows(copy.detached), 'detached' in copy, rowsOf(copy[SETTINGS_KEY]));
+  return assemble(
+    copy,
+    prepRows(copy['prep-cmd']),
+    textRows(copy.detached),
+    'detached' in copy,
+    rowsOf(copy[SETTINGS_KEY]),
+    gameFileRows(copy[GAME_FILES_KEY]),
+    deviceFileRows(copy),
+  );
+}
+
+/** What is wrong with a device's frame limit, or ''. The host reads at most three decimals. */
+export function frameLimitError(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  const text = String(value).trim();
+  return /^\d{1,4}(\.\d{1,3})?$/.test(text) && Number(text) <= 1000 ? '' : 'Enter 0 to 1000, with at most three decimals.';
 }
 
 export class AppDraft {
@@ -128,16 +201,30 @@ export class AppDraft {
   detached = $state<TextRow[]>([]);
   /** The settings of a Custom Radeon profile. */
   radeon = $state<SettingRow[]>([]);
+  /** The app's managed game files. */
+  files = $state<GameFileRow[]>([]);
+  /** Each device block's managed game files, by device id. */
+  deviceFiles = $state<Record<string, GameFileRow[]>>({});
   #saved = $state.raw<App>(blankApp());
   #baseline = $state('');
 
   /** Why the Radeon profile cannot be saved, or ''. */
   readonly radeonError = $derived(profileError(this.app[PROFILE_KEY], this.radeon));
+  /** Why the game files cannot be saved, or ''. */
+  readonly filesError = $derived(gameFilesError(this.files));
+  /** Why a device's settings cannot be saved, or ''. */
+  readonly devicesError = $derived(
+    this.devices()
+      .map((device) => frameLimitError(this.deviceSetting(device, FRAME_LIMIT)) || gameFilesError(this.deviceFiles[device] ?? []))
+      .find(Boolean) ?? '',
+  );
   readonly changed = $derived(stable(this.record()) !== this.#baseline);
   readonly nameMissing = $derived(this.app.name.trim() === '');
   readonly invalid = $derived(
     this.nameMissing ||
       this.radeonError !== '' ||
+      this.filesError !== '' ||
+      this.devicesError !== '' ||
       Object.keys(NUMBERS).some((key) => this.numberError(key as NumberKey) !== ''),
   );
 
@@ -157,6 +244,8 @@ export class AppDraft {
     this.prep = prepRows(copy['prep-cmd']);
     this.detached = textRows(copy.detached);
     this.radeon = rowsOf(copy[SETTINGS_KEY]);
+    this.files = gameFileRows(copy[GAME_FILES_KEY]);
+    this.deviceFiles = deviceFileRows(copy);
     this.#baseline = stable(normalise(copy));
   }
 
@@ -179,7 +268,59 @@ export class AppDraft {
       this.detached,
       'detached' in this.#saved,
       $state.snapshot(this.radeon) as SettingRow[],
+      $state.snapshot(this.files) as GameFileRow[],
+      $state.snapshot(this.deviceFiles) as Record<string, GameFileRow[]>,
     );
+  }
+
+  /** The devices the app has its own settings for, paired or not. */
+  devices(): string[] {
+    return Object.keys(blocksOf(this.app));
+  }
+  addDevice(device: string) {
+    if (!isObject(this.app[DEVICES_KEY])) this.app[DEVICES_KEY] = {};
+    const blocks = this.app[DEVICES_KEY] as Block;
+    if (!isObject(blocks[device])) blocks[device] = {};
+    this.deviceFiles[device] ??= [];
+  }
+  removeDevice(device: string) {
+    const blocks = this.app[DEVICES_KEY];
+    if (isObject(blocks)) delete blocks[device];
+    delete this.deviceFiles[device];
+  }
+  #block(device: string): Block | null {
+    const block = blocksOf(this.app)[device];
+    return isObject(block) ? block : null;
+  }
+  /** A general setting of the app on `device`; undefined when the app's own applies. */
+  deviceSetting(device: string, key: string): unknown {
+    const config = this.#block(device)?.[CONFIG_KEY];
+    return isObject(config) ? config[key] : undefined;
+  }
+  setDeviceSetting(device: string, key: string, value: string | number | boolean | undefined) {
+    const block = this.#block(device);
+    if (!block) return;
+    if (!isObject(block[CONFIG_KEY])) block[CONFIG_KEY] = {};
+    const config = block[CONFIG_KEY] as Block;
+    if (value === undefined || value === '') delete config[key];
+    else config[key] = value;
+  }
+  /** The Radeon profile on `device`: null when the app's applies, '' for Off. */
+  deviceRadeon(device: string): string | null {
+    const value = this.#block(device)?.[PROFILE_KEY];
+    return typeof value === 'string' ? value : null;
+  }
+  setDeviceRadeon(device: string, profile: string | null) {
+    const block = this.#block(device);
+    if (!block) return;
+    if (profile === null) {
+      delete block[PROFILE_KEY];
+      delete block[SETTINGS_KEY];
+      return;
+    }
+    // A preset brings its own settings; only a Custom profile lists them.
+    if (profileOf(profile) !== 'custom') delete block[SETTINGS_KEY];
+    block[PROFILE_KEY] = profile;
   }
 
   /** The cover file's path on the host; '' for none. */

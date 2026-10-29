@@ -1,0 +1,22 @@
+#!/bin/sh
+# The AppImage's entry point. libva and libdrm stay the system's when it has them: libva loads the
+# distribution's VA-API drivers, and Mesa needs the distribution's libdrm. Where one is missing,
+# the copy in lib/fallback lets Nightjar start anyway (with software decoding, as there is no
+# VA-API driver either); a missing library is never taken from the AppImage over an installed one.
+here=$(dirname "$(readlink -f "$0")")
+cache=$({ ldconfig -p || /sbin/ldconfig -p || /usr/sbin/ldconfig -p; } 2>/dev/null)
+fallback=
+for dir in libva libdrm; do
+	for lib in "$here/lib/fallback/$dir"/*; do
+		soname=${lib##*/}
+		case $cache in
+			*"$soname (libc6,x86-64)"*) ;;
+			*) fallback=$fallback${fallback:+:}$here/lib/fallback/$dir; break ;;
+		esac
+	done
+done
+if [ -n "$fallback" ]; then
+	LD_LIBRARY_PATH=$fallback${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+	export LD_LIBRARY_PATH
+fi
+exec "$here/nightjar" "$@"

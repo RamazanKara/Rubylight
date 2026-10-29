@@ -1,0 +1,4 @@
+# Nucleus Co-op
+- A background stream with Rubylight's own Nucleus Co-op handler runs as the signed-in user, without administrator rights, from their own copy of Nucleus Co-op, when the game needs none. Rubylight adds the game to that copy's game list as the user, and the copy keeps the session's Nucleus Co-op settings.
+- A game still runs as administrator when its manifest or compatibility settings ask for it, Windows treats it as an installer, or only an administrator can change the files in its folder. Games with a handler from Nucleus Co-op's hub, and co-op, always do.
+- On an account Windows gives no administrator rights, the Play together panel says before you press it when **Open Nucleus Co-op on this PC** or a game with a handler from the hub can't run there, and what to do. For the other games it says how a background stream runs: without administrator rights, or as administrator.

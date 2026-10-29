@@ -33,8 +33,10 @@ exact path with a hub handler always uses it, and co-op still needs one.
 Otherwise, in the Nucleus Co-op the host installs, the host writes its own
 one-player handler into Nucleus Co-op's `handlers` folder
 (`Rubylight-<game>-<hash>.js`) and adds the game to Nucleus Co-op's game list (`content\userprofile.json` in its folder, the only
-one 2.4.2 reads), as Nucleus' own "add game" would. It does that only
-while Nucleus Co-op isn't running, and never over a file it did not write.
+one 2.4.2 reads), as Nucleus' own "add game" would, and to the game list of
+the user's own copy when the game runs from there
+([Without administrator rights](#without-administrator-rights)). It does that
+only while Nucleus Co-op isn't running, and never over a file it did not write.
 Earlier Rubylight versions added the game to
 `%APPDATA%\Nucleus Coop\userprofile.json` instead, which Nucleus Co-op never
 reads, so it showed no game and the stream hung at its start (#59); the host
@@ -109,11 +111,15 @@ A background stream with Rubylight's own handler runs Nucleus Co-op as the
 signed-in user, without administrator rights, unless the game needs them.
 That holds on an administrator account too. It runs from the user's own copy
 of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which
-the host copies from the elevated one (the downloaded release, or
-`nucleus_path`), without its settings, logs and game data, and copies again
-when a program file changes on either side. The copy starts from Nucleus
-Co-op's own default settings, never another account's nicknames or Steam
-IDs. It keeps the copy's handlers in step with the elevated one's. Only
+the host copies from the release it installs, once Nucleus Co-op is closed,
+without its settings, logs, game list and game data, and copies again when a
+program file changes on either side. With `nucleus_path` set, such a game is
+refused ([Games without a handler](#games-without-a-handler)). The copy
+starts from Nucleus Co-op's own default settings, never another account's
+nicknames or Steam IDs. It keeps the copy's handlers in step with the
+elevated one's. Everything Rubylight writes in the copy (its game list, its
+`Settings.ini` and the session's profile) it writes as the user, and the copy
+keeps the session's settings: nothing there is put back as SYSTEM. Only
 SYSTEM and Administrators can change the folders above it; the user can only
 list `<SID>`, and can change only what is inside their own copy, never move
 or delete the copy's folder. While Nucleus Co-op starts, the host holds the
@@ -136,8 +142,9 @@ On a standard account, or with Windows' Administrator protection on, a game
 that needs none of that now streams in the background. A game that needs
 administrator rights is still refused there, and so is a game with a hub
 handler, for co-op and background streams alike: the Play together panel
-says so before you launch. **Open Nucleus Co-op on this PC** also needs an
-account Windows elevates, and says so when you press it.
+says so before you launch, and to sign in to Windows on this PC as an
+administrator to play it. **Open Nucleus Co-op on this PC** also needs an
+account Windows elevates; the panel says so before you press it.
 
 A `background_mode` line that an earlier build wrote (`auto`,
 `child_session` or `virtual_display`) becomes `nucleus`, and the host log
@@ -191,7 +198,9 @@ loads it. For that it sets a few of Nucleus Co-op's settings: pads by XInput
 index and game profiles on, which stay, and, for the session only, no
 install-folder check at its start (it warns about a Documents folder in
 OneDrive), no reminder of the End key, and no favourites-only or game-type
-filter on its list. Your own values of those come back when the session ends,
+filter on its list. In the user's own copy
+([Without administrator rights](#without-administrator-rights)) the session's
+values stay. Otherwise your own values of those come back when the session ends,
 or after a host crash when the service starts it again; a value you or Nucleus
 Co-op changed meanwhile stays, and a `Settings.ini` deleted meanwhile has
 nothing to put back. While a session starts or runs, the service leaves its

@@ -38,9 +38,16 @@ public class ContentRateFrameRateGatingTest {
         assertFalse(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
     }
 
-    @Test public void vrrTakesTheVoteAwaySoTheRendererDoesNotTrackTheRate() {
-        edit().putBoolean(KEY, true).putBoolean("checkbox_reduce_refresh_rate", true)
-                .putBoolean("checkbox_vrr", true).commit();
+    @Test public void vrrTracksTheRateWithoutTheSettingForTheVoteWithoutArr() {
+        // Game turns the vote off again under ARR; before that the stream does not know.
+        edit().putBoolean("checkbox_vrr", true).commit();
+        assertTrue(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
+        edit().putBoolean(KEY, true).putBoolean("checkbox_reduce_refresh_rate", true).commit();
+        assertTrue(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
+    }
+
+    @Test public void vrrOnATextureViewDoesNotTrackTheRate() {
+        edit().putBoolean("checkbox_vrr", true).putBoolean("checkbox_texture_view", true).commit();
         assertFalse(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
     }
 

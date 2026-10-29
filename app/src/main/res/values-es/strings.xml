@@ -270,7 +270,7 @@
     <string name="title_virtual_display">Pantalla virtual del servidor</string>
     <string name="summary_virtual_display">Pide al PC una pantalla que coincida con la transmisión. Desactivado: deciden los ajustes de pantalla propios del PC.</string>
     <string name="title_vrr">Frecuencia adaptativa (ARR / VRR)</string>
-    <string name="summary_vrr">En pantallas con Android 16 y frecuencia adaptativa, Android ajusta la frecuencia de actualización a la transmisión; las demás pantallas funcionan a su frecuencia máxima. También se pide a los servidores compatibles con VRR que lo usen, según sus ajustes. Mientras esté activado, el ritmo de fotogramas y la frecuencia de actualización menor no se aplican.</string>
+    <string name="summary_vrr">En pantallas con Android 16 y frecuencia adaptativa, Android ajusta la frecuencia de actualización a la transmisión; las demás pantallas funcionan a su frecuencia máxima y, con un PC con Rubylight, solo pasan a una menor adecuada si la del juego daría tirones a la máxima y pueden cambiar sin quedarse en negro. También se pide a los servidores compatibles con VRR que lo usen, según sus ajustes. Mientras esté activado, el ritmo de fotogramas y la frecuencia de actualización menor no se aplican.</string>
     <string name="title_host_frame_times">Mostrar fotogramas al ritmo del PC</string>
     <string name="summary_host_frame_times">Retiene cada fotograma unos milisegundos para que aparezca cuando el juego lo dibujó, no cuando lo entregó la red. Suaviza las variaciones, sobre todo con frecuencia adaptativa. Sustituye al ritmo de fotogramas. No se usa con PyroWave.</string>
     <string name="title_content_rate_frame_rate">Ajustar la pantalla a la tasa del juego</string>

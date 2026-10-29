@@ -15,6 +15,7 @@ use windows::{
             CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER,
             ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SUCCESS,
         },
+        Security::PSID,
         System::{Registry::*, Services::*, Threading::*},
         UI::Shell::*,
     },
@@ -1044,7 +1045,7 @@ pub fn trusted_folder(folder: &Path) -> Result<()> {
         };
     }
     no_reparse_points(folder)?;
-    trusted_owner(folder)
+    trusted_owner(folder, false)
 }
 pub fn trusted_ancestors(folder: &Path) -> Result<()> {
     trusted_parents(folder)?;
@@ -1067,11 +1068,15 @@ pub fn trusted_parents(folder: &Path) -> Result<()> {
             "{} is a reparse point",
             ancestor.display()
         );
-        trusted_owner(ancestor)?;
+        trusted_owner(ancestor, system_drive_root(ancestor))?;
     }
     Ok(())
 }
-fn trusted_owner(folder: &Path) -> Result<()> {
+/// Whether `folder` belongs to Administrators, SYSTEM or TrustedInstaller,
+/// or, with `administrator_accounts`, to an account in the local
+/// Administrators group: for the system drive's root, which a "take
+/// ownership" tweak can give to its administrator and setup must not change.
+fn trusted_owner(folder: &Path, administrator_accounts: bool) -> Result<()> {
     use windows::Win32::{
         Foundation::{HLOCAL, LocalFree},
         Security::{Authorization::*, *},
@@ -1102,14 +1107,204 @@ fn trusted_owner(folder: &Path) -> Result<()> {
         let trusted = IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool()
             || IsWellKnownSid(owner, WinLocalSystemSid).as_bool()
             || installer;
+        let result = if trusted {
+            Ok(())
+        } else {
+            match administrator_accounts.then(|| administrator_account(owner)) {
+                Some(Ok(true)) => Ok(()),
+                Some(Err(error)) => Err(error.context(format!(
+                    "{} is owned by {}; reading the Administrators group",
+                    folder.display(),
+                    account_name(owner)
+                ))),
+                _ => Err(anyhow::anyhow!(
+                    "{} must be owned by Administrators, SYSTEM or TrustedInstaller{}, not {}",
+                    folder.display(),
+                    if administrator_accounts {
+                        " or an administrator's account"
+                    } else {
+                        ""
+                    },
+                    account_name(owner)
+                )),
+            }
+        };
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
-        ensure!(
-            trusted,
-            "{} must be owned by Administrators, SYSTEM or TrustedInstaller",
-            folder.display()
-        );
+        result
     }
-    Ok(())
+}
+/// Whether `folder` is the root of the drive Windows runs from (by
+/// GetSystemDirectoryW, not the environment). Whoever owns that root can
+/// already swap Program Files and every service in it, so trusting its owner
+/// adds nothing; another drive's owner would gain Rubylight's service alone.
+fn system_drive_root(folder: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    fn letter(component: Option<Component>) -> Option<u8> {
+        match component {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => {
+                    Some(letter.to_ascii_uppercase())
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    let mut buffer = [0u16; 260];
+    // SAFETY: the buffer is live and writable for its whole length.
+    let length = unsafe {
+        windows::Win32::System::SystemInformation::GetSystemDirectoryW(Some(&mut buffer))
+    } as usize;
+    if length == 0 || length >= buffer.len() {
+        return false;
+    }
+    let system = PathBuf::from(String::from_utf16_lossy(&buffer[..length]));
+    let mut parts = folder.components();
+    let drive = letter(parts.next());
+    drive.is_some()
+        && drive == letter(system.components().next())
+        && parts.next() == Some(Component::RootDir)
+        && parts.next().is_none()
+}
+/// Whether `account` is listed in the local Administrators group.
+///
+/// netapi32 is loaded from System32 at run time: as an import, Windows would
+/// look for it beside setup.exe first (in Downloads), and run a planted copy
+/// as administrator.
+///
+/// # Safety
+/// `account` must point to a valid SID.
+unsafe fn administrator_account(account: PSID) -> Result<bool> {
+    use windows::{
+        Win32::{
+            Foundation::{FreeLibrary, HLOCAL, LocalFree},
+            Security::{Authorization::ConvertStringSidToSidW, EqualSid},
+            System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW},
+        },
+        core::s,
+    };
+    type GetMembers = unsafe extern "system" fn(
+        PCWSTR,
+        PCWSTR,
+        u32,
+        *mut *mut u8,
+        u32,
+        *mut u32,
+        *mut u32,
+        *mut usize,
+    ) -> u32;
+    type BufferFree = unsafe extern "system" fn(*const std::ffi::c_void) -> u32;
+    // LOCALGROUP_MEMBERS_INFO_0
+    #[repr(C)]
+    struct Member {
+        sid: PSID,
+    }
+    // The group's name is translated ("Administratoren"); look it up by SID.
+    let mut group = PSID::default();
+    // SAFETY: `group` is freed once below, the member list once with
+    // NetApiBufferFree and the library once after both functions are done;
+    // the signatures are those of lmaccess.h and lmapibuf.h.
+    unsafe {
+        ConvertStringSidToSidW(&HSTRING::from("S-1-5-32-544"), &mut group)?;
+        let name = lookup_account(group);
+        let _ = LocalFree(Some(HLOCAL(group.0)));
+        let (_, name) = name.context("looking up the Administrators group")?;
+        let name = HSTRING::from(name);
+        let library = LoadLibraryExW(
+            &HSTRING::from("netapi32.dll"),
+            None,
+            LOAD_LIBRARY_SEARCH_SYSTEM32,
+        )
+        .context("loading netapi32.dll")?;
+        let result = (|| -> Result<bool> {
+            let get_members: GetMembers = std::mem::transmute(
+                GetProcAddress(library, s!("NetLocalGroupGetMembers"))
+                    .context("netapi32.dll has no NetLocalGroupGetMembers")?,
+            );
+            let free: BufferFree = std::mem::transmute(
+                GetProcAddress(library, s!("NetApiBufferFree"))
+                    .context("netapi32.dll has no NetApiBufferFree")?,
+            );
+            let mut members: *mut u8 = std::ptr::null_mut();
+            let (mut read, mut total) = (0u32, 0u32);
+            let status = get_members(
+                PCWSTR::null(),
+                PCWSTR(name.as_ptr()),
+                0,
+                &mut members,
+                u32::MAX,
+                &mut read,
+                &mut total,
+                std::ptr::null_mut(),
+            );
+            let listed = status == 0
+                && !members.is_null()
+                && std::slice::from_raw_parts(members.cast::<Member>(), read as usize)
+                    .iter()
+                    .any(|member| EqualSid(member.sid, account).is_ok());
+            if !members.is_null() {
+                free(members.cast());
+            }
+            ensure!(status == 0, "NetLocalGroupGetMembers failed ({status})");
+            Ok(listed)
+        })();
+        let _ = FreeLibrary(library);
+        result
+    }
+}
+/// `DOMAIN\name` for an account, or its SID when it has none (an account
+/// deleted since, or one from an earlier Windows installation).
+///
+/// # Safety
+/// `account` must point to a valid SID.
+unsafe fn account_name(account: PSID) -> String {
+    use windows::Win32::{
+        Foundation::{HLOCAL, LocalFree},
+        Security::Authorization::ConvertSidToStringSidW,
+    };
+    // SAFETY: the caller's SID is only read; the SID text is freed once.
+    unsafe {
+        if let Ok((domain, name)) = lookup_account(account) {
+            return if domain.is_empty() {
+                name
+            } else {
+                format!("{domain}\\{name}")
+            };
+        }
+        let mut text = PWSTR::null();
+        if ConvertSidToStringSidW(account, &mut text).is_err() {
+            return "an unknown account".into();
+        }
+        let sid = text.to_string().unwrap_or_default();
+        let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+        sid
+    }
+}
+/// The domain and name of an account.
+///
+/// # Safety
+/// `account` must point to a valid SID.
+unsafe fn lookup_account(account: PSID) -> Result<(String, String)> {
+    use windows::Win32::Security::{LookupAccountSidW, SID_NAME_USE};
+    let (mut name, mut domain) = ([0u16; 256], [0u16; 256]);
+    let (mut name_len, mut domain_len) = (name.len() as u32, domain.len() as u32);
+    let mut kind = SID_NAME_USE::default();
+    // SAFETY: both buffers are as long as the lengths passed with them.
+    unsafe {
+        LookupAccountSidW(
+            PCWSTR::null(),
+            account,
+            Some(PWSTR(name.as_mut_ptr())),
+            &mut name_len,
+            Some(PWSTR(domain.as_mut_ptr())),
+            &mut domain_len,
+            &mut kind,
+        )?;
+    }
+    Ok((
+        String::from_utf16_lossy(&domain[..domain_len as usize]),
+        String::from_utf16_lossy(&name[..name_len as usize]),
+    ))
 }
 pub fn no_reparse_points(folder: &Path) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
@@ -1282,6 +1477,148 @@ pub fn program_files() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn sid_of(text: &str) -> Result<PSID> {
+        let mut sid = PSID::default();
+        // SAFETY: the test leaks the SID; it lives as long as the test.
+        unsafe {
+            windows::Win32::Security::Authorization::ConvertStringSidToSidW(
+                &HSTRING::from(text),
+                &mut sid,
+            )?;
+        }
+        Ok(sid)
+    }
+    fn set_owner(path: &Path, sid: &str) -> Result<()> {
+        let (code, output) = run(
+            &system32("icacls.exe"),
+            &[
+                &path.display().to_string(),
+                "/setowner",
+                &format!("*{sid}"),
+                "/Q",
+            ],
+            Duration::from_secs(10),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        Ok(())
+    }
+    #[test]
+    fn only_the_system_drive_root_may_belong_to_an_administrator_account() -> Result<()> {
+        // Issue 61: a C:\ owned by the PC's administrator refused every install.
+        let drive = std::env::var("SystemDrive")?;
+        assert!(system_drive_root(Path::new(&format!("{drive}\\"))));
+        assert!(system_drive_root(Path::new(&format!(
+            "\\\\?\\{}\\",
+            drive.to_lowercase()
+        ))));
+        assert!(!system_drive_root(Path::new(&format!("{drive}\\Games"))));
+        assert!(!system_drive_root(Path::new(&drive)));
+        let other = if drive.eq_ignore_ascii_case("C:") {
+            "D:\\"
+        } else {
+            "C:\\"
+        };
+        assert!(!system_drive_root(Path::new(other)));
+        assert!(!system_drive_root(Path::new("\\\\server\\share\\")));
+
+        let (_, identity) = run(
+            &system32("whoami.exe"),
+            &["/user", "/fo", "csv", "/nh"],
+            Duration::from_secs(10),
+        )?;
+        let mut fields = identity.trim().split(',').map(|f| f.trim_matches('"'));
+        let name = fields
+            .next()
+            .context("whoami omitted the name")?
+            .to_string();
+        let sid = fields.next().context("whoami omitted SID")?.to_string();
+        if sid == "S-1-5-18" {
+            return Ok(());
+        }
+        // Direct members, as Windows lists them, independently of netapi32.
+        let (code, listed) = run(
+            &system32("WindowsPowerShell\\v1.0\\powershell.exe"),
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "if ((Get-LocalGroupMember -SID S-1-5-32-544).SID.Value -contains '{sid}') {{ 'listed' }} else {{ 'not listed' }}"
+                ),
+            ],
+            Duration::from_secs(60),
+        )?;
+        // Get-LocalGroupMember throws on a member it cannot resolve (a
+        // deleted domain account); compare only when it answered.
+        let listed = match (code, listed.trim()) {
+            (0, "listed") => Some(true),
+            (0, "not listed") => Some(false),
+            _ => None,
+        };
+        // SAFETY: the SIDs are valid for the whole test.
+        unsafe {
+            if let Some(listed) = listed {
+                assert_eq!(administrator_account(sid_of(&sid)?)?, listed);
+            }
+            assert!(!administrator_account(sid_of("S-1-5-32-545")?)?);
+        }
+
+        let root = tempfile::tempdir()?;
+        let folder = root.path().join("drive");
+        std::fs::create_dir(&folder)?;
+        set_owner(&folder, &sid)?;
+        if let Some(listed) = listed {
+            assert_eq!(trusted_owner(&folder, true).is_ok(), listed);
+        }
+        let error = trusted_owner(&folder, false).unwrap_err().to_string();
+        assert!(
+            error.to_lowercase().ends_with(&format!(
+                "must be owned by administrators, system or trustedinstaller, not {}",
+                name.to_lowercase()
+            )),
+            "{error}"
+        );
+        // Below the root, nothing changes: the folder itself and D:\Games.
+        assert!(trusted_folder(&folder).is_err());
+        assert!(trusted_parents(&folder.join("Rubylight")).is_err());
+        if elevated() {
+            set_owner(&folder, "S-1-5-32-545")?;
+            let error = trusted_owner(&folder, true).unwrap_err().to_string();
+            assert!(
+                error.contains("or an administrator's account, not "),
+                "{error}"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn setup_loads_no_dll_planted_beside_it() -> Result<()> {
+        // setup.exe runs elevated from Downloads: a DLL it imports that is not
+        // a KnownDLL would be loaded from beside it first. These are the
+        // DLLs behind setup's own Windows calls (userenv.dll is left out:
+        // only the MSVC test build's std imports it).
+        let folder = tempfile::tempdir()?;
+        let copy = folder.path().join("setup-copy.exe");
+        std::fs::copy(std::env::current_exe()?, &copy)?;
+        for dll in [
+            "netapi32.dll",
+            "version.dll",
+            "comctl32.dll",
+            "wtsapi32.dll",
+            "iphlpapi.dll",
+            "msi.dll",
+            "dbghelp.dll",
+        ] {
+            std::fs::write(folder.path().join(dll), b"not a DLL")?;
+        }
+        let (code, output) = run(
+            &copy.display().to_string(),
+            &["--list"],
+            Duration::from_secs(60),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        Ok(())
+    }
     #[test]
     fn locked_folders_replace_user_ownership_and_explicit_child_grants() -> Result<()> {
         if !elevated() {

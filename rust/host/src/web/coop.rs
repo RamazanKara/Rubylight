@@ -185,6 +185,7 @@ fn status(h: &Shared) -> Value {
                         Missing::NoHandler { .. } => "no_handler",
                         Missing::NotAdded { .. } => "not_added",
                         Missing::AntiCheat { .. } => "anti_cheat",
+                        Missing::Refused { .. } => "refused",
                     };
                     (status, Some(missing.to_string()), None, None)
                 }
@@ -776,8 +777,9 @@ mod tests {
             json!([
                 {"app": "portal", "name": "Portal 2", "status": "ready", "reason": null,
                  "handler": "Portal 2", "players": 2, "entry": "Portal 2 (Co-op)"},
-                {"app": "puzzle", "name": "Puzzle", "status": "no_handler",
-                 "reason": "No Nucleus Co-op handler for Puzzle.exe: add one in Nucleus Co-op's handler hub",
+                // Without a handler, as a background launch would answer.
+                {"app": "puzzle", "name": "Puzzle", "status": "refused",
+                 "reason": r"C:\Games\Puzzle.exe is not on this PC: set the app's command to the game's .exe",
                  "handler": null, "players": null, "entry": "Puzzle (Co-op)"},
                 {"app": "cs2", "name": "Counter-Strike 2", "status": "launcher", "reason": null,
                  "handler": null, "players": null, "entry": "Counter-Strike 2 (Co-op)"},

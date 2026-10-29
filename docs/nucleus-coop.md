@@ -67,7 +67,11 @@ the PC's cursor.
   cheating. Well-known ones without anti-cheat files in their folder
   (Counter-Strike 2, Dota 2, Overwatch and others) are known by name. The
   host looks only in the game's own folder, never in a folder many games
-  share. Its Play together panel says so.
+  share.
+- **The Play together panel says why** before you launch: for an app that
+  names its .exe it checks the path, launchers, and anti-cheat by name and in
+  the game's folder. A Steam link's game (and Steam's Valve Anti-Cheat flag)
+  is checked when it launches, and the launch says why.
 - **Controllers only**, as for every background stream.
 - **Some games pause anyway** when their window is not in front, despite the
   focus hooks. Those need a hub handler made for them.

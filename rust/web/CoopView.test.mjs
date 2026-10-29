@@ -195,6 +195,20 @@ test('a game with anti-cheat says so in the host’s words, with nothing to open
   assert.match(playTogether(status({}, { status: 'anti_cheat' }), 'portal').reason, /never hooks a game with anti-cheat\.$/);
 });
 
+test('a game Rubylight never starts says why in the host’s words', () => {
+  // A program in the Windows folder showed as streaming in the background, then was refused.
+  const refused = status({}, {
+    status: 'refused',
+    reason: 'C:\\Windows\\notepad.exe is part of Windows, not a game',
+    handler: null,
+    players: null,
+  });
+  assert.equal(playTogether(refused, 'portal').reason, 'C:\\Windows\\notepad.exe is part of Windows, not a game.');
+  const out = html(refused);
+  assert.match(out, /No co-op or background streams for this game/);
+  assert.doesNotMatch(out, /streams in the background without a handler/);
+});
+
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {
   const view = playTogether(fixtures.launcher, 'portal');
   assert.equal(view.text, 'Co-op finds a game by its .exe, and Counter-Strike 2 starts through a launcher. To play it together, set the command above to the game’s .exe.');

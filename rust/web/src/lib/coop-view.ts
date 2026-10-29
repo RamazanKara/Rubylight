@@ -9,8 +9,9 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  * or the host is older), `unavailable` (this PC can't run co-op: setting it up would download for
  * nothing), `launcher` (a launcher's link starts the app, so no handler can match it), `installing`
  * and `failed` (the download), `broken` (the handlers didn't load), `taken` (another app of the same
- * name already lists the co-op entry, so the library shows this one's nowhere) and `anti_cheat` (the game
- * ships anti-cheat, so neither co-op nor background streams hook it).
+ * name already lists the co-op entry, so the library shows this one's nowhere), `anti_cheat` (the game
+ * ships anti-cheat, so neither co-op nor background streams hook it) and `refused` (Rubylight's own handler
+ * never starts it: a game on a network share, Windows' own program, a missing .exe), shown alike.
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -102,6 +103,11 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
       return {
         kind: 'anti_cheat',
         reason: sentence(game.reason ?? `${name} uses anti-cheat, and Rubylight never hooks a game with anti-cheat`),
+      };
+    case 'refused':
+      return {
+        kind: 'anti_cheat',
+        reason: sentence(game.reason ?? `Rubylight can’t start ${name} in the background`),
       };
     case 'no_handler':
       return {

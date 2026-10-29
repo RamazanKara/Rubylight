@@ -264,13 +264,11 @@ impl Pc for OnPc {
                     app: app.name.clone(),
                 })
             })?;
-        refuse_path(exe)?;
+        refuse_path(exe).map_err(|missing| Refusal::missing(&missing))?;
         if !Path::new(exe).is_file() {
             return Err(Refusal {
                 status: 404,
-                message: format!(
-                    "{exe} is not on this PC: set the app's command to the game's .exe"
-                ),
+                message: not_on_this_pc(exe),
             });
         }
         Ok(Setup {
@@ -570,17 +568,85 @@ pub fn starts_exe(app: &App) -> bool {
 
 /// Refuses a game Rubylight's handler never starts (on a network share, or
 /// Windows' own program) before anything opens its path as SYSTEM.
-fn refuse_path(exe_path: &str) -> Result<(), Refusal> {
-    let windows = std::env::var("SystemRoot").map_err(|error| {
-        Refusal::unavailable(format!("Windows' folder is unknown (SystemRoot): {error}"))
+fn refuse_path(exe_path: &str) -> Result<(), Missing> {
+    let windows = std::env::var("SystemRoot").map_err(|error| Missing::Refused {
+        reason: format!("Windows' folder is unknown (SystemRoot): {error}"),
     })?;
     match generic::refused_path(exe_path, &windows) {
-        Some(message) => Err(Refusal {
-            status: 404,
-            message,
+        Some(reason) => Err(Missing::Refused { reason }),
+        None => Ok(()),
+    }
+}
+
+/// `setup` as Rubylight's own handler starts it: refused for a path the host
+/// must not open or for a launcher, and an Unreal root stub's game in its
+/// place. The hub and anti-cheat checks come after.
+fn prepared(mut setup: Setup) -> Result<Setup, Missing> {
+    // Before anything reads its folders.
+    refuse_path(&setup.exe_path)?;
+    if generic::launcher(&setup.exe_path) {
+        return Err(Missing::Refused {
+            reason: format!(
+                "{} is a launcher, not the game: set the app's command to the game's .exe",
+                file_name(&setup.exe_path)
+            ),
+        });
+    }
+    if let Some(shipping) = generic::unreal_shipping(&setup.exe_path) {
+        tracing::debug!(
+            stub = setup.exe_path,
+            shipping,
+            "Nucleus Co-op: an Unreal game's stub starts its Shipping .exe"
+        );
+        setup.exe_path = shipping;
+    }
+    Ok(setup)
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+
+/// Refuses a game shipping anti-cheat: Nucleus Co-op's hooks would look
+/// like cheating.
+fn refuse_anti_cheat(setup: &Setup) -> Result<(), Missing> {
+    match generic::anti_cheat(setup) {
+        Some(anti_cheat) => Err(Missing::AntiCheat {
+            executable: file_name(&setup.exe_path).into(),
+            anti_cheat: anti_cheat.into(),
         }),
         None => Ok(()),
     }
+}
+
+/// Why a background stream of `app`, which has no hub handler, would be
+/// refused, as far as the console can tell without Steam: a relative or
+/// missing .exe, a path the host must not open, a launcher, anti-cheat by
+/// name or in the game's folder. A Steam link's game is checked at launch.
+fn own_status(app: &App) -> Option<Missing> {
+    if !starts_exe(app) {
+        return None;
+    }
+    let exe = executable(app)?;
+    if !Path::new(exe).is_absolute() {
+        return Some(Missing::NoExecutable {
+            app: app.name.clone(),
+        });
+    }
+    let setup = match prepared(Setup::new(exe, &app.name, None)) {
+        Ok(setup) => setup,
+        Err(missing) => return Some(missing),
+    };
+    if !Path::new(&setup.exe_path).is_file() {
+        return Some(Missing::Refused {
+            reason: not_on_this_pc(exe),
+        });
+    }
+    refuse_anti_cheat(&setup).err()
+}
+
+fn not_on_this_pc(exe: &str) -> String {
+    format!("{exe} is not on this PC: set the app's command to the game's .exe")
 }
 
 /// Whether `app` starts a launcher's .exe (`steam.exe -applaunch`), which
@@ -609,39 +675,14 @@ impl Chosen {
 /// hub handler. A game shipping anti-cheat is refused: Nucleus Co-op's
 /// hooks would look like cheating.
 fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refusal> {
-    let mut setup = pc.one_player(app)?;
-    // Before the anti-cheat scan reads its folders.
-    refuse_path(&setup.exe_path)?;
-    if generic::launcher(&setup.exe_path) {
-        let launcher = setup.exe_path.rsplit('\\').next().unwrap_or_default();
-        return Err(Refusal {
-            status: 404,
-            message: format!(
-                "{launcher} is a launcher, not the game: set the app's command to the game's .exe"
-            ),
-        });
-    }
-    if let Some(shipping) = generic::unreal_shipping(&setup.exe_path) {
-        tracing::info!(
-            stub = setup.exe_path,
-            shipping,
-            "Nucleus Co-op: an Unreal game's stub starts its Shipping .exe"
-        );
-        setup.exe_path = shipping;
-    }
+    let setup = prepared(pc.one_player(app)?).map_err(|missing| Refusal::missing(&missing))?;
     // Found by another path than the app's command: the game the user added
     // at exactly that path keeps its hub handler. A file-name match is
     // another game's (Portal's hl2.exe is not Half-Life 2).
     if let Some(found) = catalog.added(&setup.exe_path) {
         return Ok(Chosen::Hub(found.handler));
     }
-    if let Some(anti_cheat) = generic::anti_cheat(&setup) {
-        let executable = setup.exe_path.rsplit('\\').next().unwrap_or_default();
-        return Err(Refusal::missing(&Missing::AntiCheat {
-            executable: executable.into(),
-            anti_cheat: anti_cheat.into(),
-        }));
-    }
+    refuse_anti_cheat(&setup).map_err(|missing| Refusal::missing(&missing))?;
     Ok(Chosen::Own(setup))
 }
 
@@ -1181,6 +1222,10 @@ impl Registry {
                 Listing::Taken => GameStatus::Taken {
                     entry: entry_name(&app.name),
                 },
+                // Shown as a background launch would answer it.
+                Listing::Missing(missing @ Missing::NoHandler { .. }) => {
+                    GameStatus::Missing(own_status(app).unwrap_or(missing))
+                }
                 Listing::Missing(missing) => GameStatus::Missing(missing),
             })
             .collect();
@@ -2407,6 +2452,72 @@ mod tests {
         assert!(names_executable(&steam) && !starts_exe(&steam));
         assert!(!starts_exe(&apps[2]) && starts_exe(&apps[1]));
         assert!(starts_exe(&app("Puzzle", r"D:\Games\PUZZLE.EXE")));
+    }
+
+    #[test]
+    fn the_console_shows_why_a_background_stream_would_be_refused() {
+        // These showed "streams in the background without a handler" and
+        // were then refused at launch.
+        let (registry, _pc, _) = setup();
+        let dir = std::env::temp_dir().join(format!("nucleus-status-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("Shooter").join("EasyAntiCheat")).unwrap();
+        std::fs::create_dir_all(dir.join("Ice")).unwrap();
+        std::fs::write(dir.join("Shooter").join("Shooter.exe"), b"").unwrap();
+        std::fs::write(dir.join("Ice").join("Ice.exe"), b"").unwrap();
+        let quoted = |path: PathBuf| format!("\"{}\"", path.display());
+        let apps = [
+            app("Notepad", r"C:\Windows\notepad.exe"),
+            app("Shared", r"\\nas\games\Ice\Ice.exe"),
+            app("Shooter", &quoted(dir.join("Shooter").join("Shooter.exe"))),
+            app("Relative", "Ice.exe"),
+            app("Gone", r"C:\NoSuchGames\Gone\Gone.exe"),
+            app("Ice", &quoted(dir.join("Ice").join("Ice.exe"))),
+            app("Link", "steam://rungameid/400"),
+        ];
+        let statuses = registry.games(&apps, &Config::default()).unwrap().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let shown: Vec<String> = statuses
+            .iter()
+            .map(|status| match status {
+                GameStatus::Missing(missing) => missing.to_string(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            shown[0],
+            r"C:\Windows\notepad.exe is part of Windows, not a game"
+        );
+        assert!(shown[1].ends_with(
+            "is on a network share: Rubylight starts only a game on this PC's own drives"
+        ));
+        assert_eq!(
+            shown[2],
+            "Shooter.exe uses Easy Anti-Cheat, and Rubylight never hooks a game with anti-cheat"
+        );
+        assert!(
+            shown[3].starts_with("Nucleus Co-op starts games by their .exe"),
+            "{}",
+            shown[3]
+        );
+        assert!(shown[4].ends_with("is not on this PC: set the app's command to the game's .exe"));
+        // A game ours streams, and a link checked only at launch.
+        assert!(
+            shown[5].starts_with("No Nucleus Co-op handler for Ice.exe"),
+            "{}",
+            shown[5]
+        );
+        assert!(matches!(
+            statuses[6],
+            GameStatus::Missing(Missing::NoHandler { .. })
+        ));
+        assert!(matches!(
+            statuses[2],
+            GameStatus::Missing(Missing::AntiCheat { .. })
+        ));
+        assert!(matches!(
+            statuses[0],
+            GameStatus::Missing(Missing::Refused { .. })
+        ));
     }
 
     #[test]

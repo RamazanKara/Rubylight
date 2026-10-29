@@ -270,6 +270,11 @@ pub enum Missing {
         executable: String,
         anti_cheat: String,
     },
+    /// Rubylight's own handler never starts it, for `reason`: a game on a
+    /// network share, Windows' own program, a launcher, a missing .exe.
+    Refused {
+        reason: String,
+    },
 }
 impl std::fmt::Display for Missing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -296,6 +301,7 @@ impl std::fmt::Display for Missing {
                 f,
                 "{executable} uses {anti_cheat}, and Rubylight never hooks a game with anti-cheat"
             ),
+            Self::Refused { reason } => f.write_str(reason),
         }
     }
 }

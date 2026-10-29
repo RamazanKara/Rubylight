@@ -1370,6 +1370,14 @@ impl Hosts {
                     }
                     changed = true;
                 }
+                if host.record.unique_id != info.unique_id {
+                    // Another PC answers at this address: what the old one said and allowed is not its.
+                    if !host.record.unique_id.is_empty() {
+                        host.record.notices.clear();
+                    }
+                    host.native = Native::default();
+                    host.native_epoch += 1;
+                }
                 if host.record.unique_id != info.unique_id || host.record.name != info.hostname {
                     host.record.unique_id = info.unique_id.clone();
                     host.record.name = info.hostname.clone();
@@ -1387,6 +1395,9 @@ impl Hosts {
                 if !info.paired && host.record.server_certificate.is_some() {
                     host.record.server_certificate = None;
                     host.apps = Apps::NotLoaded;
+                    // Its grants (folders, files, USB, co-op) went with the pairing; a read in flight is dropped.
+                    host.native = Native::default();
+                    host.native_epoch += 1;
                     changed = true;
                 }
                 crate::logfile::add_secrets(&host.record);
@@ -1476,11 +1487,47 @@ pub(crate) mod tests {
 
     /// Serverinfo of a paired PC with the native API and the clipboard permission.
     pub(crate) fn native_info() -> ServerInfo {
-        let xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid>\
-             <HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame>\
+        native_info_of("uid", true)
+    }
+
+    /// `native_info` from the PC `unique_id`, which lists this device as paired or not.
+    fn native_info_of(unique_id: &str, paired: bool) -> ServerInfo {
+        let xml = format!("<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>{unique_id}</uniqueid>\
+             <HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>{}</PairStatus><currentgame>0</currentgame>\
              <state>SUNSHINE_SERVER_FREE</state><RustHostVersion>3.0.0</RustHostVersion><NativeApiVersion>1</NativeApiVersion>\
-             <Permission>100859904</Permission></root>";
-        ServerInfo::parse(xml, 47989).unwrap()
+             <Permission>100859904</Permission></root>", u8::from(paired));
+        ServerInfo::parse(&xml, 47989).unwrap()
+    }
+
+    #[test]
+    fn grants_go_when_the_pc_forgets_this_device_or_another_pc_answers() {
+        let gated = |hosts: &Hosts| {
+            let info = hosts.list[0].info.as_ref().unwrap();
+            [Feature::SharedFolders, Feature::Coop, Feature::ImageClipboard, Feature::FileUpload].map(|f| info.capabilities.has(f))
+        };
+        let extras = ["folders", "coop", "clipboard.image", "files.upload"];
+        let mut granted = native_caps(&extras, true);
+        granted.files.file_upload = true;
+        for (answer, why) in [(native_info_of("uid", false), "the PC no longer lists this device"), (native_info_of("other", true), "another PC answers")] {
+            let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+            hosts.list[0].record.claim_notice(crate::config::NOTICE_PYROWAVE_FALLBACK);
+            let id = hosts.list[0].id;
+            info_lands(&mut hosts, id, native_info());
+            native_lands(&mut hosts, id, granted.clone());
+            assert_eq!(gated(&hosts), [true; 4]);
+            let in_flight = hosts.list[0].native_epoch;
+            info_lands(&mut hosts, id, answer);
+            assert_eq!(gated(&hosts), [false; 4], "{why}: no old grant opens a row or a gate");
+            assert!(hosts.list[0].native.capabilities.is_none() && hosts.list[0].native.library.is_none(), "{why}");
+            // A read that started before lands now: dropped.
+            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library()), session: Ok(session("idle")), wake: None };
+            hosts.list[0].record.server_certificate = Some("pem".into());
+            send(&mut hosts, Event::Native { id, epoch: in_flight, seq: 9, result: Ok(Box::new(read)) });
+            assert!(hosts.list[0].native.capabilities.is_none(), "{why}: the old read is not taken in");
+            // A notice told for the old PC is told again for another one; the same PC keeps it.
+            let told = hosts.list[0].record.notices.contains(crate::config::NOTICE_PYROWAVE_FALLBACK);
+            assert_eq!(told, why != "another PC answers", "{why}");
+        }
     }
 
     /// The same PC as a stock Moonlight host sees it: no native API.

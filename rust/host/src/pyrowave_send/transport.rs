@@ -58,8 +58,10 @@ pub(super) fn run(
             }
         }
         let mut sent = 0;
+        let mut sent_packets = 0;
         let mut first_sent = None;
         let packets_dropped = batch.dropped;
+        let ipv6 = frame.peer.ip().to_canonical().is_ipv6();
         current
             .stats
             .video_frame
@@ -82,24 +84,13 @@ pub(super) fn run(
                 {
                     return Ok(());
                 }
-                let count = Batch::count(
-                    remaining,
-                    batch_limit(
-                        bps,
-                        remaining[0].len(),
-                        frame.peer.ip().to_canonical().is_ipv6(),
-                    ),
-                );
+                let count = Batch::count(remaining, batch_limit(bps, remaining[0].len(), ipv6));
                 let bytes = batch.send(&socket, &remaining[..count], frame.peer)?;
                 first_sent.get_or_insert_with(Instant::now);
                 sent += bytes;
-                pacer.sent(
-                    Instant::now(),
-                    bytes,
-                    if bytes > 0 { count } else { 0 },
-                    frame.peer.ip().to_canonical().is_ipv6(),
-                    bps,
-                );
+                let left = if bytes > 0 { count } else { 0 };
+                sent_packets += left;
+                pacer.sent(Instant::now(), bytes, left, ipv6, bps);
                 current
                     .stats
                     .packets
@@ -112,9 +103,15 @@ pub(super) fn run(
             }
         }
         if batch.dropped != packets_dropped {
-            current.request_send_loss_recovery();
-            current.launch.warnings.event("network_send", "PyroWave video packets were dropped by the host after transient socket send failures. Lower bitrate and check the network adapter; the log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
+            host_dropped(&current, frame.wire_frame);
         }
+        // What left for the client, which the link-rate controller weighs the
+        // client's loss reports against.
+        current.record_link_sent(
+            frame.wire_frame,
+            sent_packets,
+            (sent + sent_packets * network_pacing::overhead(ipv6)) as u64,
+        );
         current
             .stats
             .latency_us
@@ -227,6 +224,15 @@ fn pace(current: &Session, config: &Config, kbps: u32, wire_frame: u32, route: L
     current.keyframe_loss_bps(paced, safe, wire_frame, true)
 }
 
+/// The socket refused packets of this frame. That is the host's loss, not
+/// the network's: the client's report of the frame is not counted against the
+/// link, and the link-rate controller counts it as a send loss (E3).
+fn host_dropped(current: &Session, wire_frame: u32) {
+    current.keyframe_abandoned(wire_frame);
+    current.request_send_loss_recovery();
+    current.launch.warnings.event("network_send", "PyroWave video packets were dropped by the host after transient socket send failures. Lower bitrate and check the network adapter; the log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +292,48 @@ mod tests {
             (0, 0)
         );
         assert_eq!(pace(&session, &config, 40_000, 2, route), unhinted);
+    }
+
+    /// Review 2026-10-29: packets the socket refused were counted as the
+    /// network's loss when the client reported the frame, and never as the
+    /// host's.
+    #[test]
+    fn a_frame_the_socket_refused_is_the_hosts_loss() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated {
+                codec: 3,
+                pyrowave_records: true,
+                bitrate_kbps: 400_000,
+                ..Default::default()
+            },
+        );
+        host_dropped(&session, 7);
+        assert_eq!(session.stats.frames_lost_on_send.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            session.stats.send_loss_recoveries.load(Ordering::Relaxed),
+            1
+        );
+        assert!(session.keyframe_loss.lock().unwrap().is_abandoned(7));
+        assert!(!session.keyframe_loss.lock().unwrap().is_abandoned(8));
+        // Review 2026-10-29: and the link-rate controller counts it as a send
+        // loss (E3): three such frames lower the bitrate.
+        session.configure_link_rate(true, 0);
+        for frame in 1..=60 {
+            session.record_link_sent(frame, 300, 420_000);
+        }
+        session.stats.video_frame.store(70, Ordering::Release);
+        for frame in 50..=52 {
+            host_dropped(&session, frame);
+        }
+        let (from, to) = session
+            .tick_link_rate(
+                Instant::now() + Duration::from_millis(200),
+                Duration::from_millis(10),
+            )
+            .expect("three frames the socket refused lower the bitrate");
+        assert!(to < from, "{from} -> {to}");
+        assert_eq!(session.info()["link_rate"]["state"], "limited");
     }
 }

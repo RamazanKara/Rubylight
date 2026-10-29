@@ -978,11 +978,7 @@ fn restart_on_new_path(s: &Session, c: &Config) {
     s.request_host_keyframe();
     let mut stream = s.config.clone();
     s.stream_mode().apply_to(&mut stream);
-    s.rebuild_link_rate(
-        &stream,
-        c.link_rate_adaptation(),
-        c.integer("max_bitrate", 0).clamp(0, 500_000) as u32,
-    );
+    s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(s, c));
     configure_adaptive_bitrate(s, c);
 }
 /// The stream's video FEC at its start: the configured percentage is adaptive
@@ -1023,15 +1019,20 @@ fn configure_video_fec(s: &Session, c: &Config) -> Result<()> {
 }
 /// Host bitrate adaptation (`host_adaptive_bitrate`), from scratch.
 fn configure_adaptive_bitrate(s: &Session, c: &Config) {
+    s.configure_adaptive_bitrate(
+        c.boolean("host_adaptive_bitrate", false),
+        max_bitrate_kbps(s, c),
+    );
+}
+/// The user's `max_bitrate`, within what the stream's codec can be asked for:
+/// PyroWave goes to 2 Gbps, the others to 500 Mbps.
+fn max_bitrate_kbps(s: &Session, c: &Config) -> u32 {
     let maximum = if s.config.codec == 3 {
         2_000_000
     } else {
         500_000
     };
-    s.configure_adaptive_bitrate(
-        c.boolean("host_adaptive_bitrate", false),
-        c.integer("max_bitrate", 0).clamp(0, maximum) as u32,
-    );
+    c.integer("max_bitrate", 0).clamp(0, maximum) as u32
 }
 /// The local address a client's datagrams arrived on, for logs.
 fn describe_local(local: Option<IpAddr>) -> String {
@@ -1760,7 +1761,7 @@ impl Media {
                     audio = Some(m.spawn_audio(&h, &s)?);
                     configure_video_fec(&s, &c)?;
                     configure_adaptive_bitrate(&s, &c);
-                    s.configure_link_rate(c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                    s.configure_link_rate(c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
                     // Packet adaptation is opt-in, or automatic for a client that
                     // reports a wireless route. Explicit pacing and host bitrate
                     // adaptation keep their own policies.
@@ -2629,7 +2630,7 @@ impl Media {
                                                 None => prepared.follow_shape((stream.width, stream.height)),
                                             }
                                         }
-                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
                                         switching.get_or_insert((from, Instant::now()));
                                         rebuild_encoder = true;
                                     }
@@ -3177,7 +3178,7 @@ impl Media {
                                     if let Some((from, _)) = switching.take() {
                                         let to = butterpollo_core::reconfigure::Mode::of(&stream);
                                         from.apply_to(&mut stream);
-                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
                                         refuse_switch(&s, from, butterpollo_core::rate_change::Reason::EncoderFailed);
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder failed at this mode; keeping the previous one");
                                         rebuild_encoder = true;

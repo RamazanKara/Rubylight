@@ -68,7 +68,7 @@ cargo build --release -p butterpollo-windows --example udp_shaper   # copy udp_s
     --codec av1 --mode 2560x1440x60 --bitrate 40000 --rate-kbps 100000 --queue-kib 64 --rfi
 ```
 
-`--rate-kbps 0` relays without shaping, the control. `udp_shaper --selftest` checks the shaper on loopback first: what it forwards must stay within 2% of the queue model fed with the sender's own send times, and back-to-back departures within 2% of the link's spacing. Its link thread runs at game priority, so other load on the machine does not slow the link.
+`--rate-kbps 0` relays without shaping, the control. `--loss-percent P` drops that share of video datagrams at random, and `--loss-seconds S` stops the loss S seconds after the first video datagram, a path that heals mid-stream. `udp_shaper --selftest` checks the shaper on loopback first: what it forwards must stay within 2% of the queue model fed with the sender's own send times, and back-to-back departures within 2% of the link's spacing. Its link thread runs at game priority, so other load on the machine does not slow the link.
 
 ## Timing record
 

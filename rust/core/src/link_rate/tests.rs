@@ -650,6 +650,78 @@ fn network_keyframe_requests_cut_only_without_fec_status() {
     assert!(rig.changes.is_empty());
 }
 
+/// 2026-10-29 sweep (r-def, AV1 to a Retroid, 07:55:55 UTC): the client lost
+/// one frame and asked to invalidate 2685-2695 eleven times before the repair
+/// came. Each request counted, ten of them cut 21 to 14.5 Mbps for 26 s on a
+/// link that carried the stream. One loss is one incident; three separate
+/// losses still cut.
+#[test]
+fn repeated_invalidations_for_one_loss_are_one_request() {
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for last in 2685..=2695 {
+        rig.lr.on_invalidation(2685, last, true, rig.now());
+        rig.clean(8);
+    }
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.kinds());
+    // A client still asking long after it began has not got its repair.
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for _ in 0..3 {
+        rig.lr.on_invalidation(2685, 2695, true, rig.now());
+        rig.clean(600);
+    }
+    rig.clean(400);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+    // Three losses, each asked for a few times.
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for first in [3000, 3060, 3120] {
+        for last in first..first + 4 {
+            rig.lr.on_invalidation(first, last, true, rig.now());
+            rig.clean(8);
+        }
+        rig.clean(300);
+    }
+    rig.clean(400);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+    assert_eq!(rig.changes[0].1.reason, "keyframe_requests");
+    // A range the host cannot read counts every time.
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for _ in 0..3 {
+        rig.lr.on_invalidation(0, 0, true, rig.now());
+        rig.clean(100);
+    }
+    rig.clean(400);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+}
+
+/// rc.5's `KeyframeLoss` calls a request from a client that announced FEC
+/// status (Moonlight, Artemis, Nightjar) its decoder asking again. The
+/// controller now agrees from the first frame, before any status arrived.
+#[test]
+fn a_client_that_announced_fec_status_is_judged_by_it_from_the_start() {
+    let announced = Negotiated {
+        moonlight_features: crate::rtsp::FEC_STATUS_FEATURE,
+        ..stream(21_388)
+    };
+    let mut rig = Rig::with(LinkRate::new(true, &announced, 0, 20), 21_388);
+    rig.clean(1_000);
+    for first in [3000, 3060, 3120, 3180] {
+        rig.lr.on_invalidation(first, first + 2, true, rig.now());
+        rig.lr.on_keyframe_request(true, rig.now());
+        rig.clean(300);
+    }
+    rig.clean(1_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.kinds());
+    // Its lost frames still cut.
+    rig.lose_three();
+    rig.clean(500);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+}
+
 #[test]
 fn a_rise_in_rtt_alone_is_no_evidence() {
     let mut rig = Rig::new(40_000);
@@ -833,29 +905,167 @@ fn it_never_goes_below_the_floor_and_says_so() {
     assert!(probe.delivered_kbps > 0, "{probe:?}");
 }
 
+/// A 1080p60 PyroWave stream with record framing.
+fn pyrowave(kbps: u32) -> Negotiated {
+    Negotiated {
+        codec: 3,
+        pyrowave_records: true,
+        width: 1920,
+        height: 1080,
+        fps: 60,
+        ..stream(kbps)
+    }
+}
+
+/// 2026-10-29: PyroWave at 200 Mbps to a phone on Wi-Fi lost frames for the
+/// whole stream and its bitrate never moved; the controller was off for it.
 #[test]
-fn it_is_off_when_disabled_for_pyrowave_and_after_the_client_sets_the_bitrate() {
-    let disabled = LinkRate::new(false, &stream(40_000), 0, 20);
-    assert_eq!(disabled.state(), State::Off);
-    let pyrowave = LinkRate::new(
+fn pyrowave_loss_is_cut_like_any_codecs_and_a_healthy_pyrowave_link_is_left_alone() {
+    let lr = LinkRate::new(true, &pyrowave(400_000), 0, 20);
+    assert_eq!(lr.state(), State::Full);
+    let floor = lr.floor_kbps;
+    let mut rig = Rig::with(lr, 400_000);
+    rig.run(60_000, |lr, frame, now| {
+        if frame % 7 == 0 {
+            repaired(lr, frame, 2, now);
+        }
+    });
+    assert!(rig.changes.is_empty(), "{:?}", rig.kinds());
+    assert_eq!(rig.kbps, 400_000);
+    rig.lose_three();
+    rig.clean(500);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+    let (_, cut) = rig.changes[0];
+    assert_eq!(cut.reason, "unrecoverable_frames");
+    assert!(cut.to_kbps < 400_000 * 85 / 100, "{cut:?}");
+    assert!(cut.to_kbps >= floor, "{cut:?}");
+    assert_eq!(rig.kbps, cut.to_kbps);
+    assert_eq!(rig.lr.state(), State::Limited);
+}
+
+/// Review 2026-10-29: while a PyroWave picture moves only its coarse block
+/// has parity, and a client reports every detail block that lost a packet.
+/// Counted as lost frames, 0.1 % random loss (one picture in six at 200 Mbps)
+/// cut a healthy link to the floor. A lost detail block only blurs part of one
+/// picture; a lost coarse block, or any block of a legacy stream, loses it.
+#[test]
+fn only_a_lost_coarse_block_loses_a_pyrowave_frame() {
+    let detail = |block| Status {
+        block,
+        blocks: 3,
+        ..status(1, 60, 16)
+    };
+    let records = LinkRate::new(true, &pyrowave(200_000), 0, 20);
+    assert!(records.frame_lost(&detail(0)));
+    assert!(!records.frame_lost(&detail(1)));
+    assert!(!records.frame_lost(&detail(2)));
+    assert!(!records.frame_lost(&status(1, 80, 2)), "rebuilt");
+    // Review 2026-10-29: without coarse parity (critical FEC 0, or coarse
+    // records and parity over 255 packets) the picture goes in quarters and
+    // block 0 is a quarter of the detail.
+    let quarter = Status {
+        block: 0,
+        blocks: 4,
+        parity: 0,
+        ..status(1, 60, 16)
+    };
+    assert!(!records.frame_lost(&quarter));
+    let legacy = LinkRate::new(
         true,
         &Negotiated {
-            codec: 3,
-            ..stream(40_000)
+            pyrowave_records: false,
+            ..pyrowave(200_000)
         },
         0,
         20,
     );
-    assert_eq!(pyrowave.state(), State::Off);
-    assert_eq!(pyrowave.snapshot(Instant::now())["reason"], "pyrowave");
-    for lr in [disabled, pyrowave] {
-        let mut rig = Rig::with(lr, 40_000);
-        rig.clean(1_000);
+    assert!(legacy.frame_lost(&detail(1)));
+    let h26x = LinkRate::new(true, &stream(40_000), 0, 20);
+    assert!(h26x.frame_lost(&detail(1)));
+}
+
+/// Review 2026-10-29: the floor was 2 Mbps for every codec, far under the
+/// rate at which PyroWave keeps a usable picture (187 Mbps at 1080p60).
+#[test]
+fn pyrowave_stops_at_its_severe_detail_loss_rate_and_says_so() {
+    let minimum = crate::pyrowave::minimum_kbps(1920, 1080, 60_000);
+    let lr = LinkRate::new(true, &pyrowave(400_000), 0, 20);
+    assert_eq!(lr.floor_kbps, minimum);
+    // The session's bitrate is the negotiated one; the encoder gets it scaled
+    // by configured over negotiated, so the floor is scaled back.
+    let scaled = LinkRate::new(
+        true,
+        &Negotiated {
+            configured_bitrate_kbps: 400_000,
+            ..pyrowave(397_000)
+        },
+        0,
+        20,
+    );
+    assert_eq!(
+        scaled.floor_kbps,
+        (u64::from(minimum) * 397_000 / 400_000) as u32
+    );
+    let mut rig = Rig::with(lr, 400_000);
+    for _ in 0..12 {
         rig.lose_three();
-        rig.clean(2_000);
-        assert!(rig.changes.is_empty());
-        assert_eq!(rig.kbps, 40_000);
+        rig.clean(600);
     }
+    let floor = rig
+        .changes
+        .iter()
+        .find(|(_, c)| c.kind == ChangeKind::Floor)
+        .map(|(_, c)| c.to_kbps);
+    assert_eq!(floor, Some(minimum), "{:?}", rig.changes);
+    assert!(
+        rig.changes.iter().all(|(_, c)| c.to_kbps >= minimum),
+        "{:?}",
+        rig.changes
+    );
+    // H.26x keeps its 2 Mbps floor.
+    assert_eq!(
+        LinkRate::new(true, &stream(40_000), 0, 20).floor_kbps,
+        2_000
+    );
+}
+
+/// Review 2026-10-29: the controller held every codec to 500 Mbps, but
+/// PyroWave streams go to 2 Gbps: a 1.2 Gbps stream was cut to 425 Mbps and
+/// probed only up to 500, then jumped back to 1.2 Gbps at the end.
+#[test]
+fn a_pyrowave_stream_above_500_mbps_keeps_its_ceiling() {
+    let lr = LinkRate::new(true, &pyrowave(1_200_000), 0, 20);
+    assert_eq!(lr.ceiling_kbps(), 1_200_000);
+    assert_eq!(
+        LinkRate::new(true, &pyrowave(3_000_000), 0, 20).ceiling_kbps(),
+        2_000_000
+    );
+    assert_eq!(
+        LinkRate::new(true, &stream(1_200_000), 0, 20).ceiling_kbps(),
+        500_000
+    );
+    let mut rig = Rig::with(lr, 1_200_000);
+    rig.clean(1_000);
+    rig.lose_three();
+    rig.clean(500);
+    let (_, cut) = rig.changes[0];
+    assert!(cut.to_kbps > 500_000, "{cut:?}");
+    for _ in 0..40 {
+        rig.clean(1_000);
+    }
+    assert_eq!(rig.kbps, 1_200_000, "{:?}", rig.kinds());
+}
+
+#[test]
+fn it_is_off_when_disabled_and_after_the_client_sets_the_bitrate() {
+    let disabled = LinkRate::new(false, &stream(40_000), 0, 20);
+    assert_eq!(disabled.state(), State::Off);
+    let mut rig = Rig::with(disabled, 40_000);
+    rig.clean(1_000);
+    rig.lose_three();
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty());
+    assert_eq!(rig.kbps, 40_000);
 
     let mut rig = Rig::new(40_000);
     rig.clean(1_000);
@@ -1639,6 +1849,94 @@ fn a_stream_above_its_link_settles_near_the_link_rate_with_little_loss() {
 }
 
 #[test]
+fn a_pyrowave_stream_above_its_link_comes_down_until_it_fits() {
+    // 2026-10-29: PyroWave 1080p60 at 200 Mbps to a phone on 5 GHz Wi-Fi lost
+    // about a quarter of what it sent for the whole stream and its bitrate
+    // never moved. Here 600 Mbps (about 360 Mbit/s of game scene) meets a link
+    // that carries 300, which fits above PyroWave's floor. Without hints the
+    // host paces such a client at 1.25 times wire demand, so a picture leaves
+    // over about 40 % of the period.
+    for feedback in [2., 20., 80.] {
+        for (queue, spread) in [(50., 0.4), (5., 0.4), (50., 1.)] {
+            let mut sim = Sim::pyrowave(q(Link::constant(300.), queue), 600_000, feedback);
+            sim.spread = spread;
+            sim.run(60.);
+            let what = format!("fb {feedback}, q {queue}, sp {spread}");
+            assert!(sim.cuts() >= 1, "{what}");
+            assert!(
+                sim.frame_loss(15., 60.) < 0.02,
+                "{what}: {}",
+                sim.frame_loss(15., 60.)
+            );
+            let wire = sim.mean_wire_bps(30., 60.) / 1e6;
+            assert!(wire >= 300. * 0.5, "{what}: {wire:.1} Mbit/s");
+            assert!(wire <= 300. * 1.08, "{what}: {wire:.1} Mbit/s");
+        }
+    }
+}
+
+/// Review 2026-10-29: 1080p120 at 200 Mbps sits under PyroWave's 373 Mbps
+/// floor, so the floor is the stream's own bitrate. Lost pictures reach the
+/// floor once and the stream stays there while they go on, instead of
+/// flipping between floor and full every ten seconds; it is back to full after
+/// ten quiet seconds.
+#[test]
+fn a_pyrowave_stream_under_its_own_floor_stays_there_while_it_loses() {
+    let negotiated = Negotiated {
+        fps: 120,
+        ..pyrowave(200_000)
+    };
+    let lr = LinkRate::new(true, &negotiated, 0, 20);
+    assert!(lr.pyrowave_no_room());
+    assert_eq!(lr.floor_kbps, 200_000);
+    assert!(!LinkRate::new(true, &pyrowave(400_000), 0, 20).pyrowave_no_room());
+    assert!(!LinkRate::new(true, &stream(40_000), 0, 20).pyrowave_no_room());
+    let mut rig = Rig::with(lr, 200_000);
+    rig.clean(1_000);
+    for _ in 0..40 {
+        rig.lose_three();
+        rig.clean(1_200);
+    }
+    assert_eq!(rig.kinds(), [ChangeKind::Floor]);
+    rig.clean(12_000);
+    assert_eq!(rig.kinds(), [ChangeKind::Floor, ChangeKind::Full]);
+}
+
+#[test]
+fn a_pyrowave_stream_on_a_link_under_its_floor_stops_there_and_says_so() {
+    // The field case itself: 200 Mbps into a link that carries 90. PyroWave
+    // needs 187 Mbps at 1080p60, so the controller stops at that floor
+    // and its warning names HEVC and AV1 instead of cutting to 2 Mbps.
+    let minimum = crate::pyrowave::minimum_kbps(1920, 1080, 60_000);
+    let mut sim = Sim::pyrowave(q(Link::constant(90.), 50.), 200_000, 20.);
+    sim.spread = 0.4;
+    sim.run(60.);
+    assert!(sim.cuts() >= 1);
+    assert!(
+        sim.changes.iter().any(|(_, c)| c.kind == ChangeKind::Floor),
+        "{:?}",
+        sim.changes
+    );
+    let lowest = sim.kbps_log.iter().map(|&(_, kbps)| kbps).min().unwrap();
+    assert!(lowest >= minimum * 99 / 100, "{lowest}");
+    assert!(lowest <= minimum * 105 / 100, "{lowest}");
+}
+
+#[test]
+fn random_detail_loss_never_cuts_a_pyrowave_stream() {
+    // Review 2026-10-29: with every lost detail packet counted as a lost
+    // frame, 0.1 % random loss on a link with room to spare cut 200 Mbps.
+    for share in [0.0001, 0.0005, 0.001] {
+        for feedback in [2., 20., 80.] {
+            let mut sim = Sim::pyrowave(lossy(Link::constant(1000.), share), 200_000, feedback);
+            sim.spread = 0.4;
+            sim.run(60.);
+            assert_eq!(sim.cuts(), 0, "{share}, fb {feedback}: {:?}", sim.changes);
+        }
+    }
+}
+
+#[test]
 fn a_big_overshoot_is_one_cut_not_a_cascade() {
     // The 2026-10-23 link-speed run: 179 Mbit/s requested on a link that
     // carries about 115, which the opt-in controller cut to 24.7 in nine seconds.
@@ -1986,6 +2284,57 @@ fn keyframe_requests_while_the_picture_is_static_do_not_fail_a_pending_probe() {
     assert!(rig.lr.probe_unconfirmed(rig.now()));
     rig.lr.static_picture = true;
     assert!(!rig.lr.probe_unconfirmed(rig.now()));
+}
+
+/// Review 2026-10-29: repeated invalidations for one range count once, but
+/// not while a probe step is unconfirmed, where three requests fail it as
+/// three keyframe requests do.
+#[test]
+fn repeated_invalidations_fail_an_unconfirmed_probe() {
+    let mut rig = Rig::new(59_000);
+    rig.clean(2_000);
+    rig.run(10, |lr, frame, now| repaired(lr, frame, 2, now));
+    rig.lose_three();
+    rig.clean(500);
+    rig.until_probe();
+    let before = rig.changes.len();
+    let mut n = 0u32;
+    rig.run(1_500, |lr, _, now| {
+        n += 1;
+        if n == 10 || n == 17 || n == 24 {
+            lr.on_invalidation(5_000, 5_000 + u64::from(n), true, now);
+        }
+    });
+    assert!(
+        rig.changes[before..]
+            .iter()
+            .any(|(_, c)| c.kind == ChangeKind::ProbeFailed),
+        "{:?}",
+        rig.kinds()
+    );
+}
+
+/// Review 2026-10-29: under a latch watch two requests 100 ms or more apart
+/// fail the latch, and repeated invalidations of one range are two requests
+/// there, not one incident.
+#[test]
+fn repeated_invalidations_under_a_latch_watch_fail_the_latch() {
+    let mut rig = Rig::new(58_988);
+    rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(600);
+    // A keyframe got through since the latch: one request alone is no cut.
+    let (frame, now) = (rig.frame, rig.now());
+    rig.lr.on_keyframe_sent(frame, now);
+    rig.clean(1_000);
+    let first = u64::from(rig.frame);
+    rig.lr.on_invalidation(first, first + 2, true, rig.now());
+    rig.clean(200);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    rig.lr.on_invalidation(first, first + 14, true, rig.now());
+    rig.clean(300);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
+    assert_eq!(rig.changes[0].1.reason, "keyframe_requests");
 }
 
 #[test]

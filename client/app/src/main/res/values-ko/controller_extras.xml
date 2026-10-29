@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">고정 단계로 마우스 이동</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">컨트롤러 마우스 모드에서 X를 누른 채 스틱을 움직이면 포인터가 한 번에 정해진 픽셀 수만큼 움직입니다. Y를 누르면 단계가 두 배가 되며, 1부터 128픽셀까지 늘어난 뒤 다시 1로 돌아갑니다.</string>
     <string name="stream_mouse_step">마우스 단계: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">시스템 키 보내기</string>
+    <string name="summary_checkbox_capture_system_keys">입력을 캡처하는 동안 Esc, Alt+Tab, Windows 키 등을 PC로 보냅니다. 많은 Android용 키보드에서 Esc 자리에 있는 뒤로 키도 Esc로 보냅니다. Android는 Android 16 QPR2(2025년 12월) 이상과 여러 Samsung 기기에서만 Alt+Tab과 Windows 키를 앱에 넘기며, 그 외에는 직접 처리합니다. 홈, 전원, 볼륨 키는 항상 Android가 처리합니다. 스트림 메뉴는 Ctrl+Alt+Shift+M이나 Android 뒤로 제스처 또는 버튼으로 엽니다. 다음 스트림부터 적용됩니다.</string>
     <string name="title_checkbox_back_as_meta">키보드 뒤로 키로 Windows 키 보내기</string>
     <string name="summary_checkbox_back_as_meta">실물 키보드의 뒤로 키가 Windows 키(Mac에서는 Command)를 보냅니다. 스트림 메뉴는 Ctrl+Alt+Shift+M, Android 뒤로 제스처나 버튼, 컨트롤러 버튼 조합으로 엽니다.</string>
     <string name="title_checkbox_right_alt_as_meta">오른쪽 Alt를 Command로 사용</string>

@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Movimento del mouse a passi fissi</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">Nella modalità mouse del controller, tieni premuto X mentre muovi la levetta per spostare il puntatore di un numero fisso di pixel alla volta. Premi Y per raddoppiare il passo, da 1 fino a 128 pixel e poi di nuovo a 1.</string>
     <string name="stream_mouse_step">Passo del mouse: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">Invia i tasti di sistema</string>
+    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, il tasto Windows e simili vanno al PC mentre l’input è acquisito, così come il tasto Indietro che molte tastiere per Android hanno al posto di Esc. Android cede Alt+Tab e il tasto Windows solo da Android 16 QPR2 (dicembre 2025) e su molti dispositivi Samsung; altrove li tiene per sé. Home, accensione e volume restano sempre ad Android. Apri il menu dello stream con Ctrl+Alt+Shift+M o con il gesto o il pulsante Indietro di Android. Dal prossimo stream.</string>
     <string name="title_checkbox_back_as_meta">Indietro della tastiera invia il tasto Windows</string>
     <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia il tasto Windows (Command su Mac). Apri il menu dello stream con Ctrl+Alt+Shift+M, il gesto o il pulsante Indietro di Android, oppure la combinazione di tasti del controller.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt destro come Command</string>

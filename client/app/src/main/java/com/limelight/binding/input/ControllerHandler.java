@@ -929,6 +929,63 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
+    /** Back sends Guide when the option is on, except the Back with modifiers some remote apps type for B. */
+    static boolean isBackAsGuide(boolean backAsGuide, int keyCode, int flags) {
+        return backAsGuide && keyCode == KeyEvent.KEYCODE_BACK && (flags & KeyEvent.FLAG_SOFT_KEYBOARD) == 0;
+    }
+
+    /**
+     * A Back a handheld's firmware injects for its own system button: from Android's virtual
+     * keyboard device rather than the gamepad (gamepad and other non-keyboard devices go through
+     * handleButtonDown/Up). Never the navigation bar or gesture, a fallback key, a mouse's right
+     * click, or a device without a built-in gamepad.
+     */
+    public static boolean isInjectedHandheldBack(int keyCode, int flags, int source, boolean virtualDevice,
+                                                 boolean gameController, boolean internalGamepad) {
+        return keyCode == KeyEvent.KEYCODE_BACK && virtualDevice && !gameController && internalGamepad &&
+                (flags & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK | KeyEvent.FLAG_SOFT_KEYBOARD)) == 0 &&
+                (source & InputDevice.SOURCE_CLASS_POINTER) == 0;
+    }
+
+    /** Whether this device has a gamepad built in, as handhelds do. */
+    protected boolean hasInternalGamepad() {
+        InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
+        for (int id : im.getInputDeviceIds()) {
+            InputDevice dev = im.getInputDevice(id);
+            if (dev != null && !isExternal(dev) && hasGamepadButtons(dev)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Back as Guide for a Back a handheld's firmware injects (see isInjectedHandheldBack): Guide goes
+     * out on controller 0, where built-in buttons always sit. Returns whether the event was such a Back.
+     */
+    public boolean handleHandheldBackAsGuide(KeyEvent event) {
+        if (!isBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags())) {
+            return false;
+        }
+        InputDevice dev = event.getDevice();
+        if (!isInjectedHandheldBack(event.getKeyCode(), event.getFlags(), event.getSource(),
+                dev == null || dev.isVirtual(), dev != null && isGameControllerDevice(dev), hasInternalGamepad())) {
+            return false;
+        }
+        if (stopped) {
+            return true;
+        }
+
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+        }
+        else if (event.getAction() == KeyEvent.ACTION_UP) {
+            defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
+        }
+        sendControllerInputPacket(defaultContext);
+        return true;
+    }
+
     private InputDeviceContext createInputDeviceContextForDevice(InputDevice dev) {
         InputDeviceContext context = new InputDeviceContext();
         String devName = dev.getName();
@@ -1650,6 +1707,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Return a valid keycode, -2 to consume, or -1 to not consume the event
     // Device MAY BE NULL
     private int handleRemapping(InputDeviceContext context, KeyEvent event) {
+        // Back as Guide also takes the Back that handhelds otherwise leave to Android
+        if (isBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags())) {
+            return KeyEvent.KEYCODE_BUTTON_MODE;
+        }
+
         // Don't capture the back button if configured
         if (context.ignoreBack) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {

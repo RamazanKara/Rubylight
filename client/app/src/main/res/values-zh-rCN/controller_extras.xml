@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">鼠标按固定步长移动</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">在手柄鼠标模式下，移动摇杆时按住 X，指针每次移动固定的像素数。按 Y 可将步长加倍，从 1 增加到 128 像素，然后回到 1。</string>
     <string name="stream_mouse_step">鼠标步长：%1$d 像素</string>
+    <string name="title_checkbox_capture_system_keys">发送系统按键</string>
+    <string name="summary_checkbox_capture_system_keys">捕获输入时，Esc、Alt+Tab、Windows 键等会发送到电脑，许多 Android 键盘上代替 Esc 的返回键也会作为 Esc 发送。只有 Android 16 QPR2（2025 年 12 月）及更高版本和许多三星设备会把 Alt+Tab 和 Windows 键交给应用，其他设备上由 Android 处理。主屏幕、电源和音量键始终由 Android 处理。可使用 Ctrl+Alt+Shift+M 或 Android 的返回手势或按钮打开串流菜单。下次串流生效。</string>
     <string name="title_checkbox_back_as_meta">键盘返回键发送 Windows 键</string>
     <string name="summary_checkbox_back_as_meta">实体键盘上的返回键会发送 Windows 键（在 Mac 上为 Command）。可使用 Ctrl+Alt+Shift+M、Android 的返回手势或按钮，或手柄组合键打开串流菜单。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt 用作 Command</string>

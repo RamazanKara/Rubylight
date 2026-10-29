@@ -28,8 +28,9 @@ streaming the PC's monitors.
 
 ### Games without a handler
 
-A background stream needs no handler from the hub. When none covers the game,
-the host writes its own one-player handler into Nucleus Co-op's `handlers`
+A background stream needs no handler from the hub. Unless you added the game
+at that exact path with a hub handler, the host writes its own one-player
+handler into Nucleus Co-op's `handlers`
 folder (`Rubylight-<game>-<hash>.js`) and adds the game to your Nucleus Co-op
 game list, as Nucleus' own "add game" would. It does that only while Nucleus
 Co-op isn't running, and never over a file it did not write. A hub handler for

@@ -1244,18 +1244,24 @@ impl Registry {
         let app = request.game.app();
         let client = request.client;
         stop(self.reap());
-        let (found, returning) = match catalog.find(&app.name, executable(app)) {
-            Ok(found) => (Some(Chosen::Hub(found.handler)), None),
-            // A one-player game without a hub handler streams in the
+        let (found, returning) = if kind == Kind::Background {
+            // A hub handler only for the game the user added at exactly this
+            // path: a file-name match is another game's (Portal's hl2.exe is
+            // not Half-Life 2). Any other one-player game streams in the
             // background with ours. Its owner returning to it finds the
             // session's game: no Steam read or folder scan again.
-            Err(Missing::NoHandler { .. }) if kind == Kind::Background => {
-                match self.returning(request.game.app_id(), &client.uuid) {
+            match executable(app).and_then(|exe| catalog.added(exe)) {
+                Some(found) => (Some(Chosen::Hub(found.handler)), None),
+                None => match self.returning(request.game.app_id(), &client.uuid) {
                     Some(game) => (None, Some(game)),
                     None => (Some(own_handler(pc.as_ref(), &catalog, app)?), None),
-                }
+                },
             }
-            Err(missing) => return Err(Refusal::missing(&missing)),
+        } else {
+            match catalog.find(&app.name, executable(app)) {
+                Ok(found) => (Some(Chosen::Hub(found.handler)), None),
+                Err(missing) => return Err(Refusal::missing(&missing)),
+            }
         };
         let game = returning
             .or_else(|| found.as_ref().map(Chosen::guid))
@@ -3097,17 +3103,13 @@ mod tests {
         assert!(pc.own.lock().unwrap().is_empty());
         // A hub handler sets up Steam as it needs: Nucleus gets no app id.
         assert_eq!(*pc.steam_apps.lock().unwrap(), [None, None]);
-        // A hub handler for a game the user did not add yet: add it, not ours.
-        let other = registry.sessions()[0].session.id;
-        assert!(registry.end(other));
+        // A hub handler for a game the user did not add: ours streams it.
+        for listed in registry.sessions() {
+            registry.end(listed.session.id);
+        }
         pc.catalog.lock().unwrap().games.clear();
-        let refused = background(&registry, &apps[1], "c", &owner, &config).unwrap_err();
-        assert_eq!(refused.status, 404);
-        assert!(
-            refused.message.contains("the game is not added"),
-            "{refused}"
-        );
-        assert!(pc.own.lock().unwrap().is_empty());
+        background(&registry, &apps[1], "c", &owner, &config).unwrap();
+        assert_eq!(pc.own.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -3192,6 +3194,28 @@ mod tests {
             win64.join("Stray-Win64-Shipping.exe").to_string_lossy()
         );
         assert_eq!(own[0].arguments, "-dx12");
+    }
+
+    #[test]
+    fn another_games_exe_of_the_same_file_name_streams_with_ours() {
+        // Portal's hl2.exe started Half-Life 2's hub handler by its name.
+        let (registry, pc, _) = setup();
+        let mod_game = app(
+            "Portal 2 Mod",
+            r#""C:\NoSuchGames\Portal 2 Mod\portal2.exe" -game mod"#,
+        );
+        background(
+            &registry,
+            &mod_game,
+            "a",
+            &client("A", false),
+            &Config::default(),
+        )
+        .unwrap();
+        let own = pc.own.lock().unwrap().clone();
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].exe_path, r"C:\NoSuchGames\Portal 2 Mod\portal2.exe");
+        assert_eq!(registry.sessions()[0].session.game, own[0].guid());
     }
 
     #[test]

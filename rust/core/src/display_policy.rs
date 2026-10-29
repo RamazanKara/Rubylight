@@ -221,6 +221,8 @@ pub fn render_dimensions(width: u32, height: u32, client_scale: i64, app_scale: 
 /// different thing: it multiplies the size the PC renders at
 /// ([`render_dimensions`]).
 pub const DISPLAY_SCALE_PARAMETER: &str = "rlDisplayScale";
+/// The serverinfo element that says the host reads [`DISPLAY_SCALE_PARAMETER`].
+pub const DISPLAY_SCALE_SERVERINFO_FIELD: &str = "DisplayScaleVersion";
 /// The display scales Windows offers, in percent.
 pub const DISPLAY_SCALES: [u32; 12] = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
 
@@ -762,16 +764,23 @@ mod tests {
     fn a_client_display_scale_is_one_windows_offers() {
         use super::{DISPLAY_SCALE_PARAMETER, client_display_scale};
         let options = |value: &str| {
-            std::collections::BTreeMap::from([(DISPLAY_SCALE_PARAMETER.to_owned(), value.to_owned())])
+            std::collections::BTreeMap::from([(
+                DISPLAY_SCALE_PARAMETER.to_owned(),
+                value.to_owned(),
+            )])
         };
         assert_eq!(client_display_scale(&Default::default()).unwrap(), None);
         assert_eq!(client_display_scale(&options("150")).unwrap(), Some(150));
         assert_eq!(client_display_scale(&options(" 500 ")).unwrap(), Some(500));
         for refused in ["0", "275", "-1", "600", "big", ""] {
-            assert!(client_display_scale(&options(refused)).is_err(), "{refused}");
+            assert!(
+                client_display_scale(&options(refused)).is_err(),
+                "{refused}"
+            );
         }
         // The render scale is a separate option and never reads as a display scale.
-        let render = std::collections::BTreeMap::from([("scaleFactor".to_owned(), "200".to_owned())]);
+        let render =
+            std::collections::BTreeMap::from([("scaleFactor".to_owned(), "200".to_owned())]);
         assert_eq!(client_display_scale(&render).unwrap(), None);
     }
 

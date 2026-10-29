@@ -66,6 +66,18 @@ pub fn set_dpi_scale(monitor: &Monitor, percent: u32) -> Result<()> {
     // SAFETY: DpiSet has the expected C layout and its header carries the matching type and size.
     unsafe { check(DisplayConfigSetDeviceInfo(&set.header)) }
 }
+/// The largest Windows scale, in percent, a display offers at its current mode:
+/// Windows caps the scale by resolution.
+pub fn largest_scale(output: &str) -> Result<u32> {
+    let monitors = monitors()?;
+    let monitor = monitors
+        .iter()
+        .find(|m| m.display_name == output)
+        .context("display is unavailable for reading its scale range")?;
+    let value = dpi_query(monitor)?;
+    let index = usize::try_from(i64::from(value.max) - i64::from(value.min))?;
+    Ok(SCALES[index.min(SCALES.len() - 1)])
+}
 /// The Windows scale, in percent, a display shows now.
 pub fn output_scale(output: &str) -> Result<u32> {
     let monitors = monitors()?;

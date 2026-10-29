@@ -75,6 +75,8 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         pen_barrel_roll: pen_barrel_roll(config),
         cursor_shape: cursor_shape(config),
         pipeline_rates: pipeline_rates(h, config),
+        // `rlDisplayScale` is read on every virtual display launch.
+        display_scale: true,
         // Per launch: `stream_offered`.
         rate_change: false,
         clipboard_sync: false,

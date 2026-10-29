@@ -842,8 +842,29 @@ fn configured_display_scale(
     config: &Config,
     options: &std::collections::BTreeMap<String, String>,
 ) -> Result<i64> {
-    Ok(butterpollo_core::display_policy::client_display_scale(options)?
-        .unwrap_or_else(|| config.integer("dd_virtual_display_scale", 0)))
+    Ok(
+        butterpollo_core::display_policy::client_display_scale(options)?
+            .unwrap_or_else(|| config.integer("dd_virtual_display_scale", 0)),
+    )
+}
+
+/// A client's display scale, held to the largest Windows offers the display at
+/// its resolution: a scale too large for it is lowered, with a warning, instead
+/// of failing every stream. A range Windows does not report keeps the choice.
+fn fit_client_scale(chosen: i64, largest: Result<u32>) -> (i64, Option<String>) {
+    match largest {
+        Ok(largest) if chosen > i64::from(largest) => (
+            i64::from(largest),
+            Some(format!(
+                "The device asked for {chosen}% display scaling, but Windows offers at most {largest}% at this resolution, so the virtual display uses {largest}%. Choose a smaller PC display scaling on the device, or a higher resolution."
+            )),
+        ),
+        Ok(_) => (chosen, None),
+        Err(error) => {
+            tracing::warn!(scale = chosen, error = %format!("{error:#}"), "the display's scale range could not be read; asking Windows for the device's scale as chosen");
+            (chosen, None)
+        }
+    }
 }
 
 /// Whether a paused stream keeps its layout's physical monitors off. Only an
@@ -1686,7 +1707,20 @@ impl Prepared {
         // A remote monitor's retained display too: the lease never sets the scale.
         // The client's own scale (`rlDisplayScale`, checked at /launch) comes
         // before the device, app and host setting.
-        let configured_scale = configured_display_scale(config, &launch.options)?;
+        let mut configured_scale = configured_display_scale(config, &launch.options)?;
+        if virtual_layout
+            && butterpollo_core::display_policy::client_display_scale(&launch.options)?.is_some()
+        {
+            let (fitted, warning) = fit_client_scale(
+                configured_scale,
+                butterpollo_windows::display::largest_scale(&output),
+            );
+            configured_scale = fitted;
+            match warning {
+                Some(warning) => launch.warnings.set("display_scale", warning),
+                None => launch.warnings.clear("display_scale"),
+            }
+        }
         let scale = virtual_display_scale(virtual_layout, configured_scale);
         // Without a configured scale, the one the device kept from Windows.
         let remembered = kept_scale(remember, &launch.client.extra);
@@ -2443,7 +2477,10 @@ pub(crate) mod tests {
         config
             .values
             .insert("dd_virtual_display_scale".into(), "125".into());
-        assert_eq!(configured_display_scale(&config, &options(&[])).unwrap(), 125);
+        assert_eq!(
+            configured_display_scale(&config, &options(&[])).unwrap(),
+            125
+        );
         assert_eq!(
             configured_display_scale(&config, &options(&[("rlDisplayScale", "200")])).unwrap(),
             200
@@ -2456,6 +2493,20 @@ pub(crate) mod tests {
         assert!(configured_display_scale(&config, &options(&[("rlDisplayScale", "275")])).is_err());
         // A physical display keeps the user's scale whatever the client asks.
         assert_eq!(virtual_display_scale(false, 200), 0);
+    }
+
+    #[test]
+    fn a_client_scale_too_large_for_the_resolution_is_lowered_with_a_warning() {
+        let (scale, warning) = fit_client_scale(200, Ok(150));
+        assert_eq!(scale, 150);
+        assert!(warning.unwrap().contains("at most 150%"));
+        assert_eq!(fit_client_scale(150, Ok(150)), (150, None));
+        assert_eq!(fit_client_scale(125, Ok(300)), (125, None));
+        // An unreadable range leaves the choice to Windows, which fails loudly if it must.
+        assert_eq!(
+            fit_client_scale(200, Err(anyhow::anyhow!("no"))),
+            (200, None)
+        );
     }
 
     #[test]

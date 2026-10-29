@@ -438,7 +438,7 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
 
 /// `/serverinfo` of a host with the default configuration, byte for byte, unpaired over HTTP
 /// and paired over HTTPS. Anything a host adds later must be offered, so these change only with
-/// an offer (`PipelineRatesVersion`, last); only the host's own name, identity, version, profile
+/// an offer (`DisplayScaleVersion`, last); only the host's own name, identity, version, profile
 /// and sleep support vary.
 #[tokio::test]
 async fn serverinfo_for_a_default_config_is_byte_identical() {
@@ -535,6 +535,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <KeyboardLayoutVersion>1</KeyboardLayoutVersion>\
              <PenBarrelRollVersion>1</PenBarrelRollVersion>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
+             <DisplayScaleVersion>1</DisplayScaleVersion>\
              </root>"
         ),
         "{paired}"
@@ -593,6 +594,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <KeyboardLayoutVersion>1</KeyboardLayoutVersion>\
              <PenBarrelRollVersion>1</PenBarrelRollVersion>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
+             <DisplayScaleVersion>1</DisplayScaleVersion>\
              </root>"
         ),
         "{unpaired}"

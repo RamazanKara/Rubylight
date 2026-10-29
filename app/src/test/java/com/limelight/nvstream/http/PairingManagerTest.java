@@ -92,6 +92,20 @@ public class PairingManagerTest {
     }
 
     @Test
+    public void aReplayedLinkIsAHostRefusalNotANetworkError() throws Exception {
+        // Rubylight's answer to a used or expired link while no code is live: HTTP 200 with status 400, which
+        // HostActions shows as "show a new QR code" (HostActionsLinkTest) instead of the network advice.
+        PairingHttp http = new PairingHttp("<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"400\""
+                + " status_message=\"no one-time pairing code is live: it was used or has expired; show a new one"
+                + " on the PC\"><paired>0</paired></root>");
+        HostHttpResponseException refusal = assertThrows(HostHttpResponseException.class,
+                () -> http.getPairingManager().pair(SERVER_INFO, link(certificate)));
+        assertEquals(400, refusal.getErrorCode());
+        assertTrue(refusal.getMessage(), refusal.getMessage().contains("show a new one"));
+        assertTrue(http.replies.isEmpty());
+    }
+
+    @Test
     public void aLinkNamingTheHostCertificateGoesOnToTheChallenge() throws Exception {
         PairingHttp http = new PairingHttp(reply("plaincert", HexFormat.of().formatHex(certificate.getEncoded())),
                 reply("challengeresponse", "AA"));

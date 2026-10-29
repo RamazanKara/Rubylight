@@ -10,6 +10,7 @@ mod config;
 mod displays;
 mod logs;
 mod maintenance;
+mod neural;
 #[cfg(test)]
 mod parity_tests;
 mod power;
@@ -830,6 +831,9 @@ pub(crate) async fn api(
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     if path == "/api/coop" || path.starts_with("/api/coop/") {
         return coop::handle(&h, &method, path, &data).await;
+    }
+    if path == "/api/neural" || path.starts_with("/api/neural/") {
+        return neural::handle(&h, &method, path, &uri, &data).await;
     }
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;

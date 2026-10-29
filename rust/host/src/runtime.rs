@@ -298,6 +298,9 @@ pub async fn maintain(
             if crate::updater::check_due(&h) {
                 maintenance::trigger_update(&h, false);
             }
+            if crate::neural::check_due(&h) {
+                crate::neural::check(&h);
+            }
         }
         crate::updater::poll(&h);
         start_deferred(&h);

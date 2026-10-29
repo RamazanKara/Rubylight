@@ -975,6 +975,8 @@ fn launch_with_environment(
             return Ok(running);
         }
     };
+    // A broken or outdated mod install fails the launch here, loudly.
+    crate::neural::before_launch(h, app)?;
     let mut app = app.clone();
     let document = h.app_document.read().unwrap();
     if let Some(values) = document.get("env").and_then(serde_json::Value::as_object) {

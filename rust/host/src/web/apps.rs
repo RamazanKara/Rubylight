@@ -38,6 +38,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let uuid = app.extra["uuid"].clone();
             let mut apps = h.apps.write().unwrap();
             let mut next = apps.clone();
+            crate::neural::keep_key(
+                next.iter().find(|a| a.extra.get("uuid") == Some(&uuid)),
+                &mut app,
+            );
             // Only a sync stamps an app. A synced app saved here becomes the user's, so no sync
             // renames or removes it again.
             app.extra.remove(butterpollo_core::library::SYNCED_BY);
@@ -412,13 +416,27 @@ pub(super) async fn cover(h: &Shared, path: &str) -> Response {
 }
 
 fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
+    let matches = |a: &App| {
+        a.extra.get("uuid").and_then(Value::as_str) == Some(id) || a.id().to_string() == id
+    };
+    // Before the apps are locked: the removal runs a helper process.
+    let doomed: Vec<App> = h
+        .apps
+        .read()
+        .unwrap()
+        .iter()
+        .filter(|a| matches(a))
+        .cloned()
+        .collect();
+    for app in &doomed {
+        crate::neural::before_delete(app)?;
+    }
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();
     let before = next.len();
     let mut deleted = vec![];
     next.retain(|a| {
-        let keep =
-            a.extra.get("uuid").and_then(Value::as_str) != Some(id) && a.id().to_string() != id;
+        let keep = !matches(a);
         if !keep {
             deleted.push(serde_json::to_value(a));
         }

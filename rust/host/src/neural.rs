@@ -1,0 +1,1012 @@
+//! Neural Rendering: a per-app switch that puts a neural upscaling mod into
+//! the game's folder, keeps it current and takes it out again.
+//!
+//! The mod is AMDNR by 3zwr1 (https://github.com/3zwr1/AMD-NR---OptiScaler,
+//! GPL-3.0), an OptiScaler fork that loads as a proxy DLL. Rubylight never
+//! hosts, bundles, mirrors or modifies its files: when the user turns the
+//! switch on, this PC downloads the release archive straight from that GitHub
+//! release ([`butterpollo_core::neural::allowed_asset`] says which), checks
+//! it against GitHub's digest and the release's own SHA256SUMS.txt, keeps it
+//! in a cache and copies the files unmodified into the game's folder
+//! ([`folder`]). A launch checks them and applies a newer cached release; a
+//! daily check outside streams refreshes the cache.
+pub mod folder;
+#[cfg(test)]
+mod tests;
+
+use crate::state::Shared;
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use butterpollo_core::{
+    neural::{self, Gpu, Placed, Release},
+    state::App,
+};
+use folder::{PACKAGE, Package, Request, Response};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::BTreeMap,
+    io::{BufRead, Read, Write},
+    path::{Path, PathBuf},
+    sync::{Mutex, PoisonError, mpsc},
+    time::{Duration, Instant},
+};
+
+/// The app's setting: `{"exe", "release", "proxy"}` once the mod is in its
+/// folder. Only the host writes it.
+pub const KEY: &str = "neural-rendering";
+/// The hidden flag that makes the host exe report what the compute runtime sees.
+#[cfg_attr(test, allow(dead_code, reason = "tests answer for the probe"))]
+const PROBE_FLAG: &str = "--neural-probe";
+const PROBE_ANSWER: &str = "NEURAL-PROBE ";
+/// The user's acceptance of the notice and the update check's record.
+const SETTINGS_FILE: &str = "neural.json";
+const CHECK_INTERVAL: u64 = 24 * 3600;
+const RETRY_AFTER_FAILURE: u64 = 3600;
+/// A failed probe is asked again after this; a driver update needs no restart.
+const PROBE_RETRY: Duration = Duration::from_secs(300);
+/// Releases looked at for the whole package, newest first.
+const CANDIDATES: usize = 5;
+
+#[derive(Default)]
+pub struct Neural {
+    state: Mutex<State>,
+    /// One download into the cache at a time.
+    fetching: tokio::sync::Mutex<()>,
+    #[cfg(test)]
+    pub probe: Mutex<Option<Probe>>,
+}
+
+#[derive(Default)]
+struct State {
+    probe: Option<(Instant, Result<String, String>)>,
+    jobs: BTreeMap<String, Job>,
+    checking: bool,
+    /// When the next daily check is due, from the record once read.
+    due_at: Option<u64>,
+}
+
+/// What a switch is doing for one app, or how it ended.
+#[derive(Clone, Debug, Serialize)]
+pub struct Job {
+    pub action: &'static str,
+    /// `download`, `place`, `remove`, `done` or `failed`.
+    pub phase: &'static str,
+    pub done: u64,
+    pub total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The game's .exe could not be found: the user picks it.
+    pub choose_exe: bool,
+    /// Placed files that changed since and stayed in the folder.
+    pub kept: Vec<String>,
+}
+
+/// What `--neural-probe` prints.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Probe {
+    pub gpus: Vec<Gpu>,
+    pub driver: Option<String>,
+    pub error: Option<String>,
+}
+
+impl Neural {
+    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// `butterpollo.exe --neural-probe`: the GPUs the compute runtime finds and
+/// the AMD Software version, as one line.
+pub fn probe_main() -> i32 {
+    let driver = butterpollo_windows::radeon::adlx::gpus()
+        .ok()
+        .and_then(|gpus| {
+            gpus.into_iter()
+                .map(|gpu| gpu.driver)
+                .find(|d| !d.is_empty())
+        });
+    let probe = match butterpollo_windows::hip::gpus() {
+        Ok(gpus) => Probe {
+            gpus,
+            driver,
+            error: None,
+        },
+        Err(error) => Probe {
+            gpus: Vec::new(),
+            driver,
+            error: Some(format!("{error:#}")),
+        },
+    };
+    let mut out = std::io::stdout().lock();
+    let line = serde_json::to_string(&probe).unwrap_or_default();
+    match writeln!(out, "{PROBE_ANSWER}{line}").and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+/// The GPU Neural Rendering runs on, or why this PC cannot have it. Probed
+/// in a helper process once, and again a while after a failure. Blocks.
+pub fn capability(h: &Shared) -> Result<String, String> {
+    if let Some((at, result)) = &h.neural.lock().probe
+        && (result.is_ok() || at.elapsed() < PROBE_RETRY)
+    {
+        return result.clone();
+    }
+    let result = run_probe(h).and_then(|probe| match probe.error {
+        Some(error) if probe.gpus.is_empty() => Err(error),
+        _ => neural::capable(&probe.gpus, probe.driver.as_deref()).map(|gpu| gpu.name.clone()),
+    });
+    if let Err(reason) = &result {
+        tracing::info!(%reason, "Neural Rendering is not available on this PC");
+    }
+    h.neural.lock().probe = Some((Instant::now(), result.clone()));
+    result
+}
+
+#[cfg(test)]
+fn run_probe(h: &Shared) -> Result<Probe, String> {
+    h.neural
+        .probe
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "no probe in this test".into())
+}
+#[cfg(not(test))]
+fn run_probe(_: &Shared) -> Result<Probe, String> {
+    let mut answer = None;
+    run_child(PROBE_FLAG, "", Duration::from_secs(60), |line| {
+        if let Some(json) = line.strip_prefix(PROBE_ANSWER) {
+            answer = serde_json::from_str::<Probe>(json).ok();
+        }
+    })
+    .map_err(|e| format!("the GPU check failed: {e:#}"))?;
+    answer.ok_or_else(|| "the GPU check gave no answer".into())
+}
+
+/// Run the host exe with `flag`, `input` as its first line, and hand each
+/// line it prints to `line`. As the signed-in user when this host is SYSTEM.
+#[cfg_attr(
+    test,
+    allow(dead_code, reason = "tests run the folder work in-process")
+)]
+fn run_child(flag: &str, input: &str, timeout: Duration, mut line: impl FnMut(&str)) -> Result<()> {
+    use butterpollo_windows::process::{Process, Target};
+    enum Child {
+        User(Process),
+        Own(std::process::Child),
+    }
+    let program = std::env::current_exe()?;
+    let (mut child, stdin, stdout): (Child, Box<dyn Write>, Box<dyn Read + Send>) =
+        if butterpollo_windows::process::is_system() {
+            let mut piped = Process::spawn_piped(
+                &program,
+                &[flag.into()],
+                Target::User { elevated: false },
+            )
+            .context(
+                "cannot start the helper as the signed-in user; is anyone signed in to Windows?",
+            )?;
+            let stdin = piped.stdin.take().context("no helper input")?;
+            let stdout = piped.stdout.take().context("no helper output")?;
+            (
+                Child::User(piped.process),
+                Box::new(stdin),
+                Box::new(stdout),
+            )
+        } else {
+            use std::os::windows::process::CommandExt;
+            let mut own = std::process::Command::new(&program)
+                .arg(flag)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+                .spawn()
+                .context("cannot start the helper")?;
+            let stdin = own.stdin.take().context("no helper input")?;
+            let stdout = own.stdout.take().context("no helper output")?;
+            (Child::Own(own), Box::new(stdin), Box::new(stdout))
+        };
+    let mut stdin = stdin;
+    // A helper that died early closed its input; its output says why.
+    let _ = stdin.write_all(format!("{input}\n").as_bytes());
+    drop(stdin);
+    let (sender, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        for text in std::io::BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+        {
+            if sender.send(text).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + timeout;
+    loop {
+        match lines.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(text) => line(&text),
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                match &mut child {
+                    Child::User(process) => drop(process.terminate()),
+                    Child::Own(own) => drop(own.kill()),
+                }
+                bail!("the helper did not finish within {} s", timeout.as_secs());
+            }
+        }
+    }
+    match &mut child {
+        Child::User(process) => drop(process.wait(Duration::from_secs(10))),
+        Child::Own(own) => drop(own.wait()),
+    }
+    Ok(())
+}
+
+/// Run one folder request: in a helper with the signed-in user's token when
+/// this host is SYSTEM (game folders are the user's), here otherwise.
+fn run_folder(request: Request, progress: &dyn Fn(u64, u64)) -> Result<Response> {
+    if !butterpollo_windows::process::is_system() || cfg!(test) {
+        return Ok(folder::handle(request, progress));
+    }
+    let mut answer = None;
+    run_child(
+        folder::FLAG,
+        &serde_json::to_string(&request)?,
+        Duration::from_secs(30 * 60),
+        |line| {
+            if let Some(json) = line.strip_prefix(folder::ANSWER) {
+                answer = serde_json::from_str(json).ok();
+            } else if let Some((done, total)) = line
+                .strip_prefix(folder::PROGRESS)
+                .and_then(|rest| rest.split_once(' '))
+            {
+                progress(done.parse().unwrap_or(0), total.parse().unwrap_or(0));
+            }
+        },
+    )?;
+    answer.context("the Neural Rendering helper gave no answer")
+}
+
+// ---- The user's acceptance and the update check's record ----
+
+fn settings(h: &Shared) -> Value {
+    std::fs::read(h.directory.join(SETTINGS_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}))
+}
+fn update_settings(h: &Shared, change: impl FnOnce(&mut Value)) -> Result<()> {
+    let mut value = settings(h);
+    change(&mut value);
+    butterpollo_core::state::write_json(&h.directory.join(SETTINGS_FILE), &value)
+}
+/// Whether the user accepted the notice that comes before the first download.
+pub fn accepted(h: &Shared) -> bool {
+    settings(h)["accepted_at"].as_u64().is_some()
+}
+pub fn accept(h: &Shared) -> Result<()> {
+    update_settings(h, |value| value["accepted_at"] = json!(now()))?;
+    tracing::info!("Neural Rendering: the user accepted the third-party mod notice");
+    Ok(())
+}
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+// ---- The cache ----
+
+/// `%ProgramData%\Butterpollo\neural` for the installed host, the profile's
+/// own `neural` folder for any other.
+pub fn cache_root(h: &Shared) -> PathBuf {
+    if h.directory == butterpollo_core::paths::installed_profile() {
+        butterpollo_core::paths::data_root().join("neural")
+    } else {
+        h.directory.join("neural")
+    }
+}
+
+/// The cache folder, readable by users (the folder helper copies from it as
+/// the signed-in user) and writable only by administrators.
+fn ensure_root(root: &Path) -> Result<()> {
+    if root.is_dir() {
+        return Ok(());
+    }
+    if butterpollo_windows::process::elevated()? {
+        match butterpollo_windows::process::create_folder_administrators_readable(root) {
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                return Err(e).with_context(|| format!("cannot create {}", root.display()));
+            }
+            _ => {}
+        }
+    } else {
+        std::fs::create_dir_all(root)
+            .with_context(|| format!("cannot create {}", root.display()))?;
+    }
+    Ok(())
+}
+
+/// The release in the cache, the newest when a crash left two.
+pub fn cached(root: &Path) -> Option<(PathBuf, Package)> {
+    std::fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter(|entry| !entry.file_name().to_string_lossy().ends_with(".partial"))
+        .filter_map(|entry| {
+            let folder = entry.path();
+            let modified = std::fs::metadata(folder.join(PACKAGE))
+                .and_then(|m| m.modified())
+                .ok()?;
+            let package = Package::read(&folder).ok()?;
+            Some((modified, folder, package))
+        })
+        .max_by_key(|(modified, ..)| *modified)
+        .map(|(_, folder, package)| (folder, package))
+}
+
+/// The newest release with the whole mod, in the cache: downloaded and
+/// checked unless it is there already. `background` gives up when a stream
+/// starts.
+pub async fn fetch(
+    h: &Shared,
+    background: bool,
+    progress: &(dyn Fn(u64, u64) + Sync),
+) -> Result<(PathBuf, Package)> {
+    let _one = h.neural.fetching.lock().await;
+    let root = cache_root(h);
+    ensure_root(&root)?;
+    let api = crate::updater::client(Duration::from_secs(35))?;
+    let list: Value = api
+        .get(format!(
+            "https://api.github.com/repos/{}/releases?per_page=30",
+            neural::REPOSITORY
+        ))
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let have = cached(&root);
+    let mut chosen = None;
+    for release in neural::releases(&list).into_iter().take(CANDIDATES) {
+        if let Some(have) = have
+            .as_ref()
+            .filter(|(_, package)| package.tag == release.tag)
+        {
+            return Ok(have.clone());
+        }
+        if whole(&api, &release).await? {
+            chosen = Some(release);
+            break;
+        }
+        tracing::info!(release = %release.tag, "Neural Rendering: the release's package lacks the neural runtime; looking at the one before");
+    }
+    let Some(release) = chosen else {
+        return have.context(
+            "no recent release of the mod has the whole package (its DLL, neural runtime and checksums)",
+        );
+    };
+    let archive = root.join(format!("{}.zip.partial", release.tag));
+    if let Err(error) = download(h, &release, &archive, background, progress).await {
+        let _ = std::fs::remove_file(&archive);
+        return Err(error);
+    }
+    let (folder, package) = {
+        let (root, release, archive) = (root.clone(), release.clone(), archive.clone());
+        tokio::task::spawn_blocking(move || extract(&archive, &root, &release)).await?
+    }
+    .inspect_err(|_| drop(std::fs::remove_file(&archive)))?;
+    let _ = std::fs::remove_file(&archive);
+    // Games have their own copies; older releases in the cache serve nothing.
+    for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+        if entry.path() != folder {
+            let _ = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                std::fs::remove_dir_all(entry.path())
+            } else {
+                std::fs::remove_file(entry.path())
+            };
+        }
+    }
+    tracing::info!(release = %release.tag, asset = %release.asset, folder = %folder.display(), "Neural Rendering: downloaded and checked the mod's release");
+    Ok((folder, package))
+}
+
+/// Whether the release's archive has the whole mod, from its file list read
+/// with two range requests.
+async fn whole(api: &reqwest::Client, release: &Release) -> Result<bool> {
+    let span = release.size.min(22 + 65_535);
+    let start = release.size - span;
+    let tail = range(api, &release.url, start, span).await?;
+    let (offset, length) = neural::directory_span(&tail, release.size)
+        .map_err(|e| anyhow!("{}: {e}", release.asset))?;
+    ensure!(
+        length <= 16 << 20,
+        "{}'s file list is implausibly large",
+        release.asset
+    );
+    let directory = if offset >= start {
+        tail[(offset - start) as usize..][..length as usize].to_vec()
+    } else {
+        range(api, &release.url, offset, length).await?
+    };
+    let names =
+        neural::directory_names(&directory).map_err(|e| anyhow!("{}: {e}", release.asset))?;
+    Ok(neural::complete(&names))
+}
+
+async fn range(api: &reqwest::Client, url: &str, start: u64, length: u64) -> Result<Vec<u8>> {
+    let response = api
+        .get(url)
+        .header("Range", format!("bytes={start}-{}", start + length - 1))
+        .send()
+        .await?
+        .error_for_status()?;
+    ensure!(
+        response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+        "GitHub answered a part of the archive with {}",
+        response.status()
+    );
+    let mut response = response;
+    let mut body = Vec::new();
+    while let Some(part) = response.chunk().await? {
+        ensure!(
+            body.len() + part.len() <= length as usize,
+            "GitHub sent more than the part asked for"
+        );
+        body.extend_from_slice(&part);
+    }
+    ensure!(
+        body.len() as u64 == length,
+        "GitHub sent {} of {length} bytes",
+        body.len()
+    );
+    Ok(body)
+}
+
+async fn download(
+    h: &Shared,
+    release: &Release,
+    path: &Path,
+    background: bool,
+    progress: &(dyn Fn(u64, u64) + Sync),
+) -> Result<()> {
+    let _ = std::fs::remove_file(path);
+    let mut response = crate::updater::client(Duration::from_secs(1800))?
+        .get(&release.url)
+        .send()
+        .await?
+        .error_for_status()?;
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .await
+        .with_context(|| format!("cannot create {}", path.display()))?;
+    let mut hash = Sha256::new();
+    let mut size = 0;
+    while let Some(chunk) = response.chunk().await? {
+        if background && crate::updater::streaming(h) {
+            bail!("a stream started; the download waits for the next check");
+        }
+        size += chunk.len() as u64;
+        ensure!(
+            size <= release.size,
+            "{} is larger than its release says",
+            release.asset
+        );
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
+        hash.update(&chunk);
+        progress(size, release.size);
+    }
+    file.sync_all().await?;
+    verified(size, &hex::encode(hash.finalize()), release)
+}
+
+/// The archive is exactly what GitHub published for the release.
+fn verified(size: u64, sha256: &str, release: &Release) -> Result<()> {
+    ensure!(
+        size == release.size,
+        "{} is {size} bytes, its release says {}",
+        release.asset,
+        release.size
+    );
+    ensure!(
+        sha256 == release.digest,
+        "{} does not match its release's SHA-256 digest; nothing was installed",
+        release.asset
+    );
+    Ok(())
+}
+
+/// Unpack the archive into the cache, each file checked against the
+/// release's SHA256SUMS.txt. Blocks.
+fn extract(archive: &Path, root: &Path, release: &Release) -> Result<(PathBuf, Package)> {
+    let staging = root.join(format!("{}.partial", release.tag));
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)?;
+    }
+    std::fs::create_dir_all(staging.join("files"))?;
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
+        .with_context(|| format!("{} is no zip archive", release.asset))?;
+    let mut files = BTreeMap::new();
+    let mut total = 0u64;
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index)?;
+        let name = entry.name().to_owned();
+        let path = neural::entry_path(&name).with_context(|| {
+            format!("{} has a file outside its folder: {name:?}", release.asset)
+        })?;
+        let target = staging.join("files").join(&path);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&target)?;
+            continue;
+        }
+        ensure!(
+            !files.contains_key(&path),
+            "{} has {path} twice",
+            release.asset
+        );
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut output = std::fs::File::create_new(&target)?;
+        let mut hash = Sha256::new();
+        let mut buffer = vec![0; 1 << 20];
+        let mut size = 0u64;
+        loop {
+            let read = entry.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            size += read as u64;
+            total += read as u64;
+            ensure!(
+                total <= 4 * neural::MAX_ARCHIVE,
+                "{} unpacks to more than it should",
+                release.asset
+            );
+            hash.update(&buffer[..read]);
+            output.write_all(&buffer[..read])?;
+        }
+        output.sync_all()?;
+        files.insert(
+            path,
+            Placed {
+                sha256: hex::encode(hash.finalize()),
+                size,
+            },
+        );
+    }
+    let sums = std::fs::read_to_string(staging.join("files").join(neural::SUMS))
+        .with_context(|| format!("{} has no {}", release.asset, neural::SUMS))?;
+    let sums = neural::sums(&sums).map_err(anyhow::Error::msg)?;
+    let hashes = files
+        .iter()
+        .map(|(path, placed)| (path.clone(), placed.sha256.clone()))
+        .collect();
+    neural::check_package(&hashes, &sums)
+        .map_err(|e| anyhow!("{}: {e}; nothing was installed", release.asset))?;
+    let package = Package {
+        tag: release.tag.clone(),
+        asset: release.asset.clone(),
+        files,
+    };
+    butterpollo_core::state::write_json(&staging.join(PACKAGE), &package)?;
+    let folder = root.join(&release.tag);
+    if folder.exists() {
+        std::fs::remove_dir_all(&folder)?;
+    }
+    std::fs::rename(&staging, &folder)?;
+    Ok((folder, package))
+}
+
+// ---- Apps ----
+
+fn app(h: &Shared, uuid: &str) -> Option<App> {
+    h.apps
+        .read()
+        .unwrap()
+        .iter()
+        .find(|app| app.extra.get("uuid").and_then(Value::as_str) == Some(uuid))
+        .cloned()
+}
+
+/// The folder the app's launcher installed the game in, when it says.
+fn install(app: &App) -> Option<PathBuf> {
+    ["steam-install-dir", "launcher-install-dir"]
+        .iter()
+        .find_map(|key| app.extra.get(*key)?.as_str())
+        .map(str::trim)
+        .filter(|folder| !folder.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The app's command when it starts a program directly.
+fn command_exe(app: &App) -> Option<PathBuf> {
+    let target = PathBuf::from(butterpollo_windows::process::command_target(&app.cmd));
+    (target.is_absolute()
+        && target
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("exe")))
+    .then_some(target)
+}
+
+/// The .exe the mod sits beside, once it is in.
+fn placed_exe(app: &App) -> Option<PathBuf> {
+    app.extra.get(KEY)?.get("exe")?.as_str().map(PathBuf::from)
+}
+
+/// Set or clear the app's [`KEY`] and save the apps.
+fn set_key(h: &Shared, uuid: &str, value: Option<Value>) -> Result<()> {
+    let mut apps = h.apps.write().unwrap();
+    let mut next = apps.clone();
+    let app = next
+        .iter_mut()
+        .find(|app| app.extra.get("uuid").and_then(Value::as_str) == Some(uuid))
+        .context("application not found")?;
+    match value {
+        Some(value) => app.extra.insert(KEY.into(), value),
+        None => app.extra.remove(KEY),
+    };
+    h.assign_apps(&mut next)?;
+    let mut doc = h.app_document.read().unwrap().clone();
+    doc["apps"] = serde_json::to_value(&next)?;
+    butterpollo_core::state::write_json(&h.apps_path, &doc)?;
+    *apps = next;
+    *h.app_document.write().unwrap() = doc;
+    h.config_version
+        .fetch_add(1, std::sync::atomic::Ordering::Release);
+    Ok(())
+}
+
+/// A saved app keeps the host's [`KEY`]: the console never sets it.
+pub fn keep_key(stored: Option<&App>, app: &mut App) {
+    app.extra.remove(KEY);
+    if let Some(value) = stored.and_then(|stored| stored.extra.get(KEY)) {
+        app.extra.insert(KEY.into(), value.clone());
+    }
+}
+
+// ---- The switch ----
+
+/// Why the switch cannot be turned on or off now.
+#[derive(Debug)]
+pub enum Refusal {
+    NotAccepted,
+    Unavailable(String),
+    NotFound,
+    Busy,
+}
+
+fn start_job(
+    h: &Shared,
+    uuid: &str,
+    action: &'static str,
+    phase: &'static str,
+) -> Result<(), Refusal> {
+    let mut state = h.neural.lock();
+    if state
+        .jobs
+        .get(uuid)
+        .is_some_and(|job| !matches!(job.phase, "done" | "failed"))
+    {
+        return Err(Refusal::Busy);
+    }
+    state.jobs.insert(
+        uuid.into(),
+        Job {
+            action,
+            phase,
+            done: 0,
+            total: 0,
+            error: None,
+            choose_exe: false,
+            kept: Vec::new(),
+        },
+    );
+    Ok(())
+}
+fn update_job(h: &Shared, uuid: &str, change: impl FnOnce(&mut Job)) {
+    if let Some(job) = h.neural.lock().jobs.get_mut(uuid) {
+        change(job);
+    }
+}
+fn fail_job(h: &Shared, uuid: &str, error: String, choose_exe: bool) {
+    update_job(h, uuid, |job| {
+        job.phase = "failed";
+        job.error = Some(error);
+        job.choose_exe = choose_exe;
+    });
+}
+
+/// Turn the switch on: download the release unless it is cached, then place
+/// it beside the game's .exe (`exe`, the user's pick, or found). Runs on.
+pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusal> {
+    if !accepted(h) {
+        return Err(Refusal::NotAccepted);
+    }
+    capability(h).map_err(Refusal::Unavailable)?;
+    let app = app(h, uuid).ok_or(Refusal::NotFound)?;
+    start_job(h, uuid, "install", "download")?;
+    let (h, uuid) = (h.clone(), uuid.to_owned());
+    tokio::spawn(async move {
+        let progress = |done, total| {
+            update_job(&h, &uuid, |job| {
+                job.done = done;
+                job.total = total;
+            })
+        };
+        let (package, _) = match fetch(&h, false, &progress).await {
+            Ok(cached) => cached,
+            Err(error) => {
+                tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the download failed");
+                return fail_job(&h, &uuid, format!("{error:#}"), false);
+            }
+        };
+        update_job(&h, &uuid, |job| {
+            (job.phase, job.done, job.total) = ("place", 0, 0)
+        });
+        let request = Request::Install {
+            exe: exe.or_else(|| command_exe(&app).filter(|exe| exe.is_file())),
+            install: install(&app),
+            package,
+        };
+        let worker = h.clone();
+        let task_uuid = uuid.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            run_folder(request, &|done, total| {
+                update_job(&worker, &task_uuid, |job| {
+                    (job.done, job.total) = (done, total)
+                })
+            })
+        })
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result);
+        finish_install(&h, &uuid, &app, response);
+    });
+    Ok(())
+}
+
+fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>) {
+    match response {
+        Ok(Response::Placed {
+            exe,
+            release,
+            proxy,
+            ..
+        }) => {
+            let value = json!({"exe": exe, "release": release, "proxy": proxy});
+            if let Err(error) = set_key(h, uuid, Some(value)) {
+                return fail_job(
+                    h,
+                    uuid,
+                    format!("the mod is in place but the app could not be saved: {error:#}"),
+                    false,
+                );
+            }
+            tracing::info!(app = %app.name, folder = %exe.parent().unwrap_or(&exe).display(), %release, %proxy, "Neural Rendering installed");
+            update_job(h, uuid, |job| job.phase = "done");
+        }
+        Ok(Response::ChooseExe { reason }) => {
+            tracing::info!(app = %app.name, %reason, "Neural Rendering needs the game's program chosen");
+            fail_job(h, uuid, reason, true);
+        }
+        Ok(Response::Refused { reason }) => {
+            tracing::warn!(app = %app.name, %reason, "Neural Rendering refused the game");
+            fail_job(h, uuid, reason, false);
+        }
+        Ok(Response::Error { message }) => {
+            tracing::warn!(app = %app.name, error = %message, "Neural Rendering could not be installed");
+            fail_job(h, uuid, message, false);
+        }
+        Ok(Response::Removed { .. }) => fail_job(h, uuid, "unexpected helper answer".into(), false),
+        Err(error) => {
+            tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering could not be installed");
+            fail_job(h, uuid, format!("{error:#}"), false);
+        }
+    }
+}
+
+/// Turn the switch off: remove what was placed. Runs on.
+pub fn disable(h: &Shared, uuid: &str) -> Result<(), Refusal> {
+    let app = app(h, uuid).ok_or(Refusal::NotFound)?;
+    start_job(h, uuid, "remove", "remove")?;
+    let (h, uuid) = (h.clone(), uuid.to_owned());
+    tokio::task::spawn_blocking(move || match remove(&app) {
+        Ok(kept) => match set_key(&h, &uuid, None) {
+            Ok(()) => update_job(&h, &uuid, |job| {
+                job.phase = "done";
+                job.kept = kept;
+            }),
+            Err(error) => fail_job(&h, &uuid, format!("{error:#}"), false),
+        },
+        Err(error) => fail_job(&h, &uuid, format!("{error:#}"), false),
+    });
+    Ok(())
+}
+
+/// Remove the mod from the app's game folder; the files that changed since
+/// and stayed. Blocks.
+fn remove(app: &App) -> Result<Vec<String>> {
+    let Some(exe) = placed_exe(app) else {
+        return Ok(Vec::new());
+    };
+    match run_folder(Request::Remove { exe: exe.clone() }, &|_, _| {})? {
+        Response::Removed { kept } => {
+            let folder = exe.parent().unwrap_or(&exe).display().to_string();
+            if kept.is_empty() {
+                tracing::info!(app = %app.name, %folder, "Neural Rendering removed");
+            } else {
+                tracing::warn!(app = %app.name, %folder, kept = ?kept, "Neural Rendering removed; files changed since were left");
+            }
+            Ok(kept)
+        }
+        Response::Error { message }
+        | Response::Refused { reason: message }
+        | Response::ChooseExe { reason: message } => {
+            tracing::warn!(app = %app.name, error = %message, "Neural Rendering could not be removed");
+            bail!("{message}")
+        }
+        Response::Placed { .. } => bail!("unexpected helper answer"),
+    }
+}
+
+/// Before an app with the switch on is deleted: take the mod out of its
+/// folder, or keep the app so nothing is left behind unnoticed. Blocks.
+pub fn before_delete(app: &App) -> Result<()> {
+    if app.extra.contains_key(KEY) {
+        remove(app).context(
+            "Neural Rendering could not be removed from the game's folder, so the app was kept",
+        )?;
+    }
+    Ok(())
+}
+
+/// Before a launch: the mod must still be as placed and the game must not
+/// have gained anti-cheat; a newer cached release is applied. Fails the
+/// launch loudly otherwise. Blocks.
+pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
+    let Some(exe) = placed_exe(app) else {
+        return Ok(());
+    };
+    let uuid = app
+        .extra
+        .get("uuid")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    if h.neural
+        .lock()
+        .jobs
+        .get(&uuid)
+        .is_some_and(|job| !matches!(job.phase, "done" | "failed"))
+    {
+        bail!("Neural Rendering is still being set up for {}", app.name);
+    }
+    let request = Request::Prepare {
+        exe,
+        install: install(app),
+        package: cached(&cache_root(h)).map(|(folder, _)| folder),
+    };
+    match run_folder(request, &|_, _| {})? {
+        Response::Placed {
+            exe,
+            release,
+            proxy,
+            updated,
+        } => {
+            if updated {
+                tracing::info!(app = %app.name, %release, %proxy, "Neural Rendering updated");
+                let value = json!({"exe": exe, "release": release, "proxy": proxy});
+                if let Err(error) = set_key(h, &uuid, Some(value)) {
+                    tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the updated release could not be saved with the app");
+                }
+            }
+            Ok(())
+        }
+        Response::Refused { reason } => {
+            tracing::warn!(app = %app.name, %reason, "Neural Rendering refused the launch");
+            bail!(
+                "Neural Rendering is on for {}, but {reason}; turn it off for this game",
+                app.name
+            )
+        }
+        Response::Error { message } | Response::ChooseExe { reason: message } => {
+            tracing::warn!(app = %app.name, error = %message, "Neural Rendering's check failed before the launch");
+            bail!("{message}")
+        }
+        Response::Removed { .. } => bail!("unexpected helper answer"),
+    }
+}
+
+// ---- The daily check ----
+
+/// Whether the maintenance loop should refresh the cache now: once a day
+/// while any app has the switch on, never during a stream.
+pub fn check_due(h: &Shared) -> bool {
+    if h.neural.lock().checking
+        || crate::updater::streaming(h)
+        || !h
+            .apps
+            .read()
+            .unwrap()
+            .iter()
+            .any(|app| app.extra.contains_key(KEY))
+    {
+        return false;
+    }
+    let mut state = h.neural.lock();
+    let due = *state
+        .due_at
+        .get_or_insert_with(|| due_at(&settings(h), now()));
+    now() >= due
+}
+
+/// When the check after the one `settings` records is due; at once when the
+/// clock went back past it.
+fn due_at(settings: &Value, now: u64) -> u64 {
+    let checked = settings["checked_at"].as_u64().unwrap_or(0);
+    if checked > now + 600 {
+        return 0;
+    }
+    let wait = if settings["check_failures"].as_u64().unwrap_or(0) > 0 {
+        RETRY_AFTER_FAILURE
+    } else {
+        CHECK_INTERVAL
+    };
+    checked + wait
+}
+
+/// Refresh the cache in the background; games get it at their next launch.
+pub fn check(h: &Shared) {
+    h.neural.lock().checking = true;
+    let h = h.clone();
+    tokio::spawn(async move {
+        let result = fetch(&h, true, &|_, _| {}).await;
+        let saved = update_settings(&h, |value| {
+            value["checked_at"] = json!(now());
+            value["check_failures"] = match &result {
+                Ok(_) => json!(0),
+                Err(_) => json!(value["check_failures"].as_u64().unwrap_or(0) + 1),
+            };
+        });
+        let mut state = h.neural.lock();
+        state.checking = false;
+        state.due_at = None;
+        drop(state);
+        for error in [result.err(), saved.err()].into_iter().flatten() {
+            tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the update check failed");
+        }
+    });
+}
+
+// ---- The console ----
+
+/// The switch as the console shows it for one app. Blocks (the first call
+/// probes the GPU).
+pub fn status(h: &Shared, uuid: &str) -> Value {
+    let capability = capability(h);
+    let app = app(h, uuid);
+    let state = h.neural.lock();
+    let setting = app.as_ref().and_then(|app| app.extra.get(KEY)).cloned();
+    json!({
+        "accepted": accepted(h),
+        "available": capability.is_ok(),
+        "gpu": capability.as_ref().ok(),
+        "reason": capability.as_ref().err(),
+        "found": app.is_some(),
+        "enabled": setting.is_some(),
+        "exe": setting.as_ref().and_then(|s| s.get("exe")).cloned(),
+        "release": setting.as_ref().and_then(|s| s.get("release")).cloned(),
+        "job": state.jobs.get(uuid),
+    })
+}

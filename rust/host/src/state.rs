@@ -347,6 +347,8 @@ pub struct Host {
     pub webhooks: crate::webhooks::Webhooks,
     /// Nucleus Co-op: its install, the co-op entries and the session it runs.
     pub nucleus: crate::nucleus::Registry,
+    /// Neural Rendering: the GPU check, and each app's install or removal.
+    pub neural: crate::neural::Neural,
     pub assets: PathBuf,
 }
 /// Why the running app is stopped, and the client that asked: each stop logs it.
@@ -685,6 +687,7 @@ impl Host {
             wake: Default::default(),
             webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,
             nucleus: crate::nucleus::Registry::on_pc(),
+            neural: Default::default(),
         }))
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {

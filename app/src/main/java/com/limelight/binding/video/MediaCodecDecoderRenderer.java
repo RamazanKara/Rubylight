@@ -2933,7 +2933,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             else {
                 // If we haven't quiesced all threads yet, wait to be signalled after recovery.
                 // The final thread to be quiesced will handle the codec recovery.
-                while (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
+                // Every end of a recovery clears the flags: a failure right after it asks for the
+                // next one before this thread looks again, and that one needs this thread to
+                // quiesce anew. Waiting on would hang both decoder threads for good.
+                while (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE &&
+                        (codecRecoveryThreadQuiescedFlags & quiescenceFlag) != 0) {
                     try {
                         LimeLog.info("Waiting to quiesce decoder threads: "+codecRecoveryThreadQuiescedFlags);
                         codecRecoveryMonitor.wait(1000);

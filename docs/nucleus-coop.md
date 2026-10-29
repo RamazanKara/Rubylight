@@ -28,20 +28,24 @@ streaming the PC's monitors.
 
 ### Games without a handler
 
-A background stream needs no handler from the hub. Unless you added the game
-at that exact path with a hub handler, the host writes its own one-player
-handler into Nucleus Co-op's `handlers`
-folder (`Rubylight-<game>-<hash>.js`) and adds the game to your Nucleus Co-op
-game list, as Nucleus' own "add game" would. It does that only while Nucleus
-Co-op isn't running, and never over a file it did not write. A hub handler for
-the game you added at the same path always wins, and co-op still needs one.
-As soon as a hub handler for the same .exe is installed, the next session of
-another game removes the host's handler and its entry, so Nucleus Co-op lets
-you add the game with the hub's handler. The host also removes a handler of
-its own that no game in your list uses. It only ever removes its own files
-and entries; one it can't remove shows as a warning on the stream and is
-tried again next time. Another game with an .exe of the same name (Portal's
-and Half-Life 2's `hl2.exe`) still streams with the host's handler.
+A background stream needs no handler from the hub. A game you added at that
+exact path with a hub handler always uses it, and co-op still needs one.
+Otherwise the host writes its own one-player handler into Nucleus Co-op's
+`handlers` folder (`Rubylight-<game>-<hash>.js`) and adds the game to your
+Nucleus Co-op game list, as Nucleus' own "add game" would. It does that only
+while Nucleus Co-op isn't running, and never over a file it did not write.
+
+Installing a hub handler for the same .exe doesn't remove the host's handler
+right away: the next Nucleus Co-op session of another game removes it and its
+entry, so Nucleus Co-op lets you add the game with the hub's handler. That
+session also removes a handler of the host's that no game uses in any
+Windows account's list (the `handlers` folder is shared, each account's list
+is its own). The host only ever removes its own files and entries. One it
+can't remove shows as a warning on the stream and is tried again next time;
+an entry whose handler is gone does no harm, as Nucleus Co-op leaves it out
+when it loads the list. Another game with an .exe of the same name (Portal's
+and Half-Life 2's `hl2.exe`) still streams with the host's handler, written
+again for each of its sessions.
 
 The game runs from its own folder: nothing is copied, linked or written there,
 and Nucleus Co-op needs no extra tools for it. Its window keeps running and
@@ -207,10 +211,10 @@ the Nucleus Co-op panel under **Help**.
   game's own .exe and Nucleus' instance links, and only where Nucleus' DPI
   mode is still set: a setting you change meanwhile, or another game's .exe
   of the same name, stays as you left it. Should the host stop mid-session,
-  the settings come back when you next sign in, when the service starts the
-  host again, or before the next session. If the file that keeps them
-  (`Rubylight-layers-<SID>.json` in Nucleus Co-op's folder) can't be read,
-  the launch says so and names it: delete it to stream again.
+  the settings come back when you next sign in at the PC, when the service
+  starts the host again, or before the next session. Until then they wait in
+  `Rubylight-layers-<SID>.json` in Nucleus Co-op's folder. If that file
+  can't be read, the launch says so and names it: delete it to stream again.
 
 ## Status
 

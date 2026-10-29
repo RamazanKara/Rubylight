@@ -4,7 +4,7 @@ use butterpollo_core::nucleus::generic;
 use std::path::{Path, PathBuf};
 use windows::{
     Win32::System::Registry::{
-        HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW,
+        HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKEY_USERS, RRF_RT_REG_SZ, RegGetValueW,
     },
     core::PCWSTR,
 };
@@ -33,8 +33,8 @@ pub(crate) fn registry_string(root: HKEY, key: &str, value: &str) -> Option<Stri
     let length = buffer.iter().position(|c| *c == 0).unwrap_or(buffer.len());
     Some(String::from_utf16_lossy(&buffer[..length])).filter(|s| !s.is_empty())
 }
-/// Steam installations: the installer's registry entries, then the usual
-/// folders. The host runs as SYSTEM, so the signed-in user's folders come
+/// Steam installations: the installer's and the signed-in user's registry
+/// entries, then the usual folders. The host runs as SYSTEM, so the signed-in user's folders come
 /// from that user's environment, and a folder on a network share is skipped.
 pub fn roots() -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = [
@@ -50,6 +50,17 @@ pub fn roots() -> Vec<PathBuf> {
     .filter_map(|(root, key, value)| registry_string(root, key, value))
     .map(PathBuf::from)
     .collect();
+    // SYSTEM's own HKCU has no Steam: the signed-in user's hive has the
+    // folder Steam runs from.
+    if let Some(path) = crate::process::user_sid().and_then(|sid| {
+        registry_string(
+            HKEY_USERS,
+            &format!(r"{sid}\Software\Valve\Steam"),
+            "SteamPath",
+        )
+    }) {
+        candidates.push(PathBuf::from(path));
+    }
     let user = crate::process::user_environment().unwrap_or_default();
     for variable in ["PROGRAMFILES(X86)", "PROGRAMFILES"] {
         if let Some(folder) = std::env::var_os(variable) {

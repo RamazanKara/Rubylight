@@ -457,7 +457,8 @@ public class ControllerInputReleaseTest {
     public void cursorShortcutRestoresUsbInputAfterRegrabbing() {
         Game activity = Robolectric.buildActivity(FocusedGame.class).get();
         RecordingConnection connection = new RecordingConnection();
-        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs);
         Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
         ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
         context.assignedControllerNumber = true;
@@ -465,6 +466,8 @@ public class ControllerInputReleaseTest {
         context.device = new UsbController();
         usb.put(3, context);
         InputCaptureProvider capture = new InputCaptureProvider() { };
+        // Regrabbing reads Send system keys
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
         ReflectionHelpers.setField(activity, "conn", connection);
         ReflectionHelpers.setField(activity, "controllerHandler", handler);
         ReflectionHelpers.setField(activity, "inputCaptureProvider", capture);

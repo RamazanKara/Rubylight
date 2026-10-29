@@ -177,6 +177,8 @@ public class GameRemoteControlTest {
 
     // #50: the Esc key of many keyboards made for Android sends Back. It goes to the PC as Esc by default
     // instead of opening the stream menu; with Send system keys off it is Android's Back again.
+    // Only an external keyboard's Back becomes Esc: below Android 10 Nightjar cannot tell, and a keyboard
+    // phone's own keyboard may lack the Ctrl for Ctrl+Alt+Shift+M, so Back stays Back.
     @Test public void keyboardBackSendsEscUnlessSystemKeysStayWithAndroid() {
         InputDevice keyboard = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_ALPHABETIC);
         RecordingConnection connection = new RecordingConnection();
@@ -184,6 +186,17 @@ public class GameRemoteControlTest {
         ReflectionHelpers.setField(game, "connected", true);
         PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
         assertTrue(prefs.captureSystemKeys);
+
+        // A keyboard phone's built-in keyboard
+        assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertTrue(connection.keys.isEmpty());
+
+        ReflectionHelpers.setField(keyboard, "mIsExternal", true);
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertTrue(connection.keys.isEmpty());
+            return;
+        }
         assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
         assertTrue(game.handleKeyUp(event(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
         assertEquals(0, game.menus + game.backs);
@@ -234,6 +247,35 @@ public class GameRemoteControlTest {
             assertFalse(game.handleKeyDown(gesture));
             assertEquals(sent, connection.buttons.size());
             assertEquals(0, game.menus + game.backs);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    // #49: a handheld's system button on a built-in key device such as gpio-keys (internal, not a gamepad,
+    // not a keyboard) sends Guide too; an external keyboard's Back does not.
+    @Test public void builtInKeyDeviceBackSendsGuide() {
+        InputDevice keys = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC);
+        RecordingConnection connection = new RecordingConnection();
+        RemoteGame game = game(connection);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.backAsGuide = true;
+        ReflectionHelpers.setField(game, "connected", true);
+        HandheldController controller = new HandheldController(game, connection, prefs);
+        ReflectionHelpers.setField(ReflectionHelpers.getField(controller, "defaultContext"), "assignedControllerNumber", true);
+        ReflectionHelpers.setField(game, "controllerHandler", controller);
+        try {
+            assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keys.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(com.limelight.nvstream.input.ControllerPacket.SPECIAL_BUTTON_FLAG,
+                    (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertTrue(game.handleKeyUp(event(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, keys.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(0, (int) connection.buttons.get(connection.buttons.size() - 1));
+
+            InputDevice keyboard = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+            int sent = connection.buttons.size();
+            assertFalse(controller.handleHandheldBackAsGuide(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK,
+                    keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(sent, connection.buttons.size());
         } finally {
             controller.destroy();
         }

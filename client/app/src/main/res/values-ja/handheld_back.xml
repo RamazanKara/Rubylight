@@ -3,5 +3,5 @@
     <string name="title_checkbox_back_opens_menu">物理戻るキーでストリームメニューを開く</string>
     <string name="summary_checkbox_back_opens_menu">携帯ゲーム機やコントローラーの専用戻るキーでストリームメニューを開きます。SelectとStartの割り当ては変わりません。物理キーボードでは「戻るキーでWindowsキーを送信」が優先されます。次のストリームから適用されます。</string>
     <string name="title_checkbox_back_as_guide">戻るボタンを Guide として使う</string>
-    <string name="summary_checkbox_back_as_guide">コントローラーや携帯ゲーム機の戻るボタンで Guide (Home/PS) を送ります。システムボタンが戻るとして働く携帯ゲーム機向けです。「物理戻るキーでストリームメニューを開く」が優先されます。ストリームメニューはコントローラのボタン同時押しか Android の戻るジェスチャーで開きます。次のストリームから適用されます。</string>
+    <string name="summary_checkbox_back_as_guide">携帯ゲーム機の内蔵コントロールの戻るボタンで Guide (Home/PS) を送ります。システムボタンが戻るとして働く携帯ゲーム機向けです。戻るボタンが Select になっているコントローラーはそのままです。「物理戻るキーでストリームメニューを開く」が優先されます。ストリームメニューはコントローラのボタン同時押しか Android の戻るジェスチャーで開きます。次のストリームから適用されます。</string>
 </resources>

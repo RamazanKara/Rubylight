@@ -3,5 +3,5 @@
     <string name="title_checkbox_back_opens_menu">Voltar físico abre o menu do stream</string>
     <string name="summary_checkbox_back_opens_menu">A tecla Voltar dedicada do portátil ou controle abre o menu do stream. Select e Start mantêm seus mapeamentos. A opção Voltar envia Windows tem prioridade em teclados físicos. Vale no próximo stream.</string>
     <string name="title_checkbox_back_as_guide">Botão Voltar como Guide</string>
-    <string name="summary_checkbox_back_as_guide">Voltar em um controle ou portátil envia Guide (Home/PS), para portáteis cujo botão do sistema funciona como Voltar. “Voltar físico abre o menu do stream” tem prioridade. Abra o menu do stream com a combinação de botões do controle ou o gesto Voltar do Android. Vale no próximo stream.</string>
+    <string name="summary_checkbox_back_as_guide">Voltar nos controles integrados de um portátil envia Guide (Home/PS), para portáteis cujo botão do sistema funciona como Voltar. Controles cujo Select é o Voltar o mantêm. “Voltar físico abre o menu do stream” tem prioridade. Abra o menu do stream com a combinação de botões do controle ou o gesto Voltar do Android. Vale no próximo stream.</string>
 </resources>

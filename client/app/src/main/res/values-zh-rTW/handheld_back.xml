@@ -3,5 +3,5 @@
     <string name="title_checkbox_back_opens_menu">實體返回鍵開啟串流選單</string>
     <string name="summary_checkbox_back_opens_menu">使用掌機或控制器的專用返回鍵開啟串流選單。Select 和 Start 保留原有對應。實體鍵盤優先使用「返回鍵傳送 Windows 鍵」設定。下次串流生效。</string>
     <string name="title_checkbox_back_as_guide">返回鍵作為 Guide</string>
-    <string name="summary_checkbox_back_as_guide">控制器或掌機上的返回鍵傳送 Guide（Home/PS），適用於系統按鈕充當返回鍵的掌機。「實體返回鍵開啟串流選單」優先。請使用控制器組合鍵或 Android 的返回手勢開啟串流選單。下次串流生效。</string>
+    <string name="summary_checkbox_back_as_guide">掌機內建按鍵上的返回鍵傳送 Guide（Home/PS），適用於系統按鈕充當返回鍵的掌機。Select 即返回鍵的控制器維持不變。「實體返回鍵開啟串流選單」優先。請使用控制器組合鍵或 Android 的返回手勢開啟串流選單。下次串流生效。</string>
 </resources>

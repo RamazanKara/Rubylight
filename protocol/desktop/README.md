@@ -202,14 +202,20 @@ Why this combination:
   - No VRR: V-Sync (newest picture each refresh), or immediate.
   The launch asks the host for VRR handling when pacing by host times. A VRR stream that
   presents with tearing in fullscreen runs the beam race's display check (the scan line around
-  each present, `src/stream/race_probe.rs`). A display that keeps its own refresh turns the
-  stream to V-Sync, and the overlay's Pacing line says "V-Sync: this display does not refresh
-  on present". To be found fixed, the calibration must show little blanking under a slow stream
-  and 60 presents must start no scan, or the restart check must fail or starve.
-  `NIGHTJAR_VRR_CHECK=0` turns the check off. `NIGHTJAR_VRR_SYNC=present1|scan` is a
-  measurement switch for VRR presents: `present1` uses sync interval 1, and `scan` waits out a
-  scan under way. Neither made the default ([measured](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one)).
-  Exclusive fullscreen with VRR asks for the display's top refresh, not the stream's rate.
+  each present, `src/stream/race_probe.rs`; Windows only). A display that keeps its own refresh
+  turns the stream to the pacing it would have without VRR (V-Sync, or immediate with V-Sync off),
+  and the overlay's Pacing line says "V-Sync: this display does not refresh on present". To be
+  found fixed, the stream must run below about 70% of the display's rate (60 fps measured), the
+  calibration must show little blanking, and 60 presents must start no scan, or the restart check
+  must fail or starve. A faster stream leaves a VRR display no idle time either, so a fixed
+  display still tears there. Only presents to a fullscreen window that has kept the focus count:
+  going fullscreen, getting the focus back, or the stream slowing below that rate after a check at
+  a faster one measures the display again. `NIGHTJAR_VRR_CHECK=0` turns the check off.
+  `NIGHTJAR_VRR_SYNC=present1|scan` is a measurement switch for VRR presents: `present1` uses
+  sync interval 1, and `scan` waits out a scan under way (it reads the scan line with the check
+  off too). Neither made the default ([measured](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one)).
+  Exclusive fullscreen with VRR asks for the display's highest refresh rate at the stream's
+  resolution, not the stream's rate.
 - Audio: Opus multistream (libopus) into an SDL3 audio stream; the queue is capped at
   40 ms plus one packet (late packets are dropped rather than letting latency grow), and
   when it runs dry 10 ms of silence goes ahead of the next packet.

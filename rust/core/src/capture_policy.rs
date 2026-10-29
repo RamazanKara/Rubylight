@@ -121,7 +121,8 @@ impl Freshness {
     /// claims at the stream rate drifted through the game's frames and took
     /// some of them twice and skipped as many. A capture that changed only
     /// other windows extends the focus window's picture while that window
-    /// animates (`FOCUS_ANIMATING`); a still or slowly changing focus window
+    /// animates (`FOCUS_ANIMATING`), and so does one that cannot tell then (a
+    /// pointer move); a still or slowly changing focus window
     /// (typing, a caret) leaves every update a picture of its own, as without
     /// the distinction.
     pub fn observe_focus(&mut self, captured: u64, delay: u64, focus: Option<bool>) {
@@ -165,7 +166,10 @@ impl Freshness {
                 }
                 self.focus_at = Some(captured);
             }
-            Some(false) if self.picture.is_some() && animating => {
+            // While the focus window reports its changes, a composition
+            // reporting none changed nothing but the cursor, which WGC draws
+            // without a dirty region: it extends the picture too.
+            Some(false) | None if self.picture.is_some() && animating => {
                 same_picture = true;
                 self.extends = true;
             }
@@ -286,8 +290,8 @@ pub fn focus_on_display(window: [i32; 4], display: [i32; 4]) -> Option<[i32; 4]>
 /// Whether a composition with the dirty rectangles `dirty` changed the focus
 /// window `focus` ([left, top, right, bottom] in the display's pixels), for
 /// `Freshness::observe_focus`. `None` without a focus window on the display
-/// or without dirty rectangles: the composition cannot tell, and counts as
-/// it did before the distinction.
+/// or without dirty rectangles (only the cursor moved): the composition
+/// cannot tell, and extends a picture only while the focus window animates.
 pub fn focus_changed(dirty: &[[i32; 4]], focus: Option<[i32; 4]>) -> Option<bool> {
     let focus = focus?;
     (!dirty.is_empty()).then(|| {

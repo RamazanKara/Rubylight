@@ -991,6 +991,52 @@ fn another_window_still_streams_at_the_stream_rate_once_the_game_is_still() {
     assert_eq!(game_frames_shown(steady, &frames), (0, 0, 0));
 }
 #[test]
+fn a_pointer_moving_beside_the_focused_game_does_not_cost_it_a_frame() {
+    // Hardware: the same desktop with the pointer circling outside the game
+    // at 125 Hz. WGC draws the cursor and reports no dirty region for a
+    // composition that only moved it, so it came unlabelled, within the
+    // picture gap of another window's update, and ended the extension: the
+    // claim no longer waited for the predicted game frame and took the
+    // previous one just before the next arrived, a game frame late.
+    for seed in 0..4 {
+        let (compositions, frames) = mixed_desktop(25., 1000. / 240., seed * 10);
+        let mut labelled = focus_labels(&compositions, true, false);
+        let mut at = 1.7;
+        let mut index = 0;
+        while at < 25_000. {
+            // A move within 0.05 ms of another update is composed with it.
+            let next = compositions.partition_point(|c| c.0 < at);
+            let near = |i: usize| compositions.get(i).is_some_and(|c| (c.0 - at).abs() < 0.05);
+            if !near(next) && !(next > 0 && near(next - 1)) {
+                labelled.push((at, None));
+            }
+            at += 8. + 0.4 * (noise(index, seed + 3) - 0.5);
+            index += 1;
+        }
+        labelled.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let claims = simulate_focus(
+            1000. / 60.,
+            &labelled,
+            |i| 0.08 + 0.12 * noise(i, seed + 99),
+            vrr_desktop,
+        );
+        let steady = &claims[300..];
+        let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+        let mut ages: Vec<f64> = steady
+            .iter()
+            .map(|(claim, presented)| claim - frames[shown(*presented).max(1) - 1])
+            .collect();
+        ages.sort_by(f64::total_cmp);
+        let case = format!("seed {seed}");
+        assert_eq!(game_frames_shown(steady, &frames), (0, 0, 0), "{case}");
+        assert!(
+            ages[ages.len() * 95 / 100] < 1.,
+            "{case}: game age p95 {:.2} ms",
+            ages[ages.len() * 95 / 100]
+        );
+    }
+}
+#[test]
 fn a_game_alone_on_the_display_is_claimed_as_without_focus_labels() {
     // Holding a later composition of a claimed frame by its timing measured
     // no better (rust/PERFORMANCE.md, October 26). The labels hold only

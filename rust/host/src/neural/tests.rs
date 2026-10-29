@@ -609,6 +609,95 @@ fn a_download_must_match_its_published_digest_and_size() {
     assert!(verified(8, &sha(b"archive"), &release).is_err());
 }
 
+/// A drive letter with nothing behind it on this PC: an unplugged drive.
+fn unconnected_drive() -> PathBuf {
+    (b'D'..=b'Z')
+        .rev()
+        .map(|letter| PathBuf::from(format!("{}:\\", letter as char)))
+        .find(|root| !root.exists())
+        .expect("a free drive letter")
+}
+
+fn switched_on(name: &str, uuid: &str, exe: &Path) -> Value {
+    json!({
+        "name": name,
+        "uuid": uuid,
+        KEY: {"exe": exe, "release": "Alpha0.3.5.8", "proxy": "d3d12.dll"},
+    })
+}
+
+/// The launcher sync drops an uninstalled game without the console's
+/// delete: the mod leaves its folder all the same, and a folder on a drive
+/// that is not connected stays a pending removal that is tried again.
+#[test]
+fn a_game_the_library_sync_drops_loses_the_mod_or_has_its_removal_pending() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    assert_ne!(names(folder), before);
+    let away = unconnected_drive().join(r"Games\Away\Away.exe");
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(switched_on("Game", "game", &exe));
+        apps.push(switched_on("Away", "away", &away));
+        apps.push(json!({"name": "Other", "uuid": "other"}));
+        true
+    })
+    .unwrap();
+
+    // The sync drops both games; the other app stays.
+    crate::steam::update_library(h, |apps, _| {
+        apps.retain(|app| app["uuid"] == "other");
+        true
+    })
+    .unwrap();
+    assert_eq!(names(folder), before);
+    let away_pending = Pending {
+        name: "Away".into(),
+        exe: away.clone(),
+    };
+    assert_eq!(pending(h), std::slice::from_ref(&away_pending));
+    // Tried again: the drive is still not there.
+    assert!(removal_due(h));
+    assert!(!removal_due(h), "not again before the retry interval");
+    remove_pending(h);
+    assert_eq!(pending(h), std::slice::from_ref(&away_pending));
+
+    // A pending folder that can be reached again loses the mod and its record.
+    let back = tempdir();
+    let back_exe = game(back.path());
+    let back_before = names(back_exe.parent().unwrap());
+    assert!(matches!(
+        install(Some(&back_exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    record_pending(
+        h,
+        &[Pending {
+            name: "Back".into(),
+            exe: back_exe.clone(),
+        }],
+    )
+    .unwrap();
+    remove_pending(h);
+    assert_eq!(names(back_exe.parent().unwrap()), back_before);
+    assert_eq!(pending(h), [away_pending]);
+
+    // The console's delete of a game on that drive goes through, its removal pending too.
+    let mut gone = h.apps.read().unwrap()[0].clone();
+    gone.extra
+        .insert(KEY.into(), json!({"exe": away.with_file_name("Other.exe")}));
+    before_delete(h, &gone).unwrap();
+    assert_eq!(pending(h).len(), 2);
+}
+
 #[test]
 fn the_console_cannot_set_the_hosts_key() {
     let app = |exe: &str| App {

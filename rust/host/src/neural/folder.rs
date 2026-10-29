@@ -103,6 +103,10 @@ pub enum Response {
         /// Placed files that changed since and stayed.
         kept: Vec<String>,
     },
+    /// The folder's drive or share is not there now; the mod may still be in it.
+    Unreachable {
+        folder: String,
+    },
     /// No single .exe in the install is the game's: the user chooses it.
     ChooseExe {
         reason: String,
@@ -659,6 +663,13 @@ fn prepare(
 /// Delete what the manifest names and is still as placed, the mod's logs and
 /// the folders it created once empty; a file someone changed stays.
 fn remove(folder: &Path) -> Result<Response, String> {
+    // A folder that is gone with its game holds nothing; one on a drive that
+    // is not connected may, and is not called removed.
+    if !folder.is_dir() && folder.ancestors().last().is_none_or(|root| !root.is_dir()) {
+        return Ok(Response::Unreachable {
+            folder: folder.display().to_string(),
+        });
+    }
     let Some(manifest) = manifest(folder)? else {
         return Ok(Response::Removed { kept: Vec::new() });
     };

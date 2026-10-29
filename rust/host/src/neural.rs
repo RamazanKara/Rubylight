@@ -48,12 +48,20 @@ const RETRY_AFTER_FAILURE: u64 = 3600;
 const PROBE_RETRY: Duration = Duration::from_secs(300);
 /// Releases looked at for the whole package, newest first.
 const CANDIDATES: usize = 5;
+/// The record's list of removals still to do.
+const PENDING: &str = "pending_removals";
+/// How often a pending removal is tried again.
+const PENDING_RETRY: Duration = Duration::from_secs(600);
 
 #[derive(Default)]
 pub struct Neural {
     state: Mutex<State>,
     /// One download into the cache at a time.
     fetching: tokio::sync::Mutex<()>,
+    /// One writer of the record at a time.
+    record: Mutex<()>,
+    /// One pass over the pending removals at a time.
+    removing: Mutex<()>,
     #[cfg(test)]
     pub probe: Mutex<Option<Probe>>,
 }
@@ -65,6 +73,8 @@ struct State {
     checking: bool,
     /// When the next daily check is due, from the record once read.
     due_at: Option<u64>,
+    /// When the pending removals are tried next.
+    removal_at: Option<Instant>,
 }
 
 /// What a switch is doing for one app, or how it ended.
@@ -282,6 +292,11 @@ fn settings(h: &Shared) -> Value {
         .unwrap_or_else(|| json!({}))
 }
 fn update_settings(h: &Shared, change: impl FnOnce(&mut Value)) -> Result<()> {
+    let _one = h
+        .neural
+        .record
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let mut value = settings(h);
     change(&mut value);
     butterpollo_core::state::write_json(&h.directory.join(SETTINGS_FILE), &value)
@@ -937,7 +952,9 @@ fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>)
             tracing::warn!(app = %app.name, error = %message, "Neural Rendering could not be installed");
             fail_job(h, uuid, message, false);
         }
-        Ok(Response::Removed { .. }) => fail_job(h, uuid, "unexpected helper answer".into(), false),
+        Ok(Response::Removed { .. } | Response::Unreachable { .. }) => {
+            fail_job(h, uuid, "unexpected helper answer".into(), false)
+        }
         Err(error) => {
             tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering could not be installed");
             fail_job(h, uuid, format!("{error:#}"), false);
@@ -951,38 +968,62 @@ pub fn disable(h: &Shared, uuid: &str) -> Result<(), Refusal> {
     start_job(h, uuid, "remove", "remove")?;
     let (h, uuid) = (h.clone(), uuid.to_owned());
     tokio::task::spawn_blocking(move || match remove(&app) {
-        Ok(kept) => match set_key(&h, &uuid, None) {
+        Ok(Removed::Done(kept)) => match set_key(&h, &uuid, None) {
             Ok(()) => update_job(&h, &uuid, |job| {
                 job.phase = "done";
                 job.kept = kept;
             }),
             Err(error) => fail_job(&h, &uuid, format!("{error:#}"), false),
         },
+        Ok(Removed::Unreachable(folder)) => {
+            tracing::warn!(app = %app.name, %folder, "Neural Rendering could not be removed: the game's folder can't be reached");
+            fail_job(
+                &h,
+                &uuid,
+                format!(
+                    "{folder} can't be reached; connect its drive and turn Neural Rendering off again"
+                ),
+                false,
+            )
+        }
         Err(error) => fail_job(&h, &uuid, format!("{error:#}"), false),
     });
     Ok(())
 }
 
-/// Remove the mod from the app's game folder; the files that changed since
-/// and stayed. Blocks.
-fn remove(app: &App) -> Result<Vec<String>> {
-    let Some(exe) = placed_exe(app) else {
-        return Ok(Vec::new());
-    };
-    match run_folder(Request::Remove { exe: exe.clone() }, &|_, _| {})? {
+/// How a removal from a game folder ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Removed {
+    /// The files that changed since and stayed.
+    Done(Vec<String>),
+    /// The folder's drive or share is not there now.
+    Unreachable(String),
+}
+
+/// Remove the mod from the app's game folder. Blocks.
+fn remove(app: &App) -> Result<Removed> {
+    match placed_exe(app) {
+        Some(exe) => remove_at(&app.name, &exe),
+        None => Ok(Removed::Done(Vec::new())),
+    }
+}
+
+fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
+    match run_folder(Request::Remove { exe: exe.into() }, &|_, _| {})? {
         Response::Removed { kept } => {
-            let folder = exe.parent().unwrap_or(&exe).display().to_string();
+            let folder = exe.parent().unwrap_or(exe).display().to_string();
             if kept.is_empty() {
-                tracing::info!(app = %app.name, %folder, "Neural Rendering removed");
+                tracing::info!(app = %name, %folder, "Neural Rendering removed");
             } else {
-                tracing::warn!(app = %app.name, %folder, kept = ?kept, "Neural Rendering removed; files changed since were left");
+                tracing::warn!(app = %name, %folder, kept = ?kept, "Neural Rendering removed; files changed since were left");
             }
-            Ok(kept)
+            Ok(Removed::Done(kept))
         }
+        Response::Unreachable { folder } => Ok(Removed::Unreachable(folder)),
         Response::Error { message }
         | Response::Refused { reason: message }
         | Response::ChooseExe { reason: message } => {
-            tracing::warn!(app = %app.name, error = %message, "Neural Rendering could not be removed");
+            tracing::warn!(app = %name, error = %message, "Neural Rendering could not be removed");
             bail!("{message}")
         }
         Response::Placed { .. } => bail!("unexpected helper answer"),
@@ -990,14 +1031,158 @@ fn remove(app: &App) -> Result<Vec<String>> {
 }
 
 /// Before an app with the switch on is deleted: take the mod out of its
-/// folder, or keep the app so nothing is left behind unnoticed. Blocks.
-pub fn before_delete(app: &App) -> Result<()> {
-    if app.extra.contains_key(KEY) {
-        remove(app).context(
-            "Neural Rendering could not be removed from the game's folder, so the app was kept",
-        )?;
+/// folder, or keep the app so nothing is left behind unnoticed. A folder on
+/// a drive that is not connected becomes a pending removal instead, so a
+/// game on a drive that is gone for good can still be deleted. Blocks.
+pub fn before_delete(h: &Shared, app: &App) -> Result<()> {
+    if !app.extra.contains_key(KEY) {
+        return Ok(());
+    }
+    let kept = "Neural Rendering could not be removed from the game's folder, so the app was kept";
+    if let Removed::Unreachable(folder) = remove(app).context(kept)? {
+        let pending = Pending::of(app).context(kept)?;
+        record_pending(h, std::slice::from_ref(&pending)).context(kept)?;
+        tracing::warn!(app = %app.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal is pending");
     }
     Ok(())
+}
+
+// ---- Removals left for later ----
+
+/// A game folder the mod is still to be removed from: its app left the
+/// library while the folder could not be reached or the removal failed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Pending {
+    name: String,
+    exe: PathBuf,
+}
+impl Pending {
+    fn of(app: &App) -> Option<Self> {
+        Some(Self {
+            name: app.name.clone(),
+            exe: placed_exe(app)?,
+        })
+    }
+}
+
+fn pending(h: &Shared) -> Vec<Pending> {
+    serde_json::from_value(settings(h)[PENDING].clone()).unwrap_or_default()
+}
+
+/// Add removals to the record (once each).
+fn record_pending(h: &Shared, removals: &[Pending]) -> Result<()> {
+    update_settings(h, |value| {
+        let mut list: Vec<Pending> =
+            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        for removal in removals {
+            if !list.iter().any(|old| old.exe == removal.exe) {
+                list.push(removal.clone());
+            }
+        }
+        value[PENDING] = json!(list);
+    })
+}
+
+/// The apps with the switch on that a library change left out: an
+/// uninstalled game the launcher sync dropped.
+pub fn dropped(before: &[App], after: &[App]) -> Vec<App> {
+    let uuid = |app: &App| {
+        app.extra
+            .get("uuid")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    before
+        .iter()
+        .filter(|app| app.extra.contains_key(KEY))
+        .filter(|app| {
+            uuid(app).is_some_and(|id| {
+                !after
+                    .iter()
+                    .any(|other| uuid(other).as_deref() == Some(&id))
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// Take the mod out of the folders of apps the library sync dropped, as a
+/// delete does. Each is recorded first; one that fails (a folder on a drive
+/// that is not connected) stays recorded for [`remove_pending`]. Blocks.
+pub fn remove_dropped(h: &Shared, apps: &[App]) {
+    let removals: Vec<Pending> = apps.iter().filter_map(Pending::of).collect();
+    if removals.is_empty() {
+        return;
+    }
+    for removal in &removals {
+        tracing::info!(app = %removal.name, "Neural Rendering: the library sync dropped the game; removing the mod");
+    }
+    if let Err(error) = record_pending(h, &removals) {
+        tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");
+    }
+    try_pending(h, &removals);
+}
+
+/// Whether the maintenance loop should try the pending removals again.
+pub fn removal_due(h: &Shared) -> bool {
+    {
+        let mut state = h.neural.lock();
+        if state.removal_at.is_some_and(|at| Instant::now() < at) {
+            return false;
+        }
+        state.removal_at = Some(Instant::now() + PENDING_RETRY);
+    }
+    !pending(h).is_empty()
+}
+
+/// Try the recorded removals again. Blocks.
+pub fn remove_pending(h: &Shared) {
+    try_pending(h, &[]);
+}
+
+/// Try the recorded removals and `also` (in case the record could not be
+/// saved); keep the ones that are still to do.
+fn try_pending(h: &Shared, also: &[Pending]) {
+    let _one = h
+        .neural
+        .removing
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let mut removals = pending(h);
+    for removal in also {
+        if !removals.iter().any(|old| old.exe == removal.exe) {
+            removals.push(removal.clone());
+        }
+    }
+    let mut done = Vec::new();
+    for removal in &removals {
+        match remove_at(&removal.name, &removal.exe) {
+            Ok(Removed::Done(_)) => done.push(removal.exe.clone()),
+            Ok(Removed::Unreachable(folder)) => {
+                tracing::info!(app = %removal.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal stays pending");
+            }
+            Err(error) => {
+                tracing::warn!(app = %removal.name, error = %format!("{error:#}"), "Neural Rendering: the removal stays pending");
+            }
+        }
+    }
+    if done.is_empty() && also.is_empty() {
+        return;
+    }
+    let saved = update_settings(h, |value| {
+        let mut list: Vec<Pending> =
+            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        for removal in also {
+            if !list.iter().any(|old| old.exe == removal.exe) {
+                list.push(removal.clone());
+            }
+        }
+        list.retain(|removal| !done.contains(&removal.exe));
+        value[PENDING] = json!(list);
+    });
+    if let Err(error) = saved {
+        tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");
+    }
 }
 
 /// Before a launch: the mod must still be as placed and the game must not
@@ -1053,7 +1238,9 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
             tracing::warn!(app = %app.name, error = %message, "Neural Rendering's check failed before the launch");
             bail!("{message}")
         }
-        Response::Removed { .. } => bail!("unexpected helper answer"),
+        Response::Removed { .. } | Response::Unreachable { .. } => {
+            bail!("unexpected helper answer")
+        }
     }
 }
 

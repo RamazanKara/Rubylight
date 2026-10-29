@@ -104,10 +104,15 @@ pub fn update_library(
     h.assign_apps(&mut next)?;
     document["apps"] = serde_json::to_value(&next)?;
     butterpollo_core::state::write_json(&h.apps_path, &document)?;
+    let dropped = crate::neural::dropped(&apps, &next);
     *apps = next;
     *h.app_document.write().unwrap() = document;
     h.config_version
         .fetch_add(1, std::sync::atomic::Ordering::Release);
+    drop(apps);
+    // An uninstalled game the sync dropped loses the mod as a deleted one
+    // does, after the apps are unlocked: the removal runs a helper process.
+    crate::neural::remove_dropped(h, &dropped);
     Ok(true)
 }
 /// The game's cover as a PNG in the profile's covers folder. A missing or

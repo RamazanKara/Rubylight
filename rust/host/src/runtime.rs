@@ -301,6 +301,10 @@ pub async fn maintain(
             if crate::neural::check_due(&h) {
                 crate::neural::check(&h);
             }
+            if crate::neural::removal_due(&h) {
+                let h = h.clone();
+                tokio::task::spawn_blocking(move || crate::neural::remove_pending(&h));
+            }
         }
         crate::updater::poll(&h);
         start_deferred(&h);

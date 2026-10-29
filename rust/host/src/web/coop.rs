@@ -128,6 +128,11 @@ fn configured(h: &Shared) -> String {
     crate::nucleus::configured(&h.config.read().unwrap_or_else(PoisonError::into_inner))
 }
 
+/// Why Open Nucleus Co-op on this PC is refused on an account Windows
+/// doesn't elevate: the text `butterpollo_windows::nucleus::session::open`
+/// refuses it with, so the console says it before the button is pressed.
+const OPEN_NEEDS_ELEVATION: &str = "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)";
+
 /// A refused co-op action: its status and the host's text.
 fn refused(refusal: &Refusal) -> Response {
     error(
@@ -305,6 +310,9 @@ fn status(h: &Shared) -> Value {
         // which hub handlers, co-op and games that need administrator
         // rights run with; null when unknown.
         "elevates": elevates,
+        // Why Open Nucleus Co-op on this PC would be refused: an account
+        // Windows doesn't elevate.
+        "open_refusal": (elevates == Some(false)).then_some(OPEN_NEEDS_ELEVATION),
         // The Nucleus Co-op window the console opened is still open.
         "opened": h.nucleus.opened(),
         "sessions": sessions,
@@ -466,6 +474,7 @@ mod tests {
         );
         assert_eq!(body["sessions"][0]["players"][0]["rejoin_in"], Value::Null);
         assert_eq!(body["elevates"], true);
+        assert_eq!(body["open_refusal"], Value::Null);
         // Unavailable on this host: the reason shows.
         let elevations = || c.pc.elevations.load(std::sync::atomic::Ordering::Relaxed);
         let asked = elevations();
@@ -479,6 +488,7 @@ mod tests {
         assert_eq!(body["reason"], "not on this test PC");
         // A host that runs no sessions doesn't ask whether the account elevates.
         assert_eq!(body["elevates"], Value::Null);
+        assert_eq!(body["open_refusal"], Value::Null);
         assert_eq!(elevations(), asked);
     }
 
@@ -861,6 +871,11 @@ mod tests {
         .await;
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(body["elevates"], false);
+        // Open Nucleus Co-op on this PC says why before it is pressed.
+        assert_eq!(
+            body["open_refusal"],
+            "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)"
+        );
         let games = body["games"].as_array().unwrap();
         assert_eq!(
             (&games[0]["status"], &games[0]["reason"]),

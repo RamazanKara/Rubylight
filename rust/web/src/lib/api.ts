@@ -684,6 +684,8 @@ export interface CoopStatus {
    * games that need administrator rights run with. Null when the host can't tell; older hosts leave it out.
    */
   elevates?: boolean | null;
+  /** Why Open Nucleus Co-op on this PC would be refused (an account Windows doesn't elevate); null otherwise. */
+  open_refusal?: string | null;
   /** The Nucleus Co-op window the console opened is still open (older hosts leave it out). */
   opened?: boolean;
   /** Every app that starts an .exe (older hosts leave it out). */

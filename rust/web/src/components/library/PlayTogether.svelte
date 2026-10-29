@@ -146,8 +146,11 @@
       {:else if view.kind === 'handler'}
         <p class="lead">{view.text}</p>
         {#if view.runs}<p class="muted note">{view.runs}</p>{/if}
+        {#if view.openRefusal}
+          <Banner tone="warn" title="Nucleus Co-op can’t open on this account">{view.openRefusal}</Banner>
+        {/if}
         <div class="action">
-          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true} onclick={open}>Open Nucleus Co-op on this PC</Button>
+          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true || view.openRefusal !== null} onclick={open}>Open Nucleus Co-op on this PC</Button>
           {#if status?.opened}{@render closeAction()}{/if}
         </div>
         <p class="muted note">{view.steps}</p>

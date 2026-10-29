@@ -14,7 +14,8 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  * never starts it: a game on a network share, Windows' own program, a missing .exe, a game that needs
  * administrator rights on an account Windows doesn't elevate), shown alike. `handler` and `ready` also say
  * how a background stream runs: as the signed-in user or as administrator. On an account Windows doesn't
- * elevate, `ready` carries the host's refusal instead: its hub handler can't run, for co-op or alone.
+ * elevate, `ready` carries the host's refusal instead: its hub handler can't run, for co-op or alone; and
+ * `handler` says why Open Nucleus Co-op on this PC is refused before it is pressed.
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -25,7 +26,7 @@ export type PlayTogetherView =
   | { kind: 'failed'; error: string }
   | { kind: 'broken'; error: string }
   | { kind: 'checking' }
-  | { kind: 'handler'; added: boolean; text: string; steps: string; runs: string | null }
+  | { kind: 'handler'; added: boolean; text: string; steps: string; runs: string | null; openRefusal: string | null }
   | { kind: 'taken'; reason: string }
   | { kind: 'anti_cheat'; reason: string }
   | { kind: 'ready'; players: string; entry: string; start: string; runs: string | null; refusal: string | null };
@@ -105,6 +106,8 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
   }
   if (status.catalog_error) return { kind: 'broken', error: status.catalog_error };
   const name = game.name;
+  // The host's refusal for Open Nucleus Co-op on this PC; older hosts don't say.
+  const openRefusal = status.elevates === false && status.open_refusal ? sentence(status.open_refusal) : null;
   switch (game.status) {
     case 'ready': {
       const players = game.players ?? 1;
@@ -139,6 +142,7 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
         text: `${name} streams in the background without a handler. To play it together, Nucleus Co-op needs one.`,
         steps: `Nucleus Co-op opens on the PC’s screen. There, search its handler hub for ${name}, download the handler, then add the game. This panel moves on by itself.`,
         runs: runsText(game),
+        openRefusal,
       };
     case 'not_added':
       return {
@@ -147,6 +151,7 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
         text: `Nucleus Co-op has a handler for ${name}, but the game isn’t added yet.`,
         steps: `Nucleus Co-op opens on the PC’s screen. There, add ${name} once, choosing the .exe this app starts. This panel moves on by itself.`,
         runs: runsText(game),
+        openRefusal,
       };
     default:
       return { kind: 'checking' };

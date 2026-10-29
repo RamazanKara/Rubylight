@@ -277,6 +277,28 @@ test('on an account Windows doesn’t elevate, a hub handler’s game says so be
   assert.doesNotMatch(html(user), /on this account|Administrator protection/);
 });
 
+test('on an account Windows doesn’t elevate, Open Nucleus Co-op says why before it is pressed and stays off', () => {
+  const words = 'Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows\' Administrator protection)';
+  const openButton = /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open Nucleus Co-op on this PC/;
+  for (const fixture of [fixtures.handler, fixtures.added]) {
+    const name = fixture.games[0].status;
+    const refused = { ...fixture, elevates: false, open_refusal: words };
+    assert.equal(playTogether(refused, 'portal').openRefusal, `${words}.`, name);
+    const out = html(refused);
+    assert.match(out, /Nucleus Co-op can’t open on this account/, name);
+    assert.ok(out.includes('Administrator protection).'), name);
+    assert.match(out, openButton, name);
+    // An account that elevates, one the host can't tell, or an older host: nothing new.
+    for (const [elevates, open_refusal] of [[true, null], [null, null], [undefined, undefined], [true, words]]) {
+      const fixtureNow = { ...fixture, elevates, open_refusal };
+      assert.equal(playTogether(fixtureNow, 'portal').openRefusal, null, `${name} ${elevates}`);
+      const now = html(fixtureNow);
+      assert.doesNotMatch(now, /can’t open on this account/, `${name} ${elevates}`);
+      assert.doesNotMatch(now, openButton, `${name} ${elevates}`);
+    }
+  }
+});
+
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {
   const view = playTogether(fixtures.launcher, 'portal');
   assert.equal(view.text, 'Co-op finds a game by its .exe, and Counter-Strike 2 starts through a launcher. To play it together, set the command above to the game’s .exe.');

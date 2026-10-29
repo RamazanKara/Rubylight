@@ -25,7 +25,7 @@
 //! rights only.
 use super::{files, install};
 use anyhow::{Context, Result, bail, ensure};
-use butterpollo_core::nucleus::generic::Setup;
+use butterpollo_core::nucleus::generic::{self, Setup};
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::{self as pinned, Part};
 use butterpollo_core::nucleus::profile;
@@ -749,7 +749,7 @@ pub fn write_own(
 ) -> Result<Handler> {
     as_user(token, || files::check_list(copy, Some(setup), &[]))??;
     let handler = files::write_own(folder, setup)?;
-    let handlers = mirror_handlers(folder, copy, token)?;
+    let handlers = mirror_handlers(folder, copy, &handler.file, token)?;
     tracing::debug!(handlers, copy = %copy.display(), "Nucleus Co-op: the user's own copy has the host's handlers");
     as_user(token, || files::add_game(&files::list(copy), setup))??;
     Ok(handler)
@@ -762,14 +762,22 @@ pub fn remove_game(copy: &Path, guid: &str, token: Option<&OwnedHandle>) -> Resu
     as_user(token, || files::remove_game(&files::list(copy), guid))?
 }
 
-/// Make the handlers of the user's copy at `copy` those of the host's copy
-/// at `folder`: Nucleus drops from its list every game whose handler it
-/// doesn't have, and a hub handler added in the host's Nucleus works in the
-/// copy too. The host's are read as the host from its own folder and
-/// written as the user of `token`; a handler only the copy had goes
-/// (Rubylight's own once the host's sweep removed it), so the copy runs only
-/// handlers the host's has. Returns how many there are.
-fn mirror_handlers(folder: &Path, copy: &Path, token: Option<&OwnedHandle>) -> Result<usize> {
+/// Make the handlers of the user's copy at `copy` the host's hub handlers
+/// at `folder` and Rubylight's own handler `own` for the game launched:
+/// Nucleus drops from its list every game whose handler it doesn't have,
+/// and a hub handler added in the host's Nucleus works in the copy too.
+/// Rubylight's handlers for other games (another account's among them, with
+/// their games' paths) stay out. The host's are read as the host from its
+/// own folder and written as the user of `token`; a handler only the copy
+/// had goes (Rubylight's own once the host's sweep removed it, or another
+/// game was launched), so the copy runs only handlers the host's has.
+/// Returns how many there are.
+fn mirror_handlers(
+    folder: &Path,
+    copy: &Path,
+    own: &str,
+    token: Option<&OwnedHandle>,
+) -> Result<usize> {
     let source = folder.join("handlers");
     let mut handlers = Vec::new();
     let entries = match std::fs::read_dir(&source) {
@@ -783,6 +791,13 @@ fn mirror_handlers(folder: &Path, copy: &Path, token: Option<&OwnedHandle>) -> R
         }
         let bytes = std::fs::read(entry.path())
             .with_context(|| format!("reading {}", entry.path().display()))?;
+        let launched = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.eq_ignore_ascii_case(own));
+        if !launched && generic::owns(&String::from_utf8_lossy(&bytes)) {
+            continue;
+        }
         handlers.push((entry.file_name(), bytes));
     }
     let count = handlers.len();
@@ -865,8 +880,10 @@ mod tests {
         for (name, data) in [
             ("NucleusCoop.exe", &b"MZ nucleus"[..]),
             ("Settings.ini", HOST_SETTINGS.as_bytes()),
-            (r"gui\theme\theme.ini", b"theme"),
-            (r"webview\darkreader.js", b"dark"),
+            (r"gui\theme\default\theme.ini", b"theme"),
+            (r"webview\darkreader\background.js", b"dark"),
+            // Not the release's: never copied.
+            ("planted.dll", b"MZ planted"),
             (r"handlers\Puzzle.js", b"Game.GUID = 'Puzzle';"),
             (r"content\Puzzle\Instance0\game.exe", b"MZ game"),
             (r"content\userprofile.json", b"{\"Games\":[\"host\"]}"),
@@ -919,8 +936,8 @@ mod tests {
         assert!(!copy.starts_with(data.path().join("nucleus")));
         for name in [
             "NucleusCoop.exe",
-            r"gui\theme\theme.ini",
-            r"webview\darkreader.js",
+            r"gui\theme\default\theme.ini",
+            r"webview\darkreader\background.js",
         ] {
             assert_eq!(
                 std::fs::read(copy.join(name)).unwrap(),
@@ -928,6 +945,8 @@ mod tests {
                 "{name}"
             );
         }
+        // A file that is not the pinned release's stays in the host's.
+        assert!(!copy.join("planted.dll").exists());
         // With the host's times, which the next check compares.
         let modified = |path: &Path| std::fs::metadata(path).unwrap().modified().unwrap();
         assert_eq!(
@@ -1015,7 +1034,7 @@ mod tests {
         type Change = (&'static str, fn(&Path));
         let changes: [Change; 8] = [
             ("a file removed", |copy| {
-                std::fs::remove_file(copy.join(r"gui\theme\theme.ini")).unwrap()
+                std::fs::remove_file(copy.join(r"gui\theme\default\theme.ini")).unwrap()
             }),
             ("a folder removed", |copy| {
                 std::fs::remove_dir_all(copy.join("webview")).unwrap()
@@ -1027,8 +1046,9 @@ mod tests {
             ("a file shortened", |copy| {
                 std::fs::write(copy.join("NucleusCoop.exe"), b"MZ").unwrap()
             }),
+            // One of the release's that the host's doesn't have.
             ("a file added", |copy| {
-                std::fs::write(copy.join("version.dll"), b"MZ").unwrap()
+                std::fs::write(copy.join("SDL2.dll"), b"MZ").unwrap()
             }),
             ("its marker removed", |copy| {
                 std::fs::remove_file(copy.join(MARKER)).unwrap()
@@ -1055,9 +1075,15 @@ mod tests {
                 b"MZ nucleus",
                 "{what}"
             );
-            assert!(copy.join(r"gui\theme\theme.ini").is_file(), "{what}");
-            assert!(copy.join(r"webview\darkreader.js").is_file(), "{what}");
-            assert!(!copy.join("version.dll").exists(), "{what}");
+            assert!(
+                copy.join(r"gui\theme\default\theme.ini").is_file(),
+                "{what}"
+            );
+            assert!(
+                copy.join(r"webview\darkreader\background.js").is_file(),
+                "{what}"
+            );
+            assert!(!copy.join("SDL2.dll").exists(), "{what}");
             assert_eq!(
                 differs(&copy, &Listing::of(host.path()).unwrap().text).map(|_| ()),
                 None,
@@ -1679,7 +1705,13 @@ mod tests {
         let handlers = host.path().join("handlers");
         std::fs::create_dir_all(handlers.join("Puzzle")).unwrap();
         std::fs::write(handlers.join("Puzzle.js"), b"Game.GUID = 'Puzzle';").unwrap();
-        std::fs::write(handlers.join("Rubylight-game.js"), b"// ours").unwrap();
+        // Rubylight's own: the launched game's, and another account's game's.
+        let ours = format!("{}\n// Written for S-1-5-21-1-2-3-1001\n", generic::MARKER);
+        let theirs_too = format!("{}\n// Written for S-1-5-21-1-2-3-1002\n", generic::MARKER);
+        std::fs::write(handlers.join("Rubylight-game.js"), &ours).unwrap();
+        std::fs::write(handlers.join("Rubylight-other.js"), &theirs_too).unwrap();
+        // A hub handler named like ours is still a hub handler.
+        std::fs::write(handlers.join("Rubylight-hub.js"), b"Game.GUID = 'Hub';").unwrap();
         std::fs::write(handlers.join("Puzzle").join("x.dll"), b"x").unwrap();
         std::fs::write(handlers.join("notes.txt"), b"x").unwrap();
         let theirs = copy.path().join("handlers");
@@ -1688,20 +1720,39 @@ mod tests {
         std::fs::write(theirs.join("Removed.JS"), b"old").unwrap();
         std::fs::write(theirs.join("Puzzle.js"), b"old").unwrap();
         std::fs::write(theirs.join("readme.txt"), b"kept").unwrap();
-        assert_eq!(mirror_handlers(host.path(), copy.path(), None).unwrap(), 2);
+        // An earlier launch's game's handler of ours: gone on this one.
+        std::fs::write(theirs.join("Rubylight-other.js"), &theirs_too).unwrap();
+        let mirrored =
+            mirror_handlers(host.path(), copy.path(), "rubylight-GAME.js", None).unwrap();
+        assert_eq!(mirrored, 3);
         let mut names: Vec<_> = std::fs::read_dir(&theirs)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
         names.sort();
-        assert_eq!(names, ["Puzzle.js", "Rubylight-game.js", "readme.txt"]);
+        assert_eq!(
+            names,
+            [
+                "Puzzle.js",
+                "Rubylight-game.js",
+                "Rubylight-hub.js",
+                "readme.txt"
+            ]
+        );
         assert_eq!(
             std::fs::read(theirs.join("Puzzle.js")).unwrap(),
             b"Game.GUID = 'Puzzle';"
         );
+        assert_eq!(
+            std::fs::read_to_string(theirs.join("Rubylight-game.js")).unwrap(),
+            ours
+        );
         // A host's copy without handlers leaves the copy none.
         std::fs::remove_dir_all(&handlers).unwrap();
-        assert_eq!(mirror_handlers(host.path(), copy.path(), None).unwrap(), 0);
+        assert_eq!(
+            mirror_handlers(host.path(), copy.path(), "Rubylight-game.js", None).unwrap(),
+            0
+        );
         assert!(!theirs.join("Puzzle.js").exists());
     }
 
@@ -1716,14 +1767,17 @@ mod tests {
         let hosts = files::catalog(host.path(), true, None).unwrap();
         assert!(hosts.handlers.iter().any(|h| h.own && h.guid == first.guid));
         assert!(hosts.games.iter().any(|game| game.guid == first.guid));
-        // Another game's launch leaves the first game's in the copy.
-        write_own(host.path(), copy.path(), &ice, None).unwrap();
         let theirs = copy.path().join("handlers");
+        assert_eq!(names(&theirs), [puzzle.file()]);
+        // Another game's launch takes only that game's into the copy: the
+        // host's Nucleus keeps both.
+        write_own(host.path(), copy.path(), &ice, None).unwrap();
+        assert_eq!(names(&theirs), [ice.file()]);
         let mut both = [puzzle.file(), ice.file()];
         both.sort();
-        assert_eq!(names(&theirs), both);
-        // The host's sweep removes it and its game; the next launch, the
-        // copy's.
+        assert_eq!(names(&host.path().join("handlers")), both);
+        // The host's sweep removes it and its game; the copy keeps the
+        // launched game's.
         files::remove_own(host.path(), &first).unwrap();
         remove_game(copy.path(), &first.guid, None).unwrap();
         write_own(host.path(), copy.path(), &ice, None).unwrap();
@@ -1766,6 +1820,9 @@ mod tests {
         std::fs::create_dir_all(&handlers).unwrap();
         junction(&elsewhere.path().join("x.js"), &handlers.join("linked.js"));
         let copy = tempfile::tempdir().unwrap();
-        assert_eq!(mirror_handlers(host.path(), copy.path(), None).unwrap(), 0);
+        assert_eq!(
+            mirror_handlers(host.path(), copy.path(), "linked.js", None).unwrap(),
+            0
+        );
     }
 }

@@ -915,14 +915,11 @@ mod tests {
         assert_eq!(body["admin_protection"], true);
         assert_eq!(
             body["open_refusal"],
-            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't open on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account's own copy"
+            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't open on this PC; games Rubylight adds itself still stream if they need no administrator rights"
         );
         assert_eq!(
             body["games"][0]["reason"],
-            format!(
-                "Nucleus Co-op needs administrator rights for a hub handler, and {}",
-                Account::Protected.no_elevation(elevation::Refused::Hub)
-            )
+            "Nucleus Co-op needs administrator rights for a hub handler, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights"
         );
         // Before the install nothing is known yet.
         *pc.installed.lock().unwrap() = None;

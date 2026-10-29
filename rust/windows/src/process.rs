@@ -544,7 +544,12 @@ unsafe fn dacl_allowed(dacl: *const ACL, mask: u32) -> Result<Vec<String>> {
     Ok(writers)
 }
 pub enum Target {
-    User { elevated: bool },
+    User {
+        elevated: bool,
+    },
+    /// The signed-in user with their standard rights, only while they are
+    /// the account of this SID: the one whose files a launch checked.
+    Account(String),
     SystemSession(u32),
 }
 /// Whether this process runs with administrator rights (elevated, or as SYSTEM).
@@ -736,7 +741,43 @@ fn own_session_user<T>(
 ) -> Result<T> {
     user(current()?)
 }
+/// The token a program started as `target` runs with; None: this process's
+/// own. Only ever the signed-in user's own account: a [`Target::Account`]
+/// start is refused once another account is signed in.
 fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
+    let token = session_token(target)?;
+    if let Target::Account(expected) = target {
+        let found = match &token {
+            Some(token) => token_user_sid(token)?,
+            None => own_sid()?,
+        };
+        same_account(expected, &found)?;
+    }
+    Ok(token)
+}
+/// A start for the account `expected` ([`Target::Account`]) goes ahead only
+/// as that account: `found` is the one whose token it would run with.
+fn same_account(expected: &str, found: &str) -> Result<()> {
+    anyhow::ensure!(
+        expected == found,
+        "another account signed in on this PC since the launch began: start it again"
+    );
+    Ok(())
+}
+/// An elevated start runs only as the signed-in user's own account: `user`
+/// is the SID of their token, `linked` that of the elevation-linked token
+/// Windows gives for it. Under Windows' Administrator protection that is a
+/// separate administrator account, which Rubylight never starts a program
+/// as.
+fn own_linked_account(user: &str, linked: &str) -> Result<()> {
+    anyhow::ensure!(
+        user == linked,
+        "Starting it elevated needs administrator rights, and {}",
+        butterpollo_core::nucleus::elevation::PROTECTED
+    );
+    Ok(())
+}
+fn session_token(target: &Target) -> Result<Option<OwnedHandle>> {
     if !is_system() {
         if matches!(target, Target::SystemSession(_)) {
             bail!("SYSTEM session creation requires the Windows service");
@@ -746,7 +787,11 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
         if matches!(target, Target::User { elevated: true }) && !elevated {
             bail!("this elevated command requires the installed Windows service");
         }
-        if matches!(target, Target::User { elevated: false }) && elevated {
+        if matches!(
+            target,
+            Target::User { elevated: false } | Target::Account(_)
+        ) && elevated
+        {
             // The elevation-linked token is only an identification token for
             // a caller without SeTcbPrivilege, which Windows refuses for
             // process creation. The desktop shell holds the usable one.
@@ -759,7 +804,7 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
     unsafe {
         let source = match target {
             Target::SystemSession(_) => token()?,
-            Target::User { .. } => {
+            Target::User { .. } | Target::Account(_) => {
                 let mut user = own_session_user(current_session, |session| {
                     let mut user = HANDLE::default();
                     WTSQueryUserToken(session, &mut user)
@@ -769,6 +814,7 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
                 if matches!(target, Target::User { elevated: true })
                     && let Some(linked) = linked_token(&user)
                 {
+                    own_linked_account(&token_user_sid(&user)?, &token_user_sid(&linked)?)?;
                     user = linked;
                 }
                 user
@@ -3450,6 +3496,31 @@ mod tests {
             account_of(Some((false, true)), false, false),
             Account::Standard
         );
+    }
+    #[test]
+    fn the_program_starts_only_as_the_signed_in_users_own_account() {
+        let user = "S-1-5-21-1-2-3-1001";
+        let other = "S-1-5-21-1-2-3-1002";
+        // User Account Control's elevated token is the same account's.
+        own_linked_account(user, user).unwrap();
+        // Administrator protection's separate administrator is never started
+        // as, and the refusal never advises turning it off.
+        let refused = format!("{:#}", own_linked_account(user, other).unwrap_err());
+        assert_eq!(
+            refused,
+            "Starting it elevated needs administrator rights, and Windows' Administrator protection keeps them from Rubylight"
+        );
+        // A start for the account whose copy a launch checked runs as it,
+        // or not at all.
+        same_account(user, user).unwrap();
+        let changed = format!("{:#}", same_account(user, other).unwrap_err());
+        assert!(changed.contains("another account signed in"), "{changed}");
+        // Outside the service, a program runs as this process's account.
+        if !is_system() && !elevated().unwrap() {
+            let own = own_sid().unwrap();
+            assert!(target_token(&Target::Account(own)).unwrap().is_none());
+            assert!(target_token(&Target::Account(other.into())).is_err());
+        }
     }
     #[test]
     fn this_hosts_own_token_names_administrators_when_elevated() {

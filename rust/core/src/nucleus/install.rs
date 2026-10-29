@@ -3,7 +3,9 @@
 //! own. Only this exact file is accepted.
 use super::generic;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
+use std::sync::LazyLock;
 
 pub const VERSION: &str = "2.4.2";
 pub const URL: &str = "https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/download/v2.4.2/NucleusApp.zip";
@@ -120,31 +122,70 @@ const SEEDED: [&str; 2] = [
 /// `Settings.ini`; `userprofile.json.rubylight` a game list).
 const TEMPORARY: [&str; 2] = [".rubylight.tmp", ".rubylight"];
 
+/// Every file of the pinned release's archive, `\`-separated as it unpacks,
+/// and its empty folders (ending in `\`): the only program a user's copy
+/// takes.
+const RELEASE: &str = include_str!("release-2.4.2.txt");
+
+/// [`RELEASE`]'s files, and its folders with every one that holds a file,
+/// in lower case: Windows' names are case-insensitive.
+#[derive(Default)]
+struct Release {
+    files: HashSet<String>,
+    folders: HashSet<String>,
+}
+
+fn release() -> &'static Release {
+    static PARSED: LazyLock<Release> = LazyLock::new(|| {
+        let mut release = Release::default();
+        for line in RELEASE.lines() {
+            let line = line.to_ascii_lowercase();
+            let mut folder = match line.strip_suffix('\\') {
+                Some(folder) => Some(folder),
+                None => {
+                    release.files.insert(line.clone());
+                    line.rsplit_once('\\').map(|(folder, _)| folder)
+                }
+            };
+            while let Some(name) = folder {
+                release.folders.insert(name.to_string());
+                folder = name.rsplit_once('\\').map(|(parent, _)| parent);
+            }
+        }
+        release
+    });
+    &PARSED
+}
+
 /// What the file or `folder` at `relative` (below a Nucleus Co-op folder,
-/// `\`-separated) is to a user's own copy. The host's own files beside
-/// Nucleus (`Rubylight-*`, its compatibility settings' journal) and its
-/// temporary files ([`TEMPORARY`]), wherever they are, are state.
+/// `\`-separated) is to a user's own copy. Only the pinned release's own
+/// files and folders ([`RELEASE`]) are program: anything else in the host's
+/// folder is state, never copied into a user's copy. The host's own files
+/// beside Nucleus (`Rubylight-*`, its compatibility settings' journal) and
+/// its temporary files ([`TEMPORARY`]), wherever they are, are state too.
 pub fn part(relative: &str, folder: bool) -> Part {
     let named = |list: &[&str]| list.iter().any(|name| name.eq_ignore_ascii_case(relative));
+    let lower = relative.to_ascii_lowercase();
     if folder {
-        return if named(&STATE_FOLDERS) {
-            Part::State
-        } else {
+        return if !named(&STATE_FOLDERS) && release().folders.contains(&lower) {
             Part::Program
+        } else {
+            Part::State
         };
     }
     let ours = !relative.contains('\\')
         && relative
             .get(..generic::PREFIX.len())
             .is_some_and(|start| start.eq_ignore_ascii_case(generic::PREFIX));
-    let lower = relative.to_ascii_lowercase();
     let temporary = TEMPORARY.iter().any(|end| lower.ends_with(end));
     if ours || temporary || named(&STATE_FILES) {
         Part::State
     } else if named(&SEEDED) {
         Part::Seeded
-    } else {
+    } else if release().files.contains(&lower) {
         Part::Program
+    } else {
+        Part::State
     }
 }
 
@@ -232,17 +273,36 @@ mod tests {
     fn a_users_copy_takes_nucleus_program_and_leaves_its_state() {
         for (path, folder) in [
             ("NucleusCoop.exe", false),
+            // In any case, as Windows names it.
+            ("nucleuscoop.EXE", false),
             (r"utils\GoldbergEmu\steam_api64.dll", false),
             (r"gui\theme\default\theme.ini", false),
-            (r"webview\darkreader\darkreader.js", false),
+            (r"webview\darkreader\background.js", false),
+            // An empty folder of the release.
             (r"utils\User", true),
             ("gui", true),
             ("webview", true),
-            // Only the root's own files are the host's.
-            (r"utils\Rubylight-tool.dll", false),
+            (r"utils\GoldbergEmu", true),
         ] {
             assert_eq!(part(path, folder), Part::Program, "{path}");
         }
+        // Only the release's own: whatever else is in the host's folder is
+        // never copied into a user's copy.
+        for (path, folder) in [
+            ("planted.dll", false),
+            ("version.dll", false),
+            (r"utils\Rubylight-tool.dll", false),
+            (r"utils\User\custom.exe", false),
+            (r"utils\GoldbergEmu\steam_api64.dll.bak", false),
+            ("planted", true),
+            (r"utils\planted", true),
+        ] {
+            assert_eq!(part(path, folder), Part::State, "{path}");
+        }
+        let release = release();
+        assert_eq!(release.files.len(), 783);
+        assert!(release.files.contains("nucleuscoop.exe"));
+        assert!(release.folders.contains(r"utils\flawlesswidescreen\x64"));
         for (path, folder) in [
             ("content", true),
             ("Handlers", true),
@@ -280,8 +340,9 @@ mod tests {
             part(r"utils\FlawlessWidescreen\x86\settings.xml", false),
             Part::Seeded
         );
-        // A file is not a folder of the same name.
-        assert_eq!(part("content", false), Part::Program);
+        // A file is not a folder of the same name, nor a folder a file.
+        assert_eq!(part("gui", false), Part::State);
+        assert_eq!(part("NucleusCoop.exe", true), Part::State);
     }
 
     #[test]

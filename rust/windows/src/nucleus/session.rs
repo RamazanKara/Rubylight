@@ -97,12 +97,10 @@ impl Launcher for Elevated {
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
         require_administrator(crate::process::user_account()?, Refused::Game)?;
-        started(&launch_of(
-            folder,
-            guid,
-            &environment(extra)?,
-            Run::Elevated,
-        ))
+        started(
+            &launch_of(folder, guid, &environment(extra)?, Run::Elevated),
+            None,
+        )
     }
 }
 
@@ -130,10 +128,11 @@ impl Launcher for Unelevated {
     ) -> Result<Box<dyn Nucleus>> {
         let launch = launch_of(folder, guid, &environment(extra)?, Run::User);
         // Windows opens the program and its folder as the host: held, the
-        // user can't swap either for a link until it runs.
+        // user can't swap either for a link until it runs. It starts only as
+        // the account whose copy is held.
         let sid = super::user_copy::sid(&self.user)?;
         let _held = super::user_copy::hold(folder, &sid)?;
-        started(&launch)
+        started(&launch, Some(&sid))
     }
     fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
         super::user_copy::as_user(Some(&self.user), work)?
@@ -176,15 +175,20 @@ fn launch_of(
     }
 }
 
-fn started(launch: &Launch) -> Result<Box<dyn Nucleus>> {
+/// Start `launch`; as the account of SID `account` only, when given.
+fn started(launch: &Launch, account: Option<&str>) -> Result<Box<dyn Nucleus>> {
     let since = crate::process::now();
+    let target = match account {
+        Some(sid) => crate::process::Target::Account(sid.to_string()),
+        None => crate::process::Target::User {
+            elevated: launch.elevated,
+        },
+    };
     let process = crate::process::Process::spawn(
         &launch.program,
         &launch.arguments,
         Some(&launch.folder),
-        crate::process::Target::User {
-            elevated: launch.elevated,
-        },
+        target,
         &launch.environment,
         false,
     )
@@ -1298,7 +1302,7 @@ mod tests {
         );
         assert_eq!(
             open,
-            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't open on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account's own copy"
+            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't open on this PC; games Rubylight adds itself still stream if they need no administrator rights"
         );
         // The console's words before the button is pressed.
         assert_eq!(open, needs_administrator(Account::Protected));
@@ -1308,7 +1312,7 @@ mod tests {
         );
         assert_eq!(
             game,
-            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC"
+            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights"
         );
     }
 

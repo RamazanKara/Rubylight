@@ -4074,7 +4074,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            refused.message.ends_with(", and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC"),
+            refused.message.ends_with(", and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights"),
             "{refused:?}"
         );
         *pc.account.lock().unwrap() = Account::Standard;

@@ -237,14 +237,14 @@ test('a game that needs administrator rights on an account Windows doesn’t ele
   // answer it: shown as it is.
   const refused = status({}, {
     status: 'refused',
-    reason: 'The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and Windows\' Administrator protection keeps them from Rubylight, so Nucleus Co-op can\'t run this game on this PC',
+    reason: 'The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and Windows\' Administrator protection keeps them from Rubylight, so Nucleus Co-op can\'t run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights',
     handler: null,
     players: null,
     runs: null,
   });
   const view = playTogether(refused, 'portal');
   assert.equal(view.kind, 'anti_cheat');
-  assert.match(view.reason, /Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC\.$/);
+  assert.match(view.reason, /keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights\.$/);
   const out = html(refused);
   assert.match(out, /No co-op or background streams for this game/);
   assert.match(out, /Administrator protection/);
@@ -274,7 +274,7 @@ test('on an account Windows doesn’t elevate, a hub handler’s game says so be
   );
   assert.equal(
     playTogether(shielded, 'portal').refusal,
-    'Portal 2’s handler needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account’s own copy.',
+    'Portal 2’s handler needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
   );
   assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i);
   assert.doesNotMatch(out, /Start “Portal 2 \(Co-op\)” from Nightjar|A background stream runs it as administrator/);
@@ -312,7 +312,7 @@ test('on an account Windows doesn’t elevate, Open Nucleus Co-op says why befor
     const shielded = { ...refused, admin_protection: true };
     assert.equal(
       playTogether(shielded, 'portal').openRefusal,
-      'Nucleus Co-op needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t open on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account’s own copy.',
+      'Nucleus Co-op needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t open on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
       name,
     );
     assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i, name);

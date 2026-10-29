@@ -78,15 +78,14 @@ export function runsText(game: CoopGame): string | null {
 }
 
 /**
- * Why an account Windows doesn't elevate has no administrator rights, and what to do or what still runs: the
+ * Why an account Windows doesn't elevate has no administrator rights, and what to do or what still works: the
  * host's words (`Account::no_elevation`). An administrator under Windows' Administrator protection gains
  * nothing by signing in as one, and Rubylight never asks anyone to turn a Windows security feature off.
  */
-const STILL_RUNS =
-  'it still runs a game with no hub handler that needs no administrator rights, from this account’s own copy';
+const STILL_RUNS = 'games Rubylight adds itself still stream if they need no administrator rights';
 export const NO_ELEVATION = {
   standard: 'Windows doesn’t give this account any: sign in to Windows on this PC as an administrator',
-  hub: `Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; ${STILL_RUNS}`,
+  game: `Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; ${STILL_RUNS}`,
   open: `Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t open on this PC; ${STILL_RUNS}`,
 };
 
@@ -98,7 +97,7 @@ export function openRefused(status: CoopStatus): string {
 
 /** Why a game with its hub handler added can't start on an account Windows doesn't elevate, and what to do. */
 export function handlerRefused(name: string, status: CoopStatus): string {
-  const why = status.admin_protection === true ? NO_ELEVATION.hub : NO_ELEVATION.standard;
+  const why = status.admin_protection === true ? NO_ELEVATION.game : NO_ELEVATION.standard;
   return `${name}’s handler needs administrator rights, and ${why}.`;
 }
 

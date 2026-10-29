@@ -113,11 +113,17 @@ That holds on an administrator account too. It runs from the user's own copy
 of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which
 the host copies from the release it installs, once Nucleus Co-op is closed,
 without its settings, logs, game list and game data, and copies again when a
-program file changes on either side. With `nucleus_path` set, such a game is
-refused ([Games without a handler](#games-without-a-handler)). The copy
-starts from Nucleus Co-op's own default settings, never another account's
-nicknames or Steam IDs. It keeps the copy's handlers in step with the
-elevated one's. Everything Rubylight writes in the copy (its game list, its
+program file changes on either side. Only the files of the pinned 2.4.2
+release are copied; anything else in the host's folder stays there. With
+`nucleus_path` set, such a game is refused ([Games without a
+handler](#games-without-a-handler)). The copy starts from Nucleus Co-op's own
+default settings, never another account's nicknames or Steam IDs. Its
+handlers are the elevated one's hub handlers and Rubylight's handler for the
+game launched, never Rubylight's handlers for other games or other accounts.
+The host starts it only as the account whose copy it checked, and an
+elevated Nucleus Co-op only as the signed-in account itself, never as the
+separate administrator of Windows' Administrator protection. Everything
+Rubylight writes in the copy (its game list, its
 `Settings.ini` and the session's profile) it writes as the user, and the copy
 keeps the session's settings: nothing there is put back as SYSTEM. Only
 SYSTEM and Administrators can change the folders above it; the user can only
@@ -145,9 +151,9 @@ handler, for co-op and background streams alike: the Play together panel
 says so before you launch. On a standard account it says to sign in to
 Windows on this PC as an administrator. Under Administrator protection it
 says that the protection keeps administrator rights from Rubylight, so the
-game can't run on this PC, and that a game with no hub handler that needs no
-administrator rights still runs from the account's own copy. Rubylight never
-asks you to turn a Windows security feature off. It tells the two apart by
+game can't run on this PC, and that games Rubylight adds itself still stream
+if they need no administrator rights. Rubylight never asks you to turn a
+Windows security feature off. It tells the two apart by
 the signed-in user's token: Administrator protection elevates an
 administrator only into a separate account, which Rubylight never starts
 Nucleus Co-op as. **Open Nucleus Co-op on this PC** also needs an account

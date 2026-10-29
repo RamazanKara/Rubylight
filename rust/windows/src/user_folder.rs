@@ -186,8 +186,16 @@ fn standard_user(
 /// the host's: a link the user put in a folder of theirs leads nowhere the
 /// user could not reach anyway. With nobody to act as, `work` does not run.
 pub fn as_user<T>(work: impl FnOnce() -> T) -> Result<T, UserFolderError> {
-    let token = user_token()?;
-    let _user = Impersonation::begin(token.as_ref())?;
+    as_token(user_token()?.as_ref(), work)
+}
+
+/// [`as_user`] with `token`, or as the host without one. The impersonation
+/// ends when `work` returns or panics.
+pub(crate) fn as_token<T>(
+    token: Option<&OwnedHandle>,
+    work: impl FnOnce() -> T,
+) -> Result<T, UserFolderError> {
+    let _user = Impersonation::begin(token)?;
     Ok(work())
 }
 
@@ -1143,6 +1151,96 @@ mod tests {
         assert!(denied(folder.list()));
         assert_eq!(names(&allowed), ["a.txt"]);
         assert_eq!(names(&forbidden), ["secret.txt"]);
+    }
+
+    thread_local! {
+        static RESTRICTED: OwnedHandle = without_own_sid();
+    }
+
+    /// Game files reached as `without_own_sid`, the way the host reaches
+    /// them as the signed-in user.
+    fn restricted(work: &mut dyn FnMut()) -> io::Result<()> {
+        RESTRICTED
+            .with(|token| as_token(Some(token), work))
+            .map_err(|error| io::Error::other(error.to_string()))
+    }
+
+    #[test]
+    fn game_files_reached_through_a_swapped_folder_keep_the_users_rights() {
+        use butterpollo_core::game_files::{self, JOURNAL_FILE, Journal, Report, Scope};
+        let base = tempfile::tempdir().unwrap();
+        icacls(base.path(), &["/grant", "*S-1-5-11:(OI)(CI)F"]);
+        // A game in a library folder, and a folder only this user's SID may
+        // use, which the restricted token can't.
+        let library = base.path().join("library");
+        let game = library.join("game");
+        fs::create_dir_all(&game).unwrap();
+        fs::write(
+            game.join("OptiScaler.ini"),
+            "[Framerate]\r\nFramerateLimit=59\r\n",
+        )
+        .unwrap();
+        let forbidden = base.path().join("forbidden");
+        fs::create_dir_all(forbidden.join("game")).unwrap();
+        let secret = forbidden.join("game").join("OptiScaler.ini");
+        let streamed = "[Framerate]\r\nFramerateLimit=120\r\n";
+        fs::write(&secret, streamed).unwrap();
+        let sid = crate::process::own_sid().unwrap();
+        icacls(
+            &forbidden,
+            &["/inheritance:r", "/grant:r", &format!("*{sid}:(OI)(CI)F")],
+        );
+        let journal = base.path().join("config").join(JOURNAL_FILE);
+        let folders = game_files::folders([game.clone()], restricted);
+        assert_eq!(folders.len(), 1);
+        let entries = game_files::parse(&serde_json::json!([{
+            "path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": "{stream_fps}"
+        }]))
+        .unwrap();
+        let mut report = Report::default();
+        let targets = game_files::targets(
+            &entries,
+            Some(120),
+            Some(&game),
+            &folders,
+            restricted,
+            &mut report,
+        );
+        assert_eq!(targets.len(), 1, "{report:?}");
+        let report = game_files::apply(&journal, "phone", &targets, restricted).unwrap();
+        assert_eq!(report.written.len(), 1, "{report:?}");
+        assert_eq!(
+            fs::read_to_string(game.join("OptiScaler.ini")).unwrap(),
+            streamed
+        );
+        assert!(!impersonating());
+
+        // Swapped for a junction to the forbidden folder after the checks:
+        // the restore and the next write are refused with the user's rights.
+        fs::rename(&library, base.path().join("moved")).unwrap();
+        junction(&forbidden, &library);
+        let denied = |lines: &[String]| lines.len() == 1 && lines[0].contains("(os error 5)");
+        let report = game_files::restore(&journal, Scope::All, restricted).unwrap();
+        assert!(denied(&report.failed), "{report:?}");
+        assert_eq!(Journal::load(&journal).unwrap().changes.len(), 1);
+        let report = game_files::apply(&journal, "tv", &targets, restricted).unwrap();
+        assert!(denied(&report.skipped), "{report:?}");
+        assert_eq!(fs::read_to_string(&secret).unwrap(), streamed);
+        assert!(!impersonating());
+    }
+
+    #[test]
+    fn acting_as_a_token_ends_when_the_work_returns_or_panics() {
+        let token = own_token();
+        assert!(as_token(Some(&token), impersonating).unwrap());
+        assert!(!impersonating());
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            as_token(Some(&token), || -> bool { panic!("work panicked") })
+        }));
+        assert!(panicked.is_err());
+        assert!(!impersonating());
+        // Without a token the work runs as the host.
+        assert!(!as_token(None, impersonating).unwrap());
     }
 
     #[test]

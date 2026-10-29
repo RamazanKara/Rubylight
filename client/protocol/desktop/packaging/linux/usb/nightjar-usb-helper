@@ -1,0 +1,242 @@
+#!/bin/sh
+# nightjar-usb-helper-version: 1
+# Nightjar's USB forwarding helper (Linux usbip-host). Nightjar runs it only through pkexec, and
+# it checks its own arguments. It binds a device the user attaches to the kernel's usbip-host,
+# which usbipd serves to Nightjar, and gives it back to its driver afterwards.
+#   install                  writes the polkit policy and the udev rule, then itself
+#   hold BUSID IDENTITY      binds, prints "bound", and unbinds when stdin closes (the
+#                            attachment ended, or Nightjar quit or crashed)
+#   bind BUSID IDENTITY      binds
+#   unbind BUSID             unbinds and gives the device back to its driver
+#   auto-release BUSID       udev, on unplug: clears what usbip-host keeps of the port
+# Exit codes: 2 bad arguments, 3 no usbip tool, 4 no usbip_host module, 5 another device at
+# the port, 6 bound but not recorded, 7 setup failed, 8 the old connection did not let go.
+# Ported from Moonlight V+ (qiin2333/moonlight-qt, app/backend/usbforwardingbackend.cpp).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+set -u
+ACTION=${1:-}
+BUSID=${2:-}
+HELPER_FILE=/usr/lib/nightjar/nightjar-usb-helper
+STATE_DIR=/var/lib/nightjar
+STATE_FILE=$STATE_DIR/usb-bindings
+POLICY_FILE=/usr/share/polkit-1/actions/io.github.ramazankara.nightjar.usb.policy
+UDEV_RULE_FILE=/usr/lib/udev/rules.d/90-nightjar-usb.rules
+SYSFS_USB_DEVICES=/sys/bus/usb/devices
+SYSFS_USBIP_HOST=/sys/module/usbip_host
+DRIVERS_PROBE=/sys/bus/usb/drivers_probe
+
+case "$ACTION" in install|hold|bind|unbind|auto-release) ;; *) echo "unsupported action" >&2; exit 2;; esac
+if [ "$ACTION" != "install" ]; then
+    case "$BUSID" in ''|*[!0-9.-]*) echo "invalid busid" >&2; exit 2;; esac
+fi
+
+# Kills the whole process group (Nightjar starts the helper as its own group) when a step
+# hangs: usbip or usbipd stuck on a broken device.
+OPERATION_TIMEOUT_SECONDS=30
+WATCHDOG_PID=
+start_watchdog() {
+    (
+        WATCHDOG_SLEEP_PID=
+        trap 'kill "${WATCHDOG_SLEEP_PID:-}" 2>/dev/null || true; exit 0' TERM
+        sleep "$OPERATION_TIMEOUT_SECONDS" &
+        WATCHDOG_SLEEP_PID=$!
+        wait "$WATCHDOG_SLEEP_PID"
+        echo "operation_timeout" >&2
+        kill -s KILL -- "-$$"
+    ) &
+    WATCHDOG_PID=$!
+}
+stop_watchdog() {
+    [ -n "$WATCHDOG_PID" ] || return 0
+    kill "$WATCHDOG_PID" 2>/dev/null || true
+    wait "$WATCHDOG_PID" 2>/dev/null || true
+    WATCHDOG_PID=
+}
+if [ "$ACTION" != "auto-release" ]; then
+    start_watchdog
+    trap stop_watchdog EXIT
+fi
+
+if [ "$ACTION" = "install" ]; then
+    # The helper writes both files itself so that the only program run as root stays this one.
+    # Every step is checked: a rule on disk that udev never loaded is worse than a failed
+    # install the user can retry.
+    write_policy() {
+        cat > "$POLICY_FILE" <<'POLICY'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Nightjar</vendor>
+  <vendor_url>https://github.com/RamazanKara/nightjar</vendor_url>
+  <action id="io.github.ramazankara.nightjar.usb">
+    <description>Forward a USB device to the PC with Nightjar</description>
+    <message>Authentication is required to forward a USB device to the PC you stream from</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/nightjar/nightjar-usb-helper</annotate>
+  </action>
+</policyconfig>
+POLICY
+    }
+    write_rule() {
+        cat > "$UDEV_RULE_FILE" <<'RULE'
+# Nightjar USB forwarding: when a forwarded device is unplugged, clear what usbip-host keeps
+# of its port (match_busid), which would otherwise take whatever is plugged in there next.
+# The kernel drops that entry only while the device is present, so after an unplug only a
+# module reload clears it; modprobe -r refuses while another device is still forwarded.
+ACTION=="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", RUN+="/usr/lib/nightjar/nightjar-usb-helper auto-release $kernel"
+RULE
+    }
+    mkdir -p "$(dirname "$POLICY_FILE")" "$(dirname "$UDEV_RULE_FILE")" || { echo "config write failed" >&2; exit 7; }
+    if ! write_policy || ! chmod 644 "$POLICY_FILE" ||
+       ! write_rule || ! chmod 644 "$UDEV_RULE_FILE"; then
+        echo "config write failed" >&2
+        exit 7
+    fi
+    udevadm control --reload 2>/dev/null || { echo "udev reload failed" >&2; exit 7; }
+    # Published last: when a step before failed, Nightjar still finds the old helper and runs
+    # the whole install again next time.
+    if [ "$0" != "$HELPER_FILE" ]; then
+        mkdir -p "$(dirname "$HELPER_FILE")" || { echo "config write failed" >&2; exit 7; }
+        HELPER_TMP="$HELPER_FILE.new.$$"
+        if ! cat "$0" > "$HELPER_TMP" || ! chmod 755 "$HELPER_TMP" ||
+           ! mv "$HELPER_TMP" "$HELPER_FILE"; then
+            rm -f "$HELPER_TMP"
+            echo "config write failed" >&2
+            exit 7
+        fi
+    fi
+    echo "installed"
+    exit 0
+fi
+
+# What a device is: vendor:product:serial, stable across a replug. usbip-host matches ports, not
+# devices, so another device plugged into a forwarded port would be taken silently; the record
+# lets Nightjar refuse it. A device without a serial is told apart by vendor and product only.
+read_identity_attrs() {
+    VID=$(tr -d ' \t\n\r' < "$SYSFS_USB_DEVICES/$BUSID/idVendor" 2>/dev/null | tr 'A-F' 'a-f')
+    PID=$(tr -d ' \t\n\r' < "$SYSFS_USB_DEVICES/$BUSID/idProduct" 2>/dev/null | tr 'A-F' 'a-f')
+    SERIAL=$(tr -d ' \t\n\r' < "$SYSFS_USB_DEVICES/$BUSID/serial" 2>/dev/null)
+    [ -n "$VID" ] && [ -n "$PID" ]
+}
+forget() {
+    mkdir -p "$STATE_DIR"
+    [ -f "$STATE_FILE" ] || return 0
+    awk -F'\t' -v b="$1" '$1 != b' "$STATE_FILE" > "$STATE_FILE.new" &&
+        mv "$STATE_FILE.new" "$STATE_FILE"
+}
+# Drops the records of ports gone from sysfs: after a module reload nothing matches them.
+sweep_stale() {
+    [ -f "$STATE_FILE" ] || return 0
+    while IFS="$(printf '\t')" read -r b vidpid serial; do
+        [ -n "$b" ] || continue
+        [ -d "$SYSFS_USB_DEVICES/$b" ] || forget "$b"
+    done < "$STATE_FILE"
+}
+record() {
+    read_identity_attrs || return 1
+    forget "$BUSID"
+    printf '%s\t%s:%s\t%s\n' "$BUSID" "$VID" "$PID" "$SERIAL" >> "$STATE_FILE" || return 1
+    chmod 644 "$STATE_FILE" 2>/dev/null || true
+}
+
+if [ "$ACTION" = "auto-release" ]; then
+    # Only ports Nightjar forwarded. The record stays when the reload fails, so that the next
+    # unplug tries again.
+    awk -F'\t' -v b="$BUSID" '$1 == b { found = 1 } END { exit !found }' \
+        "$STATE_FILE" 2>/dev/null || exit 0
+    if modprobe -r usbip_host 2>/dev/null && modprobe usbip_host 2>/dev/null; then
+        forget "$BUSID"
+        sweep_stale
+    fi
+    exit 0
+fi
+
+command -v usbip >/dev/null 2>&1 || { echo "usbip tool not found" >&2; exit 3; }
+if [ ! -d "$SYSFS_USBIP_HOST" ]; then
+    modprobe usbip_host 2>/dev/null || { echo "cannot load usbip_host module" >&2; exit 4; }
+fi
+
+# Binds the device the user picked: $3 is the identity Nightjar saw, read again here as root so
+# that nothing else plugged into the port in the meantime is bound.
+bind_device() {
+    if ! pgrep -x usbipd >/dev/null 2>&1; then
+        usbipd -D >/dev/null 2>&1
+        sleep 0.5
+    fi
+    EXPECTED=${3:-}
+    if [ -z "$EXPECTED" ] || [ "${#EXPECTED}" -gt 512 ]; then
+        echo "missing expected identity" >&2; exit 2
+    fi
+    case "$EXPECTED" in *[![:print:]]*) echo "invalid identity" >&2; exit 2;; esac
+    if ! read_identity_attrs || [ "$VID:$PID:$SERIAL" != "$EXPECTED" ]; then
+        echo "device_changed" >&2; exit 5
+    fi
+    OUT=$(usbip bind -b "$BUSID" 2>&1)
+    RC=$?
+    echo "$OUT" >&2
+    case "$OUT" in *"already bound"*) RC=0;; esac
+    [ $RC -eq 0 ] || exit $RC
+    # Bound either way; without the record a replugged port is not guarded.
+    record || { echo "snapshot_failed" >&2; SNAPSHOT_FAILED=1; }
+}
+
+# usbipd hands the connection to usbip-host, so a connection an interrupted client left behind
+# stays until the kernel is told to close that device's export.
+release_active_export() {
+    STATUS_FILE="$SYSFS_USB_DEVICES/$BUSID/usbip_status"
+    SOCKFD_FILE="$SYSFS_USB_DEVICES/$BUSID/usbip_sockfd"
+    [ -r "$STATUS_FILE" ] || return 0
+    [ "$(cat "$STATUS_FILE" 2>/dev/null)" = "2" ] || return 0
+    echo -1 > "$SOCKFD_FILE" 2>/dev/null || return 1
+    ATTEMPT=0
+    while [ "$ATTEMPT" -lt 50 ]; do
+        [ "$(cat "$STATUS_FILE" 2>/dev/null)" != "2" ] && return 0
+        sleep 0.1
+        ATTEMPT=$((ATTEMPT + 1))
+    done
+    return 1
+}
+
+unbind_device() {
+    if ! release_active_export; then
+        echo "active_connection_stuck" >&2
+        exit 8
+    fi
+    OUT=$(usbip unbind -b "$BUSID" 2>&1)
+    RC=$?
+    echo "$OUT" >&2
+    # Still bound: the record keeps guarding the port.
+    [ $RC -eq 0 ] || exit $RC
+    echo "$BUSID" > "$DRIVERS_PROBE" 2>/dev/null || true
+    forget "$BUSID"
+}
+
+SNAPSHOT_FAILED=0
+case "$ACTION" in
+    bind)
+        bind_device "$@"
+        [ "$SNAPSHOT_FAILED" -eq 0 ] || exit 6
+        ;;
+    hold)
+        # A Ctrl-C in Nightjar's terminal or a closed session must not skip the unbind.
+        trap '' INT HUP
+        bind_device "$@"
+        stop_watchdog
+        echo "bound"
+        # Nothing comes on stdin: it closes when the attachment ends or Nightjar exits.
+        cat > /dev/null
+        start_watchdog
+        unbind_device
+        ;;
+    unbind)
+        unbind_device
+        ;;
+esac
+exit 0

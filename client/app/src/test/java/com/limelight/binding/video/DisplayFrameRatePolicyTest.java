@@ -79,32 +79,55 @@ public class DisplayFrameRatePolicyTest {
     }
 
     @Test
-    public void aVrr60FpsGameOnA60And120PanelStaysAt120() {
+    public void withoutTheOptInAVrrGameWhoseRateDividesThePanelMaximumStaysThere() {
         // 60 on 60 Hz would hold each frame for the next 16.7 ms refresh instead of 8.3 ms.
         float[] seamless = {120f, 60f};
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(60f, 120f, seamless), 0f);
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(59.94f, 120f, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(60f, 120f, false, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(59.94f, 120f, false, seamless), 0f);
         // A measured rate a hair above 60 is still 60, not a lone 60.02 Hz vote.
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(60.4f, 120f, seamless), 0f);
-        // 30 and 40 divide 120: the panel maximum.
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(30f, 120f, seamless), 0f);
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(40f, 120f, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(60.4f, 120f, false, seamless), 0f);
+        // 30, 40 and 24 divide 120: the panel maximum.
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(30f, 120f, false, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(40f, 120f, false, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(24f, 120f, false, seamless), 0f);
     }
 
     @Test
-    public void aVrr90FpsGameOnA90And120PanelGets90() {
+    public void withoutTheOptInAVrrGameThatWouldJudderGetsASeamlessMultiple() {
         float[] seamless = {120f, 60f, 90f};
-        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(90f, 120f, seamless), 0f);
+        // 90 fps judders at 120: 90 is seamless.
+        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(90f, 120f, false, seamless), 0f);
         // 45 fps doubles to 90.
-        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(45f, 120f, seamless), 0f);
+        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(45f, 120f, false, seamless), 0f);
         // 50 fps would need 100 Hz, which the panel lacks: the maximum.
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(50f, 120f, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(50f, 120f, false, seamless), 0f);
         // 90 reached only with a blank is not voted.
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(90f, 120f, new float[] {120f, 60f}), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(90f, 120f, false, new float[] {120f, 60f}), 0f);
         // Never above the panel maximum.
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(144f, 120f, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(144f, 120f, false, seamless), 0f);
         // No game rate or no panel maximum: nothing to change.
-        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(0f, 120f, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(0f, 120f, false, seamless), 0f);
+    }
+
+    @Test
+    public void withTheOptInAVrrVoteIsTheVoteWithoutVrr() {
+        // A lower refresh rate allowed: the game's rate, as contentVote gives it without VRR.
+        float[] seamless = {120f, 60f, 90f};
+        assertEquals(60f, DisplayFrameRatePolicy.vrrContentVote(60f, 120f, true, seamless), 0f);
+        assertEquals(DisplayFrameRatePolicy.contentVote(60f, 120f, true, 120f),
+                DisplayFrameRatePolicy.vrrContentVote(60f, 120f, true, seamless), 0f);
+        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(90f, 120f, true, seamless), 0f);
+        assertEquals(50f, DisplayFrameRatePolicy.vrrContentVote(50f, 120f, true, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(144f, 120f, true, seamless), 0f);
+    }
+
+    @Test
+    public void aVrrVoteIsTheMatchingModesRate() {
+        // A game measured at 44.75 fps doubles to 89.5: the vote is the 90 Hz mode itself.
+        float[] seamless = {120f, 60f, 90f};
+        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(44.75f, 120f, false, seamless), 0f);
+        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(89.6f, 120f, false, seamless), 0f);
+        assertEquals(59.94f, DisplayFrameRatePolicy.vrrContentVote(59.9f, 100f, false, new float[] {100f, 59.94f}), 0f);
     }
 
     @Test
@@ -113,7 +136,7 @@ public class DisplayFrameRatePolicyTest {
         float[][] panels = {{120f, 90f}, {60f, 45f}};
         for (float[] panel : panels) {
             float maximum = panel[0];
-            float vote = DisplayFrameRatePolicy.vrrContentVote(panel[1], maximum, new float[] {maximum});
+            float vote = DisplayFrameRatePolicy.vrrContentVote(panel[1], maximum, false, new float[] {maximum});
             assertEquals(maximum, vote, 0f);
             RefreshSwitchDiagnosis.PanelMode only = new RefreshSwitchDiagnosis.PanelMode(1, 1920, 1080, maximum, null);
             for (int sdk : new int[] {30, 33}) {
@@ -197,9 +220,9 @@ public class DisplayFrameRatePolicyTest {
         assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 90f, 120f));
         // The display at about half the stream rate is the cap.
         assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 60f, 120f));
-        // An unknown display or stream rate leaves the frame counts to decide.
-        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 0f, 120f));
-        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 60f, 0f));
+        // An unknown display or stream rate cannot tell a cap from Wi-Fi pairs: nothing is said.
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 0f, 120f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 60f, 0f));
     }
 
     @Test

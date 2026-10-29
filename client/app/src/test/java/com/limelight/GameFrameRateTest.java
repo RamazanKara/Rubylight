@@ -238,7 +238,7 @@ public class GameFrameRateTest {
 
     @Test
     @Config(sdk = 34, shadows = {FrameRateSurface.class, RefreshSwitchMonitorTest.FakePanel.class})
-    public void vrrContentVoteKeepsThePanelMaximumUnlessALowerMultipleIsSeamless() {
+    public void vrrContentVoteLowersOnlyForJudderOrWithTheOptIn() {
         // A 60/90/120 phone at 120, VRR without ARR, a host that sends frame times.
         RefreshSwitchMonitorTest.FakePanel.set(RefreshSwitchMonitorTest.mode(3, 120f, 60f, 90f),
                 RefreshSwitchMonitorTest.mode(1, 60f, 90f, 120f), RefreshSwitchMonitorTest.mode(2, 90f, 60f, 120f),
@@ -261,14 +261,18 @@ public class GameFrameRateTest {
             ReflectionHelpers.setField(activity, "surfaceCreated", true);
             vote(activity, surface);
             assertEquals(120f, vote.frameRate, 0);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
 
-            // A 60 fps game: 120 is already a multiple, the panel stays there.
+            // No lower refresh rate allowed. A 60 fps game: 120 is a multiple, so the panel stays,
+            // and the start-of-stream vote is not made again seamless-only (the status line keeps
+            // its reason).
             renderer.contentMilliHz = 60_000;
             ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
             assertEquals(120f, vote.frameRate, 0);
-            assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
+            assertFalse((boolean) ReflectionHelpers.getField(activity, "appSurfaceSeamlessOnly"));
 
-            // A 90 fps game: 90 is a seamless alternative.
+            // A 90 fps game would judder at 120: 90 is a seamless alternative.
             ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
             renderer.contentMilliHz = 90_000;
             ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
@@ -282,6 +286,14 @@ public class GameFrameRateTest {
             renderer.contentMilliHz = 45_000;
             ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
             assertEquals(120f, vote.frameRate, 0);
+
+            // A lower refresh rate allowed: the vote without VRR, the game's own 60.
+            prefs.reduceRefreshRate = true;
+            ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
+            renderer.contentMilliHz = 60_000;
+            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            assertEquals(60f, vote.frameRate, 0);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
         } finally {
             RefreshSwitchMonitorTest.FakePanel.clear();
             surface.release();

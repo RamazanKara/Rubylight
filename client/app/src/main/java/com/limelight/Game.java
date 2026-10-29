@@ -7939,6 +7939,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int contentMilliHz = decoderRenderer.getContentRateMilliHz();
         if (contentRateVote.withdraw(now, contentMilliHz)) {
             // The game no longer holds a rate: back to the vote the stream would make.
+            if (keepsVrrVote(baseSurfaceFrameRate())) return;
             applySurfaceFrameRate(videoSurface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
             LimeLog.info("Content frame rate vote withdrawn");
             logDisplayRefreshPolicy(getVideoDisplay());
@@ -7946,16 +7947,27 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         float contentHz = contentRateVote.next(now, contentMilliHz);
         if (contentHz <= 0) return;
-        // With VRR (no ARR here) the base vote is the panel maximum: only a seamless lower multiple
-        // of the game's rate replaces it, never a rate that waits longer for the next refresh.
+        // With VRR (no ARR here) the base vote is the panel maximum. With a lower refresh rate allowed
+        // the vote is as without VRR. Otherwise it goes lower only when the game's rate would judder at
+        // the maximum, to a seamless multiple of it: even frame timing for a little more wait for the
+        // next refresh (about 1.4 ms on average for 90 Hz instead of 120, not measured).
         float vote = prefConfig.vrr ?
                 com.limelight.binding.video.DisplayFrameRatePolicy.vrrContentVote(contentHz, panelMaxRefreshRate,
+                        mayReduceRefreshRate(),
                         com.limelight.binding.video.DisplayFrameRatePolicy.seamlessRates(getVideoDisplay())) :
                 com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
                         baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);
+        if (keepsVrrVote(vote)) return;
         applySurfaceFrameRate(videoSurface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
         LimeLog.info("Content frame rate vote: " + vote + " Hz (game at " + contentHz + " Hz)");
         logDisplayRefreshPolicy(getVideoDisplay());
+    }
+
+    // With VRR a content vote that equals the vote in force (the panel maximum the stream started
+    // with) is not made again: re-voting it seamless-only would change the reason the status line
+    // gives when the screen never reached that rate (a TV that needs Match content frame rate).
+    private boolean keepsVrrVote(float vote) {
+        return prefConfig.vrr && appSurfaceFrameRateVote != null && Math.abs(vote - appSurfaceFrameRateVote) < 0.01f;
     }
 
     @Override

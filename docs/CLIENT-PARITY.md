@@ -20,7 +20,7 @@ Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTe
 | --- | --- | --- | --- | --- |
 | Discovery, manual addresses, IPv6, Wake-on-LAN | Done | Done | Done | |
 | PIN and one-time PIN pairing | Done | Done | Done | |
-| Pair with a QR code (Android) or a pasted pairing link (desktop) | Tested | Done | Done | Android, rc.4 R1, 2026-10-28: a pairing link adds and pairs with no PIN, and a forged certificate is refused. Replaying a used code while no other code is live shows a network error instead of "code used" (a host answer, open). Desktop: rc.4 L15. |
+| Pair with a QR code (Android) or a pasted pairing link (desktop) | Tested | Done | Done | Android, rc.4 R1, 2026-10-28: a pairing link adds and pairs with no PIN, and a forged certificate is refused. Replaying a used code while no other code is live showed a network error instead of "code used"; after rc.4 the host's 400 refusal shows "show a new code" (unit-tested, Retroid retest pending). Desktop: rc.4 L15. |
 | Home, library, artwork and the game page (Rubylight 3.0) | Done | Done | Done | |
 | Store shelves, All games and the TV layout | Tested | Partial | Partial | TCL C6K, 2026-10-28: TV layout items 1 to 4 (rows, presets, dark theme, edges); the rest is rc.4 T1. Desktop: Home merges the library by title, without store shelves or All games filters. |
 | Launch, resume, quit, quit and start another | Done | Done | Done | |

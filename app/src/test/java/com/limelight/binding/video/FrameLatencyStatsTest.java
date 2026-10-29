@@ -172,6 +172,76 @@ public class FrameLatencyStatsTest {
         assertArrayEquals(new double[] {1, 1, 1, 1}, stats.summarize()[1], 0);
     }
 
+    // R10c2: PyroWave passes its truncated presentation time as the output index (about 786
+    // million on the Retroid); the index array grew to it and threw OutOfMemoryError (3.1 GB).
+    @Test
+    public void pyroWavePresentationTimeIndicesNeverSizeAnAllocation() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        int initialSlots = stats.outputSlotCount();
+        // The Retroid's value, across 2^31 us (the index turns negative) and from the largest int.
+        long[] starts = {786_000_000L, (1L << 31) - 2 * 16_667L, Integer.MAX_VALUE - 16_667L};
+        int number = 0;
+        for (long start : starts) {
+            for (long pts = start; pts < start + 300 * 16_667L; pts += 16_667L) {
+                long t = 1_000_000_000L + number * 16_667_000L;
+                stats.onDecoderInput(++number, pts, t, t + 1_000, t + 2_000, (char) 0);
+                stats.onPyroWaveDecoderQueued(pts, t + 2_000);
+                stats.onDecoderOutput((int) pts, pts, t + 5_000_000);
+                assertEquals(4_998_000, stats.getInputToOutputNs((int) pts));
+                stats.onOutputReleased((int) pts, t + 6_000_000, true, true);
+                assertEquals(0, stats.getInputToOutputNs((int) pts));
+                stats.onFrameRendered(pts, t + 7_000_000);
+            }
+        }
+        assertTrue(stats.outputSlotCount() - initialSlots <= 16384);
+        stats.expire(Long.MAX_VALUE / 2);
+        assertEquals(0, stats.getPresentDrops());
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] rows = csv.toString().trim().split("\n");
+        assertEquals(900, rows.length);
+        for (String row : rows) assertEquals(row, "rendered", row.split(",", -1)[7]);
+    }
+
+    @Test
+    public void manyPyroWaveOutputsInFlightAreEachReleasedByTheirOwnIndex() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        int frames = 2000;
+        for (int i = 0; i < frames; i++) {
+            long pts = 786_000_000L + i * 16_667L;
+            stats.onDecoderInput(i + 1, pts, 1000, 1001, 1002, (char) 0);
+            stats.onDecoderOutput((int) pts, pts, 2000 + i);
+        }
+        // Released in a scattered order, so removals shift the probe chains of entries still held.
+        for (int i = 0; i < frames; i++) {
+            int k = (int) ((i * 7919L) % frames);
+            long pts = 786_000_000L + k * 16_667L;
+            assertEquals(998 + k, stats.getInputToOutputNs((int) pts));
+            stats.onOutputReleased((int) pts, 3_000_000, false, false);
+            assertEquals(0, stats.getInputToOutputNs((int) pts));
+        }
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] rows = csv.toString().trim().split("\n");
+        assertEquals(frames, rows.length);
+        for (String row : rows) assertEquals(row, "dropped", row.split(",", -1)[7]);
+    }
+
+    @Test
+    public void mediaCodecIndicesStayInTheArrayAndAReusedIndexMovesToTheNewFrame() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 100, 150, 200, (char) 0);
+        stats.onDecoderOutput(1000, 1, 300);
+        assertEquals(100, stats.getInputToOutputNs(1000));
+        assertEquals(1001, stats.outputSlotCount());
+        stats.onDecoderInput(2, 2, 100, 150, 250, (char) 0);
+        stats.onDecoderOutput(1000, 2, 400);
+        assertEquals(150, stats.getInputToOutputNs(1000));
+        // Finishing the first frame must not take the index from the second.
+        stats.discard(1, "test");
+        assertEquals(150, stats.getInputToOutputNs(1000));
+    }
+
     @Test
     public void recentSummaryExpiresEachStageEvenWhenOtherStagesKeepReceivingFrames() {
         FrameLatencyStats stats = new FrameLatencyStats();

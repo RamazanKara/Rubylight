@@ -642,8 +642,9 @@ fn wait_for_route(address: &str, port: u16, remaining_ms: u64, interrupt: &Inter
     }
 }
 
-/// None when a connection toward the PC's HTTP port gets an answer (refused counts: the route is
-/// there and the attempt itself decides), else why not.
+/// Why there is no route toward the PC's HTTP port yet ([`recovery::route_missing`], or the
+/// name does not resolve), or None to go on with the attempt: an answer, refused included, and
+/// also a check that timed out or failed otherwise.
 fn route_problem(address: &str, port: u16) -> Option<String> {
     let remote = match (address, port).to_socket_addrs().map(|mut found| found.next()) {
         Ok(Some(remote)) => remote,
@@ -651,9 +652,8 @@ fn route_problem(address: &str, port: u16) -> Option<String> {
         Err(error) => return Some(error.to_string()),
     };
     match std::net::TcpStream::connect_timeout(&remote, Duration::from_millis(recovery::ROUTE_PROBE_TIMEOUT_MS)) {
-        Ok(_) => None,
-        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => None,
-        Err(error) => Some(error.to_string()),
+        Err(error) if recovery::route_missing(&error) => Some(error.to_string()),
+        _ => None,
     }
 }
 

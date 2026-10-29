@@ -1126,6 +1126,26 @@ public class GameRecoveryTest {
         }
     }
 
+    // Only an immediate no-route error waits; a check that times out (a slow link, or a closed
+    // port on Windows) or is refused goes on to the attempt.
+    @Test public void onlyAnImmediateNoRouteErrorWaitsForTheRoute() {
+        assertTrue(Game.routeMissing(new java.net.UnknownHostException("pc.test")));
+        assertTrue(Game.routeMissing(new java.net.NoRouteToHostException("EHOSTUNREACH")));
+        for (int errno : new int[] {android.system.OsConstants.ENETUNREACH, android.system.OsConstants.EHOSTUNREACH,
+                android.system.OsConstants.EADDRNOTAVAIL}) {
+            assertTrue("errno " + errno, Game.routeMissing(connectFailure(errno)));
+        }
+        assertFalse(Game.routeMissing(new java.net.SocketTimeoutException("connect timed out")));
+        assertFalse(Game.routeMissing(connectFailure(android.system.OsConstants.ECONNREFUSED)));
+        assertFalse(Game.routeMissing(new java.net.ConnectException("connect failed")));
+    }
+
+    private static java.net.ConnectException connectFailure(int errno) {
+        java.net.ConnectException failure = new java.net.ConnectException("connect failed");
+        failure.initCause(new android.system.ErrnoException("connect", errno));
+        return failure;
+    }
+
     private static Intent awaitRecoveryLaunch(Game game, int delaySeconds) throws InterruptedException {
         join(ReflectionHelpers.getField(game, "connectionStopThread"));
         org.robolectric.shadows.ShadowLooper.idleMainLooper(delaySeconds, java.util.concurrent.TimeUnit.SECONDS);

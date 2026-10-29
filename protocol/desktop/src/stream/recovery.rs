@@ -65,6 +65,16 @@ mod tests {
         assert!(!route_missing(&Error::from_raw_os_error(timed_out)));
     }
 
+    // The reconnect decision assumes the engine's connection timeout (nightjar-policy cannot
+    // depend on the engine; the desktop links both).
+    #[test]
+    fn the_peer_timeout_is_the_engines_connection_timeout() {
+        assert_eq!(
+            std::time::Duration::from_millis(PEER_TIMEOUT_MS.into()),
+            nightjar_core::control::driver::CONTROL_PEER_TIMEOUT
+        );
+    }
+
     #[test]
     fn retries_are_bounded_across_short_connections() {
         let mut recovery = Backoff::default();

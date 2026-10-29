@@ -689,11 +689,19 @@ impl Session {
         if let Some(roamer) = &self.parts.roamer {
             return roamer.network_changed(hint);
         }
-        match (self.parts.remote, self.parts.local) {
-            (Some(remote), Some(local)) => {
-                NetworkChange::standing(local, net::local_address_toward(remote))
-            }
-            _ => NetworkChange::CarriesOn,
+        match self.parts.remote {
+            Some(remote) => self.network_changed_on(net::local_address_toward(remote)),
+            None => NetworkChange::CarriesOn,
+        }
+    }
+
+    /// [`Session::network_changed`] without roaming, with the route toward the host given:
+    /// for tests of a route that leaves from another address than the session started on.
+    #[doc(hidden)]
+    pub fn network_changed_on(&self, route: io::Result<SocketAddr>) -> NetworkChange {
+        match self.parts.local {
+            Some(local) => NetworkChange::standing(local, route),
+            None => NetworkChange::CarriesOn,
         }
     }
 

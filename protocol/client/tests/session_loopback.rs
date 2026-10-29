@@ -1408,8 +1408,13 @@ fn with_roaming_off_nothing_is_probed() {
         record.lock().unwrap().logs
     );
 
-    // Without a roamer the session still tells the same address carries on.
+    // Without a roamer the session still tells the same address carries on, and a route from
+    // another address than it started on cannot: it kept its start address.
     assert_eq!(session.network_changed(NetworkHint::default()), NetworkChange::CarriesOn);
+    let elsewhere = SocketAddr::from((Ipv4Addr::new(192, 0, 2, 7), 0));
+    assert_eq!(session.network_changed_on(Ok(elsewhere)), NetworkChange::CannotContinue);
+    let here = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+    assert_eq!(session.network_changed_on(Ok(here)), NetworkChange::CarriesOn);
     for local in [None, Some(IpAddr::from(Ipv4Addr::LOCALHOST))] {
         let refused = session.roam_to(local).unwrap_err();
         assert_eq!(refused.kind(), io::ErrorKind::Unsupported, "{refused}");

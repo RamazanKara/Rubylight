@@ -69,4 +69,34 @@ public class NetworkReturnRecoveryTest {
     @Test public void oneCheckFitsInsideTheRetryPace() {
         assertTrue(NetworkReturnRecovery.PROBE_TIMEOUT_MS < NetworkReturnRecovery.RETRY_MS);
     }
+
+    // The engine's connection timeout, read from its source, is what the reconnect decision and
+    // the tracker's second question assume (here and on the desktop, through nightjar-policy).
+    @Test public void thePeerTimeoutIsTheEnginesConnectionTimeout() throws Exception {
+        java.util.regex.Matcher engine = java.util.regex.Pattern.compile(
+                "pub const CONTROL_PEER_TIMEOUT: Duration = Duration::from_secs\\((\\d+)\\);")
+                .matcher(rust("client/src/control/driver.rs"));
+        assertTrue("CONTROL_PEER_TIMEOUT in driver.rs", engine.find());
+        int engineMs = Integer.parseInt(engine.group(1)) * 1000;
+        java.util.regex.Matcher policy = java.util.regex.Pattern.compile(
+                "pub const PEER_TIMEOUT_MS: u32 = ([\\d_]+);").matcher(rust("policy/src/recovery.rs"));
+        assertTrue("PEER_TIMEOUT_MS in nightjar-policy", policy.find());
+        assertEquals("nightjar-policy", engineMs, Integer.parseInt(policy.group(1).replace("_", "")));
+        assertEquals(engineMs, NetworkReturnRecovery.PEER_TIMEOUT_MS);
+        java.lang.reflect.Field recheck = Class.forName("com.limelight.nvstream.RoamingNetworkTracker")
+                .getDeclaredField("RECHECK_MS");
+        recheck.setAccessible(true);
+        assertEquals("RoamingNetworkTracker.RECHECK_MS", engineMs, recheck.getLong(null));
+    }
+
+    private static String rust(String path) throws java.io.IOException {
+        for (String root : new String[] {"../protocol/", "protocol/"}) {
+            java.io.File file = new java.io.File(root + path);
+            if (file.isFile()) {
+                return new String(java.nio.file.Files.readAllBytes(file.toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8);
+            }
+        }
+        throw new AssertionError(path + " not found from " + new java.io.File(".").getAbsolutePath());
+    }
 }

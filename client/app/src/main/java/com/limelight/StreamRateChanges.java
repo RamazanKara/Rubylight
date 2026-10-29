@@ -2,6 +2,7 @@ package com.limelight;
 
 import com.limelight.nvstream.ClientHintBitrateController;
 import com.limelight.nvstream.RateChangeResult;
+import com.limelight.preferences.StreamLayers;
 
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -100,8 +101,19 @@ final class StreamRateChanges {
     }
 
     void startAutomatic(int initialKbps, long nowMs) {
-        automatic = new ClientHintBitrateController(initialKbps, 0, nowMs);
+        startAutomatic(initialKbps, 0, nowMs);
+    }
+
+    // limitKbps is this client's cap on the range (see clientLimitKbps), 0 for none.
+    void startAutomatic(int initialKbps, int limitKbps, long nowMs) {
+        automatic = new ClientHintBitrateController(initialKbps, limitKbps, nowMs);
         automaticSerial = 0;
+    }
+
+    // Automatic bitrate's own cap: the mobile data limit on a mobile network, none elsewhere, as
+    // on desktop (Profiles::bitrate_limit). Its range otherwise reaches twice the start.
+    static int clientLimitKbps(StreamLayers.Network network, int mobileLimitKbps) {
+        return network == StreamLayers.Network.MOBILE && mobileLimitKbps > 0 ? mobileLimitKbps : 0;
     }
 
     void stopAutomatic() {

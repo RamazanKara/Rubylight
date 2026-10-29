@@ -376,6 +376,9 @@ struct Runner {
     deadline: Instant,
     exited: bool,
     failed: u32,
+    /// The game's folder: walked again after a failed start
+    /// ([`super::elevation::forget`]).
+    game: Option<PathBuf>,
     /// The game's compatibility settings from before Nucleus started; last,
     /// so it drops after Nucleus. None for a runner tested alone.
     layers: Option<Guard>,
@@ -546,7 +549,10 @@ impl Runner {
                 tracing::info!(title = self.title, "Nucleus Co-op session ended")
             }
             Phase::Ended(why) => {
-                tracing::warn!(title = self.title, "Nucleus Co-op session ended: {why}")
+                tracing::warn!(title = self.title, "Nucleus Co-op session ended: {why}");
+                if let (End::Failed(_), Some(game)) = (why, &self.game) {
+                    super::elevation::forget(game);
+                }
             }
             _ => {}
         }
@@ -642,6 +648,17 @@ pub fn start_on_pc(
         Box::new(layers::UserHive::signed_in()?),
         launcher.as_mut(),
     )
+    .inspect_err(|_| {
+        if let Some(game) = game_folder(start.exe_path) {
+            super::elevation::forget(&game);
+        }
+    })
+}
+
+/// The folder of the game at `exe`, which [`super::elevation::folder_need`]
+/// walks.
+fn game_folder(exe: &str) -> Option<PathBuf> {
+    Path::new(exe).parent().map(Path::to_path_buf)
 }
 
 /// What starting a session needs that doesn't need Nucleus Co-op closed:
@@ -763,6 +780,7 @@ pub fn start(
         deadline: Instant::now() + START_TIMEOUT,
         exited: false,
         failed: 0,
+        game: game_folder(start.exe_path),
         layers: Some(layers),
     };
     let (stop, stopped) = mpsc::channel();
@@ -1143,6 +1161,7 @@ mod tests {
             deadline: t0 + START_TIMEOUT,
             exited: false,
             failed: 0,
+            game: None,
             layers: None,
         }
     }
@@ -1355,6 +1374,28 @@ mod tests {
             runner.step(t0),
             Some(End::Failed("Player 1's instance of Game exited".into()))
         );
+    }
+
+    #[test]
+    fn a_failed_start_walks_the_game_folder_again() {
+        use super::super::elevation;
+        let t0 = Instant::now();
+        let game = tempfile::tempdir().unwrap();
+        elevation::folder_need(game.path(), None).unwrap();
+        assert!(elevation::is_kept(game.path()));
+        let (screen, probe) = (screen(), Probe::default());
+        // A session stopped, or one that crashed once it ran: it stays.
+        for end in [End::Ended, End::Crashed("kicked".into())] {
+            let mut runner = runner(1, &screen, &probe, t0);
+            runner.game = Some(game.path().to_path_buf());
+            runner.finish(end);
+            assert!(elevation::is_kept(game.path()));
+        }
+        // One that failed to start: walked again next time.
+        let mut runner = runner(1, &screen, &probe, t0);
+        runner.game = Some(game.path().to_path_buf());
+        runner.finish(End::Failed("Nucleus Co-op did not start Game".into()));
+        assert!(!elevation::is_kept(game.path()));
     }
 
     #[test]

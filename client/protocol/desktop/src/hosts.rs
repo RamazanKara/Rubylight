@@ -1539,6 +1539,7 @@ pub(crate) mod tests {
             settings: None,
             app_settings: Default::default(),
             quit_on_leave: Default::default(),
+            notices: Default::default(),
         }
     }
 

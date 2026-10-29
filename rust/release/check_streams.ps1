@@ -28,7 +28,14 @@ function Initialize-CheckLocks([string] $Directory, [switch] $GpuLockHeld) {
     # One quiet-CPU budget for the whole check: once it is spent, each stream
     # only samples the load once and records it.
     $script:CheckQuietBudget = 900
+    # GPU-LOCK is never broken as stale: a holder past this ends the check.
+    $script:CheckGpuDeadline = 1800
+    $script:CheckGpuWarning = 60
+    # Locks this run wrote that another session removed or took over.
+    $script:CheckLockLost = [Collections.Generic.List[string]]::new()
     if (-not $script:CheckLocks) { Write-Warning "No build-lock.ps1 in $Directory; the streams only wait for a quiet CPU." }
+    # Walked once, before any lock is taken.
+    [void] (Get-AncestorIds)
 }
 
 function Get-AncestorIds {
@@ -39,9 +46,9 @@ function Get-AncestorIds {
         }
         $ids = [Collections.Generic.List[int]]::new()
         $id = $PID
-        while ($id -and -not $ids.Contains($id)) {
+        # A parent that exited left its id to be reused: only running ones count.
+        while ($id -and -not $ids.Contains($id) -and $parents.ContainsKey($id)) {
             $ids.Add($id)
-            if (-not $parents.ContainsKey($id)) { break }
             $id = $parents[$id]
         }
         $script:CheckAncestors = $ids
@@ -53,7 +60,7 @@ function Get-AncestorIds {
 # batch ("pid N"), or a script that took BUILD-LOCK ("pid=N") before calling
 # the check. Taking it again would wait for ourselves.
 function Test-LockOurs([string] $Path) {
-    $holder = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+    $holder = Read-Lock $Path
     [bool] ($holder -and $holder -match '\bpid[= ](\d+)' -and (Get-AncestorIds) -contains [int] $Matches[1])
 }
 
@@ -69,18 +76,46 @@ function Lock-Try([string] $Path, [string] $Owner) {
     $text
 }
 
+# Another session reading a lock (Python's read_text) holds it open without
+# delete sharing for a moment: retry for about a second.
+function Invoke-LockFile([scriptblock] $Action) {
+    for ($try = 1; ; $try++) {
+        try { return & $Action } catch [IO.IOException] {
+            if ($try -ge 20) { throw }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+}
+
+function Read-Lock([string] $Path) {
+    Invoke-LockFile { if ([IO.File]::Exists($Path)) { [IO.File]::ReadAllText($Path) } }
+}
+
+# A lock this run wrote that is gone or holds another session's text: said
+# loudly, and Invoke-StreamCase adds it to the case's result.json.
+function Test-LockStillOurs([string] $Path, [string] $Written) {
+    $now = Read-Lock $Path
+    if ($now -ceq $Written) { return $true }
+    $lost = "$(Split-Path -Leaf $Path) written as '$Written' " + $(if ($null -eq $now) { 'was removed by another session' } else { "was taken over: $now" })
+    if (-not $script:CheckLockLost.Contains($lost)) {
+        $script:CheckLockLost.Add($lost)
+        Write-Host "LOCK LOST: $lost. Another session may have streamed or built beside this check." -ForegroundColor Red
+    }
+    $false
+}
+
 # Only the lock this run wrote: a lock broken as stale and taken by another
 # session stays theirs.
 function Lock-Release([string] $Path, [string] $Written) {
-    if ($Written -and (Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue) -ceq $Written) {
-        Remove-Item -LiteralPath $Path -Force
+    if ($Written -and (Test-LockStillOurs $Path $Written)) {
+        Invoke-LockFile { [IO.File]::Delete($Path) }
     }
 }
 
 # Keeps a long hold of BUILD-LOCK from looking stale to build-lock.ps1.
 function Lock-Refresh([string] $Path, [string] $Written) {
-    if ($Written -and (Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue) -ceq $Written) {
-        (Get-Item -LiteralPath $Path).LastWriteTime = Get-Date
+    if ($Written -and (Test-LockStillOurs $Path $Written)) {
+        Invoke-LockFile { [IO.File]::SetLastWriteTime($Path, (Get-Date)) }
     }
 }
 
@@ -112,37 +147,71 @@ function Enter-CheckBuildLock {
     }
 }
 
+# Between the fixture builds, so a long one never looks stale.
+function Update-CheckBuildLock([hashtable] $Held) {
+    if ($Held) { Lock-Refresh $script:CheckBuildLock $Held.build }
+}
+
 # For a stream: GPU-LOCK first, then BUILD-LOCK without waiting. Waiting for
 # BUILD-LOCK while holding GPU-LOCK could deadlock with a session that holds
 # BUILD-LOCK and waits for the GPU; with BUILD-LOCK busy the GPU goes back
 # for a while and both are tried again.
 function Enter-StreamLocks {
     if (-not $script:CheckLocks) { return @{} }
+    $waiting = [Diagnostics.Stopwatch]::StartNew()
+    $warned = 0
     while ($true) {
         $held = @{}
-        if (-not $script:CheckGpuHeld -and -not (Test-LockOurs $script:CheckGpuLock)) {
-            while (-not ($held.gpu = Lock-Try $script:CheckGpuLock 'release check.ps1')) {
-                Write-Holder 'the GPU lock' $script:CheckGpuLock
-                Start-Sleep -Seconds $script:CheckLockPoll
+        try {
+            if (-not $script:CheckGpuHeld -and -not (Test-LockOurs $script:CheckGpuLock)) {
+                while (-not ($held.gpu = Lock-Try $script:CheckGpuLock 'release check.ps1')) {
+                    Write-Holder 'the GPU lock' $script:CheckGpuLock
+                    $seconds = $waiting.Elapsed.TotalSeconds
+                    if ($seconds -ge $script:CheckGpuDeadline) {
+                        throw "GPU-LOCK still held after $([math]::Round($seconds)) s: $(Read-Lock $script:CheckGpuLock). Not breaking it: run the check once that session is done."
+                    }
+                    if ($seconds -ge ($warned + 1) * $script:CheckGpuWarning) {
+                        $warned = [math]::Floor($seconds / $script:CheckGpuWarning)
+                        Write-Warning "still waiting for the GPU lock after $([math]::Round($seconds)) s: $(Read-Lock $script:CheckGpuLock)"
+                    }
+                    Start-Sleep -Seconds $script:CheckLockPoll
+                }
             }
-        }
-        if (Test-LockOurs $script:CheckBuildLock) { return $held }
-        if ($held.build = Lock-Try $script:CheckBuildLock 'check') { return $held }
-        if (Remove-StaleBuildLock) {
-            Lock-Release $script:CheckGpuLock $held.gpu
-            continue
+            if (Test-LockOurs $script:CheckBuildLock) { return $held }
+            if ($held.build = Lock-Try $script:CheckBuildLock 'check') { return $held }
+            $stale = Remove-StaleBuildLock
+        } catch {
+            Exit-CheckLocks $held -NoPause
+            throw
         }
         Lock-Release $script:CheckGpuLock $held.gpu
+        if ($stale) { continue }
         Write-Holder 'the build lock (the GPU lock is back for now)' $script:CheckBuildLock
         Start-Sleep -Seconds $script:CheckLockBackoff
     }
 }
 
-function Exit-CheckLocks([hashtable] $Held) {
+# GPU first, each in its own try: a lock that cannot be removed must not
+# keep the other one held.
+function Exit-CheckLocks([hashtable] $Held, [switch] $NoPause) {
     if (-not $Held) { return }
-    Lock-Release $script:CheckBuildLock $Held.build
-    Lock-Release $script:CheckGpuLock $Held.gpu
-    if ($Held.build -or $Held.gpu) { Start-Sleep -Seconds $script:CheckLockPause }
+    foreach ($lock in @(@($script:CheckGpuLock, $Held.gpu), @($script:CheckBuildLock, $Held.build))) {
+        try { Lock-Release $lock[0] $lock[1] } catch {
+            $script:CheckLockLost.Add("$(Split-Path -Leaf $lock[0]) could not be removed: $_")
+            Write-Host "LOCK LEFT BEHIND: $(Split-Path -Leaf $lock[0]) could not be removed: $_. Remove it by hand." -ForegroundColor Red
+        }
+    }
+    if (($Held.build -or $Held.gpu) -and -not $NoPause) { Start-Sleep -Seconds $script:CheckLockPause }
+}
+
+# The case's result.json says which of its locks another session took.
+function Write-LockLost([string] $ResultPath) {
+    if (-not $script:CheckLockLost.Count -or -not (Test-Path -LiteralPath $ResultPath)) { return }
+    $result = Get-Content -LiteralPath $ResultPath -Raw | ConvertFrom-Json -AsHashtable
+    $result.lock_warnings = @($script:CheckLockLost)
+    $result.warnings = @(@($result.warnings | Where-Object { $_ }) + $script:CheckLockLost)
+    $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $ResultPath -Encoding utf8NoBOM
+    $script:CheckLockLost.Clear()
 }
 
 # machine_load.py's verdict goes to $Out for e2e.py to record as quiet_wait.
@@ -197,5 +266,8 @@ function Invoke-StreamCase([string] $Case, [string[]] $Stream, [string] $Run) {
                 throw
             }
         }
-    } finally { Exit-CheckLocks $held }
+    } finally {
+        Exit-CheckLocks $held
+        Write-LockLost $resultPath
+    }
 }

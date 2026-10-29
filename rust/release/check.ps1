@@ -108,7 +108,9 @@ git -C $checkout submodule update --init --recursive --depth 1 third-party/moonl
 $held = Enter-CheckBuildLock
 try {
     & "$checkout\rust\tests\build-moonlight-client.ps1" -ArtifactDirectory $fixtures *> "$qa\receiver-build.log"
+    Update-CheckBuildLock $held
     & "$checkout\rust\tests\build-pyrowave-client.ps1" -ArtifactDirectory $fixtures -PyrowaveRoot $env:BUTTERPOLLO_PYROWAVE_ROOT *> "$qa\pyrowave-receiver-build.log"
+    Update-CheckBuildLock $held
     cargo build --release --locked --manifest-path "$checkout\Cargo.toml" --target-dir "$checkout\target\ship" -p butterpollo-windows `
         --example audio_probe --example motion_probe --example udp_shaper *> "$qa\probe-build.log"
 } finally { Exit-CheckLocks $held }

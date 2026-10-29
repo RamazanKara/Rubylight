@@ -942,7 +942,18 @@ $tools = $env:FAKE_TOOLS
 . $env:CHECK_STREAMS
 Initialize-CheckLocks $Locks -GpuLockHeld:$GpuLockHeld
 $CheckLockPause = 0; $CheckLockBackoff = 0.2; $CheckLockPoll = 0.1
+if ($env:FAKE_GPU_DEADLINE) { $CheckGpuDeadline = [double] $env:FAKE_GPU_DEADLINE; $CheckGpuWarning = 0.3 }
 Invoke-StreamCase 'hevc' @('--work', $Run) $Run
+'DONE'
+"""
+# Releases both locks while the test holds GPU-LOCK open, as a session reading it would.
+RELEASE_DRIVER = """param([string]$Locks)
+$ErrorActionPreference = 'Stop'
+. $env:CHECK_STREAMS
+Initialize-CheckLocks $Locks
+$CheckLockPause = 0
+Set-Content -LiteralPath (Join-Path $Locks 'ready') 'go'
+Exit-CheckLocks @{ gpu = 'G'; build = 'B' }
 'DONE'
 """
 
@@ -1049,11 +1060,60 @@ class CheckStreams(unittest.TestCase):
         self.assertGreater(gpu_while_waiting.count(False), 15, gpu_while_waiting)
         self.assertReleased()
 
-    def test_a_lock_taken_over_by_another_session_is_left_alone(self):
+    def test_a_lock_taken_over_by_another_session_is_left_alone_and_reported(self):
         run, _, _ = self.stream('0', FAKE_STEAL='1')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual((self.locks / 'BUILD-LOCK').read_text(), 'thief 2026-10-29 pid=1')
         self.assertFalse((self.locks / 'GPU-LOCK').exists())
+        self.assertIn('LOCK LOST: BUILD-LOCK', run.stdout)
+        result = json.loads((self.run / 'e2e-hevc/result.json').read_text())
+        self.assertEqual(len(result['lock_warnings']), 1, result)
+        self.assertIn('taken over: thief 2026-10-29 pid=1', result['lock_warnings'][0])
+        self.assertEqual(result['warnings'], result['lock_warnings'])
+        self.assertTrue(result['passed'])
+
+    def test_a_gpu_lock_held_too_long_fails_the_check_loudly(self):
+        holder = 'rc4 pass tv t6 4242 2026-10-29T02:00:00+01:00'
+        (self.locks / 'GPU-LOCK').write_text(holder)
+        run, held, _ = self.stream('0', FAKE_GPU_DEADLINE='1')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn('DONE', run.stdout)
+        self.assertIn('GPU-LOCK still held after', run.stdout + run.stderr)
+        self.assertIn('still waiting for the GPU lock', run.stdout + run.stderr)
+        self.assertEqual(held, [])
+        self.assertEqual((self.locks / 'GPU-LOCK').read_text(), holder)
+        self.assertFalse((self.locks / 'BUILD-LOCK').exists())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows file sharing')
+    def test_a_lock_open_in_a_reader_is_still_released(self):
+        import threading, time
+        (self.root / 'release.ps1').write_text(RELEASE_DRIVER)
+        env = dict(os.environ, CHECK_STREAMS=str(ROOT / 'rust/release/check_streams.ps1'))
+        for hold, gpu_left in ((.3, False), (5, True)):
+            with self.subTest(hold=hold):
+                (self.locks / 'ready').unlink(missing_ok=True)
+                (self.locks / 'GPU-LOCK').write_text('G')
+                (self.locks / 'BUILD-LOCK').write_text('B')
+                # Python opens files without delete sharing, as a reader's read_text does.
+                reader = open(self.locks / 'GPU-LOCK', 'rb')
+                def close():
+                    deadline = time.monotonic() + 60
+                    while not (self.locks / 'ready').exists() and time.monotonic() < deadline:
+                        time.sleep(.01)
+                    time.sleep(hold)
+                    reader.close()
+                thread = threading.Thread(target=close)
+                thread.start()
+                run = subprocess.run(['pwsh', '-NoProfile', '-File', str(self.root / 'release.ps1'), '-Locks', str(self.locks)],
+                                     capture_output=True, text=True, env=env, timeout=120)
+                thread.join()
+                self.assertIn('DONE', run.stdout, run.stdout + run.stderr)
+                self.assertEqual((self.locks / 'GPU-LOCK').exists(), gpu_left, run.stdout)
+                # The build lock goes either way.
+                self.assertFalse((self.locks / 'BUILD-LOCK').exists(), run.stdout)
+                if gpu_left:
+                    self.assertIn('LOCK LEFT BEHIND: GPU-LOCK', run.stdout)
+                    (self.locks / 'GPU-LOCK').unlink()
 
     def test_without_the_shared_locks_only_the_cpu_is_waited_for(self):
         (self.locks / 'build-lock.ps1').unlink()

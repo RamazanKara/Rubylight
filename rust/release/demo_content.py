@@ -4,22 +4,30 @@ A real game is slow to launch, shows repeated desktop frames for its first
 10-15 seconds and plays different content every run. The clip (raw Y4M, such
 as Xiph's Twitch set: 1920x1080, 60 FPS, 4:2:0) plays in a borderless ffplay
 window the size of the stream, and the test host captures that one window
-with WGC (output_name = window:<hwnd>@<display>), so it needs no part of the
-PC's monitor: the window sits at the bottom of the z-order, behind the
-user's windows. Raw Y4M needs no decoder, so playback takes no time on the
-video engine the encoder uses (hardware decode of an H.264 or HEVC copy
-would); ffplay only uploads the YUV planes and presents.
+with WGC (output_name = window:<hwnd>/<pid>@<display>; the process id keeps a
+reused handle from streaming another window). The window sits at the bottom
+of the z-order behind the user's windows, never takes focus, has no taskbar
+button and lets clicks through, so the user sees it only where no window
+covers its corner of the monitor. Raw Y4M needs no decoder, so playback takes
+no time on the video engine the encoder uses (hardware decode of an H.264 or
+HEVC copy would); ffplay only uploads the YUV planes and presents.
 
-The window opens paused on the clip's first picture and plays from there when
-the stream starts (resume), so every run streams the same frames. ffplay
-runs on its video clock and shows every picture, so a player that cannot keep
-up falls behind the clip: the share of real time it kept and its CPU go into
-result.json as content, and under 99 % fails the case.
+The window opens paused at the clip's start (the pause key reached ffplay 0-40
+ms in, within its first three pictures) and plays from there once the host's
+capture opens (resume, on the host log's line), so every run streams the clip
+from about the same point: the pause and the log poll's 50 ms add a few
+pictures of spread.
+ffplay runs on its video clock and shows every picture, so a player that
+cannot keep up falls behind the clip: the share of real time it kept and its
+CPU go into result.json as content, and under 99 % fails the case. ffplay
+loops until stopped, and a job object ends it with this process if the
+harness dies first.
 """
 import ctypes
 import os
 import re
 import subprocess
+import sys
 import time
 from ctypes import wintypes
 
@@ -75,6 +83,8 @@ def player_environment(base=None):
     environment = dict(os.environ if base is None else base)
     environment.setdefault('SDL_RENDER_DRIVER', 'direct3d11')
     environment.setdefault('SDL_RENDER_VSYNC', '1')
+    # The window opens without taking focus from the user's window.
+    environment['SDL_WINDOW_NO_ACTIVATION_WHEN_SHOWN'] = '1'
     return environment
 
 
@@ -115,7 +125,19 @@ _user32.IsWindowVisible.argtypes = [wintypes.HWND]
 _user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 _user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND] + [ctypes.c_int] * 4 + [wintypes.UINT]
 _user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+_user32.GetForegroundWindow.restype = wintypes.HWND
+_user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+_user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+_user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+_user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+_user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+_user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+_user32.SetLayeredWindowAttributes.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_ubyte, wintypes.DWORD]
 _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+_kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+_kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+_kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+_kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
 _kernel32.OpenProcess.restype = wintypes.HANDLE
 _kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(ctypes.c_uint64)] * 4
 _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -143,11 +165,82 @@ def find_window(pid, timeout=10):
     raise TimeoutError(f'ffplay (pid {pid}) opened no window within {timeout} s')
 
 
+GWL_EXSTYLE = -20
+WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE = 0x20, 0x80, 0x40000, 0x80000, 0x8000000
+
+
+def out_of_the_way(style):
+    """The player's extended window style: never activated (a click does not focus it), a tool
+    window (no taskbar button or Alt+Tab entry), and layered and transparent, so clicks go to
+    the window below. Layered at full opacity: WGC captures it as before."""
+    return (style & ~WS_EX_APPWINDOW) | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT
+
+
 def send_to_back(hwnd):
-    """Below every other window, unfocused: WGC still captures it, the user's windows stay on top."""
-    HWND_BOTTOM, SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 1, 0x1, 0x2, 0x10
-    if not _user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE):
+    """Below every other window, unfocused and click-through: WGC still captures it, the user's
+    windows stay on top and keep the keyboard and mouse."""
+    ctypes.set_last_error(0)
+    style = _user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+    if not style and ctypes.get_last_error():
         raise ctypes.WinError(ctypes.get_last_error())
+    ctypes.set_last_error(0)
+    if not _user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, out_of_the_way(style)) and ctypes.get_last_error():
+        raise ctypes.WinError(ctypes.get_last_error())
+    LWA_ALPHA = 0x2
+    if not _user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA):
+        raise ctypes.WinError(ctypes.get_last_error())
+    # The taskbar drops a button only when the window is shown again.
+    SW_HIDE, SW_SHOWNOACTIVATE = 0, 4
+    _user32.ShowWindow(hwnd, SW_HIDE)
+    _user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+    HWND_BOTTOM, SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE, SWP_FRAMECHANGED = 1, 0x1, 0x2, 0x10, 0x20
+    if not _user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0,
+                                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def give_focus_back(player, previous):
+    """If the player took the foreground anyway, hands it back to the window that had it.
+    Windows may refuse that to a background process; then the user is told, not left guessing."""
+    if previous and _user32.GetForegroundWindow() == player and not _user32.SetForegroundWindow(previous):
+        print('demo_content: the clip player took the focus and Windows refused to give it back; '
+              'click your window again', file=sys.stderr)
+
+
+class _BasicLimits(ctypes.Structure):
+    _fields_ = [('process_time', ctypes.c_int64), ('job_time', ctypes.c_int64), ('flags', wintypes.DWORD),
+                ('minimum', ctypes.c_size_t), ('maximum', ctypes.c_size_t), ('active', wintypes.DWORD),
+                ('affinity', ctypes.c_size_t), ('priority', wintypes.DWORD), ('scheduling', wintypes.DWORD)]
+
+
+class _ExtendedLimits(ctypes.Structure):
+    _fields_ = [('basic', _BasicLimits), ('io', ctypes.c_uint64 * 6), ('process_memory', ctypes.c_size_t),
+                ('job_memory', ctypes.c_size_t), ('peak_process', ctypes.c_size_t), ('peak_job', ctypes.c_size_t)]
+
+
+def end_with_this_process(pid):
+    """A job that kills process pid when its handle closes, which Windows does when this
+    process exits however it ends: ffplay loops forever and would otherwise outlive a
+    harness that crashed or was killed. Returns the job's handle; close it to end ffplay."""
+    job = _kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    process = None
+    try:
+        limits = _ExtendedLimits()
+        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not _kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        process = _kernel32.OpenProcess(0x0100 | 0x0001, False, pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+        if not process or not _kernel32.AssignProcessToJobObject(job, process):
+            raise ctypes.WinError(ctypes.get_last_error())
+    except BaseException:
+        _kernel32.CloseHandle(job)
+        raise
+    finally:
+        if process:
+            _kernel32.CloseHandle(process)
+    return job
 
 
 def toggle_pause(hwnd):
@@ -200,28 +293,42 @@ def cpu_seconds(pid):
         _kernel32.CloseHandle(process)
 
 
+def window_target(hwnd, pid, display):
+    """The host's output_name for the player's window: its handle, its process and the display it is on."""
+    return f'window:{hwnd}/{pid}@{display}'
+
+
+def stream_starts(text):
+    """How many times the host's log says a stream's capture opened."""
+    return text.count(STREAM_STARTED)
+
+
 class Player:
-    """The clip's ffplay window, opened paused on its first picture."""
+    """The clip's ffplay window, opened paused at the clip's start."""
 
     def __init__(self, ffplay, clip, width, height, left, top, log):
         self.log = log
         self.length = clip_seconds(read_header(clip), os.path.getsize(clip))
         self.log_file = log.open('w')
+        self.job = None
+        previous = _user32.GetForegroundWindow()
         self.process = subprocess.Popen(player_command(ffplay, clip, width, height, left, top),
                                         stdout=subprocess.DEVNULL, stderr=self.log_file,
                                         stdin=subprocess.DEVNULL, env=player_environment())
         try:
+            self.job = end_with_this_process(self.process.pid)
             keep_timer_resolution(self.process.pid)
             self.hwnd = find_window(self.process.pid)
             toggle_pause(self.hwnd)
             send_to_back(self.hwnd)
+            give_focus_back(self.hwnd, previous)
         except BaseException:
             self.stop()
             raise
         self.started = None
 
     def target(self, display):
-        return f'window:{self.hwnd}@{display}'
+        return window_target(self.hwnd, self.process.pid, display)
 
     def resume(self):
         stats = player_stats(self.log.read_text(errors='replace'))
@@ -241,6 +348,9 @@ class Player:
         if self.process.poll() is None:
             self.process.terminate()
         self.process.wait(timeout=10)
+        if self.job:
+            _kernel32.CloseHandle(self.job)
+            self.job = None
         self.log_file.close()
 
 

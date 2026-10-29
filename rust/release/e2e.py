@@ -35,12 +35,13 @@ hitch:90:100), instead of twice the stream rate or the stream rate; the cadence 
 
 --content CLIP: a raw Y4M game clip (demo_content.py) instead of the strip, for repeatable A/Bs on real
 content: ffplay shows it in a borderless window of the stream's size behind the user's windows, the host
-captures only that window, and the clip plays from its first picture when the receiver starts. The mode
-defaults to the clip's. unique_fps, motion_coverage and picture age need the strip and are listed in
-not_applicable, as are the frame-gap limits (the player adds jitter: content runs compare A/B arms,
-the gap numbers stay in the result); the tone check stays (audio_probe is independent of the picture); result.json's content
-has the player's CPU and the share of real time it kept, under 99 % failing the case. Needs a host that
-takes window targets in output_name (after 3.0.0-rc.5).
+captures only that window, and the clip plays from its start once the host's capture opens. The
+mode defaults to the clip's. unique_fps, motion_coverage and picture age need the strip and are listed in
+not_applicable, as are the long-interval and p99 gap limits (the player adds jitter: content runs compare
+A/B arms, the gap numbers stay in the result); a gap over 200 ms still fails as a freeze. The tone check
+stays (audio_probe is independent of the picture); result.json's content has the player's CPU and the share
+of real time it kept, under 99 % failing the case. Needs a host that takes window targets in output_name
+(after 3.0.0-rc.5).
 --content-at X,Y: the clip window's corner (default 0,0); --ffplay: the player (default ffplay on PATH).
 
 --motion-at-rate: the same strip, minimum frame rate and trace without
@@ -149,8 +150,8 @@ stream_load = None
 player = content = None
 try:
     if args.content:
-        # The host captures only the clip's window (output_name = window:<hwnd>@<display>),
-        # which waits paused on its first picture behind the user's windows.
+        # The host captures only the clip's window (output_name = window:<hwnd>/<pid>@<display>),
+        # which waits paused at the clip's start behind the user's windows.
         left, top = map(int, args.content_at.split(','))
         player = demo_content.Player(args.ffplay, args.content, int(width), int(height), left, top, case / 'player.log')
         conf = profile / 'sunshine.conf'
@@ -199,14 +200,18 @@ try:
     # Other work on the machine starves the fixtures: a timing failure under
     # load is told apart by the CPU the stream ran beside (its own included).
     load_start = snapshot()
-    if player:
-        # Every run streams the clip from its first picture.
-        player.resume()
+    # Every run streams the clip from its start: it plays once the stream's capture opens.
+    opened = demo_content.stream_starts(log.read_text(errors='replace')) if player else 0
     receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'], 'client.log', env=client_env)
     deadline = time.monotonic() + int(args.seconds) + 120
     while receiver.poll() is None:
         watch()
         if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
+        if player and not player.started:
+            if demo_content.stream_starts(log.read_text(errors='replace')) > opened:
+                player.resume()
+            time.sleep(.05)
+            continue
         time.sleep(.25)
     rc = receiver.returncode
     stream_load = load_since(load_start)

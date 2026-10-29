@@ -835,8 +835,34 @@ class DemoContent(unittest.TestCase):
         self.assertNotIn('-framedrop', command)
         self.assertEqual(command[-2:], ['-i', r'D:\clip.y4m'])
         self.assertEqual(self.content.player_environment({'PATH': 'x'}),
-                         {'PATH': 'x', 'SDL_RENDER_DRIVER': 'direct3d11', 'SDL_RENDER_VSYNC': '1'})
+                         {'PATH': 'x', 'SDL_RENDER_DRIVER': 'direct3d11', 'SDL_RENDER_VSYNC': '1',
+                          'SDL_WINDOW_NO_ACTIVATION_WHEN_SHOWN': '1'})
         self.assertEqual(self.content.player_environment({'SDL_RENDER_VSYNC': '0'})['SDL_RENDER_VSYNC'], '0')
+
+    def test_the_player_window_never_takes_focus_the_taskbar_or_clicks(self):
+        content = self.content
+        # SDL's own extended style for a normal window, with a taskbar button.
+        style = content.out_of_the_way(content.WS_EX_APPWINDOW | 0x100)
+        for flag in (content.WS_EX_NOACTIVATE, content.WS_EX_TOOLWINDOW, content.WS_EX_LAYERED, content.WS_EX_TRANSPARENT, 0x100):
+            self.assertTrue(style & flag, hex(flag))
+        self.assertFalse(style & content.WS_EX_APPWINDOW)
+
+    def test_the_host_is_pointed_at_the_window_and_its_process(self):
+        self.assertEqual(self.content.window_target(0x2056c, 812, r'\\.\DISPLAY1'), r'window:132460/812@\\.\DISPLAY1')
+        log = 'x capture backend opened requested=wgc\ny\nz capture backend opened\n'
+        self.assertEqual((self.content.stream_starts(''), self.content.stream_starts(log)), (0, 2))
+
+    def test_the_player_ends_with_the_harness(self):
+        # A child in a kill-on-close job dies when the job's last handle closes, as when the harness dies.
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+        try:
+            job = self.content.end_with_this_process(child.pid)
+            self.assertIsNone(child.poll())
+            self.content._kernel32.CloseHandle(job)
+            self.assertIsNotNone(child.wait(timeout=10))
+        finally:
+            if child.poll() is None:
+                child.kill()
 
     def test_the_players_status_line_is_read(self):
         log = 'Input #0, yuv4mpegpipe\n   0.05 M-V:  0.000 fd=   0 aq=    0KB vq=    0KB sq=    0B \r  19.95 fd=   2 aq=    0KB vq=15187KB \r'
@@ -873,6 +899,10 @@ class DemoContent(unittest.TestCase):
         gaps = self.evaluate(jittery, 0, 'hevc', '1920x1080x60', content=kept)
         self.assertTrue(gaps['passed'], gaps['failures'])
         self.assertEqual((gaps['long_intervals'], gaps['interval_p99_ms']), (31, 25.6))
+        # A freeze still fails: half a second without a picture.
+        frozen = self.evaluate(client.replace('max_ms=20.000', 'max_ms=500.000'), 0, 'hevc', '1920x1080x60', content=kept)
+        self.assertIn('frame delivery froze: a gap over 200 ms', frozen['failures'])
+        self.assertTrue(self.evaluate(client.replace('max_ms=20.000', 'max_ms=199.000'), 0, 'hevc', '1920x1080x60', content=kept)['passed'])
         self.assertFalse(self.evaluate(jittery.replace('VISUAL', 'X') + 'VISUAL frames=1621 unique=1621 repeats=0 skipped_render_frames=0 unique_fps=60.000 coverage=1.000000\n',
                                        0, 'hevc', '1920x1080x60')['passed'])
         self.assertNotIn('unique_fps', result)

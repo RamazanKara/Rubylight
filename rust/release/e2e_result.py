@@ -98,6 +98,9 @@ def capture_integrity(log, requested_capture=None, requested_source=None):
                 if requested_capture is not None and requested_source is not None else 'unverified'), failures
 
 
+CONTENT_MAX_GAP_MS = 200
+
+
 def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, recovery=0, host_log='',
              requested_capture=None, requested_source=None, claim_trace=True, content=None):
     """claim_trace: the host ran with pacing=trace. Without it (a diagnostic
@@ -108,10 +111,11 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
     strip (e2e.py --content). A game picture carries no strip or barcode, so
     unique_fps, motion_coverage and picture age cannot be measured: they are
     listed in not_applicable instead of failing as missing or passing unseen,
-    and PyroWave, which requires picture age, is refused. The frame-gap limits
-    are not applicable either (frame_gap_limits): the clip's player adds
-    jitter of its own, so content runs compare A/B arms, the gap numbers stay
-    in the result. A player that fell behind the clip fails the case."""
+    and PyroWave, which requires picture age, is refused. The long-interval
+    and p99 gap limits are not applicable either (frame_gap_limits): the
+    clip's player adds jitter of its own, so content runs compare A/B arms and
+    the gap numbers stay in the result; a gap over CONTENT_MAX_GAP_MS still
+    fails as a freeze. A player that fell behind the clip fails the case."""
     def find(pattern, cast=float):
         match = re.search(pattern, client, re.MULTILINE)
         return cast(match.group(1)) if match else None
@@ -222,6 +226,9 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
                 or (not recovery and result['interval_p99_ms'] > 1500 / fps)
                 or result['interval_max_ms'] > 3000 / fps):
             failures.append('frame delivery has excessive gaps')
+        # The player's jitter stayed under 30 ms (max 29.7 ms at 60 FPS); a frozen stream does not.
+        if content is not None and result['interval_max_ms'] > CONTENT_MAX_GAP_MS:
+            failures.append(f'frame delivery froze: a gap over {CONTENT_MAX_GAP_MS} ms')
         if content is None and (result['motion_coverage'] < .95 or result['unique_fps'] < fps * .9):
             failures.append('moving pictures were missing or repeated too often')
         if (not result['audio_packets'] or not result['audio_tone_blocks']

@@ -1,7 +1,7 @@
 # Demo stream for a device arm (Retroid, TV, laptop): a looped game clip instead of a real game.
 # Opens the clip paused in a borderless ffplay window behind the user's windows (rust/release/demo_content.py),
-# points an isolated test host at that one window (output_name = window:<hwnd>@<display>, WGC), and plays the
-# clip from its first picture when the device's stream starts. No display mode, HDR or virtual display change.
+# points an isolated test host at that one window (output_name = window:<hwnd>/<pid>@<display>, WGC), and plays the
+# clip from its start when the host's capture opens. No display mode, HDR or virtual display change.
 #   tools\hw\demo-stream.ps1 -Clip D:\testmedia\xiph-twitch\GTAV.y4m -Seconds 30 -Package <package dir>
 #       [-Profile C:\tests\game] [-Port 48623] [-Bind 192.168.4.69] [-Stage <dir>] [-Out <dir>] [-Extra 'key = value',...]
 #       [-Wait <seconds for the device's stream to start, 600>]
@@ -16,7 +16,8 @@ param([Parameter(Mandatory)][string]$Clip, [Parameter(Mandatory)][int]$Seconds, 
     [string]$At = '0,0', [string]$LockOwner = '', [string]$Log = 'info', [int]$Wait = 600)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).ProviderPath
-if (-not $Out) { $Out = Join-Path $env:TEMP "demo-stream-$(Get-Date -Format yyyyMMdd-HHmmss)" }
+# Not %TEMP%: a packaged (MSIX) caller sees a private copy of it, so the files would not be where they are printed.
+if (-not $Out) { $Out = "C:\src\butterpollo-release\unified\scratch\demo\out\demo-stream-$(Get-Date -Format yyyyMMdd-HHmmss)" }
 New-Item -ItemType Directory -Force $Out | Out-Null
 if ($LockOwner -and (Get-Content C:\src\butterpollo-release\GPU-LOCK -ErrorAction SilentlyContinue) -notlike "$LockOwner*") { throw 'GPU-LOCK is not ours' }
 $info = (Invoke-WebRequest http://127.0.0.1:47989/serverinfo -UseBasicParsing).Content
@@ -33,6 +34,7 @@ $hostLog = Join-Path $Profile 'logs\butterpollo.log'
 Get-ChildItem (Join-Path $Profile 'logs') -ErrorAction SilentlyContinue | Remove-Item -Force
 $original = [IO.File]::ReadAllText($conf)
 $player = $null; $hostProcess = $null
+$callerEnv = @{ RUST_LOG = $env:RUST_LOG; NO_PROXY = $env:NO_PROXY }
 try {
     $player = Start-Process -PassThru -NoNewWindow -FilePath python -ArgumentList @(
         "`"$repo\rust\release\demo_content.py`"", "`"$Clip`"", '--display', "`"$display`"", '--out', "`"$Out`"",
@@ -66,6 +68,10 @@ try {
     }
     if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force; $hostProcess.WaitForExit(30000) | Out-Null }
     [IO.File]::WriteAllText($conf, $original)
+    # The host's log level and proxy bypass stay out of the caller's session.
+    foreach ($name in $callerEnv.Keys) {
+        if ($null -eq $callerEnv[$name]) { Remove-Item "env:$name" -ErrorAction Ignore } else { Set-Item "env:$name" $callerEnv[$name] }
+    }
     if (Test-Path $hostLog) { Copy-Item $hostLog "$Out\butterpollo.log" }
     "done $(Get-Date -Format T): $Out"
 }

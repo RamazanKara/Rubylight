@@ -53,8 +53,9 @@ pub struct Setup {
     /// The app's name, which Nucleus shows.
     pub name: String,
     /// The game's folder, which [`anti_cheat`] looks through: its Steam
-    /// install folder, an Unreal game's folder above `Binaries`, else the
-    /// .exe's.
+    /// install folder, an Unreal game's folder above `<Project>\Binaries`
+    /// (the scan stops at `<Project>` when no `Engine` is beside it), else
+    /// the .exe's.
     pub root: String,
     /// The Steam app the game was found from. Nucleus Co-op starts with it
     /// as `SteamAppId`, so the game's .exe runs as Steam would start it
@@ -373,8 +374,9 @@ pub fn unreal_shipping(exe_path: &str) -> Option<String> {
 /// The anti-cheat `setup`'s game ships: one known from elsewhere (Steam's
 /// Valve Anti-Cheat flag), else from the .exe's name and the files and
 /// folders beside it and in the folders above it up to the game's root,
-/// never above it or in a folder many games share. Nucleus Co-op injects
-/// hooks, which anti-cheat treats as cheating, so such a game is refused.
+/// never above it or in a folder many games share, else from Battle.net's
+/// install marker ([`battle_net`]). Nucleus Co-op injects hooks, which
+/// anti-cheat treats as cheating, so such a game is refused.
 pub fn anti_cheat(setup: &Setup) -> Option<&'static str> {
     if let Some(found) = setup
         .anti_cheat
@@ -382,7 +384,12 @@ pub fn anti_cheat(setup: &Setup) -> Option<&'static str> {
     {
         return Some(found);
     }
-    let mut folder = parent(&setup.exe_path);
+    let exe_folder = parent(&setup.exe_path);
+    scan(exe_folder, scan_root(setup)).or_else(|| battle_net(exe_folder))
+}
+
+/// The anti-cheat in `folder` and the folders above it up to `root`.
+fn scan(mut folder: &str, root: &str) -> Option<&'static str> {
     loop {
         if shared_folder(folder) {
             return None;
@@ -394,9 +401,45 @@ pub fn anti_cheat(setup: &Setup) -> Option<&'static str> {
             }
         }
         // Up to the game's root, never past it.
-        below(folder, &setup.root)?;
+        below(folder, root)?;
         folder = parent(folder);
     }
+}
+
+/// The folder the scan stops at: the game's root, but the folder holding an
+/// Unreal game's `Binaries` when no `Engine` is beside that folder. Unreal
+/// Engine 4 and 5 keep `<Game>\Engine` beside `<Game>\<Project>\Binaries`;
+/// Unreal Engine 3 keeps `<Game>\Binaries` beside `<Game>\Engine`, and the
+/// folder above `<Game>` is the user's games folder.
+fn scan_root(setup: &Setup) -> &str {
+    let exe_folder = parent(&setup.exe_path);
+    match unreal_root(exe_folder) {
+        Some(above)
+            if setup.steam_app.is_none()
+                && above.eq_ignore_ascii_case(&setup.root)
+                && !Path::new(&above).join("Engine").is_dir() =>
+        {
+            parent(parent(exe_folder))
+        }
+        _ => &setup.root,
+    }
+}
+
+/// Blizzard's anti-cheat for a game Battle.net installed: its `.build.info`
+/// in the game's folder, which is the .exe's or up to two above it (World of
+/// Warcraft's `_retail_`, StarCraft II's `Versions\Base<n>`).
+fn battle_net(exe_folder: &str) -> Option<&'static str> {
+    let mut folder = exe_folder;
+    for _ in 0..3 {
+        if shared_folder(folder) {
+            return None;
+        }
+        if Path::new(folder).join(".build.info").is_file() {
+            return Some("Blizzard's anti-cheat");
+        }
+        folder = parent(folder);
+    }
+    None
 }
 
 /// `json` (Nucleus' `userprofile.json`, None when there is none yet) with
@@ -779,6 +822,7 @@ mod tests {
         let root = dir.path().join("Shooter");
         let bin = root.join("Shooter").join("Binaries").join("Win64");
         std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir(root.join("Engine")).unwrap();
         let exe = bin.join("Shooter.exe");
         std::fs::write(&exe, b"").unwrap();
         let setup = Setup::new(&exe.to_string_lossy(), "Shooter", None);
@@ -806,6 +850,90 @@ mod tests {
         assert_eq!(anti_cheat_of("Shooter.exe"), None);
         let protected = Setup::new(r"C:\G\start_protected_game.exe", "G", None);
         assert_eq!(anti_cheat(&protected), Some("Easy Anti-Cheat"));
+    }
+
+    #[test]
+    fn an_unreal_scan_stops_at_the_game_holding_binaries_unless_engine_is_above() {
+        let dir = tempfile::tempdir().unwrap();
+        let games = dir.path().join("Games");
+        // Another game's anti-cheat in the user's games folder.
+        std::fs::create_dir_all(games.join("BattlEye")).unwrap();
+        // Unreal Engine 3: Binaries and Engine in the game's folder.
+        let borderlands = games.join("Borderlands 2");
+        let win32 = borderlands.join("Binaries").join("Win32");
+        std::fs::create_dir_all(&win32).unwrap();
+        std::fs::create_dir(borderlands.join("Engine")).unwrap();
+        let setup = Setup::new(
+            &win32.join("Borderlands2.exe").to_string_lossy(),
+            "Borderlands 2",
+            None,
+        );
+        assert_eq!(anti_cheat(&setup), None);
+        std::fs::create_dir(borderlands.join("EasyAntiCheat")).unwrap();
+        assert_eq!(anti_cheat(&setup), Some("Easy Anti-Cheat"));
+        // Unreal Engine 4 and 5: `<Game>\<Project>\Binaries`, Engine in
+        // `<Game>`, whose anti-cheat counts.
+        let shooter = games.join("Shooter");
+        let win64 = shooter.join("Shooter").join("Binaries").join("Win64");
+        std::fs::create_dir_all(&win64).unwrap();
+        std::fs::create_dir(shooter.join("Engine")).unwrap();
+        let exe = win64.join("Shooter-Win64-Shipping.exe");
+        std::fs::write(&exe, b"").unwrap();
+        let setup = Setup::new(&exe.to_string_lossy(), "Shooter", None);
+        assert_eq!(anti_cheat(&setup), None);
+        std::fs::create_dir(shooter.join("EasyAntiCheat")).unwrap();
+        assert_eq!(anti_cheat(&setup), Some("Easy Anti-Cheat"));
+        // The root stub's game, as `prepared` starts it.
+        std::fs::write(shooter.join("Shooter.exe"), b"").unwrap();
+        let mut stub = Setup::new(
+            &shooter.join("Shooter.exe").to_string_lossy(),
+            "Shooter",
+            None,
+        );
+        stub.exe_path = unreal_shipping(&stub.exe_path).unwrap();
+        assert_eq!(stub.exe_path, exe.to_string_lossy());
+        assert_eq!(anti_cheat(&stub), Some("Easy Anti-Cheat"));
+        std::fs::remove_dir(shooter.join("EasyAntiCheat")).unwrap();
+        assert_eq!(anti_cheat(&stub), None);
+    }
+
+    #[test]
+    fn a_battle_net_game_has_blizzards_anti_cheat() {
+        let dir = tempfile::tempdir().unwrap();
+        for (game, exe) in [
+            ("World of Warcraft", r"_retail_\Wow.exe"),
+            ("StarCraft II", r"Versions\Base90136\SC2_x64.exe"),
+            ("Diablo IV", "Diablo IV.exe"),
+        ] {
+            let game = dir.path().join(game);
+            let exe = game.join(exe);
+            std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+            let setup = Setup::new(&exe.to_string_lossy(), "G", None);
+            assert_eq!(anti_cheat(&setup), None, "{}", exe.display());
+            std::fs::write(game.join(".build.info"), b"Branch!STRING:0").unwrap();
+            assert_eq!(
+                anti_cheat(&setup),
+                Some("Blizzard's anti-cheat"),
+                "{}",
+                exe.display()
+            );
+        }
+        // Never above the game's folder or in a folder games share.
+        let deep = dir.path().join(r"Mods\a\b\c\Mod.exe");
+        std::fs::create_dir_all(deep.parent().unwrap()).unwrap();
+        std::fs::write(dir.path().join(r"Mods\.build.info"), b"").unwrap();
+        assert_eq!(
+            anti_cheat(&Setup::new(&deep.to_string_lossy(), "G", None)),
+            None
+        );
+        let programs = dir.path().join("Program Files (x86)");
+        std::fs::create_dir_all(programs.join("Puzzle")).unwrap();
+        std::fs::write(programs.join(".build.info"), b"").unwrap();
+        let puzzle = programs.join(r"Puzzle\Puzzle.exe");
+        assert_eq!(
+            anti_cheat(&Setup::new(&puzzle.to_string_lossy(), "G", None)),
+            None
+        );
     }
 
     #[test]

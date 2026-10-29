@@ -96,6 +96,7 @@ export const settings: Setting[] = [
     label: 'Virtual display scale',
     description:
       'The Windows scale set on a virtual display. Recommended picks one from the resolution, such as 125% at 1080p; Keep leaves the scale Windows remembers for that display.',
+    details: 'A device that asks for its own scale (PC display scaling in Nightjar) gets that one.',
     category: 'display',
     group: 'Streamed display',
     control: {

@@ -219,7 +219,6 @@
             android:text="%" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_virtual_display_dpi"
-            android:dependency="checkbox_virtual_display"
             android:title="@string/title_virtual_display_dpi"
             android:dialogMessage="@string/summary_virtual_display_dpi"
             android:entries="@array/virtual_display_dpi_names"

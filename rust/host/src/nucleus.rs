@@ -5312,7 +5312,7 @@ mod tests {
     /// installed by the console and not running.
     ///
     /// Where its NucleusCoop.exe runs from says how the admission ran it: as
-    /// the user from their own copy (`nucleus-user\<SID>\<version>`, the
+    /// the user from their own copy (`nucleus-user\<SID>\<files>`, the
     /// handler written there), or elevated from the host's.
     /// `RUBYLIGHT_NUCLEUS_RUN` (user or elevated) asserts which
     /// (nucleus-generic-background-user). Run as the user, NucleusCoop.exe
@@ -5351,12 +5351,10 @@ mod tests {
             .map_err(|error| anyhow!("the user's AppData folder: {error}"))?
             .join("Nucleus Coop")
             .join("userprofile.json");
-        // The signed-in user's own copy, which the admission makes when the
-        // session runs as them.
-        let copy = butterpollo_core::paths::data_root()
-            .join("nucleus-user")
-            .join(user_copy::sid(&user_copy::user()?)?)
-            .join(butterpollo_core::nucleus::install::VERSION);
+        // The signed-in user's own copy, made here as the admission would
+        // when the session runs as them: its folder is named by the host's
+        // program files, so it is only known once made.
+        let copy = pc.user_copy(&folder)?;
         let own_in = |handlers: &Path| -> Result<Vec<PathBuf>> {
             let mut own = KeptFiles::own_handlers(handlers)?;
             own.sort();

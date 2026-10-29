@@ -100,9 +100,11 @@ the PC's cursor.
 A background stream with Rubylight's own handler runs Nucleus Co-op as the
 signed-in user, without administrator rights, unless the game needs them.
 That holds on an administrator account too. It runs from the user's own copy
-of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>\2.4.2`,
-which the host unpacks from the downloaded, checked release and keeps up to
-date with the handlers of the elevated copy. Only SYSTEM and Administrators
+of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which
+the host copies from the elevated one (the downloaded release, or
+`nucleus_path`), without its settings, logs and game data, and copies again
+when a program file changes on either side. It keeps the copy's handlers in
+step with the elevated one's. Only SYSTEM and Administrators
 can change the folders above it; the user can change only what is inside
 their own.
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Комбинация выхода на контроллере</string>
+    <string name="summary_list_gamepad_quit_combo">Удерживайте эти кнопки, чтобы выйти из трансляции; она завершится, когда все будут отпущены. «Выкл.» оставляет это меню трансляции, которое открывает Start+Select+LB+RB. Со следующей трансляции.</string>
+    <string name="gamepad_quit_combo_off">Выкл.</string>
+    <string name="stream_controller_mouse">Мышь с контроллера</string>
+</resources>

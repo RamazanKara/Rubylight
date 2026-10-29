@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Kumandayla çıkış kombinasyonu</string>
+    <string name="summary_list_gamepad_quit_combo">Yayından çıkmak için bu düğmeleri basılı tutun; hepsi bırakılınca yayın biter. Kapalı, bunu Start+Select+LB+RB ile açılan yayın menüsüne bırakır. Sonraki yayından itibaren geçerlidir.</string>
+    <string name="gamepad_quit_combo_off">Kapalı</string>
+    <string name="stream_controller_mouse">Kumanda faresi</string>
+</resources>

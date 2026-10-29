@@ -65,8 +65,68 @@ public class ControllerInputReleaseTest {
         }
     }
 
+    @Test
+    public void theChosenQuitComboLeavesOnceReleasedAndIsOffByDefault() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        assertEquals("off", prefs.gamepadQuitCombo);
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+        ControllerHandler.UsbDeviceContext pad = usbPad(handler);
+        int combo = ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.A_FLAG | ControllerPacket.B_FLAG;
+        try {
+            usb(handler, combo);
+            usb(handler, 0);
+            assertEquals("Off: the chord is ordinary input", 0, activity.leaves);
+            prefs.gamepadQuitCombo = "lb_rb_a_b";
+            usb(handler, ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG);
+            usb(handler, combo);
+            assertTrue(pad.quitComboPending);
+            usb(handler, ControllerPacket.A_FLAG);
+            assertEquals("Not while a button is still held", 0, activity.leaves);
+            usb(handler, 0);
+            assertEquals(1, activity.leaves);
+            assertEquals("The menu combo is not the quit combo", 0, activity.menuCount);
+            usb(handler, ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG);
+            usb(handler, 0);
+            assertEquals("Another chord leaves nothing", 1, activity.leaves);
+        } finally {
+            handler.destroy();
+        }
+        assertEquals(0, ControllerHandler.quitComboMask("off"));
+        assertEquals(0, ControllerHandler.quitComboMask(null));
+        assertEquals(ControllerPacket.BACK_FLAG | ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.Y_FLAG,
+                ControllerHandler.quitComboMask("select_lb_rb_y"));
+    }
+
+    @Test
+    public void theAndroidMappedQuitComboLeavesToo() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.gamepadQuitCombo = "start_lb_rb_a";
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        context.hasSelect = context.hasMode = true;
+        int[] keys = {KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_A};
+        try {
+            for (int key : keys) {
+                assertTrue(handler.handleButtonDown(new KeyEvent(1000, 1000, KeyEvent.ACTION_DOWN, key, 0, 0, 0, 0)));
+            }
+            for (int key : keys) {
+                assertEquals(0, activity.leaves);
+                assertTrue(handler.handleButtonUp(new KeyEvent(1000, 1100, KeyEvent.ACTION_UP, key, 0, 0, 0, 0)));
+            }
+            assertEquals(1, activity.leaves);
+            assertEquals(0, activity.menuCount);
+        } finally {
+            handler.destroy();
+        }
+    }
+
     public static class MenuGame extends Game {
         int menuCount;
+        int leaves;
+        @Override public void leaveStreamFromController() { leaves++; }
         final List<Integer> steered = new ArrayList<>();
         @Override public void showStreamMenu() { menuCount++; }
         @Override public void steerStreamMenu(int keyCode) { steered.add(keyCode); }

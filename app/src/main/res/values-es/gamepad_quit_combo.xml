@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Combinación para salir con el mando</string>
+    <string name="summary_list_gamepad_quit_combo">Mantén estos botones para salir de la transmisión; termina cuando los sueltas todos. Desactivado lo deja al menú de la transmisión, que abre Start+Select+LB+RB. Se aplica en la próxima transmisión.</string>
+    <string name="gamepad_quit_combo_off">Desactivado</string>
+    <string name="stream_controller_mouse">Ratón con el mando</string>
+</resources>

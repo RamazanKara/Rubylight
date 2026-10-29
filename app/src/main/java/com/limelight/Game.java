@@ -3034,6 +3034,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         dialog.show();
     }
 
+    /** The controller quit combo: leaves the stream like the menu's Disconnect. */
+    public void leaveStreamFromController() {
+        if (!foreground || isFinishing()) {
+            return;
+        }
+        leaveStream();
+    }
+
     public void showStreamMenu() {
         if (!foreground || !connected || streamMenu != null) {
             return;
@@ -3120,6 +3128,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.overlayPosition = overlayCorner.key;
         options.localOutput = externalPresentation == null;
         options.mouseConnected = hasExternalMouse();
+        options.controllerMouseAvailable = controllerHandler != null && controllerHandler.hasControllers();
+        options.controllerMouseOn = controllerHandler != null && controllerHandler.isMouseEmulationActive();
         options.cursorVisible = cursorVisible;
         options.onscreenControls = prefConfig.onscreenController;
         options.gameControls = gameTouchControls != null;
@@ -3161,6 +3171,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case KEYBOARD: action = this::toggleKeyboard; break;
             case TOUCH_MODE: action = this::showTouchModeDialog; break;
             case MOUSE_CURSOR: action = this::toggleCursorVisibility; break;
+            case CONTROLLER_MOUSE: action = () -> { if (controllerHandler != null) controllerHandler.toggleMouseEmulationFromMenu(); }; break;
             case ONSCREEN_CONTROLS: action = () -> setOnscreenControlsEnabled(!prefConfig.onscreenController); break;
             case CONTROLS_LAYOUT: action = this::showControllerLayoutDialog; break;
             case MIC_BUTTON: action = () -> setMicButtonShown(!prefConfig.micButton); break;

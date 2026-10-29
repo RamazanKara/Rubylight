@@ -14,8 +14,9 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  * never starts it: a game on a network share, Windows' own program, a missing .exe, a game that needs
  * administrator rights on an account Windows doesn't elevate), shown alike. `handler` and `ready` also say
  * how a background stream runs: as the signed-in user or as administrator. On an account Windows doesn't
- * elevate, `ready` carries the host's refusal instead: its hub handler can't run, for co-op or alone; and
- * `handler` says why Open Nucleus Co-op on this PC is refused before it is pressed.
+ * elevate, `ready` says instead that the game's handler can't run there, for co-op or alone, and
+ * `handler` says why Open Nucleus Co-op on this PC is refused before it is pressed: each one sentence
+ * with what the user can do.
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -63,16 +64,26 @@ export function installProgress(status: CoopStatus): { label: string; percent: n
 /** A background stream run elevated: every hub handler, and Rubylight's own for a game that needs it. */
 export const RUNS_ELEVATED = 'A background stream runs it as administrator.';
 
+/** A background stream run as the signed-in user: Rubylight's own handler for a game that needs nothing more. */
+export const RUNS_AS_USER = 'A background stream runs it without administrator rights.';
+
 /**
  * How a background stream of the game runs, from the host's `runs`. The console doesn't walk the game's
  * folder; the launch does, and elevates if the signed-in user can't change it. Null when the host
  * doesn't say (an older host, a Steam link checked at launch).
  */
 export function runsText(game: CoopGame): string | null {
-  if (game.runs === 'user') {
-    return 'A background stream runs it as the signed-in user, without administrator rights, unless only an administrator may change its folder.';
-  }
+  if (game.runs === 'user') return RUNS_AS_USER;
   return game.runs === 'elevated' ? RUNS_ELEVATED : null;
+}
+
+/** Why Open Nucleus Co-op on this PC can't work on an account Windows doesn't elevate, and what to do. */
+export const OPEN_REFUSED =
+  'Nucleus Co-op needs administrator rights that Windows doesn’t give this account: sign in to Windows on this PC as an administrator to add a handler.';
+
+/** Why a game with its handler added can't start on an account Windows doesn't elevate, and what to do. */
+export function handlerRefused(name: string): string {
+  return `${name}’s handler needs administrator rights that Windows doesn’t give this account: sign in to Windows on this PC as an administrator to play it.`;
 }
 
 export function gameOf(status: CoopStatus, app: string): CoopGame | undefined {
@@ -106,13 +117,13 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
   }
   if (status.catalog_error) return { kind: 'broken', error: status.catalog_error };
   const name = game.name;
-  // The host's refusal for Open Nucleus Co-op on this PC; older hosts don't say.
-  const openRefusal = status.elevates === false && status.open_refusal ? sentence(status.open_refusal) : null;
+  // The host refuses Open Nucleus Co-op on this PC; older hosts don't say.
+  const openRefusal = status.elevates === false && status.open_refusal ? OPEN_REFUSED : null;
   switch (game.status) {
     case 'ready': {
       const players = game.players ?? 1;
-      // The host's refusal for a hub handler on an account Windows doesn't elevate; older hosts don't say.
-      const refusal = status.elevates === false && game.reason ? sentence(game.reason) : null;
+      // The host refuses the game's handler on an account Windows doesn't elevate; older hosts don't say.
+      const refusal = status.elevates === false && game.reason ? handlerRefused(name) : null;
       return {
         kind: 'ready',
         players: `Up to ${players} ${players === 1 ? 'player' : 'players'}.`,

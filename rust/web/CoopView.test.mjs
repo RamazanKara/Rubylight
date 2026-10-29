@@ -210,7 +210,7 @@ test('a game Rubylight never starts says why in the host’s words', () => {
 });
 
 test('the panel says how a background stream runs: as the signed-in user, or as administrator', () => {
-  const user = 'A background stream runs it as the signed-in user, without administrator rights, unless only an administrator may change its folder.';
+  const user = 'A background stream runs it without administrator rights.';
   const admin = 'A background stream runs it as administrator.';
   // Rubylight's own handler, without a hub handler or with the game not added yet.
   for (const fixture of [fixtures.handler, fixtures.added]) {
@@ -250,16 +250,21 @@ test('a game that needs administrator rights on an account Windows doesn’t ele
   assert.doesNotMatch(out, /A background stream runs it|Open Nucleus Co-op/);
 });
 
-test('on an account Windows doesn’t elevate, a hub handler’s game says so before launch in the host’s words', () => {
+test('on an account Windows doesn’t elevate, a hub handler’s game says so before launch, and what to do', () => {
   const words = 'Nucleus Co-op needs administrator rights for a hub handler, and Windows gives the account signed in on this PC no administrator rights to start it with (a standard account, or Windows\' Administrator protection)';
   const refused = status({ elevates: false }, { reason: words });
   const view = playTogether(refused, 'portal');
   assert.equal(view.kind, 'ready');
-  assert.equal(view.refusal, `${words}.`);
+  // One plain sentence with what to do, not the host's words.
+  assert.equal(
+    view.refusal,
+    'Portal 2’s handler needs administrator rights that Windows doesn’t give this account: sign in to Windows on this PC as an administrator to play it.',
+  );
   assert.equal(view.runs, null);
   const out = html(refused);
   assert.match(out, /No co-op or background streams on this account/);
-  assert.match(out, /Administrator protection\)\./);
+  assert.match(out, /sign in to Windows on this PC as an administrator to play it\./);
+  assert.doesNotMatch(out, /hub handler|Administrator protection/);
   assert.doesNotMatch(out, /Start “Portal 2 \(Co-op\)” from Nightjar|A background stream runs it as administrator/);
   // An account that elevates, one the host can't tell, or an older host: nothing new.
   for (const elevates of [true, null, undefined]) {
@@ -273,7 +278,7 @@ test('on an account Windows doesn’t elevate, a hub handler’s game says so be
   const user = status({ elevates: false }, { status: 'no_handler', handler: null, players: null, runs: 'user' });
   const own = playTogether(user, 'portal');
   assert.equal(own.kind, 'handler');
-  assert.match(own.runs, /as the signed-in user, without administrator rights/);
+  assert.equal(own.runs, 'A background stream runs it without administrator rights.');
   assert.doesNotMatch(html(user), /on this account|Administrator protection/);
 });
 
@@ -283,10 +288,14 @@ test('on an account Windows doesn’t elevate, Open Nucleus Co-op says why befor
   for (const fixture of [fixtures.handler, fixtures.added]) {
     const name = fixture.games[0].status;
     const refused = { ...fixture, elevates: false, open_refusal: words };
-    assert.equal(playTogether(refused, 'portal').openRefusal, `${words}.`, name);
+    assert.equal(
+      playTogether(refused, 'portal').openRefusal,
+      'Nucleus Co-op needs administrator rights that Windows doesn’t give this account: sign in to Windows on this PC as an administrator to add a handler.',
+      name,
+    );
     const out = html(refused);
     assert.match(out, /Nucleus Co-op can’t open on this account/, name);
-    assert.ok(out.includes('Administrator protection).'), name);
+    assert.doesNotMatch(out, /Administrator protection/, name);
     assert.match(out, openButton, name);
     // An account that elevates, one the host can't tell, or an older host: nothing new.
     for (const [elevates, open_refusal] of [[true, null], [null, null], [undefined, undefined], [true, words]]) {

@@ -5325,6 +5325,33 @@ mod tests {
     }
 
     #[test]
+    fn the_details_page_shows_shared_folders_and_co_op_once_the_native_read_offers_them() {
+        use crate::hosts::tests::{info_lands, native_caps, native_info, native_lands, stock_info, NATIVE_EXTRAS};
+        let rows = |f: &Frames| [shows(f, "SHARED FOLDERS") && shows(f, "Browse"), shows(f, "CO-OP") && shows(f, "Show sessions")];
+        let mut f = Frames::with(record("uid", true, false), Reach::Online, Some(native_info()), Vec::new());
+        f.size = vec2(1280.0, 12000.0);
+        let id = f.hosts.list[0].id;
+        f.l.open(Screen::HostDetails(id));
+        f.settle();
+        assert_eq!(rows(&f), [false; 2], "nothing is offered before the native read: {:?}", f.drawn);
+        native_lands(&mut f.hosts, id, native_caps(NATIVE_EXTRAS, true));
+        f.settle();
+        assert_eq!(rows(&f), [true; 2], "{:?}", f.drawn);
+        info_lands(&mut f.hosts, id, native_info());
+        f.settle();
+        assert_eq!(rows(&f), [true; 2], "the next poll keeps them");
+        // A host without the native API: no rows, even with a native read from before.
+        let mut f = Frames::with(record("uid", true, false), Reach::Online, Some(stock_info()), Vec::new());
+        f.size = vec2(1280.0, 12000.0);
+        let id = f.hosts.list[0].id;
+        f.l.open(Screen::HostDetails(id));
+        native_lands(&mut f.hosts, id, native_caps(NATIVE_EXTRAS, true));
+        f.settle();
+        assert!(shows(&f, "Test this PC"), "the page is drawn: {:?}", f.drawn);
+        assert_eq!(rows(&f), [false; 2], "{:?}", f.drawn);
+    }
+
+    #[test]
     fn the_details_page_lists_co_op_sessions_only_where_the_pc_offers_them_and_joins_a_free_slot() {
         use crate::coop_page::tests::{api, waker, Fake};
         use nightjar_core::http::native_api::error::ErrorCode;

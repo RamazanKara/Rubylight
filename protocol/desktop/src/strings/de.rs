@@ -313,6 +313,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("YUV 4:4:4 unavailable; using 4:2:0: {}", "YUV 4:4:4 nicht verfügbar; nutze 4:2:0: {}"),
     ("10-bit SDR isn’t used, so the stream is 8-bit: {}", "10-Bit-SDR wird nicht verwendet, der Stream läuft mit 8 Bit: {}"),
     ("This PC didn’t accept 10-bit, so the stream is 8-bit.", "Dieser PC hat 10 Bit nicht angenommen, der Stream läuft mit 8 Bit."),
+    ("This PC doesn’t offer PyroWave, so Nightjar uses {}.", "Dieser PC bietet PyroWave nicht an, daher nutzt Nightjar {}."),
     ("full chroma is on and has its own 4:4:4 and 10-bit handling.", "volles Chroma ist aktiv und hat eine eigene 4:4:4- und 10-Bit-Behandlung."),
     ("PyroWave is chosen, and it has its own 4:4:4 and 10-bit modes.", "PyroWave ist gewählt und hat eigene 4:4:4- und 10-Bit-Modi."),
     ("this device can’t decode or draw it ({}).", "dieses Gerät kann es nicht decodieren oder darstellen ({})."),

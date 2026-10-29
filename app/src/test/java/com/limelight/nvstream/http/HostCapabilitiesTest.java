@@ -594,7 +594,7 @@ public class HostCapabilitiesTest {
     public void displayScaleNeedsDisplayScaleVersionAndAWorkingVirtualDisplay() {
         String host = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable>" +
                 "<VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
-        // Older hosts (2.6.x, 3.0.0-rc.4) don't send it and ignore rlDisplayScale.
+        // Older hosts (2.6.x, 3.0.0-rc.5) don't send it and ignore rlDisplayScale.
         for (String version : new String[] {"", "<DisplayScaleVersion>0</DisplayScaleVersion>",
                 "<DisplayScaleVersion>x</DisplayScaleVersion>"}) {
             assertReason(caps(host + version), DISPLAY_SCALE, Reason.UPDATE_HOST);

@@ -136,7 +136,7 @@ public class HostStreamSettingsGatingTest {
 
     @Test
     public void aRubylightWithoutDisplayScaleExplainsWhyTheRowIsUnavailable() {
-        // 2.6.x and 3.0.0-rc.4 send no DisplayScaleVersion and ignore rlDisplayScale.
+        // 2.6.x and 3.0.0-rc.5 send no DisplayScaleVersion and ignore rlDisplayScale.
         withSettings("no-dpi-pc", TestHosts.rubylight(), fragment -> {
             Preference dpi = fragment.findPreference("dpi");
             assertFalse(dpi.isEnabled());

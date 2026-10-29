@@ -650,6 +650,78 @@ fn network_keyframe_requests_cut_only_without_fec_status() {
     assert!(rig.changes.is_empty());
 }
 
+/// 2026-10-29 sweep (r-def, AV1 to a Retroid, 07:55:55 UTC): the client lost
+/// one frame and asked to invalidate 2685-2695 eleven times before the repair
+/// came. Each request counted, ten of them cut 21 to 14.5 Mbps for 26 s on a
+/// link that carried the stream. One loss is one incident; three separate
+/// losses still cut.
+#[test]
+fn repeated_invalidations_for_one_loss_are_one_request() {
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for last in 2685..=2695 {
+        rig.lr.on_invalidation(2685, last, true, rig.now());
+        rig.clean(8);
+    }
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.kinds());
+    // A client still asking long after it began has not got its repair.
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for _ in 0..3 {
+        rig.lr.on_invalidation(2685, 2695, true, rig.now());
+        rig.clean(600);
+    }
+    rig.clean(400);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+    // Three losses, each asked for a few times.
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for first in [3000, 3060, 3120] {
+        for last in first..first + 4 {
+            rig.lr.on_invalidation(first, last, true, rig.now());
+            rig.clean(8);
+        }
+        rig.clean(300);
+    }
+    rig.clean(400);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+    assert_eq!(rig.changes[0].1.reason, "keyframe_requests");
+    // A range the host cannot read counts every time.
+    let mut rig = Rig::new(21_388);
+    rig.clean(1_000);
+    for _ in 0..3 {
+        rig.lr.on_invalidation(0, 0, true, rig.now());
+        rig.clean(100);
+    }
+    rig.clean(400);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+}
+
+/// rc.5's `KeyframeLoss` calls a request from a client that announced FEC
+/// status (Moonlight, Artemis, Nightjar) its decoder asking again. The
+/// controller now agrees from the first frame, before any status arrived.
+#[test]
+fn a_client_that_announced_fec_status_is_judged_by_it_from_the_start() {
+    let announced = Negotiated {
+        moonlight_features: crate::rtsp::FEC_STATUS_FEATURE,
+        ..stream(21_388)
+    };
+    let mut rig = Rig::with(LinkRate::new(true, &announced, 0, 20), 21_388);
+    rig.clean(1_000);
+    for first in [3000, 3060, 3120, 3180] {
+        rig.lr.on_invalidation(first, first + 2, true, rig.now());
+        rig.lr.on_keyframe_request(true, rig.now());
+        rig.clean(300);
+    }
+    rig.clean(1_000);
+    assert!(rig.changes.is_empty(), "{:?}", rig.kinds());
+    // Its lost frames still cut.
+    rig.lose_three();
+    rig.clean(500);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+}
+
 #[test]
 fn a_rise_in_rtt_alone_is_no_evidence() {
     let mut rig = Rig::new(40_000);

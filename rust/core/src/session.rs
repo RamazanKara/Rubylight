@@ -573,6 +573,29 @@ mod tests {
             None
         );
     }
+    /// 2026-10-29 sweep (r-def): eleven invalidation requests for one lost
+    /// frame cut the bitrate for 26 s; three separate losses still do.
+    #[test]
+    fn a_clients_repeated_invalidations_for_one_loss_count_once() {
+        let (s, end) = link_session(60, true);
+        for last in 45..=55 {
+            s.request_invalidation(45, last);
+        }
+        assert_eq!(
+            s.tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10)),
+            None
+        );
+        assert_eq!(s.info()["link_rate"]["state"], "full");
+        let (s, end) = link_session(60, true);
+        for first in [20, 35, 50] {
+            s.request_invalidation(first, first + 3);
+            s.request_invalidation(first, first + 4);
+        }
+        let (_, to) = s
+            .tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10))
+            .expect("three losses lower the bitrate");
+        assert!(to < 20_000, "{to}");
+    }
     /// 2026-10-29: a PyroWave stream to a phone on Wi-Fi lost about a quarter
     /// of its packets for the whole stream and nothing lowered its bitrate.
     /// Review 2026-10-29: only a lost coarse block (block 0) loses the picture;
@@ -3504,7 +3527,7 @@ impl<P, A> Session<P, A> {
         if self.config.codec == 3 {
             return;
         }
-        self.link_request();
+        self.link_invalidation(first, last);
         if first == 0 || first > last {
             self.request_recovery_keyframe();
             return;
@@ -3887,8 +3910,21 @@ impl<P, A> Session<P, A> {
             at,
         );
     }
-    /// A client request for a keyframe or reference invalidation (E4).
+    /// A client request for a keyframe (E4).
     fn link_request(&self) {
+        self.link_request_with(|rate, network, now| rate.on_keyframe_request(network, now));
+    }
+    /// A client request to invalidate frames `first..=last` (E4), counted once
+    /// per incident.
+    fn link_invalidation(&self, first: u64, last: u64) {
+        self.link_request_with(|rate, network, now| {
+            rate.on_invalidation(first, last, network, now)
+        });
+    }
+    fn link_request_with(
+        &self,
+        count: impl FnOnce(&mut crate::link_rate::LinkRate, bool, Instant),
+    ) {
         if !self.link_sent.live() {
             return;
         }
@@ -3900,7 +3936,7 @@ impl<P, A> Session<P, A> {
             self.config.codec != 3 && self.keyframe_loss.lock().unwrap().network_request(now);
         let mut link = self.link_rate.lock().unwrap();
         link.drain(&self.link_sent);
-        link.rate.on_keyframe_request(network, now);
+        count(&mut link.rate, network, now);
     }
     /// One validated, deduplicated FEC block (E1 and E2).
     fn link_status(&self, payload: &[u8], frame: u32, block: crate::adaptive_fec::Block) {

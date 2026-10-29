@@ -131,6 +131,13 @@ pub const SEND_LOSS_FRAMES: usize = 3;
 /// A storm of recovery keyframes after a probe (38 in 3.5 s on r50-hevc-hi)
 /// is not reported as unrecoverable frames, so the requests are the evidence.
 pub const KEYFRAME_REQUESTS: usize = 3;
+/// Reference invalidations that continue the frame range of the incident
+/// counted last, within this time of its first request, are the same
+/// incident (see [`LinkRate::on_invalidation`]). The r-def client asked
+/// eleven times in about 90 ms; one that is still asking after this long has
+/// not got its repair, and that counts again, so three counts in
+/// [`EVIDENCE_WINDOW`] take a client stuck for one second.
+pub const INCIDENT_GAP: Duration = Duration::from_millis(500);
 /// The loss share a cut will believe. Losses come in bursts, and the share is
 /// measured up to the newest lost frame, so a short window can read 100% on a
 /// link that carries half the rate; a cut never goes below a quarter of what
@@ -524,6 +531,10 @@ pub struct LinkRate {
     /// PyroWave record framing: only the coarse block (block 0) carries the
     /// picture, so only its loss loses the frame (see [`Self::frame_lost`]).
     records: bool,
+    /// The newest frame of the reference invalidation incident counted last,
+    /// and when it began: the client's repeats for the same loss are one
+    /// request (see [`Self::on_invalidation`]).
+    incident: Option<(u64, Instant)>,
     last_ping: Option<Instant>,
     minimum_rtt: Option<Duration>,
     /// Lowest RTT per second over [`QUEUE_FLOOR_WINDOW`], oldest first.
@@ -608,6 +619,7 @@ impl LinkRate {
             events: Events::default(),
             fec_status_seen: false,
             records: false,
+            incident: None,
             last_ping: None,
             minimum_rtt: None,
             rtt_floor: VecDeque::with_capacity(FLOOR_BUCKETS),
@@ -669,6 +681,11 @@ impl LinkRate {
         this.floor_kbps = ceiling.min(lowest).max(minimum).min(ceiling);
         this.ceiling_kbps = ceiling;
         this.records = pyrowave && stream.pyrowave_records;
+        // A client that announced FEC status reports every frame it lost, so
+        // its keyframe requests are no loss evidence from the first frame on,
+        // as `KeyframeLoss` already treats them (it calls such a client's
+        // repeated request its decoder asking again).
+        this.fec_status_seen = stream.moonlight_features & crate::rtsp::FEC_STATUS_FEATURE != 0;
         this.budget = Some(budget);
         this.ring = vec![Sent::default(); RING].into_boxed_slice();
         for events in [&mut this.events.unrecoverable, &mut this.events.send_losses] {
@@ -941,6 +958,33 @@ impl LinkRate {
             self.events.requests.remove(0);
         }
         self.events.requests.push(now);
+    }
+
+    /// A reference invalidation request for frames `first..=last` (0x0301).
+    /// The client asks again for every frame it cannot decode until the
+    /// repair arrives, so a request whose range starts at or before the
+    /// newest frame of the incident counted last, within [`INCIDENT_GAP`] of
+    /// its first request, is the same loss and not counted again (2026-10-29:
+    /// 11 requests for frames 2685-2695 after one lost frame counted as 10
+    /// and cut 21 to 14.5 Mbps on a link that carried the stream). A range
+    /// the host cannot read (`first` 0 or past `last`) is a request of its own.
+    pub fn on_invalidation(&mut self, first: u64, last: u64, network: bool, now: Instant) {
+        if first == 0 || first > last {
+            self.on_keyframe_request(network, now);
+            return;
+        }
+        match &mut self.incident {
+            Some((newest, began))
+                if first <= newest.saturating_add(1)
+                    && now.saturating_duration_since(*began) < INCIDENT_GAP =>
+            {
+                *newest = (*newest).max(last);
+            }
+            incident => {
+                *incident = Some((last, now));
+                self.on_keyframe_request(network, now);
+            }
+        }
     }
 
     /// `KeyframeLoss` latched (paced like Wi-Fi). If the pacing before the

@@ -41,6 +41,18 @@ public class PerformanceOverlayTest {
     }
 
     @Test
+    public void theBandwidthOnTheWireFollowsTheVideoPayloadOnceMeasured() {
+        String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · AV1 · HDR",
+                59.94f, 60, 20.4f, 23.04f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
+        assertTrue(text, text.contains("Video payload: 20.4 Mbps · Loss: 0.14%\n" +
+                "On the wire: 23.0 Mbps with FEC and audio\nNetwork RTT: 8 ms (±1 ms)"));
+        String before = PerformanceOverlay.statisticsText(context(Locale.US), "s",
+                60, 60, 20.4f, -1, 0, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
+        assertFalse(before, before.contains("On the wire"));
+        assertEquals(64f, PerformanceOverlay.videoMbps(8_000_000, 1_000_000_000L), 0.001f);
+    }
+
+    @Test
     public void pyrowaveSubmissionIsLabelledAndNeverMixedWithCompletionPercentiles() {
         Context context = context(Locale.US);
         String statistics = PerformanceOverlay.statisticsText(context, "1920×1080 · PyroWave · SDR",

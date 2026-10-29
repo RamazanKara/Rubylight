@@ -6,6 +6,7 @@
     <string name="stats_waiting">En attente des statistiques du stream…</string>
     <string name="stats_frame_rates">Rendues : %1$s FPS · Reçues : %2$s FPS</string>
     <string name="stats_throughput">Données vidéo : %1$s Mbit/s · Perte : %2$s %%</string>
+    <string name="stats_wire">Sur le réseau : %1$s Mbit/s avec FEC et audio</string>
     <string name="stats_network">RTT réseau : %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Traitement de l’hôte : %1$s ms</string>
     <string name="stats_host_network">Hôte vers le réseau : %1$s ms</string>

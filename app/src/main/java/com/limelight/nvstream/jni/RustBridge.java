@@ -106,6 +106,7 @@ final class RustBridge {
     static native long audioConcealer();
     static native int getPendingVideoFrames();
     static native long getEstimatedRttInfo();
+    static native long getWireBytesReceived();
     static native boolean reportFrameSlack(long slackNs, long periodNs);
     static native void flushPhaseLockReport();
     static native int getPhaseLockLeadUs();

@@ -337,6 +337,7 @@ fn receive_thread(
                 break;
             }
         };
+        session.received(length);
         if !received && length >= 12 {
             received = true;
             session.log("Received first audio packet");

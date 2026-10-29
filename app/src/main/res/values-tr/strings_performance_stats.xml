@@ -6,6 +6,7 @@
     <string name="stats_waiting">Yayın istatistikleri bekleniyor…</string>
     <string name="stats_frame_rates">Render edilen: %1$s FPS · Alınan: %2$s FPS</string>
     <string name="stats_throughput">Video verisi: %1$s Mbps · Kayıp: %%%2$s</string>
+    <string name="stats_wire">Ağda: FEC ve ses dahil %1$s Mbps</string>
     <string name="stats_network">Ağ RTT: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Ana bilgisayar işleme süresi: %1$s ms</string>
     <string name="stats_host_network">Ana bilgisayardan ağa: %1$s ms</string>

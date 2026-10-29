@@ -14,6 +14,9 @@ pub struct Measures {
     pub received_fps: Option<f32>,
     /// Video payload received, in Mbit/s.
     pub video_mbps: Option<f32>,
+    /// Every video and audio datagram received, FEC parity included, in Mbit/s: the stream's
+    /// bandwidth on the wire.
+    pub wire_mbps: Option<f32>,
     pub loss_percent: Option<f32>,
     pub network_ms: Option<f32>,
     pub variance_ms: Option<f32>,
@@ -72,21 +75,28 @@ fn value(value: Option<f32>, decimals: usize) -> String {
     value.filter(|v| v.is_finite() && *v >= 0.0).map_or_else(|| "—".into(), |v| format!("{v:.decimals$}"))
 }
 
-/// Android's six statistics lines: the stream, frame rates, video payload and loss, the network,
-/// the host (and its present to sent once reported, under its own label) and this device.
+/// Android's six statistics lines: the stream, frame rates, video payload and loss (and the
+/// bandwidth on the wire once measured), the network, the host (and its present to sent once
+/// reported, under its own label) and this device.
 pub fn statistics(stream: &str, m: &Measures) -> Vec<(String, String)> {
     let mut lines = vec![
         ("Stream".into(), stream.to_owned()),
         ("Frames".into(), format!("{} rendered · {} received FPS", value(m.rendered_fps, 1), value(m.received_fps, 1))),
         ("Video".into(), format!("{} Mbps payload · {}% loss", value(m.video_mbps, 1), value(m.loss_percent, 2))),
-        ("Network".into(), format!("{} ms RTT (±{} ms)", value(m.network_ms, 0), value(m.variance_ms, 0))),
-        ("Host processing".into(), format!("{} ms", value(m.host_ms, 1))),
     ];
+    lines.extend(wire(m));
+    lines.push(("Network".into(), format!("{} ms RTT (±{} ms)", value(m.network_ms, 0), value(m.variance_ms, 0))));
+    lines.push(("Host processing".into(), format!("{} ms", value(m.host_ms, 1))));
     if m.host_to_network_ms.is_some() {
         lines.push(("Host to network".into(), format!("{} ms", value(m.host_to_network_ms, 1))));
     }
     lines.push(("Client".into(), format!("{} ms decode · {} ms render", value(m.decode_ms, 2), value(m.render_ms, 2))));
     lines
+}
+
+/// "On the wire: 53.0 Mbps with FEC and audio", in Statistics and Debug once measured.
+pub fn wire(m: &Measures) -> Option<(String, String)> {
+    m.wire_mbps.map(|mbps| ("On the wire".into(), format!("{} Mbps with FEC and audio", value(Some(mbps), 1))))
 }
 
 /// Video payload in Mbit/s from the bytes received over `secs`.
@@ -134,6 +144,7 @@ mod tests {
             rendered_fps: Some(119.94),
             received_fps: Some(120.0),
             video_mbps: Some(48.24),
+            wire_mbps: None,
             loss_percent: Some(0.12),
             network_ms: Some(7.6),
             variance_ms: Some(1.2),
@@ -175,6 +186,14 @@ mod tests {
         let empty = statistics("s", &Measures::default());
         assert_eq!(empty[3].1, "— ms RTT (±— ms)");
         assert_eq!(empty.len(), 6);
+    }
+
+    #[test]
+    fn the_bandwidth_on_the_wire_follows_the_video_payload() {
+        let lines = statistics("s", &Measures { wire_mbps: Some(53.04), ..measured() });
+        assert_eq!(lines[3], ("On the wire".to_owned(), "53.0 Mbps with FEC and audio".to_owned()));
+        assert_eq!(lines[4].0, "Network");
+        assert_eq!(lines.len(), 7);
     }
 
     #[test]

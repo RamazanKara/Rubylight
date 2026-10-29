@@ -123,7 +123,9 @@ Both are made from the finished archives, so they carry exactly their files (`pa
 The release workflow pins nfpm, appimagetool, the AppImage runtime and Inno Setup by version and SHA-256, installs
 the .deb on its Ubuntu 24.04 runner, the .rpm in a clean Fedora container and the AppImage in another one with only
 libva added, and runs the installer's
-`-Smoke` on its Windows runner.
+`-Smoke` on its Windows runner. `--version` returns before SDL starts, so it also checks that the .deb and the .rpm
+name the libraries SDL cannot start without and, with `packaging/linux/check-start.sh`, that each opens its launcher
+window under Xvfb in a clean container holding only the package and its hard dependencies.
 
 ### Linux
 

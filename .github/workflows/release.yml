@@ -93,6 +93,8 @@ jobs:
       # The clean distribution the .rpm and the AppImage are installed and started in, pinned by
       # the digest of its image index.
       FEDORA_IMAGE: fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814
+      # A clean Ubuntu for the .deb's start check (the runner has most libraries installed already).
+      UBUNTU_IMAGE: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -225,10 +227,24 @@ jobs:
       # Each package installs, answers --version (no window needed) and uninstalls without
       # leftovers: the .deb on this Ubuntu runner, the .rpm in a clean Fedora. The AppImage runs in
       # a Fedora of its own with only libva added: it brings libopus itself, and removing the .rpm
-      # would also have removed the libraries the .rpm pulled in.
+      # would also have removed the libraries the .rpm pulled in. --version returns before SDL
+      # starts, so the .deb and the .rpm must also name the libraries SDL cannot start without, and
+      # each opens its launcher window under Xvfb (check-start.sh) in a clean container holding
+      # only the package and its hard dependencies (no recommends, no weak dependencies).
       - name: Install, start and remove the packages
         run: |
           name="nightjar-desktop-$VERSION-linux-x86_64"
+          depends=$(dpkg-deb -f "dist/$name.deb" Depends)
+          for pkg in libasound2t64 libx11-6 libxext6; do
+            grep -Eq "(^|, )$pkg( |,|$)" <<<"$depends" || { echo "::error::the .deb does not depend on $pkg: $depends"; exit 1; }
+          done
+          docker run --rm -e name="$name" -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux/check-start.sh:/check-start.sh:ro" "$UBUNTU_IMAGE" bash -euo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends "/dist/$name.deb" >/dev/null
+            apt-get install -y -qq --no-install-recommends xvfb x11-utils libgl1-mesa-dri libegl1 libgl1 >/dev/null
+            bash /check-start.sh nightjar
+            echo "ubuntu: the .deb starts"'
           sudo apt-get install -y -qq "./dist/$name.deb"
           printed=$(nightjar --version)
           test "$printed" = "Nightjar $VERSION" || { echo "::error::the .deb's nightjar --version printed '$printed'"; exit 1; }
@@ -237,10 +253,16 @@ jobs:
           sudo apt-get remove -y -qq nightjar
           if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "::error::removing the .deb left files behind"; exit 1; fi
           APPIMAGE_EXTRACT_AND_RUN=1 "./dist/$name.AppImage" --version | grep -qx "Nightjar $VERSION" || { echo "::error::the AppImage does not start"; exit 1; }
-          docker run --rm -e VERSION -e name="$name" -v "$PWD/dist:/dist:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
-            dnf install -y -q "/dist/$name.rpm"
+          docker run --rm -e VERSION -e name="$name" -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux/check-start.sh:/check-start.sh:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
+            requires=$(rpm -qp --requires "/dist/$name.rpm")
+            for lib in "libasound.so.2()(64bit)" "libX11.so.6()(64bit)" "libXext.so.6()(64bit)"; do
+              grep -Fxq "$lib" <<<"$requires" || { echo "the .rpm does not require $lib"; exit 1; }
+            done
+            dnf install -y -q --setopt=install_weak_deps=False "/dist/$name.rpm"
             test "$(nightjar --version)" = "Nightjar $VERSION"
             test -s /usr/share/applications/io.github.ramazankara.nightjar.desktop
+            dnf install -y -q --setopt=install_weak_deps=False xorg-x11-server-Xvfb xwininfo xprop mesa-dri-drivers mesa-libEGL mesa-libGL
+            bash /check-start.sh nightjar
             dnf remove -y -q nightjar
             if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "removing the .rpm left files behind"; exit 1; fi
             echo "fedora: .rpm passed"'

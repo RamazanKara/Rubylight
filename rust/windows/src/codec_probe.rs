@@ -45,6 +45,24 @@ impl std::fmt::Display for TimedOut {
 }
 impl std::error::Error for TimedOut {}
 
+/// The caller stopped the probe, as when a stream wants the encoder. The
+/// worker is dropped, which ends its job and the child with it.
+#[derive(Debug)]
+pub struct Interrupted;
+impl std::fmt::Display for Interrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("optional codec probe stopped for a stream")
+    }
+}
+impl std::error::Error for Interrupted {}
+
+impl SessionNotReady {
+    /// For a fake probe in tests.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
 fn early_exit(code: u32) -> anyhow::Error {
     let message = format!("optional codec probe exited before replying (0x{code:08x})");
     if code == STATUS_DLL_INIT_FAILED {
@@ -53,7 +71,15 @@ fn early_exit(code: u32) -> anyhow::Error {
         anyhow::anyhow!(message)
     }
 }
-fn check_worker(exit_code: Option<u32>, now: Instant, deadline: Instant) -> Result<()> {
+fn check_worker(
+    exit_code: Option<u32>,
+    now: Instant,
+    deadline: Instant,
+    stopped: bool,
+) -> Result<()> {
+    if stopped {
+        return Err(Interrupted.into());
+    }
     if let Some(code) = exit_code {
         return Err(early_exit(code));
     }
@@ -83,11 +109,14 @@ enum Reply {
     Error { message: String },
 }
 
-pub fn pyrowave(config: &Config) -> Result<u32> {
-    run(config, None)
+/// Probe PyroWave in a child process. `stop` is checked while it runs:
+/// true ends the child with [`Interrupted`].
+pub fn pyrowave(config: &Config, stop: &dyn Fn() -> bool) -> Result<u32> {
+    run(config, None, stop)
 }
 
-pub fn packed(config: &Config, stream: &Negotiated) -> Result<()> {
+/// Probe one packed 4:4:4 mode in a child process, stopped as `pyrowave` is.
+pub fn packed(config: &Config, stream: &Negotiated, stop: &dyn Fn() -> bool) -> Result<()> {
     stream.validate()?;
     ensure!(
         butterpollo_core::packed444::supported(stream.chroma_packing),
@@ -98,13 +127,13 @@ pub fn packed(config: &Config, stream: &Negotiated) -> Result<()> {
         stream.ten_bit(),
     ));
     ensure!(
-        run(config, Some(stream))? == flag,
+        run(config, Some(stream), stop)? == flag,
         "packed hardware encoder produced no complete probe sequence"
     );
     Ok(())
 }
 
-fn run(config: &Config, packed: Option<&Negotiated>) -> Result<u32> {
+fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) -> Result<u32> {
     // The pipe admits only the signed-in user, so it fails before sign-in.
     let (pipe, name) =
         Pipe::server(PIPE_PREFIX).map_err(|error| SessionNotReady(format!("{error:#}")))?;
@@ -125,7 +154,7 @@ fn run(config: &Config, packed: Option<&Negotiated>) -> Result<u32> {
     .map_err(|error| SessionNotReady(format!("start optional codec probe: {error:#}")))?;
     let deadline = Instant::now() + TIMEOUT;
     let check = || -> Result<()> {
-        check_worker(worker.exit_code()?, Instant::now(), deadline)?;
+        check_worker(worker.exit_code()?, Instant::now(), deadline, stop())?;
         std::thread::sleep(Duration::from_millis(5));
         Ok(())
     };
@@ -362,18 +391,33 @@ mod tests {
     fn optional_codec_worker_exit_and_stall_end_the_probe_with_an_error() {
         let start = Instant::now();
         let deadline = start + TIMEOUT;
-        assert!(check_worker(None, start, deadline).is_ok());
+        assert!(check_worker(None, start, deadline, false).is_ok());
         for code in [0, 1, 0xc0000005] {
-            let error = check_worker(Some(code), start, deadline).unwrap_err();
+            let error = check_worker(Some(code), start, deadline, false).unwrap_err();
             assert!(error.to_string().contains("exited before replying"));
             assert!(!error.is::<SessionNotReady>());
         }
         for now in [deadline, deadline + Duration::from_secs(1)] {
-            let error = check_worker(None, now, deadline).unwrap_err();
+            let error = check_worker(None, now, deadline, false).unwrap_err();
             assert_eq!(error.to_string(), "optional codec probe timed out");
             // A stall under load is probed again once the host is idle.
             assert!(error.is::<TimedOut>());
             assert!(!error.is::<SessionNotReady>());
+        }
+    }
+    /// A stream that starts while a re-probe runs ends the probe at its next
+    /// check instead of sharing the encoder for up to 15 s.
+    #[test]
+    fn a_stopped_probe_ends_at_once_before_any_other_verdict() {
+        let start = Instant::now();
+        let deadline = start + TIMEOUT;
+        for (exit_code, now) in [(None, start), (Some(1), start), (None, deadline)] {
+            let error = check_worker(exit_code, now, deadline, true).unwrap_err();
+            assert!(error.is::<Interrupted>());
+            assert_eq!(
+                error.to_string(),
+                "optional codec probe stopped for a stream"
+            );
         }
     }
     #[test]

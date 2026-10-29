@@ -101,11 +101,17 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
 /// without a restart.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn describe_offers_packed_444_saved_while_the_host_runs() -> Result<()> {
-    fn probe(_: &Config, _: &butterpollo_core::rtsp::Negotiated) -> Result<()> {
+    fn probe(
+        _: &Config,
+        _: &butterpollo_core::rtsp::Negotiated,
+        _: &dyn Fn() -> bool,
+    ) -> Result<()> {
         Ok(())
     }
     let h = Harness::new(10_000, 1).await?;
     h.h.probing_codecs.store(false, Ordering::Release);
+    // The startup probe found HEVC and AV1.
+    h.h.codecs.fetch_or(0x100 | 0x10000, Ordering::AcqRel);
     let before = h.h.config.read().unwrap().clone();
     h.h.config
         .write()

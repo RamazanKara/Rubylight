@@ -652,11 +652,14 @@ async fn saving_packed_444_changes_the_offered_modes_without_a_restart() {
     fn probe(
         _: &butterpollo_core::config::Config,
         stream: &butterpollo_core::rtsp::Negotiated,
+        _: &dyn Fn() -> bool,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(stream.codec == 1 || !stream.ten_bit(), "no 10-bit AV1 here");
         Ok(())
     }
     let f = Fixture::new();
+    // The startup probe found HEVC and AV1.
+    f.host.codecs.fetch_or(0x10000 | 0x20000, Ordering::AcqRel);
     let client = f.client(0x071f1f01);
     let offered = || {
         let host = f.host.clone();

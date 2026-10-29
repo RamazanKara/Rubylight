@@ -329,6 +329,30 @@ mod tests {
         assert!(restart(json!({"sunshine_name": "Renamed host"})));
     }
 
+    /// The console's save reaches the offered packed modes: turning full
+    /// chroma off withdraws them before the save answers.
+    #[test]
+    fn saving_full_chroma_off_withdraws_its_modes_at_once() {
+        use std::sync::atomic::Ordering;
+        let fixture = Fixture::new();
+        let host = &fixture.host;
+        host.config
+            .write()
+            .unwrap()
+            .values
+            .insert("experimental_packed_444".into(), "true".into());
+        host.packed_modes
+            .store(butterpollo_core::packed444::ALL_MODES, Ordering::Release);
+        handle(
+            host,
+            "PATCH",
+            "/api/config",
+            &json!({"experimental_packed_444": false}),
+        )
+        .unwrap();
+        assert_eq!(host.packed_modes.load(Ordering::Acquire), 0);
+    }
+
     #[test]
     fn saving_a_library_setting_scans_the_launchers_again() {
         use butterpollo_core::native::Scan;

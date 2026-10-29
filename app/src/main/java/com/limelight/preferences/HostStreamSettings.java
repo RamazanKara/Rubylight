@@ -41,6 +41,7 @@ import com.google.android.material.textfield.TextInputLayout;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.RemoteSetupActivity;
+import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostActions;
@@ -1102,6 +1103,12 @@ public class HostStreamSettings extends NightjarActivity {
             CharSequence[] items = new CharSequence[offered + 1];
             items[0] = sameAs(codecs[activity.global.videoFormat.ordinal()]);
             System.arraycopy(codecs, 0, items, 1, offered);
+            // Like the list for all PCs: PyroWave says why when this device can never run it.
+            int noPyroWave = PyroWaveDecoderRenderer.neverAvailableReason();
+            int pyroWave = PreferenceConfiguration.FormatOption.FORCE_PYROWAVE.ordinal() + 1;
+            if (noPyroWave != 0 && pyroWave < items.length) {
+                items[pyroWave] = items[pyroWave] + " · " + getString(noPyroWave);
+            }
             PreferenceConfiguration.FormatOption own = activity.overrides.codec;
             int checked = own == null ? 0 : own.ordinal() < offered ? own.ordinal() + 1 : -1;
             new NavigationDialogBuilder(activity).setTitle(R.string.title_video_format)

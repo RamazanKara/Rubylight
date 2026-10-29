@@ -39,6 +39,9 @@
     <string name="host_details_features_unknown">Połącz się raz z tym komputerem, aby zobaczyć, co obsługuje.</string>
     <string name="host_details_features_none">Nie zgłoszono dodatkowych funkcji</string>
     <string name="host_pyrowave_unavailable">Ten komputer nie może strumieniować PyroWave, więc używa %1$s.</string>
+    <string name="stream_pyrowave_device_unavailable">To urządzenie nie może uruchomić PyroWave, więc strumień używa %1$s.\n%2$s</string>
+    <string name="stream_pyrowave_full_chroma">PyroWave nie działa z włączoną opcją „%2$s”, więc strumień używa %1$s.</string>
+    <string name="stream_pyrowave_no_hdr_on_pc">Ten komputer nie ma PyroWave HDR, więc strumień HDR używa %1$s.</string>
     <string name="connection_test_intro_delay">Przetestuj opóźnienie do komputera.</string>
     <string name="host_feature_cursor_shape">Kształty kursora</string>
 </resources>

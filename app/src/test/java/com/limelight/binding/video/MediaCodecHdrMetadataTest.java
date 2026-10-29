@@ -6,6 +6,7 @@ import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Bundle;
 
+import com.limelight.PcViewLifecycleTest;
 import com.limelight.preferences.PreferenceConfiguration;
 
 import org.junit.Before;
@@ -30,7 +31,8 @@ import static org.junit.Assert.*;
 
 /** The PC's HDR report on a running decoder, and the restarts it and other recoveries take. */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 29, application = Application.class, shadows = MediaCodecHdrMetadataTest.RecordingCodec.class)
+@Config(sdk = 29, application = Application.class, instrumentedPackages = "com.limelight.nvstream.jni",
+        shadows = {MediaCodecHdrMetadataTest.RecordingCodec.class, PcViewLifecycleTest.NoNativeMoonBridge.class})
 public class MediaCodecHdrMetadataTest {
     @Implements(MediaCodec.class)
     public static class RecordingCodec extends ShadowMediaCodec {
@@ -254,17 +256,18 @@ public class MediaCodecHdrMetadataTest {
             // The input thread is quiesced; the renderer thread is the last one in.
             ReflectionHelpers.setField(renderer, "codecRecoveryThreadQuiescedFlags",
                     (int) ReflectionHelpers.getStaticField(MediaCodecDecoderRenderer.class, "CR_FLAG_INPUT_THREAD"));
-            try {
-                ReflectionHelpers.callInstanceMethod(renderer, "doCodecRecoveryIfRequired",
-                        ReflectionHelpers.ClassParameter.from(int.class,
-                                (int) ReflectionHelpers.getStaticField(MediaCodecDecoderRenderer.class, "CR_FLAG_RENDER_THREAD")));
-                fail("this renderer has no decoder to set up");
-            } catch (RuntimeException expected) {
-                // initializeDecoder found no format to set up, as a stream without decoders would.
-            }
+            // initializeDecoder finds no format to set up, as a stream without decoders would: the
+            // stream ends with the reason instead of a throw from the renderer thread.
+            ReflectionHelpers.callInstanceMethod(renderer, "doCodecRecoveryIfRequired",
+                    ReflectionHelpers.ClassParameter.from(int.class,
+                            (int) ReflectionHelpers.getStaticField(MediaCodecDecoderRenderer.class, "CR_FLAG_RENDER_THREAD")));
+            String failure = renderer.getDecoderFailure();
+            assertNotNull(failure);
+            assertTrue(failure, failure.contains("could not be set up again after it failed"));
             assertEquals(java.util.Arrays.asList("release", "create c2.mtk.dvhe.st.decoder"), RecordingCodec.calls);
             assertEquals(false, ReflectionHelpers.getField(renderer, "dolbyVisionFailed"));
             assertNull(ReflectionHelpers.getField(renderer, "uncheckedHdrStaticInfo"));
+            // Reported once: the next stream runs without reference frame invalidation.
             assertEquals(1, crashes.size());
         }
     }

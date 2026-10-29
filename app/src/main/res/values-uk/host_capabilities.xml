@@ -39,6 +39,9 @@
     <string name="host_details_features_unknown">Підключіться до цього ПК хоча б раз, щоб побачити, що він підтримує.</string>
     <string name="host_details_features_none">Додаткових функцій не повідомлено</string>
     <string name="host_pyrowave_unavailable">Цей ПК не може транслювати PyroWave, тому використовує %1$s.</string>
+    <string name="stream_pyrowave_device_unavailable">Цей пристрій не може запустити PyroWave, тому трансляція використовує %1$s.\n%2$s</string>
+    <string name="stream_pyrowave_full_chroma">PyroWave не працює з увімкненим параметром «%2$s», тому трансляція використовує %1$s.</string>
+    <string name="stream_pyrowave_no_hdr_on_pc">У цього ПК немає PyroWave HDR, тому HDR-трансляція використовує %1$s.</string>
     <string name="connection_test_intro_delay">Перевірте затримку до вашого ПК.</string>
     <string name="host_feature_cursor_shape">Форми курсора</string>
 </resources>

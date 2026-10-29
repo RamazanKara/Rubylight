@@ -1646,6 +1646,14 @@ public class StreamSettings extends NightjarActivity {
             appendPreferenceEntry(pref, getString(R.string.fps_screen, frameRateRounded), fpsValue);
         }
 
+        private static void labelEntry(ListPreference pref, String value, String label) {
+            CharSequence[] entries = pref.getEntries().clone();
+            for (int i = 0; i < entries.length; i++) {
+                if (value.equals(pref.getEntryValues()[i].toString())) entries[i] = entries[i] + " · " + label;
+            }
+            pref.setEntries(entries);
+        }
+
         private void removeValue(String preferenceKey, String value, Runnable onMatched) {
             int matchingCount = 0;
 
@@ -1881,6 +1889,9 @@ public class StreamSettings extends NightjarActivity {
             SwitchPreference hdr = (SwitchPreference) findPreference("checkbox_enable_hdr");
             SwitchPreference sdr10 = (SwitchPreference) findPreference("checkbox_enable_sdr_10bit");
             Preference texture = findPreference("checkbox_texture_view");
+            // A device that can never run PyroWave says why in the list; its GPU is asked once chosen.
+            int noPyroWave = PyroWaveDecoderRenderer.neverAvailableReason();
+            if (noPyroWave != 0) labelEntry(codec, "forcepyrowave", getString(noPyroWave));
             texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(codec.getValue()));
             codec.setOnPreferenceChangeListener((preference, value) -> {
                 texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(value));

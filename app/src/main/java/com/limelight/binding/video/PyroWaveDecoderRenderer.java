@@ -42,14 +42,31 @@ public final class PyroWaveDecoderRenderer {
         }
     }
 
-    static boolean isAvailable(Context context) {
-        return getReadiness(context, false) == 0;
+    /** 0 when PyroWave can run on this device, else the string that says why it cannot. */
+    static int unavailableReason(Context context) {
+        int readiness = getReadiness(context, false);
+        return readiness == 0 ? 0 : failureSummary(readiness);
     }
 
-    private static int getReadiness(Context context, boolean hdr) {
+    /**
+     * The string that says why this device can never run PyroWave, whatever its GPU driver, or 0
+     * when the GPU decides (Android 10, a 64-bit app and the renderer library are there).
+     */
+    public static int neverAvailableReason() {
+        int readiness = appReadiness();
+        return readiness == 0 ? 0 : failureSummary(readiness);
+    }
+
+    private static int appReadiness() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return -1;
         if (!Process.is64Bit()) return -2;
         if (!LIBRARY_LOADED) return -3;
+        return 0;
+    }
+
+    private static int getReadiness(Context context, boolean hdr) {
+        int app = appReadiness();
+        if (app != 0) return app;
         GpuDriverStore.Driver driver = GpuDriverStore.isSupported() ? GpuDriverStore.selected(context) : null;
         if (driver != null && GpuDriverStore.beginUse(context, driver)) {
             int result = nativeGetReadiness(hdr, context.getApplicationInfo().nativeLibraryDir,

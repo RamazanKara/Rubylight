@@ -1343,11 +1343,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 new CrashListener() {
                     @Override
                     public void notifyCrash(Exception e) {
-                        // The MediaCodec instance is going down due to a crash
-                        // let's tell the user something when they open the app again
-
                         // A stream that is ending, or a TV that just lost its display, is not a decoder
-                        // crash: counting it would disable features and reset settings next time.
+                        // crash: counting it would turn reference frame invalidation off next time.
                         CrashAccounting.Verdict verdict = CrashAccounting.classify(streamEnding(),
                                 isAndroidTv(), videoDisplayOff);
                         if (verdict != CrashAccounting.Verdict.COUNT) {
@@ -1357,16 +1354,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             return;
                         }
 
-                        // We must use commit because the app will crash when we return from this function
+                        // The renderer reports a decoder it gave up on; the stream ends with its
+                        // dialog, and the next one runs without reference frame invalidation.
                         synchronized (tombstonePrefs) {
                             if (reportedCrash) {
                                 return;
                             }
                             reportedCrash = true;
-                            tombstonePrefs.edit()
-                                    .putInt("CrashCount", tombstonePrefs.getInt("CrashCount", 0) + 1)
-                                    .putString("CrashHostUuid", getIntent().getStringExtra(EXTRA_PC_UUID))
-                                    .commit();
+                            CrashAccounting.recordGiveUp(tombstonePrefs, getIntent().getStringExtra(EXTRA_PC_UUID));
                         }
                     }
                 },
@@ -4823,7 +4818,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setPositiveButton(android.R.string.ok, null).create();
         showStreamDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            if (!connected || rateChanges != stream) {
+            // connected stays true until stopConnection, which closes this dialog: a termination
+            // that has arrived but not yet stopped the stream counts as ended (streamEnding).
+            if (!connected || streamEnding() || rateChanges != stream) {
                 // The stream this dialog was opened for ended or restarted: nothing goes out.
                 dialog.dismiss();
                 LimeLog.warning("Rate change: the stream ended before the request was sent");
@@ -7070,6 +7067,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case MoonBridge.ML_ERROR_FRAME_CONVERSION: return code + " (frame conversion failed on the PC)";
             case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER: return code + " (Vulkan renderer failed on this device)";
             case MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED: return code + " (full chroma not available with this PC)";
+            case MoonBridge.CLIENT_ERROR_DECODER: return code + " (video decoder failed on this device)";
             // This device's own code for a connection that ended without any reason from the PC.
             case -1: return code + " (connection lost, no reason from the PC)";
             default: return code + " (reported by the PC)";
@@ -7106,7 +7104,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         final boolean transientFailure = StreamRecoveryPolicy.transientTermination(errorCode);
         // A renderer failure on this device says nothing about the network
         final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
-                errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER ||
+                errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER || errorCode == MoonBridge.CLIENT_ERROR_DECODER ||
                 (transientFailure && prefConfig != null && prefConfig.autoReconnect) ?
                 MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
                 MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER,443, portFlags);
@@ -7180,6 +7178,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     String failure = renderer != null ? renderer.getVulkanFailure() : null;
                                     message = getResources().getString(R.string.vulkan_renderer_failed,
                                             failure != null ? failure : getResources().getString(R.string.vulkan_failure_unknown));
+                                    break;
+
+                                case MoonBridge.CLIENT_ERROR_DECODER:
+                                    MediaCodecDecoderRenderer decoder = decoderRenderer;
+                                    String reason = decoder != null ? decoder.getDecoderFailure() : null;
+                                    message = getResources().getString(StreamExitPolicy.decoderFailureMessage(
+                                                    decoder != null && decoder.decoderFailedWithVulkan()),
+                                            reason != null ? reason : getResources().getString(R.string.vulkan_failure_unknown));
                                     break;
 
                                 default:
@@ -7333,6 +7339,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // A link test before the launch may have started the stream lower than the setting.
                 currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
                 warnIfBelowPyroWaveFloor(currentBitrate);
+                notePyroWaveFallback();
                 startStreamBitrate();
                 startAdaptiveQuality();
                 updatePipAutoEnter();
@@ -7489,6 +7496,36 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void hostNotice(HostNotices.Notice notice, int text) {
         messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), notice, getString(text));
+    }
+
+    // PyroWave was chosen and the stream runs another codec: say once for the PC why, and which.
+    private void notePyroWaveFallback() {
+        if (decoderRenderer == null) return;
+        boolean chosen = prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE;
+        int format = decoderRenderer.getActiveVideoFormat();
+        String pc = getIntent().getStringExtra(EXTRA_PC_UUID);
+        if (!PyroWaveFallback.fellBack(chosen, format)) {
+            if (chosen && format != 0) HostNotices.reset(this, pc, HostNotices.Notice.PYROWAVE_FALLBACK);
+            return;
+        }
+        String codec = PyroWaveFallback.codecName(format);
+        int reason = decoderRenderer.getPyroWaveDropReason();
+        boolean hdrLossSaid = (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 &&
+                decoderRenderer.pyroWaveHdrFailureReason() != 0;
+        PyroWaveFallback.Notice notice = PyroWaveFallback.notice(reason, hdrLossSaid);
+        String text;
+        switch (notice) {
+            case PC: text = getString(R.string.host_pyrowave_unavailable, codec); break;
+            case PC_WITHOUT_HDR: text = getString(R.string.stream_pyrowave_no_hdr_on_pc, codec); break;
+            case FULL_CHROMA:
+                text = getString(R.string.stream_pyrowave_full_chroma, codec, getString(R.string.title_packed_444));
+                break;
+            case DEVICE: text = getString(R.string.stream_pyrowave_device_unavailable, codec, getString(reason)); break;
+            default: text = null;
+        }
+        LimeLog.warning("PyroWave was chosen, but the stream uses " + codec + ": " + (text != null ? text :
+                hdrLossSaid ? "PyroWave HDR failed on this device (announced)" : "no known reason"));
+        if (text != null) messages.notice(pc, HostNotices.Notice.PYROWAVE_FALLBACK, text);
     }
 
     @Override

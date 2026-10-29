@@ -4,7 +4,8 @@
 //! "Desktop") and `NIGHTJAR_AUTOSTREAM_SECONDS` the length (default 60). A PC that is not paired
 //! yet is paired with `NIGHTJAR_AUTOSTREAM_PIN` (default 1234), which someone has to enter on the
 //! PC. The process exits with 0 after a stream that ran its time and 2 when anything else
-//! happened, so a script can tell.
+//! happened, so a script can tell. A dropped stream reconnects as one started from the UI does;
+//! its time counts from the first start.
 
 use std::time::{Duration, Instant};
 
@@ -22,6 +23,8 @@ pub struct Autostream {
     launched: bool,
     streaming: bool,
     started: Instant,
+    /// When the first stream began; a reconnect does not start the time again.
+    began: Option<Instant>,
     pub failed: bool,
 }
 
@@ -71,6 +74,7 @@ impl Autostream {
             launched: false,
             streaming: false,
             started: Instant::now(),
+            began: None,
             failed: false,
         })
     }
@@ -97,10 +101,30 @@ impl Autostream {
 
     pub fn streaming_began(&mut self) {
         self.streaming = true;
+        self.began.get_or_insert_with(Instant::now);
     }
 
     pub fn length(&self) -> Duration {
         Duration::from_secs(self.seconds)
+    }
+
+    /// Whether the stream, reconnects included, has run its time since it first began.
+    pub fn ran_its_time(&self) -> bool {
+        self.began.is_some_and(|began| began.elapsed() >= self.length())
+    }
+
+    /// The stream ended, `planned` when it ran its time; whether the run goes on. Any other end
+    /// goes on only while automatic recovery reconnects it.
+    pub fn stream_ended(&mut self, planned: bool, reconnecting: bool) -> bool {
+        if planned {
+            return false;
+        }
+        if reconnecting {
+            eprintln!("nightjar: autostream reconnecting after the stream dropped");
+            return true;
+        }
+        self.fail("the stream ended before its time");
+        false
     }
 
     /// What to do next, given what the launcher can see now. Each action is asked for once.
@@ -172,7 +196,7 @@ mod tests {
         Autostream {
             address: "127.0.0.1".into(), port: Some(48123), app: "Desktop".into(), seconds: 60, pin: "1234".into(),
             host: None, paired_asked: false, apps_asked: false, launched: false, streaming: false,
-            started: Instant::now(), failed: false,
+            started: Instant::now(), began: None, failed: false,
         }
     }
 
@@ -218,5 +242,33 @@ mod tests {
         assert!(matches!(a.next(&seen(true, AppsSeen::NotLoaded)), Step::Fail(_)));
         a.streaming_began();
         assert_eq!(a.next(&seen(true, AppsSeen::NotLoaded)), Step::Wait);
+    }
+
+    #[test]
+    fn a_dropped_stream_reconnects_and_keeps_the_time_of_its_first_start() {
+        // L4 on the laptop: the PC dropped 20 s in; the run quit instead of reconnecting.
+        let mut a = auto();
+        a.streaming_began();
+        assert!(!a.ran_its_time());
+        assert!(a.stream_ended(false, true), "a reconnect on its way keeps the run going");
+        assert!(!a.failed);
+        let first = Instant::now() - Duration::from_secs(50);
+        a.began = Some(first);
+        // The reconnected stream begins again; the time still counts from the first start.
+        a.streaming_began();
+        assert_eq!(a.began, Some(first));
+        assert!(!a.ran_its_time());
+        a.began = Some(Instant::now() - a.length());
+        assert!(a.ran_its_time());
+        assert!(!a.stream_ended(true, false));
+        assert!(!a.failed);
+    }
+
+    #[test]
+    fn a_drop_with_no_reconnect_still_fails_the_run() {
+        let mut a = auto();
+        a.streaming_began();
+        assert!(!a.stream_ended(false, false));
+        assert!(a.failed);
     }
 }

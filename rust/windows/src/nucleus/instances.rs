@@ -28,13 +28,15 @@ pub trait Desktop: Send {
     /// Click it as the mouse would; refused while another window covers it.
     fn click(&mut self, label: u64) -> Result<()>;
     /// The visible message boxes (`#32770` dialogs) of `processes`, and those
-    /// Windows shows for a program (hard errors).
+    /// Windows shows for any program (hard errors): with no processes, those
+    /// alone.
     fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>>;
 }
 
-/// A message box on the desktop: its caption and its text.
+/// A message box on the desktop: its window, its caption and its text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageBox {
+    pub window: u64,
     pub caption: String,
     pub text: String,
 }
@@ -390,7 +392,8 @@ pub(crate) mod tests {
         pub labels: Vec<(u32, String, u64)>,
         pub clicks: Vec<u64>,
         pub covered: bool,
-        /// Message boxes and the process showing each.
+        /// Message boxes and the process showing each; [`CSRSS`]'s are those
+        /// Windows shows for any program.
         pub boxes: Vec<(u32, MessageBox)>,
         /// Listing message boxes fails.
         pub unlisted: bool,
@@ -444,15 +447,19 @@ pub(crate) mod tests {
             Ok(self
                 .boxes
                 .iter()
-                .filter(|(pid, _)| processes.contains(pid))
+                .filter(|(pid, _)| processes.contains(pid) || *pid == CSRSS)
                 .map(|(_, shown)| shown.clone())
                 .collect())
         }
     }
 
+    /// The process that shows the boxes Windows raises for a program.
+    pub(crate) const CSRSS: u32 = 600;
+
     #[test]
     fn a_message_box_is_quoted_on_one_short_line() {
         let shown = |caption: &str, text: &str| MessageBox {
+            window: 1,
             caption: caption.into(),
             text: text.into(),
         };

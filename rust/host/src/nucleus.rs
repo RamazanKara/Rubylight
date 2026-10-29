@@ -232,7 +232,20 @@ impl Pc for OnPc {
         butterpollo_windows::nucleus::session::running()
     }
     fn catalog(&self, folder: &Path) -> Result<Catalog> {
-        files::catalog(folder, true)
+        // A nucleus_path copy may be a release that reads the AppData list.
+        let installed = butterpollo_core::nucleus::install::folder(
+            &butterpollo_core::paths::data_root(),
+        );
+        let appdata = if folder == installed {
+            None
+        } else {
+            Some(
+                butterpollo_windows::user_folder::roaming_app_data()
+                    .map_err(|error| anyhow::anyhow!("{error}"))
+                    .context("finding the signed-in user's AppData, whose Nucleus Co-op game list counts for nucleus_path")?,
+            )
+        };
+        files::catalog(folder, true, appdata.as_deref())
     }
     fn free_pads(&self) -> Result<usize> {
         pads::free(&mut pads::System::open()?)
@@ -713,8 +726,14 @@ impl Chosen {
 
 /// Rubylight's own handler for a background stream of `app`, which has no
 /// hub handler. A game shipping anti-cheat is refused: Nucleus Co-op's
-/// hooks would look like cheating.
-fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refusal> {
+/// hooks would look like cheating. So is a Nucleus Co-op at `nucleus_path`
+/// (`configured`) ([`own_list`]).
+fn own_handler(
+    pc: &dyn Pc,
+    catalog: &Catalog,
+    app: &App,
+    configured: &str,
+) -> Result<Chosen, Refusal> {
     let setup = prepared(pc.one_player(app)?).map_err(|missing| Refusal::missing(&missing))?;
     // Found by another path than the app's command: the game the user added
     // at exactly that path keeps its hub handler. A file-name match is
@@ -722,8 +741,22 @@ fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refu
     if let Some(found) = catalog.added(&setup.exe_path) {
         return Ok(Chosen::Hub(found));
     }
+    own_list(configured).map_err(|missing| Refusal::missing(&missing))?;
     refuse_anti_cheat(&setup).map_err(|missing| Refusal::missing(&missing))?;
     Ok(Chosen::Own(setup))
+}
+
+/// Refuses Rubylight's own handler in a Nucleus Co-op at `nucleus_path`
+/// (`configured`): it adds its game to the list Nucleus Co-op 2.4.2 reads
+/// (`files::list`), and another release may read another, where the game
+/// would never show.
+fn own_list(configured: &str) -> Result<(), Missing> {
+    if configured.trim().is_empty() {
+        return Ok(());
+    }
+    Err(Missing::Refused {
+        reason: "Rubylight adds a game without a hub handler only to the Nucleus Co-op it installs, and nucleus_path names another: add the game's handler from Nucleus Co-op's hub, or clear nucleus_path".into(),
+    })
 }
 
 /// Where one app stands for co-op, for the console's game page.
@@ -1248,10 +1281,16 @@ impl Registry {
     /// don't load. The handlers are read as the library reads them, so a
     /// handler added in Nucleus Co-op shows within [`CATALOG_TTL`].
     pub fn games(&self, apps: &[App], config: &Config) -> Option<Result<Vec<GameStatus>, String>> {
-        let folder = self.pc().installed(&configured(config)).ok().flatten()?;
+        let configured = configured(config);
+        let folder = self.pc().installed(&configured).ok().flatten()?;
         let catalog = match self.catalog(&folder, false) {
             Ok(catalog) => catalog,
             Err(error) => return Some(Err(error)),
+        };
+        // What a background launch without the hub's handler answers.
+        let own = |app: &App| {
+            self.own_status(app)
+                .or_else(|| own_list(&configured).err())
         };
         let ready = |handler: Handler| GameStatus::Ready {
             players: coop::players(
@@ -1276,7 +1315,7 @@ impl Registry {
                 // Shown as a background launch would answer it: one without
                 // the user's added game streams with ours.
                 Listing::Missing(missing @ Missing::NoHandler { .. }) => {
-                    GameStatus::Missing(self.own_status(app).unwrap_or(missing))
+                    GameStatus::Missing(own(app).unwrap_or(missing))
                 }
                 // Adding the game makes it ready, for co-op and background
                 // streams alike, through the hub handler: only what adding
@@ -1388,7 +1427,9 @@ impl Registry {
         }
         let kind = request.game.kind();
         let _one = self.admit.lock().unwrap_or_else(PoisonError::into_inner);
-        let folder = self.ensure(pc.as_ref(), &configured(request.config))?;
+        let configured = configured(request.config);
+        let folder = self.ensure(pc.as_ref(), &configured)?;
+        let known_list = own_list(&configured).is_ok();
         let catalog = self.catalog(&folder, true).map_err(|error| {
             Refusal::unavailable(format!(
                 "Nucleus Co-op's handlers and games did not load: {error}"
@@ -1407,7 +1448,10 @@ impl Registry {
                 Some(found) => (Some(Chosen::Hub(found)), None),
                 None => match self.returning(request.game.app_id(), &client.uuid) {
                     Some(game) => (None, Some(game)),
-                    None => (Some(own_handler(pc.as_ref(), &catalog, app)?), None),
+                    None => (
+                        Some(own_handler(pc.as_ref(), &catalog, app, &configured)?),
+                        None,
+                    ),
                 },
             }
         } else {
@@ -1540,6 +1584,7 @@ impl Registry {
                     id,
                     kind,
                     folder: &folder,
+                    known_list,
                     handler: &handler,
                     exe_path: &exe_path,
                     steam_app,
@@ -2119,6 +2164,8 @@ pub(crate) mod fake {
         pub ready_stale: Mutex<Vec<Vec<String>>>,
         /// The game's .exe each started session's Nucleus got, in order.
         pub exe_paths: Mutex<Vec<String>>,
+        /// Whether Rubylight knew each started session's game list.
+        pub known_lists: Mutex<Vec<bool>>,
         /// How often an app's game was looked up for Rubylight's handler.
         pub lookups: AtomicUsize,
     }
@@ -2176,6 +2223,7 @@ pub(crate) mod fake {
                 remove_error: Mutex::new(None),
                 ready_stale: Mutex::new(Vec::new()),
                 exe_paths: Mutex::new(Vec::new()),
+                known_lists: Mutex::new(Vec::new()),
                 lookups: AtomicUsize::new(0),
             }
         }
@@ -2331,6 +2379,7 @@ pub(crate) mod fake {
                 .lock()
                 .unwrap()
                 .push(start.exe_path.to_string());
+            self.known_lists.lock().unwrap().push(start.known_list);
             Ok(Box::new(instance))
         }
     }
@@ -3431,6 +3480,38 @@ mod tests {
                 .starts_with("No Nucleus Co-op handler for Ice.exe"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn ours_runs_only_in_the_nucleus_rubylight_installs() {
+        // Another release at nucleus_path may read another game list, where
+        // our game would never show.
+        let (registry, pc, mut apps) = setup();
+        let owner = client("A", false);
+        let config = Config::parse("nucleus_path = D:\\Nucleus\n").unwrap();
+        apps.push(app("Ice", r"C:\NoSuchGames\Ice\Ice.exe"));
+        let refused = background(&registry, &apps[3], "a", &owner, &config).unwrap_err();
+        assert_eq!(refused.status, 404);
+        assert_eq!(
+            refused.message,
+            "Ice can't stream in the background: Rubylight adds a game without a hub handler only to the Nucleus Co-op it installs, and nucleus_path names another: add the game's handler from Nucleus Co-op's hub, or clear nucleus_path"
+        );
+        assert!(pc.own.lock().unwrap().is_empty());
+        assert!(pc.started.lock().unwrap().is_empty());
+        // The game page says so before a launch.
+        let statuses = registry.games(&apps, &config).unwrap().unwrap();
+        assert!(
+            matches!(&statuses[3], GameStatus::Missing(Missing::Refused { reason }) if reason.contains("nucleus_path")),
+            "{:?}",
+            statuses[3]
+        );
+        // A hub handler's game streams, without our list's diagnosis.
+        background(&registry, &apps[1], "b", &owner, &config).unwrap();
+        assert_eq!(*pc.known_lists.lock().unwrap(), [false]);
+        let first = registry.sessions()[0].session.id;
+        assert!(registry.end(first));
+        background(&registry, &apps[3], "c", &owner, &Config::default()).unwrap();
+        assert_eq!(*pc.known_lists.lock().unwrap(), [false, true]);
     }
 
     #[test]
@@ -4663,10 +4744,24 @@ mod tests {
         }
     }
 
+    /// The windows of the message boxes Windows shows now, for any program:
+    /// none of them is the case's.
+    fn windows_boxes(
+        desktop: &mut butterpollo_windows::nucleus::desktop::Win32,
+    ) -> Result<BTreeSet<u64>> {
+        use butterpollo_windows::nucleus::instances::Desktop;
+        Ok(desktop
+            .message_boxes(&BTreeSet::new())?
+            .into_iter()
+            .map(|shown| shown.window)
+            .collect())
+    }
+
     /// Fails while Nucleus Co-op or the game started since `since` shows a
-    /// message box, naming it.
+    /// message box, naming it; Windows' boxes up `before` the case aside.
     fn no_message_box(
         desktop: &mut butterpollo_windows::nucleus::desktop::Win32,
+        before: &BTreeSet<u64>,
         since: u64,
         executable: &str,
     ) -> Result<()> {
@@ -4680,7 +4775,8 @@ mod tests {
             })
             .map(|p| p.pid)
             .collect();
-        let shown = desktop.message_boxes(&processes)?;
+        let mut shown = desktop.message_boxes(&processes)?;
+        shown.retain(|b| !before.contains(&b.window));
         match shown.first() {
             Some(shown) => anyhow::bail!(
                 "Nucleus Co-op shows \"{}\" on the PC's screen",
@@ -4704,10 +4800,12 @@ mod tests {
     }
 
     /// Nucleus' `Settings.ini` as it was before a case, put back when the
-    /// case ends, also on a failure.
+    /// case ends, also on a failure. The session's journal goes with it: it
+    /// would put back the seeded values over the user's later.
     struct KeptSettings {
         path: PathBuf,
         before: Vec<u8>,
+        journal: PathBuf,
     }
     impl Drop for KeptSettings {
         fn drop(&mut self) {
@@ -4715,7 +4813,36 @@ mod tests {
                 Ok(()) => println!("Settings.ini as before"),
                 Err(error) => eprintln!("Settings.ini not put back: {error}"),
             }
+            match std::fs::remove_file(&self.journal) {
+                Ok(()) => println!("cleanup: {} removed", self.journal.display()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => eprintln!("{} not removed: {error}", self.journal.display()),
+            }
         }
+    }
+
+    #[test]
+    fn kept_settings_go_back_and_take_the_sessions_journal_along() {
+        let dir = std::env::temp_dir().join(format!("nucleus-kept-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Settings.ini");
+        let journal = dir.join("Rubylight-settings.json");
+        std::fs::write(&path, "seeded").unwrap();
+        std::fs::write(&journal, "[]").unwrap();
+        drop(KeptSettings {
+            path: path.clone(),
+            before: b"users".to_vec(),
+            journal: journal.clone(),
+        });
+        assert_eq!(std::fs::read(&path).unwrap(), b"users");
+        assert!(!journal.exists());
+        // None left is fine.
+        drop(KeptSettings {
+            path: path.clone(),
+            before: b"users".to_vec(),
+            journal: journal.clone(),
+        });
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A background stream of a one-player game without a hub handler on
@@ -4783,6 +4910,7 @@ mod tests {
             let kept = KeptSettings {
                 path: settings.clone(),
                 before,
+                journal: folder.join("Rubylight-settings.json"),
             };
             std::fs::write(&settings, seeded).with_context(|| settings.display().to_string())?;
             println!(
@@ -4807,6 +4935,8 @@ mod tests {
         let owner = client("hw-case", false);
         let config = Config::default();
         let warnings = Arc::new(Warnings::default());
+        let mut desktop = butterpollo_windows::nucleus::desktop::Win32::default();
+        let before = windows_boxes(&mut desktop)?;
         let since = butterpollo_windows::process::now();
         let seat = registry
             .admit(Admission {
@@ -4851,14 +4981,13 @@ mod tests {
             "handler {} for {} at {}",
             handler.file, handler.executable, entry.exe_path
         );
-        let mut desktop = butterpollo_windows::nucleus::desktop::Win32::default();
         let started = Instant::now();
         loop {
             match instance.session(|s| s.phase.clone()) {
                 Phase::Running => break,
                 Phase::Ended(why) => anyhow::bail!("{why}"),
                 Phase::Starting => {
-                    no_message_box(&mut desktop, since, &handler.executable)?;
+                    no_message_box(&mut desktop, &before, since, &handler.executable)?;
                     ensure!(
                         started.elapsed() < Duration::from_secs(180),
                         "not running after {:?}",
@@ -4975,7 +5104,7 @@ mod tests {
         println!("pad A held and released at XInput index {index}");
         let holding = Instant::now();
         while holding.elapsed() < hold {
-            no_message_box(&mut desktop, since, &handler.executable)?;
+            no_message_box(&mut desktop, &before, since, &handler.executable)?;
             std::thread::sleep(Duration::from_millis(250));
         }
         let phase = instance.session(|s| s.phase.clone());

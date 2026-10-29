@@ -330,6 +330,12 @@ pub struct Settings {
     pub forced: Vec<Forced>,
 }
 
+/// Whether a `Settings.ini` is UTF-16 text (its byte order mark): the
+/// host edits ANSI text, and would add ASCII keys beside the file's own.
+pub fn utf16_ini(text: &[u8]) -> bool {
+    text.starts_with(&[0xff, 0xfe]) || text.starts_with(&[0xfe, 0xff])
+}
+
 /// Nucleus' `Settings.ini` (empty when there is none) completed from
 /// [`DEFAULT_SETTINGS`], with [`FORCED`] set and [`LIST_FILTERS`] off;
 /// every other byte stays. A repaired key stays: it is no choice of the
@@ -349,12 +355,17 @@ pub fn settings_ini(text: &[u8]) -> Settings {
         .map(|&(section, key, value)| (section, key, value.as_bytes().to_vec()))
         .collect();
     // Nucleus splits the value at commas and matches each entry exactly.
+    // The entries kept are trimmed, as the value is read back: a kept
+    // " Sort_2" would never match the session's value at put-back.
     if let Some(sorting) = ini.get("Misc", "GameSortingOpt") {
-        let kept: Vec<&[u8]> = sorting
-            .split(|&b| b == b',')
-            .filter(|entry| !LIST_FILTERS.contains(&entry.trim_ascii()))
-            .collect();
-        changes.push(("Misc", "GameSortingOpt", kept.join(b",".as_slice())));
+        let entries: Vec<&[u8]> = sorting.split(|&b| b == b',').map(<[u8]>::trim_ascii).collect();
+        if entries.iter().any(|entry| LIST_FILTERS.contains(entry)) {
+            let kept: Vec<&[u8]> = entries
+                .into_iter()
+                .filter(|entry| !LIST_FILTERS.contains(entry))
+                .collect();
+            changes.push(("Misc", "GameSortingOpt", kept.join(b",".as_slice())));
+        }
     }
     let mut forced = Vec::new();
     for (section, key, value) in changes {
@@ -690,5 +701,34 @@ mod tests {
         assert_eq!(value(&back, "Dev", "ShowFavoriteOnly").unwrap(), "True");
         // Again, nothing is left to put back.
         assert_eq!(put_back_settings(&back, &settings.forced).1, 0);
+    }
+
+    #[test]
+    fn a_list_filter_beside_spaced_entries_comes_back() {
+        // Nucleus writes no spaces, but a hand-edited file may have them:
+        // the session's value is trimmed as it is read back.
+        let users = b"[Misc]\r\nGameSortingOpt=Show_Type1, Sort_2 ,Sort_4\r\n";
+        let settings = settings_ini(users);
+        assert_eq!(
+            value(&settings.text, "Misc", "GameSortingOpt").unwrap(),
+            "Sort_2,Sort_4"
+        );
+        let (back, changed) = put_back_settings(&settings.text, &settings.forced);
+        assert_eq!(changed, settings.forced.len());
+        assert_eq!(
+            value(&back, "Misc", "GameSortingOpt").unwrap(),
+            "Show_Type1, Sort_2 ,Sort_4"
+        );
+        // Spaced entries without a filter are no change of the session's.
+        let unfiltered = settings_ini(b"[Misc]\r\nGameSortingOpt=Sort_2, Sort_4\r\n");
+        assert!(
+            unfiltered.forced.iter().all(|f| f.key != "GameSortingOpt"),
+            "{:?}",
+            unfiltered.forced
+        );
+        assert_eq!(
+            value(&unfiltered.text, "Misc", "GameSortingOpt").unwrap(),
+            "Sort_2, Sort_4"
+        );
     }
 }

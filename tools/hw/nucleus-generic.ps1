@@ -11,8 +11,10 @@
 # (folder check on, favourites only, only single-keyboard games listed) and
 # puts it back afterwards, also on a failure; the test then checks the click
 # within 15 s, the DPI mode set and restored, and the forced values.
-# Nucleus' Settings.ini is copied to $Out\Settings.ini.before first, so the
-# user's own file is at hand whatever the run does to it.
+# Nucleus' Settings.ini is copied to $Out\Settings.ini.before first. When
+# session.log lacks "Settings.ini as before" (the test was stopped at the
+# 10-minute timeout, or its cleanup failed), that copy is put back and the
+# session's Rubylight-settings.json removed, so no seeded value stays.
 # Exit code: the test's.
 param(
     [Parameter(Mandatory)] [string] $Out,
@@ -34,8 +36,10 @@ if (-not $exe) { throw 'the butterpollo test binary was not built' }
 # The folder the test runs Nucleus Co-op from (the host's own install).
 $nucleus = Join-Path $env:ProgramData 'Butterpollo\nucleus\2.4.2'
 $settings = Join-Path $nucleus 'Settings.ini'
+$journal = Join-Path $nucleus 'Rubylight-settings.json'
+$kept = Join-Path $Out 'Settings.ini.before'
+Remove-Item -LiteralPath $kept -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $settings) {
-    $kept = Join-Path $Out 'Settings.ini.before'
     Copy-Item -LiteralPath $settings -Destination $kept -Force
     "Settings.ini kept: $kept"
 } else {
@@ -64,11 +68,28 @@ try {
     schtasks /Run /TN $task | Out-Null
     $deadline = (Get-Date).AddMinutes(10)
     while (-not (Test-Path $done)) {
-        if ((Get-Date) -gt $deadline) { throw "no result within 10 minutes: $log" }
+        if ((Get-Date) -gt $deadline) {
+            # Ending the task leaves the test running; stop it too.
+            schtasks /End /TN $task | Out-Null
+            Get-Process | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
+            throw "no result within 10 minutes: $log"
+        }
         Start-Sleep -Seconds 2
     }
 } finally {
     schtasks /Delete /F /TN $task | Out-Null
+    $restored = (Test-Path -LiteralPath $log) -and
+        (Select-String -LiteralPath $log -Pattern '^Settings\.ini as before' -Quiet)
+    if (-not $restored -and $Cold) {
+        if (Test-Path -LiteralPath $kept) {
+            Copy-Item -LiteralPath $kept -Destination $settings -Force
+            "Settings.ini put back from $kept"
+        }
+        if (Test-Path -LiteralPath $journal) {
+            Remove-Item -LiteralPath $journal -Force
+            "removed $journal"
+        }
+    }
 }
 $code = [int](Get-Content $done -Raw).Trim()
 Get-Content $log | Select-String -Pattern '^(handler|running after|profile clicked|game process|capture|pad A|stopped in|compatibility|crashlog|Settings\.ini|cleanup|handler and entry|warning|test result)|Nucleus Co-op shows|panicked|Error'

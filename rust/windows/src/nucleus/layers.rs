@@ -209,7 +209,7 @@ fn remove_journal(journal: &Path) -> Result<()> {
 
 /// How long a session's start or check waits for a restore by the service
 /// or another check, each a few registry calls.
-const LOCK_WAIT: Duration = Duration::from_secs(5);
+pub(super) const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// How often a waiting start or check tries the lock again.
 const LOCK_POLL: Duration = Duration::from_millis(50);
 /// The folder below the data root ([`butterpollo_core::paths::data_root`])
@@ -332,28 +332,29 @@ impl Locks {
     }
 }
 
-/// A user's file in use, by a session from before Nucleus starts until its
+/// A journal in use (a user's compatibility settings, or Nucleus'
+/// `Settings.ini` values), by a session from before Nucleus starts until its
 /// values are back, or by a restore: a restore never puts back a running
 /// session's values, and two never restore the same file. A file below the
 /// data root ([`Locks`]) open without sharing: only SYSTEM and
 /// administrators may open it, and a name nobody else can make first, as
 /// they could a named mutex's. Windows closes the handle of a host that
 /// stopped, which lets go of it, whichever thread took it.
-struct Lock {
+pub(super) struct Lock {
     _file: std::fs::File,
 }
 
 impl Lock {
     /// The lock, or None while a session or another restore holds it.
-    fn try_take(journal: &Path) -> Result<Option<Self>> {
+    pub(super) fn try_take(journal: &Path) -> Result<Option<Self>> {
         Self::acquire(&Locks::installed(), journal, Duration::ZERO)
     }
 
     /// The lock, waiting up to `wait` for a restore to finish.
-    fn take(journal: &Path, wait: Duration) -> Result<Self> {
+    pub(super) fn take(journal: &Path, wait: Duration) -> Result<Self> {
         Self::acquire(&Locks::installed(), journal, wait)?.with_context(|| {
             format!(
-                "{} stays in use: a Nucleus Co-op session or the Rubylight service is putting the game's compatibility settings back. Start the stream again once that session ends",
+                "{} stays in use: a Nucleus Co-op session or the Rubylight service is putting back the settings it keeps. Start the stream again once that session ends",
                 journal.display()
             )
         })
@@ -364,7 +365,7 @@ impl Lock {
         loop {
             let file = locks.open(journal).with_context(|| {
                 format!(
-                    "taking the lock on {}, which keeps a session's compatibility settings",
+                    "taking the lock on {}, which keeps what a session changed",
                     journal.display()
                 )
             })?;

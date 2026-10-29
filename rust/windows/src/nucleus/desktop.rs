@@ -312,18 +312,16 @@ impl Desktop for Win32 {
         Ok(())
     }
     fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
-        if processes.is_empty() {
-            return Ok(Vec::new());
-        }
         crate::input::follow_input_desktop();
         // A box shown with MB_SERVICE_NOTIFICATION is raised as a hard error
         // (NtRaiseHardError), which csrss.exe shows, not the process that
         // asked; MB_DEFAULT_DESKTOP_ONLY, which waits for the default desktop,
         // takes the same way. Nucleus Co-op 2.4.2 uses WinForms'
         // DefaultDesktopOnly for a Settings.ini it can't read and for its
-        // End-key reminder. Either owner is listed. EnumWindows lists only
-        // this thread's desktop, the console's, so a csrss.exe owning a
-        // window there is this session's.
+        // End-key reminder. Either owner is listed: with no processes, the
+        // boxes Windows shows alone. EnumWindows lists only this thread's
+        // desktop, the console's, so a csrss.exe owning a window there is
+        // this session's.
         let mut owners = processes.clone();
         owners.extend(
             crate::process::processes()?
@@ -345,6 +343,7 @@ impl Desktop for Win32 {
                 .filter(|text| !text.trim().is_empty())
                 .collect();
             found.push(MessageBox {
+                window: window.id,
                 caption: text_of(dialog).unwrap_or_default(),
                 text: text.join(" "),
             });
@@ -464,9 +463,18 @@ mod tests {
         assert_eq!(
             new(&mut desktop),
             [MessageBox {
+                window: dialog.0 as usize as u64,
                 caption: "Rubylight test box".into(),
                 text: said.clone(),
             }]
+        );
+        // With no process, only the boxes Windows shows: not this one.
+        assert!(
+            desktop
+                .message_boxes(&BTreeSet::new())
+                .unwrap()
+                .iter()
+                .all(|b| b.window != dialog.0 as usize as u64)
         );
         drop(made);
         assert_eq!(new(&mut desktop), []);

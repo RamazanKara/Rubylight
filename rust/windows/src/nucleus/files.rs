@@ -6,6 +6,7 @@ use butterpollo_core::nucleus::generic::{self, Setup};
 use butterpollo_core::nucleus::handler::{self, Catalog, Handler};
 use butterpollo_core::nucleus::profile::{self, Player};
 use butterpollo_core::nucleus::window::Rect;
+use super::layers::{LOCK_WAIT, Lock};
 use std::path::{Path, PathBuf};
 
 /// The handlers and the games added in the Nucleus Co-op at `folder`, from
@@ -13,14 +14,21 @@ use std::path::{Path, PathBuf};
 /// handler that cannot be read is left out with a log line; an unreadable
 /// game list is an error. With `signed_in`, [`Catalog::user`] is the
 /// signed-in user, whose sweep may remove the handlers written for them.
-pub fn catalog(folder: &Path, signed_in: bool) -> Result<Catalog> {
+/// `appdata`, the signed-in user's roaming folder, is for a Nucleus Co-op
+/// other than the host's install (`nucleus_path`): its release may read
+/// `%APPDATA%\Nucleus Coop\userprofile.json` instead, so that list counts
+/// too.
+pub fn catalog(folder: &Path, signed_in: bool, appdata: Option<&Path>) -> Result<Catalog> {
     let mut catalog = Catalog {
         user: signed_in.then(crate::process::user_sid).flatten(),
         ..Catalog::default()
     };
     catalog.handlers = handlers(folder)?;
-    let path = list(folder);
-    if let Some(text) = read_list(&path)? {
+    let lists = [Some(list(folder)), appdata.map(appdata_list)];
+    for path in lists.into_iter().flatten() {
+        let Some(text) = read_list(&path)? else {
+            continue;
+        };
         let games = handler::user_games(&text)
             .map_err(anyhow::Error::msg)
             .with_context(|| path.display().to_string())?;
@@ -255,6 +263,12 @@ pub fn list(folder: &Path) -> PathBuf {
     folder.join("content").join("userprofile.json")
 }
 
+/// The game list in the roaming folder `appdata`, which Nucleus Co-op 2.4.2
+/// never reads.
+fn appdata_list(appdata: &Path) -> PathBuf {
+    appdata.join("Nucleus Coop").join("userprofile.json")
+}
+
 /// Refuses the game list of the Nucleus Co-op at `folder` when Rubylight
 /// could not add `setup`'s game to it or remove the games of `remove` from
 /// it. Checked before a session closes the console's window, so a list
@@ -321,7 +335,7 @@ pub fn remove_own(folder: &Path, own: &Handler) -> Result<()> {
 /// Nucleus Co-op 2.4.2 never reads that list. Returns how many went; none
 /// once they are gone.
 pub fn forget_appdata_games(appdata: &Path) -> Result<usize> {
-    let path = appdata.join("Nucleus Coop").join("userprofile.json");
+    let path = appdata_list(appdata);
     crate::user_folder::as_session_user(|| forget_games(&path))
         .context("acting as the signed-in user")?
 }
@@ -392,11 +406,34 @@ fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
 }
 
+/// `Settings.ini` refused when it is UTF-16 text, which the host does not
+/// edit ([`profile::utf16_ini`]).
+fn ansi_settings(path: &Path, text: &[u8]) -> Result<()> {
+    ensure!(
+        !profile::utf16_ini(text),
+        "{} is saved as UTF-16 (Unicode) text, which Rubylight does not edit: save it as ANSI, or delete it and Rubylight writes Nucleus Co-op's defaults",
+        path.display()
+    );
+    Ok(())
+}
+
 /// Put back the user's values of `forced` in `folder`'s `Settings.ini`
-/// where the session's still are ([`profile::put_back_settings`]).
+/// where the session's still are ([`profile::put_back_settings`]). A file
+/// that is gone has nothing to put back.
 fn put_back_settings(folder: &Path, forced: &[profile::Forced]) -> Result<usize> {
     let path = folder.join("Settings.ini");
-    let text = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let text = match std::fs::read(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            tracing::info!(
+                file = %path.display(),
+                "Nucleus Co-op: Settings.ini is gone, nothing to put back"
+            );
+            return Ok(0);
+        }
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    };
+    ansi_settings(&path, &text)?;
     let (text, changed) = profile::put_back_settings(&text, forced);
     if changed > 0 {
         write_whole(&path, &text)?;
@@ -415,10 +452,23 @@ fn remove_settings_journal(journal: &Path) -> Result<()> {
 }
 
 /// Put back what a session the host never ended forced in the
-/// `Settings.ini` of the Nucleus at `folder`, and remove its journal:
-/// before the next session and as the host starts. Returns how many values
-/// it put back.
-pub fn restore_settings_left(folder: &Path) -> Result<usize> {
+/// `Settings.ini` of the Nucleus at `folder`, and remove its journal, as the
+/// service starts or sees a sign-in. Returns how many values it put back,
+/// or None while a session or another restore holds the journal's lock: a
+/// session's values are never put back under it.
+pub fn restore_settings_left(folder: &Path) -> Result<Option<usize>> {
+    let journal = settings_journal(folder);
+    if !journal.exists() {
+        return Ok(Some(0));
+    }
+    let Some(_lock) = Lock::try_take(&journal)? else {
+        return Ok(None);
+    };
+    restore_left_locked(folder).map(Some)
+}
+
+/// [`restore_settings_left`] with the journal's lock held.
+fn restore_left_locked(folder: &Path) -> Result<usize> {
     let journal = settings_journal(folder);
     let bytes = match std::fs::read(&journal) {
         Ok(bytes) => bytes,
@@ -464,10 +514,14 @@ pub fn restore_settings_left(folder: &Path) -> Result<usize> {
 /// The values a session forced in `Settings.ini`, put back once when it is
 /// dropped or [`restore`](SettingsGuard::restore) is called, after Nucleus
 /// closed. Should that fail, its journal keeps them for the next session.
+/// It holds the journal's lock until it drops, so the service never puts
+/// the user's values back under a starting or running session.
 pub struct SettingsGuard {
     folder: PathBuf,
     forced: Vec<profile::Forced>,
     restored: bool,
+    /// Tests let go of it to stand in for a host that stopped.
+    _lock: Option<Lock>,
 }
 
 impl SettingsGuard {
@@ -511,13 +565,16 @@ impl Drop for SettingsGuard {
 /// own defaults ([`profile::settings_ini`]). The user's choices the session
 /// changes come back through the returned guard; every other byte stays.
 pub fn write_settings(folder: &Path) -> Result<SettingsGuard> {
-    restore_settings_left(folder)?;
+    let journal = settings_journal(folder);
+    let lock = Lock::take(&journal, LOCK_WAIT)?;
+    restore_left_locked(folder)?;
     let path = folder.join("Settings.ini");
     let text = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
     };
+    ansi_settings(&path, &text)?;
     let settings = profile::settings_ini(&text);
     if !settings.added.is_empty() {
         tracing::info!(
@@ -528,7 +585,6 @@ pub fn write_settings(folder: &Path) -> Result<SettingsGuard> {
         );
     }
     // The journal first: a host that stops after the next write finds it.
-    let journal = settings_journal(folder);
     if !settings.forced.is_empty() {
         write_whole(&journal, &serde_json::to_vec_pretty(&settings.forced)?)?;
     }
@@ -539,6 +595,7 @@ pub fn write_settings(folder: &Path) -> Result<SettingsGuard> {
         folder: folder.to_path_buf(),
         forced: settings.forced,
         restored: false,
+        _lock: Some(lock),
     })
 }
 
@@ -682,7 +739,7 @@ Game.MaxPlayers = 4;
             "\u{feff}{\"Games\":[{\"GameGuid\":\"Borderlands 2\",\"ExePath\":\"E:\\\\BL2\\\\Borderlands2.exe\"}]}",
         )
         .unwrap();
-        let catalog = catalog(nucleus.path(), true).unwrap();
+        let catalog = catalog(nucleus.path(), true, None).unwrap();
         assert_eq!(catalog.handlers.len(), 1);
         assert_eq!(catalog.handlers[0].executable, "Borderlands2.exe");
         // The AppData list's game is not one Nucleus Co-op shows.
@@ -691,16 +748,24 @@ Game.MaxPlayers = 4;
             .find("Borderlands 2", Some(r"E:\BL2\Borderlands2.exe"))
             .unwrap();
         assert_eq!(found.handler.guid, "Borderlands 2");
+        // Another release at nucleus_path may read the AppData list: both
+        // count.
+        let other = super::catalog(nucleus.path(), true, Some(appdata.path())).unwrap();
+        let exes: Vec<&str> = other.games.iter().map(|g| g.exe_path.as_str()).collect();
+        assert_eq!(
+            exes,
+            [r"E:\BL2\Borderlands2.exe", r"D:\Games\BL2\Borderlands2.exe"]
+        );
 
         // No list and no handlers: an empty catalog, not an error.
         let empty = tempfile::tempdir().unwrap();
-        let catalog = super::catalog(empty.path(), false).unwrap();
+        let catalog = super::catalog(empty.path(), false, None).unwrap();
         assert!(catalog.handlers.is_empty() && catalog.games.is_empty());
 
         // A game list Nucleus wrote but the host cannot read is an error.
         std::fs::create_dir_all(empty.path().join("content")).unwrap();
         std::fs::write(empty.path().join("content").join("userprofile.json"), "{").unwrap();
-        let error = format!("{:#}", super::catalog(empty.path(), false).unwrap_err());
+        let error = format!("{:#}", super::catalog(empty.path(), false, None).unwrap_err());
         assert!(error.contains("userprofile.json"), "{error}");
     }
 
@@ -804,7 +869,7 @@ Game.MaxPlayers = 4;
         assert!(written.starts_with(&users[..end]), "{written}");
         assert!(written[end..].starts_with(",\r\n    {"), "{written}");
         // Nucleus reads both, and co-op still has only the hub's handler.
-        let catalog = catalog(nucleus.path(), true).unwrap();
+        let catalog = catalog(nucleus.path(), true, None).unwrap();
         assert_eq!(catalog.games.len(), 2);
         assert!(catalog.handlers.iter().any(|h| h.own));
         assert!(catalog.find("Puzzle", Some(&setup.exe_path)).is_err());
@@ -856,12 +921,12 @@ Game.MaxPlayers = 4;
                 .unwrap(),
         )
         .unwrap();
-        let before = catalog(nucleus.path(), true).unwrap();
+        let before = catalog(nucleus.path(), true, None).unwrap();
         let superseded = before.superseded(None);
         assert_eq!(superseded.len(), 1);
         remove_own(nucleus.path(), superseded[0]).unwrap();
         assert!(!handlers.join(setup.file()).exists());
-        let after = catalog(nucleus.path(), true).unwrap();
+        let after = catalog(nucleus.path(), true, None).unwrap();
         assert!(after.handlers.iter().all(|h| !h.own));
         assert_eq!(
             after
@@ -888,7 +953,7 @@ Game.MaxPlayers = 4;
         write_own(nucleus.path(), &setup).unwrap();
         let file = nucleus.path().join("handlers").join(setup.file());
         let ours = || {
-            catalog(nucleus.path(), true)
+            catalog(nucleus.path(), true, None)
                 .unwrap()
                 .handlers
                 .into_iter()
@@ -905,11 +970,11 @@ Game.MaxPlayers = 4;
         assert!(error.contains(&setup.file()), "{error}");
         drop(open);
         // The game stays listed with it, so the next start finds both again.
-        let left = catalog(nucleus.path(), true).unwrap();
+        let left = catalog(nucleus.path(), true, None).unwrap();
         assert!(left.games.iter().any(|g| g.guid == setup.guid()));
         assert!(ours().is_some());
         remove_own(nucleus.path(), &own).unwrap();
-        let after = catalog(nucleus.path(), true).unwrap();
+        let after = catalog(nucleus.path(), true, None).unwrap();
         assert!(!file.exists());
         assert!(after.games.is_empty());
     }
@@ -929,14 +994,14 @@ Game.MaxPlayers = 4;
         .unwrap();
         let handlers = nucleus.path().join("handlers");
         std::fs::write(handlers.join("Other.js"), HANDLER).unwrap();
-        let before = catalog(nucleus.path(), true).unwrap();
+        let before = catalog(nucleus.path(), true, None).unwrap();
         let stale = before.stale(None);
         assert_eq!(stale.len(), 1);
         assert_eq!(stale[0].guid, setup.guid());
         remove_own(nucleus.path(), stale[0]).unwrap();
         assert!(!handlers.join(setup.file()).exists());
         assert!(handlers.join("Other.js").exists());
-        let after = catalog(nucleus.path(), true).unwrap();
+        let after = catalog(nucleus.path(), true, None).unwrap();
         assert!(after.stale(None).is_empty());
     }
 
@@ -965,7 +1030,7 @@ Game.MaxPlayers = 4;
             generic::remove_game(&text, &mine.guid()).unwrap().unwrap(),
         )
         .unwrap();
-        let catalog = catalog(nucleus.path(), true).unwrap();
+        let catalog = catalog(nucleus.path(), true, None).unwrap();
         assert_eq!(catalog.user, crate::process::user_sid());
         let stale: Vec<&str> = catalog
             .stale(None)
@@ -974,7 +1039,7 @@ Game.MaxPlayers = 4;
             .collect();
         assert_eq!(stale, [mine.guid()]);
         // Without a signed-in user's list, none.
-        let nobody = super::catalog(nucleus.path(), false).unwrap();
+        let nobody = super::catalog(nucleus.path(), false, None).unwrap();
         assert!(nobody.user.is_none());
         assert!(nobody.stale(None).is_empty());
     }
@@ -999,14 +1064,14 @@ Game.MaxPlayers = 4;
             error.contains("leaves a game whose handler is gone out"),
             "{error}"
         );
-        let left = catalog(nucleus.path(), true).unwrap();
+        let left = catalog(nucleus.path(), true, None).unwrap();
         assert!(left.handlers.iter().all(|h| !h.own));
         assert!(left.stale(None).is_empty());
         assert!(left.playable().is_empty());
         // The game's next background stream writes the handler and keeps
         // the one entry.
         write_own(nucleus.path(), &setup).unwrap();
-        let again = catalog(nucleus.path(), true).unwrap();
+        let again = catalog(nucleus.path(), true, None).unwrap();
         assert_eq!(
             again
                 .games
@@ -1064,13 +1129,13 @@ Game.MaxPlayers = 4;
         let theirs = r#"{"Games":[{"GameGuid":"A","ExePath":"C:\\A.exe"}]}"#;
         // A list as Nucleus writes it still reads.
         std::fs::write(&list, theirs).unwrap();
-        let games = catalog(nucleus.path(), true).unwrap().games;
+        let games = catalog(nucleus.path(), true, None).unwrap().games;
         assert_eq!(games.len(), 1);
         check_list(nucleus.path(), Some(&setup), &[]).unwrap();
         // Every read of the list refuses it, naming it, and nothing is written.
         let refused = |why: &str| {
             let errors = [
-                catalog(nucleus.path(), true).map(|_| ()),
+                catalog(nucleus.path(), true, None).map(|_| ()),
                 check_list(nucleus.path(), Some(&setup), &[]),
                 write_own(nucleus.path(), &setup).map(|_| ()),
                 remove_game(&list, "A"),
@@ -1148,7 +1213,7 @@ Game.MaxPlayers = 4;
         std::fs::remove_dir(&list).unwrap();
         // And with none, it is.
         write_own(nucleus.path(), &setup).unwrap();
-        let games = catalog(nucleus.path(), true).unwrap().games;
+        let games = catalog(nucleus.path(), true, None).unwrap().games;
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].guid, setup.guid());
     }
@@ -1242,16 +1307,22 @@ Game.MaxPlayers = 4;
         }
     }
 
+    /// A host that stopped mid-session: its guard never ran, and Windows
+    /// closed its lock.
+    fn stopped(mut guard: SettingsGuard) {
+        guard._lock = None;
+        std::mem::forget(guard);
+    }
+
     #[test]
     fn what_a_session_the_host_never_ended_forced_is_put_back_first() {
         let nucleus = tempfile::tempdir().unwrap();
         let folder = nucleus.path();
         std::fs::write(folder.join("Settings.ini"), USERS).unwrap();
-        // The host stopped mid-session: its guard never ran.
-        std::mem::forget(write_settings(folder).unwrap());
+        stopped(write_settings(folder).unwrap());
         assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"False");
         // The next session keeps the user's value, not the last session's.
-        std::mem::forget(write_settings(folder).unwrap());
+        stopped(write_settings(folder).unwrap());
         let journal: Vec<profile::Forced> =
             serde_json::from_slice(&std::fs::read(settings_journal(folder)).unwrap()).unwrap();
         let favourites = journal
@@ -1260,14 +1331,14 @@ Game.MaxPlayers = 4;
             .unwrap();
         assert_eq!(favourites.before, b"True");
         // As the host starts.
-        assert_eq!(restore_settings_left(folder).unwrap(), 3);
+        assert_eq!(restore_settings_left(folder).unwrap(), Some(3));
         assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"True");
         assert!(!settings_journal(folder).exists());
-        assert_eq!(restore_settings_left(folder).unwrap(), 0);
+        assert_eq!(restore_settings_left(folder).unwrap(), Some(0));
         // An empty journal goes; one that can't be read stops the session
         // and names itself.
         std::fs::write(settings_journal(folder), b"").unwrap();
-        assert_eq!(restore_settings_left(folder).unwrap(), 0);
+        assert_eq!(restore_settings_left(folder).unwrap(), Some(0));
         assert!(!settings_journal(folder).exists());
         std::fs::write(settings_journal(folder), b"{").unwrap();
         let error = format!("{:#}", write_settings(folder).err().unwrap());
@@ -1275,6 +1346,85 @@ Game.MaxPlayers = 4;
             error.contains("Rubylight-settings.json can't be read") && error.contains("delete it"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn a_journal_left_beside_no_settings_file_goes_and_the_file_is_written_whole() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let folder = nucleus.path();
+        let path = folder.join("Settings.ini");
+        std::fs::write(&path, USERS).unwrap();
+        stopped(write_settings(folder).unwrap());
+        // The user deleted the file meanwhile.
+        std::fs::remove_file(&path).unwrap();
+        let guard = write_settings(folder).unwrap();
+        assert_eq!(ini(folder, "Dev", "DisablePathCheck").unwrap(), b"True");
+        assert!(ini(folder, "Hotkeys", "Close").is_some_and(|v| !v.is_empty()));
+        // The journal is the new session's, put back when it ends.
+        drop(guard);
+        assert!(!settings_journal(folder).exists());
+        assert_eq!(ini(folder, "Dev", "DisablePathCheck").unwrap(), b"False");
+        // Nor does the service fail on it.
+        stopped(write_settings(folder).unwrap());
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(restore_settings_left(folder).unwrap(), Some(0));
+        assert!(!settings_journal(folder).exists());
+    }
+
+    #[test]
+    fn the_service_puts_nothing_back_under_a_session_or_another_restore() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let folder = nucleus.path();
+        std::fs::write(folder.join("Settings.ini"), USERS).unwrap();
+        // A session starting or running: the user's values wait for it.
+        let guard = write_settings(folder).unwrap();
+        assert_eq!(restore_settings_left(folder).unwrap(), None);
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"False");
+        assert!(settings_journal(folder).is_file());
+        drop(guard);
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"True");
+        // A restore elsewhere holds it.
+        stopped(write_settings(folder).unwrap());
+        let other = Lock::try_take(&settings_journal(folder)).unwrap().unwrap();
+        assert_eq!(restore_settings_left(folder).unwrap(), None);
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"False");
+        drop(other);
+        assert_eq!(restore_settings_left(folder).unwrap(), Some(3));
+        assert_eq!(ini(folder, "Dev", "ShowFavoriteOnly").unwrap(), b"True");
+    }
+
+    #[test]
+    fn a_settings_file_saved_as_utf16_is_refused_and_left_as_it_is() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let folder = nucleus.path();
+        let path = folder.join("Settings.ini");
+        let utf16 = |bom: [u8; 2], big: bool| {
+            let mut bytes = bom.to_vec();
+            for unit in "[Dev]\r\nShowFavoriteOnly=True\r\n".encode_utf16() {
+                let pair = if big { unit.to_be_bytes() } else { unit.to_le_bytes() };
+                bytes.extend_from_slice(&pair);
+            }
+            bytes
+        };
+        for text in [utf16([0xff, 0xfe], false), utf16([0xfe, 0xff], true)] {
+            std::fs::write(&path, &text).unwrap();
+            let error = format!("{:#}", write_settings(folder).err().unwrap());
+            assert!(
+                error.contains("Settings.ini") && error.contains("UTF-16"),
+                "{error}"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), text);
+            assert!(!settings_journal(folder).exists());
+        }
+        // Saved as UTF-16 while a session ran: its journal stays.
+        std::fs::write(&path, USERS).unwrap();
+        stopped(write_settings(folder).unwrap());
+        let text = utf16([0xff, 0xfe], false);
+        std::fs::write(&path, &text).unwrap();
+        let error = format!("{:#}", restore_settings_left(folder).unwrap_err());
+        assert!(error.contains("UTF-16"), "{error}");
+        assert!(settings_journal(folder).is_file());
+        assert_eq!(std::fs::read(&path).unwrap(), text);
     }
 
     #[test]

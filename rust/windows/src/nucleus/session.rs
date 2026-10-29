@@ -323,16 +323,19 @@ struct Runner {
     unclicked: Option<String>,
     /// While the profile is not shown: Nucleus' message boxes at the last
     /// look, every one logged so far, whether it showed any window, and why
-    /// the last look failed.
+    /// the last look failed. A box Windows showed for another program
+    /// before the launch (`before`, its windows) is not Nucleus'.
     showing: Vec<MessageBox>,
     logged: Vec<MessageBox>,
+    before: BTreeSet<u64>,
     shown: bool,
     unseen: Option<String>,
     /// Nucleus' crashlog.txt as it was at the launch. None for a runner
     /// tested alone.
     crashlog: Option<Crashlog>,
     /// Nucleus Co-op's folder and the game's GUID, to tell whether Nucleus
-    /// lists the game. None for a runner tested alone.
+    /// lists the game. None for a runner tested alone, and for a Nucleus
+    /// Co-op whose game list Rubylight doesn't know.
     game: Option<(PathBuf, String)>,
     /// Clicked, instances found, windows found.
     progress: (bool, usize, usize),
@@ -485,7 +488,8 @@ impl Runner {
     /// answer no one gives during a background stream (#59).
     fn look(&mut self, job: &BTreeSet<u32>) {
         let looked = match self.desktop.message_boxes(job) {
-            Ok(boxes) => {
+            Ok(mut boxes) => {
+                boxes.retain(|shown| !self.before.contains(&shown.window));
                 self.showing = boxes;
                 self.desktop
                     .windows()
@@ -655,6 +659,11 @@ pub struct Start<'a> {
     pub kind: coop::Kind,
     /// Nucleus Co-op's folder.
     pub folder: &'a Path,
+    /// Whether it is the release whose game list Rubylight knows
+    /// ([`files::list`]): the host's own install of 2.4.2, not a
+    /// `nucleus_path` copy. Only then does a start that times out say
+    /// whether the game is listed.
+    pub known_list: bool,
     pub handler: &'a Handler,
     /// The game's .exe as Nucleus starts it: the user's added game's, or the
     /// one Rubylight's handler is for.
@@ -779,6 +788,13 @@ pub fn start(
     )
     .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
     let crashlog = Crashlog::at_launch(start.folder);
+    // Windows' boxes up now are another program's: Nucleus isn't running.
+    let before = desktop
+        .message_boxes(&BTreeSet::new())
+        .context("listing the message boxes on the PC's screen before Nucleus Co-op starts")?
+        .into_iter()
+        .map(|shown| shown.window)
+        .collect();
     let nucleus = launcher.launch(
         start.folder,
         &start.handler.guid,
@@ -807,10 +823,13 @@ pub fn start(
         unclicked: None,
         showing: Vec::new(),
         logged: Vec::new(),
+        before,
         shown: false,
         unseen: None,
         crashlog: Some(crashlog),
-        game: Some((start.folder.to_path_buf(), start.handler.guid.clone())),
+        game: start
+            .known_list
+            .then(|| (start.folder.to_path_buf(), start.handler.guid.clone())),
         progress: (false, 0, 0),
         windows: vec![None; start.players],
         deadline: Instant::now() + START_TIMEOUT,
@@ -1140,6 +1159,7 @@ mod tests {
             unclicked: None,
             showing: Vec::new(),
             logged: Vec::new(),
+            before: BTreeSet::new(),
             shown: false,
             unseen: None,
             crashlog: None,
@@ -1244,6 +1264,7 @@ mod tests {
         let (screen, probe) = (screen(), Probe::default());
         let mut runner = runner(1, &screen, &probe, t0);
         let shown = MessageBox {
+            window: 1,
             caption: "OneDrive must be disabled".into(),
             text: "Your Documents folder\r\nis in OneDrive.".into(),
         };
@@ -1257,6 +1278,7 @@ mod tests {
         screen.0.lock().unwrap().boxes.push((
             99,
             MessageBox {
+                window: 2,
                 caption: "Other".into(),
                 text: String::new(),
             },
@@ -1402,11 +1424,77 @@ mod tests {
 
     fn reminder() -> MessageBox {
         MessageBox {
+            window: 3,
             caption: "Nucleus Co-op".into(),
             text: "Press the End key to unlock the input.".into(),
         }
     }
     const REMINDED: &str = "Nucleus Co-op shows \"Nucleus Co-op: Press the End key to unlock the input.\" on the PC's screen";
+
+    #[test]
+    fn only_a_box_windows_shows_after_the_launch_is_named() {
+        use super::super::instances::tests::CSRSS;
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let other = MessageBox {
+            window: 4,
+            caption: "Explorer.EXE - Application Error".into(),
+            text: "The instruction referenced memory that could not be read.".into(),
+        };
+        screen.0.lock().unwrap().boxes.push((CSRSS, other.clone()));
+        let mut runner = runner(1, &screen, &probe, t0);
+        // What start keeps: the boxes up before Nucleus Co-op ran.
+        runner.before = screen
+            .clone()
+            .message_boxes(&BTreeSet::new())
+            .unwrap()
+            .into_iter()
+            .map(|shown| shown.window)
+            .collect();
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .windows
+            .push(window(5, NUCLEUS, ON_SCREEN));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, []);
+        // Windows shows one for Nucleus Co-op (DefaultDesktopOnly) later.
+        let unreadable = MessageBox {
+            window: 6,
+            caption: "Nucleus Co-op".into(),
+            text: "Unable to load settings.".into(),
+        };
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .boxes
+            .push((CSRSS, unreadable.clone()));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [unreadable]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op shows \"Nucleus Co-op: Unable to load settings.\" on the PC's screen"
+                    .into()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_start_that_cannot_list_the_boxes_up_before_nucleus_is_refused() {
+        let folder = tempfile::tempdir().unwrap();
+        let (screen, probe) = (screen(), Probe::default());
+        screen.0.lock().unwrap().unlisted = true;
+        let (running, _) = start_with(folder.path(), 1, [false; 4], &screen, &probe);
+        let error = format!("{:#}", running.err().unwrap());
+        assert!(
+            error.contains("message boxes on the PC's screen before Nucleus Co-op starts"),
+            "{error}"
+        );
+        assert!(probe.launched.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn a_box_covering_the_profile_list_is_named_instead_of_the_cover() {
@@ -1696,6 +1784,7 @@ mod tests {
             id: 1,
             kind: kind(players),
             folder,
+            known_list: true,
             handler: &handler,
             exe_path: r"D:\Games\Game\Game.exe",
             steam_app,
@@ -2070,7 +2159,7 @@ mod tests {
             .with_context(|| format!("reading {}", path.display()))?;
         let handler =
             butterpollo_core::nucleus::handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
-        let exe_path = files::catalog(&folder, true)?
+        let exe_path = files::catalog(&folder, true, None)?
             .games
             .into_iter()
             .find(|game| game.guid == handler.guid)
@@ -2086,6 +2175,7 @@ mod tests {
             id: 1,
             kind: kind(players),
             folder: &folder,
+            known_list: true,
             handler: &handler,
             exe_path: &exe_path,
             steam_app,

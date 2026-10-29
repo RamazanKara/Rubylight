@@ -540,6 +540,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 hostReports, lateFrames.tick());
     }
 
+    /**
+     * A health sample that did not run (stream in the background, a host action, the last sample
+     * still running) ends its tick all the same: its late frames must not count in the next sample.
+     */
+    public void skipHealthSample() {
+        lateFrames.tick();
+    }
+
     public LatencyProbe getLatencyProbe() {
         return frameLatencyStats.latencyProbe;
     }
@@ -4256,7 +4264,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         if (frameNumber != lastFrameNumber) {
             queueDelay.onFrame(receiveTimeUs, presentationTimeUs, frameHostProcessingLatency * 100L);
-            lateFrames.push(presentationTimeUs, receiveTimeUs, (streamFrameRateMilliHz + 500) / 1000);
+            lateFrames.push(presentationTimeUs, frameHostProcessingLatency * 100L, receiveTimeUs, (streamFrameRateMilliHz + 500) / 1000);
         }
         lastFrameNumber = frameNumber;
 

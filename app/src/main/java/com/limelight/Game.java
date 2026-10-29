@@ -379,8 +379,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     return renderer.healthSample(SystemClock.uptimeMillis(), fps,
                             rtt == -1 ? -1 : (float) (rtt & 0xffffffffL));
                 }, streamHealth::add)) {
+                    renderer.skipHealthSample();
                     LimeLog.info("Stream health: the last sample is still running; this one is skipped");
                 }
+            } else {
+                decoderRenderer.skipHealthSample();
             }
             bitrateHandler.postDelayed(this, 1000);
         }

@@ -626,11 +626,11 @@ Disconnect keeps them for the suspended session.
 
 **How the restore works**
 
-Before the file is written, the original value of each key and the value written are recorded in `game-files-journal.json` in the config folder. A restore puts the original back only while the key still holds the host's value. A value you changed in the meantime (in the game's own menu, for example) is yours and stays. A restore that fails stays in the journal and is retried at the next start. When another device's stream changed the same key and its restore is still pending, that restore runs before the new stream writes.
+Before the file is written, the original value of each key and the value written are recorded in `game-files-journal.json` in the config folder. A restore puts the original back only while the key still holds the host's value. A value you changed in the meantime (in the game's own menu, for example) is yours and stays. Restores run on a thread of their own, so a slow file never holds up a session. A restore that fails stays in the journal and is retried, after 30 seconds and then less often, and again at the next start. When another device's stream changed the same key and its restore is still pending, that restore runs before the new stream writes.
 
 **Which files the host writes**
 
-The host runs as SYSTEM, so it writes only:
+The host runs as SYSTEM, but it reads and writes game files as the signed-in Windows user, so a link put in a game's folder cannot lead it to a file the user could not change. With nobody signed in, nothing is written, and restores wait. A file the user may not change (often the case under `Program Files`) is skipped with a warning. It writes only:
 
 - an existing `.ini` file of at most 1 MiB;
 - inside the app's working directory, its program's folder or its Steam install folder, after every link and junction is resolved.

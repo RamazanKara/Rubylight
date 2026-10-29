@@ -277,22 +277,34 @@ fn shared_folder(folder: &str) -> bool {
 /// out to a network share, and Windows' own programs (`windows`, the
 /// Windows folder) are no game. A folder in the user's profile is fine.
 pub fn refused_path(exe_path: &str, windows: &str) -> Option<String> {
-    let path = normalized(exe_path);
-    // `\\server\share`, `\\?\UNC\...` and device paths; `\\?\C:\` is local.
-    let local = path
-        .strip_prefix(r"\\?\")
-        .filter(|rest| {
-            !rest
-                .get(..4)
-                .is_some_and(|unc| unc.eq_ignore_ascii_case(r"UNC\"))
-        })
-        .unwrap_or(&path);
-    if local.starts_with(r"\\") {
+    let Some(local) = on_this_pc(exe_path) else {
         return Some(format!(
             "{exe_path} is on a network share: Rubylight starts only a game on this PC's own drives"
         ));
-    }
-    below(local, &normalized(windows)).map(|_| format!("{exe_path} is part of Windows, not a game"))
+    };
+    below(&local, &normalized(windows))
+        .map(|_| format!("{exe_path} is part of Windows, not a game"))
+}
+
+/// `path` as a plain drive path (`C:\...`) when it is on one of this PC's
+/// drives; None for `\\server\share`, `\\?\UNC\...`, `\\?\GLOBALROOT\...`
+/// and every other `\\?\` or `\\.\` path but `\\?\C:\...`. The host runs as
+/// SYSTEM and must not reach out to a share.
+pub fn on_this_pc(path: &str) -> Option<String> {
+    let path = normalized(path);
+    let drive = |rest: &str| {
+        let bytes = rest.as_bytes();
+        bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && &bytes[1..3] == br":\"
+    };
+    let local = match path
+        .strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix(r"\\.\"))
+    {
+        Some(rest) => rest,
+        None => &path,
+    };
+    (!local.starts_with(r"\\") && (local.len() == path.len() || drive(local)))
+        .then(|| local.to_string())
 }
 
 /// Whether `exe_path` is a launcher rather than a game: Nucleus would hook
@@ -829,6 +841,9 @@ mod tests {
             "//nas/games/Ice/Ice.exe",
             r"\\?\UNC\nas\games\Ice\Ice.exe",
             r"\\.\pipe\Ice.exe",
+            r"\\?\GLOBALROOT\Device\Mup\nas\games\Ice.exe",
+            r"\\.\UNC\nas\games\Ice\Ice.exe",
+            r"\\?\Volume{0c0d2a1e-0000-0000-0000-100000000000}\Ice.exe",
         ] {
             let why = refused_path(share, windows).unwrap();
             assert!(

@@ -64,7 +64,8 @@ the PC's cursor.
   arguments the app's command passes it. A game's .exe in a Steam library
   (`steamapps\common\<folder>`) counts as that Steam game: it gets its app id
   and Valve Anti-Cheat check the same way. Steam libraries on a network share
-  are skipped.
+  are skipped, and a library Steam doesn't list is a plain folder. A folder
+  no Steam app installs to, or two apps install to, is refused.
 - **The game, not its launcher.** A launcher (`steam.exe -applaunch`, the Epic
   Games Launcher, Playnite, `Fallout4Launcher.exe`, `PlayGTAV.exe` and the
   like) is refused. The small .exe at an Unreal game's root starts the one

@@ -500,24 +500,49 @@ pub struct LibraryApp {
 /// library's `appmanifest_<id>.acf` with the same `installdir` (in any
 /// case), with its Valve Anti-Cheat flag from the app cache, as a link to
 /// the app gives it ([`game_executable`]). None for an .exe in no library or
-/// in a folder no manifest names; an error when the app cache does not list
-/// the app. Nothing is opened for a path off this PC's drives.
+/// in one no Steam installation of `roots` lists: such a folder is a plain
+/// one, and a stray `steamapps` names no app. An error when Steam lists the
+/// library but no manifest, or two, name the folder, or the app cache does
+/// not list the app. Nothing is opened for a path off this PC's drives.
 pub fn library_app(exe: &Path, roots: &[PathBuf]) -> Result<Option<LibraryApp>, String> {
     let Some((steamapps, folder)) = library_folder(exe) else {
         return Ok(None);
     };
-    let Some((appid, install_dir)) = manifests(&steamapps).iter().find_map(|manifest| {
-        let (appid, state, install_dir) = installed(&steamapps, manifest)?;
-        state
-            .get("installdir")
-            .and_then(Vdf::text)
-            .is_some_and(|name| {
-                name.trim_end_matches(['\\', '/'])
-                    .eq_ignore_ascii_case(&folder)
-            })
-            .then_some((appid, install_dir))
-    }) else {
+    if !libraries(roots)
+        .iter()
+        .any(|listed| same_path(listed, &steamapps))
+    {
         return Ok(None);
+    }
+    let named: Vec<(u32, PathBuf)> = manifests(&steamapps)
+        .iter()
+        .filter_map(|manifest| {
+            let (appid, state, install_dir) = installed(&steamapps, manifest)?;
+            state
+                .get("installdir")
+                .and_then(Vdf::text)
+                .is_some_and(|name| {
+                    name.trim_end_matches(['\\', '/'])
+                        .eq_ignore_ascii_case(&folder)
+                })
+                .then_some((appid, install_dir))
+        })
+        .collect();
+    let (appid, install_dir) = match named.as_slice() {
+        [one] => one.clone(),
+        [] => {
+            return Err(format!(
+                "{} is in Steam's library {}, but no Steam app there installs to {folder}: verify the game's files in Steam",
+                exe.display(),
+                steamapps.display()
+            ));
+        }
+        [first, second, ..] => {
+            return Err(format!(
+                "Steam apps {} and {} both install to {folder}: start the game from its Steam link",
+                first.0, second.0
+            ));
+        }
     };
     let info = cached_app(appid, roots)?;
     Ok(Some(LibraryApp {
@@ -1570,18 +1595,17 @@ mod tests {
         let exe = other
             .path()
             .join(r"steamapps\common\Black Flag\AC4BFSP.exe");
-        let found = library_app(&exe, &[other.path().to_path_buf()]).unwrap();
+        let others = [other.path().to_path_buf()];
+        let found = library_app(&exe, &others).unwrap();
         assert!(!found.unwrap().vac);
         // Like a link: a game the app cache does not list is refused.
+        std::fs::remove_file(other.path().join(r"appcache\appinfo.vdf")).unwrap();
         assert_eq!(
-            library_app(&exe, &[]).unwrap_err(),
+            library_app(&exe, &others).unwrap_err(),
             "Steam's app cache does not list app 242050: start it once in Steam"
         );
-        // A folder no manifest names, an .exe right in `common`, or none in
-        // a library: no Steam app.
-        std::fs::create_dir_all(common.join("Mod")).unwrap();
+        // An .exe right in `common`, or none in a library: no Steam app.
         for exe in [
-            common.join("Mod").join("Mod.exe"),
             common.join("Black Flag.exe"),
             steam.path().join("Black Flag").join("AC4BFSP.exe"),
         ] {
@@ -1592,6 +1616,56 @@ mod tests {
                 exe.display()
             );
         }
+        // A folder in a listed library that no manifest names is refused.
+        std::fs::create_dir_all(common.join("Mod")).unwrap();
+        let error = library_app(&common.join(r"Mod\Mod.exe"), &roots).unwrap_err();
+        assert!(
+            error.ends_with(
+                "but no Steam app there installs to Mod: verify the game's files in Steam"
+            ),
+            "{error}"
+        );
+    }
+    #[test]
+    fn a_library_no_steam_lists_is_a_plain_folder() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let steam =
+            steam_with_appinfo(&[launch], &[object("category", &[text("category_8", "1")])]);
+        let exe = steam
+            .path()
+            .join(r"steamapps\common\Black Flag\bin\AC4BFSP.exe");
+        // No Steam on the PC: the game streams as a plain .exe, and the
+        // folder's anti-cheat checks still run.
+        assert_eq!(library_app(&exe, &[]).unwrap(), None);
+        // A stray `steamapps` beside a Steam installation that does not list
+        // it names no app.
+        let installed = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(installed.path().join("steamapps")).unwrap();
+        assert_eq!(
+            library_app(&exe, &[installed.path().to_path_buf()]).unwrap(),
+            None
+        );
+        assert!(
+            library_app(&exe, &[steam.path().to_path_buf()])
+                .unwrap()
+                .is_some()
+        );
+    }
+    #[test]
+    fn two_apps_installing_to_one_folder_are_refused() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let steam = steam_with_appinfo(&[launch], &[]);
+        let apps = steam.path().join("steamapps");
+        std::fs::write(
+            apps.join("appmanifest_242051.acf"),
+            "\"AppState\" { \"appid\" \"242051\" \"installdir\" \"black flag\" }",
+        )
+        .unwrap();
+        let exe = apps.join(r"common\Black Flag\bin\AC4BFSP.exe");
+        assert_eq!(
+            library_app(&exe, &[steam.path().to_path_buf()]).unwrap_err(),
+            "Steam apps 242050 and 242051 both install to Black Flag: start the game from its Steam link"
+        );
     }
     #[test]
     fn a_library_folder_is_read_from_the_exes_path_on_this_pc_only() {

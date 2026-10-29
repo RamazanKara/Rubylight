@@ -265,7 +265,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private int recoveryAppId;
     private String recoveryAppUuid;
     private Runnable pendingRecovery;
-    private int recoveryGeneration;
+    // Volatile: a recovery's route wait on its worker stops when this changes.
+    private volatile int recoveryGeneration;
     private boolean recoveryHandoffInProgress;
     // The replacement stream a queued recovery will start; a packed-chroma failure meanwhile marks it.
     private Intent pendingRecoveryIntent;
@@ -316,6 +317,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private AdaptiveBitrateController adaptiveBitrate;
     private PyroWaveBitrateController pyroWaveBitrate;
     private boolean poorConnection;
+    // The stream's network is lost: the overlay says so until one returns (or the stream ends).
+    private boolean streamNetworkLost;
     private long adaptiveBitrateRetryAt;
     private int adaptiveBitrateRetryTarget;
     // Claims of the host's encoder bitrate that failed in a row. Some hosts report 0 for good.
@@ -379,8 +382,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     return renderer.healthSample(SystemClock.uptimeMillis(), fps,
                             rtt == -1 ? -1 : (float) (rtt & 0xffffffffL));
                 }, streamHealth::add)) {
+                    renderer.skipHealthSample();
                     LimeLog.info("Stream health: the last sample is still running; this one is skipped");
                 }
+            } else {
+                decoderRenderer.skipHealthSample();
             }
             bitrateHandler.postDelayed(this, 1000);
         }
@@ -771,6 +777,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Follows the content rate measured from the host's frame times (checkbox_content_rate_frame_rate).
     private final com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote contentRateVote =
             new com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote();
+    // Flags ARR showing about half the rendered frames (see checkArrRate).
+    private final com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck arrHalfRate =
+            new com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck();
     // Whether the vote above allowed only seamless switches (the content rate vote, and every vote on API 30).
     private boolean appSurfaceSeamlessOnly;
     // Tells why the screen did not follow the vote (see RefreshSwitchDiagnosis); created once connected.
@@ -779,6 +788,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         @Override public void run() {
             if (!connected || isFinishing()) return;
             checkRefreshSwitch();
+            checkArrRate();
             checkHdrStatus();
             checkVulkanPace();
             bitrateHandler.postDelayed(this, 1000);
@@ -1513,6 +1523,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setAttachedGamepadMask(gamepadMask)
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
+                .setVirtualDisplayDpi(prefConfig.virtualDisplayDpi)
                 .setVrr(!smallStream && prefConfig.vrr)
                 .setClipboardSync(prefConfig.clipboardSync && prefConfig.rustEngine)
                 .setHostDisplay(prefConfig.hostDisplay)
@@ -3429,6 +3440,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             text.append("\n\n").append(finding == com.limelight.utils.StreamHealth.Finding.PERIODIC ?
                     context.getString(R.string.health_periodic,
                             com.limelight.utils.WifiDiagnostics.period(context, report.stallPeriodMs), report.stalls) :
+                    finding == com.limelight.utils.StreamHealth.Finding.BURSTS ?
+                    context.getString(R.string.health_bursts, report.lateSamples, report.samples) :
                     context.getString(descriptions[finding.ordinal()]));
         }
         text.append("\n\n").append(context.getString(
@@ -4372,6 +4385,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean tryAutomaticRecovery(boolean packedOff) {
+        return tryAutomaticRecovery(packedOff, false);
+    }
+
+    /** {@code immediate}: no delay before the attempt (it still spends one); a network came back. */
+    private boolean tryAutomaticRecovery(boolean packedOff, boolean immediate) {
         if (prefConfig == null || (!packedOff && !prefConfig.autoReconnect) || displayedFailureDialog ||
                 (!connected && !connecting) || !foreground || isFinishing() || isDestroyed() ||
                 app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
@@ -4393,18 +4411,37 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Intent retry = createStreamHandoffIntent(LaunchSource.RECOVERY)
                 .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid);
         if (packedOff) retry.putExtra(EXTRA_PACKED_OFF, true);
-        return queueAutomaticRecovery(retry, packedOff);
+        return queueAutomaticRecovery(retry, packedOff, false, immediate);
+    }
+
+    /**
+     * Whether a lost connection would reconnect on its own now: what tryAutomaticRecovery
+     * checks, and an attempt left in the budget. Spends nothing.
+     */
+    private boolean recoversAutomatically() {
+        if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog || !connected || !foreground ||
+                isFinishing() || isDestroyed() || recoveryHandoffInProgress || pendingRecovery != null ||
+                app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
+        int resumeId = recoveryAppId != 0 ? recoveryAppId :
+                app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
+        return resumeId != 0 && recoveryPolicy.allowsAttempt(SystemClock.elapsedRealtime(), connectedAt);
     }
 
     private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting) {
         return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, false);
     }
 
+    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume) {
+        return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, tripResume, false);
+    }
+
     /**
      * {@code tripResume}: the resume after the user's own trip. It is never counted or refused by
      * the failure budget: a fixed delay and a deadline of its own from the return.
+     * {@code immediate}: no delay. Every recovery waits for a route to the PC before it starts.
      */
-    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume) {
+    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume,
+                                           boolean immediate) {
         if (prefConfig == null || (!ignoreAutoReconnectSetting && !prefConfig.autoReconnect) || !foreground || isFinishing() || isDestroyed() ||
                 recoveryHandoffInProgress || pendingRecovery != null) return false;
         long now = SystemClock.elapsedRealtime();
@@ -4420,10 +4457,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 recoveryBudgetExhausted = true;
                 return false;
             }
+            if (immediate) delay = 0;
             deadlineFrom = recoveryPolicy.startedAt();
             retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
                     .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
         }
+        final String routeHost = getIntent().getStringExtra(EXTRA_HOST);
+        final int routePort = getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
 
         displayedFailureDialog = true;
         setInputGrabState(false);
@@ -4447,6 +4487,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 try {
                     // Never overlap the native global connection with a previous stop.
                     if (stopping != null) stopping.join(10000);
+                    waitForRouteToHost(routeHost, routePort, deadlineFrom + StreamRecoveryPolicy.WINDOW_MS, recovery);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     return;
@@ -4468,6 +4509,69 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         };
         bitrateHandler.postDelayed(pendingRecovery, delay);
         return true;
+    }
+
+    /**
+     * On a recovery's worker: returns once the PC is reachable, at {@code deadline}, or when the
+     * recovery is cancelled. A network is often back before its address toward the PC (DHCP),
+     * so the attempt waits for a route instead of failing at once and backing off.
+     */
+    private void waitForRouteToHost(String host, int port, long deadline, int recovery) throws InterruptedException {
+        if (host == null) return;
+        NetworkReturnRecovery wait = new NetworkReturnRecovery(deadline);
+        long waitStarted = SystemClock.elapsedRealtime();
+        while (recovery == recoveryGeneration && !isFinishing() && !isDestroyed()) {
+            long checkedAt = SystemClock.elapsedRealtime();
+            String unreachable = routeProbe.problem(host, port);
+            long next = wait.next(SystemClock.elapsedRealtime(), unreachable == null);
+            if (next == 0) {
+                if (wait.unreachableChecks() > 0) {
+                    LimeLog.info("Recovery: the PC is reachable again after " +
+                            (SystemClock.elapsedRealtime() - waitStarted) + " ms");
+                }
+                return;
+            }
+            if (next < 0) {
+                LimeLog.warning("Recovery: the PC stayed unreachable until the recovery window ended: " + unreachable);
+                return;
+            }
+            if (wait.unreachableChecks() == 1) {
+                LimeLog.info("Recovery: no route to the PC yet (" + unreachable + "), checking every " +
+                        NetworkReturnRecovery.RETRY_MS + " ms");
+            }
+            Thread.sleep(Math.max(0, next - (SystemClock.elapsedRealtime() - checkedAt)));
+        }
+    }
+
+    interface RouteProbe { String problem(String host, int port); }
+
+    // A recovery's route check toward the PC (tests replace it).
+    private RouteProbe routeProbe = Game::routeProblem;
+
+    /**
+     * Why there is no route toward the PC's HTTP port yet, or null to go on with the attempt: an
+     * answer, refused included, and also a check that timed out or failed otherwise (a slow link
+     * is not a missing one; the attempt itself decides, loudly).
+     */
+    private static String routeProblem(String host, int port) {
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress(host, port), NetworkReturnRecovery.PROBE_TIMEOUT_MS);
+            return null;
+        } catch (java.io.IOException e) {
+            return routeMissing(e) ? e.toString() : null;
+        }
+    }
+
+    /** An immediate no-route error: no address toward the PC (yet), or its name does not resolve. */
+    static boolean routeMissing(java.io.IOException e) {
+        // Android's socket layer throws NoRouteToHostException for EHOSTUNREACH and
+        // BindException ("Address not available") for EADDRNOTAVAIL, without the errno.
+        if (e instanceof java.net.UnknownHostException || e instanceof java.net.NoRouteToHostException ||
+                e instanceof java.net.BindException) return true;
+        if (!(e.getCause() instanceof android.system.ErrnoException)) return false;
+        int errno = ((android.system.ErrnoException) e.getCause()).errno;
+        return errno == android.system.OsConstants.ENETUNREACH || errno == android.system.OsConstants.EHOSTUNREACH ||
+                errno == android.system.OsConstants.EADDRNOTAVAIL;
     }
 
     private void showReconnectDialog(int title, String message) {
@@ -5311,8 +5415,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             inputCaptureProvider.disableCapture();
         }
 
-        // Grab/ungrab system keyboard shortcuts
-        setMetaKeyCaptureState(grab);
+        // Grab/ungrab system keyboard shortcuts, unless the user leaves them to Android
+        setMetaKeyCaptureState(grab && prefConfig.captureSystemKeys);
 
         grabbedInput = grab;
         if (controllerHandler != null) {
@@ -5491,21 +5595,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return (byte) (modifierFlags | (modifierFlags >> 8));
     }
 
-    // The keyboard options can turn a physical Back or Right Alt into the Windows key.
+    // The keyboard options can turn a physical Back or Right Alt into the Windows key, and sending
+    // system keys turns a keyboard's Back (the Esc key of many keyboards made for Android) into Esc.
+    // Physical Back opens stream menu is an explicit choice, so it keeps keyboard Back.
     private int physicalKeyCode(KeyEvent event) {
         int keyCode = event.getKeyCode();
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && ControllerHandler.isRemoteControlEvent(event)) {
             return KeyEvent.KEYCODE_ENTER;
         }
+        boolean backAsEscape = prefConfig.captureSystemKeys && !prefConfig.backOpensMenu;
         boolean keyboardBack = false;
-        if (keyCode == KeyEvent.KEYCODE_BACK && prefConfig.backAsMeta) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && (prefConfig.backAsMeta || backAsEscape)) {
             InputDevice device = event.getDevice();
             keyboardBack = device != null && KeyboardTranslator.isKeyboardBack(keyCode,
                     (event.getFlags() & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK)) != 0,
                     device.isVirtual(), device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
                     ControllerHandler.isGameControllerDevice(device), event.getSource());
+            // Esc only from an external keyboard: a keyboard phone's own keyboard may have no Ctrl
+            // for Ctrl+Alt+Shift+M, and below Android 10 we cannot tell, so Back stays Back there.
+            backAsEscape &= keyboardBack && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && device.isExternal();
         }
-        return KeyboardTranslator.remapPhysicalKey(keyCode, keyboardBack, prefConfig.backAsMeta, prefConfig.rightAltAsMeta);
+        return KeyboardTranslator.remapPhysicalKey(keyCode, keyboardBack, prefConfig.backAsMeta, backAsEscape,
+                prefConfig.rightAltAsMeta);
     }
 
     @Override
@@ -5564,6 +5675,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         if (handlePhysicalBackMenuKey(event)) return true;
+        // Back as Guide for a handheld's Back that is not on its gamepad device
+        if (connected && controllerHandler != null && controllerHandler.handleHandheldBackAsGuide(event)) return true;
 
         boolean handled = false;
 
@@ -5652,6 +5765,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         if (handlePhysicalBackMenuKey(event)) return true;
+        // Back as Guide for a handheld's Back that is not on its gamepad device
+        if (connected && controllerHandler != null && controllerHandler.handleHandheldBackAsGuide(event)) return true;
 
         boolean handled = false;
         if (!ControllerHandler.isRemoteControlEvent(event) && ControllerHandler.isGameControllerDevice(event.getDevice())) {
@@ -7246,7 +7361,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     return;
                 }
                 poorConnection = connectionStatus == MoonBridge.CONN_STATUS_POOR;
-                if (prefConfig.disableWarnings) {
+                // The lost-network notice stays until a network returns.
+                if (prefConfig.disableWarnings || streamNetworkLost) {
                     return;
                 }
 
@@ -7267,6 +7383,46 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (!isHidingOverlays) {
                     notificationOverlayView.setVisibility(requestedNotificationOverlayVisibility);
                 }
+            }
+        });
+    }
+
+    @Override
+    public void streamNetworkLost() {
+        runOnUiThread(() -> {
+            if (!connected || displayedFailureDialog || isFinishing() || isDestroyed()) return;
+            // A frozen picture is never silent: say what happened, even with warnings off.
+            // It promises a reconnect only when one will follow (the connection's timeout, or a
+            // return it cannot carry on over, recovers it).
+            streamNetworkLost = true;
+            notificationOverlayView.setText(getString(recoversAutomatically() &&
+                    prefConfig.networkGraceSeconds * 1000 <= NetworkReturnRecovery.PEER_TIMEOUT_MS ?
+                    R.string.stream_network_lost_reconnecting : R.string.stream_network_lost));
+            requestedNotificationOverlayVisibility = View.VISIBLE;
+            if (!isHidingOverlays) notificationOverlayView.setVisibility(View.VISIBLE);
+        });
+    }
+
+    @Override
+    public void streamNetworkReturned(final int change, final boolean metered) {
+        runOnUiThread(() -> {
+            // A return the connection carried on over (no route yet) is reported again once
+            // the engine's answer changes (the address arrived): only the first clears the notice.
+            if (streamNetworkLost) {
+                streamNetworkLost = false;
+                requestedNotificationOverlayVisibility = View.GONE;
+                if (!isHidingOverlays) notificationOverlayView.setVisibility(View.GONE);
+            }
+            // Roamed, or carrying on (the same address back, or no route yet): the stream goes on,
+            // and its own timeout decides if it cannot.
+            if (!connected || displayedFailureDialog || isFinishing() || isDestroyed() || prefConfig == null ||
+                    !NetworkReturnRecovery.reconnectsAtOnce(change == MoonBridge.NETWORK_CANNOT_CONTINUE, metered,
+                            prefConfig.roamingMetered, prefConfig.autoReconnect,
+                            prefConfig.networkGraceSeconds * 1000)) return;
+            // The connection cannot carry on over this network and would only time out first.
+            LimeLog.info("The network is back on another address the stream did not roam to: reconnecting now");
+            if (!tryAutomaticRecovery(false, true)) {
+                LimeLog.warning("The network is back, but no automatic reconnection is possible now");
             }
         });
     }
@@ -7683,17 +7839,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void refreshSurfaceFrameRateVote() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surfaceCreated && videoSurface != null &&
-                videoSurface.isValid() && !prefConfig.useTextureView && !useArr) {
+                videoSurface.isValid() && !prefConfig.useTextureView) {
             voteSurfaceFrameRate(videoSurface);
         }
     }
 
     private void voteSurfaceFrameRate(Surface surface) {
         if (useArr && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // A zero vote lets Android infer cadence from the presented buffers.
-            surface.setFrameRate(0, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
-                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
-            appSurfaceFrameRateVote = 0f;
+            // The stream rate, seamless only: ARR's steps are seamless, and a 0 vote would leave
+            // the game at Android's 60 Hz default for games (see arrVote). arrHalfRate watches for it.
+            int exactRate = decoderRenderer == null ? 0 : decoderRenderer.getStreamFrameRateMilliHz();
+            float vote = com.limelight.binding.video.DisplayFrameRatePolicy.arrVote(
+                    exactRate > 0 ? exactRate / 1000f : prefConfig.fps, panelMaxRefreshRate);
+            applySurfaceFrameRate(surface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+            arrHalfRate.reset();
+            LimeLog.info("VRR: ARR vote " + vote + " Hz (stream rate, seamless only)");
             logDisplayRefreshPolicy(getVideoDisplay());
             return;
         }
@@ -7760,7 +7920,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void stopRefreshSwitchPolling() {
         bitrateHandler.removeCallbacks(pollRefreshSwitch);
+        arrHalfRate.reset();
         messages.status("refresh", null);
+        messages.status("arr", null);
         messages.status("hdr", null);
     }
 
@@ -7770,6 +7932,32 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         String text = refreshSwitchMonitor.poll(SystemClock.uptimeMillis(), getVideoDisplay(),
                 surfaceCreated && !useArr ? appSurfaceFrameRateVote : null, appSurfaceSeamlessOnly);
         if (messages.status("refresh", text)) updatePerformanceOverlay();
+    }
+
+    // Under ARR the refresh switch check above cannot tell what the screen runs at, so watch what it
+    // shows: about half the rendered frames for 3 s, with the display at about half the stream rate,
+    // means Android holds the stream at half its rate.
+    private void checkArrRate() {
+        if (!useArr || decoderRenderer == null) return;
+        float[] rates = decoderRenderer.getFrameRates();
+        float rendered = PerformanceOverlay.renderedFps(rates);
+        float presented = PerformanceOverlay.presentedFps(rates);
+        Display display = getVideoDisplay();
+        float displayHz = display == null ? 0 : display.getRefreshRate();
+        int exactRate = decoderRenderer.getStreamFrameRateMilliHz();
+        float streamHz = exactRate > 0 ? exactRate / 1000f : prefConfig.fps;
+        boolean was = arrHalfRate.flagged();
+        boolean flagged = arrHalfRate.update(SystemClock.uptimeMillis(), rendered, presented, displayHz, streamHz);
+        if (flagged && !was) {
+            LimeLog.warning("VRR: ARR shows " + presented + " of " + rendered + " fps rendered for " +
+                    com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck.HOLD_MS / 1000 +
+                    " s, display at " + displayHz + " Hz: the screen is held at half the stream rate (vote " +
+                    appSurfaceFrameRateVote + " Hz)");
+        } else if (!flagged && was) {
+            LimeLog.info("VRR: ARR shows the rendered frames again (" + presented + " of " + rendered + " fps)");
+        }
+        String text = flagged ? getString(R.string.stream_vrr_arr_half_rate, Math.round(presented), Math.round(rendered)) : null;
+        if (messages.status("arr", text)) updatePerformanceOverlay();
     }
 
     // Render through Vulkan can't keep up on this display: say so once per PC and on the status line.
@@ -7903,6 +8091,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int contentMilliHz = decoderRenderer.getContentRateMilliHz();
         if (contentRateVote.withdraw(now, contentMilliHz)) {
             // The game no longer holds a rate: back to the vote the stream would make.
+            if (keepsVrrVote(baseSurfaceFrameRate())) return;
             applySurfaceFrameRate(videoSurface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
             LimeLog.info("Content frame rate vote withdrawn");
             logDisplayRefreshPolicy(getVideoDisplay());
@@ -7910,11 +8099,27 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         float contentHz = contentRateVote.next(now, contentMilliHz);
         if (contentHz <= 0) return;
-        float vote = com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
-                baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);
+        // With VRR (no ARR here) the base vote is the panel maximum. With a lower refresh rate allowed
+        // the vote is as without VRR. Otherwise it goes lower only when the game's rate would judder at
+        // the maximum, to a seamless multiple of it: even frame timing for a little more wait for the
+        // next refresh (about 1.4 ms on average for 90 Hz instead of 120, not measured).
+        float vote = prefConfig.vrr ?
+                com.limelight.binding.video.DisplayFrameRatePolicy.vrrContentVote(contentHz, panelMaxRefreshRate,
+                        mayReduceRefreshRate(),
+                        com.limelight.binding.video.DisplayFrameRatePolicy.seamlessRates(getVideoDisplay())) :
+                com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
+                        baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);
+        if (keepsVrrVote(vote)) return;
         applySurfaceFrameRate(videoSurface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
         LimeLog.info("Content frame rate vote: " + vote + " Hz (game at " + contentHz + " Hz)");
         logDisplayRefreshPolicy(getVideoDisplay());
+    }
+
+    // With VRR a content vote that equals the vote in force (the panel maximum the stream started
+    // with) is not made again: re-voting it seamless-only would change the reason the status line
+    // gives when the screen never reached that rate (a TV that needs Match content frame rate).
+    private boolean keepsVrrVote(float vote) {
+        return prefConfig.vrr && appSurfaceFrameRateVote != null && Math.abs(vote - appSurfaceFrameRateVote) < 0.01f;
     }
 
     @Override

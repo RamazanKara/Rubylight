@@ -889,31 +889,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         //
         // First, check if this is an internal device we're being called on.
         if (!isExternal(dev)) {
-            InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
-
-            boolean foundInternalGamepad = false;
-            boolean foundInternalSelect = false;
-            for (int id : im.getInputDeviceIds()) {
-                InputDevice currentDev = im.getInputDevice(id);
-
-                // Ignore external devices
-                if (currentDev == null || isExternal(currentDev)) {
-                    continue;
-                }
-
-                // Note that we are explicitly NOT excluding the current device we're examining here,
-                // since the other gamepad buttons may be on our current device and that's fine.
-                if (currentDev.hasKeys(KeyEvent.KEYCODE_BUTTON_SELECT)[0]) {
-                    foundInternalSelect = true;
-                }
-
-                // We don't check KEYCODE_BUTTON_A here, since the Shield Android TV has a
-                // virtual mouse device that claims to have KEYCODE_BUTTON_A. Instead, we rely
-                // on the SOURCE_GAMEPAD flag to be set on gamepad devices.
-                if (hasGamepadButtons(currentDev)) {
-                    foundInternalGamepad = true;
-                }
-            }
+            boolean[] internal = findInternalGamepadAndSelect();
+            boolean foundInternalGamepad = internal[0];
+            boolean foundInternalSelect = internal[1];
 
             // Allow the back button to function for navigation if we either:
             // a) have no internal gamepad (most phones)
@@ -927,6 +905,107 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // has no gamepad axes or gamepad buttons.
             return !hasJoystickAxes(dev) && !hasGamepadButtons(dev);
         }
+    }
+
+    /** Back sends Guide when the option is on, except the Back with modifiers some remote apps type for B. */
+    static boolean isBackAsGuide(boolean backAsGuide, int keyCode, int flags) {
+        return backAsGuide && keyCode == KeyEvent.KEYCODE_BACK && (flags & KeyEvent.FLAG_SOFT_KEYBOARD) == 0;
+    }
+
+    /**
+     * Back as Guide on a built-in gamepad, only where Back is a spare button: the pad has its own
+     * Select and does not use Back as Start. An external pad's Back, often its Select, stays Back.
+     */
+    static boolean isBuiltInPadBackAsGuide(boolean backAsGuide, int keyCode, int flags, boolean external,
+                                           boolean backIsStart, boolean hasSelectButton) {
+        return isBackAsGuide(backAsGuide, keyCode, flags) && !external && !backIsStart && hasSelectButton;
+    }
+
+    /**
+     * A Back from a handheld's system button that is not on its gamepad device: one its firmware
+     * injects (Android's virtual keyboard device) or a built-in key device such as gpio-keys.
+     * Never the navigation bar or gesture, a fallback key, a mouse's right click, an external or
+     * alphabetic keyboard, a gamepad (handleButtonDown/Up), or a device without a built-in gamepad
+     * with its own Select (that Back is Select, see shouldIgnoreBack).
+     */
+    public static boolean isHandheldSystemBack(int keyCode, int flags, int source, boolean virtualDevice,
+                                               boolean external, boolean alphabeticKeyboard, boolean gamepad,
+                                               boolean internalGamepadWithSelect) {
+        return keyCode == KeyEvent.KEYCODE_BACK && internalGamepadWithSelect &&
+                (flags & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK | KeyEvent.FLAG_SOFT_KEYBOARD)) == 0 &&
+                (source & InputDevice.SOURCE_CLASS_POINTER) == 0 &&
+                (virtualDevice || (!external && !alphabeticKeyboard && !gamepad));
+    }
+
+    /** Whether this device has a built-in gamepad and a built-in Select button, on any internal device. */
+    protected boolean[] findInternalGamepadAndSelect() {
+        InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
+
+        boolean foundInternalGamepad = false;
+        boolean foundInternalSelect = false;
+        for (int id : im.getInputDeviceIds()) {
+            InputDevice currentDev = im.getInputDevice(id);
+
+            // Ignore external devices
+            if (currentDev == null || isExternal(currentDev)) {
+                continue;
+            }
+
+            // Note that we are explicitly NOT excluding the device a Back came from here,
+            // since the other gamepad buttons may be on that device and that's fine.
+            if (currentDev.hasKeys(KeyEvent.KEYCODE_BUTTON_SELECT)[0]) {
+                foundInternalSelect = true;
+            }
+
+            // We don't check KEYCODE_BUTTON_A here, since the Shield Android TV has a
+            // virtual mouse device that claims to have KEYCODE_BUTTON_A. Instead, we rely
+            // on the SOURCE_GAMEPAD flag to be set on gamepad devices.
+            if (hasGamepadButtons(currentDev)) {
+                foundInternalGamepad = true;
+            }
+        }
+        return new boolean[] {foundInternalGamepad, foundInternalSelect};
+    }
+
+    /**
+     * A handheld whose system Back is a spare button: a built-in gamepad with its own Select
+     * (Retroid, GPD XD). Without one (Shield Portable), shouldIgnoreBack sends that Back as Select.
+     */
+    private boolean hasInternalGamepadWithSelect() {
+        boolean[] internal = findInternalGamepadAndSelect();
+        return internal[0] && internal[1];
+    }
+
+    /**
+     * Back as Guide for a handheld's system button (see isHandheldSystemBack): Guide goes out on
+     * controller 0, where built-in buttons always sit. Returns whether the event was such a Back.
+     */
+    public boolean handleHandheldBackAsGuide(KeyEvent event) {
+        if (!isBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags())) {
+            return false;
+        }
+        InputDevice dev = event.getDevice();
+        boolean virtualDevice = dev == null || dev.isVirtual();
+        if (!isHandheldSystemBack(event.getKeyCode(), event.getFlags(), event.getSource(), virtualDevice,
+                !virtualDevice && isExternal(dev),
+                !virtualDevice && dev.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
+                !virtualDevice && (hasGamepadButtons(dev) || hasJoystickAxes(dev)), hasInternalGamepadWithSelect())) {
+            return false;
+        }
+        if (stopped) {
+            return true;
+        }
+
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+        }
+        else if (event.getAction() == KeyEvent.ACTION_UP) {
+            // Firmware injects the press and release together; hold Guide long enough for games to see it
+            holdForMinimumPress(event);
+            defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
+        }
+        sendControllerInputPacket(defaultContext);
+        return true;
     }
 
     private InputDeviceContext createInputDeviceContextForDevice(InputDevice dev) {
@@ -1022,6 +1101,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         boolean[] buttons = dev.hasKeys(KeyEvent.KEYCODE_BUTTON_MODE, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BACK, 0);
         context.hasMode = buttons[0];
         context.hasSelect = buttons[1] || buttons[2];
+        context.hasSelectButton = buttons[1];
 
         context.touchpadXRange = dev.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_TOUCHPAD);
         context.touchpadYRange = dev.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_TOUCHPAD);
@@ -1650,6 +1730,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Return a valid keycode, -2 to consume, or -1 to not consume the event
     // Device MAY BE NULL
     private int handleRemapping(InputDeviceContext context, KeyEvent event) {
+        // Back as Guide also takes the Back that handhelds otherwise leave to Android
+        if (isBuiltInPadBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags(),
+                context.external, context.backIsStart, context.hasSelectButton)) {
+            return KeyEvent.KEYCODE_BUTTON_MODE;
+        }
+
         // Don't capture the back button if configured
         if (context.ignoreBack) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
@@ -2928,25 +3014,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return true;
         }
 
-        // If the button hasn't been down long enough, sleep for a bit before sending the up event
-        // This allows "instant" button presses (like OUYA's virtual menu button) to work. This
-        // path should not be triggered during normal usage.
-        long buttonDownTime = event.getEventTime() - event.getDownTime();
-        if (buttonDownTime < ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS)
-        {
-            // Since our sleep time is so short (<= 25 ms), it shouldn't cause a problem doing this
-            // in the UI thread.
-            try {
-                Thread.sleep(ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS - buttonDownTime);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-
-                // InterruptedException clears the thread's interrupt status. Since we can't
-                // handle that here, we will re-interrupt the thread to set the interrupt
-                // status back to true.
-                Thread.currentThread().interrupt();
-            }
-        }
+        holdForMinimumPress(event);
 
         switch (keyCode) {
         case KeyEvent.KEYCODE_BUTTON_MODE:
@@ -3159,6 +3227,28 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
 
         return true;
+    }
+
+    // If the button hasn't been down long enough, sleep for a bit before sending the up event
+    // This allows "instant" button presses (like OUYA's virtual menu button) to work. This
+    // path should not be triggered during normal usage.
+    private static void holdForMinimumPress(KeyEvent event) {
+        long buttonDownTime = event.getEventTime() - event.getDownTime();
+        if (buttonDownTime < ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS)
+        {
+            // Since our sleep time is so short (<= 25 ms), it shouldn't cause a problem doing this
+            // in the UI thread.
+            try {
+                Thread.sleep(ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS - buttonDownTime);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+
+                // InterruptedException clears the thread's interrupt status. Since we can't
+                // handle that here, we will re-interrupt the thread to set the interrupt
+                // status back to true.
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     public boolean handleButtonDown(KeyEvent event) {
@@ -3812,6 +3902,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         public int emulatingButtonFlags = 0;
         public boolean hasSelect;
+        // A BUTTON_SELECT of its own, so Back is not its Select
+        public boolean hasSelectButton;
         public boolean hasMode;
         public boolean hasPaddles;
         public boolean hasShare;

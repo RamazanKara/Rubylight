@@ -1,0 +1,2 @@
+## en
+- Android: "Add games to a launcher" now keeps the export in sync by itself. When a PC's games are added, renamed, removed or hidden, Nightjar updates that folder and its covers, and removes the entries and covers it wrote for games that are gone. Covers the app grid never loaded are fetched from the PC. The PC's settings show which launchers are kept in sync, with "Stop syncing" to end it, and a folder that can no longer be written stops syncing with a notice instead of failing quietly ([#37](https://github.com/RamazanKara/nightjar/issues/37)).

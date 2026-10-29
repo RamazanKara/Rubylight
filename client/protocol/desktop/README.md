@@ -118,7 +118,8 @@ Both are made from the finished archives, so they carry exactly their files (`pa
   (Flatpak) from `packaging/linux/aur` and `packaging/linux/flatpak` with the archive's version and SHA-256; those
   recipes are kept here and not published.
 - `packaging/make-icons.py` makes the icons (hicolor PNGs, `nightjar.ico`, the installer's side panel) from the
-  store icon.
+  store icon. `build.rs` embeds `nightjar.ico` in `nightjar.exe` (the Windows build needs `windres`, which MSYS2's
+  UCRT64 binutils bring).
 
 The release workflow pins nfpm, appimagetool, the AppImage runtime and Inno Setup by version and SHA-256, installs
 the .deb on its Ubuntu 24.04 runner, the .rpm in a clean Fedora container and the AppImage in another one with only
@@ -200,7 +201,22 @@ Why this combination:
     UI thread sleeps to the scheduled time with a 1 ms timer.
   - VRR without it: presented as soon as decoded.
   - No VRR: V-Sync (newest picture each refresh), or immediate.
-  The launch asks the host for VRR handling when pacing by host times.
+  The launch asks the host for VRR handling when pacing by host times. A VRR stream that
+  presents with tearing in fullscreen runs the beam race's display check (the scan line around
+  each present, `src/stream/race_probe.rs`; Windows only). A display that keeps its own refresh
+  turns the stream to the pacing it would have without VRR (V-Sync, or immediate with V-Sync off),
+  and the overlay's Pacing line says "V-Sync: this display does not refresh on present". To be
+  found fixed, the stream must run below about 70% of the display's rate (60 fps measured), the
+  calibration must show little blanking, and 60 presents must start no scan, or the restart check
+  must fail or starve. A faster stream leaves a VRR display no idle time either, so a fixed
+  display still tears there. Only presents to a fullscreen window that has kept the focus count:
+  going fullscreen, getting the focus back, or the stream slowing below 60% of the display's rate
+  after a check (starved or failed) at 70% or more measures the display again. `NIGHTJAR_VRR_CHECK=0` turns the check off.
+  `NIGHTJAR_VRR_SYNC=present1|scan` is a measurement switch for VRR presents: `present1` uses
+  sync interval 1, and `scan` waits out a scan under way (it reads the scan line with the check
+  off too). Neither made the default ([measured](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one)).
+  Exclusive fullscreen with VRR asks for the display's highest refresh rate at the stream's
+  resolution, not the stream's rate.
 - Audio: Opus multistream (libopus) into an SDL3 audio stream; the queue is capped at
   40 ms plus one packet (late packets are dropped rather than letting latency grow), and
   when it runs dry 10 ms of silence goes ahead of the next packet.
@@ -260,6 +276,12 @@ session clock, the host's stamps from the extended 0x5536 report and the 0x5537 
 the last nine columns. Rubylight's `rust/release/timing_report.py` joins it with the host's
 record (`BUTTERPOLLO_TIMING_RECORD`). It is off unless the variable is set, and a writer thread
 does the file work.
+
+`NIGHTJAR_PACKET_TRACE=<prefix>` keeps every video and audio datagram's receive time, the time
+the receive thread waited for it, its length and RTP sequence and timestamp (0 for encrypted
+video) in memory, and a writer thread writes `<prefix>-video.csv`, `<prefix>-audio.csv` and
+`<prefix>-canary.csv` (a 1 ms sleeper's late wakes) when the stream ends: it tells a network that hands packets over in bursts from a receive
+thread that woke late (`nightjar-core`'s `session/trace.rs`). Off unless the variable is set.
 
 ## What works
 

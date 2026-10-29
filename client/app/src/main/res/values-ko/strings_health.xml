@@ -18,4 +18,5 @@
     <string name="health_trial_replaced">시험 이후 호스트 비트레이트가 변경되었습니다. 해당 변경을 유지하기 위해 되돌리기를 취소했습니다.</string>
     <string name="health_bitrate_minimum">인코더가 이미 시험 최소 비트레이트입니다. 변경된 내용이 없습니다.</string>
     <string name="health_periodic">반복되는 끊김: 지난 20분 동안 네트워크 끊김 %2$d회가 약 %1$s마다 시작되었습니다. 이렇게 일정한 주기는 보통 이 기기나 PC의 백그라운드 Wi-Fi 검색 때문입니다. 줄이려면:\n• Android: 설정 → 위치 → 위치 서비스에서 Wi-Fi 검색과 블루투스 검색을 끄세요.\n• Android: 개발자 옵션 → Wi-Fi 검색 제한을 켜 둔 채로 두세요.\n• 스트리밍 중에는 네트워크나 주변 기기를 찾는 앱을 닫으세요.\n• PC: 유선으로 연결하거나 Wi-Fi 네트워크를 검색하는 도구를 중지하세요.\nNightjar는 스트리밍 중에 이미 Android의 저지연 Wi-Fi 잠금을 유지해 시스템에 검색을 미루도록 요청하지만, 일부 기기는 그래도 검색합니다.</string>
+    <string name="health_bursts">몰림 도착: 최근 %2$d초 중 %1$d초 동안 호스트는 제때 보냈지만 네트워크가 프레임을 붙잡았다가 여러 개를 한꺼번에 전달했으며, 유선 연결이나 덜 혼잡한 5 또는 6GHz Wi-Fi 채널이 도움이 됩니다.</string>
 </resources>

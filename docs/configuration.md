@@ -167,7 +167,7 @@ Conventional video batches contain at most about one millisecond of traffic at t
 
 Set `pacing_max_bitrate_kbps` to a positive value in **kbps** to override automatic burst control, including for PyroWave. For example, `120000` paces at 120 Mbps. Conventional video retains its floor of 110% of the stream bitrate and ceiling of 80% of a known Ethernet link. PyroWave treats the setting, the client's calibrated pace and 95% of either endpoint's reported link as hard ceilings: stream demand cannot raise them. The host warns if the wire budget exceeds the resulting rate. Reconnect after saving. [Measurements and pacing math](../rust/PERFORMANCE.md#october-14-conventional-video-pacing).
 
-PyroWave starts unmeasured and wireless paths at 1.25 times their estimated wire demand (at least 110% of the stream bitrate before that headroom), within the ceilings above. A wired host alone no longer selects line-rate bursts. A client reporting its wired link can retain fast wired pacing. The loss guard and opt-in adaptive packet pacing also apply to PyroWave; neither changes picture bitrate. Calibration and streaming use the same segmented sends, retry handling and batches of at most one millisecond of wire traffic, 64 packets and 65507 payload bytes. Error correction can adapt up to `pyrowave_critical_fec_percentage`; clients without reports keep that configured protection. Record-capable clients protect the coarse picture. Legacy clients use standard whole-frame parity within their four-block limit; large frames may receive less protection and show a warning. Their parity uses some of the existing picture budget; set PyroWave error correction to 0 to retain the unprotected format. Every encoded frame is limited to one nominal frame budget, including the first frame after a pause.
+PyroWave starts unmeasured and wireless paths at 1.25 times their estimated wire demand (at least 110% of the stream bitrate before that headroom), within the ceilings above. A wired host alone no longer selects line-rate bursts. A client reporting its wired link can retain fast wired pacing. Opt-in adaptive packet pacing also applies to PyroWave; the loss guard and Wi-Fi adaptive pacing do not. Loss that error correction cannot repair lowers PyroWave's bitrate as for every codec, but not below its severe-loss floor (see [Lower bitrate when the link cannot carry it](#lower-bitrate-when-the-link-cannot-carry-it)). The pace comes down with it only where it follows the stream's demand: a client pace hint, `pacing_max_bitrate_kbps` or a client's reported wired link keeps setting it. Calibration and streaming use the same segmented sends, retry handling and batches of at most one millisecond of wire traffic, 64 packets and 65507 payload bytes. Error correction can adapt up to `pyrowave_critical_fec_percentage`; clients without reports keep that configured protection. Record-capable clients protect the coarse picture. Legacy clients use standard whole-frame parity within their four-block limit; large frames may receive less protection and show a warning. Their parity uses some of the existing picture budget; set PyroWave error correction to 0 to retain the unprotected format. Every encoded frame is limited to one nominal frame budget, including the first frame after a pause.
 
 **Leave AMF's low-latency mode and AV1 latency mode on Driver default.** In the [October 12, 2026 Rubylight 2.2.9 property sweep](../rust/PERFORMANCE.md#retained-amf-property-sweeps-october-12), default ultra-low-latency usage already read back internal low latency for H.264/HEVC and AV1 latency mode 3 on the RX 7900 XT. Explicitly forcing the same settings produced similar timings across three runs, not exact equality or a demonstrated speedup. With Low latency or Transcoding usage, single auto/forced pairs changed the readbacks from off to on and showed mean reductions of 0.30-0.31 ms for HEVC and 1.01-1.37 ms for AV1. These are eight-second synthetic 1440p120/20 Mbps component tests, not full-stream latency measurements. The [October 7 audit](../rust/PERFORMANCE.md#october-7-amf-low-latency-mode-and-av1-latency-mode) documents earlier measurements and the RX 9000 HEVC-freeze concern; forcing these settings remains opt-in.
 
@@ -201,13 +201,14 @@ Frame-size limits are best-effort: encoded frames can exceed them. If the driver
 
 `link_rate_adaptation = true` (the default) lowers the encoder bitrate when the network cannot carry the stream, for example 150 Mbps requested on a 100 Mbps link. It acts only on loss that error correction cannot repair, so a link that carries the stream sees no change at all: no bitrate change, no pacing change, and no reaction to round-trip time alone.
 
-- **What counts.** Three unrecoverable frames within two seconds; at least 5% of the packets the host sent reported missing in two consecutive half-second windows (FEC repairs less than that, so 0.5% random loss on Wi-Fi never triggers it); three frames the host could not send whole; or three network-caused keyframe requests from a client that sends no FEC status. A keyframe request caused by the decoder or by the host itself does not count.
+- **What counts.** Three unrecoverable frames within two seconds; at least 5% of the packets the host sent reported missing in two consecutive half-second windows (FEC repairs less than that, so 0.5% random loss on Wi-Fi never triggers it); three frames the host could not send whole; or three network-caused keyframe requests from a client that sends no FEC status. A keyframe request caused by the decoder or by the host itself does not count. A client asks to invalidate frames again for every frame it cannot decode until the repair arrives; requests that continue the same frame range within half a second of the first count once. A client that announces FEC status (`x-ml-general.featureFlags` 0x01) is judged by its reports from the first frame, not by its requests; one that announces it but never sends a valid report gets no reaction to its requests either, except while a probe step is unconfirmed or after a pacing latch. Under those two, every repeated request counts.
 - **What it does.** One cut to 85% of the rate the link delivered, never below half the current rate for a first cut. Reports about frames sent before the cut took effect are ignored, so the queue left over from the old rate cannot trigger a second cut. A second cut within two seconds of the first is not held to half (it goes to 85% of the delivered rate, no lower than 1 Mbps of wire rate), so a drop from 80 to 10 Mbps takes two cuts; a stream only a little above its link needs one.
 - **Pacing follows.** Packet pacing follows the bitrate, so a cut also lowers the route pacing, and it rises again with each probe step. `keyframe_loss_pacing` is separate and slows pacing on its own evidence.
 - **Coming back.** After two seconds the host raises the bitrate in steps of 12.5% (5% close to the rate that failed), and each step is confirmed after two seconds without evidence. A step that fails goes back to the last good rate and the next try waits twice as long, up to eight seconds. When steps keep failing at the same rate (a link with a fixed limit), the wait under that rate doubles up to 30 seconds and probes stay under 90% of it, so a fixed link pays about one failed probe every 45 seconds instead of one every 9. Probes are sent, and steps confirmed, only while the picture moves. After ten seconds at the requested bitrate the stream is back to normal.
 - **What you see.** The first cut writes a WARN line to the host log (`the network to this device cannot carry the stream; lowering the video bitrate`, with the evidence and the old and new bitrate), later changes are INFO lines with `link_rate_change`, and the console's stream card shows "Bitrate limited by the network" with the current and requested bitrate while the stream is below the requested rate. The session API has a `link_rate` object (`state`, `ceiling_kbps`, `current_kbps`, `delivered_kbps`, `steps_down`, `probes`) and the five-second `stream timings` line carries the same as `link_*` fields. The `link_rate` object also has `bad_kbps` (the rate that last failed), `encoder_floor_kbps` and `last_change_ms_ago`. The warning gives the lowest bitrate of the episode ("as low as"), the card the current one. If even the lowest bitrate the host uses cannot be carried, the warning says so and tells you to check the network path.
 - **An encoder that will not go lower.** Some encoders stay above the bitrate they are asked for on some pictures (H.264 on AMD sends about 14 Mbps on noisy content at 1080p60 and about 5 Mbps on milder content). When the stream stays more than 20% above the new target in two rounds, the host takes what the encoder sends as its floor, stops cutting below it, says so in the warning and on the card, and probes upward from there instead of cutting down to 2 Mbps.
-- **When it is off.** `link_rate_adaptation = false`, `host_adaptive_bitrate = true` (which controls the bitrate itself), PyroWave streams, and a session in which the client has set the bitrate through `/bitrate`.
+- **PyroWave.** PyroWave streams have it too; through 3.0.0-rc.5 they did not, and a 200 Mbps PyroWave stream to a phone on 5 GHz Wi-Fi lost about a quarter of its packets for the whole stream without any reaction. Only a lost coarse block loses a PyroWave picture: detail blocks carry no parity while the picture moves, so a lost detail packet blurs part of one picture and counts only toward the loss share. Its keyframe requests count for nothing (every picture is intra), so it is judged by its FEC status alone. The cuts stop at PyroWave's severe-loss floor for the stream (the table above, 187 Mbps at 1080p60) instead of 2 Mbps, and when even that is too much the warning says to use HEVC or AV1 for the device. A stream at or below its floor (200 Mbps at 1080p120 is under the 373 Mbps floor) has nothing to cut: it keeps its bitrate and gets that warning once, saying this link loses PyroWave at that rate. A PyroWave client that sends no FEC status gets no reaction at all. The ceiling is the requested bitrate up to 2 Gbps (500 Mbps for the other codecs).
+- **When it is off.** `link_rate_adaptation = false`, `host_adaptive_bitrate = true` (which controls the bitrate itself), and a session in which the client has set the bitrate through `/bitrate` (Nightjar's Automatic bitrate does).
 
 ## Host bitrate adaptation
 
@@ -420,7 +421,7 @@ A Remote Monitor follows the layout while it streams: exclusive turns the other 
 
 Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_refresh_rate_option`). Virtual refresh follows the frame-limiting policy unless a manual or device display mode overrides it. To leave a **physical** monitor's resolution, refresh and HDR unchanged, select Disabled for `dd_configuration_option`.
 
-A device's **Display mode** (`display_mode`, `WIDTHxHEIGHTxREFRESH`) sets its virtual display's resolution and refresh while the stream keeps the size and frame rate the client asks for, so a game can render at 1440p on a 4K stream. To pick just the resolution from Windows instead, leave the display mode empty and turn on **Devices → (device) → Remember the resolution I pick** (`remember_display_mode`): change the stream's virtual display resolution in Windows display settings during a stream, and when the device's last stream disconnects Rubylight keeps it (`remembered_resolution`), puts it back if the stream resumes, and creates the display at it from the next stream ([#36](https://github.com/RamazanKara/Rubylight/issues/36)). The Windows display scale you set on that display during the stream is kept the same way (`remembered_scale`, in percent, for example 200) and applied after the display is at its mode, so a 1440p display comes back at 200% too. A **Virtual display scale** set in the host settings (`dd_virtual_display_scale`, a percentage or Recommended) wins: then the configured scale is applied and no scale is kept. A scale Windows refuses is logged as a warning and the stream goes on at the scale Windows shows, and only a scale Windows actually shows is kept. What is kept is the scale the display shows at the end, and Windows derives it from the recommended scale for the resolution, so a resolution change on its own (a game going exclusive fullscreen, say) can also be kept as a changed scale. The scale is put back when a paused stream resumes, so a change made at the PC while it was paused is not kept. The refresh is not kept: the stream's rate always wins, so the refresh follows the stream and **Virtual display refresh** as usual, including VRR's 1000 Hz, and a refresh Windows refuses falls back at the kept resolution. It applies to a device's own virtual display, not a shared one. Nothing is kept from a stream whose resolution Windows did not take, since the display then shows Windows' choice rather than yours. Turning the option off forgets the kept resolution and scale.
+A device's **Display mode** (`display_mode`, `WIDTHxHEIGHTxREFRESH`) sets its virtual display's resolution and refresh while the stream keeps the size and frame rate the client asks for, so a game can render at 1440p on a 4K stream. To pick just the resolution from Windows instead, leave the display mode empty and turn on **Devices → (device) → Remember the resolution I pick** (`remember_display_mode`): change the stream's virtual display resolution in Windows display settings during a stream, and when the device's last stream disconnects Rubylight keeps it (`remembered_resolution`), puts it back if the stream resumes, and creates the display at it from the next stream ([#36](https://github.com/RamazanKara/Rubylight/issues/36)). The Windows display scale you set on that display during the stream is kept the same way (`remembered_scale`, in percent, for example 200) and applied after the display is at its mode, so a 1440p display comes back at 200% too. A **Virtual display scale** set in the host settings (`dd_virtual_display_scale`, a percentage or Recommended) wins over a kept scale, and a scale the device asks for at launch (`rlDisplayScale`, Nightjar's **PC display scaling**) wins over both: then that scale is applied and no scale is kept. A scale the device asks for at launch that is too large for the display's resolution is lowered to the largest Windows offers there, with a warning, and one Windows refuses is a warning too: the stream goes on at the scale Windows shows. The device's **Display scale** set in the console is applied as set. A scale Windows refuses is logged as a warning and the stream goes on at the scale Windows shows, and only a scale Windows actually shows is kept. What is kept is the scale the display shows at the end, and Windows derives it from the recommended scale for the resolution, so a resolution change on its own (a game going exclusive fullscreen, say) can also be kept as a changed scale. The scale is put back when a paused stream resumes, so a change made at the PC while it was paused is not kept. The refresh is not kept: the stream's rate always wins, so the refresh follows the stream and **Virtual display refresh** as usual, including VRR's 1000 Hz, and a refresh Windows refuses falls back at the kept resolution. It applies to a device's own virtual display, not a shared one. Nothing is kept from a stream whose resolution Windows did not take, since the display then shows Windows' choice rather than yours. Turning the option off forgets the kept resolution and scale.
 
 **Rotate the display** (`dd_rotation_option`, default `disabled`) gives the streamed display the device's portrait or landscape shape. Set it in Settings → Display or for one device under **Devices → (device) → Display overrides**. **Match the device** (`auto`) makes a device's own virtual display in the stream's shape, so a phone streaming in portrait gets a portrait display; a virtual display is never turned, since a turned one would reach the encoder sideways. A monitor gets the stream's mode in the shape it shows, then turns to the stream's shape. When the device turns during the stream and asks for the turned size (Nightjar's Orientation → Rotate), the virtual display changes shape or the monitor turns, off the stream loop; a display that cannot follow logs a warning and the stream's picture is scaled to the new size. **Choose below** (`manual`) turns the display to **Rotation** (`dd_manual_rotation`: `0`, `90`, `180` or `270` degrees clockwise); a virtual display is made in the turned shape instead. A monitor is turned back when the stream ends, and after a crash when the host next starts. A monitor another stream is using keeps its rotation. A turned monitor needs Windows Graphics Capture: Desktop Duplication refuses it with an error. A device's own **Display scale** (`dd_virtual_display_scale` in its overrides) also scales a monitor and is put back the same way; the host-wide Virtual display scale sets only virtual displays.
 
@@ -571,7 +572,7 @@ Input-only sessions and the read-back encode path (`wgc_direct_encoder_input = f
 
 The console shows the selector under **Streaming** and, below it, which covered settings have a value of their own ("Custom"), including one equal to the preset's. Settings the preset covers show its values as their defaults, and Reset returns to them. A name the host does not know still loads, and the host uses Balanced; the console shows the stored name with an error instead of showing Balanced.
 
-A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (app, then device, then host), and it fills only the three settings that none of the three layers set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has a **Stream preset** control for the device's own name; the app editor sets it through the app's overrides.
+A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (an app's settings for the device, then app, then device, then host; see [one game on one device](#one-game-on-one-device)), and it fills only the three settings that no layer set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has a **Stream preset** control for the device's own name; the app editor sets it through the app's overrides, and for one device in its **Per device** panel.
 
 ## Radeon settings per game
 
@@ -586,13 +587,101 @@ An app can ask for Radeon driver settings while it runs. In **Games & apps**, th
 
 The table is `rust/core/src/radeon_profiles.json`. The app stores the choice as two top-level keys of the app, `radeon-profile` and, for Custom only, `radeon-settings` (an object of setting ids and values, such as `{ "anti_lag.enabled": true }`). The host refuses to save an unknown profile, `radeon-settings` with any profile but Custom (or Custom with none), an id that is not lower-case words joined by dots, a value that is not a boolean, a whole number or a short text, or more than 24 custom settings. At launch the host applies the settings through the Radeon control path of the Session API (validated, journaled, read back, undone on failure), and restores them with the other Radeon changes when the session ends or the host restarts after a crash. The app's config is the administrator's consent, so the device needs no Host control for its game's profile; the device's own Radeon writes (the Session API's panel) still do. The settings are written on a thread of their own, so a launch never waits for the driver, and a game launched from another device first has the earlier device's settings put back, so the new profile's originals are the PC's own. Starting another game on the same device puts back only the settings the earlier profile wrote, not what the device changed itself; Disconnect keeps the profile, and it goes with the session's end (or a launch that never connects). A setting the GPU does not list is refused before anything is written, a profile that follows the stream's frame rate is refused when the launch states none, and both are reported in the session's `radeon_profile.message` and in the host log; the game still starts.
 
+## Managed game files
+
+Some games and mods keep a frame limit or similar setting in an `.ini` file of their own: OptiScaler's `FramerateLimit`, for example. An app can have the host set such keys for a stream and put them back when the session ends. In **Games & apps**, the app editor's **Managed game files** panel lists them as rows of file, section, key and value. A device can have its own rows in the **Per device** panel ([one game on one device](#one-game-on-one-device)).
+
+The app stores them in `game-files`, a list of up to 32 entries:
+
+```json
+"game-files": [
+  { "path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": "{stream_fps-1}" }
+]
+```
+
+**What the fields hold**
+
+- **`path`.** An existing `.ini` file. A relative path starts in the app's working directory, else in its program's folder.
+- **`section`.** The name between `[` and `]`. Leave it empty for keys before the first section.
+- **`value`.** Fixed text or a number, or `{stream_fps}`. `{stream_fps}` is the stream's frame rate rounded to a whole number, as for RTSS. It takes an optional whole offset, so `{stream_fps-1}` writes 119 for a 120 fps stream.
+
+**What the host changes**
+
+Only the listed keys change. Every other byte of the file stays as it was, including line endings, a byte order mark, comments and key order. Files in UTF-8 or UTF-16 with a byte order mark are read. Section and key names are matched without regard to case, and the first match counts.
+
+If the file, the section or the key is missing, the host logs a warning and the game still starts. The host never adds a key.
+
+When a frame-limit key (a name with `fps`, `framerate` or `limit`) gets a value other than the host's RTSS frame limit, the host logs a warning: two limiters at different rates cap the game at the lower one.
+
+**When**
+
+The keys are written for a stream from a device, just before the game starts. A launch from the console writes none. The original values go back:
+
+- when the session ends: End session, Close game, or the disconnect grace period running out;
+- when the device is unpaired or disabled;
+- when the host shuts down;
+- at the next start after a crash.
+
+Disconnect keeps them for the suspended session.
+
+**How the restore works**
+
+Before the file is written, the original value of each key and the value written are recorded in `game-files-journal.json` in the config folder. A restore puts the original back only while the key still holds the host's value. A value you changed in the meantime (in the game's own menu, for example) is yours and stays. Restores run on a thread of their own, so a slow file never holds up a session. A restore that fails stays in the journal and is retried: within 5 seconds of a sign-in when nobody is signed in to Windows, otherwise after 30 seconds and then less often, and again at the next start. A game folder deleted since takes its entries with it. When another device's stream changed the same key and its restore is still pending, that restore runs before the new stream writes.
+
+**Which files the host writes**
+
+The host runs as SYSTEM, but it reads and writes game files as the signed-in Windows user, so a link put in a game's folder cannot lead it to a file the user could not change. With nobody signed in, nothing is written, and restores wait. A file the user may not change (often the case under `Program Files`) is skipped with a warning. It writes only:
+
+- an existing `.ini` file of at most 1 MiB;
+- inside the app's working directory, its program's folder or its Steam install folder, after every link and junction is resolved.
+
+It refuses:
+
+- `..` in a path;
+- network and device paths;
+- a link or junction that leads outside these folders;
+- a drive's root or the Windows folder as an app's folder.
+
+The host checks the files when the app is saved and again at every launch. While it reads and writes a file, it holds the folders from the app's folder down to the file open, so none can be swapped for a link meanwhile. A file is written to a temporary file beside it and swapped in, so the game never reads a half-written file, and the file keeps its permissions and attributes. A read-only file is not changed.
+
 ## Settings for one app or device
 
 Edit an app in **Games & apps** or a paired device in **Devices** to set its display, HDR and other overrides. Leave an override unset to inherit the host configuration.
 
-For general configuration overrides, Rubylight applies **host settings → device overrides → app overrides**. Only supported stream, input, display and encoder keys are accepted; host-wide network, identity and path settings cannot be overridden per stream.
+For general configuration overrides, Rubylight applies **host settings → device overrides → app overrides → the app's overrides for that device**. Only supported stream, input, display and encoder keys are accepted; host-wide network, identity and path settings cannot be overridden per stream.
 
 Display selection has dedicated rules: a device's explicit virtual-display mode takes priority over the app's mode, and its **display mode** (`WIDTHxHEIGHTxREFRESH`) overrides the host's resolution/refresh policy. This does not change the frame rate requested for the encoded stream.
+
+### One game on one device
+
+An app can have settings of its own for one paired device, such as a 60 fps frame limit on the TV and 120 on a handheld. In **Games & apps**, the app editor's **Per device** panel adds a paired device and sets its **Stream preset**, **Frame limit** (`frame_limiter_fps_limit`, 0 for the stream's frame rate), **Radeon preset** and [managed game files](#managed-game-files). "Same as the game" leaves the app's own setting in place.
+
+The app stores them in `device-overrides`, an object keyed by the device's id (its uuid in `GET /api/clients/list`). Each block holds the app's own keys for that device: `config-overrides`, `radeon-profile` with `radeon-settings`, and `game-files`.
+
+```json
+"device-overrides": {
+  "0123abcd-...": {
+    "config-overrides": { "stream_preset": "reference", "frame_limiter_fps_limit": 60 },
+    "radeon-profile": "smoothness",
+    "game-files": [ { "path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": 60 } ]
+  }
+}
+```
+
+The block wins everywhere the host resolves a stream's settings: **the app's block for the device → app → device → host**.
+
+- **General settings.** A key of the block's `config-overrides` replaces the app's; an empty value leaves the app's.
+- **Radeon profile.** A `radeon-profile` in the block, `""` for Off, replaces the app's profile together with its settings.
+- **Game files.** An entry replaces the app's entry for the same file, section and key; the block's other entries are added.
+
+The host checks a block when the app is saved, as it checks the app. It refuses:
+
+- a key a block cannot hold;
+- a host-wide setting, such as a port or a path;
+- an unknown preset or Radeon profile;
+- a game file entry the host would not write.
+
+A block for a device that is not paired, or no longer paired, is kept and ignored. The console shows it as such, and it applies again if a device with that id pairs.
 
 ### Display choice from the client
 
@@ -891,7 +980,7 @@ Every setting in the console, by the console's own groups, with its key and the 
 
 | Setting | Key | Default | What it does |
 | --- | --- | --- | --- |
-| Streamed display: Display | `output_name` | empty | The monitor to stream when no virtual display is used. Empty streams the primary display; a device or app can choose its own. |
+| Streamed display: Display | `output_name` | empty | The monitor to stream when no virtual display is used. Empty streams the primary display; a device or app can choose its own. For testing (advanced, config file only): `window:<hwnd>/<pid>@<display>` streams that one window with WGC (the release harness's demo stream); `<pid>` is the process that owns the window and `<display>` the display the window is on (such as `\\.\DISPLAY1`). A malformed target, a closed or minimised window, a handle another process now owns, or a window on another display fails the stream with the reason, never falling back to a display. |
 | **Streamed display: Virtual display** | `virtual_display_mode` | empty (Default (by Windows version)) | Whether streams use a virtual display sized for the device instead of a monitor. A device’s or app’s own choice wins. |
 | **Streamed display: Virtual display layout** | `virtual_display_layout` | `exclusive` (Exclusive) | How the virtual display fits with your other monitors while streaming. Exclusive turns the other monitors off. |
 | Streamed display: Virtual display scale | `dd_virtual_display_scale` | `0` (Keep) | The Windows scale set on a virtual display. Recommended picks one from the resolution, such as 125% at 1080p; Keep leaves the scale Windows remembers for that display. |

@@ -89,6 +89,8 @@ pub struct Offered {
     pub cursor_shape: bool,
     /// `PipelineRatesVersion` and pipeline rate requests (0x553D).
     pub pipeline_rates: bool,
+    /// `DisplayScaleVersion` and the `rlDisplayScale` launch option.
+    pub display_scale: bool,
     /// Rate changes (0x553C), in the DESCRIBE of a stream whose client launched with
     /// `rlRateChange=1`; no serverinfo element.
     pub rate_change: bool,
@@ -111,6 +113,7 @@ impl Offered {
         pen_barrel_roll: false,
         cursor_shape: false,
         pipeline_rates: false,
+        display_scale: false,
         rate_change: false,
         clipboard_sync: false,
     };
@@ -153,6 +156,10 @@ impl Offered {
             (self.pen_barrel_roll, pen::SERVERINFO_FIELD),
             (self.cursor_shape, cursor_shape::SERVERINFO_FIELD),
             (self.pipeline_rates, pipeline_rates::SERVERINFO_FIELD),
+            (
+                self.display_scale,
+                crate::display_policy::DISPLAY_SCALE_SERVERINFO_FIELD,
+            ),
         ] {
             if offered {
                 fields.push((field, version()));
@@ -316,6 +323,7 @@ mod tests {
         pen_barrel_roll: true,
         cursor_shape: true,
         pipeline_rates: true,
+        display_scale: true,
         rate_change: true,
         clipboard_sync: true,
     };
@@ -352,6 +360,7 @@ mod tests {
                 ("PenBarrelRollVersion", "1"),
                 ("CursorShapeVersion", "1"),
                 ("PipelineRatesVersion", "1"),
+                ("DisplayScaleVersion", "1"),
             ]
         );
         assert_eq!(

@@ -251,20 +251,37 @@ impl LinkWatch {
 
     /// `None`: no route toward the host. Returns whether the new network is metered when the
     /// network changed since the last look.
+    #[cfg(test)]
     pub fn observe(&mut self, link: Option<Link>) -> Option<bool> {
+        match self.event(link)? {
+            LinkEvent::Changed { metered, .. } => Some(metered),
+            LinkEvent::Lost => None,
+        }
+    }
+
+    /// The same look as an event: the route going away once, or a change (after a loss or not).
+    pub fn event(&mut self, link: Option<Link>) -> Option<LinkEvent> {
         let Some(link) = link else {
-            self.lost = true;
-            return None;
+            return (!std::mem::replace(&mut self.lost, true)).then_some(LinkEvent::Lost);
         };
         if !self.lost && link.same_network(&self.current) {
             self.current.metered = link.metered;
             return None;
         }
-        self.lost = false;
+        let after_loss = std::mem::take(&mut self.lost);
         let metered = link.metered;
         self.current = link;
-        Some(metered)
+        Some(LinkEvent::Changed { metered, after_loss })
     }
+}
+
+/// What the network watcher saw toward the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkEvent {
+    /// The route toward the host went away: the stream cannot reach the PC.
+    Lost,
+    /// A different network, or one back after the route was gone (`after_loss`).
+    Changed { metered: bool, after_loss: bool },
 }
 
 /// The local address the system routes traffic for `remote` from. Connecting a UDP socket
@@ -287,9 +304,9 @@ fn link(remote: SocketAddr) -> Result<Option<Link>, String> {
 /// How often the watcher looks, as often as the engine's own route poll.
 const LOOK_EVERY: Duration = Duration::from_secs(1);
 
-/// Client roaming's network watcher: looks at the link toward the host once a second on its own
-/// thread, off the frame path, and hands each change to `on_change` with whether the new network
-/// is metered. It stops when dropped, or when `on_change` returns false.
+/// The stream's network watcher: looks at the link toward the host once a second on its own
+/// thread, off the frame path, and hands each event to `on_change` (a change says whether the new
+/// network is metered). It stops when dropped, or when `on_change` returns false.
 pub struct RoamWatch {
     _stop: Sender<()>,
 }
@@ -297,7 +314,7 @@ pub struct RoamWatch {
 impl RoamWatch {
     /// Errs with why when the network cannot be read now, so the caller does not wait for hints
     /// that never come.
-    pub fn start(remote: SocketAddr, on_change: impl Fn(bool) -> bool + Send + 'static) -> Result<RoamWatch, String> {
+    pub fn start(remote: SocketAddr, on_change: impl Fn(LinkEvent) -> bool + Send + 'static) -> Result<RoamWatch, String> {
         let start = link(remote)?.ok_or("no route toward the PC")?;
         Self::spawn(start, move || link(remote), on_change)
     }
@@ -306,7 +323,7 @@ impl RoamWatch {
     fn spawn(
         start: Link,
         mut look: impl FnMut() -> Result<Option<Link>, String> + Send + 'static,
-        on_change: impl Fn(bool) -> bool + Send + 'static,
+        on_change: impl Fn(LinkEvent) -> bool + Send + 'static,
     ) -> Result<RoamWatch, String> {
         let (stop, stopped) = channel::<()>();
         std::thread::Builder::new()
@@ -326,8 +343,8 @@ impl RoamWatch {
                         }
                     };
                     unreadable = false;
-                    if let Some(metered) = watch.observe(look) {
-                        if !on_change(metered) { return; }
+                    if let Some(event) = watch.event(look) {
+                        if !on_change(event) { return; }
                     }
                 }
             })
@@ -570,6 +587,20 @@ mod tests {
         assert_eq!(watch.observe(None), None);
         assert_eq!(watch.observe(Some(home.clone())), Some(false));
         assert_eq!(watch.observe(Some(home)), None);
+    }
+
+    // A Wi-Fi blip: the route goes (said once), comes back on the same network (a return the
+    // stream may not roam onto), then a new network without a loss first is no return.
+    #[test]
+    fn a_lost_route_is_said_once_and_its_return_is_marked() {
+        let home = link([192, 168, 1, 20], Some("home"), false);
+        let mut watch = LinkWatch::new(home.clone());
+        assert_eq!(watch.event(None), Some(LinkEvent::Lost));
+        assert_eq!(watch.event(None), None);
+        assert_eq!(watch.event(Some(home.clone())), Some(LinkEvent::Changed { metered: false, after_loss: true }));
+        assert_eq!(watch.event(Some(home)), None);
+        let hotspot = link([172, 20, 10, 2], Some("phone"), true);
+        assert_eq!(watch.event(Some(hotspot)), Some(LinkEvent::Changed { metered: true, after_loss: false }));
     }
 
     #[test]

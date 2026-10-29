@@ -62,8 +62,9 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             h.unpair_with_network_history(Some(text("uuid")))?;
             h.webrtc.clients_changed();
             // The device is gone; its session may linger for the grace period, its Radeon
-            // settings do not.
+            // settings and game file keys do not.
             h.radeon.release_device(text("uuid"));
+            h.game_files.release_device(&h.directory, text("uuid"));
             json!({"status":true})
         }
         ("POST", "/api/clients/unpair-all") => {
@@ -73,6 +74,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             h.unpair_with_network_history(None)?;
             h.webrtc.clients_changed();
             h.radeon.release_all();
+            h.game_files.release_all(&h.directory);
             json!({"status":true})
         }
         ("POST", "/api/clients/disconnect") => {
@@ -198,10 +200,11 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 drop(canceled);
                 crate::remote_display::disconnect(h, Some(text("uuid")));
             }
-            // Turning a device off ends its claim on the host's Radeon settings. Removing a
-            // permission does not: pending changes go back with the session.
+            // Turning a device off ends its claim on the host's Radeon settings and game file
+            // keys. Removing a permission does not: pending changes go back with the session.
             if data.get("enabled").and_then(Value::as_bool) == Some(false) {
                 h.radeon.release_device(text("uuid"));
+                h.game_files.release_device(&h.directory, text("uuid"));
             }
             json!({"status":true,"disconnected":revoked})
         }

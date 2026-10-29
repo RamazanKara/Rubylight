@@ -1,7 +1,8 @@
 //! Where the display's beam is (B10 step 4, docs/beam-racing.md): `D3DKMTGetScanLine` for the
 //! monitor the window is on, a calibration of the scan from samples taken at the start of a
 //! stream, and the checks that say whether racing the beam can work here at all. Nothing runs
-//! unless `beam_race` is on.
+//! unless `beam_race` is on or a VRR stream presents with tearing, where the same checks tell a
+//! fixed refresh display, which gets the pacing it would have without VRR (`Streaming::sync_vrr`).
 //!
 //! The windows calls are in `Scanline`; the calibration, the scan-restart check and the reason
 //! mapping take plain samples so they are tested on synthetic ones.
@@ -64,6 +65,14 @@ impl Beam {
         if sample.vblank { return None; }
         let row = sample.line.saturating_sub(self.blank_rows);
         (row < self.rows).then_some(row)
+    }
+
+    /// How long the beam of a reading takes to leave the picture's last row (ns), at most one scan:
+    /// what a present waits for to show its picture whole (`VrrSync::Scan`). None in the blanking,
+    /// where a flip comes before the first row.
+    pub fn scan_left_ns(&self, sample: &Sample) -> Option<u64> {
+        let row = self.row_of(sample)?;
+        Some((((f64::from(self.rows - row)) * 1e6 / self.lines_per_ms) as u64).min(self.scan_ns))
     }
 
     /// How long after a scan began the beam reaches picture row `row` (ns).
@@ -267,6 +276,15 @@ pub const CHECK_TESTED: u32 = 30;
 /// have to miss before the check fails; a present that does not restart the scan misses most of them.
 pub const CHECK_MISSES: u32 = 9;
 pub const CHECK_FRAMES: u32 = 300;
+/// Presents after a calibration that looks like a fixed refresh, none of them starting a scan,
+/// that tell a fixed refresh without the rest of the check: a second at 60 fps. The VRR panel
+/// tested 30 of its first 84 presents, so one that idles starts a scan well within them.
+pub const FIXED_FRAMES: u32 = 60;
+
+/// Whether the stream presents about as often as the display scans (70% of its top rate or more),
+/// so a VRR display never idles between its scans either: its presents tell a fixed refresh
+/// from a variable one no better than a still screen does.
+pub fn busy(content_hz: f64, display_hz: f64) -> bool { content_hz >= display_hz * 0.7 }
 
 /// The restart check over the first presents of a stream.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -329,6 +347,9 @@ pub struct Evidence {
     /// variable one.
     pub content_hz: f64,
     pub display_hz: f64,
+    /// The highest rate the stream presented at while the check took its presents, 0 before it
+    /// took any: a check is judged at the rate it ran at, not at a later one.
+    pub check_hz: f64,
 }
 
 /// The first thing that rules racing out, as the word the overlay shows after "off".
@@ -381,6 +402,9 @@ impl Verdict {
         }
     }
 
+    /// The display scans at its own rate whatever is presented ("no VRR"): a tearing present tears.
+    pub fn fixed_refresh(&self) -> bool { matches!(self, Self::Off(Reason::NoVrr, _)) }
+
     /// The timing CSV's `race_reason`: "on" or the reason, empty while it is not known.
     pub fn code(&self) -> &'static str {
         match self {
@@ -407,17 +431,27 @@ pub fn decide(e: &Evidence) -> Verdict {
         // A window that does not cover its display is not raced; the scan is not checked for it.
         return Verdict::Off(Reason::Windowed, capability);
     }
+    // A fixed refresh scans all the time whatever is presented: the blanking is a small share of
+    // the readings although the stream runs well below the display's top rate (1% on a 120 Hz
+    // laptop panel at 60 fps, 65-76% on a 240 Hz VRR panel). One calibration in eight on the VRR
+    // panel read 12%, taken while it still scanned at its top rate, so the share alone decides
+    // nothing: with `FIXED_FRAMES` presents after it and none of them starting a scan, the check
+    // is not waited for.
+    let check_hz = if e.check_hz > 0.0 { e.check_hz } else { e.content_hz };
+    let fixed = check_hz > 0.0 && e.display_hz > 0.0 && !busy(check_hz, e.display_hz) && beam.vblank_fraction < 0.3;
+    if fixed && e.check.running() && e.check.frames >= FIXED_FRAMES && e.check.tested == e.check.missed {
+        return Verdict::Off(Reason::NoVrr, capability);
+    }
     if e.check.failed() {
-        // A fixed refresh scans all the time whatever is presented: the blanking is a small share
-        // of the readings although the stream runs well below the display's top rate.
-        let fixed = e.content_hz > 0.0 && e.display_hz > 0.0 && e.content_hz < e.display_hz * 0.7 && beam.vblank_fraction < 0.3;
         capability.vrr = !fixed;
         return Verdict::Off(if fixed { Reason::NoVrr } else { Reason::NoRestart }, capability);
     }
     if e.check.starved() {
         // Enough presents went by without the display ever idling after a scan. At a rate near
         // the display's own that is the stream's doing; below it, the display scans all the time.
-        let busy = e.content_hz >= e.display_hz * 0.7;
+        // The rate is the one it starved at: a check that starved at a busy rate is measured again
+        // when the stream slows well below it (the probe's `apply_surroundings`).
+        let busy = busy(check_hz, e.display_hz);
         return Verdict::Off(if busy { Reason::NoIdle } else { Reason::NoVrr }, capability);
     }
     capability.vrr = true;
@@ -648,6 +682,18 @@ mod tests {
         assert_eq!(beam.row_of(&Sample { at_ns: 0, line: 5000, vblank: false }), None, "past the last row");
     }
 
+    #[test]
+    fn a_present_mid_scan_waits_for_the_beam_to_leave_the_last_row() {
+        let beam = measured();
+        // 400 lines per ms: row 700 has 740 rows to go, 1.85 ms.
+        assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 900, vblank: false }), Some(1_850_000));
+        assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 200, vblank: false }), Some(3_600_000), "the first row: the whole picture to go");
+        assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 100, vblank: true }), None, "in the blanking a flip comes before the first row");
+        assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 5000, vblank: false }), None, "past the last row");
+        let short = Beam { scan_ns: 2_000_000, ..beam };
+        assert_eq!(short.scan_left_ns(&Sample { at_ns: 0, line: 200, vblank: false }), Some(2_000_000), "never more than a scan");
+    }
+
     fn at(ns: u64, line: u32, vblank: bool) -> Sample { Sample { at_ns: ns, line, vblank } }
 
     #[test]
@@ -718,7 +764,7 @@ mod tests {
     fn evidence() -> Evidence {
         let mut check = RestartCheck::default();
         for _ in 0..CHECK_TESTED { check.push(Restart::Began); }
-        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0 }
+        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0, check_hz: 0.0 }
     }
 
     fn missed() -> RestartCheck {
@@ -858,6 +904,53 @@ mod tests {
         assert_eq!(line(240.0), "off (no idle at this frame rate)");
         assert_eq!(line(200.0), "off (no idle at this frame rate)");
         assert_eq!(line(60.0), "off (no VRR)", "a display that scans all the time under a slow stream");
+    }
+
+    #[test]
+    fn a_check_is_judged_at_the_rate_it_ran_at_not_a_later_one() {
+        let mut starved = RestartCheck::default();
+        for _ in 0..CHECK_FRAMES { starved.push(Restart::NotTested); }
+        // Starved and failed at 200 fps on a 240 Hz VRR panel calibrated near its top rate; the
+        // stream has slowed to 60 since.
+        let later = Evidence { beam: Some(Ok(beam(0.12))), content_hz: 60.0, check_hz: 200.0, ..evidence() };
+        assert_eq!(decide(&Evidence { check: starved, ..later }).line(), "off (no idle at this frame rate)");
+        assert_eq!(decide(&Evidence { check: missed(), ..later }).line(), "off (no VRR scan restart)");
+        // Run at 60 fps, they say what they did.
+        let slow = Evidence { check_hz: 60.0, content_hz: 200.0, ..later };
+        assert_eq!(decide(&Evidence { check: starved, ..slow }).line(), "off (no VRR)");
+        assert_eq!(decide(&Evidence { check: missed(), ..slow }).line(), "off (no VRR)");
+    }
+
+    #[test]
+    fn a_fixed_refresh_is_told_a_second_after_its_calibration_without_waiting_for_the_check() {
+        let presents = |results: &[Restart]| {
+            let mut check = RestartCheck::default();
+            for &result in results { check.push(result); }
+            check
+        };
+        let quiet = |n: u32| presents(&vec![Restart::NotTested; n as usize]);
+        // The laptop's 120 Hz panel under a 60 fps stream: 1% of the readings in the blanking, and
+        // a second of presents none of which started a scan.
+        let laptop = Evidence { check: quiet(FIXED_FRAMES), beam: Some(Ok(beam(0.01))), content_hz: 60.0, display_hz: 119.5, ..evidence() };
+        assert_eq!(decide(&laptop).line(), "off (no VRR)");
+        let mut missing = vec![Restart::NotTested; FIXED_FRAMES as usize];
+        missing[10] = Restart::Missed;
+        assert_eq!(decide(&Evidence { check: presents(&missing), ..laptop }).line(), "off (no VRR)", "a present in the blanking that did not restart it");
+        // Not yet: the calibration alone decides nothing.
+        assert_eq!(decide(&Evidence { check: quiet(FIXED_FRAMES - 1), ..laptop }), Verdict::Checking);
+        // The VRR panel calibrated while it still scanned at its top rate (12% in the blanking):
+        // a present that started a scan leaves it to the check.
+        let mut began = vec![Restart::NotTested; FIXED_FRAMES as usize];
+        began[5] = Restart::Began;
+        let busy_vrr = Evidence { check: presents(&began), beam: Some(Ok(beam(0.12))), ..evidence() };
+        assert_eq!(decide(&busy_vrr), Verdict::Checking);
+        // This PC's 240 Hz VRR panel at 60 fps idles between scans: the check decides.
+        let vrr = Evidence { check: quiet(FIXED_FRAMES), beam: Some(Ok(beam(0.67))), ..evidence() };
+        assert_eq!(decide(&vrr), Verdict::Checking);
+        // At the display's own rate a fixed refresh and a busy VRR display look alike.
+        assert_eq!(decide(&Evidence { content_hz: 119.5, ..laptop }), Verdict::Checking);
+        // A check that passed is not overruled by the blanking share.
+        assert!(matches!(decide(&Evidence { beam: Some(Ok(beam(0.12))), ..evidence() }), Verdict::On(..)));
     }
 
     /// Manual: `cargo test -p nightjar-desktop scanline_dump -- --ignored --nocapture` while a

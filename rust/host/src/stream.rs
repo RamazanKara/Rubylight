@@ -64,6 +64,49 @@ fn server_command(
             .unwrap_or(false),
     ))
 }
+/// How soon the stream looks again when another thread held the running app.
+const QUIT_SCAN_RETRY: Duration = Duration::from_millis(50);
+/// Hand the program the stream's display shows (`pid`) to the running app, for
+/// quitting it later. Only the stream of the client that launched the app:
+/// another client's display shows its own programs; an app started from the
+/// console has no owner. False, having waited for nothing, when another thread
+/// holds the app: the stream thread never waits behind housekeeping. Whether
+/// the program is a game a store client started takes the PC's process list,
+/// read on a thread of its own with the app released.
+fn observe_foreground_game(h: &Shared, client: &str, program: &str, pid: u32) -> bool {
+    let Some(mut current) = h.try_current_app() else {
+        return false;
+    };
+    if let Some(app) = current.as_mut()
+        && (app.owner.is_empty() || app.owner == client)
+        && let Some(check) = app.observe_foreground(pid, program)
+    {
+        let host = h.clone();
+        let started = thread::Builder::new()
+            .name("foreground-game".into())
+            .spawn(move || {
+                let verdict = check.run();
+                if let Some(app) = host.current_app.lock().unwrap().as_mut() {
+                    app.finish_foreground(check, verdict);
+                }
+            });
+        if let Err(error) = started {
+            tracing::warn!(%error, pid, "the program in front was not checked; looking again");
+            app.abandon_foreground();
+        }
+    }
+    true
+}
+/// Expire controller sessions once a second (`last` is the last time). Input
+/// never waits behind housekeeping: a held app is looked at on the next pass.
+fn expire_controllers(h: &crate::state::Host, last: &mut Instant) {
+    if last.elapsed() >= Duration::from_secs(1)
+        && let Some(app_running) = h.try_current_app().map(|current| current.is_some())
+    {
+        h.controller_sessions.expire(app_running);
+        *last = Instant::now();
+    }
+}
 /// A WebRTC HDR stream carries the display's HDR or nothing: SDR content labelled HDR, or HDR
 /// tone-mapped to SDR, is not what the client asked for, so the session ends with an error.
 /// `display_in_hdr` is the capture's reading of the output's colour space (HDR10 or not); the
@@ -516,16 +559,22 @@ fn refuse_switch(
     s.rate_changes.lock().unwrap().switched(from, Some(reason));
 }
 
-pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
-    let mut config = h.config.read().unwrap().clone();
-    let mut peak_chosen = device_layer(&mut config, &launch.client)?;
-    let app = h
-        .apps
+/// The app `launch` streams as its device streams it: the device's block in the app's
+/// `device-overrides` laid over the app's own settings (app × device, then app).
+pub(crate) fn launch_app(h: &Shared, launch: &Launch) -> Option<butterpollo_core::state::App> {
+    h.apps
         .read()
         .unwrap()
         .iter()
         .find(|app| app.id() == launch.app_id || app.aliases.contains(&launch.app_id))
-        .cloned();
+        .map(|app| butterpollo_core::device_overrides::for_device(app, &launch.client.uuid))
+}
+
+/// The stream's settings: host, then device, then app, then the app's block for the device.
+pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
+    let mut config = h.config.read().unwrap().clone();
+    let mut peak_chosen = device_layer(&mut config, &launch.client)?;
+    let app = launch_app(h, launch);
     if let Some(app) = &app {
         for (source, target) in [
             ("gamepad", "gamepad"),
@@ -978,11 +1027,7 @@ fn restart_on_new_path(s: &Session, c: &Config) {
     s.request_host_keyframe();
     let mut stream = s.config.clone();
     s.stream_mode().apply_to(&mut stream);
-    s.rebuild_link_rate(
-        &stream,
-        c.link_rate_adaptation(),
-        c.integer("max_bitrate", 0).clamp(0, 500_000) as u32,
-    );
+    s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(s, c));
     configure_adaptive_bitrate(s, c);
 }
 /// The stream's video FEC at its start: the configured percentage is adaptive
@@ -1023,15 +1068,20 @@ fn configure_video_fec(s: &Session, c: &Config) -> Result<()> {
 }
 /// Host bitrate adaptation (`host_adaptive_bitrate`), from scratch.
 fn configure_adaptive_bitrate(s: &Session, c: &Config) {
+    s.configure_adaptive_bitrate(
+        c.boolean("host_adaptive_bitrate", false),
+        max_bitrate_kbps(s, c),
+    );
+}
+/// The user's `max_bitrate`, within what the stream's codec can be asked for:
+/// PyroWave goes to 2 Gbps, the others to 500 Mbps.
+fn max_bitrate_kbps(s: &Session, c: &Config) -> u32 {
     let maximum = if s.config.codec == 3 {
         2_000_000
     } else {
         500_000
     };
-    s.configure_adaptive_bitrate(
-        c.boolean("host_adaptive_bitrate", false),
-        c.integer("max_bitrate", 0).clamp(0, maximum) as u32,
-    );
+    c.integer("max_bitrate", 0).clamp(0, maximum) as u32
 }
 /// The local address a client's datagrams arrived on, for logs.
 fn describe_local(local: Option<IpAddr>) -> String {
@@ -1705,7 +1755,10 @@ impl Media {
                     stream_preparation.report_limiter(&s.launch.warnings, &c);
                     let prepared = stream_preparation.display.clone();
                     // A game window is no display to keep for the device.
-                    if s.launch.role == Role::Stream && s.launch.nucleus.is_none() {
+                    if s.launch.role == Role::Stream
+                        && s.launch.nucleus.is_none()
+                        && prepared.kept_for_reconnect()
+                    {
                         let mut displays = h.app_display.lock().unwrap();
                         if !s.stopping() {
                             displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None));
@@ -1757,7 +1810,7 @@ impl Media {
                     audio = Some(m.spawn_audio(&h, &s)?);
                     configure_video_fec(&s, &c)?;
                     configure_adaptive_bitrate(&s, &c);
-                    s.configure_link_rate(c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                    s.configure_link_rate(c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
                     // Packet adaptation is opt-in, or automatic for a client that
                     // reports a wireless route. Explicit pacing and host bitrate
                     // adaptation keep their own policies.
@@ -1849,6 +1902,7 @@ impl Media {
                         &s.launch.id,
                         Some(crate::stall_watch::GpuProbe::start(&output, &s.launch.id)),
                     );
+                    progress.set_period(rates.period);
                     // Since when encoding has failed without a frame getting through.
                     let mut recovery = EncoderRecovery {
                         progress: Some(progress.clone()),
@@ -2626,7 +2680,7 @@ impl Media {
                                                 None => prepared.follow_shape((stream.width, stream.height)),
                                             }
                                         }
-                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
                                         switching.get_or_insert((from, Instant::now()));
                                         rebuild_encoder = true;
                                     }
@@ -2638,6 +2692,7 @@ impl Media {
                                 paced_rate = stream.fps_millihz();
                                 rates = butterpollo_core::reconfigure::Rates::new(&stream, c.get("minimum_fps_target", "20"));
                                 stream_period.set(rates.period);
+                                progress.set_period(rates.period);
                                 cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("wgc_pacing_smoothing", true));
                                 pacer = new_pacer(rates.period);
                                 unlocked_grid_period = None;
@@ -2857,13 +2912,12 @@ impl Media {
                                 if let Some((program, pid)) = quit_scan
                                     .get_or_insert_with(butterpollo_windows::foreground::Tracker::default)
                                     .poll_process(&[], &image.gpu.display)
-                                    && let Some(app) = h.current_app.lock().unwrap().as_mut()
-                                    // Only the stream of the client that launched the app:
-                                    // another client's display shows its own programs.
-                                    // An app started from the console has no owner.
-                                    && (app.owner.is_empty() || app.owner == s.launch.client.uuid)
                                 {
-                                    app.observe_foreground(pid, &program);
+                                    progress.mark(crate::stall_watch::Phase::AppTracking);
+                                    if !observe_foreground_game(&h, &s.launch.client.uuid, &program, pid) {
+                                        quit_scan_due = Instant::now() + QUIT_SCAN_RETRY;
+                                    }
+                                    progress.mark(crate::stall_watch::Phase::Picture);
                                 }
                             }
                             let rebuilt = rebuild_encoder;
@@ -3174,7 +3228,7 @@ impl Media {
                                     if let Some((from, _)) = switching.take() {
                                         let to = butterpollo_core::reconfigure::Mode::of(&stream);
                                         from.apply_to(&mut stream);
-                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                                        s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
                                         refuse_switch(&s, from, butterpollo_core::rate_change::Reason::EncoderFailed);
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder failed at this mode; keeping the previous one");
                                         rebuild_encoder = true;
@@ -3577,7 +3631,12 @@ impl Media {
                     // on the control thread; one atomic load while unused.
                     s.audio_haptics.push(samples, client_channels);
                 }
-            } else if s.media_wait_start(start).elapsed() > crate::network::ping_timeout(&config) {
+            } else if audio_sink::ping_timed_out(
+                &s,
+                &h.stop,
+                start,
+                crate::network::ping_timeout(&config),
+            ) {
                 anyhow::bail!("client audio ping timed out");
             }
             let now = Instant::now();
@@ -3648,11 +3707,7 @@ impl Media {
         let mut controller_cleanup = Instant::now();
         while !h.stop.load(Ordering::Acquire) {
             while self.control_wake_receiver.recv(&mut [0]).is_ok() {}
-            if controller_cleanup.elapsed() >= Duration::from_secs(1) {
-                let app_running = h.current_app.lock().unwrap().is_some();
-                h.controller_sessions.expire(app_running);
-                controller_cleanup = Instant::now();
-            }
+            expire_controllers(&h, &mut controller_cleanup);
             let (ping_timeout, client_roaming) = {
                 let c = h.config.read().unwrap();
                 (crate::network::ping_timeout(&c), c.client_roaming())
@@ -5646,6 +5701,116 @@ mod tests {
         assert!(at.is_none());
     }
     #[test]
+    fn the_stream_thread_skips_its_game_look_while_another_thread_holds_the_app() {
+        use crate::state::test_support::Fixture;
+        let f = Fixture::new();
+        *f.host.current_app.lock().unwrap() = Some(
+            crate::process::RunningApp::with_environment(
+                &butterpollo_core::state::App::desktop(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+        // Housekeeping holds the app for 400 ms, as on a PC busy loading a game.
+        let (held, holding) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let host = &f.host;
+            scope.spawn(move || {
+                let _current = host.current_app.lock().unwrap();
+                held.send(()).unwrap();
+                let _ = released.recv_timeout(Duration::from_millis(400));
+            });
+            holding.recv().unwrap();
+            // A blocking look would wait the whole 400 ms and then report true.
+            assert!(!observe_foreground_game(
+                &f.host, "client", "game.exe", 4242
+            ));
+            release.send(()).unwrap();
+        });
+        // Free again, the look goes through.
+        assert!(observe_foreground_game(&f.host, "client", "game.exe", 4242));
+    }
+    #[test]
+    fn a_program_another_program_started_is_checked_off_the_stream_thread() {
+        use crate::state::test_support::Fixture;
+        let f = Fixture::new();
+        let mut app = crate::process::RunningApp::with_environment(
+            &butterpollo_core::state::App::desktop(),
+            Default::default(),
+        )
+        .unwrap();
+        app.mark_launching();
+        *f.host.current_app.lock().unwrap() = Some(app);
+        // A "game" started after the launch by a program other than the
+        // desktop (this test), as a store client starts one.
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let program = format!(r"{root}\System32\PING.EXE");
+        /// Ends the stand-in game however the test ends.
+        struct Game(std::process::Child);
+        impl Drop for Game {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let game = Game(
+            std::process::Command::new(&program)
+                .args(["-n", "30", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let game_up = || {
+            f.host
+                .current_app
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .launch_progress()
+                .map(|(up, _)| up)
+        };
+        // Each look hands a check off and returns, as the stream's once-a-second
+        // look does: the process list is read and the result applied on the
+        // check's own thread.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while game_up() != Some(true) {
+            assert!(Instant::now() < deadline, "the check never found the game");
+            assert!(observe_foreground_game(
+                &f.host,
+                "client",
+                &program,
+                game.0.id()
+            ));
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+    #[test]
+    fn input_skips_controller_cleanup_while_another_thread_holds_the_app() {
+        use crate::state::test_support::Fixture;
+        let f = Fixture::new();
+        let due = Instant::now() - Duration::from_secs(2);
+        let mut last = due;
+        let (held, holding) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let host = &f.host;
+            scope.spawn(move || {
+                let _current = host.current_app.lock().unwrap();
+                held.send(()).unwrap();
+                let _ = released.recv_timeout(Duration::from_secs(5));
+            });
+            holding.recv().unwrap();
+            expire_controllers(&f.host, &mut last);
+            // Skipped, not waited for: still due.
+            assert_eq!(last, due);
+            release.send(()).unwrap();
+        });
+        expire_controllers(&f.host, &mut last);
+        assert!(last > due);
+    }
+    #[test]
     fn app_overrides_win_over_device_and_host_without_changing_saved_configuration() {
         use crate::state::test_support::Fixture;
         use serde_json::json;
@@ -5694,6 +5859,52 @@ mod tests {
         assert_eq!(
             f.host.apps.read().unwrap()[0].extra["config-overrides"]["port"],
             51000
+        );
+    }
+    #[test]
+    fn an_apps_block_for_the_device_wins_over_the_app_the_device_and_the_host() {
+        use crate::state::test_support::Fixture;
+        use serde_json::json;
+        let f = Fixture::new();
+        *f.host.config.write().unwrap() =
+            Config::parse("max_bitrate=10000\nframe_limiter_fps_limit=0").unwrap();
+        let mut client = f.client(u32::MAX);
+        client.extra.insert(
+            "config_overrides".into(),
+            json!({"max_bitrate":20000,"stream_preset":"lowest_latency"}),
+        );
+        let launch = f.launch(client, Role::Stream);
+        let device = launch.client.uuid.clone();
+        let set = |overrides: serde_json::Value| {
+            let mut apps = f.host.apps.write().unwrap();
+            apps[0].extra.insert(
+                "config-overrides".into(),
+                json!({"max_bitrate":30000,"frame_limiter_fps_limit":60}),
+            );
+            apps[0].extra.insert("device-overrides".into(), overrides);
+        };
+        // Another device's block, or one for a device that is gone, changes nothing.
+        set(json!({"another-device": {"config-overrides": {"max_bitrate": 50000}}}));
+        let app = effective_config(&f.host, &launch).unwrap();
+        assert_eq!(app.integer("max_bitrate", 0), 30000);
+        assert_eq!(app.get("frame_limiter_fps_limit", ""), "60");
+        assert_eq!(app.get("amd_max_frame_size", ""), "1");
+        // The device's block wins key by key: an empty value keeps the app's.
+        set(json!({
+            device.as_str(): {"config-overrides": {
+                "max_bitrate": 40000, "frame_limiter_fps_limit": "", "stream_preset": "reference"
+            }},
+            "another-device": {"config-overrides": {"max_bitrate": 50000}},
+        }));
+        let both = effective_config(&f.host, &launch).unwrap();
+        assert_eq!(both.integer("max_bitrate", 0), 40000);
+        assert_eq!(both.get("frame_limiter_fps_limit", ""), "60");
+        assert_eq!(both.get("amd_max_frame_size", ""), "0");
+        // The saved app keeps its block.
+        assert!(
+            f.host.apps.read().unwrap()[0]
+                .extra
+                .contains_key("device-overrides")
         );
     }
     #[test]

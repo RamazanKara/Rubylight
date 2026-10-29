@@ -175,6 +175,146 @@ public class GameRemoteControlTest {
         assertEquals("91:" + KeyboardPacket.KEY_UP, connection.keys.get(1));
     }
 
+    // #50: the Esc key of many keyboards made for Android sends Back. It goes to the PC as Esc by default
+    // instead of opening the stream menu; with Send system keys off it is Android's Back again.
+    // Only an external keyboard's Back becomes Esc: below Android 10 Nightjar cannot tell, and a keyboard
+    // phone's own keyboard may lack the Ctrl for Ctrl+Alt+Shift+M, so Back stays Back.
+    @Test public void keyboardBackSendsEscUnlessSystemKeysStayWithAndroid() {
+        InputDevice keyboard = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+        RecordingConnection connection = new RecordingConnection();
+        RemoteGame game = game(connection);
+        ReflectionHelpers.setField(game, "connected", true);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        assertTrue(prefs.captureSystemKeys);
+
+        // A keyboard phone's built-in keyboard
+        assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertTrue(connection.keys.isEmpty());
+
+        ReflectionHelpers.setField(keyboard, "mIsExternal", true);
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertTrue(connection.keys.isEmpty());
+            return;
+        }
+        assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertTrue(game.handleKeyUp(event(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertEquals(0, game.menus + game.backs);
+        assertEquals("27:" + KeyboardPacket.KEY_DOWN, connection.keys.get(0));
+        assertEquals("27:" + KeyboardPacket.KEY_UP, connection.keys.get(1));
+
+        // Physical Back opens stream menu is an explicit choice and keeps keyboard Back.
+        prefs.backOpensMenu = true;
+        assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertTrue(game.handleKeyUp(event(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertEquals(1, game.menus);
+        prefs.backOpensMenu = false;
+
+        prefs.captureSystemKeys = false;
+        assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertEquals(2, connection.keys.size());
+    }
+
+    // #49: a handheld whose firmware injects Back for its system button sends Guide with Back button as
+    // Guide on; Android's Back gesture still leaves the stream, and the option is off by default.
+    @Test public void injectedHandheldBackSendsGuideOnlyWhenEnabled() {
+        InputDevice injected = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+        ReflectionHelpers.setField(injected, "mId", -1);
+        RecordingConnection connection = new RecordingConnection();
+        RemoteGame game = game(connection);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        ReflectionHelpers.setField(game, "connected", true);
+        HandheldController controller = new HandheldController(game, connection, prefs);
+        ReflectionHelpers.setField(ReflectionHelpers.getField(controller, "defaultContext"), "assignedControllerNumber", true);
+        ReflectionHelpers.setField(game, "controllerHandler", controller);
+        try {
+            assertFalse(prefs.backAsGuide);
+            assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, -1, InputDevice.SOURCE_KEYBOARD)));
+            assertTrue(connection.buttons.isEmpty());
+
+            prefs.backAsGuide = true;
+            assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, -1, InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(com.limelight.nvstream.input.ControllerPacket.SPECIAL_BUTTON_FLAG,
+                    (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertTrue(game.handleKeyUp(event(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, -1, InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(0, (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertTrue(connection.keys.isEmpty());
+
+            // Android's navigation bar and Back gesture are left to Android, which opens the stream menu.
+            KeyEvent gesture = KeyEvent.changeFlags(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, -1,
+                    InputDevice.SOURCE_KEYBOARD), KeyEvent.FLAG_VIRTUAL_HARD_KEY);
+            int sent = connection.buttons.size();
+            assertFalse(game.handleKeyDown(gesture));
+            assertEquals(sent, connection.buttons.size());
+            assertEquals(0, game.menus + game.backs);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    // #49: a handheld's system button on a built-in key device such as gpio-keys (internal, not a gamepad,
+    // not a keyboard) sends Guide too; an external keyboard's Back does not.
+    @Test public void builtInKeyDeviceBackSendsGuide() {
+        InputDevice keys = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC);
+        RecordingConnection connection = new RecordingConnection();
+        RemoteGame game = game(connection);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.backAsGuide = true;
+        ReflectionHelpers.setField(game, "connected", true);
+        HandheldController controller = new HandheldController(game, connection, prefs);
+        ReflectionHelpers.setField(ReflectionHelpers.getField(controller, "defaultContext"), "assignedControllerNumber", true);
+        ReflectionHelpers.setField(game, "controllerHandler", controller);
+        try {
+            assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keys.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(com.limelight.nvstream.input.ControllerPacket.SPECIAL_BUTTON_FLAG,
+                    (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertTrue(game.handleKeyUp(event(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, keys.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(0, (int) connection.buttons.get(connection.buttons.size() - 1));
+
+            InputDevice keyboard = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+            int sent = connection.buttons.size();
+            assertFalse(controller.handleHandheldBackAsGuide(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK,
+                    keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertEquals(sent, connection.buttons.size());
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    private static class HandheldController extends ControllerHandler {
+        private final boolean internalSelect;
+        HandheldController(Game activity, NvConnection connection, PreferenceConfiguration prefs) {
+            this(activity, connection, prefs, true);
+        }
+        HandheldController(Game activity, NvConnection connection, PreferenceConfiguration prefs, boolean internalSelect) {
+            super(activity, connection, null, prefs);
+            this.internalSelect = internalSelect;
+        }
+        @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, internalSelect}; }
+    }
+
+    // #49: on a handheld whose built-in pad has no Select (Shield Portable), the system Back is that pad's
+    // Select (shouldIgnoreBack), so Back as Guide leaves it alone and Select and the menu chord keep working.
+    @Test public void handheldWithoutItsOwnSelectKeepsBackAsSelect() {
+        InputDevice keys = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC);
+        RecordingConnection connection = new RecordingConnection();
+        RemoteGame game = game(connection);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.backAsGuide = true;
+        ReflectionHelpers.setField(game, "connected", true);
+        HandheldController controller = new HandheldController(game, connection, prefs, false);
+        ReflectionHelpers.setField(ReflectionHelpers.getField(controller, "defaultContext"), "assignedControllerNumber", true);
+        try {
+            assertFalse(controller.handleHandheldBackAsGuide(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK,
+                    keys.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertFalse(controller.handleHandheldBackAsGuide(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK,
+                    -1, InputDevice.SOURCE_KEYBOARD)));
+            assertTrue(connection.buttons.isEmpty());
+        } finally {
+            controller.destroy();
+        }
+    }
+
     private static class CountingController extends ControllerHandler {
         int events;
         CountingController(Game activity, NvConnection connection, PreferenceConfiguration prefs) {
@@ -186,12 +326,17 @@ public class GameRemoteControlTest {
 
     private static class RecordingConnection extends NvConnection {
         final List<String> keys = new ArrayList<>();
+        final List<Integer> buttons = new ArrayList<>();
         RecordingConnection() {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().build(), null, null);
         }
         @Override public void sendKeyboardInput(short key, byte direction, byte modifiers, byte flags) {
             keys.add((key & 0xff) + ":" + direction);
+        }
+        @Override public void sendControllerInput(short number, short mask, int buttons, byte leftTrigger,
+                                                   byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {
+            this.buttons.add(buttons);
         }
     }
 }

@@ -59,7 +59,7 @@ fn installed_checked(
 
 /// SYSTEM's, the Administrators group's and TrustedInstaller's (what Program
 /// Files holds).
-const TRUSTED: [&str; 3] = [
+pub(super) const TRUSTED: [&str; 3] = [
     "S-1-5-18",
     "S-1-5-32-544",
     "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",

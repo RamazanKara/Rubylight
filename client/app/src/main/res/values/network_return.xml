@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Over the frozen picture while the stream's network is gone; the second when a reconnect will follow. -->
+    <string name="stream_network_lost">Network lost.</string>
+    <string name="stream_network_lost_reconnecting">Network lost. Reconnecting as soon as it is back…</string>
+</resources>

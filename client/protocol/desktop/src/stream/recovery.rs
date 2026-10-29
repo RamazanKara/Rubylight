@@ -2,7 +2,10 @@
 //! session clock: it outlives each stream, so a stream's own start cannot be its time base.
 
 use nightjar_core::session::{self, Stage};
-pub use nightjar_policy::recovery::{transient_termination, Backoff};
+pub use nightjar_policy::recovery::{
+    reconnects_at_once, transient_termination, Backoff, RouteWait, PEER_TIMEOUT_MS,
+    ROUTE_PROBE_TIMEOUT_MS, ROUTE_RETRY_MS,
+};
 
 pub fn now_ms() -> u64 {
     session::now_us() / 1000
@@ -28,10 +31,49 @@ pub fn transient_http(error: &nightjar_core::http::Error) -> bool {
         | ErrorKind::HostUnreachable))
 }
 
+/// A route check's immediate no-route error: no address toward the PC (yet). A check that
+/// times out (a slow link, or a closed port, which Windows retries before it says so) or fails
+/// otherwise is no reason to wait: the attempt itself decides, loudly.
+pub fn route_missing(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+    matches!(error.kind(), ErrorKind::NetworkUnreachable | ErrorKind::HostUnreachable | ErrorKind::AddrNotAvailable)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use nightjar_policy::recovery::{STABLE_MS, WINDOW_MS};
+
+    #[test]
+    fn only_an_immediate_no_route_error_waits_for_the_route() {
+        use std::io::{Error, ErrorKind};
+        for kind in [ErrorKind::NetworkUnreachable, ErrorKind::HostUnreachable, ErrorKind::AddrNotAvailable] {
+            assert!(route_missing(&Error::from(kind)), "{kind:?}");
+        }
+        for kind in [ErrorKind::TimedOut, ErrorKind::ConnectionRefused, ErrorKind::ConnectionReset, ErrorKind::Other] {
+            assert!(!route_missing(&Error::from(kind)), "{kind:?}");
+        }
+        // The OS's own codes map the same way: Windows' WSAENETUNREACH, WSAEHOSTUNREACH,
+        // WSAEADDRNOTAVAIL and WSAETIMEDOUT, Linux's errnos.
+        #[cfg(windows)]
+        let (unreachable, timed_out) = ([10051, 10065, 10049], 10060);
+        #[cfg(not(windows))]
+        let (unreachable, timed_out) = ([101, 113, 99], 110);
+        for code in unreachable {
+            assert!(route_missing(&Error::from_raw_os_error(code)), "{code}");
+        }
+        assert!(!route_missing(&Error::from_raw_os_error(timed_out)));
+    }
+
+    // The reconnect decision assumes the engine's connection timeout (nightjar-policy cannot
+    // depend on the engine; the desktop links both).
+    #[test]
+    fn the_peer_timeout_is_the_engines_connection_timeout() {
+        assert_eq!(
+            std::time::Duration::from_millis(PEER_TIMEOUT_MS.into()),
+            nightjar_core::control::driver::CONTROL_PEER_TIMEOUT
+        );
+    }
 
     #[test]
     fn retries_are_bounded_across_short_connections() {

@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Movimiento del ratón por pasos fijos</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">En el modo ratón del mando, mantén pulsado X mientras mueves el joystick para desplazar el puntero un número fijo de píxeles cada vez. Pulsa Y para duplicar el paso, de 1 hasta 128 píxeles y luego de vuelta a 1.</string>
     <string name="stream_mouse_step">Paso del ratón: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">Enviar teclas del sistema</string>
+    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, la tecla Windows y similares van al PC mientras la entrada está capturada, igual que la tecla Atrás que muchos teclados para Android tienen en lugar de Esc. Android solo cede Alt+Tab y la tecla Windows desde Android 16 QPR2 (diciembre de 2025) y en muchos dispositivos Samsung; en los demás se las queda. Inicio, encendido y volumen siempre se quedan en Android. Abre el menú del stream con Ctrl+Alt+Shift+M o el gesto o botón Atrás de Android. Se aplica al próximo stream.</string>
     <string name="title_checkbox_back_as_meta">Atrás del teclado envía la tecla Windows</string>
     <string name="summary_checkbox_back_as_meta">La tecla Atrás de un teclado físico envía la tecla Windows (Comando en un Mac). Abre el menú de transmisión con Ctrl+Alt+Shift+M, el gesto o botón Atrás de Android o la combinación de botones del mando.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt derecha como Comando</string>

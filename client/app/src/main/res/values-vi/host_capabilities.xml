@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">Màn hình ảo</string>
     <string name="host_feature_virtual_display_hdr">Màn hình ảo HDR</string>
     <string name="host_feature_display_modes">Chế độ hiển thị của PC</string>
+    <string name="host_feature_display_scale">Tỷ lệ hiển thị trên PC</string>
     <string name="host_feature_fractional_refresh">Tần số quét lẻ</string>
     <string name="host_feature_vrr">VRR phía máy chủ</string>
     <string name="host_feature_runtime_bitrate">Đổi tốc độ bit trong khi stream</string>

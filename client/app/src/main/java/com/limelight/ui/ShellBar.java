@@ -103,7 +103,10 @@ public final class ShellBar {
             if (selected) {
                 ViewCompat.setStateDescription(button, activity.getString(R.string.shell_current_page));
             }
-            button.setOnClickListener(v -> open(activity, current, destination));
+            button.setOnClickListener(v -> {
+                Haptics.perform(v, Haptics.Kind.NAVIGATION);
+                open(activity, current, destination);
+            });
             ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) button.getLayoutParams();
             params.setMarginEnd(gap);
             items.addView(button, params);

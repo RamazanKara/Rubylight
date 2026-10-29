@@ -755,6 +755,46 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void displayScaleGoesWhenChosenWithOrWithoutTheVirtualDisplaySwitch() throws Exception {
+        // The host makes a virtual display of its own by default (per_client), so "Host virtual
+        // display" off does not mean a physical display; the host ignores the scale on one.
+        for (boolean virtualDisplay : new boolean[] {false, true}) {
+            for (int dpi : new int[] {0, 200}) {
+                ConnectionContext context = context("rubylight-serverinfo.xml");
+                context.hostCaps = TestHosts.rubylightWithDisplayScale();
+                context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                        .setVirtualDisplay(virtualDisplay, 100).setVirtualDisplayDpi(dpi).build();
+                String query = NvHTTP.getLaunchQuery(context, 42, false);
+                String expected = dpi != 0 ? "200" : null;
+                assertEquals(virtualDisplay + "/" + dpi, expected, query(context, false).queryParameter("rlDisplayScale"));
+                if (expected != null) {
+                    // The same order as the shared Rust LaunchRequest; the render resolution stays 100 %.
+                    assertTrue(query, query.contains(virtualDisplay ?
+                            "&virtualDisplay=1&scaleFactor=100&rlDisplayScale=200&" : "&rlDisplayScale=200&"));
+                    assertEquals(query, virtualDisplay, query.contains("virtualDisplay"));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void hostsWithoutDisplayScaleVersionGetNoDisplayScale() throws Exception {
+        // Older Rubylight hosts (2.6.x, 3.0.0-rc.5) ignore rlDisplayScale, so a chosen scale would silently do nothing.
+        ConnectionContext context = context("rubylight-serverinfo.xml");
+        assertEquals(HostCapabilities.Availability.unsupported(HostCapabilities.Reason.UPDATE_HOST),
+                context.hostCaps.availability(HostCapabilities.Feature.DISPLAY_SCALE));
+        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                .setVirtualDisplay(true, 100).setVirtualDisplayDpi(200).build();
+        HttpUrl query = query(context, false);
+        assertEquals("1", query.queryParameter("virtualDisplay"));
+        assertNull(query.queryParameter("rlDisplayScale"));
+        ConnectionContext apollo = context("apollo-serverinfo.xml");
+        apollo.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                .setVirtualDisplay(true, 100).setVirtualDisplayDpi(200).build();
+        assertNull(query(apollo, false).queryParameter("rlDisplayScale"));
+    }
+
+    @Test
     public void customFractionalRateReachesHostsThatReadIt() throws Exception {
         // Sunshine reads the rate with atoi and would turn 59.94 into 59.
         for (String host : new String[] {"butterpollo-serverinfo.xml", "rubylight-serverinfo.xml", "apollo-serverinfo.xml",

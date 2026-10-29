@@ -685,3 +685,8 @@ test('Steam and Playnite add every installed game unless set to false, and fold 
   assert.equal(settings.get('steam_exclude_games').advanced, true);
   assert.equal(settings.get('steam_enabled').group, 'Steam options');
 });
+
+test('the host virtual display scale says a device that asks for its own scale gets it', () => {
+  // rlDisplayScale (Nightjar's PC display scaling) wins over dd_virtual_display_scale.
+  assert.match(settings.get('dd_virtual_display_scale').details, /A device that asks for its own scale \(PC display scaling in Nightjar\) gets that one\./);
+});

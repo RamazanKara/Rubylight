@@ -37,6 +37,12 @@ public final class TestHosts {
         return fixture("rubylight-serverinfo.xml");
     }
 
+    /** {@link #rubylight()} with DisplayScaleVersion, so it reads rlDisplayScale. */
+    public static HostCapabilities rubylightWithDisplayScale() {
+        return caps(serverInfo("rubylight-serverinfo.xml")
+                .replace("</root>", "<DisplayScaleVersion>1</DisplayScaleVersion></root>"));
+    }
+
     /** Capabilities, permissions, server commands and encoder bitrate of a fixture, as a stream sees them. */
     public static ComputerDetails details(String fixture) {
         ComputerDetails details = new ComputerDetails();

@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Der Energiesparmodus begrenzt sie.</string>
     <string name="refresh_diag_thermal">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz: Das Gerät ist heiß und begrenzt sie auf 60 Hz.</string>
     <string name="refresh_diag_unexplained">Der Bildschirm bleibt bei %2$s Hz statt der gewünschten %1$s Hz. Android nennt keinen Grund (Modi: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">Variable Bildwiederholrate braucht Android 16, daher läuft der Bildschirm mit der höchsten Rate.</string>
-    <string name="stream_vrr_no_arr">Dieser Bildschirm hat keine adaptive Bildwiederholrate, daher läuft er mit der höchsten Rate.</string>
+    <string name="stream_vrr_old_android">Variable Bildwiederholrate braucht Android 16, daher läuft der Bildschirm mit der höchsten Rate. Mit einem Rubylight-PC wechselt er nur dann zu einer passenden niedrigeren Rate, wenn die Bildrate des Spiels bei der höchsten ruckeln würde und er ohne Schwarzbild wechseln kann.</string>
+    <string name="stream_vrr_no_arr">Dieser Bildschirm hat keine adaptive Bildwiederholrate, daher läuft er mit der höchsten Rate. Mit einem Rubylight-PC wechselt er nur dann zu einer passenden niedrigeren Rate, wenn die Bildrate des Spiels bei der höchsten ruckeln würde und er ohne Schwarzbild wechseln kann.</string>
+    <string name="stream_vrr_arr_half_rate">Der Bildschirm zeigt nur %1$d von %2$d FPS: Android hält ihn bei der halben Stream-Rate.</string>
     <string name="stream_hdr_mode_unsupported">Dieser Bildschirmmodus kann kein HDR zeigen, daher läuft der Stream in SDR.</string>
     <string name="stream_hdr_not_negotiated">HDR wurde angefordert, aber der PC hat kein HDR-Video gesendet, daher läuft der Stream in SDR.</string>
     <string name="stream_hdr_host_sdr">HDR wurde angefordert, aber der PC meldet SDR. Aktiviere in Windows HDR für den gestreamten Bildschirm.</string>

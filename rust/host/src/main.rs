@@ -4,6 +4,7 @@ mod controller_sessions;
 mod couch_menu;
 mod display_session;
 mod extensions;
+mod game_files;
 mod launcher_watch;
 mod library;
 mod logging;
@@ -396,6 +397,10 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the Radeon worker could not start; settings from an interrupted session stay in the journal"
         );
     }
+    // The restore thread for keys in games' settings files starts, and puts back those a crashed
+    // run left changed, as the Windows user once someone is signed in. A stream that writes one
+    // of them first puts the PC's own value back itself.
+    game_files::start(&h);
     // The service's keys: SYSTEM and Administrators only, also after a
     // profile was copied in or restored from a backup.
     let credentials = h.directory.join("credentials");
@@ -533,6 +538,18 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         tokio::task::spawn_blocking(move || radeon.radeon.shutdown(Duration::from_secs(30))).await
     {
         tracing::error!(%error, "waiting for the Radeon restore at shutdown failed; the next host start restores what is left");
+    }
+    // Every game file key goes back too, on its own thread; one it cannot reach in time stays
+    // journaled for the next start.
+    let files = h.clone();
+    if let Err(error) = tokio::task::spawn_blocking(move || {
+        files
+            .game_files
+            .shutdown(&files.directory, Duration::from_secs(10))
+    })
+    .await
+    {
+        tracing::error!(%error, "waiting for the game file restore at shutdown failed; the next host start restores what is left");
     }
     remote_display::disconnect(&h, None);
     drop(discovery);

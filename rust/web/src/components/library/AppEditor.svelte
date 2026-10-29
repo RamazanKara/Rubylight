@@ -16,6 +16,8 @@
   import VideoSettings from './VideoSettings.svelte';
   import LosslessSettings from './LosslessSettings.svelte';
   import RadeonSettings from './RadeonSettings.svelte';
+  import GameFiles from './GameFiles.svelte';
+  import DeviceOverrides from './DeviceOverrides.svelte';
   import PlayTogether from './PlayTogether.svelte';
   import NeuralRendering from './NeuralRendering.svelte';
   import { api, type App, type SessionStatus } from '../../lib/api';
@@ -357,6 +359,14 @@
 
     <Panel collapsible title="Radeon" description="Driver settings for this game, applied when it starts and put back when the session ends.">
       <RadeonSettings {draft} />
+    </Panel>
+
+    <Panel collapsible title="Managed game files" description="Keys in the game’s own settings files, set for a stream and put back when the session ends.">
+      <GameFiles id="{uid}-files" bind:rows={draft.files} />
+    </Panel>
+
+    <Panel collapsible title="Per device" description="This game’s settings on one device: stream preset, frame limit, Radeon preset and game files.">
+      <DeviceOverrides {draft} />
     </Panel>
 
     <Panel collapsible title="Lossless Scaling" description="Upscaling and frame generation by Lossless Scaling while the app runs.">

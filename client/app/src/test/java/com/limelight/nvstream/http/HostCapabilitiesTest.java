@@ -160,8 +160,9 @@ public class HostCapabilitiesTest {
         assertEquals("2.2.21", caps.hostVersion());
         // Everything up to file transfer; the 3.0 extensions came later.
         Set<Feature> expected = EnumSet.range(PERMISSIONS, FILE_DOWNLOAD);
-        expected.removeAll(EnumSet.of(CURSOR_SHAPE, NATIVE_API, SLEEP, FILE_UPLOAD, FILE_DOWNLOAD));
+        expected.removeAll(EnumSet.of(DISPLAY_SCALE, CURSOR_SHAPE, NATIVE_API, SLEEP, FILE_UPLOAD, FILE_DOWNLOAD));
         assertEquals(expected, caps.supported());
+        assertReason(caps, DISPLAY_SCALE, Reason.UPDATE_HOST);
         assertNever(caps, DOLBY_VISION, HLG, CLIENT_FEC, BANDWIDTH_PROBE, AUDIO_PASSTHROUGH, SURROUND_714, TEXT_INPUT,
                 CLIENT_KEYBOARD_LAYOUT, PEN_BARREL_ROLL, PIPELINE_RATES);
         assertNever(caps, CURSOR_SHAPE);
@@ -587,6 +588,26 @@ public class HostCapabilitiesTest {
         // A platform without one (Vibepollo on Linux) can never use it.
         assertNever(caps("<FrameLimiterSupported>1</FrameLimiterSupported><VirtualDisplayCapable>false</VirtualDisplayCapable>"),
                 VIRTUAL_DISPLAY);
+    }
+
+    @Test
+    public void displayScaleNeedsDisplayScaleVersionAndAWorkingVirtualDisplay() {
+        String host = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable>" +
+                "<VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
+        // Older hosts (2.6.x, 3.0.0-rc.5) don't send it and ignore rlDisplayScale.
+        for (String version : new String[] {"", "<DisplayScaleVersion>0</DisplayScaleVersion>",
+                "<DisplayScaleVersion>x</DisplayScaleVersion>"}) {
+            assertReason(caps(host + version), DISPLAY_SCALE, Reason.UPDATE_HOST);
+        }
+        for (String version : new String[] {"1", "2"}) {
+            assertTrue(version, caps(host + "<DisplayScaleVersion>" + version + "</DisplayScaleVersion>").has(DISPLAY_SCALE));
+        }
+        assertReason(caps("<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>false</VirtualDisplayCapable>" +
+                "<DisplayScaleVersion>1</DisplayScaleVersion>"), DISPLAY_SCALE, Reason.VIRTUAL_DISPLAY_OFF);
+        // Only Rubylight reads it; Apollo and Vibepollo have a virtual display but not this option.
+        for (String fixture : new String[] {"apollo-serverinfo.xml", "vibepollo-serverinfo.xml", "sunshine-serverinfo.xml"}) {
+            assertNever(TestHosts.fixture(fixture), DISPLAY_SCALE);
+        }
     }
 
     @Test

@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">Écran virtuel</string>
     <string name="host_feature_virtual_display_hdr">Écran virtuel HDR</string>
     <string name="host_feature_display_modes">Modes d’affichage du PC</string>
+    <string name="host_feature_display_scale">Mise à l’échelle de l’écran du PC</string>
     <string name="host_feature_fractional_refresh">Fréquences de rafraîchissement fractionnaires</string>
     <string name="host_feature_vrr">VRR côté hôte</string>
     <string name="host_feature_runtime_bitrate">Changement de débit pendant un stream</string>

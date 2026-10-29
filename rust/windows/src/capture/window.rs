@@ -1,14 +1,18 @@
 //! One game window as the capture target, for Nucleus Co-op: each player's
 //! stream shows that player's game instance. The target names the window and
 //! the display whose GPU and colour space the capture uses:
-//! `window:<hwnd>@<display>`. Window targets are captured with Windows
+//! `window:<hwnd>@<display>`, or `window:<hwnd>/<pid>@<display>` to name the
+//! process that owns the window too. Window targets are captured with Windows
 //! Graphics Capture only; Desktop Duplication and the display driver's frame
 //! push capture whole displays, so neither is ever used in their place.
 
 use anyhow::{Context, Result, bail, ensure};
 use windows::Win32::{
     Foundation::HWND,
-    UI::WindowsAndMessaging::{IsIconic, IsWindow},
+    Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW, MonitorFromWindow,
+    },
+    UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsIconic, IsWindow},
 };
 
 pub(super) const PREFIX: &str = "window:";
@@ -19,6 +23,9 @@ pub struct WindowTarget {
     pub window: u64,
     /// The display the capture opens its GPU on, such as `\\.\DISPLAY1`.
     pub display: String,
+    /// The process that owns the window, when the target names it: a
+    /// handle Windows gave to another window is then refused.
+    pub process: Option<u32>,
 }
 
 impl WindowTarget {
@@ -26,6 +33,13 @@ impl WindowTarget {
         Self {
             window,
             display: display.to_string(),
+            process: None,
+        }
+    }
+    pub fn owned_by(self, process: u32) -> Self {
+        Self {
+            process: Some(process),
+            ..self
         }
     }
     /// `None` for a display name; an error for a malformed window target, so
@@ -36,6 +50,13 @@ impl WindowTarget {
         };
         let shape = || format!("capture target {name:?} is not window:<hwnd>@<display>");
         let (handle, display) = rest.split_once('@').with_context(shape)?;
+        let (handle, process) = match handle.split_once('/') {
+            Some((handle, process)) => (
+                handle,
+                Some(process.parse::<u32>().ok().with_context(shape)?),
+            ),
+            None => (handle, None),
+        };
         let window = match handle.strip_prefix("0x") {
             Some(hex) => u64::from_str_radix(hex, 16),
             None => handle.parse(),
@@ -51,7 +72,14 @@ impl WindowTarget {
             !display.is_empty(),
             "capture target {name:?} names no display"
         );
-        Ok(Some(Self::new(window, display)))
+        ensure!(
+            process != Some(0),
+            "capture target {name:?} names no process"
+        );
+        Ok(Some(Self {
+            process,
+            ..Self::new(window, display)
+        }))
     }
     pub(super) fn handle(&self) -> usize {
         self.window as usize
@@ -60,7 +88,11 @@ impl WindowTarget {
 
 impl std::fmt::Display for WindowTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{PREFIX}{}@{}", self.window, self.display)
+        write!(f, "{PREFIX}{}", self.window)?;
+        if let Some(process) = self.process {
+            write!(f, "/{process}")?;
+        }
+        write!(f, "@{}", self.display)
     }
 }
 
@@ -111,6 +143,54 @@ pub(super) fn check(window: usize) -> Result<()> {
     }
 }
 
+/// The display that shows most of the window, such as `\\.\DISPLAY1`.
+pub(super) fn display_of(window: usize) -> Result<String> {
+    let mut info = MONITORINFOEXW {
+        monitorInfo: MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFOEXW>() as u32,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // SAFETY: `info` is a live local whose size is set to the extended struct's;
+    // a stale handle only fails the call.
+    let found = unsafe {
+        let monitor = MonitorFromWindow(HWND(window as *mut _), MONITOR_DEFAULTTONEAREST);
+        GetMonitorInfoW(monitor, (&mut info as *mut MONITORINFOEXW).cast()).as_bool()
+    };
+    ensure!(found, "no display shows the window {window:#x}");
+    Ok(crate::text::from_wide(&info.szDevice))
+}
+
+/// The process that owns the window, 0 for a closed one.
+pub(super) fn owner_of(window: usize) -> u32 {
+    let mut process = 0;
+    // SAFETY: `process` is a live local; a stale handle only returns 0.
+    unsafe { GetWindowThreadProcessId(HWND(window as *mut _), Some(&mut process)) };
+    process
+}
+
+/// Refuses a window handle owned by another process than the target names:
+/// Windows reuses the handles of closed windows.
+pub(super) fn owned_by(window: usize, owner: u32, named: u32) -> Result<()> {
+    ensure!(
+        owner == named,
+        "the window {window:#x} belongs to process {owner}, not {named}; the window it named has closed"
+    );
+    Ok(())
+}
+
+/// Refuses a window shown on another display than the target names: the
+/// capture would use that display's GPU and colour space for it, and a name
+/// no display has would match none.
+pub(super) fn on_display(window: usize, shown_on: &str, named: &str) -> Result<()> {
+    ensure!(
+        shown_on.eq_ignore_ascii_case(named),
+        "the window {window:#x} is on {shown_on}, not on {named}; name the display it is on"
+    );
+    Ok(())
+}
+
 /// What to do with a captured frame of a window, whose size can change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Frame {
@@ -159,7 +239,14 @@ mod tests {
         let round = WindowTarget::new(77, r"\\.\DISPLAY9");
         assert_eq!(
             WindowTarget::parse(&round.to_string()).unwrap(),
-            Some(round)
+            Some(round.clone())
+        );
+        // With the owning process.
+        let owned = round.owned_by(4242);
+        assert_eq!(owned.to_string(), r"window:77/4242@\\.\DISPLAY9");
+        assert_eq!(
+            WindowTarget::parse(r"window:0x4d/4242@\\.\DISPLAY9").unwrap(),
+            Some(owned)
         );
     }
 
@@ -181,6 +268,16 @@ mod tests {
             (r"window:0x@\\.\DISPLAY1", "is not window:<hwnd>@<display>"),
             (r"window:0@\\.\DISPLAY1", "names no window"),
             ("window:123@", "names no display"),
+            (
+                r"window:123/@\\.\DISPLAY1",
+                "is not window:<hwnd>@<display>",
+            ),
+            (
+                r"window:123/x@\\.\DISPLAY1",
+                "is not window:<hwnd>@<display>",
+            ),
+            (r"window:/5@\\.\DISPLAY1", "is not window:<hwnd>@<display>"),
+            (r"window:123/0@\\.\DISPLAY1", "names no process"),
         ] {
             let error = WindowTarget::parse(name).unwrap_err().to_string();
             assert!(error.contains(says), "{name}: {error}");
@@ -270,6 +367,74 @@ mod tests {
             format!("the game window closed (window {:#x})", normal.0 as usize)
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_window_another_process_owns_is_refused() {
+        owned_by(5, 40, 40).unwrap();
+        assert_eq!(
+            owned_by(5, 41, 40).unwrap_err().to_string(),
+            "the window 0x5 belongs to process 41, not 40; the window it named has closed"
+        );
+    }
+
+    #[test]
+    fn a_window_on_another_display_than_named_is_refused() -> Result<()> {
+        assert!(on_display(5, r"\\.\DISPLAY1", r"\\.\display1").is_ok());
+        let error = on_display(5, r"\\.\DISPLAY1", r"\\.\DISPLAY2")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            r"the window 0x5 is on \\.\DISPLAY1, not on \\.\DISPLAY2; name the display it is on"
+        );
+        // A real (hidden) window: its own display passes, a name no display
+        // has is refused, never captured on the display it is on.
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP,
+        };
+        // SAFETY: The class and title are static NUL-terminated literals; no other pointers.
+        let window = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                windows::core::w!("STATIC"),
+                windows::core::w!("Rubylight capture test"),
+                WS_POPUP,
+                0,
+                0,
+                64,
+                64,
+                None,
+                None,
+                None,
+                None,
+            )
+        }?;
+        let handle = window.0 as usize;
+        let result = (|| -> Result<()> {
+            let shown_on = display_of(handle)?;
+            assert!(shown_on.starts_with(r"\\.\"), "{shown_on}");
+            crate::capture::check_window(&WindowTarget::new(handle as u64, &shown_on))?;
+            let error =
+                crate::capture::check_window(&WindowTarget::new(handle as u64, r"\\.\DISPLAY99"))
+                    .unwrap_err()
+                    .to_string();
+            assert!(error.contains(r"not on \\.\DISPLAY99"), "{error}");
+            // Its own process passes; another one's is a reused handle.
+            let own = WindowTarget::new(handle as u64, &shown_on).owned_by(std::process::id());
+            crate::capture::check_window(&own)?;
+            let error = crate::capture::check_window(&own.owned_by(std::process::id() + 1))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("belongs to process {}", std::process::id())),
+                "{error}"
+            );
+            Ok(())
+        })();
+        // SAFETY: The window was created on this thread above.
+        unsafe { DestroyWindow(window)? };
+        result
     }
 
     #[test]

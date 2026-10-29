@@ -2054,24 +2054,13 @@ mod tests {
         assert!(!outside.join("Butterpollo").exists());
         let untrusted = temp.path().join("untrusted");
         std::fs::create_dir(&untrusted)?;
-        let (_, identity) = system::run(
-            &system::system32("whoami.exe"),
-            &["/user", "/fo", "csv", "/nh"],
-            Duration::from_secs(10),
-        )?;
-        let sid = identity
-            .trim()
-            .split(',')
-            .nth(1)
-            .context("whoami omitted SID")?
-            .trim_matches('"');
-        // Elevated CI may create temporary folders owned by Administrators.
+        // Not an administrator's: an administrator's account may own a parent.
         let (code, output) = system::run(
             &system::system32("icacls.exe"),
             &[
                 &untrusted.display().to_string(),
                 "/setowner",
-                &format!("*{sid}"),
+                "*S-1-5-32-545",
                 "/Q",
             ],
             Duration::from_secs(10),
@@ -2182,6 +2171,14 @@ mod tests {
             .nth(1)
             .context("whoami omitted SID")?
             .trim_matches('"');
+        give_to(path, sid)
+    }
+    /// As [`give_to_user`], for the Users group: not an administrator, so
+    /// not trusted with a folder above the installation either.
+    fn give_to_users(path: &Path) -> Result<()> {
+        give_to(path, "S-1-5-32-545")
+    }
+    fn give_to(path: &Path, sid: &str) -> Result<()> {
         let owner = format!("*{sid}");
         for arguments in [["/setowner", owner.as_str()], ["/grant:r", "*S-1-1-0:(F)"]] {
             let (code, output) = system::run(
@@ -2233,7 +2230,7 @@ mod tests {
         let games = temp.path().join("Games");
         let nested = games.join("Rubylight");
         std::fs::create_dir_all(&nested)?;
-        give_to_user(&games)?;
+        give_to_users(&games)?;
         give_to_user(&nested)?;
         assert!(unrepairable(&nested).is_some());
         let error = prepare_install(&nested).unwrap_err().to_string();

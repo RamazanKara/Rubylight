@@ -23,4 +23,12 @@
     <string name="frontend_setup_esde">Nightjar sistemini yüklemek için ES-DE’yi yeniden başlatın. Yapılandırma klasörünü atladıysanız sistemi ve önbellekteki kapakları eklemek için sonraki dışa aktarmada seçin.</string>
     <string name="frontend_setup_daijisho">Dışa aktarılan butterpollo klasöründeki .art dosyaları için platform oluşturun. Aşağıdaki intent bağımsız değişkenleriyle bir Android oynatıcı ekleyip klasörü tarayın.</string>
     <string name="frontend_setup_pegasus">Dışa aktarılan butterpollo klasörünü ve .art dosyalarını kullanın. Koleksiyon meta verilerinde aşağıdaki başlatma komutunu ayarlayın.</string>
+    <string name="frontend_sync_title">%1$s · Eşitleniyor</string>
+    <string name="frontend_sync_stop">Eşitlemeyi durdur</string>
+    <string name="frontend_sync_summary">Eşitleniyor: %1$s</string>
+    <string name="frontend_sync_note">Bilgisayarın oyunları değiştiğinde %1$s bu klasörü güncel tutar.</string>
+    <string name="frontend_sync_failed">%2$s için %1$s oyunları artık eşitlenmiyor: klasöre erişilemiyor. Bilgisayarın ayarlarından klasörü yeniden seçin.</string>
+    <string name="frontend_sync_failed_message">Klasöre erişilemediği için bu oyunlar artık eşitlenmiyor. Klasörü yeniden seçin veya eşitlemeyi durdurun.</string>
+    <string name="frontend_sync_failed_summary">Eşitleme durdu, klasöre erişilemiyor: %1$s</string>
+    <string name="frontend_sync_unavailable">Bu klasör erişime yalnızca bu seferlik izin verdiği için %1$s onu eşitleyemiyor. Güncel kalması için yerel veya SD karttaki bir klasör seçin.</string>
 </resources>

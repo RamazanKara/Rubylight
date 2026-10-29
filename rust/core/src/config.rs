@@ -190,8 +190,8 @@ pub fn replace_retired<'a>(
 }
 
 /// Replace retired values in a library app: its top-level settings, as
-/// Apollo and Vibepollo store them, and its `config-overrides`. Returns
-/// whether anything changed.
+/// Apollo and Vibepollo store them, its `config-overrides` and those of its
+/// devices' blocks (`device-overrides`). Returns whether anything changed.
 pub fn replace_retired_in_app(app: &mut serde_json::Map<String, serde_json::Value>) -> bool {
     let mut changed = replace_retired(app.iter_mut());
     if let Some(overrides) = app
@@ -199,6 +199,19 @@ pub fn replace_retired_in_app(app: &mut serde_json::Map<String, serde_json::Valu
         .and_then(serde_json::Value::as_object_mut)
     {
         changed |= replace_retired(overrides.iter_mut());
+    }
+    for block in app
+        .get_mut(crate::device_overrides::SETTING)
+        .and_then(serde_json::Value::as_object_mut)
+        .into_iter()
+        .flat_map(|blocks| blocks.values_mut())
+    {
+        if let Some(overrides) = block
+            .get_mut(crate::device_overrides::CONFIG)
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            changed |= replace_retired(overrides.iter_mut());
+        }
     }
     changed
 }
@@ -2646,6 +2659,15 @@ webrtc_media_port = 99999
             app,
             serde_json::json!({"name": "Game", "gamepad": "vhf_xbox_one",
                 "config-overrides": {"gamepad": "vhf_ds4", "fec_percentage": "30"}})
+        );
+        assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
+        // A device's block in the app too.
+        let mut app = serde_json::json!({"name": "Game",
+            "device-overrides": {"tv": {"config-overrides": {"gamepad": "x360"}}}});
+        assert!(replace_retired_in_app(app.as_object_mut().unwrap()));
+        assert_eq!(
+            app["device-overrides"]["tv"]["config-overrides"]["gamepad"],
+            "vhf_xbox_one"
         );
         assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
     }

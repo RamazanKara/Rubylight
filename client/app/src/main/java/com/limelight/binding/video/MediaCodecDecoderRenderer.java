@@ -258,6 +258,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile float pyroWaveLossPercent = -1;
     private volatile float pyroWaveQueueDelayMs = -1;
     private final QueueDelayTracker queueDelay = new QueueDelayTracker();
+    /** Frames that arrived late against the host's clock, for the stream doctor's BURSTS vote. */
+    private final com.limelight.utils.LateFrames lateFrames = new com.limelight.utils.LateFrames();
     private volatile float queueDelayMs = -1;
     // Precise decode time: drives adaptive bitrate and quality, the stream doctor and the health dot.
     private volatile float decodeTimeMs = -1;
@@ -535,7 +537,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
                 jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
-                hostReports);
+                hostReports, lateFrames.tick());
+    }
+
+    /**
+     * A health sample that did not run (stream in the background, a host action, the last sample
+     * still running) ends its tick all the same: its late frames must not count in the next sample.
+     */
+    public void skipHealthSample() {
+        lateFrames.tick();
     }
 
     public LatencyProbe getLatencyProbe() {
@@ -1020,6 +1030,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /** The rate the game presents at in millihertz once steady (see HostFrameClock); else 0. */
     public int getContentRateMilliHz() {
         return hostFrameClock.contentRateMilliHz();
+    }
+
+    /** The overlay's received, rendered and compositor-confirmed FPS (-1 when unreported) now. */
+    public float[] getFrameRates() {
+        return frameLatencyStats.getFrameRates(System.nanoTime());
     }
 
     public com.limelight.nvstream.DecodeTiming takeDecodeTiming(int fps) {
@@ -4258,6 +4273,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         if (frameNumber != lastFrameNumber) {
             queueDelay.onFrame(receiveTimeUs, presentationTimeUs, frameHostProcessingLatency * 100L);
+            lateFrames.push(presentationTimeUs, frameHostProcessingLatency * 100L, receiveTimeUs, (streamFrameRateMilliHz + 500) / 1000);
         }
         lastFrameNumber = frameNumber;
 

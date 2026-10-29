@@ -258,6 +258,11 @@ pub struct Settings {
     /// offered up to 300 %.
     #[serde(deserialize_with = "render_scale")]
     pub virtual_display_scale: u32,
+    /// "PC display scaling": the Windows scale (text and interface size) of the virtual
+    /// display, in percent (`rlDisplayScale`); 0 keeps the PC's own setting. A saved scale
+    /// Windows does not offer reads as 0, as on Android: the PC would refuse the launch.
+    #[serde(deserialize_with = "display_scale")]
+    pub virtual_display_dpi: u32,
     pub host_display: HostDisplay,
     /// The video FEC asked for at launch from a PC that lets the client choose it.
     pub error_correction: ErrorCorrection,
@@ -440,6 +445,15 @@ fn render_scale<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u32
     Ok(u32::deserialize(deserializer)?.clamp(*RENDER_SCALE.start(), *RENDER_SCALE.end()))
 }
 
+/// The Windows scales "PC display scaling" offers in percent; 0 keeps the PC's own
+/// (`rlDisplayScale`, Android's `VIRTUAL_DISPLAY_DPI_VALUES`).
+pub const DISPLAY_SCALES: [u32; 13] = [0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
+
+fn display_scale<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+    let percent = u32::deserialize(deserializer)?;
+    Ok(if DISPLAY_SCALES.contains(&percent) { percent } else { 0 })
+}
+
 impl Settings {
     /// Turns Recover interrupted streams on once in settings saved before it became the default.
     fn migrate(&mut self) {
@@ -514,6 +528,7 @@ impl Default for Settings {
             auto_reconnect_default_on: true,
             virtual_display: false,
             virtual_display_scale: 100,
+            virtual_display_dpi: 0,
             host_display: HostDisplay::HostDefault,
             error_correction: ErrorCorrection::Host,
             link_probe: false,
@@ -1550,6 +1565,22 @@ mod tests {
             assert_eq!(own.apply(&Settings::default()).virtual_display_scale, read, "an override at {saved} %");
         }
         assert_eq!(Settings::default().virtual_display_scale, 100);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_saved_pc_display_scaling_windows_does_not_offer_keeps_the_pcs_own() {
+        let dir = std::env::temp_dir().join(format!("nightjar-display-scale-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        for (saved, read) in [(175, 175), (500, 500), (0, 0), (275, 0), (600, 0), (99, 0)] {
+            std::fs::write(dir.join("settings.json"), format!(r#"{{"virtual_display_dpi": {saved}}}"#)).unwrap();
+            assert_eq!(store.settings().virtual_display_dpi, read, "settings.json at {saved} %");
+            let own: Overrides = serde_json::from_str(&format!(r#"{{"virtual_display_dpi": {saved}}}"#)).unwrap();
+            assert_eq!(own.apply(&Settings::default()).virtual_display_dpi, read, "an override at {saved} %");
+        }
+        // Files from before the setting keep the PC's own scale and the render resolution apart.
+        std::fs::write(dir.join("settings.json"), r#"{"virtual_display_scale": 150}"#).unwrap();
+        assert_eq!((store.settings().virtual_display_dpi, store.settings().virtual_display_scale), (0, 150));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

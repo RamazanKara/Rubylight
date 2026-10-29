@@ -55,6 +55,8 @@ public class SettingsKeysTest {
             "checkbox_usb_dualsense_haptics", "checkbox_usb_bind_all", "checkbox_enable_sops",
             "checkbox_disable_warnings", "export_latency_csv", "checkbox_quick_resume",
             com.limelight.console.HomeSettings.PREF_KEY,
+            // Added later; kept here so it is never renamed either.
+            "list_virtual_display_dpi",
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
@@ -263,6 +265,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_full_range", new Read(false, true, c -> c.fullRange));
         reads.put("checkbox_virtual_display", new Read(false, true, c -> c.virtualDisplay));
         reads.put("seekbar_virtual_display_scale", new Read(100, 150, c -> c.virtualDisplayScale));
+        reads.put("list_virtual_display_dpi", new Read("0", "150", c -> c.virtualDisplayDpi));
         reads.put("checkbox_multi_controller", new Read(true, false, c -> c.multiController));
         reads.put("seekbar_deadzone", new Read(7, 12, c -> c.deadzonePercentage));
         reads.put("checkbox_flip_face_buttons", new Read(false, true, c -> c.flipFaceButtons));
@@ -272,6 +275,8 @@ public class SettingsKeysTest {
         reads.put("checkbox_disable_rumble", new Read(false, true, c -> c.disableRumble));
         reads.put("checkbox_back_as_meta", new Read(false, true, c -> c.backAsMeta));
         reads.put("checkbox_back_opens_menu", new Read(false, true, c -> c.backOpensMenu));
+        reads.put("checkbox_back_as_guide", new Read(false, true, c -> c.backAsGuide));
+        reads.put("checkbox_capture_system_keys", new Read(true, false, c -> c.captureSystemKeys));
         reads.put("checkbox_right_alt_as_meta", new Read(false, true, c -> c.rightAltAsMeta));
         reads.put("checkbox_keyboard_follows_text_fields", new Read(true, false, c -> c.keyboardFollowsTextFields));
         reads.put("checkbox_clipboard_sync", new Read(false, true, c -> c.clipboardSync));

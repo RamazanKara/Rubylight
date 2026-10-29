@@ -270,13 +270,16 @@
     <string name="title_virtual_display">主机虚拟显示器</string>
     <string name="summary_virtual_display">请求电脑提供与串流匹配的显示器。关闭：由电脑自身的显示设置决定。</string>
     <string name="title_vrr">自适应刷新（ARR / VRR）</string>
-    <string name="summary_vrr">在支持自适应刷新的 Android 16 屏幕上，Android 会使刷新率与串流匹配；其他屏幕以其最高刷新率运行。支持 VRR 的主机也会被请求使用 VRR，具体取决于其设置。开启此项时，帧速调节和降低刷新率不适用。</string>
+    <string name="summary_vrr">在支持自适应刷新的 Android 16 屏幕上，Android 会使刷新率与串流匹配；其他屏幕以其最高刷新率运行；连接 Rubylight 电脑时，仅当游戏帧率在最高刷新率下会卡顿且能无黑屏切换时，才会切换到匹配的较低刷新率。支持 VRR 的主机也会被请求使用 VRR，具体取决于其设置。开启此项时，帧速调节和降低刷新率不适用。</string>
     <string name="title_host_frame_times">按电脑的帧时间显示画面</string>
     <string name="summary_host_frame_times">将每一帧保留几毫秒，使其在游戏绘制它的时刻显示，而不是在网络送达时显示。可平滑抖动，自适应刷新率下效果尤佳。将取代帧节奏设置。PyroWave 不使用此功能。</string>
     <string name="title_content_rate_frame_rate">让屏幕匹配游戏帧率</string>
     <string name="summary_content_rate_frame_rate">把游戏实际运行的帧率告知 Android，使具有匹配刷新模式的屏幕可以切换到该模式而不会黑屏。需要会发送帧时间的电脑，并需开启“允许降低刷新率”；最多每 2 秒更改一次。不适用于 PyroWave 和自适应刷新。</string>
     <string name="title_virtual_display_scale">电脑渲染分辨率</string>
     <string name="summary_virtual_display_scale">电脑渲染所用分辨率占串流分辨率的百分比。传输的视频大小不变。若要发送更少像素并在此设备上放大，请降低串流分辨率。</string>
+    <string name="title_virtual_display_dpi">电脑显示缩放</string>
+    <string name="summary_virtual_display_dpi">虚拟显示器上的文字和界面大小，适用于 Rubylight 电脑。</string>
+    <string name="virtual_display_dpi_pc_own">跟随电脑</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">暂无数据</string>
     <string name="title_export_latency_csv">导出延迟 CSV</string>

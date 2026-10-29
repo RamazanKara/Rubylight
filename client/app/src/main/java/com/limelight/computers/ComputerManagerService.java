@@ -36,6 +36,8 @@ import com.limelight.nvstream.wol.WakeTargetsPoll;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.HostStreamProfile;
 import com.limelight.utils.CacheHelper;
+import com.limelight.utils.FrontendExportStore;
+import com.limelight.utils.FrontendSync;
 import com.limelight.utils.NetHelper;
 import com.limelight.utils.RedactedLog;
 import com.limelight.utils.ServerHelper;
@@ -614,6 +616,7 @@ public class ComputerManagerService extends Service {
             com.limelight.preferences.AutoBitrateChoice.forget(this, computer.uuid);
             getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE)
                     .edit().remove(computer.uuid).apply();
+            FrontendExportStore.forgetHost(this, computer.uuid);
             CacheHelper.deleteCacheFile(getCacheDir(), "applist", computer.uuid);
             new DiskAssetLoader(this).deleteAssetsForComputer(computer.uuid);
 
@@ -1070,6 +1073,8 @@ public class ComputerManagerService extends Service {
                                 if (currentListener != null && isCurrentWorker()) {
                                     currentListener.notifyAppListUpdated(computer, true);
                                 }
+                                // Launcher exports follow added, renamed and removed games.
+                                FrontendSync.appListChanged(ComputerManagerService.this, computer);
                             }
                             else if (appList.isEmpty()) {
                                 LimeLog.warning("Null app list received from "+computer.uuid);

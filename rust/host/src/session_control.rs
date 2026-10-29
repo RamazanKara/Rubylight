@@ -261,21 +261,19 @@ impl Host {
         control.persist();
         // Whatever moved the machine (End session, Close game, the grace period running out,
         // /cancel, a reset), a device that is gone from the session gets its Radeon settings
-        // back and its profile note goes. Disconnect keeps the owner, so it restores nothing, and
-        // nothing is restored while a launch or teardown runs: a launch that fails gives the
-        // session back.
+        // and its games' settings file keys back, and its profile note goes. Disconnect keeps
+        // the owner, so it restores nothing, and nothing is restored while a launch or teardown
+        // runs: a launch that fails gives the session back.
         let settled = matches!(
             control.machine.state(),
             State::Idle | State::Streaming | State::Suspended
         );
         let present = || self.devices_present(&control.machine);
         let mut seen = None;
-        self.radeon.sync(|| {
-            settled.then(|| {
-                let present = present();
-                seen = Some(present.clone());
-                present
-            })
+        self.radeon
+            .sync(|| settled.then(|| seen.get_or_insert_with(present).clone()));
+        self.game_files.sync(&self.directory, || {
+            settled.then(|| seen.get_or_insert_with(present).clone())
         });
         if settled && self.notes.has_profile() {
             let present = seen.unwrap_or_else(present);

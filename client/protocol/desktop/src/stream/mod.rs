@@ -50,7 +50,7 @@ use nightjar_core::control::{ClientMessage, ControlEvent};
 use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, NativeCapabilities, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
-use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
+use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkChange, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
 use nightjar_policy::health::TrialOffer;
 use nightjar_policy::overlay::{HardwareAnswer, HardwarePoll};
 use nightjar_policy::stats::Stats;
@@ -513,6 +513,9 @@ impl Connecting {
         }
     }
 
+    /// The stream presents for a VRR display (the setting is on and the swap chain tears).
+    pub fn vrr(&self) -> bool { self.plan.vrr }
+
     /// Ok(Some) once streaming, Err on failure.
     pub fn poll(&mut self) -> Result<Option<(Session, Facts)>, ConnectFailed> {
         let expired = self.plan.recovery.as_ref().is_some_and(|r| r.remaining(recovery::now_ms()) == 0);
@@ -591,6 +594,8 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
                 if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
                 std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
             }
+            let port = if plan.record.http_port == 0 { nightjar_core::http::DEFAULT_HTTP_PORT } else { plan.record.http_port };
+            wait_for_route(&plan.record.address, port, recovery.remaining(recovery::now_ms()), interrupt)?;
         }
         match connect(plan, shared.clone(), interrupt) {
             Err(error) if error.retryable && plan.recovery.is_some() && !interrupt.is_interrupted() => {
@@ -599,6 +604,59 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
             }
             result => return result,
         }
+    }
+}
+
+/// Before a recovery attempt: returns once the PC is reachable, or when the recovery window ends
+/// (the attempt then fails and the budget says so), Err when cancelled. A network is often back
+/// before its address toward the PC (DHCP), so the attempt waits for a route instead of failing
+/// at once and backing off.
+fn wait_for_route(address: &str, port: u16, remaining_ms: u64, interrupt: &Interrupt) -> Result<(), ConnectError> {
+    let started = Instant::now();
+    let mut wait = recovery::RouteWait::new(recovery::now_ms() + remaining_ms);
+    loop {
+        if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
+        let checked = Instant::now();
+        let problem = route_problem(address, port);
+        match wait.next(recovery::now_ms(), problem.is_none()) {
+            Some(0) => {
+                if wait.unreachable_checks() > 0 {
+                    eprintln!("nightjar: recovery: the PC is reachable again after {} ms", started.elapsed().as_millis());
+                }
+                return Ok(());
+            }
+            None => {
+                eprintln!("nightjar: recovery: the PC stayed unreachable until the recovery window ended: {}",
+                    problem.unwrap_or_default());
+                return Ok(());
+            }
+            Some(delay) => {
+                if wait.unreachable_checks() == 1 {
+                    eprintln!("nightjar: recovery: no route to the PC yet ({}), checking every {} ms",
+                        problem.unwrap_or_default(), recovery::ROUTE_RETRY_MS);
+                }
+                let until = checked + Duration::from_millis(delay);
+                while Instant::now() < until {
+                    if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
+                    std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
+                }
+            }
+        }
+    }
+}
+
+/// Why there is no route toward the PC's HTTP port yet ([`recovery::route_missing`], or the
+/// name does not resolve), or None to go on with the attempt: an answer, refused included, and
+/// also a check that timed out or failed otherwise.
+fn route_problem(address: &str, port: u16) -> Option<String> {
+    let remote = match (address, port).to_socket_addrs().map(|mut found| found.next()) {
+        Ok(Some(remote)) => remote,
+        Ok(None) => return Some(format!("{address} did not resolve")),
+        Err(error) => return Some(error.to_string()),
+    };
+    match std::net::TcpStream::connect_timeout(&remote, Duration::from_millis(recovery::ROUTE_PROBE_TIMEOUT_MS)) {
+        Err(error) if recovery::route_missing(&error) => Some(error.to_string()),
+        _ => None,
     }
 }
 
@@ -653,6 +711,37 @@ fn race_line(frames: u64, slices: u64, unordered: u64) -> String {
         line.push_str(" (the host is not sending the row order)");
     }
     line
+}
+
+/// Whether a stream runs the display check for VRR: every VRR stream (`vrr`: the setting is on and
+/// the swap chain tears) that presents with tearing and would pace otherwise without VRR
+/// (`fallback`), unless `NIGHTJAR_VRR_CHECK` (`forced`) says off. The VRR setting is on by default,
+/// and without the check a fixed refresh display tears.
+fn checks_display_for_vrr(vrr: bool, pacing: PacingMode, fallback: PacingMode, forced: Option<bool>) -> bool {
+    vrr && pacing != PacingMode::Vsync && fallback != pacing && forced != Some(false)
+}
+
+/// Whether the stream reads the scan line around its presents, and the topic of its log lines:
+/// for the beam race, for the VRR display check, and for `NIGHTJAR_VRR_SYNC=scan`, which waits on
+/// the beam. None for every other stream.
+fn display_probe(beam_race: bool, vrr: &present::VrrPacing) -> Option<&'static str> {
+    if beam_race {
+        Some("beam race")
+    } else if vrr.check || vrr.sync == present::VrrSync::Scan {
+        Some("display check")
+    } else {
+        None
+    }
+}
+
+/// The overlay's pacing, which says why a VRR stream waits for the refresh (or tears without
+/// V-Sync) when the display check changed it.
+fn pacing_label(mode: PacingMode, fell_back: bool) -> &'static str {
+    match mode {
+        PacingMode::Vsync if fell_back => "V-Sync: this display does not refresh on present",
+        PacingMode::Immediate if fell_back => "Immediate: this display does not refresh on present",
+        mode => mode.label(),
+    }
 }
 
 /// What early decode does on a stream. `NoRecords` is the failure the earlier measurements
@@ -871,27 +960,38 @@ fn roaming_config(settings: &Settings, watching: bool) -> RoamingConfig {
     }
 }
 
-/// Client roaming's network watcher toward the PC, feeding the stream through `Notice`s, or None
-/// with why on stderr.
+/// Over the frozen picture while the stream's network is gone; the second when a reconnect follows.
+const NETWORK_LOST: &str = en("Network lost.");
+const NETWORK_LOST_RECONNECTING: &str = en("Network lost. Reconnecting as soon as it is back…");
+
+/// The stream's network watcher toward the PC, feeding the stream through `Notice`s, or None
+/// with why on stderr. It runs for every stream: a lost route that comes back where the
+/// connection cannot carry on reconnects at once; with client roaming its changes are also the
+/// session's hints.
 fn roam_watch(settings: &Settings, address: &str, shared: &Arc<Shared>) -> Option<crate::network::RoamWatch> {
-    if !settings.client_roaming { return None; }
+    let unwatched = if !settings.client_roaming || settings.roaming_metered { "" } else { " and roaming is off" };
     let Some(remote) = (address, 47989).to_socket_addrs().ok().and_then(|mut found| found.next()) else {
-        eprintln!("nightjar: roaming: {address} did not resolve, network changes go unwatched{}",
-            if settings.roaming_metered { "" } else { " and roaming is off" });
+        eprintln!("nightjar: roaming: {address} did not resolve, network changes go unwatched{unwatched}");
         return None;
     };
     let shared = Arc::downgrade(shared);
-    let on_change = move |metered| shared.upgrade().map(|s| s.notify(Notice::NetworkChanged(NetworkHint { metered }))).is_some();
+    let on_change = move |event| {
+        let notice = match event {
+            crate::network::LinkEvent::Lost => Notice::NetworkLost,
+            crate::network::LinkEvent::Changed { metered, after_loss } => Notice::NetworkChanged(NetworkHint { metered }, after_loss),
+        };
+        shared.upgrade().map(|s| s.notify(notice)).is_some()
+    };
     crate::network::RoamWatch::start(remote, on_change)
-        .map_err(|e| eprintln!("nightjar: roaming: network changes go unwatched{}: {e}",
-            if settings.roaming_metered { "" } else { " and roaming is off" }))
+        .map_err(|e| eprintln!("nightjar: roaming: network changes go unwatched{unwatched}: {e}"))
         .ok()
 }
 
-/// Keeps the watcher for the stream only when the host roams; otherwise its hints go nowhere, so
-/// it stops instead of looking at the network every second.
-fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>, host_roaming: bool) {
-    *lock(&shared.roam_watch) = watch.filter(|_| host_roaming);
+/// Keeps the watcher for the stream. The session roams on its changes only when the host roams
+/// and client roaming is on, and tells on every stream whether a lost network's return lets the
+/// connection carry on.
+fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>) {
+    *lock(&shared.roam_watch) = watch;
 }
 
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
@@ -923,6 +1023,34 @@ fn rejoin(mut plan: LaunchPlan, role: AppRole) -> Option<LaunchPlan> {
 /// minimized or hidden one (`away`) waits for the user, as the Android app does in the background.
 fn reconnects_automatically(auto_reconnect: bool, away: bool, role: AppRole) -> bool {
     auto_reconnect && !away && role == AppRole::Stream
+}
+
+/// The plan that reconnects a dropped stream of `role` that `plan` started, on its own, or None
+/// when it waits for the user ([`reconnects_automatically`]) or there is nothing to rejoin. Its
+/// budget renews after `connected_ms` of a stable stream; `retry_now`: the first attempt starts
+/// without its delay (it still spends one).
+fn automatic_rejoin(plan: &LaunchPlan, role: AppRole, auto_reconnect: bool, away: bool, connected_ms: u64, retry_now: bool) -> Option<LaunchPlan> {
+    if !reconnects_automatically(auto_reconnect, away, role) { return None; }
+    let mut plan = rejoin(plan.clone(), role)?;
+    let recovery = plan.recovery.get_or_insert_with(Default::default);
+    recovery.reset_after(connected_ms);
+    if retry_now { recovery.retry_now(); }
+    Some(plan)
+}
+
+/// The lost-network notice: it promises a reconnect only when one will follow (`on_its_own`: a
+/// dropped stream reconnects by itself, so the connection's timeout or a return it cannot carry
+/// on over recovers it), not where a network drop tolerance holds the connection instead.
+fn lost_notice(settings: &Settings, on_its_own: bool) -> &'static str {
+    if on_its_own && settings.network_grace_ms <= recovery::PEER_TIMEOUT_MS { NETWORK_LOST_RECONNECTING } else { NETWORK_LOST }
+}
+
+/// A network is back after the route was gone: whether the stream ends now to reconnect at once.
+/// Only when the session says its connection cannot carry on (another address, not roamed): it
+/// would only time out. Roamed, or the same address back, or no route yet, the stream goes on.
+fn reconnects_on_return(change: NetworkChange, metered: bool, settings: &Settings, on_its_own: bool) -> bool {
+    on_its_own && recovery::reconnects_at_once(change == NetworkChange::CannotContinue, metered,
+        settings.roaming_metered, settings.auto_reconnect, settings.network_grace_ms)
 }
 
 /// Whether a refused launch of `plan` is the PC's prompt to close the running app, which the
@@ -966,6 +1094,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         } else { String::new() },
         virtual_display: settings.virtual_display,
         virtual_display_scale: settings.virtual_display_scale,
+        virtual_display_dpi: settings.virtual_display_dpi,
         host_display: settings.host_display.into(),
         fec: Some(settings.error_correction.into()),
         small_stream_input_only: plan.small_stream_input_only,
@@ -1140,7 +1269,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let passthrough = stream.audio_passthrough;
     let session = Session::start(
         &host,
-        session_config(settings, role, stream, location_override(), watch.is_some()),
+        session_config(settings, role, stream, location_override(), watch.is_some() && settings.client_roaming),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
         Arc::new(pipeline::Events::new(shared)),
@@ -1148,7 +1277,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     )
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
     let outcome = session.outcome();
-    keep_roam_watch(&roam_shared, watch, outcome.host_roaming);
+    keep_roam_watch(&roam_shared, watch);
     let mut facts = Facts {
         role,
         width: outcome.config.width,
@@ -1230,11 +1359,14 @@ pub enum Exit {
     Terminated(i32),
     /// The host ended it or the connection failed; Some carries the message.
     Ended(Option<String>),
+    /// A lost network came back where the connection cannot carry on: reconnect at once.
+    NetworkReturned,
 }
 
 impl Exit {
     pub fn retryable(&self) -> bool {
-        matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
+        matches!(self, Self::NetworkReturned) ||
+            matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
     }
 }
 
@@ -1380,8 +1512,15 @@ pub struct Streaming {
     upscaler: Option<upscale::Upscaler>,
     upscale_failed: bool,
     phase: phase::Phase,
-    /// Whether racing the display's beam can work here, once the beam race is on and a picture is shown.
+    /// Whether racing the display's beam can work here, once the beam race is on and a picture is
+    /// shown; on a VRR stream that tears, whether the display refreshes on present (`sync_vrr`).
     race_probe: Option<race_probe::RaceProbe>,
+    /// The display check for VRR: the stream presents with tearing, and a display found to scan
+    /// at its own rate gets the pacing it would have without VRR (off under `NIGHTJAR_VRR_CHECK=0`,
+    /// for measurement runs); and `NIGHTJAR_VRR_SYNC` on a VRR stream.
+    vrr: present::VrrPacing,
+    /// Presents `VrrSync::Scan` held for a scan under way, and how long in all (ns).
+    scan_waits: (u32, u64),
     /// The picture on the display's beam, while racing it is possible (see `sync_race`).
     race_scan: Option<race::Scan>,
     /// The frame in flight under the raced presenter, and what it plans from.
@@ -1410,6 +1549,10 @@ pub struct Streaming {
     pipeline_rates: Option<PipelineRatesReport>,
     pub exit: Option<Exit>,
     pub toast: Option<(String, Instant)>,
+    /// The route toward the PC is gone: the lost-network notice stays until one returns.
+    pub network_lost: bool,
+    /// The next automatic reconnect starts without its delay (a network came back).
+    retry_now: bool,
     pub host_id: u64,
     settings: Settings,
     plan: LaunchPlan,
@@ -1572,6 +1715,13 @@ impl Streaming {
         let usb = if settings.usb_forwarding && usb_refused.is_none() { lock(&connecting.shared.host_client).clone() } else { None }
             .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
         let hdr_stream = present::hdr_negotiated(settings.hdr, facts.format);
+        let vrr_fallback = present::without_vrr(&settings);
+        let vrr_check = checks_display_for_vrr(connecting.plan.vrr, connecting.pacing, vrr_fallback, env_flag("NIGHTJAR_VRR_CHECK"));
+        let vrr_sync = if connecting.plan.vrr { present::VrrSync::parse(std::env::var("NIGHTJAR_VRR_SYNC").ok().as_deref()) } else { present::VrrSync::Off };
+        if vrr_sync != present::VrrSync::Off { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
+        if vrr_sync == present::VrrSync::Scan && !vrr_check {
+            eprintln!("nightjar: VRR sync scan reads the scan line; the display check's verdict changes no pacing on this stream");
+        }
         let mut streaming = Self {
             usb,
             usb_refused,
@@ -1584,6 +1734,9 @@ impl Streaming {
             upscale_failed: false,
             phase: phase::Phase::default(),
             race_probe: None,
+            // The sync interval as `App::begin_stream` set it.
+            vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing),
+            scan_waits: (0, 0),
             race_scan: None,
             racer: race::Racer::default(),
             predictor: None,
@@ -1602,6 +1755,8 @@ impl Streaming {
             pipeline_rates: None,
             exit: None,
             toast: None,
+            network_lost: false,
+            retry_now: false,
             host_id: connecting.host_id,
             absolute: settings.mouse_mode == MouseMode::Absolute,
             settings,
@@ -1740,20 +1895,56 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
+    /// The route toward the PC went away: a frozen picture is never silent. The notice stays
+    /// until a network returns; `away`: the window is minimized or hidden.
+    fn network_lost(&mut self, away: bool) {
+        eprintln!("nightjar: the stream's network was lost");
+        self.network_lost = true;
+        self.show_toast(tr(lost_notice(&self.settings, self.reconnects_on_its_own(away))));
+    }
+
+    /// A network is back after the route was gone; `change`: what it means for the session
+    /// ([`reconnects_on_return`]).
+    fn network_returned(&mut self, change: NetworkChange, metered: bool, away: bool) {
+        if !std::mem::take(&mut self.network_lost) { return; }
+        if self.toast.as_ref().is_some_and(|(text, _)| *text == tr(NETWORK_LOST) || *text == tr(NETWORK_LOST_RECONNECTING)) {
+            self.toast = None;
+            self.needs_redraw = true;
+        }
+        if change != NetworkChange::CannotContinue || self.exit.is_some() { return; }
+        if !reconnects_on_return(change, metered, &self.settings, self.reconnects_on_its_own(away)) {
+            eprintln!("nightjar: the network is back on another address the stream did not roam to; \
+                its connection times out");
+            return;
+        }
+        eprintln!("nightjar: the network is back on another address the stream did not roam to: reconnecting now");
+        self.retry_now = true;
+        self.exit = Some(Exit::NetworkReturned);
+    }
+
+    /// Whether a dropped stream would reconnect on its own now: [`automatic_rejoin`] has a plan
+    /// with an attempt left in its budget. Spends nothing.
+    fn reconnects_on_its_own(&self, away: bool) -> bool {
+        automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false)
+            .and_then(|plan| plan.recovery)
+            .is_some_and(|budget| budget.allows_attempt(recovery::now_ms()))
+    }
+
+    fn connected_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
     /// The plan that starts the stream again; `automatic` after a drop, `away` while the window is
     /// minimized or hidden.
     pub fn reconnect_plan(&self, automatic: bool, away: bool) -> Option<LaunchPlan> {
-        if automatic && !reconnects_automatically(self.settings.auto_reconnect, away, self.facts.role) {
-            return None;
-        }
-        let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
-        plan.microphone_muted = self.microphone_muted;
-        if automatic {
-            let recovery = plan.recovery.get_or_insert_with(Default::default);
-            recovery.reset_after(self.started.elapsed().as_millis() as u64);
+        let mut plan = if automatic {
+            automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), self.retry_now)?
         } else {
+            let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
             plan.recovery = None;
-        }
+            plan
+        };
+        plan.microphone_muted = self.microphone_muted;
         Some(plan)
     }
 
@@ -1974,7 +2165,8 @@ impl Streaming {
 
     /// Handles queued notices from the session threads. Control events that need the
     /// controllers are applied to `pads`.
-    pub fn drain_notices(&mut self, pads: &mut Gamepads) {
+    /// `away`: the window is minimized or hidden.
+    pub fn drain_notices(&mut self, pads: &mut Gamepads, away: bool) {
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
         for notice in notices {
             match notice {
@@ -2033,9 +2225,13 @@ impl Streaming {
                         self.show_toast(error);
                     }
                 }
-                Notice::NetworkChanged(hint) => {
-                    self.session.network_changed(hint);
+                Notice::NetworkChanged(hint, after_loss) => {
+                    // A session without roaming (off, or a host that does not roam) never roams,
+                    // but still says whether its connection carries on.
+                    let change = self.session.network_changed(hint);
+                    if after_loss { self.network_returned(change, hint.metered, away); }
                 }
+                Notice::NetworkLost => self.network_lost(away),
                 Notice::AdaptiveBitrate(result) => {
                     self.bitrate_busy = false;
                     match result {
@@ -2618,6 +2814,7 @@ impl Streaming {
                 }
             }
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
+            self.doctor.arrived(decoded.rtp, decoded.host_latency, decoded.receive_us, self.facts.fps.max(0) as u32);
             self.pacer.accept(decoded);
         }
         self.observe_slices(slices);
@@ -2679,6 +2876,41 @@ impl Streaming {
             }
             _ => {}
         }
+    }
+
+    /// Turns a VRR stream to the pacing it would have without VRR once the display check finds the
+    /// display scanning at its own rate (`present::VrrPacing`), and gives the renderer the sync
+    /// interval the pacing and `NIGHTJAR_VRR_SYNC` ask for.
+    fn sync_vrr(&mut self, renderer: *mut SDL_Renderer) {
+        let before = self.pacer.mode;
+        let probe = self.race_probe.as_ref();
+        let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict));
+        if self.pacer.mode != before {
+            eprintln!("nightjar: pacing: {}, this display does not refresh on present (display check: {})",
+                self.pacer.mode.label(), probe.map_or(String::new(), race_probe::RaceProbe::line));
+        }
+        if let Some(interval) = interval {
+            // SAFETY: the live renderer belongs to the presenting thread.
+            if !unsafe { SDL_SetRenderVSync(renderer, interval) } {
+                eprintln!("nightjar: pacing: could not set the sync interval to {interval}: {}", crate::sdl::error());
+            }
+        }
+    }
+
+    /// `VrrSync::Scan`: while the beam is in the picture's rows, waits for it to leave the last one,
+    /// so the present shows its picture whole. Returns how long it waited (ns).
+    fn wait_out_scan(&mut self) -> u64 {
+        // The tearing modes that present whole pictures; the beam race times its own presents.
+        if self.vrr.sync != present::VrrSync::Scan || !matches!(self.pacer.mode, PacingMode::Immediate | PacingMode::HostTimes) { return 0; }
+        let Some(probe) = &self.race_probe else { return 0 };
+        let (Some(beam), Some(sample)) = (probe.beam(), probe.before()) else { return 0 };
+        let Some(left) = beam.scan_left_ns(&sample) else { return 0 };
+        // Spinning: the wait is under one scan (4.2 ms at 240 Hz), shorter than a sleep can be exact.
+        let until = Instant::now() + Duration::from_nanos(left);
+        while Instant::now() < until { std::hint::spin_loop(); }
+        self.scan_waits.0 += 1;
+        self.scan_waits.1 += left;
+        left
     }
 
     /// Takes the slices the decoder finished since the last call into the racer.
@@ -2762,10 +2994,12 @@ impl Streaming {
             }
         }
         draw_overlay(self, renderer);
-        // The beam race probe reads the scan line around the present (nothing when the race is off).
-        if self.facts.beam_race && probe && self.race_probe.is_none() {
-            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps)));
+        // The display probe reads the scan line around the present (nothing with the beam race off,
+        // no VRR check and no VRR sync on the scan).
+        if let (Some(topic), true, true) = (display_probe(self.facts.beam_race, &self.vrr), probe, self.race_probe.is_none()) {
+            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps), topic));
         }
+        if probe { self.wait_out_scan(); }
         let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
@@ -2792,6 +3026,7 @@ impl Streaming {
             self.needs_redraw = true;
         }
         self.sync_race(renderer);
+        self.sync_vrr(renderer);
         // The slices of a frame still being received go out ahead of the beam.
         let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
         let now = session::now_us();
@@ -3041,7 +3276,7 @@ impl Streaming {
         if let Some(reason) = self.facts.beam_race_off {
             lines.push(("Beam race".into(), reason.into()));
         }
-        if let Some(probe) = &self.race_probe {
+        if let (true, Some(probe)) = (self.facts.beam_race, &self.race_probe) {
             lines.push(("Beam race".into(), probe.line()));
         }
         if self.facts.beam_race {
@@ -3055,7 +3290,13 @@ impl Streaming {
             "Render".into(),
             format!("{:.2} ms", avg(w.render_us as f64, w.shown) / 1000.0),
         ));
-        let mut pacing = self.pacer.mode.label().to_owned();
+        let mut pacing = pacing_label(self.pacer.mode, self.vrr.fell_back).to_owned();
+        if self.vrr.sync != present::VrrSync::Off && self.pacer.mode != PacingMode::Vsync {
+            pacing.push_str(&format!(", VRR sync {}", self.vrr.sync.label()));
+            if self.scan_waits.0 > 0 {
+                pacing.push_str(&format!(" ({} waits, {:.2} ms each)", self.scan_waits.0, self.scan_waits.1 as f64 / f64::from(self.scan_waits.0) / 1e6));
+            }
+        }
         if self.pacer.mode == PacingMode::HostTimes {
             if let Some(delay) = self.pacer.clock.delay_us() {
                 pacing.push_str(&format!(
@@ -3610,6 +3851,11 @@ impl Streaming {
             eprintln!("nightjar: beam race: frames not raced: {} with under 1 ms to gain, {} not in slices, {} with the first slice missed",
                 skipped[0], skipped[1], skipped[2]);
         }
+        if self.vrr.sync == present::VrrSync::Scan {
+            let (waits, ns) = self.scan_waits;
+            eprintln!("nightjar: VRR sync scan: {waits} presents waited for a scan under way, {:.2} ms each",
+                if waits > 0 { ns as f64 / f64::from(waits) / 1e6 } else { 0.0 });
+        }
         lock(&self.shared.roam_watch).take();
         self.session.stop();
     }
@@ -3807,16 +4053,55 @@ mod tests {
     }
 
     #[test]
-    fn the_roaming_watcher_stops_when_the_host_does_not_roam() {
+    fn every_tearing_vrr_stream_checks_its_display_not_only_the_beam_race() {
+        let checks = |settings: &Settings, tearing: bool, forced: Option<bool>| {
+            let (pacing, vrr) = present::pacing(settings, tearing);
+            checks_display_for_vrr(vrr, pacing, present::without_vrr(settings), forced)
+        };
+        // The default settings: VRR on, the swap chain tears, Immediate.
+        assert!(checks(&Settings::default(), true, None), "a fixed refresh display would tear on every present unchecked");
+        let host_times = Settings { present_at_host_times: true, ..Default::default() };
+        assert!(checks(&host_times, true, None));
+        assert!(checks(&Settings { vsync: false, ..host_times.clone() }, true, None), "host times turn immediate");
+        // Nothing to check: V-Sync already waits, VRR is off, the chain cannot tear, or V-Sync is
+        // off in the settings and the stream is immediate already.
+        assert!(!checks(&Settings::default(), false, None));
+        let off = Settings { vrr: false, vsync: false, ..Default::default() };
+        assert_eq!(present::pacing(&off, true).0, PacingMode::Immediate);
+        assert!(!checks(&off, true, None), "tearing asked for without VRR is the user's choice");
+        assert!(!checks(&Settings { vsync: false, ..Default::default() }, true, None), "V-Sync off: immediate either way");
+        assert!(!checks(&Settings::default(), true, Some(false)), "NIGHTJAR_VRR_CHECK=0");
+        assert!(checks(&Settings::default(), true, Some(true)));
+    }
+
+    #[test]
+    fn the_scan_line_is_read_for_the_beam_race_the_display_check_and_vrr_sync_scan() {
+        use present::{VrrPacing, VrrSync};
+        let vrr = |check, sync| VrrPacing::new(check, PacingMode::Vsync, sync, PacingMode::Immediate);
+        assert_eq!(display_probe(false, &vrr(true, VrrSync::Off)), Some("display check"), "every VRR stream that tears");
+        assert_eq!(display_probe(true, &vrr(true, VrrSync::Off)), Some("beam race"));
+        assert_eq!(display_probe(true, &vrr(false, VrrSync::Off)), Some("beam race"));
+        // NIGHTJAR_VRR_SYNC=scan waits on the beam, so it reads the scan line with the check off.
+        assert_eq!(display_probe(false, &vrr(false, VrrSync::Scan)), Some("display check"));
+        assert_eq!(display_probe(false, &vrr(false, VrrSync::Present1)), None, "present1 reads no beam");
+        assert_eq!(display_probe(false, &vrr(false, VrrSync::Off)), None, "a default stream without VRR does none of it");
+    }
+
+    #[test]
+    fn the_pacing_line_says_why_a_vrr_stream_waits_for_the_refresh() {
+        assert_eq!(pacing_label(PacingMode::Vsync, true), "V-Sync: this display does not refresh on present");
+        assert_eq!(pacing_label(PacingMode::Vsync, false), "V-Sync", "V-Sync the settings asked for");
+        assert_eq!(pacing_label(PacingMode::Immediate, true), "Immediate: this display does not refresh on present", "V-Sync off in the settings");
+        assert_eq!(pacing_label(PacingMode::Immediate, false), "Immediate");
+    }
+
+    #[test]
+    fn the_network_watcher_runs_for_the_stream_and_stops_with_it() {
         use std::sync::mpsc::RecvTimeoutError;
         let shared = Shared::new(Arc::new(|| {}), 8);
+        // Kept whether the host roams or not: a lost network's return reconnects every stream.
         let (watch, ended) = crate::network::RoamWatch::idle();
-        keep_roam_watch(&shared, Some(watch), false);
-        assert!(lock(&shared.roam_watch).is_none());
-        assert_eq!(ended.recv_timeout(Duration::from_secs(5)), Err(RecvTimeoutError::Disconnected), "the thread ended");
-        // A roaming host keeps it running for the stream.
-        let (watch, ended) = crate::network::RoamWatch::idle();
-        keep_roam_watch(&shared, Some(watch), true);
+        keep_roam_watch(&shared, Some(watch));
         assert!(lock(&shared.roam_watch).is_some());
         assert_eq!(ended.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
         lock(&shared.roam_watch).take();
@@ -4287,6 +4572,66 @@ mod replace_tests {
             recovery: None,
             confirm_replace: false,
         }
+    }
+
+    // The review's regression: roamed is false, but the same address came back (DHCP gave it
+    // again) or there is no route yet. The connection resumes in place, so the stream goes on;
+    // only a return it cannot carry on over reconnects, with the desktop's default settings too.
+    #[test]
+    fn only_a_network_back_the_connection_cannot_carry_on_over_reconnects_at_once() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.network_grace_ms, 3000, "below the connection's own timeout: no tolerance");
+        assert!(!reconnects_on_return(NetworkChange::CarriesOn, false, &defaults, true));
+        assert!(!reconnects_on_return(NetworkChange::Roamed, false, &defaults, true));
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, true));
+        // Not when it would not reconnect on its own (minimized, not a game stream, budget used).
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, false));
+        // Mobile data only with "Continue on mobile data".
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, true, &defaults, true));
+        let mobile = Settings { roaming_metered: true, ..Settings::default() };
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, true, &mobile, true));
+        // A tolerance above the timeout holds the connection and decides; so does the user.
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &tolerant, true));
+        let manual = Settings { auto_reconnect: false, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &manual, true));
+        // The exit it takes reconnects.
+        assert!(Exit::NetworkReturned.retryable());
+    }
+
+    #[test]
+    fn the_lost_network_notice_promises_a_reconnect_only_when_one_follows() {
+        let defaults = Settings::default();
+        assert_eq!(lost_notice(&defaults, true), NETWORK_LOST_RECONNECTING);
+        assert_eq!(lost_notice(&defaults, false), NETWORK_LOST);
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert_eq!(lost_notice(&tolerant, true), NETWORK_LOST);
+    }
+
+    #[test]
+    fn a_network_return_rejoins_without_the_first_delay_and_only_on_its_own() {
+        let mut plan = launch_plan();
+        plan.app.control = nightjar_core::http::AppControl::None;
+        let now = recovery::now_ms();
+        let mut rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true).expect("a plan");
+        assert!(rejoined.resume);
+        let budget = rejoined.recovery.as_mut().expect("a budget");
+        assert!(budget.allows_attempt(now));
+        assert_eq!(budget.next_delay(now), Some(0), "no delay, but it spends an attempt");
+        assert_eq!(budget.attempts(), 1);
+        // Without retry_now the usual first delay.
+        let mut usual = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, false).unwrap().recovery.unwrap();
+        assert_eq!(usual.next_delay(now), Some(1000));
+        // Minimized, off, or a stream that is not a game: the user decides.
+        assert!(automatic_rejoin(&plan, AppRole::Stream, true, true, 0, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::Stream, false, false, 0, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::RemoteMonitor, true, false, 0, true).is_none());
+        // A used-up budget allows no attempt, so the notice promises none.
+        let mut spent = recovery::Backoff::default();
+        while spent.next_delay(now).is_some() {}
+        plan.recovery = Some(spent);
+        let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true).unwrap();
+        assert!(!rejoined.recovery.unwrap().allows_attempt(now));
     }
 
     #[test]

@@ -24,6 +24,8 @@ public class StreamConfiguration {
     private int clientRefreshRateX100;
     private boolean virtualDisplay;
     private int virtualDisplayScale = 100;
+    // The virtual display's Windows scale (rlDisplayScale); 0 keeps the PC's own.
+    private int virtualDisplayDpi;
     private boolean vrr;
     // Asks a Rubylight PC for clipboard sync (0x5508).
     private boolean clipboardSync;
@@ -170,6 +172,11 @@ public class StreamConfiguration {
         public StreamConfiguration.Builder setVirtualDisplay(boolean enabled, int scale) {
             config.virtualDisplay = enabled;
             config.virtualDisplayScale = scale;
+            return this;
+        }
+
+        public StreamConfiguration.Builder setVirtualDisplayDpi(int percent) {
+            config.virtualDisplayDpi = percent;
             return this;
         }
 
@@ -343,6 +350,10 @@ public class StreamConfiguration {
 
     public int getVirtualDisplayScale() {
         return virtualDisplayScale;
+    }
+
+    public int getVirtualDisplayDpi() {
+        return virtualDisplayDpi;
     }
 
     public boolean getVrr() {

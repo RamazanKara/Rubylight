@@ -77,11 +77,17 @@ typedef struct {
     // Callback thread only: concealment not played yet, and how long the current stall has run.
     int16_t concealPcm[CONCEAL_MAX_FRAMES * 2];
     uint32_t concealStart, concealCount, concealRun;
-    bool played, concealing;
+    // Callback thread only: how long the ring has been empty in the current gap, until audio came back.
+    uint32_t dryRun;
+    bool played, concealing, refilling;
     // Decode thread only: when the last packet came.
     uint64_t lastPacketNs;
     // Stalled frames the concealment covered, whose packets the decode thread skips when they come.
     atomic_uint lateFrames, concealedFrames, skippedFrames;
+    // The most the reserve may grow to (the renderer's policy limit), and the ended gaps: jitter, which
+    // the reserve can still grow to cover (the ring dry for at most the limit less the reserve), and
+    // stalls (longer), which are concealed: a reserve grown for them would not cover the next one.
+    atomic_uint limitFrames, jitterGaps, stallGaps;
 } AudioOutput;
 
 // Up to frames frames of Opus concealment into pcm, a multiple of 2.5 ms at a time; returns the frames
@@ -132,12 +138,26 @@ static void audioFill(AudioOutput* output, int16_t* pcm, uint32_t frames) {
             output->concealing = false;
             output->concealRun = output->concealCount = 0;
             atomic_store(&output->lateFrames, 0);
+            uint32_t most = atomic_load(&output->limitFrames), target = atomic_load(&output->queue.targetFrames);
+            atomic_fetch_add_explicit(output->dryRun <= (most > target ? most - target : 0) ?
+                    &output->jitterGaps : &output->stallGaps, 1, memory_order_relaxed);
         }
         output->played = true;
     }
     if (played == frames || !output->played) return;
     uint32_t missing = frames - played;
+    if (!output->concealing) {
+        output->dryRun = 0;
+        output->refilling = false;
+    }
     output->concealing = true;
+    // Dry until audio is back in the ring; the wait for the reserve to fill again after that is not the gap.
+    // The frames the callbacks lacked meanwhile are what a larger reserve would have had to hold: each
+    // callback takes its whole burst at once, so audio coming within a callback period still misses it.
+    if (!output->refilling) {
+        if (atomic_load(&output->queue.writtenFrames) != atomic_load(&output->queue.readFrames)) output->refilling = true;
+        else output->dryRun += missing;
+    }
     if (output->concealRun < limit) {
         uint32_t room = limit - output->concealRun;
         uint32_t concealed = audioConceal(output, pcm + played * 2, missing < room ? missing : room);
@@ -207,6 +227,9 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeOpenAudio(JNIEnv* en
     atomic_init(&output->lateFrames, 0);
     atomic_init(&output->concealedFrames, 0);
     atomic_init(&output->skippedFrames, 0);
+    atomic_init(&output->limitFrames, 0);
+    atomic_init(&output->jitterGaps, 0);
+    atomic_init(&output->stallGaps, 0);
     output->rate = (uint32_t)rate;
     output->conceal = (int (*)(int16_t*, int))(intptr_t)concealer;
     // Loading at runtime keeps API 21-26 installations independent of libaaudio.
@@ -297,9 +320,10 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(JNIEnv* e
             output->AAudioStream_getBufferSizeInFrames(output->stream), xruns, underruns,
             output->AAudioStream_getDeviceId(output->stream),
             output->AAudioStream_getBufferCapacityInFrames(output->stream),
-            (jint)atomic_load(&output->concealedFrames), (jint)atomic_load(&output->skippedFrames)};
-    jintArray result = (*env)->NewIntArray(env, 11);
-    if (result) (*env)->SetIntArrayRegion(env, result, 0, 11, stats);
+            (jint)atomic_load(&output->concealedFrames), (jint)atomic_load(&output->skippedFrames),
+            (jint)atomic_load(&output->jitterGaps), (jint)atomic_load(&output->stallGaps)};
+    jintArray result = (*env)->NewIntArray(env, 13);
+    if (result) (*env)->SetIntArrayRegion(env, result, 0, 13, stats);
     return result;
 }
 
@@ -320,6 +344,13 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserve(JNIEnv*
     uint32_t target = (uint32_t)frames < output->queue.capacity ? (uint32_t)frames : output->queue.capacity;
     atomic_store(&output->queue.targetFrames, target);
     return (jint)target;
+}
+
+// The most the renderer's policy grows the reserve to: a gap counts as jitter only while the reserve can
+// still grow to cover it. Until it is set (0) every gap is a stall.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioReserveLimit(JNIEnv* env, jclass clazz, jlong handle, jint frames) {
+    atomic_store(&((AudioOutput*)(intptr_t)handle)->limitFrames, frames > 0 ? (uint32_t)frames : 0);
 }
 
 // Frames in the ring that the callback has not taken yet; the decode thread's per-packet drop check.

@@ -799,6 +799,124 @@ class ReceiverPath(unittest.TestCase):
                              os.pathsep.join([str(msys), str(system)]))
 
 
+@unittest.skipUnless(sys.platform == 'win32', 'the clip player drives Windows windows')
+class DemoContent(unittest.TestCase):
+    """e2e.py --content: a looped game clip in one captured window instead of the motion strip."""
+
+    def setUp(self):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import demo_content, e2e_result
+        self.content, self.evaluate = demo_content, e2e_result.evaluate
+
+    def test_the_clip_header_gives_size_rate_and_length(self):
+        header = self.content.y4m_header(b'YUV4MPEG2 W1920 H1080 F60:1 Ip A1:1 C420jpeg XYSCSS=420JPEG\nFRAME\n')
+        self.assertEqual(header, dict(width=1920, height=1080, fps=60.0, chroma='420jpeg'))
+        # Xiph's Twitch GTAV.y4m: a 45-byte header and 3602 pictures.
+        self.assertAlmostEqual(self.content.clip_seconds(header, 11203682457), 3602 / 60)
+        self.assertEqual(self.content.y4m_header(b'YUV4MPEG2 W1280 H720 F30000:1001\n')['chroma'], '420jpeg')
+        for broken in (b'RIFF....', b'YUV4MPEG2 W1920 F60:1\n'):
+            with self.assertRaises(ValueError):
+                self.content.y4m_header(broken)
+
+    def test_a_clip_that_does_not_fit_the_stream_is_refused(self):
+        clip = dict(width=1920, height=1080, fps=60.0, chroma='420jpeg')
+        self.assertIsNone(self.content.check_clip(clip, 1920, 1080, 60))
+        self.assertIn('1920x1080, the stream 2560x1440', self.content.check_clip(clip, 2560, 1440, 60))
+        self.assertIn('below the stream', self.content.check_clip(clip, 1920, 1080, 120))
+        self.assertIn('not 4:2:0', self.content.check_clip(dict(clip, chroma='444'), 1920, 1080, 60))
+
+    def test_the_player_shows_every_picture_in_a_borderless_window_of_the_stream_size(self):
+        command = self.content.player_command('ffplay', r'D:\clip.y4m', 1920, 1080, 0, 0)
+        for flag in ('-noborder', '-an'):
+            self.assertIn(flag, command)
+        self.assertEqual(command[command.index('-x') + 1:command.index('-x') + 4], ['1920', '-y', '1080'])
+        self.assertEqual(command[command.index('-sync') + 1], 'video')
+        self.assertEqual(command[command.index('-loop') + 1], '0')
+        self.assertNotIn('-framedrop', command)
+        self.assertEqual(command[-2:], ['-i', r'D:\clip.y4m'])
+        self.assertEqual(self.content.player_environment({'PATH': 'x'}),
+                         {'PATH': 'x', 'SDL_RENDER_DRIVER': 'direct3d11', 'SDL_RENDER_VSYNC': '1',
+                          'SDL_WINDOW_NO_ACTIVATION_WHEN_SHOWN': '1'})
+        self.assertEqual(self.content.player_environment({'SDL_RENDER_VSYNC': '0'})['SDL_RENDER_VSYNC'], '0')
+
+    def test_the_player_window_never_takes_focus_the_taskbar_or_clicks(self):
+        content = self.content
+        # SDL's own extended style for a normal window, with a taskbar button.
+        style = content.out_of_the_way(content.WS_EX_APPWINDOW | 0x100)
+        for flag in (content.WS_EX_NOACTIVATE, content.WS_EX_TOOLWINDOW, content.WS_EX_LAYERED, content.WS_EX_TRANSPARENT, 0x100):
+            self.assertTrue(style & flag, hex(flag))
+        self.assertFalse(style & content.WS_EX_APPWINDOW)
+
+    def test_the_host_is_pointed_at_the_window_and_its_process(self):
+        self.assertEqual(self.content.window_target(0x2056c, 812, r'\\.\DISPLAY1'), r'window:132460/812@\\.\DISPLAY1')
+        log = 'x capture backend opened requested=wgc\ny\nz capture backend opened\n'
+        self.assertEqual((self.content.stream_starts(''), self.content.stream_starts(log)), (0, 2))
+
+    def test_the_player_ends_with_the_harness(self):
+        # A child in a kill-on-close job dies when the job's last handle closes, as when the harness dies.
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+        try:
+            job = self.content.end_with_this_process(child.pid)
+            self.assertIsNone(child.poll())
+            self.content._kernel32.CloseHandle(job)
+            self.assertIsNotNone(child.wait(timeout=10))
+        finally:
+            if child.poll() is None:
+                child.kill()
+
+    def test_the_players_status_line_is_read(self):
+        log = 'Input #0, yuv4mpegpipe\n   0.05 M-V:  0.000 fd=   0 aq=    0KB vq=    0KB sq=    0B \r  19.95 fd=   2 aq=    0KB vq=15187KB \r'
+        self.assertEqual(self.content.player_stats(log), dict(played_seconds=19.95, dropped=2))
+        self.assertIsNone(self.content.player_stats('Input #0, yuv4mpegpipe\n'))
+
+    def test_a_player_behind_the_clip_fails_and_a_looped_one_is_not_measured(self):
+        verdict = self.content.content_verdict
+        self.assertTrue(verdict(dict(played_seconds=30.05, dropped=0), 30.0, 30.0, 60.03, .05)['passed'])
+        late = verdict(dict(played_seconds=28.9, dropped=0), 30.0, 30.0, 60.03, .05)
+        self.assertFalse(late['passed'])
+        self.assertAlmostEqual(late['realtime'], .9617, places=3)
+        looped = verdict(dict(played_seconds=10.0, dropped=0), 30.0, 70.0, 60.03)
+        self.assertTrue(looped['passed'])
+        self.assertIsNone(looped['realtime'])
+        self.assertFalse(verdict(None, 30.0, 30.0, 60.03)['passed'])
+
+    def test_strip_measurements_are_not_applicable_with_a_clip(self):
+        client = '\n'.join(line for line in (
+            'RESULT frames=1800 decoded_frames=1800 audio_packets=6000 failures=0',
+            'AUDIO_SIGNAL samples=2880000 peak=0.050000 rms=0.035000',
+            'AUDIO_TONE blocks=11000 min_rms=0.034000 max_rms=0.036000 continuous=1',
+            'STEADY warmup_seconds=3.000 seconds=27.000 frames=1621 fps=60.000 intervals_over_1_5_period=0',
+            'STEADY_HOST samples=1621 mean_ms=1.500 p50_ms=1.500 p95_ms=1.700 p99_ms=2.000 max_ms=2.500',
+            'ARRIVAL_INTERVAL samples=1621 mean_ms=16.667 p50_ms=16.667 p95_ms=17.000 p99_ms=18.000 max_ms=20.000',
+            'PERFORMANCE seconds=30.000 received_fps=60.00 decoded_fps=60.00 host_mean_ms=1.500 decoder_mean_ms=4.000',
+            'INTEROPERABILITY PASS')) + '\n'
+        kept = dict(passed=True, realtime=1.0)
+        result = self.evaluate(client, 0, 'hevc', '1920x1080x60', content=kept)
+        self.assertTrue(result['passed'], result['failures'])
+        self.assertEqual(result['not_applicable'], ['unique_fps', 'motion_coverage', 'picture_age', 'frame_gap_limits'])
+        # The player's jitter: gaps the strip would fail on are reported, not judged.
+        jittery = client.replace('intervals_over_1_5_period=0', 'intervals_over_1_5_period=31').replace('p99_ms=18.000', 'p99_ms=25.600')
+        gaps = self.evaluate(jittery, 0, 'hevc', '1920x1080x60', content=kept)
+        self.assertTrue(gaps['passed'], gaps['failures'])
+        self.assertEqual((gaps['long_intervals'], gaps['interval_p99_ms']), (31, 25.6))
+        # A freeze still fails: half a second without a picture.
+        frozen = self.evaluate(client.replace('max_ms=20.000', 'max_ms=500.000'), 0, 'hevc', '1920x1080x60', content=kept)
+        self.assertIn('frame delivery froze: a gap over 200 ms', frozen['failures'])
+        self.assertTrue(self.evaluate(client.replace('max_ms=20.000', 'max_ms=199.000'), 0, 'hevc', '1920x1080x60', content=kept)['passed'])
+        self.assertFalse(self.evaluate(jittery.replace('VISUAL', 'X') + 'VISUAL frames=1621 unique=1621 repeats=0 skipped_render_frames=0 unique_fps=60.000 coverage=1.000000\n',
+                                       0, 'hevc', '1920x1080x60')['passed'])
+        self.assertNotIn('unique_fps', result)
+        self.assertEqual(result['content'], kept)
+        # Without a clip the same receiver output lacks the strip's measurements.
+        self.assertIn('missing measurements: unique_fps, motion_coverage', self.evaluate(client, 0, 'hevc', '1920x1080x60')['failures'])
+        behind = self.evaluate(client, 0, 'hevc', '1920x1080x60', content=dict(passed=False, realtime=.95))
+        self.assertFalse(behind['passed'])
+        self.assertIn("the clip's player did not keep up", behind['failures'][0])
+        # The rest still judges the stream: a slow one fails with a clip too.
+        self.assertFalse(self.evaluate(client.replace('fps=60.000', 'fps=50.000'), 0, 'hevc', '1920x1080x60', content=kept)['passed'])
+        self.assertFalse(self.evaluate(client, 0, 'pyrowave', '1920x1080x60', content=kept)['passed'])
+
+
 class SinkVolume(unittest.TestCase):
     """rc.4's tone checks ran into Steam Streaming Speakers at 2 % volume: the result says so, the check never changes it."""
 
@@ -955,6 +1073,17 @@ $CheckLockPause = 0
 Set-Content -LiteralPath (Join-Path $Locks 'ready') 'go'
 Exit-CheckLocks @{ gpu = 'G'; build = 'B' }
 'DONE'
+"""
+# Prints the ticket it wrote, the file while held, and the file after Exit.
+PRIORITY_DRIVER = """param([string]$Locks)
+$ErrorActionPreference = 'Stop'
+. $env:CHECK_STREAMS
+Initialize-CheckLocks $Locks 3>$null
+$written = Enter-CheckPriority
+"$written"
+"$(Read-Lock (Join-Path $Locks 'PRIORITY'))"
+Exit-CheckPriority $written
+if (Test-Path -LiteralPath (Join-Path $Locks 'PRIORITY')) { 'left' } else { 'gone' }
 """
 
 
@@ -1163,6 +1292,37 @@ class CheckStreams(unittest.TestCase):
         self.assertNotIn('$tools\\e2e.py', check)
         builds = check[check.index('$held = Enter-CheckBuildLock'):check.index('Exit-CheckLocks $held')]
         self.assertIn('cargo build', builds)
+        # Other sessions' builds wait from the first fixture build to the last stream.
+        streams = check[check.index('$priority = Enter-CheckPriority'):check.index('Exit-CheckPriority $priority')]
+        self.assertIn('$held = Enter-CheckBuildLock', streams)
+        self.assertIn('Invoke-StreamCase $case $stream $run', streams)
+
+    def test_the_priority_ticket_names_this_run_and_replaces_only_a_dead_one(self):
+        (self.root / 'priority.ps1').write_text(PRIORITY_DRIVER)
+        ticket = self.locks / 'PRIORITY'
+        def run(**env):
+            return subprocess.run(['pwsh', '-NoProfile', '-File', str(self.root / 'priority.ps1'), '-Locks', str(self.locks)],
+                                  capture_output=True, text=True, timeout=60,
+                                  env=dict(os.environ, CHECK_STREAMS=str(ROOT / 'rust/release/check_streams.ps1'), **env))
+        first = run()
+        written, during, after = first.stdout.splitlines()[-3:]
+        self.assertRegex(written, r'^release check\.ps1 \S+ pid=\d+ start=\S+$', first.stdout + first.stderr)
+        self.assertEqual(during, written)
+        self.assertEqual(after, 'gone')
+        gone = subprocess.Popen([sys.executable, '-c', ''])
+        gone.wait()
+        # This test's process is alive but started at another time: its id was reused.
+        for left, kept in ((f'release check.ps1 x pid={os.getpid()} start=2001-01-01T00:00:00.0000000Z', False),
+                           (f'release check.ps1 x pid={os.getpid()}', True), (f'release check.ps1 x pid={gone.pid}', False)):
+            with self.subTest(left=left):
+                ticket.write_text(left)
+                second = run()
+                written = second.stdout.splitlines()[-3]
+                self.assertEqual(written == '', kept, second.stdout + second.stderr)
+                self.assertEqual(ticket.exists(), kept)
+                ticket.unlink(missing_ok=True)
+        (self.locks / 'build-lock.ps1').unlink()
+        self.assertEqual(run().stdout.splitlines()[-3:], ['', '', 'gone'])
 
     @unittest.skipUnless(os.name == 'nt', 'a .cmd stand-in for Python')
     def test_soak_stops_when_the_quiet_wait_fails(self):

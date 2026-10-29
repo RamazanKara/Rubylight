@@ -339,6 +339,8 @@ pub struct Host {
     pub codec_missing: Mutex<Vec<butterpollo_core::codec_support::Unavailable>>,
     /// Which session changed Radeon settings, and when they go back.
     pub radeon: crate::radeon_session::Radeon,
+    /// Which session changed keys in games' settings files, and when they go back.
+    pub game_files: crate::game_files::GameFiles,
     /// The Radeon profile applied for the owner's game and a launcher prompt, for the session.
     pub notes: crate::session_notes::SessionNotes,
     /// Wake-on-LAN readiness, the console's fix and sleep after idle.
@@ -407,6 +409,22 @@ impl<'a> AppStop<'a> {
     }
 }
 impl Host {
+    /// The running app, or None while another thread holds it. A stream or
+    /// input thread skips its once-a-second look instead of waiting: housekeeping
+    /// and launches hold the app, and on a PC busy loading a game a thread
+    /// holding it can wait for the CPU. A poisoned lock panics, as
+    /// `lock().unwrap()` does.
+    pub fn try_current_app(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Option<crate::process::RunningApp>>> {
+        match self.current_app.try_lock() {
+            Ok(current) => Some(current),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                panic!("the running app's lock is poisoned: {error}")
+            }
+        }
+    }
     pub fn stop_app(&self, why: AppStop<'_>) {
         let teardown = self.session_teardown(crate::session_control::Scope::Game);
         // Stopping the app waits for it to exit, up to its exit timeout and
@@ -683,6 +701,7 @@ impl Host {
             probed_encoder: Mutex::new(""),
             codec_missing: Mutex::new(Vec::new()),
             radeon: crate::radeon_session::Radeon::default(),
+            game_files: crate::game_files::GameFiles::default(),
             notes: crate::session_notes::SessionNotes::default(),
             wake: Default::default(),
             webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,

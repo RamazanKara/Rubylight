@@ -1,6 +1,7 @@
 //! User-session process creation with ownership of the complete Windows job.
 
 use anyhow::{Context, Result, bail};
+use butterpollo_core::nucleus::elevation::Account;
 use std::{
     collections::BTreeMap,
     ffi::OsString,
@@ -257,7 +258,7 @@ unsafe fn sid_text(sid: PSID) -> Result<String> {
         sid.context("Windows returned an invalid SID")
     }
 }
-fn token_user_sid(token: &OwnedHandle) -> Result<String> {
+pub(crate) fn token_user_sid(token: &OwnedHandle) -> Result<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from
     // ConvertSidToStringSidW is read before it is freed once with LocalFree.
@@ -386,7 +387,7 @@ pub fn create_folder_administrators_only(path: &Path) -> std::io::Result<()> {
     create_folder(path, ADMINISTRATORS_ONLY)
 }
 /// Create the folder `path` with `sddl`'s owner and permissions from the start.
-fn create_folder(path: &Path, sddl: &str) -> std::io::Result<()> {
+pub(crate) fn create_folder(path: &Path, sddl: &str) -> std::io::Result<()> {
     use windows::Win32::Storage::FileSystem::CreateDirectoryW;
     let name = wide(path.as_os_str()).map_err(std::io::Error::other)?;
     with_attributes(sddl, |attributes| {
@@ -471,6 +472,11 @@ pub fn open_file_writers(file: &std::fs::File) -> Result<Vec<String>> {
 pub fn open_file_child_movers(file: &std::fs::File) -> Result<Vec<String>> {
     open_file_allowed(file, CHILD_MOVE)
 }
+/// Who may move or delete the file or folder `file` has open itself, or what a folder holds, or
+/// change its permissions or owner: as [`open_file_child_movers`], with those who may delete it.
+pub fn open_file_movers(file: &std::fs::File) -> Result<Vec<String>> {
+    open_file_allowed(file, CHILD_MOVE | 0x1_0000)
+}
 fn open_file_allowed(file: &std::fs::File, mask: u32) -> Result<Vec<String>> {
     use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
     let mut dacl: *mut ACL = std::ptr::null_mut();
@@ -538,12 +544,107 @@ unsafe fn dacl_allowed(dacl: *const ACL, mask: u32) -> Result<Vec<String>> {
     Ok(writers)
 }
 pub enum Target {
-    User { elevated: bool },
+    User {
+        elevated: bool,
+    },
+    /// The signed-in user with their standard rights, only while they are
+    /// the account of this SID: the one whose files a launch checked.
+    Account(String),
     SystemSession(u32),
 }
 /// Whether this process runs with administrator rights (elevated, or as SYSTEM).
 pub fn elevated() -> Result<bool> {
     token_elevated(&token()?)
+}
+/// What Windows gives the user signed in to this host's session to start a
+/// program elevated with. As the service: their elevation-linked token when
+/// it is elevated and theirs; one of another account is the separate
+/// administrator of Windows' Administrator protection, which Rubylight never
+/// starts a program as. Outside the service, the host's own rights.
+pub fn user_account() -> Result<Account> {
+    if !is_system() {
+        return Ok(match user_runs_elevated()? {
+            true => Account::Elevates,
+            false => Account::Standard,
+        });
+    }
+    let user = target_token(&Target::User { elevated: false })?
+        .context("no signed-in user in the host session")?;
+    let linked = match linked_token(&user) {
+        Some(linked) => Some((
+            token_elevated(&linked)?,
+            token_user_sid(&linked)? == token_user_sid(&user)?,
+        )),
+        None => None,
+    };
+    Ok(account_of(
+        linked,
+        token_elevated(&user)?,
+        token_in_administrators(&user)?,
+    ))
+}
+/// The account behind a signed-in user's token: `linked`, its
+/// elevation-linked token's elevation and whether it is the same account;
+/// `elevated`, the token's own; `administrator`, whether its groups name
+/// Administrators (for deny only, in an administrator's filtered token).
+fn account_of(linked: Option<(bool, bool)>, elevated: bool, administrator: bool) -> Account {
+    match linked {
+        // User Account Control's split token.
+        Some((true, true)) => Account::Elevates,
+        // Administrator protection's separate administrator.
+        Some((true, false)) => Account::Protected,
+        // User Account Control off: the token is elevated itself.
+        _ if elevated => Account::Elevates,
+        // An administrator Windows links no elevated token of their own to.
+        _ if administrator => Account::Protected,
+        _ => Account::Standard,
+    }
+}
+/// The token Windows links to `user`'s for elevation, if it links one.
+fn linked_token(user: &OwnedHandle) -> Option<OwnedHandle> {
+    let mut linked = TOKEN_LINKED_TOKEN::default();
+    let mut bytes = 0;
+    // SAFETY: `linked` is a writable TOKEN_LINKED_TOKEN and the size passed
+    // is its size; the handle Windows returns is wrapped exactly once.
+    unsafe {
+        GetTokenInformation(
+            raw(user),
+            TokenLinkedToken,
+            Some((&mut linked as *mut TOKEN_LINKED_TOKEN).cast()),
+            size_of::<TOKEN_LINKED_TOKEN>() as u32,
+            &mut bytes,
+        )
+        .ok()?;
+    }
+    (!linked.LinkedToken.is_invalid()).then(|| owned(linked.LinkedToken))
+}
+/// Whether `token`'s groups name the Administrators group, enabled or for
+/// deny only.
+fn token_in_administrators(token: &OwnedHandle) -> Result<bool> {
+    let mut needed = 0;
+    // SAFETY: the first call only asks for the size. The buffer is
+    // usize-aligned and as large as Windows asked; the TOKEN_GROUPS in it,
+    // its array and its SIDs are read only while it lives.
+    unsafe {
+        let _ = GetTokenInformation(raw(token), TokenGroups, None, 0, &mut needed);
+        anyhow::ensure!(
+            needed as usize >= size_of::<TOKEN_GROUPS>(),
+            "Windows returned no token groups"
+        );
+        let mut buffer = vec![0usize; (needed as usize).div_ceil(size_of::<usize>())];
+        GetTokenInformation(
+            raw(token),
+            TokenGroups,
+            Some(buffer.as_mut_ptr().cast()),
+            (buffer.len() * size_of::<usize>()) as u32,
+            &mut needed,
+        )?;
+        let groups = &*buffer.as_ptr().cast::<TOKEN_GROUPS>();
+        let groups = std::slice::from_raw_parts(groups.Groups.as_ptr(), groups.GroupCount as usize);
+        Ok(groups
+            .iter()
+            .any(|group| IsWellKnownSid(group.Sid, WinBuiltinAdministratorsSid).as_bool()))
+    }
 }
 /// Whether a program started as `Target::User { elevated: true }` runs
 /// elevated. A standard user has no elevated token, so it gets the user's
@@ -640,7 +741,43 @@ fn own_session_user<T>(
 ) -> Result<T> {
     user(current()?)
 }
+/// The token a program started as `target` runs with; None: this process's
+/// own. Only ever the signed-in user's own account: a [`Target::Account`]
+/// start is refused once another account is signed in.
 fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
+    let token = session_token(target)?;
+    if let Target::Account(expected) = target {
+        let found = match &token {
+            Some(token) => token_user_sid(token)?,
+            None => own_sid()?,
+        };
+        same_account(expected, &found)?;
+    }
+    Ok(token)
+}
+/// A start for the account `expected` ([`Target::Account`]) goes ahead only
+/// as that account: `found` is the one whose token it would run with.
+fn same_account(expected: &str, found: &str) -> Result<()> {
+    anyhow::ensure!(
+        expected == found,
+        "another account signed in on this PC since the launch began: start it again"
+    );
+    Ok(())
+}
+/// An elevated start runs only as the signed-in user's own account: `user`
+/// is the SID of their token, `linked` that of the elevation-linked token
+/// Windows gives for it. Under Windows' Administrator protection that is a
+/// separate administrator account, which Rubylight never starts a program
+/// as.
+fn own_linked_account(user: &str, linked: &str) -> Result<()> {
+    anyhow::ensure!(
+        user == linked,
+        "Starting it elevated needs administrator rights, and {}",
+        butterpollo_core::nucleus::elevation::PROTECTED
+    );
+    Ok(())
+}
+fn session_token(target: &Target) -> Result<Option<OwnedHandle>> {
     if !is_system() {
         if matches!(target, Target::SystemSession(_)) {
             bail!("SYSTEM session creation requires the Windows service");
@@ -650,7 +787,11 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
         if matches!(target, Target::User { elevated: true }) && !elevated {
             bail!("this elevated command requires the installed Windows service");
         }
-        if matches!(target, Target::User { elevated: false }) && elevated {
+        if matches!(
+            target,
+            Target::User { elevated: false } | Target::Account(_)
+        ) && elevated
+        {
             // The elevation-linked token is only an identification token for
             // a caller without SeTcbPrivilege, which Windows refuses for
             // process creation. The desktop shell holds the usable one.
@@ -663,28 +804,18 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
     unsafe {
         let source = match target {
             Target::SystemSession(_) => token()?,
-            Target::User { .. } => {
+            Target::User { .. } | Target::Account(_) => {
                 let mut user = own_session_user(current_session, |session| {
                     let mut user = HANDLE::default();
                     WTSQueryUserToken(session, &mut user)
                         .context("no signed-in user in the host session")?;
                     Ok(owned(user))
                 })?;
-                if matches!(target, Target::User { elevated: true }) {
-                    let mut linked = TOKEN_LINKED_TOKEN::default();
-                    let mut bytes = 0;
-                    if GetTokenInformation(
-                        raw(&user),
-                        TokenLinkedToken,
-                        Some((&mut linked as *mut TOKEN_LINKED_TOKEN).cast()),
-                        size_of::<TOKEN_LINKED_TOKEN>() as u32,
-                        &mut bytes,
-                    )
-                    .is_ok()
-                        && !linked.LinkedToken.is_invalid()
-                    {
-                        user = owned(linked.LinkedToken);
-                    }
+                if matches!(target, Target::User { elevated: true })
+                    && let Some(linked) = linked_token(&user)
+                {
+                    own_linked_account(&token_user_sid(&user)?, &token_user_sid(&linked)?)?;
+                    user = linked;
                 }
                 user
             }
@@ -1309,6 +1440,20 @@ fn environment(token: Option<&OwnedHandle>) -> Result<BTreeMap<String, String>> 
 impl Process {
     pub(crate) fn handle(&self) -> HANDLE {
         raw(&self.handle)
+    }
+    /// Whether Windows gave this process administrator rights: its token,
+    /// which is not always what its [`Target`] asked for (an administrator
+    /// with User Account Control off has only their full token).
+    pub fn elevated(&self) -> Result<bool> {
+        // SAFETY: `self.handle` is the child's owned process handle, and
+        // `token` a valid out-pointer whose handle is owned once filled.
+        let token = unsafe {
+            let mut token = HANDLE::default();
+            OpenProcessToken(raw(&self.handle), TOKEN_QUERY, &mut token)
+                .context("opening the process's token")?;
+            owned(token)
+        };
+        token_elevated(&token)
     }
     /// Import an unnamed resource from this owned child. The child never gets
     /// a handle to the service process or its credentials.
@@ -2254,6 +2399,29 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_process_says_whether_windows_gave_it_administrator_rights() {
+        use super::*;
+        let ping = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap())
+            .join("System32")
+            .join("ping.exe");
+        // Runs where the test runs: as this user, elevated or not.
+        let elevated = is_system() || token_elevated(&token().unwrap()).unwrap();
+        let args = ["-n", "30", "127.0.0.1"].map(OsString::from);
+        let process = Process::spawn(
+            &ping,
+            &args,
+            None,
+            Target::User { elevated },
+            &BTreeMap::new(),
+            true,
+        )
+        .unwrap();
+        let rights = process.elevated();
+        process.terminate().unwrap();
+        assert_eq!(rights.unwrap(), elevated);
+    }
+
     #[test]
     fn a_pipe_end_can_be_used_by_its_creator() {
         use super::*;
@@ -3304,6 +3472,69 @@ mod tests {
                 std::env::var(name).ok().as_ref(),
                 "{name}: {text}"
             );
+        }
+    }
+    #[test]
+    fn the_signed_in_account_is_told_apart() {
+        // User Account Control: an administrator's filtered token, linked
+        // to their own elevated one.
+        assert_eq!(
+            account_of(Some((true, true)), false, true),
+            Account::Elevates
+        );
+        // Administrator protection: linked to another account's, or to none.
+        assert_eq!(
+            account_of(Some((true, false)), false, true),
+            Account::Protected
+        );
+        assert_eq!(account_of(None, false, true), Account::Protected);
+        // User Account Control off: elevated itself.
+        assert_eq!(account_of(None, true, true), Account::Elevates);
+        // A standard account, linked to nothing or nothing elevated.
+        assert_eq!(account_of(None, false, false), Account::Standard);
+        assert_eq!(
+            account_of(Some((false, true)), false, false),
+            Account::Standard
+        );
+    }
+    #[test]
+    fn the_program_starts_only_as_the_signed_in_users_own_account() {
+        let user = "S-1-5-21-1-2-3-1001";
+        let other = "S-1-5-21-1-2-3-1002";
+        // User Account Control's elevated token is the same account's.
+        own_linked_account(user, user).unwrap();
+        // Administrator protection's separate administrator is never started
+        // as, and the refusal never advises turning it off.
+        let refused = format!("{:#}", own_linked_account(user, other).unwrap_err());
+        assert_eq!(
+            refused,
+            "Starting it elevated needs administrator rights, and Windows' Administrator protection keeps them from Rubylight"
+        );
+        // A start for the account whose copy a launch checked runs as it,
+        // or not at all.
+        same_account(user, user).unwrap();
+        let changed = format!("{:#}", same_account(user, other).unwrap_err());
+        assert!(changed.contains("another account signed in"), "{changed}");
+        // Outside the service, a program runs as this process's account.
+        if !is_system() && !elevated().unwrap() {
+            let own = own_sid().unwrap();
+            assert!(target_token(&Target::Account(own)).unwrap().is_none());
+            assert!(target_token(&Target::Account(other.into())).is_err());
+        }
+    }
+    #[test]
+    fn this_hosts_own_token_names_administrators_when_elevated() {
+        let token = token().unwrap();
+        let administrator = token_in_administrators(&token).unwrap();
+        if elevated().unwrap() {
+            assert!(administrator);
+        }
+        if !is_system() {
+            // Outside the service the account is the host's own rights.
+            match user_account() {
+                Ok(account) => assert_eq!(account, Account::Elevates),
+                Err(_) => assert!(!elevated().unwrap()),
+            }
         }
     }
     #[test]

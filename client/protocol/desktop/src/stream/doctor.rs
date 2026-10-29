@@ -4,7 +4,7 @@
 //! and offers the trial, and the launcher shows the report after a stream that had findings.
 
 use nightjar_policy::health::{BitrateTrial, Finding, Report, StreamHealth, TrialOffer, TrialRefused};
-use nightjar_policy::stats::{RecentP95, Stats};
+use nightjar_policy::stats::{LateFrames, RecentP95, Stats};
 
 use crate::strings::{tr, trf};
 
@@ -18,9 +18,17 @@ pub struct Doctor {
     sent: RecentP95,
     /// Decoded to shown: the pacer's hold and the present.
     display: RecentP95,
+    /// Frames that arrived late against the host's clock, this tick.
+    late: LateFrames,
 }
 
 impl Doctor {
+    /// A decoded frame: its RTP timestamp, the frame header's host processing time (0.1 ms, 0
+    /// unknown) and when its first packet arrived (session clock), at the stream's frame rate.
+    pub fn arrived(&mut self, rtp: u32, host_latency: u16, receive_us: u64, fps: u32) {
+        self.late.push(rtp, u32::from(host_latency) * 100, receive_us, fps);
+    }
+
     /// A picture was shown: its header's processing time (100 us units, 0 when the host sends
     /// none) and its display wait from `ready_us` to `presented_us` (session clock).
     pub fn shown(&mut self, host_latency: u16, ready_us: u64, presented_us: u64) {
@@ -45,6 +53,7 @@ impl Doctor {
         let (sent, header) = (self.sent.tick(), self.header.tick());
         tick.host_p95_ms = if tick.host_includes_send { sent } else { header };
         tick.display_p95_ms = self.display.tick();
+        tick.late_frames = Some(self.late.tick());
     }
 
     pub fn add(&mut self, tick: &Stats) {
@@ -99,6 +108,7 @@ pub fn report_text(report: &Report) -> String {
             Finding::Host => text.push_str(tr("Host: the slower processing samples exceeded the frame interval. Compare game/GPU load and a lower game frame limit. This measurement includes more than encoding.")),
             Finding::Presentation => text.push_str(tr("Presentation: frames were released faster than they were shown, with long display waits. Compare frame-pacing modes and the screen refresh rate.")),
             Finding::Heat => text.push_str(tr("Temperature: this device reported high thermal pressure. Lower frame rate/resolution or disable expensive client processing; allow the device to cool.")),
+            Finding::Bursts => text.push_str(&trf("Bursts: in {} of the last {} seconds, the network held frames back and delivered several at once, although the host sent them on time; a cable or a less busy 5 or 6 GHz Wi-Fi channel helps.", &[&report.late_samples, &report.samples])),
             Finding::Periodic => text.push_str(&trf("Repeating stalls: {} network stalls in the last 20 minutes started about every {}. A steady rhythm like this usually comes from background Wi-Fi scans on this device or on the PC. To reduce them:\n• Connect this device or the PC by cable.\n• Stop tools that scan for Wi-Fi networks or nearby devices while streaming.", &[&report.stalls, &period(report.stall_period_ms)])),
         }
     }
@@ -151,11 +161,12 @@ pub fn after_stream(ended: Option<String>, health: Option<String>) -> Option<(&'
 pub fn log_line(report: &Report) -> String {
     let findings: Vec<&str> = report.findings.iter().map(|finding| finding.name()).collect();
     format!(
-        "{} over {} samples, worst loss {:.1} %, decode {:.1} ms, host p95 {:.1} ms{}, display p95 {:.1} ms, {} stalls{}",
+        "{} over {} samples, worst loss {:.1} %, decode {:.1} ms, host p95 {:.1} ms{}, display p95 {:.1} ms, {} stalls{}, late frames in {} samples",
         if findings.is_empty() { "no findings".to_owned() } else { findings.join(",") },
         report.samples, report.worst_loss_percent, report.worst_decode_ms, report.worst_host_p95_ms,
         if report.host_includes_send { " (to network)" } else { "" }, report.worst_display_p95_ms, report.stalls,
         if report.stall_period_ms > 0 { format!(" every {} ms", report.stall_period_ms) } else { String::new() },
+        report.late_samples,
     )
 }
 

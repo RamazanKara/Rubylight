@@ -64,6 +64,7 @@ public class HostStreamSettingsGatingTest {
             assertNull(fragment.findPreference("host_display"));
             assertNull(fragment.findPreference("virtual"));
             assertNull(fragment.findPreference("scale"));
+            assertNull(fragment.findPreference("dpi"));
             assertEquals(app.getString(R.string.settings_section_video),
                     fragment.getPreferenceScreen().getPreference(0).getTitle().toString());
             // "Same as all PCs", Automatic, AV1, HEVC and H.264
@@ -80,6 +81,8 @@ public class HostStreamSettingsGatingTest {
             assertTrue(virtual.isEnabled());
             assertFalse(summary(virtual).contains(app.getString(R.string.host_display_exclusive)));
             assertTrue(fragment.findPreference("scale").isEnabled());
+            // Apollo has a virtual display but never reads rlDisplayScale.
+            assertNull(fragment.findPreference("dpi"));
         });
     }
 
@@ -113,6 +116,36 @@ public class HostStreamSettingsGatingTest {
     }
 
     @Test
+    public void aPcChoosesItsOwnDisplayScaleApartFromTheRenderResolution() {
+        withSettings("rubylight-dpi-pc", TestHosts.rubylightWithDisplayScale(), fragment -> {
+            Preference dpi = fragment.findPreference("dpi");
+            assertTrue(dpi.isEnabled());
+            assertTrue(summary(dpi).startsWith(app.getString(R.string.host_profile_follows,
+                    app.getString(R.string.virtual_display_dpi_pc_own))));
+            ReflectionHelpers.callInstanceMethod(fragment, "showDisplayScale");
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            // "Same as all PCs", the PC's own and the twelve Windows scales
+            assertEquals(14, dialog.getListView().getAdapter().getCount());
+            assertEquals("175%", dialog.getListView().getAdapter().getItem(5).toString());
+            dialog.getListView().performItemClick(null, 5, 5);
+            assertTrue(summary(dpi), summary(dpi).startsWith("175%\n"));
+            assertTrue(summary(fragment.findPreference("scale")).startsWith(
+                    app.getString(R.string.host_profile_follows, "100%")));
+        });
+    }
+
+    @Test
+    public void aRubylightWithoutDisplayScaleExplainsWhyTheRowIsUnavailable() {
+        // 2.6.x and 3.0.0-rc.5 send no DisplayScaleVersion and ignore rlDisplayScale.
+        withSettings("no-dpi-pc", TestHosts.rubylight(), fragment -> {
+            Preference dpi = fragment.findPreference("dpi");
+            assertFalse(dpi.isEnabled());
+            assertTrue(summary(dpi), summary(dpi).endsWith(app.getString(R.string.host_feature_reason_update)));
+            assertTrue(fragment.findPreference("scale").isEnabled());
+        });
+    }
+
+    @Test
     public void olderRubylightExplainsWhyThePickerIsUnavailable() {
         withSettings("old-rubylight-pc", TestHosts.fixture("butterpollo-serverinfo.xml"), fragment -> {
             Preference display = fragment.findPreference("host_display");
@@ -125,10 +158,11 @@ public class HostStreamSettingsGatingTest {
     @Test
     public void aVirtualDisplayTurnedOffOnTheHostDisablesItsRowsWithTheReason() {
         HostCapabilities off = TestHosts.caps(TestHosts.serverInfo("rubylight-serverinfo.xml")
-                .replace("<VirtualDisplayCapable>true", "<VirtualDisplayCapable>false"));
+                .replace("<VirtualDisplayCapable>true", "<VirtualDisplayCapable>false")
+                .replace("</root>", "<DisplayScaleVersion>1</DisplayScaleVersion></root>"));
         withSettings("display-off-pc", off, fragment -> {
             String reason = app.getString(R.string.host_feature_reason_virtual_display_off);
-            for (String key : new String[] {"host_display", "virtual", "scale"}) {
+            for (String key : new String[] {"host_display", "virtual", "scale", "dpi"}) {
                 Preference row = fragment.findPreference(key);
                 assertFalse(key, row.isEnabled());
                 assertTrue(key, summary(row).endsWith(reason));
@@ -140,7 +174,7 @@ public class HostStreamSettingsGatingTest {
     public void aPcNeverReachedKeepsEveryRowWithANote() {
         withSettings("new-pc", null, fragment -> {
             String note = app.getString(R.string.host_feature_unknown);
-            for (String key : new String[] {"host_display", "virtual", "scale"}) {
+            for (String key : new String[] {"host_display", "virtual", "scale", "dpi"}) {
                 Preference row = fragment.findPreference(key);
                 assertTrue(key, row.isEnabled());
                 assertTrue(key, summary(row).endsWith(note));

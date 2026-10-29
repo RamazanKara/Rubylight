@@ -21,7 +21,7 @@ use nightjar_core::roaming::RoamEvent;
 use nightjar_core::sdp::*;
 use nightjar_core::session::{
     AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location, Session,
-    NetworkHint, SessionConfig, Stage, VideoDecoder, VideoSetup,
+    NetworkChange, NetworkHint, SessionConfig, Stage, VideoDecoder, VideoSetup,
 };
 use nightjar_core::video::{Frame, FrameType};
 use rubylight_protocol::roaming::{is_roaming, Datagram, Header, Payload, SDP_ATTRIBUTE};
@@ -1234,7 +1234,8 @@ fn a_network_change_on_the_same_address_does_not_roam() {
     let session = start_session(&host, roaming_config(), &record);
     let client = host.peer(Media::Video);
 
-    assert!(!session.network_changed(NetworkHint::default()));
+    // Not roamed, and the connection carries on: the front end must not reconnect.
+    assert_eq!(session.network_changed(NetworkHint::default()), NetworkChange::CarriesOn);
     // The control stream carries on, the host saw no PROBE and video stays where it was.
     input_arrives(&session, &host);
     assert_eq!(*host.roaming.lock().unwrap(), []);
@@ -1349,7 +1350,7 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
     let session = start_session(&host, config, &record);
     let client = host.peer(Media::Video);
 
-    assert!(!session.network_changed(NetworkHint { metered: true }));
+    assert_eq!(session.network_changed(NetworkHint { metered: true }), NetworkChange::CarriesOn);
     until("the hold", || roam_events(&record) == [RoamEvent::Held]);
     silence_host(&host, &session);
     // The control stream carries on; the host has taken everything sent before this input.
@@ -1407,7 +1408,13 @@ fn with_roaming_off_nothing_is_probed() {
         record.lock().unwrap().logs
     );
 
-    assert!(!session.network_changed(NetworkHint::default()));
+    // Without a roamer the session still tells the same address carries on, and a route from
+    // another address than it started on cannot: it kept its start address.
+    assert_eq!(session.network_changed(NetworkHint::default()), NetworkChange::CarriesOn);
+    let elsewhere = SocketAddr::from((Ipv4Addr::new(192, 0, 2, 7), 0));
+    assert_eq!(session.network_changed_on(Ok(elsewhere)), NetworkChange::CannotContinue);
+    let here = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+    assert_eq!(session.network_changed_on(Ok(here)), NetworkChange::CarriesOn);
     for local in [None, Some(IpAddr::from(Ipv4Addr::LOCALHOST))] {
         let refused = session.roam_to(local).unwrap_err();
         assert_eq!(refused.kind(), io::ErrorKind::Unsupported, "{refused}");

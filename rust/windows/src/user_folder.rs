@@ -181,6 +181,24 @@ fn standard_user(
     })
 }
 
+/// Runs `work` on this thread as the user (see [`user_token`]), so Windows
+/// checks what it opens, follows and replaces against the user's rights, not
+/// the host's: a link the user put in a folder of theirs leads nowhere the
+/// user could not reach anyway. With nobody to act as, `work` does not run.
+pub fn as_user<T>(work: impl FnOnce() -> T) -> Result<T, UserFolderError> {
+    as_token(user_token()?.as_ref(), work)
+}
+
+/// [`as_user`] with `token`, or as the host without one. The impersonation
+/// ends when `work` returns or panics.
+pub(crate) fn as_token<T>(
+    token: Option<&OwnedHandle>,
+    work: impl FnOnce() -> T,
+) -> Result<T, UserFolderError> {
+    let _user = Impersonation::begin(token)?;
+    Ok(work())
+}
+
 /// Runs `work` on this thread as the user signed in to the host's session
 /// when the host runs as SYSTEM, for what Windows keeps per user. Otherwise,
 /// or with nobody signed in, it runs as the host.
@@ -781,7 +799,7 @@ impl Drop for PartFile {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use windows::Win32::{
         Foundation::CloseHandle,
@@ -829,7 +847,7 @@ mod tests {
 
     /// This process's token with its user's SID only able to deny: it is
     /// refused what is granted to the user by name, like another user.
-    fn without_own_sid() -> OwnedHandle {
+    pub(crate) fn without_own_sid() -> OwnedHandle {
         let own = own_token();
         let own = HANDLE(own.as_raw_handle());
         let mut bytes = 0;
@@ -862,6 +880,56 @@ mod tests {
             .unwrap();
             OwnedHandle::from_raw_handle(restricted.0)
         }
+    }
+
+    /// Make the folder `folder` a junction to `target` in place, as a user
+    /// with write access to it can (`FSCTL_SET_REPARSE_POINT`): it must be
+    /// empty, or already a junction. Done as this thread is.
+    pub(crate) fn mount(folder: &Path, target: &Path) -> io::Result<()> {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_DATA,
+        };
+        use windows::Win32::System::IO::DeviceIoControl;
+        const FSCTL_SET_REPARSE_POINT: u32 = 0x9_00A4;
+        const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
+        let file = OpenOptions::new()
+            .access_mode(FILE_WRITE_DATA.0)
+            .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+            .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT).0)
+            .open(folder)?;
+        let mut substitute: Vec<u16> = r"\??\".encode_utf16().collect();
+        substitute.extend(target.as_os_str().encode_wide());
+        let print: Vec<u16> = target.as_os_str().encode_wide().collect();
+        let names = (substitute.len() + 1 + print.len() + 1) * 2;
+        let mut buffer = Vec::with_capacity(16 + names);
+        buffer.extend(IO_REPARSE_TAG_MOUNT_POINT.to_le_bytes());
+        buffer.extend(((8 + names) as u16).to_le_bytes());
+        buffer.extend(0u16.to_le_bytes());
+        buffer.extend(0u16.to_le_bytes());
+        buffer.extend(((substitute.len() * 2) as u16).to_le_bytes());
+        buffer.extend((((substitute.len() + 1) * 2) as u16).to_le_bytes());
+        buffer.extend(((print.len() * 2) as u16).to_le_bytes());
+        for unit in substitute.iter().chain(&[0]).chain(&print).chain(&[0]) {
+            buffer.extend(unit.to_le_bytes());
+        }
+        let mut bytes = 0;
+        // SAFETY: the handle is open and the buffer valid for its length
+        // for this synchronous call.
+        unsafe {
+            DeviceIoControl(
+                raw(&file),
+                FSCTL_SET_REPARSE_POINT,
+                Some(buffer.as_ptr().cast()),
+                buffer.len() as u32,
+                None,
+                0,
+                Some(&mut bytes),
+                None,
+            )
+        }
+        .map_err(|error| io::Error::from_raw_os_error(error.code().0 & 0xFFFF))
     }
 
     /// The 8.3 short name of the file at `path`, when the volume makes one.
@@ -1133,6 +1201,96 @@ mod tests {
         assert!(denied(folder.list()));
         assert_eq!(names(&allowed), ["a.txt"]);
         assert_eq!(names(&forbidden), ["secret.txt"]);
+    }
+
+    thread_local! {
+        static RESTRICTED: OwnedHandle = without_own_sid();
+    }
+
+    /// Game files reached as `without_own_sid`, the way the host reaches
+    /// them as the signed-in user.
+    fn restricted(work: &mut dyn FnMut()) -> io::Result<()> {
+        RESTRICTED
+            .with(|token| as_token(Some(token), work))
+            .map_err(|error| io::Error::other(error.to_string()))
+    }
+
+    #[test]
+    fn game_files_reached_through_a_swapped_folder_keep_the_users_rights() {
+        use butterpollo_core::game_files::{self, JOURNAL_FILE, Journal, Report, Scope};
+        let base = tempfile::tempdir().unwrap();
+        icacls(base.path(), &["/grant", "*S-1-5-11:(OI)(CI)F"]);
+        // A game in a library folder, and a folder only this user's SID may
+        // use, which the restricted token can't.
+        let library = base.path().join("library");
+        let game = library.join("game");
+        fs::create_dir_all(&game).unwrap();
+        fs::write(
+            game.join("OptiScaler.ini"),
+            "[Framerate]\r\nFramerateLimit=59\r\n",
+        )
+        .unwrap();
+        let forbidden = base.path().join("forbidden");
+        fs::create_dir_all(forbidden.join("game")).unwrap();
+        let secret = forbidden.join("game").join("OptiScaler.ini");
+        let streamed = "[Framerate]\r\nFramerateLimit=120\r\n";
+        fs::write(&secret, streamed).unwrap();
+        let sid = crate::process::own_sid().unwrap();
+        icacls(
+            &forbidden,
+            &["/inheritance:r", "/grant:r", &format!("*{sid}:(OI)(CI)F")],
+        );
+        let journal = base.path().join("config").join(JOURNAL_FILE);
+        let folders = game_files::folders([game.clone()], restricted);
+        assert_eq!(folders.len(), 1);
+        let entries = game_files::parse(&serde_json::json!([{
+            "path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": "{stream_fps}"
+        }]))
+        .unwrap();
+        let mut report = Report::default();
+        let targets = game_files::targets(
+            &entries,
+            Some(120),
+            Some(&game),
+            &folders,
+            restricted,
+            &mut report,
+        );
+        assert_eq!(targets.len(), 1, "{report:?}");
+        let report = game_files::apply(&journal, "phone", &targets, restricted).unwrap();
+        assert_eq!(report.written.len(), 1, "{report:?}");
+        assert_eq!(
+            fs::read_to_string(game.join("OptiScaler.ini")).unwrap(),
+            streamed
+        );
+        assert!(!impersonating());
+
+        // Swapped for a junction to the forbidden folder after the checks:
+        // the restore and the next write are refused with the user's rights.
+        fs::rename(&library, base.path().join("moved")).unwrap();
+        junction(&forbidden, &library);
+        let denied = |lines: &[String]| lines.len() == 1 && lines[0].contains("(os error 5)");
+        let report = game_files::restore(&journal, Scope::All, restricted).unwrap();
+        assert!(denied(&report.failed), "{report:?}");
+        assert_eq!(Journal::load(&journal).unwrap().changes.len(), 1);
+        let report = game_files::apply(&journal, "tv", &targets, restricted).unwrap();
+        assert!(denied(&report.skipped), "{report:?}");
+        assert_eq!(fs::read_to_string(&secret).unwrap(), streamed);
+        assert!(!impersonating());
+    }
+
+    #[test]
+    fn acting_as_a_token_ends_when_the_work_returns_or_panics() {
+        let token = own_token();
+        assert!(as_token(Some(&token), impersonating).unwrap());
+        assert!(!impersonating());
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            as_token(Some(&token), || -> bool { panic!("work panicked") })
+        }));
+        assert!(panicked.is_err());
+        assert!(!impersonating());
+        // Without a token the work runs as the host.
+        assert!(!as_token(None, impersonating).unwrap());
     }
 
     #[test]

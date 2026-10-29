@@ -11,11 +11,12 @@
 //! Every 250 ms the counters are written to STATS as JSON.
 //!
 //! Usage:
-//!   udp_shaper [--loss PERCENT] LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]...
+//!   udp_shaper [--loss PERCENT[:SECONDS]] LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]...
 //!   udp_shaper --selftest [RATE_KBPS]
 //! RATE_KBPS 0 relays without shaping (the control). `--loss` drops that share
 //! of the shaped ports' datagrams at random (a fixed pattern), with or without
-//! a rate: loss with no bottleneck behind it.
+//! a rate: loss with no bottleneck behind it. With SECONDS the loss stops that
+//! long after the port's first datagram: a path that heals mid-stream.
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     collections::VecDeque,
@@ -94,18 +95,32 @@ struct Counters {
 struct RandomLoss {
     ppm: u64,
     state: u64,
+    /// Loss stops this long after the first datagram (`--loss PERCENT:SECONDS`).
+    window: Option<Duration>,
+    first: Option<Instant>,
 }
 
 impl RandomLoss {
-    fn new(ppm: u64) -> Self {
+    fn new(ppm: u64, window: Option<Duration>) -> Self {
         Self {
             ppm,
             state: 0x9e37_79b9_7f4a_7c15,
+            window,
+            first: None,
         }
     }
     fn drop(&mut self) -> bool {
+        self.drop_at(Instant::now())
+    }
+    fn drop_at(&mut self, now: Instant) -> bool {
         if self.ppm == 0 {
             return false;
+        }
+        if let Some(window) = self.window {
+            let first = *self.first.get_or_insert(now);
+            if now.saturating_duration_since(first) >= window {
+                return false;
+            }
         }
         // xorshift64*
         self.state ^= self.state >> 12;
@@ -321,6 +336,7 @@ fn relay(
     bps: u64,
     capacity: u64,
     loss_ppm: u64,
+    loss_window: Option<Duration>,
     ports: &[String],
 ) -> Result<Relay> {
     let mut relay = Relay { ports: Vec::new() };
@@ -337,7 +353,7 @@ fn relay(
         );
         let shaped = kind == "shape" && bps > 0;
         // Random loss applies to shaped ports, with or without a rate.
-        let loss = RandomLoss::new(if kind == "shape" { loss_ppm } else { 0 });
+        let loss = RandomLoss::new(if kind == "shape" { loss_ppm } else { 0 }, loss_window);
         let listen_socket = Arc::new(udp((listen, port).into())?);
         let upstream_socket = Arc::new(udp((upstream, 0).into())?);
         upstream_socket.connect((upstream, port))?;
@@ -443,6 +459,7 @@ fn selftest(link_kbps: u64) -> Result<()> {
             link_bps,
             case.capacity,
             0,
+            None,
             &[format!("{host_port}:shape")],
         )?;
         let client = udp("127.0.0.3:0".parse()?)?;
@@ -571,14 +588,29 @@ fn selftest(link_kbps: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::RandomLoss;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn random_loss_drops_about_its_share_and_none_at_zero() {
-        let mut loss = RandomLoss::new(3_000);
+        let mut loss = RandomLoss::new(3_000, None);
         let dropped = (0..1_000_000).filter(|_| loss.drop()).count();
         assert!((2_700..=3_300).contains(&dropped), "{dropped}");
-        let mut none = RandomLoss::new(0);
+        let mut none = RandomLoss::new(0, None);
         assert!((0..10_000).all(|_| !none.drop()));
+    }
+
+    #[test]
+    fn windowed_loss_stops_after_its_seconds_from_the_first_datagram() {
+        let start = Instant::now();
+        let mut loss = RandomLoss::new(100_000, Some(Duration::from_secs(30)));
+        let early = (0..100_000u64)
+            .filter(|i| loss.drop_at(start + Duration::from_micros(i * 100)))
+            .count();
+        assert!((9_000..=11_000).contains(&early), "{early}");
+        let late = (0..100_000u64)
+            .filter(|i| loss.drop_at(start + Duration::from_secs(30) + Duration::from_micros(*i)))
+            .count();
+        assert_eq!(late, 0);
     }
 }
 
@@ -593,18 +625,28 @@ fn main() -> Result<()> {
         return selftest(link_kbps);
     }
     let mut loss_ppm = 0;
+    let mut loss_window = None;
     if args.first().map(String::as_str) == Some("--loss") {
-        let percent: f64 = args.get(1).context("--loss needs a percentage")?.parse()?;
+        let spec = args.get(1).context("--loss needs a percentage")?;
+        let (percent, seconds) = spec
+            .split_once(':')
+            .map_or((spec.as_str(), None), |(p, s)| (p, Some(s)));
+        let percent: f64 = percent.parse()?;
         ensure!(
             (0.0..=100.0).contains(&percent),
             "--loss must be 0..100 percent"
         );
         loss_ppm = (percent * 10_000.).round() as u64;
+        if let Some(seconds) = seconds {
+            let seconds: f64 = seconds.parse().context("--loss PERCENT:SECONDS")?;
+            ensure!(seconds > 0.0, "--loss seconds must be above 0");
+            loss_window = Some(Duration::from_secs_f64(seconds));
+        }
         args.drain(..2);
     }
     ensure!(
         args.len() >= 6,
-        "usage: udp_shaper [--loss PERCENT] LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]..."
+        "usage: udp_shaper [--loss PERCENT[:SECONDS]] LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]..."
     );
     let listen: IpAddr = args[0].parse()?;
     let upstream: IpAddr = args[1].parse()?;
@@ -615,10 +657,19 @@ fn main() -> Result<()> {
         "the queue must hold a full-size datagram"
     );
     let stats = std::path::PathBuf::from(&args[4]);
-    let relay = relay(listen, upstream, bps, capacity, loss_ppm, &args[5..])?;
+    let relay = relay(
+        listen,
+        upstream,
+        bps,
+        capacity,
+        loss_ppm,
+        loss_window,
+        &args[5..],
+    )?;
     let started = Instant::now();
     println!(
-        "SHAPER ready listen={listen} upstream={upstream} rate_bps={bps} queue_bytes={capacity} loss_ppm={loss_ppm}"
+        "SHAPER ready listen={listen} upstream={upstream} rate_bps={bps} queue_bytes={capacity} loss_ppm={loss_ppm} loss_seconds={}",
+        loss_window.map_or(0., |window| window.as_secs_f64())
     );
     let temporary = stats.with_extension("tmp");
     loop {

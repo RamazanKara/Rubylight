@@ -477,6 +477,80 @@ mod tests {
         );
     }
 
+    /// The link-rate controller weighs the client's loss reports against what
+    /// the host sent, so the PyroWave sender records every picture it sends.
+    /// Without it a PyroWave stream that loses frames on Wi-Fi is never cut.
+    #[test]
+    fn a_sent_pyrowave_picture_is_recorded_for_the_link_rate_controller() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+        let session = Session::new(
+            launch,
+            butterpollo_core::rtsp::Negotiated {
+                codec: 3,
+                bitrate_kbps: 80_000,
+                ..Default::default()
+            },
+        );
+        session.configure_link_rate(true, 0);
+        assert!(
+            session.link_sent.live(),
+            "PyroWave has the link-rate controller"
+        );
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
+        let sender = Sender::new(
+            socket,
+            session.clone(),
+            fixture.host.config.read().unwrap().clone(),
+            fixture.host.clone(),
+            Instant::now(),
+            None,
+        )
+        .unwrap();
+        sender
+            .submit(
+                vec![Encoded {
+                    bytes: vec![42; 3000],
+                    unit: butterpollo_windows::encoder::Unit::Whole,
+                    idr: true,
+                    after_invalidation: false,
+                    frame_cap_bytes: None,
+                    reencoded: false,
+                    frame_cap_target: None,
+                    latency: None,
+                    presentation: None,
+                }],
+                client.local_addr().unwrap(),
+                Duration::ZERO,
+                Instant::now(),
+                &mut Claims::default(),
+            )
+            .unwrap();
+        for _ in 0..400 {
+            if session.link_sent.head() > 0 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let mut recorded = Vec::new();
+        session.link_sent.drain(&mut 0, |frame, packets, bytes, _| {
+            recorded.push((frame, packets, bytes))
+        });
+        let packets = session.stats.packets.load(Ordering::Relaxed);
+        let payload = session.stats.bytes.load(Ordering::Relaxed);
+        assert_eq!(recorded.len(), 1, "one picture, one record");
+        let (frame, recorded_packets, wire_bytes) = recorded[0];
+        assert_eq!(frame, 1);
+        assert!(packets > 0);
+        assert_eq!(u64::from(recorded_packets), packets);
+        assert_eq!(
+            u64::from(wire_bytes),
+            payload + packets * butterpollo_core::network_pacing::overhead(false) as u64,
+            "the payload sent and each datagram's IP and Ethernet framing"
+        );
+    }
+
     #[test]
     fn prepared_intra_frames_freeze_timing_and_keep_only_the_newest_waiter() {
         let wait = Duration::from_secs(4);

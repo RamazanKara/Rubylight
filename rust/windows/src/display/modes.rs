@@ -66,6 +66,25 @@ pub fn set_dpi_scale(monitor: &Monitor, percent: u32) -> Result<()> {
     // SAFETY: DpiSet has the expected C layout and its header carries the matching type and size.
     unsafe { check(DisplayConfigSetDeviceInfo(&set.header)) }
 }
+/// The largest Windows scale, in percent, a display offers at its current mode:
+/// Windows caps the scale by resolution.
+pub fn largest_scale(output: &str) -> Result<u32> {
+    let monitors = monitors()?;
+    let monitor = monitors
+        .iter()
+        .find(|m| m.display_name == output)
+        .context("display is unavailable for reading its scale range")?;
+    let value = dpi_query(monitor)?;
+    largest_percent(value.min, value.max)
+}
+/// The largest scale in a range Windows reports in steps relative to the recommended scale:
+/// `min` is the step of 100 %, so `max` is `max - min` steps up [`SCALES`]. A range past
+/// 500 % is held to 500 %.
+fn largest_percent(min: i32, max: i32) -> Result<u32> {
+    let index = usize::try_from(i64::from(max) - i64::from(min))
+        .context("Windows reports a scale range that ends below its start")?;
+    Ok(SCALES[index.min(SCALES.len() - 1)])
+}
 /// The Windows scale, in percent, a display shows now.
 pub fn output_scale(output: &str) -> Result<u32> {
     let monitors = monitors()?;
@@ -304,6 +323,19 @@ pub fn highest_refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_largest_scale_is_the_ranges_top_step_from_100_percent() {
+        // 1920x1080: recommended 125 % (min -1), up to 175 % (max +2).
+        assert_eq!(largest_percent(-1, 2).unwrap(), 175);
+        // 3840x2160: recommended 150 % (min -2), up to 350 % (max +6).
+        assert_eq!(largest_percent(-2, 6).unwrap(), 350);
+        // Only 100 %.
+        assert_eq!(largest_percent(0, 0).unwrap(), 100);
+        // The top of the table, and a range Windows reports beyond it.
+        assert_eq!(largest_percent(-3, 8).unwrap(), 500);
+        assert_eq!(largest_percent(-3, 20).unwrap(), 500);
+        assert!(largest_percent(2, 1).is_err());
+    }
     #[test]
     fn a_virtual_display_mode_is_applied_only_at_its_size_and_rate() {
         let requested = (3840, 2160, 1_000_000);

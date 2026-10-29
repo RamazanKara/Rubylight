@@ -6,6 +6,7 @@
   "calls": [
     {"call": "transient_termination", "args": [-1], "expect": true},
     {"call": "transport_termination", "args": [-1], "expect": true},
+    {"call": "allows_attempt", "args": [100, 100], "expect": false},
     {"call": "next_delay", "args": [100, 100], "expect": -1},
     {"call": "attempts", "args": [], "expect": 5}
   ]

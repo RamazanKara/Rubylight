@@ -392,6 +392,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "windows",
  "xml-rs",
  "xmltree",
  "zeroize",

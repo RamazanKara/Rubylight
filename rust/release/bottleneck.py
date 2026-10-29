@@ -12,7 +12,7 @@ host must be idle.
 usage: bottleneck.py --package DIR --work DIR --client EXE --codec CODEC [--mode 2560x1440x60]
                      [--seconds 20] [--bitrate 40000] [--rate-kbps 100000] [--queue-kib 64]
                      [--rfi] [--config KEY=VALUE]... [--label NAME] [--noise-height PIXELS]
-                     [--cut-ms MS [--fresh-rows ROWS]] [--hw-decoder TYPE] [--loss-percent PERCENT]
+                     [--cut-ms MS [--fresh-rows ROWS]] [--hw-decoder TYPE] [--loss-percent PERCENT [--loss-seconds S]]
                      [--idr-probe N:MS] [--send-outage EVERY_MS:LENGTH_MS[:air|:stall]]
 Writes WORK/bottleneck-LABEL/result.json: the frames the host sent, the
 frames the receiver got whole (Moonlight hands the decoder complete frames
@@ -58,6 +58,8 @@ parser.add_argument('--fresh-rows', type=int, default=0, metavar='ROWS',
 parser.add_argument('--hw-decoder', metavar='TYPE', help='the receiver decodes on the GPU, e.g. d3d11va')
 parser.add_argument('--loss-percent', type=float, default=0., metavar='PERCENT',
                     help='random loss of video datagrams, with or without --rate-kbps: a lossy path with no bottleneck')
+parser.add_argument('--loss-seconds', type=float, default=0., metavar='SECONDS',
+                    help='with --loss-percent, the loss stops SECONDS after the first video datagram: a path that heals mid-stream')
 parser.add_argument('--idr-probe', metavar='N:MS',
                     help="the receiver asks for N keyframes MS milliseconds apart once it decodes, as Moonlight's decoder asks again")
 parser.add_argument('--send-outage', metavar='SPEC',
@@ -115,7 +117,8 @@ try:
     motion = spawn([str(args.client.parent / 'motion_probe.exe'), display['display_name'], fixture_seconds,
                     str(case / 'motion.json'), str(int(fps) * 2), *strip], 'motion.log', env=env)
     # Sunshine's port layout: video base+9, control base+10, audio base+11, RTSP base+21.
-    loss = ['--loss', str(args.loss_percent)] if args.loss_percent else []
+    window = f':{args.loss_seconds}' if args.loss_seconds else ''
+    loss = ['--loss', f'{args.loss_percent}{window}'] if args.loss_percent else []
     relay = spawn([str(shaper), *loss, '127.0.0.2','127.0.0.1', str(args.rate_kbps), str(args.queue_kib * 1024), str(case / 'shaper.json'),
                    f'{port + 21}:tcp', f'{port + 9}:shape', str(port + 10), str(port + 11)], 'shaper.log')
     time.sleep(.5)
@@ -192,7 +195,7 @@ result = dict(
     host_send_loss_recoveries=session.get('send_loss_recoveries'), host_encoder_bitrate_kbps=session.get('encoder_bitrate_kbps'),
     host_packet_pacing=session.get('packet_pacing'), pacing_bps=[int(p) for p in pacing],
     client_lost_frame_logs=len(re.findall(r'Network dropped', client)), client_idr_waits=len(re.findall(r'Waiting for IDR frame', client)),
-    shaper_video=video, loss_percent=args.loss_percent, cut_ms=args.cut_ms, fresh_rows=args.fresh_rows, hw_decoder=args.hw_decoder, gpu_hang=None,
+    shaper_video=video, loss_percent=args.loss_percent, loss_seconds=args.loss_seconds or None, cut_ms=args.cut_ms, fresh_rows=args.fresh_rows, hw_decoder=args.hw_decoder, gpu_hang=None,
 )
 if frames:
     encoder_kbps = result['host_encoder_bitrate_kbps'] or int(args.bitrate)

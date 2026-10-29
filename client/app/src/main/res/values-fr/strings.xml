@@ -270,13 +270,16 @@
     <string name="title_virtual_display">Écran virtuel de l’hôte</string>
     <string name="summary_virtual_display">Demande au PC un écran correspondant au stream. Désactivé : les paramètres d’affichage du PC décident.</string>
     <string name="title_vrr">Rafraîchissement adaptatif (ARR / VRR)</string>
-    <string name="summary_vrr">Sur les écrans Android 16 à rafraîchissement adaptatif, Android adapte la fréquence de rafraîchissement au stream ; les autres écrans tournent à leur fréquence maximale. Les hôtes compatibles VRR sont aussi invités à l’utiliser, selon leurs paramètres. Tant que cette option est activée, le frame pacing et la réduction de la fréquence de rafraîchissement ne s’appliquent pas.</string>
+    <string name="summary_vrr">Sur les écrans Android 16 à rafraîchissement adaptatif, Android adapte la fréquence de rafraîchissement au stream ; les autres écrans tournent à leur fréquence maximale et, avec un PC Rubylight, ne passent à une fréquence inférieure adaptée que si celle du jeu saccaderait à la maximale et s’ils peuvent changer sans écran noir. Les hôtes compatibles VRR sont aussi invités à l’utiliser, selon leurs paramètres. Tant que cette option est activée, le frame pacing et la réduction de la fréquence de rafraîchissement ne s’appliquent pas.</string>
     <string name="title_host_frame_times">Afficher les images au rythme du PC</string>
     <string name="summary_host_frame_times">Retient chaque image quelques millisecondes pour qu’elle apparaisse quand le jeu l’a dessinée, et non quand le réseau l’a livrée. Lisse les variations, surtout avec le rafraîchissement adaptatif. Remplace le rythme d’images. Non utilisé avec PyroWave.</string>
     <string name="title_content_rate_frame_rate">Adapter l’écran à la cadence du jeu</string>
     <string name="summary_content_rate_frame_rate">Indique à Android la cadence réelle du jeu, pour qu’un écran doté d’un mode correspondant puisse y passer sans écran noir. Nécessite un PC qui envoie les temps d’image et « Autoriser un rafraîchissement réduit » ; change au plus une fois toutes les 2 secondes. Non utilisé avec PyroWave ni avec le rafraîchissement adaptatif.</string>
     <string name="title_virtual_display_scale">Résolution de rendu du PC</string>
     <string name="summary_virtual_display_scale">Pourcentage de la résolution du stream auquel le PC effectue le rendu. La taille de la vidéo transmise ne change pas. Pour envoyer moins de pixels et upscaler sur cet appareil, baissez la résolution du stream.</string>
+    <string name="title_virtual_display_dpi">Mise à l’échelle de l’écran du PC</string>
+    <string name="summary_virtual_display_dpi">Taille du texte et de l’interface sur l’écran virtuel, sur les PC Rubylight.</string>
+    <string name="virtual_display_dpi_pc_own">Celle du PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">pas encore de données</string>
     <string name="title_export_latency_csv">Exporter la latence en CSV</string>

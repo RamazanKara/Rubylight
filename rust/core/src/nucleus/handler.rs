@@ -347,10 +347,10 @@ fn same_path(a: &str, b: &str) -> bool {
 pub struct Catalog {
     pub handlers: Vec<Handler>,
     pub games: Vec<Game>,
-    /// The account (SID) whose list `games` holds. The handlers folder is
-    /// the Nucleus Co-op folder's, which every account shares, and each
-    /// account's list is its own: only handlers written for this account
-    /// can be unused.
+    /// The signed-in account (SID): only handlers written for it can be
+    /// unused. The handlers folder and the game list are the Nucleus Co-op
+    /// folder's, which every account shares; a handler written for another
+    /// account is left to that account's sweep.
     pub user: Option<String>,
 }
 impl Catalog {

@@ -1,0 +1,3 @@
+## en
+- New **Send system keys** option, on by default as on desktop: Esc, Alt+Tab and the Windows key go to the PC, and the Back key many Android keyboards have in place of Esc sends Esc instead of opening the stream menu. Android lets apps take Alt+Tab and the Windows key only on Android 16 QPR2 and newer and on many Samsung devices ([#50](https://github.com/RamazanKara/nightjar/issues/50)).
+- New **Back button as Guide** option for handhelds such as the Retroid Pocket: Back on the built-in controls, or a system button that acts as Back, sends Guide (Home/PS). Android only, as desktop controllers have a real Guide button ([#49](https://github.com/RamazanKara/nightjar/issues/49)).

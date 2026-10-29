@@ -16,6 +16,12 @@ use std::{
 /// Longer than any normal wait in a stream thread (a 50 ms repeat, a 20 fps
 /// static picture), short of a freeze anyone would report.
 const LIMIT: Duration = Duration::from_millis(500);
+/// Before a picture is claimed every wait is bounded by about a stream period
+/// (a 50 ms capture wait, a repeat, a pacing deadline), so a stall there is
+/// reported sooner: a 285 ms gap while a game launched stayed under `LIMIT`
+/// and named no phase. At most two stream periods, so a very low frame rate
+/// is not reported every frame.
+const CLAIM_LIMIT: Duration = Duration::from_millis(150);
 const TICK: Duration = Duration::from_millis(50);
 const PROBE_EVERY: Duration = Duration::from_millis(100);
 /// A probe query slower than this is logged even without a thread stall.
@@ -32,6 +38,10 @@ pub enum Phase {
     Send,
     Capture,
     Reopen,
+    /// Handing the game on the stream's display to the running app.
+    AppTracking,
+    /// Opening what the thread works with, before its first phase.
+    Setup,
 }
 impl Phase {
     fn name(phase: u8) -> &'static str {
@@ -44,10 +54,24 @@ impl Phase {
             "sending",
             "capturing",
             "reopening capture",
+            "tracking the app's game",
+            "setting up",
         ]
         .get(usize::from(phase))
         .copied()
         .unwrap_or("unknown")
+    }
+    /// How long a thread whose stream period is `period` may stay in `phase`
+    /// before it is reported. The encoder, the network and capture reopening
+    /// have longer waits of their own (encoder recovery at 250 ms, slow sends)
+    /// and keep `LIMIT`.
+    fn limit(phase: u8, period: Duration) -> Duration {
+        const CLAIM_PHASES: [Phase; 3] = [Phase::Loop, Phase::Picture, Phase::AppTracking];
+        if CLAIM_PHASES.iter().any(|claim| *claim as u8 == phase) {
+            CLAIM_LIMIT.max(period * 2)
+        } else {
+            LIMIT
+        }
     }
 }
 
@@ -61,12 +85,20 @@ pub struct Progress {
     stream: String,
     phase: AtomicU8,
     at: AtomicU64,
+    /// The stream's frame period in nanoseconds; 0 until set.
+    period: AtomicU64,
     gpu: Option<Arc<GpuProbe>>,
 }
 impl Progress {
     pub fn mark(&self, phase: Phase) {
         self.phase.store(phase as u8, Ordering::Relaxed);
         self.at.store(now(), Ordering::Release);
+    }
+    /// The stream's frame period, which a claim may take twice before it is
+    /// reported.
+    pub fn set_period(&self, period: Duration) {
+        self.period
+            .store(period.as_nanos() as u64, Ordering::Relaxed);
     }
 }
 
@@ -77,13 +109,15 @@ struct Watched {
 }
 
 /// Watched until the returned handle is dropped.
+/// The thread starts in `Phase::Setup`.
 pub fn register(thread: &'static str, stream: &str, gpu: Option<Arc<GpuProbe>>) -> Arc<Progress> {
     static WATCHED: OnceLock<Arc<Watched>> = OnceLock::new();
     let progress = Arc::new(Progress {
         thread,
         stream: stream.to_owned(),
-        phase: AtomicU8::new(Phase::Loop as u8),
+        phase: AtomicU8::new(Phase::Setup as u8),
         at: AtomicU64::new(now()),
+        period: AtomicU64::new(0),
         gpu,
     });
     let watched = WATCHED.get_or_init(|| {
@@ -121,7 +155,9 @@ fn watch(watched: &Watched) {
             };
             let at = progress.at.load(Ordering::Acquire);
             let phase = progress.phase.load(Ordering::Relaxed);
-            let event = watch.check(at, phase, false, now(), LIMIT.as_nanos() as u64);
+            let period = Duration::from_nanos(progress.period.load(Ordering::Relaxed));
+            let limit = Phase::limit(phase, period).as_nanos() as u64;
+            let event = watch.check(at, phase, false, now(), limit);
             let (gpu_query_outstanding_ms, gpu_query_last_ms) = progress
                 .gpu
                 .as_ref()
@@ -230,5 +266,59 @@ impl GpuProbe {
             (issued != 0).then(|| now().saturating_sub(issued) / 1_000_000),
             (last != 0).then_some(last / 1000),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stall_before_the_claim_is_reported_sooner_than_one_in_the_encoder_or_capture() {
+        let ms = |ms: u64| ms * 1_000_000;
+        // 160 ms in the steps before a claim, the app's game look among them.
+        for phase in [Phase::Loop, Phase::Picture, Phase::AppTracking] {
+            let limit = Phase::limit(phase as u8, Duration::from_millis(8)).as_nanos() as u64;
+            assert_eq!(
+                Watch::default().check(ms(100), phase as u8, false, ms(260), limit),
+                Some(Event::Stalled {
+                    phase: phase as u8,
+                    ms: 160
+                }),
+                "{}",
+                Phase::name(phase as u8)
+            );
+        }
+        // Encoder creation, capture reopening and a thread still setting up
+        // have longer waits of their own.
+        for phase in [
+            Phase::Setup,
+            Phase::EncoderCreate,
+            Phase::Encode,
+            Phase::Output,
+            Phase::Send,
+            Phase::Capture,
+            Phase::Reopen,
+        ] {
+            let limit = Phase::limit(phase as u8, Duration::from_millis(8)).as_nanos() as u64;
+            assert_eq!(
+                Watch::default().check(ms(100), phase as u8, false, ms(260), limit),
+                None,
+                "{}",
+                Phase::name(phase as u8)
+            );
+        }
+        // A stream at 5 fps waits 200 ms for a picture as a matter of course.
+        let slow = Duration::from_millis(200);
+        assert_eq!(
+            Phase::limit(Phase::Picture as u8, slow),
+            Duration::from_millis(400)
+        );
+        assert_eq!(Phase::limit(Phase::Encode as u8, slow), LIMIT);
+        assert_eq!(
+            Phase::name(Phase::AppTracking as u8),
+            "tracking the app's game"
+        );
+        assert_eq!(Phase::name(Phase::Setup as u8), "setting up");
     }
 }

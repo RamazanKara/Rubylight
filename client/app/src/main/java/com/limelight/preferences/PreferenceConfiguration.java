@@ -110,6 +110,8 @@ public class PreferenceConfiguration {
     private static final String DISABLE_RUMBLE_PREF_STRING = "checkbox_disable_rumble";
     private static final String BACK_AS_META_PREF_STRING = "checkbox_back_as_meta";
     private static final String BACK_OPENS_MENU_PREF_STRING = "checkbox_back_opens_menu";
+    private static final String BACK_AS_GUIDE_PREF_STRING = "checkbox_back_as_guide";
+    private static final String CAPTURE_SYSTEM_KEYS_PREF_STRING = "checkbox_capture_system_keys";
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING = "checkbox_keyboard_follows_text_fields";
     static final String CLIPBOARD_SYNC_PREF_STRING = "checkbox_clipboard_sync";
@@ -176,6 +178,9 @@ public class PreferenceConfiguration {
     static final String ROAMING_METERED_PREF_STRING = "checkbox_roaming_metered";
     private static final String VIRTUAL_DISPLAY_PREF_STRING = "checkbox_virtual_display";
     private static final String VIRTUAL_DISPLAY_SCALE_PREF_STRING = "seekbar_virtual_display_scale";
+    static final String VIRTUAL_DISPLAY_DPI_PREF_STRING = "list_virtual_display_dpi";
+    /** The Windows scales "PC display scaling" offers (rlDisplayScale); 0 keeps the PC's own. */
+    static final int[] VIRTUAL_DISPLAY_DPI_VALUES = {0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500};
     private static final String YUV444_PREF_STRING = "checkbox_yuv444";
     private static final String VRR_PREF_STRING = "checkbox_vrr";
     static final String HOST_FRAME_TIMES_PREF_STRING = "checkbox_host_frame_times";
@@ -328,6 +333,10 @@ public class PreferenceConfiguration {
     public boolean disableRumble;
     public boolean backAsMeta;
     public boolean backOpensMenu;
+    // A controller's or handheld's Back sends Guide (Home/PS).
+    public boolean backAsGuide;
+    // Alt+Tab, the Windows key and a keyboard's Back (as Esc) go to the PC where Android allows it.
+    public boolean captureSystemKeys = true;
     public boolean rightAltAsMeta;
     public boolean keyboardFollowsTextFields;
     // Clipboard sync (0x5508) with a Rubylight PC that offers it.
@@ -375,6 +384,8 @@ public class PreferenceConfiguration {
     // Vote the content rate the host's frame times show to the display (Surface.setFrameRate).
     public boolean contentRateFrameRate;
     public int virtualDisplayScale;
+    // The virtual display's Windows scale in percent; 0 keeps the PC's own.
+    public int virtualDisplayDpi;
     // Where the launch values came from, for the stream log.
     public boolean resolutionFollowsScreen, fromPcProfile;
     // What this PC's displays do during the stream, and the PC's own stream values (for the log).
@@ -653,6 +664,23 @@ public class PreferenceConfiguration {
         }
     }
 
+    static boolean isVirtualDisplayDpi(int percent) {
+        for (int offered : VIRTUAL_DISPLAY_DPI_VALUES) {
+            if (offered == percent) return true;
+        }
+        return false;
+    }
+
+    /** A stored "PC display scaling" choice; anything Windows does not offer keeps the PC's own. */
+    static int virtualDisplayDpi(String stored) {
+        try {
+            int percent = Integer.parseInt(stored.trim());
+            return isVirtualDisplayDpi(percent) ? percent : 0;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     static int framePacingValue(String str) {
         if (str.equals("latency")) {
             return FRAME_PACING_MIN_LATENCY;
@@ -819,7 +847,10 @@ public class PreferenceConfiguration {
             config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
                     .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit;
         }
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
+        config.contentRateFrameRate = com.limelight.binding.video.DisplayFrameRatePolicy.tracksContentRate(
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false), config.reduceRefreshRate,
+                config.vrr, config.useTextureView);
         return config;
     }
 
@@ -1329,6 +1360,8 @@ public class PreferenceConfiguration {
         config.disableRumble = prefs.getBoolean(DISABLE_RUMBLE_PREF_STRING, false);
         config.backAsMeta = prefs.getBoolean(BACK_AS_META_PREF_STRING, false);
         config.backOpensMenu = prefs.getBoolean(BACK_OPENS_MENU_PREF_STRING, false);
+        config.backAsGuide = prefs.getBoolean(BACK_AS_GUIDE_PREF_STRING, false);
+        config.captureSystemKeys = prefs.getBoolean(CAPTURE_SYSTEM_KEYS_PREF_STRING, true);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.keyboardFollowsTextFields = prefs.getBoolean(KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING, true);
         config.clipboardSync = prefs.getBoolean(CLIPBOARD_SYNC_PREF_STRING, false);
@@ -1394,6 +1427,7 @@ public class PreferenceConfiguration {
         config.roamingMetered = prefs.getBoolean(ROAMING_METERED_PREF_STRING, false);
         config.virtualDisplay = prefs.getBoolean(VIRTUAL_DISPLAY_PREF_STRING, false);
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
+        config.virtualDisplayDpi = virtualDisplayDpi(prefs.getString(VIRTUAL_DISPLAY_DPI_PREF_STRING, "0"));
         config.enableYuv444 = prefs.getBoolean(YUV444_PREF_STRING, false);
         config.vrr = prefs.getBoolean(VRR_PREF_STRING, false);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
@@ -1407,10 +1441,13 @@ public class PreferenceConfiguration {
             config.reduceRefreshRate = false;
         }
         config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
-        config.contentRateFrameRate = prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false);
-        // The vote is for a SurfaceView on a fixed-rate panel; VRR has its own vote. It needs the lower refresh
-        // rate switch: the settings screen greys it without that, so a stored choice must not act on its own.
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
+        // The vote is for a SurfaceView. It needs the lower refresh rate switch: the settings screen greys it
+        // without that, so a stored choice must not act on its own. VRR turns it on: without ARR (known only
+        // once the stream's display is) the content rate is the only way down from the panel maximum, to a
+        // seamless multiple of the game's rate.
+        config.contentRateFrameRate = com.limelight.binding.video.DisplayFrameRatePolicy.tracksContentRate(
+                prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false), config.reduceRefreshRate,
+                config.vrr, config.useTextureView);
         if (config.hostFrameTimes) {
             // Each frame is released at its scheduled time and the compositor shows it then.
             config.framePacing = FRAME_PACING_MIN_LATENCY;

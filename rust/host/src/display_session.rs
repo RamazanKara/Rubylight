@@ -390,6 +390,9 @@ pub struct Ready {
     client_display: Option<HostDisplay>,
     virtual_layout: Option<String>,
     exclusive_layout: bool,
+    /// One game window's stream (`Ready::window`): never kept for a
+    /// reconnect, whose launch prepares and checks the window again.
+    game_window: bool,
     /// The launch's policy, or the stream request's once `retime` raised it.
     framegen: Mutex<Policy>,
     mode_report: ModeReport,
@@ -465,6 +468,7 @@ impl Ready {
             client_display,
             virtual_layout,
             exclusive_layout,
+            game_window: false,
             framegen: Mutex::new(framegen),
             mode_report,
             turned,
@@ -547,6 +551,7 @@ impl Ready {
             client_display: None,
             virtual_layout: None,
             exclusive_layout: false,
+            game_window: true,
             framegen: Mutex::new(framegen),
             mode_report,
             turned: Arc::new(Mutex::new(None)),
@@ -597,6 +602,12 @@ impl Ready {
             display: self,
             _limiter: limiter,
         })
+    }
+    /// Whether the device's next stream may reuse this one. A game window's
+    /// is not kept: resuming would skip the window's check, and its warnings
+    /// would keep going to the first session.
+    pub fn kept_for_reconnect(&self) -> bool {
+        !self.game_window
     }
     pub fn matches(&self, stream: &Negotiated) -> bool {
         self.mode == stream_mode(stream)
@@ -824,6 +835,87 @@ fn virtual_display_scale(virtual_layout: bool, configured: i64) -> i64 {
     if virtual_layout { configured } else { 0 }
 }
 
+/// How a stream's display scale is set up ([`scale_setup`]).
+#[derive(Debug, PartialEq)]
+struct ScaleSetup {
+    /// The scale for [`set_up_scale`]; 0 leaves it to a kept scale or to Windows.
+    scale: i64,
+    /// The scale is the device's own launch request (`rlDisplayScale`): Windows refusing it
+    /// is a warning, as for a kept scale, while a host or device setting stays fatal.
+    requested: bool,
+    /// The device's scale was lowered to the largest the display's resolution allows.
+    lowered: Option<String>,
+    /// Read the scale Windows shows, to keep one picked in Windows during the stream.
+    learns: bool,
+}
+
+impl ScaleSetup {
+    /// The device's warning for this stream once the scale in force is known: Windows refused
+    /// the scale it asked for (none is in force), else it was lowered.
+    fn warning(&self, in_force: i64) -> Option<String> {
+        if self.requested && in_force == 0 {
+            return Some(format!(
+                "Windows did not take the {}% display scaling the device asked for, so the virtual display keeps the scale Windows shows. Choose another PC display scaling on the device.",
+                self.scale
+            ));
+        }
+        self.lowered.clone()
+    }
+}
+
+/// The scale a stream's display gets. On a virtual display (or a remote monitor's retained
+/// one) the client's `rlDisplayScale` comes first, held to the `largest` scale Windows offers
+/// at the display's resolution, then the merged `dd_virtual_display_scale` (device, app, host).
+/// A physical display gets none here, and the client's scale is ignored for it. A scale is
+/// learned from Windows only when the device `keeps` one and none is configured or requested.
+fn scale_setup(
+    config: &Config,
+    options: &std::collections::BTreeMap<String, String>,
+    virtual_layout: bool,
+    keeps: bool,
+    largest: impl FnOnce() -> Result<u32>,
+) -> Result<ScaleSetup> {
+    // Checked at /launch too, so a bad value never gets this far.
+    let requested = butterpollo_core::display_policy::client_display_scale(options)?;
+    if let Some(chosen) = requested.filter(|_| virtual_layout) {
+        let (scale, lowered) = fit_client_scale(chosen, largest());
+        return Ok(ScaleSetup {
+            scale,
+            requested: true,
+            lowered,
+            learns: false,
+        });
+    }
+    let configured = config.integer("dd_virtual_display_scale", 0);
+    Ok(ScaleSetup {
+        scale: virtual_display_scale(virtual_layout, configured),
+        requested: false,
+        lowered: None,
+        // A configured scale is the user's setting, so nothing is learned then.
+        learns: keeps && configured == 0,
+    })
+}
+
+/// A client's display scale, held to the largest Windows offers the display at
+/// its resolution: a scale too large for it is lowered, with a warning, instead
+/// of failing every stream. A range Windows does not report keeps the choice,
+/// and a refusal is then a warning ([`ScaleSetup::warning`]).
+fn fit_client_scale(chosen: i64, largest: Result<u32>) -> (i64, Option<String>) {
+    match largest {
+        Ok(largest) if chosen > i64::from(largest) => (
+            i64::from(largest),
+            Some(format!(
+                "The device asked for {chosen}% display scaling, but Windows offers at most {largest}% at this resolution, so the virtual display uses {largest}%. Choose a smaller PC display scaling on the device, or a higher resolution."
+            )),
+        ),
+        Ok(_) => (chosen, None),
+        Err(error) => {
+            tracing::warn!(scale = chosen, error = %format!("{error:#}"), "the display's scale range could not be read; asking Windows for the device's scale as chosen");
+            (chosen, None)
+        }
+    }
+}
+
 /// Whether a paused stream keeps its layout's physical monitors off. Only an
 /// exclusive layout switches them off, and only on request: by default a paused
 /// stream leaves local display changes alone.
@@ -909,15 +1001,31 @@ fn kept_scale(
 /// the one the device kept from Windows (`remember_display_mode`). A configured scale always
 /// wins. The kept one is applied after the display's mode is set, so it sits on the mode the
 /// device keeps, and Windows refusing it is a warning: the stream goes on at the scale Windows
-/// shows. Returns the scale the display is in force at, for recovery to put back.
+/// shows. So is refusing a scale the device `requested` at launch; refusing a configured one
+/// fails the stream. Returns the scale the display is in force at, for recovery to put back
+/// (0 after a refusal: recovery does not retry it).
 fn apply_virtual_scale(
     output: &str,
     configured: i64,
+    requested: bool,
     remembered: Option<u32>,
     (width, height): (u32, u32),
     set: impl FnOnce(&str, i64, u32, u32) -> Result<()>,
 ) -> Result<i64> {
     match (configured, remembered) {
+        (percent, _) if requested && percent != 0 => {
+            match scale_display(output, percent, (width, height), set) {
+                Ok(()) => Ok(percent),
+                Err(error) => {
+                    tracing::warn!(
+                        scale = percent,
+                        error = %format!("{error:#}"),
+                        "Windows did not take the display scale the device asked for; the display keeps the scale Windows shows"
+                    );
+                    Ok(0)
+                }
+            }
+        }
         (0, Some(percent)) => match set(output, i64::from(percent), width, height) {
             Ok(()) => Ok(i64::from(percent)),
             Err(error) => {
@@ -937,16 +1045,18 @@ fn apply_virtual_scale(
 /// picked during the stream is compared with. It is read after the kept scale is applied, so a
 /// scale Windows refused is never mistaken for one the user picked. `learns` is false when a
 /// scale is configured or the device does not keep one: nothing is read then.
+#[allow(clippy::too_many_arguments)]
 fn set_up_scale(
     output: &str,
     configured: i64,
+    requested: bool,
     remembered: Option<u32>,
     dimensions: (u32, u32),
     learns: bool,
     set: impl FnOnce(&str, i64, u32, u32) -> Result<()>,
     read: impl FnOnce(&str) -> Result<u32>,
 ) -> Result<(i64, Option<u32>)> {
-    let in_force = apply_virtual_scale(output, configured, remembered, dimensions, set)?;
+    let in_force = apply_virtual_scale(output, configured, requested, remembered, dimensions, set)?;
     let baseline = if learns {
         read(output)
             .inspect_err(|error| {
@@ -1343,13 +1453,7 @@ impl Prepared {
         config: &Config,
         physical_only: bool,
     ) -> Result<(Self, limiter::Lease)> {
-        let app = h
-            .apps
-            .read()
-            .unwrap()
-            .iter()
-            .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
-            .cloned();
+        let app = crate::stream::launch_app(h, launch);
         let output_override = app
             .as_ref()
             .and_then(|a| a.extra.get("display-output"))
@@ -1662,20 +1766,31 @@ impl Prepared {
         // display layout.
         let virtual_layout = virtual_mode || retained.is_some();
         // A remote monitor's retained display too: the lease never sets the scale.
-        let configured_scale = config.integer("dd_virtual_display_scale", 0);
-        let scale = virtual_display_scale(virtual_layout, configured_scale);
+        // The client's own scale (`rlDisplayScale`, checked at /launch) comes
+        // before the device, app and host setting.
+        let setup = scale_setup(
+            config,
+            &launch.options,
+            virtual_layout,
+            remember && display.is_some(),
+            || butterpollo_windows::display::largest_scale(&output),
+        )?;
         // Without a configured scale, the one the device kept from Windows.
         let remembered = kept_scale(remember, &launch.client.extra);
-        // A configured scale is the user's setting, so nothing is learned then.
         let (scale, scale_baseline) = set_up_scale(
             &output,
-            scale,
+            setup.scale,
+            setup.requested,
             remembered,
             (width, height),
-            remember && display.is_some() && configured_scale == 0,
+            setup.learns,
             butterpollo_windows::display::virtual_scale,
             butterpollo_windows::display::output_scale,
         )?;
+        match setup.warning(scale) {
+            Some(warning) => launch.warnings.set("display_scale", warning),
+            None => launch.warnings.clear("display_scale"),
+        }
         // The client's choice for this stream comes before the device, app
         // and host layouts.
         let selection = if virtual_layout {
@@ -2106,13 +2221,7 @@ pub fn retime(
     {
         return Ok(Err(preparation));
     }
-    let app = h
-        .apps
-        .read()
-        .unwrap()
-        .iter()
-        .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
-        .cloned();
+    let app = crate::stream::launch_app(h, launch);
     let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config, true)?;
     let raised = butterpollo_windows::input::on_input_desktop(|| -> Result<Raise> {
         let mut prepared = display._state.lock().unwrap();
@@ -2208,6 +2317,21 @@ pub fn prepare_stream(
     stream: &Negotiated,
     config: &Config,
 ) -> Result<StreamPreparation> {
+    if let Some(target) = configured_window(config)? {
+        configured_window_open(&target)?;
+        tracing::info!(target = %target, "streaming the configured window");
+        let name = target.to_string();
+        // The window is checked every 100 ms: closed or minimised, the stream
+        // says so while its capture fails (stream.rs gives up after 30 s).
+        return Ready::window(
+            h,
+            stream,
+            config,
+            name.clone(),
+            Box::new(move || configured_window_open(&target).map(|()| name.clone())),
+            launch.warnings.clone(),
+        );
+    }
     let prepare = |physical_only: bool| {
         butterpollo_windows::input::on_input_desktop(|| {
             Ready::prepare(Prepared::create(h, launch, stream, config, physical_only)?)
@@ -2223,6 +2347,35 @@ pub fn prepare_stream(
         }
         result => result,
     }
+}
+
+/// One window streamed instead of a display: `output_name` set to
+/// `window:<hwnd>/<pid>@<display>`, as the release harness does for its looped
+/// game clip (e2e.py --content). Like a co-op player's window, no display is
+/// prepared, changed or kept; a malformed target is refused, never streamed as
+/// a display, and a window that closes fails the capture loudly. The target
+/// must name the window's process: a handle written into the settings outlives
+/// its window, and Windows gives it to the next one.
+fn configured_window(
+    config: &Config,
+) -> Result<Option<butterpollo_windows::capture::WindowTarget>> {
+    let output = config.get("output_name", "").trim();
+    let target = butterpollo_windows::capture::WindowTarget::parse(output)
+        .context("output_name is neither a display nor a window:<hwnd>/<pid>@<display> target")?;
+    if let Some(target) = &target {
+        anyhow::ensure!(
+            target.process.is_some(),
+            "output_name names the window {target} without its process: use window:<hwnd>/<pid>@<display>"
+        );
+    }
+    Ok(target)
+}
+
+/// A closed, minimised, reused or misplaced configured window refuses the
+/// stream with the reason.
+fn configured_window_open(target: &butterpollo_windows::capture::WindowTarget) -> Result<()> {
+    butterpollo_windows::capture::check_window(target)
+        .with_context(|| format!("output_name names the window {target}, which cannot be streamed"))
 }
 
 /// Streams share the saved layout's restoration, like the arrangement and
@@ -2360,6 +2513,185 @@ pub(crate) mod tests {
             .values
             .insert("dd_manual_rotation".into(), manual.into());
         config
+    }
+
+    #[test]
+    fn the_clients_display_scale_comes_before_the_configured_one() {
+        let mut config = Config::default();
+        let options = |pairs: &[(&str, &str)]| -> std::collections::BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect()
+        };
+        let unread = || -> Result<u32> { panic!("the scale range is read only for a request") };
+        let setup = |config: &Config, pairs: &[(&str, &str)], virtual_layout, keeps| {
+            scale_setup(config, &options(pairs), virtual_layout, keeps, || Ok(500)).unwrap()
+        };
+        let plain = |scale, learns| ScaleSetup {
+            scale,
+            requested: false,
+            lowered: None,
+            learns,
+        };
+        // Nothing configured or asked for: Windows' own scale, learned if the device keeps one.
+        assert_eq!(setup(&config, &[], true, true), plain(0, true));
+        assert_eq!(setup(&config, &[], true, false), plain(0, false));
+        config
+            .values
+            .insert("dd_virtual_display_scale".into(), "125".into());
+        assert_eq!(
+            scale_setup(&config, &options(&[]), true, true, unread).unwrap(),
+            plain(125, false),
+            "a configured scale is applied and nothing is learned over it"
+        );
+        // The device's request wins on a virtual display and suppresses learning.
+        assert_eq!(
+            setup(&config, &[("rlDisplayScale", "200")], true, true),
+            ScaleSetup {
+                scale: 200,
+                requested: true,
+                lowered: None,
+                learns: false,
+            }
+        );
+        // The render scale (`scaleFactor`) never sets the Windows scale.
+        assert_eq!(
+            scale_setup(
+                &config,
+                &options(&[("scaleFactor", "200")]),
+                true,
+                true,
+                unread
+            )
+            .unwrap(),
+            plain(125, false)
+        );
+        assert!(
+            scale_setup(
+                &config,
+                &options(&[("rlDisplayScale", "275")]),
+                true,
+                true,
+                unread
+            )
+            .is_err()
+        );
+        // A physical display keeps the user's scale whatever the client asks, and the
+        // request neither reads the range nor changes what is learned there.
+        assert_eq!(
+            scale_setup(
+                &config,
+                &options(&[("rlDisplayScale", "200")]),
+                false,
+                true,
+                unread
+            )
+            .unwrap(),
+            plain(0, false)
+        );
+        let unset = Config::default();
+        assert_eq!(
+            scale_setup(
+                &unset,
+                &options(&[("rlDisplayScale", "200")]),
+                false,
+                true,
+                unread
+            )
+            .unwrap(),
+            plain(0, true)
+        );
+        // Too large for the resolution: lowered, with the warning for the device.
+        let lowered = scale_setup(
+            &config,
+            &options(&[("rlDisplayScale", "300")]),
+            true,
+            false,
+            || Ok(175),
+        )
+        .unwrap();
+        assert_eq!((lowered.scale, lowered.requested), (175, true));
+        assert_eq!(lowered.warning(175), lowered.lowered);
+        assert!(lowered.warning(175).unwrap().contains("at most 175%"));
+    }
+
+    #[test]
+    fn a_requested_scale_windows_refuses_is_a_warning_and_a_configured_one_fails() {
+        let refuse = |_: &str, _: i64, _: u32, _: u32| -> Result<()> {
+            anyhow::bail!("requested DPI scale is outside this display's range")
+        };
+        // The device's request: the stream goes on at the scale Windows shows, recovery puts
+        // nothing back, and the device hears why.
+        let (in_force, baseline) =
+            set_up_scale("out", 200, true, None, (1920, 1080), false, refuse, |_| {
+                panic!("nothing is learned under a request")
+            })
+            .unwrap();
+        assert_eq!((in_force, baseline), (0, None));
+        let setup = ScaleSetup {
+            scale: 200,
+            requested: true,
+            lowered: None,
+            learns: false,
+        };
+        assert!(
+            setup
+                .warning(in_force)
+                .unwrap()
+                .contains("did not take the 200%")
+        );
+        assert_eq!(setup.warning(200), None, "taken: no warning");
+        // A request with an unreadable range is asked of Windows as chosen; a refusal is the
+        // same warning, not a failed stream.
+        assert_eq!(
+            fit_client_scale(200, Err(anyhow::anyhow!("no"))),
+            (200, None)
+        );
+        // The host's or the device's configured scale stays fatal.
+        assert!(
+            set_up_scale(
+                "out",
+                200,
+                false,
+                None,
+                (1920, 1080),
+                false,
+                refuse,
+                |_| Ok(100)
+            )
+            .is_err()
+        );
+        // A request that Windows takes is in force for recovery to put back.
+        let (in_force, _) = set_up_scale(
+            "out",
+            175,
+            true,
+            Some(150),
+            (1920, 1080),
+            false,
+            |_, percent, _, _| {
+                assert_eq!(percent, 175, "the request wins over a kept scale");
+                Ok(())
+            },
+            |_| panic!("not read"),
+        )
+        .unwrap();
+        assert_eq!(in_force, 175);
+    }
+
+    #[test]
+    fn a_client_scale_too_large_for_the_resolution_is_lowered_with_a_warning() {
+        let (scale, warning) = fit_client_scale(200, Ok(150));
+        assert_eq!(scale, 150);
+        assert!(warning.unwrap().contains("at most 150%"));
+        assert_eq!(fit_client_scale(150, Ok(150)), (150, None));
+        assert_eq!(fit_client_scale(125, Ok(300)), (125, None));
+        // An unreadable range leaves the choice to Windows, which fails loudly if it must.
+        assert_eq!(
+            fit_client_scale(200, Err(anyhow::anyhow!("no"))),
+            (200, None)
+        );
     }
 
     #[test]
@@ -2689,6 +3021,83 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_window_output_streams_that_window_and_a_display_name_does_not() {
+        let window = Config::parse(r"output_name = window:0x2056c/812@\\.\DISPLAY1 ").unwrap();
+        assert_eq!(
+            configured_window(&window).unwrap(),
+            Some(
+                butterpollo_windows::capture::WindowTarget::new(0x2056c, r"\\.\DISPLAY1")
+                    .owned_by(812)
+            )
+        );
+        for display in ["", r"output_name=\\.\DISPLAY1", "output_name=Dell U2723QE"] {
+            assert_eq!(
+                configured_window(&Config::parse(display).unwrap()).unwrap(),
+                None,
+                "{display}"
+            );
+        }
+        // A malformed target is refused instead of being streamed as a display.
+        for broken in [
+            "output_name=window:garbage",
+            r"output_name=window:0@\\.\DISPLAY1",
+            "output_name=window:12@",
+            r"output_name=window:@\\.\DISPLAY1",
+            // Without its process a reused handle could show another window.
+            r"output_name=window:0x2056c@\\.\DISPLAY1",
+        ] {
+            let error = configured_window(&Config::parse(broken).unwrap()).unwrap_err();
+            assert!(
+                format!("{error:#}").contains("output_name"),
+                "{broken}: {error:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_closed_configured_window_refuses_the_stream_with_the_reason() {
+        // No window has this handle; a minimised, reused or misplaced one is
+        // refused the same way (capture::window's tests).
+        let gone = butterpollo_windows::capture::WindowTarget::new(0x7fff_fff0, r"\\.\DISPLAY1")
+            .owned_by(9);
+        let error = format!("{:#}", configured_window_open(&gone).unwrap_err());
+        assert!(
+            error.contains(r"output_name names the window window:2147483632/9@\\.\DISPLAY1"),
+            "{error}"
+        );
+        assert!(error.contains("closed"), "{error}");
+    }
+
+    #[test]
+    fn a_window_stream_is_not_kept_for_a_reconnect_and_a_display_stream_is() {
+        // Resuming a kept window stream would skip the window's check and
+        // send its warnings to the first session; the launch prepares again.
+        let fixture = crate::state::test_support::Fixture::new();
+        let config = Config::default();
+        let stream = Negotiated {
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            ..Default::default()
+        };
+        let window = Ready::window(
+            &fixture.host,
+            &stream,
+            &config,
+            r"window:5/9@\\.\DISPLAY1".into(),
+            Box::new(|| Ok(r"window:5/9@\\.\DISPLAY1".into())),
+            Default::default(),
+        )
+        .unwrap();
+        assert!(!window.display.kept_for_reconnect());
+        let prepared = test_prepared(&fixture.host);
+        let limiter =
+            limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
+        let display = Ready::prepare((prepared, limiter)).unwrap();
+        assert!(display.display.kept_for_reconnect());
+    }
+
+    #[test]
     fn only_an_opted_in_exclusive_layout_is_held_while_paused() {
         let on = Config::parse("dd_hold_layout_while_paused=true").unwrap();
         // Issue #56: off by default, so a paused stream leaves Win+P alone.
@@ -2908,6 +3317,7 @@ pub(crate) mod tests {
         let (in_force, baseline) = set_up_scale(
             "out",
             0,
+            false,
             Some(150),
             (2560, 1440),
             true,
@@ -2939,6 +3349,7 @@ pub(crate) mod tests {
         let (in_force, baseline) = set_up_scale(
             "out",
             0,
+            false,
             Some(200),
             (2560, 1440),
             true,
@@ -2958,6 +3369,7 @@ pub(crate) mod tests {
         let (_, baseline) = set_up_scale(
             "out",
             150,
+            false,
             Some(200),
             (2560, 1440),
             false,
@@ -3014,6 +3426,7 @@ pub(crate) mod tests {
             let in_force = apply_virtual_scale(
                 r"\\.\DISPLAY9",
                 configured,
+                false,
                 remembered,
                 (2560, 1440),
                 |output, percent, width, height| {

@@ -10,6 +10,9 @@ final class AudioBufferPolicy {
     // The most a reserve grows for network jitter. A longer stall, such as the TCL C6K's Wi-Fi going quiet
     // for up to 130 ms every 1.2 s, is concealed (aaudio_output.c) rather than buffered for.
     static final int MAX_RESERVE_MS = 40;
+    // How often a host sends audio: Windows hands its loopback capture over every 10 ms, and the
+    // packets of that period go out at once (Sunshine and Rubylight alike).
+    static final int HOST_PERIOD_MS = 10;
 
     private final int burst;
     private final int minimum;
@@ -46,14 +49,30 @@ final class AudioBufferPolicy {
     }
 
     /**
-     * AAudio jitter reserve in the ring ahead of the stream: two bursts, growing a burst at a time on
-     * starvation up to eight bursts, or fewer where that is over MAX_RESERVE_MS, within the ring.
+     * AAudio jitter reserve in the ring ahead of the stream: initial, at least two bursts, growing a burst
+     * at a time on starvation up to eight bursts or two above the start, whichever is more, within
+     * MAX_RESERVE_MS (never below the start) and the ring. The renderer counts only jitter gaps as
+     * starvation here; stalls are concealed instead.
      */
     static AudioBufferPolicy forReserve(int burst, int capacity, int initial, int underruns, long nowMs,
                                         int sampleRate) {
-        int limit = Math.min(8 * burst, Math.max(2 * burst, maxReserveFrames(sampleRate) / burst * burst));
+        int start = Math.max(2 * burst, initial);
+        // From the start, not from two bursts: a 1 ms burst starts at 11 of them, above eight.
+        int limit = Math.max(start, Math.min(maxReserveFrames(sampleRate) / burst * burst,
+                Math.max(8 * burst, start + 2 * burst)));
         return new AudioBufferPolicy(burst, Math.min(capacity, Math.max(burst * 2, initial)), initial, underruns,
                 nowMs, Math.min(capacity / burst * burst, limit));
+    }
+
+    /**
+     * The AAudio reserve a stream starts with, and never shrinks below: one host delivery period
+     * (HOST_PERIOD_MS) plus one burst, at least two bursts. Hosts send the packets of each capture
+     * period together, so a 5 ms packet can come 5 ms after its pair, and the callback takes a whole
+     * burst at once; two 4 ms bursts held 1 to 3 ms of jitter and underran within a second of the
+     * first audio.
+     */
+    static int reserveStartFrames(int burst, int sampleRate) {
+        return Math.max(2 * burst, Math.max(0, sampleRate) / 1000 * HOST_PERIOD_MS + burst);
     }
 
     static int maxReserveFrames(int sampleRate) {
@@ -161,6 +180,33 @@ final class AudioBufferPolicy {
 
     int limit() {
         return maximum;
+    }
+
+    /**
+     * Whether stalls keep repeating: STALL_WARN_COUNT of them, gaps no reserve within the limit covers,
+     * within STALL_WARN_WINDOW_MS. They are concealed rather than buffered for, so the log has to say so.
+     * The TCL C6K's 130 ms stalls every 1.2 s trip it within about 3 s.
+     */
+    static final class StallWatch {
+        static final int STALL_WARN_COUNT = 3;
+        static final long STALL_WARN_WINDOW_MS = 60000;
+        // When the latest STALL_WARN_COUNT stalls were seen, oldest first.
+        private final long[] seenMs = new long[STALL_WARN_COUNT];
+        private int seen, lastStalls;
+
+        StallWatch(int stalls) {
+            lastStalls = stalls;
+        }
+
+        boolean repeating(int stalls, long nowMs) {
+            for (int i = lastStalls; i < stalls; i++) {
+                System.arraycopy(seenMs, 1, seenMs, 0, STALL_WARN_COUNT - 1);
+                seenMs[STALL_WARN_COUNT - 1] = nowMs;
+                seen = Math.min(STALL_WARN_COUNT, seen + 1);
+            }
+            lastStalls = stalls;
+            return seen == STALL_WARN_COUNT && nowMs - seenMs[0] <= STALL_WARN_WINDOW_MS;
+        }
     }
 
     static boolean useAAudio(int sdk, int channels, boolean effects, int sampleRate, int nativeRate) {

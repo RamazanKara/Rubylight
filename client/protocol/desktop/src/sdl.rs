@@ -302,7 +302,8 @@ pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer 
     }
 }
 
-/// The window's icon from straight RGBA pixels.
+/// The window's icon from straight RGBA pixels (Windows uses the executable's).
+#[cfg(not(windows))]
 pub fn set_icon(window: *mut SDL_Window, rgba: &[u8], size: i32) {
     // SAFETY: the surface borrows `rgba` only for the call.
     unsafe {

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="help_profiles_title">配置与游戏设置</string>
-    <string name="help_profiles_body">配置是一组带名称的串流设置值，例如“家里 4K120”或“酒店”。在“设置 › 视频 › 配置”中创建，然后选择正在使用的配置，或让串流开始时按网络自动选择：移动数据、家庭 Wi-Fi 或其他 Wi-Fi。游戏自己的值（游戏库菜单中的“此游戏的串流设置”）优先于电脑的值，电脑的值优先于配置，配置优先于主设置。“移动数据码率”限制使用移动数据时的码率。</string>
+    <string name="help_profiles_body">配置是一组带名称的串流设置值，例如“家里 4K120”或“酒店”。在“设置 › 配置”中创建，然后选择正在使用的配置，或让串流开始时按网络自动选择：移动数据、家庭 Wi-Fi 或其他 Wi-Fi。游戏自己的值（游戏库菜单中的“此游戏的串流设置”）优先于电脑的值，电脑的值优先于配置，配置优先于主设置。“移动数据码率”限制使用移动数据时的码率。</string>
     <string name="help_profiles_link">配置指南</string>
 </resources>

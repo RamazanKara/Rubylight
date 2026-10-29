@@ -61,6 +61,8 @@ butterpollo-windows = { path = "../windows", features = ["test-folder"] }
 nightjar-core = { path = "../../client/protocol/client" }
 # Property tests over the query fields and bodies peers send.
 proptest = { version = "1", default-features = false, features = ["std"] }
+# The Nucleus Co-op hardware case reads its processes' token elevation and integrity level.
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
 
 [lints]
 workspace = true

@@ -31,6 +31,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             // A Radeon profile the host cannot read is an error here, not a game that starts
             // without it.
             butterpollo_core::radeon_profile::check(&app.extra)?;
+            butterpollo_core::device_overrides::check(&app.extra)?;
+            crate::game_files::check(&app)?;
             if !app.extra.contains_key("uuid") {
                 app.extra
                     .insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));
@@ -651,6 +653,71 @@ mod tests {
         // An app with none saves as before.
         save(json!({})).unwrap();
         assert_eq!(stored(), Some((None, None)));
+    }
+
+    #[test]
+    fn an_app_saves_per_device_settings_and_game_files_and_refuses_what_a_launch_cannot_use() {
+        let f = Fixture::new();
+        let save = |extra: serde_json::Value| {
+            let mut app = json!({"name": "Game", "uuid": "device-app"});
+            app.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            handle(&f.host, "POST", "/api/apps", &app)
+        };
+        let good = json!({
+            "game-files": [{"path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": "{stream_fps-1}"}],
+            "device-overrides": {
+                "phone": {
+                    "config-overrides": {"stream_preset": "reference", "frame_limiter_fps_limit": 60},
+                    "radeon-profile": "smoothness",
+                    "game-files": [{"path": "OptiScaler.ini", "section": "Framerate", "key": "FramerateLimit", "value": 60}]
+                },
+                // A device that is not paired keeps its block.
+                "gone": {"config-overrides": {"max_bitrate": 20000}}
+            }
+        });
+        save(good.clone()).unwrap();
+        let saved = || stored(&f, "device-app").unwrap();
+        assert_eq!(saved()["device-overrides"], good["device-overrides"]);
+        for (bad, why) in [
+            (
+                json!({"device-overrides": {"phone": {"config-overrides": {"port": 50000}}}}),
+                "port",
+            ),
+            (
+                json!({"device-overrides": {"phone": {"config-overrides": {"stream_preset": "fastest"}}}}),
+                "stream_preset",
+            ),
+            (
+                json!({"device-overrides": {"phone": {"radeon-profile": "fastest"}}}),
+                "radeon-profile",
+            ),
+            (
+                json!({"device-overrides": {"phone": {"name": "x"}}}),
+                "name",
+            ),
+            (
+                json!({"game-files": [{"path": "..\\other\\x.ini", "section": "A", "key": "B", "value": 1}]}),
+                "..",
+            ),
+            (
+                json!({"game-files": [{"path": "settings.cfg", "section": "A", "key": "B", "value": 1}]}),
+                ".ini",
+            ),
+            (
+                json!({"game-files": [{"path": "a.ini", "section": "A", "key": "B", "value": "{base_fps}"}]}),
+                "{stream_fps}",
+            ),
+        ] {
+            let error = format!("{:#}", save(bad.clone()).unwrap_err());
+            assert!(error.contains(why), "{bad}: {error}");
+            assert_eq!(
+                saved()["device-overrides"],
+                good["device-overrides"],
+                "a refused save changes nothing: {bad}"
+            );
+        }
     }
 
     fn stored(f: &Fixture, uuid: &str) -> Option<serde_json::Value> {

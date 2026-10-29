@@ -270,13 +270,16 @@
     <string name="title_virtual_display">ホストの仮想ディスプレイ</string>
     <string name="summary_virtual_display">ストリームに合ったディスプレイを PC に要求します。オフの場合は PC 自体のディスプレイ設定に従います。</string>
     <string name="title_vrr">可変リフレッシュレート（ARR / VRR）</string>
-    <string name="summary_vrr">可変リフレッシュレート対応の Android 16 の画面では、Android がリフレッシュレートをストリームに合わせます。それ以外の画面は最高レートで動作します。VRR に対応したホストにも、その設定に応じて VRR の使用を要求します。オンの間は、フレームペーシングとリフレッシュレートの低減は適用されません。</string>
+    <string name="summary_vrr">可変リフレッシュレート対応の Android 16 の画面では、Android がリフレッシュレートをストリームに合わせます。それ以外の画面は最高レートで動作し、Rubylight の PC では、ゲームのフレームレートが最高レートではカクつき、暗転せずに切り替えられる場合にのみ、合う低いレートに切り替えます。VRR に対応したホストにも、その設定に応じて VRR の使用を要求します。オンの間は、フレームペーシングとリフレッシュレートの低減は適用されません。</string>
     <string name="title_host_frame_times">PCのフレームタイミングで表示</string>
     <string name="summary_host_frame_times">各フレームを数ミリ秒保持し、ネットワークが届けた時点ではなくゲームが描画した時点で表示します。特に可変リフレッシュレートで揺らぎを抑えます。フレームペーシングの代わりに使われます。PyroWaveでは使われません。</string>
     <string name="title_content_rate_frame_rate">画面をゲームのフレームレートに合わせる</string>
     <string name="summary_content_rate_frame_rate">ゲームが実際に動作しているフレームレートを Android に伝え、対応するモードを持つ画面が、画面が真っ暗にならずにそのモードへ切り替えられるようにします。フレームタイミングを送信する PC と「低いリフレッシュレートを許可」が必要です。変更は 2 秒に 1 回までです。PyroWave と可変リフレッシュレートでは使用されません。</string>
     <string name="title_virtual_display_scale">PC のレンダリング解像度</string>
     <string name="summary_virtual_display_scale">PC がレンダリングする解像度を、ストリーム解像度に対する割合で指定します。送信される映像のサイズは変わりません。送るピクセル数を減らしてこの端末でアップスケールするには、ストリーム解像度を下げてください。</string>
+    <string name="title_virtual_display_dpi">PC のディスプレイ拡大率</string>
+    <string name="summary_virtual_display_dpi">仮想ディスプレイ上の文字とインターフェースの大きさです。Rubylight の PC で使われます。</string>
+    <string name="virtual_display_dpi_pc_own">PC の設定のまま</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f（n=%4$d）</string>
     <string name="latency_unavailable">データなし</string>
     <string name="title_export_latency_csv">遅延の CSV をエクスポート</string>

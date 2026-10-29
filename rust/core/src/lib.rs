@@ -44,6 +44,7 @@ pub mod config;
 pub mod controller_audio;
 pub mod couch_menu;
 pub mod crypto;
+pub mod device_overrides;
 pub mod display_caps;
 pub mod display_policy;
 pub mod dovi;
@@ -58,6 +59,7 @@ pub mod file_transfer;
 pub mod framegen;
 #[cfg(test)]
 mod fuzz;
+pub mod game_files;
 pub mod haptics;
 pub mod hdr;
 pub mod hdr_dynamic;

@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">가상 디스플레이</string>
     <string name="host_feature_virtual_display_hdr">HDR 가상 디스플레이</string>
     <string name="host_feature_display_modes">PC 디스플레이 모드</string>
+    <string name="host_feature_display_scale">PC 디스플레이 배율</string>
     <string name="host_feature_fractional_refresh">소수점 주사율</string>
     <string name="host_feature_vrr">호스트 측 VRR</string>
     <string name="host_feature_runtime_bitrate">스트리밍 중 비트레이트 변경</string>

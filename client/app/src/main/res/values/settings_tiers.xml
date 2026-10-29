@@ -7,7 +7,6 @@
 -->
 <resources>
     <string-array name="settings_tier_video" translatable="false">
-        <item>stream_profiles</item>
         <item>list_resolution</item>
         <item>list_fps</item>
         <item>seekbar_bitrate_kbps</item>

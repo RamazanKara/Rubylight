@@ -209,6 +209,126 @@ test('a game Rubylight never starts says why in the host’s words', () => {
   assert.doesNotMatch(out, /streams in the background without a handler/);
 });
 
+test('the panel says how a background stream runs: as the signed-in user, or as administrator', () => {
+  const user = 'A background stream runs it without administrator rights.';
+  const admin = 'A background stream runs it as administrator.';
+  // Rubylight's own handler, without a hub handler or with the game not added yet.
+  for (const fixture of [fixtures.handler, fixtures.added]) {
+    const name = fixture.games[0].status;
+    const runsUser = { ...fixture, games: [{ ...fixture.games[0], runs: 'user' }] };
+    assert.equal(playTogether(runsUser, 'portal').runs, user, name);
+    assert.ok(html(runsUser).includes(user), name);
+    const runsAdmin = { ...fixture, games: [{ ...fixture.games[0], runs: 'elevated' }] };
+    assert.equal(playTogether(runsAdmin, 'portal').runs, admin, name);
+    assert.ok(html(runsAdmin).includes(admin), name);
+    assert.doesNotMatch(html(runsAdmin), /without administrator rights/, name);
+    // An older host doesn't say: no line rather than a guess.
+    assert.equal(playTogether(fixture, 'portal').runs, null, name);
+    assert.doesNotMatch(html(fixture), /A background stream runs it/, name);
+  }
+  // A hub handler always runs elevated, whatever the host's runs says.
+  assert.equal(playTogether(fixtures.ready, 'portal').runs, admin);
+  assert.ok(html(fixtures.ready).includes(admin));
+  assert.equal(playTogether(status({}, { runs: null }), 'portal').runs, admin);
+});
+
+test('a game that needs administrator rights on an account Windows doesn’t elevate is refused before launch', () => {
+  // The host's own refusal (elevation::choose) under Windows' Administrator protection, as a launch would
+  // answer it: shown as it is.
+  const refused = status({}, {
+    status: 'refused',
+    reason: 'The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and Windows\' Administrator protection keeps them from Rubylight, so Nucleus Co-op can\'t run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights',
+    handler: null,
+    players: null,
+    runs: null,
+  });
+  const view = playTogether(refused, 'portal');
+  assert.equal(view.kind, 'anti_cheat');
+  assert.match(view.reason, /keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights\.$/);
+  const out = html(refused);
+  assert.match(out, /No co-op or background streams for this game/);
+  assert.match(out, /Administrator protection/);
+  assert.doesNotMatch(out, /A background stream runs it|Open Nucleus Co-op/);
+});
+
+test('on an account Windows doesn’t elevate, a hub handler’s game says so before launch, and what to do', () => {
+  const words = 'Nucleus Co-op needs administrator rights for a hub handler, and Windows doesn\'t give this account any: sign in to Windows on this PC as an administrator';
+  const refused = status({ elevates: false }, { reason: words });
+  const view = playTogether(refused, 'portal');
+  assert.equal(view.kind, 'ready');
+  // One plain sentence with what to do, not the host's words.
+  assert.equal(
+    view.refusal,
+    'Portal 2’s handler needs administrator rights, and Windows doesn’t give this account any: sign in to Windows on this PC as an administrator.',
+  );
+  assert.equal(view.runs, null);
+  const out = html(refused);
+  assert.match(out, /No co-op or background streams on this account/);
+  assert.match(out, /sign in to Windows on this PC as an administrator\./);
+  assert.doesNotMatch(out, /hub handler|Administrator protection/);
+  // An administrator under Windows' Administrator protection: signing in as one doesn't help, and Rubylight
+  // never asks for a Windows security feature to be turned off. What still runs is named.
+  const shielded = status(
+    { elevates: false, admin_protection: true },
+    { reason: 'Nucleus Co-op needs administrator rights for a hub handler, and Windows\' Administrator protection keeps them from Rubylight' },
+  );
+  assert.equal(
+    playTogether(shielded, 'portal').refusal,
+    'Portal 2’s handler needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
+  );
+  assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i);
+  assert.doesNotMatch(out, /Start “Portal 2 \(Co-op\)” from Nightjar|A background stream runs it as administrator/);
+  // An account that elevates, one the host can't tell, or an older host: nothing new.
+  for (const elevates of [true, null, undefined]) {
+    const fixture = status({ elevates }, { reason: elevates === true ? null : words });
+    const ready = playTogether(fixture, 'portal');
+    assert.equal(ready.refusal, null, String(elevates));
+    assert.equal(ready.runs, 'A background stream runs it as administrator.', String(elevates));
+    assert.doesNotMatch(html(fixture), /on this account/, String(elevates));
+  }
+  // A game that runs as the user stays as it is.
+  const user = status({ elevates: false }, { status: 'no_handler', handler: null, players: null, runs: 'user' });
+  const own = playTogether(user, 'portal');
+  assert.equal(own.kind, 'handler');
+  assert.equal(own.runs, 'A background stream runs it without administrator rights.');
+  assert.doesNotMatch(html(user), /on this account|Administrator protection/);
+});
+
+test('on an account Windows doesn’t elevate, Open Nucleus Co-op says why before it is pressed and stays off', () => {
+  const words = 'Nucleus Co-op needs administrator rights, and Windows doesn\'t give this account any: sign in to Windows on this PC as an administrator';
+  const openButton = /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open Nucleus Co-op on this PC/;
+  for (const fixture of [fixtures.handler, fixtures.added]) {
+    const name = fixture.games[0].status;
+    const refused = { ...fixture, elevates: false, open_refusal: words };
+    assert.equal(
+      playTogether(refused, 'portal').openRefusal,
+      'Nucleus Co-op needs administrator rights, and Windows doesn’t give this account any: sign in to Windows on this PC as an administrator.',
+      name,
+    );
+    const out = html(refused);
+    assert.match(out, /Nucleus Co-op can’t open on this account/, name);
+    assert.doesNotMatch(out, /Administrator protection/, name);
+    // The host's words under Windows' Administrator protection: what still runs, never to turn it off.
+    const shielded = { ...refused, admin_protection: true };
+    assert.equal(
+      playTogether(shielded, 'portal').openRefusal,
+      'Nucleus Co-op needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t open on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
+      name,
+    );
+    assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i, name);
+    assert.match(html(shielded), openButton, name);
+    assert.match(out, openButton, name);
+    // An account that elevates, one the host can't tell, or an older host: nothing new.
+    for (const [elevates, open_refusal] of [[true, null], [null, null], [undefined, undefined], [true, words]]) {
+      const fixtureNow = { ...fixture, elevates, open_refusal };
+      assert.equal(playTogether(fixtureNow, 'portal').openRefusal, null, `${name} ${elevates}`);
+      const now = html(fixtureNow);
+      assert.doesNotMatch(now, /can’t open on this account/, `${name} ${elevates}`);
+      assert.doesNotMatch(now, openButton, `${name} ${elevates}`);
+    }
+  }
+});
+
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {
   const view = playTogether(fixtures.launcher, 'portal');
   assert.equal(view.text, 'Co-op finds a game by its .exe, and Counter-Strike 2 starts through a launcher. To play it together, set the command above to the game’s .exe.');

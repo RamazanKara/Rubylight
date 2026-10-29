@@ -24,4 +24,12 @@
     <string name="frontend_setup_esde">Redémarrez ES-DE pour charger le système Nightjar. Si vous avez ignoré son dossier de configuration, sélectionnez-le au prochain export pour ajouter le système et les jaquettes en cache.</string>
     <string name="frontend_setup_daijisho">Créez une plateforme pour les fichiers .art du dossier exporté butterpollo. Ajoutez un lecteur Android avec les arguments d’intent ci-dessous, puis analysez le dossier.</string>
     <string name="frontend_setup_pegasus">Utilisez le dossier exporté butterpollo et les fichiers .art. Définissez la commande ci-dessous dans les métadonnées de votre collection.</string>
+    <string name="frontend_sync_title">%1$s · Synchronisé</string>
+    <string name="frontend_sync_stop">Arrêter la synchronisation</string>
+    <string name="frontend_sync_summary">Synchronisé : %1$s</string>
+    <string name="frontend_sync_note">%1$s tient ce dossier à jour quand les jeux du PC changent.</string>
+    <string name="frontend_sync_failed">Les jeux %1$s pour %2$s ne sont plus synchronisés : le dossier est indisponible. Choisissez-le à nouveau dans les paramètres du PC.</string>
+    <string name="frontend_sync_failed_message">Le dossier est indisponible, ces jeux ne sont donc plus synchronisés. Choisissez-le à nouveau ou arrêtez la synchronisation.</string>
+    <string name="frontend_sync_failed_summary">Synchronisation arrêtée, dossier indisponible : %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s ne peut pas garder ce dossier synchronisé, car il n\'a autorisé l\'accès qu\'une seule fois. Choisissez un dossier local ou sur la carte SD pour le tenir à jour.</string>
 </resources>

@@ -13,6 +13,7 @@
 //! the profile Nucleus reads, the co-op session's state, input routing,
 //! window choice and placement, and which background mode a stream gets.
 pub mod coop;
+pub mod elevation;
 pub mod generic;
 pub mod handler;
 pub mod install;

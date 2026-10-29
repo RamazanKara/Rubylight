@@ -40,6 +40,8 @@ public final class FrontendEntry {
     public static final String KEY_APP_UUID = "app_uuid";
     public static final String KEY_APP_NAME = "app_name";
     public static final String KEY_APP_ID = "app_id";
+    /** Marks an entry the launcher export wrote, so a later export may update or remove it. */
+    public static final String KEY_EXPORTED = "nightjar_export";
 
     /** Entries are a few hundred bytes; anything larger is not one of ours. */
     public static final int MAX_CHARS = 16 * 1024;
@@ -60,6 +62,30 @@ public final class FrontendEntry {
             appendLine(sb, KEY_APP_ID, Integer.toString(appId));
         }
         return sb.toString();
+    }
+
+    /** An entry as the launcher export writes it: {@link #serialize} plus the export's marker. */
+    public static String serializeExport(String hostUuid, String hostName, String appUuid, String appName, int appId) {
+        StringBuilder sb = new StringBuilder(serialize(hostUuid, hostName, appUuid, appName, appId));
+        appendLine(sb, KEY_EXPORTED, "1");
+        return sb.toString();
+    }
+
+    /**
+     * Whether the launcher export wrote this entry, so it may remove it: it carries the marker,
+     * or it is exactly what an export before the marker wrote for one game. Entries a user wrote
+     * (host only, app name only, edited) are never the export's.
+     */
+    static boolean writtenByExport(String raw, Map<String, String> values) {
+        if ("1".equals(values.get(KEY_EXPORTED))) {
+            return true;
+        }
+        String appId = values.get(KEY_APP_ID);
+        if (appId == null || !appId.matches("[1-9][0-9]{0,8}")) {
+            return false;
+        }
+        return raw.equals(serialize(values.get(KEY_HOST_UUID), values.get(KEY_HOST_NAME),
+                values.get(KEY_APP_UUID), values.get(KEY_APP_NAME), Integer.parseInt(appId)));
     }
 
     private static void appendLine(StringBuilder sb, String key, String value) {

@@ -167,6 +167,11 @@ public final class PerformanceOverlay {
         return rates[FrameLatencyStats.RENDERED_STAGE];
     }
 
+    /** The compositor-confirmed FPS, -1 when the device does not report it. */
+    public static float presentedFps(float[] rates) {
+        return rates[FrameLatencyStats.PRESENTED_STAGE];
+    }
+
     /**
      * The FPS the compact dot judges: the compositor-confirmed rate when the device reports it, so
      * frames dropped on screen still turn the dot amber or red, otherwise the rendered rate.

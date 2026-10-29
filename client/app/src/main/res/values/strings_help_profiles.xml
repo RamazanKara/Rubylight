@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="help_profiles_title">Profiles and game settings</string>
-    <string name="help_profiles_body">Profiles are named sets of stream values, such as Home 4K120 or Hotel. Make them in Settings, Video, Profiles, then pick the profile in use, or let the network pick one when a stream starts: mobile data, home Wi-Fi or other Wi-Fi. A game’s own values (Stream settings for this game, in its library menu) win over the PC’s, the PC’s over the profile, and the profile over the main settings. Bitrate on mobile data caps the bitrate on mobile data.</string>
+    <string name="help_profiles_body">Profiles are named sets of stream values, such as Home 4K120 or Hotel. Make them in Settings, Profiles, then pick the profile in use, or let the network pick one when a stream starts: mobile data, home Wi-Fi or other Wi-Fi. A game’s own values (Stream settings for this game, in its library menu) win over the PC’s, the PC’s over the profile, and the profile over the main settings. Bitrate on mobile data caps the bitrate on mobile data.</string>
     <string name="help_profiles_link">Profiles guide</string>
 </resources>

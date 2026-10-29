@@ -312,13 +312,46 @@
     <string name="title_virtual_display">Host virtual display</string>
     <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
     <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>
-    <string name="summary_vrr">On Android 16 screens with adaptive refresh, Android matches the refresh rate to the stream; other screens run at their highest rate. Hosts that support VRR are asked to use it too, depending on their settings. While this is on, frame pacing and a lower refresh rate don’t apply.</string>
+    <string name="summary_vrr">On Android 16 screens with adaptive refresh, Android matches the refresh rate to the stream; other screens run at their highest rate and, with a Rubylight PC, switch to a matching lower one only when the game’s frame rate would judder at the highest and they can switch without blanking. Hosts that support VRR are asked to use it too, depending on their settings. While this is on, frame pacing and a lower refresh rate don’t apply.</string>
     <string name="title_host_frame_times">Show frames at the PC\'s frame times</string>
     <string name="summary_host_frame_times">Hold each frame a few milliseconds so it appears when the game drew it, instead of when the network delivered it. Evens out jitter, especially with adaptive refresh. Replaces frame pacing. Not used with PyroWave.</string>
     <string name="title_content_rate_frame_rate">Match the screen to the game\'s frame rate</string>
     <string name="summary_content_rate_frame_rate">Tells Android the frame rate the game really runs at, so a screen with a matching refresh mode can switch to it without a blank screen. Needs a PC that sends frame times and Allow lower refresh rate; changes at most once every 2 seconds. Not used with PyroWave or adaptive refresh.</string>
     <string name="title_virtual_display_scale">PC render resolution</string>
     <string name="summary_virtual_display_scale">Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
+    <string name="title_virtual_display_dpi">PC display scaling</string>
+    <string name="summary_virtual_display_dpi">Text and interface size on the virtual display, on Rubylight PCs.</string>
+    <string name="virtual_display_dpi_pc_own">PC’s own</string>
+    <string-array name="virtual_display_dpi_names" translatable="false">
+        <item>@string/virtual_display_dpi_pc_own</item>
+        <item>100%</item>
+        <item>125%</item>
+        <item>150%</item>
+        <item>175%</item>
+        <item>200%</item>
+        <item>225%</item>
+        <item>250%</item>
+        <item>300%</item>
+        <item>350%</item>
+        <item>400%</item>
+        <item>450%</item>
+        <item>500%</item>
+    </string-array>
+    <string-array name="virtual_display_dpi_values" translatable="false">
+        <item>0</item>
+        <item>100</item>
+        <item>125</item>
+        <item>150</item>
+        <item>175</item>
+        <item>200</item>
+        <item>225</item>
+        <item>250</item>
+        <item>300</item>
+        <item>350</item>
+        <item>400</item>
+        <item>450</item>
+        <item>500</item>
+    </string-array>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">no data yet</string>
     <string name="title_export_latency_csv">Export latency CSV</string>

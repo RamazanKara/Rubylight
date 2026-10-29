@@ -190,6 +190,16 @@
     return value !== '' && !DISPLAY_OVERRIDE_OPTIONS[key].some((option) => option.value === value);
   }
   const presetUnknown = $derived(draft.stream_preset !== '' && !presets.some((preset) => preset.id === draft.stream_preset));
+  // An invalid display mode or an unknown preset opens its section, as with Custom permissions.
+  // Nothing closes it again: typing a mode that turns valid must not snap it shut under the cursor.
+  let displayOpen = $state(untrack(() => modeInvalid));
+  let presetOpen = $state(untrack(() => presetUnknown));
+  $effect(() => {
+    if (modeInvalid) displayOpen = true;
+  });
+  $effect(() => {
+    if (presetUnknown) presetOpen = true;
+  });
 
   function setPermission(bit: number, granted: boolean) {
     draft.perm = granted ? draft.perm | bit : draft.perm & ~bit;
@@ -333,7 +343,7 @@
   </section>
   </details>
 
-  <details class="override" open={modeInvalid}><summary>Display overrides</summary>
+  <details class="override" bind:open={displayOpen}><summary>Display overrides</summary>
   <section>
     <p class="note">“Use the host setting” follows the value in Settings.</p>
     <div class="form-grid">
@@ -430,7 +440,7 @@
       <Field
         label="Display scale"
         id="{uid}-scale"
-        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream."
+        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream. A scale the device asks for itself (Nightjar's PC display scaling) comes first on its virtual display."
         error={unknownDisplay('dd_virtual_display_scale') ? `${draft.display.dd_virtual_display_scale} is not a scale the host takes. Choose one.` : undefined}
       >
         <select id="{uid}-scale" class="select" bind:value={draft.display.dd_virtual_display_scale}>
@@ -457,7 +467,7 @@
   </section>
   </details>
 
-  <details class="override" open={presetUnknown}><summary>Stream preset</summary>
+  <details class="override" bind:open={presetOpen}><summary>Stream preset</summary>
   <section>
     <div class="form-grid">
       <Field

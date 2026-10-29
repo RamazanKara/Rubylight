@@ -1274,9 +1274,76 @@ fn the_mod_never_goes_beside_a_launcher_or_outside_the_install() {
     assert_eq!(game_command(&app), None);
     app.cmd = format!("\"{}\"", exe.display());
     assert_eq!(game_command(&app), Some(exe.clone()));
+    // With no install known, nothing is taken unasked.
     app.extra.remove("steam-install-dir");
+    assert_eq!(game_command(&app), None);
     app.cmd = format!("\"{}\"", other.display());
-    assert_eq!(game_command(&app), Some(other));
+    assert_eq!(game_command(&app), None);
+}
+
+/// A script host, an interpreter, another store's launcher or a program of
+/// Windows is never the game, picked or in the app's command: an app that
+/// runs `pwsh.exe -File x.ps1` with no install known asks for the game's
+/// program, and nothing is written beside any of them.
+#[test]
+fn an_interpreter_or_windows_program_is_never_the_game() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let tools = temp.path().join("Tools");
+    std::fs::create_dir(&tools).unwrap();
+    let names_ = [
+        "pwsh.exe",
+        "powershell.exe",
+        "python.exe",
+        "python3.12.exe",
+        "javaw.exe",
+        "node.exe",
+        "Origin.exe",
+        "EALauncher.exe",
+        "Launcher.exe",
+        "Amazon Games.exe",
+        "itch.exe",
+        "heroic.exe",
+    ];
+    for name in names_ {
+        let program = tools.join(name);
+        std::fs::write(&program, "MZ").unwrap();
+        let Response::ChooseExe { reason } = install(Some(&program), None, &cache) else {
+            panic!("{name} was taken")
+        };
+        assert!(reason.contains("not the game"), "{reason}");
+    }
+    assert_eq!(names(&tools).len(), names_.len(), "nothing beside them");
+    let windows =
+        PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\notepad.exe");
+    let Response::ChooseExe { reason } = install(Some(&windows), None, &cache) else {
+        panic!("a program of Windows was taken")
+    };
+    assert!(reason.contains("part of Windows"), "{reason}");
+
+    // An install whose only top program is an interpreter has no game to pick.
+    let bundled = temp.path().join("Bundled");
+    std::fs::create_dir(&bundled).unwrap();
+    std::fs::write(bundled.join("python.exe"), "MZ").unwrap();
+    assert!(matches!(
+        install(None, Some(&bundled), &cache),
+        Response::ChooseExe { .. }
+    ));
+
+    // The switch's request for an app that runs a script, its install
+    // unknown, as `enable` makes it.
+    let mut app = app_named("Script", "script");
+    app.cmd = format!("\"{}\" -File game.ps1", tools.join("pwsh.exe").display());
+    assert_eq!(game_command(&app), None);
+    let Response::ChooseExe { reason } = install(
+        game_command(&app).as_deref(),
+        super::install(&app).as_deref(),
+        &cache,
+    ) else {
+        panic!("a program was taken for a script")
+    };
+    assert!(reason.contains("doesn't know where"), "{reason}");
+    assert_eq!(names(&tools).len(), names_.len());
 }
 
 /// An app deleted or dropped by the library sync while its install runs

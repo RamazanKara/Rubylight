@@ -262,9 +262,9 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
         let program = exe
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
-        return if launcher(&exe) {
+        return if let Some(what) = not_the_game(&exe) {
             Err(Failure::ChooseExe(format!(
-                "{} is a launcher, not the game: choose the game's own program",
+                "{} is {what}, not the game: choose the game's own program",
                 exe.display()
             )))
         } else if let Some(install) = install.filter(|install| !inside(&exe, install)) {
@@ -306,7 +306,7 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
         }
         if name.ends_with("-shipping.exe") {
             shipping.push(path.to_path_buf());
-        } else if depth == 1 && !helper_program(&name) {
+        } else if depth == 1 && !helper_program(&name) && not_the_game(path).is_none() {
             top.push(path.to_path_buf());
         }
         None
@@ -327,26 +327,77 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
     }
 }
 
-/// A store's or library's launcher: the mod beside it would load into the
-/// launcher and every program it starts, never into the game.
-pub(super) fn launcher(exe: &Path) -> bool {
+/// What `exe` is when it is not a game's own program: a store's or
+/// library's launcher, a script host or interpreter, or a program of
+/// Windows. The mod beside it would load into that program and what it
+/// starts, never into the game, and in Program Files it would be there for
+/// every account.
+pub(super) fn not_the_game(exe: &Path) -> Option<&'static str> {
     let name = exe
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_ascii_lowercase();
-    [
-        "steam.exe",
-        "upc.exe",
-        "ubisoftconnect.exe",
-        "epicgameslauncher.exe",
-        "battle.net.exe",
-        "battle.net launcher.exe",
-        "eadesktop.exe",
-        "galaxyclient.exe",
+    let stem = name.strip_suffix(".exe").unwrap_or(&name);
+    let launcher = [
+        "steam",
+        "upc",
+        "ubisoftconnect",
+        "battle.net",
+        "eadesktop",
+        "origin",
+        "galaxyclient",
+        "amazon games",
+        "amazon games ui",
+        "itch",
+        "heroic",
+        "xboxpcapp",
+        "gamelaunchhelper",
     ]
-    .contains(&name.as_str())
-        || (name.starts_with("playnite.") && name.ends_with(".exe"))
+    .contains(&stem)
+        || stem.contains("launcher")
+        || stem.starts_with("playnite.");
+    let interpreter = [
+        "cmd",
+        "powershell",
+        "powershell_ise",
+        "pwsh",
+        "wscript",
+        "cscript",
+        "mshta",
+        "rundll32",
+        "conhost",
+        "explorer",
+        "py",
+        "pyw",
+        "node",
+        "java",
+        "javaw",
+        "ruby",
+        "rubyw",
+        "perl",
+        "php",
+        "bash",
+        "sh",
+        "wsl",
+        "dotnet",
+    ]
+    .contains(&stem)
+        || stem.starts_with("python");
+    let windows = ["SystemRoot", "windir"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .filter(|root| !root.is_empty())
+        .any(|root| inside(exe, Path::new(&root)));
+    if launcher {
+        Some("a launcher")
+    } else if interpreter {
+        Some("a script host or interpreter")
+    } else if windows {
+        Some("part of Windows")
+    } else {
+        None
+    }
 }
 
 fn helper_program(name: &str) -> bool {

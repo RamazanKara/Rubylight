@@ -987,14 +987,14 @@ fn command_exe(app: &App) -> Option<PathBuf> {
     .then_some(target)
 }
 
-/// The app's command when it starts the game itself: no launcher, and in
-/// the game's install when the app says where that is. Otherwise the
-/// game's .exe is found in its install, or the user picks it.
+/// The app's command when it starts the game itself: in the game's install,
+/// which the app must name, and no launcher, interpreter or program of
+/// Windows. Otherwise the game's .exe is found in its install, or the user
+/// picks it: nothing outside a known install is taken unasked.
 fn game_command(app: &App) -> Option<PathBuf> {
+    let install = install(app)?;
     command_exe(app).filter(|exe| {
-        exe.is_file()
-            && !folder::launcher(exe)
-            && install(app).is_none_or(|install| folder::inside(exe, &install))
+        exe.is_file() && folder::inside(exe, &install) && folder::not_the_game(exe).is_none()
     })
 }
 

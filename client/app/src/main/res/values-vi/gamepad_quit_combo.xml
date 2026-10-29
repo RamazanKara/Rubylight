@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Tổ hợp thoát trên tay cầm</string>
+    <string name="summary_list_gamepad_quit_combo">Giữ các nút này để rời luồng; luồng kết thúc khi bạn thả hết. Tắt để menu luồng (mở bằng Start+Select+LB+RB) đảm nhận. Áp dụng từ luồng tiếp theo.</string>
+    <string name="gamepad_quit_combo_off">Tắt</string>
+    <string name="stream_controller_mouse">Chuột bằng tay cầm</string>
+</resources>

@@ -28,7 +28,7 @@ import java.util.function.Supplier;
 public final class StreamMenu {
     public enum Item {
         KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE,
-        TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
+        TOUCH_MODE, MOUSE_CURSOR, CONTROLLER_MOUSE, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
@@ -68,6 +68,8 @@ public final class StreamMenu {
         /** False while video plays on an external display and this device is the touchpad. */
         public boolean localOutput = true;
         public boolean mouseConnected, cursorVisible;
+        /** A controller is connected, and whether it drives the mouse now. */
+        public boolean controllerMouseAvailable, controllerMouseOn;
         public boolean onscreenControls, gameControls, keyboardKeysShown;
         /** Stretching can change live: local MediaCodec video without an upscaler. */
         public boolean scalingAvailable;
@@ -165,6 +167,10 @@ public final class StreamMenu {
             if (o.mouseConnected) {
                 entries.add(action(Section.INPUT, Item.MOUSE_CURSOR, o.cursorVisible ?
                         R.string.stream_cursor_hide : R.string.stream_cursor_show, R.drawable.ic_mouse_pointer));
+            }
+            if (o.controllerMouseAvailable) {
+                entries.add(entry(Section.INPUT, Item.CONTROLLER_MOUSE, R.string.stream_controller_mouse,
+                        R.drawable.ic_gamepad, o.controllerMouseOn));
             }
             entries.add(action(Section.INPUT, Item.ONSCREEN_CONTROLS, o.onscreenControls ?
                     R.string.stream_controls_hide : R.string.stream_controls_show, R.drawable.ic_gamepad));

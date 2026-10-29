@@ -110,6 +110,7 @@ public class PreferenceConfiguration {
     private static final String DISABLE_RUMBLE_PREF_STRING = "checkbox_disable_rumble";
     private static final String BACK_AS_META_PREF_STRING = "checkbox_back_as_meta";
     private static final String BACK_OPENS_MENU_PREF_STRING = "checkbox_back_opens_menu";
+    private static final String GAMEPAD_QUIT_COMBO_PREF_STRING = "list_gamepad_quit_combo";
     private static final String BACK_AS_GUIDE_PREF_STRING = "checkbox_back_as_guide";
     private static final String CAPTURE_SYSTEM_KEYS_PREF_STRING = "checkbox_capture_system_keys";
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
@@ -333,6 +334,8 @@ public class PreferenceConfiguration {
     public boolean disableRumble;
     public boolean backAsMeta;
     public boolean backOpensMenu;
+    /** The controller quit combo ({@code list_gamepad_quit_combo}); "off" leaves it to the stream menu. */
+    public String gamepadQuitCombo = "off";
     // A controller's or handheld's Back sends Guide (Home/PS).
     public boolean backAsGuide;
     // Alt+Tab, the Windows key and a keyboard's Back (as Esc) go to the PC where Android allows it.
@@ -1360,6 +1363,7 @@ public class PreferenceConfiguration {
         config.disableRumble = prefs.getBoolean(DISABLE_RUMBLE_PREF_STRING, false);
         config.backAsMeta = prefs.getBoolean(BACK_AS_META_PREF_STRING, false);
         config.backOpensMenu = prefs.getBoolean(BACK_OPENS_MENU_PREF_STRING, false);
+        config.gamepadQuitCombo = prefs.getString(GAMEPAD_QUIT_COMBO_PREF_STRING, "off");
         config.backAsGuide = prefs.getBoolean(BACK_AS_GUIDE_PREF_STRING, false);
         config.captureSystemKeys = prefs.getBoolean(CAPTURE_SYSTEM_KEYS_PREF_STRING, true);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);

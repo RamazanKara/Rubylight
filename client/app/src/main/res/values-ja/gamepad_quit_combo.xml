@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">コントローラーの終了ボタン</string>
+    <string name="summary_list_gamepad_quit_combo">これらのボタンを押し続けるとストリームを終了します。すべて離した時点で終了します。オフの場合はストリームメニュー（Start+Select+LB+RBで開く）を使います。次のストリームから適用されます。</string>
+    <string name="gamepad_quit_combo_off">オフ</string>
+    <string name="stream_controller_mouse">コントローラーマウス</string>
+</resources>

@@ -18,6 +18,8 @@
 //! device paths are refused, and so are a drive's root and the Windows folder as an app's
 //! folder. A file is written whole into a temporary file beside it and swapped in, so a reader
 //! sees the old file or the new one, and the swap keeps the file's permissions and attributes.
+//! While a file is read or written, the folders from the app's down to it are held open, so
+//! none can be swapped for a link meanwhile.
 //!
 //! Restore is per key, not a backup of the file: before a write, the journal records each key's
 //! original value and the value written. A restore puts the original back only while the key
@@ -32,7 +34,7 @@ use std::{
     fmt,
     io::{Read, Write},
     ops::Range,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 /// The app key, and the key in a device's block, that lists the entries.
@@ -264,7 +266,7 @@ impl std::error::Error for Unusable {}
 fn local(path: &Path) -> bool {
     #[cfg(windows)]
     {
-        use std::path::{Component, Prefix};
+        use std::path::Prefix;
         matches!(
             path.components().next(),
             Some(Component::Prefix(prefix))
@@ -347,6 +349,16 @@ pub fn resolve(
     folders: &[PathBuf],
     access: Access,
 ) -> Result<PathBuf, Unusable> {
+    resolve_in(path, base, folders, access).map(|(file, _)| file)
+}
+
+/// [`resolve`], with the outermost of `folders` the file is in.
+fn resolve_in(
+    path: &str,
+    base: Option<&Path>,
+    folders: &[PathBuf],
+    access: Access,
+) -> Result<(PathBuf, PathBuf), Unusable> {
     check_path(path).map_err(|error| Unusable::Refused(format!("{error:#}")))?;
     let path = path.trim();
     let written = Path::new(path);
@@ -367,7 +379,11 @@ pub fn resolve(
     })
 }
 
-fn resolve_file(path: &str, candidate: &Path, folders: &[PathBuf]) -> Result<PathBuf, Unusable> {
+fn resolve_file(
+    path: &str,
+    candidate: &Path,
+    folders: &[PathBuf],
+) -> Result<(PathBuf, PathBuf), Unusable> {
     let file = match std::fs::canonicalize(candidate) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -375,11 +391,15 @@ fn resolve_file(path: &str, candidate: &Path, folders: &[PathBuf]) -> Result<Pat
         }
         Err(error) => return Err(Unusable::Refused(format!("{path}: {error}"))),
     };
-    if !local(&file) || !folders.iter().any(|folder| file.starts_with(folder)) {
+    let folder = folders
+        .iter()
+        .filter(|folder| file.starts_with(folder))
+        .min_by_key(|folder| folder.components().count());
+    let Some(folder) = folder.filter(|_| local(&file)) else {
         return Err(Unusable::Refused(format!(
             "{path} is outside the app's folders (its working directory, the folder of its program and its Steam install folder)"
         )));
-    }
+    };
     if !file
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("ini"))
@@ -398,7 +418,7 @@ fn resolve_file(path: &str, candidate: &Path, folders: &[PathBuf]) -> Result<Pat
             "{path} is larger than 1 MiB, more than a settings file"
         )));
     }
-    Ok(file)
+    Ok((file, folder.clone()))
 }
 
 /// A code unit of a text file: a byte (UTF-8, or another encoding that keeps ASCII as it is)
@@ -584,6 +604,9 @@ pub fn limits_frames(key: &str) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
     pub file: PathBuf,
+    /// The app's folder the file is in, resolved: the folders from it down to the file are
+    /// held while the file is read and written (see [`pin`]).
+    pub folder: PathBuf,
     pub section: String,
     pub key: String,
     pub value: String,
@@ -647,9 +670,10 @@ pub fn targets(
         let target = check_entry(entry)
             .and_then(|()| Template::parse(&entry.value)?.resolve(fps))
             .and_then(|value| {
-                let file = resolve(&entry.path, base, folders, access)?;
+                let (file, folder) = resolve_in(&entry.path, base, folders, access)?;
                 Ok(Target {
                     file,
+                    folder,
                     section: entry.section.trim().to_owned(),
                     key: entry.key.trim().to_owned(),
                     value,
@@ -689,6 +713,10 @@ pub struct Change {
     pub session: String,
     /// The file, resolved when it was written.
     pub path: PathBuf,
+    /// The app's folder it was in ([`Target::folder`]); empty, only the file's own folder is
+    /// held at its restore.
+    #[serde(default)]
+    pub folder: PathBuf,
     pub section: String,
     pub key: String,
     /// The value before the host's first write; it goes back while the key holds `written`.
@@ -784,25 +812,150 @@ fn replace(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
         drop(out);
         swap(file, &temporary)
     })();
-    let Err(error) = result else {
-        return Ok(());
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => recover(file, &temporary, error),
+    }
+}
+
+/// After a failed [`replace`]: a swap that failed halfway (ERROR_UNABLE_TO_MOVE_REPLACEMENT,
+/// when the new file is held open) has taken the file away and left its new contents under
+/// the temporary name, which is moved in, tried for a second. The temporary file is the only
+/// copy then and is never deleted; a restore finds it if this fails too ([`left_behind`]).
+/// After any other failure the file is as it was, or gone because it was deleted meanwhile and
+/// stays gone, and the temporary file goes.
+fn recover(file: &Path, temporary: &Path, error: std::io::Error) -> std::io::Result<()> {
+    // ERROR_UNABLE_TO_MOVE_REPLACEMENT and ERROR_UNABLE_TO_MOVE_REPLACEMENT_2.
+    let halfway = cfg!(windows) && matches!(error.raw_os_error(), Some(1176 | 1177));
+    if !halfway || std::fs::symlink_metadata(file).is_ok() {
+        let _ = std::fs::remove_file(temporary);
+        return Err(error);
+    }
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(temporary, file) {
+            Ok(()) => return Ok(()),
+            Err(_) if tries < 10 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(again) => {
+                return Err(std::io::Error::other(format!(
+                    "{error}; the file is gone and its new contents are in {}: {again}",
+                    temporary.display()
+                )));
+            }
+        }
+    }
+}
+
+/// The new contents of `file` a [`replace`] that failed twice left under a temporary name (the
+/// newest, when there are several), for a restore that finds the file gone.
+fn left_behind(file: &Path) -> std::io::Result<Option<PathBuf>> {
+    let (Some(parent), Some(name)) = (file.parent(), file.file_name()) else {
+        return Ok(None);
     };
-    if std::fs::symlink_metadata(file).is_ok() {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error);
+    let prefix = format!(".{}.", name.to_string_lossy());
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        let named = entry.file_name();
+        let ours = named
+            .to_str()
+            .and_then(|named| named.strip_prefix(&prefix))
+            .and_then(|rest| rest.strip_suffix(".tmp"))
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok());
+        // From the listing: a link is not taken.
+        let metadata = entry.metadata()?;
+        if !ours || !metadata.is_file() {
+            continue;
+        }
+        let modified = metadata.modified()?;
+        if newest.as_ref().is_none_or(|(time, _)| modified > *time) {
+            newest = Some((modified, entry.path()));
+        }
     }
-    if std::fs::symlink_metadata(&temporary).is_err() {
-        return Err(error);
+    Ok(newest.map(|(_, path)| path))
+}
+
+/// A folder on the way to a game file is a link now ([`pin`]).
+#[derive(Debug)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct Linked(PathBuf);
+impl fmt::Display for Linked {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} was replaced by a link", self.0.display())
     }
-    // A swap that failed halfway (ERROR_UNABLE_TO_MOVE_REPLACEMENT, when the new file is held
-    // open) has removed the file and left the new one under its temporary name: move it in.
-    // The temporary file is the only copy now, so it is never deleted here.
-    std::fs::rename(&temporary, file).map_err(|again| {
-        std::io::Error::other(format!(
-            "{error}; the file is gone and its new contents are in {}: {again}",
-            temporary.display()
-        ))
-    })
+}
+impl std::error::Error for Linked {}
+
+fn linked(error: &std::io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<Linked>())
+}
+
+/// Hold the folders from `folder` (the app's, [`Target::folder`]) down to `file`'s own open
+/// without delete sharing, so none can be moved, or swapped for a link, until the handles drop.
+/// One that is a link already fails with [`Linked`]. Without `folder`, only the file's own
+/// folder is held. Opened through the caller's access, so as the user.
+#[cfg(windows)]
+fn pin(folder: &Path, file: &Path) -> std::io::Result<Vec<std::fs::File>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    // Traverse counts as reading, so the handle holds its sharing; attributes to check it.
+    const FILE_TRAVERSE: u32 = 0x20;
+    const FILE_READ_ATTRIBUTES: u32 = 0x80;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const FILE_SHARE_READ: u32 = 0x1;
+    const FILE_SHARE_WRITE: u32 = 0x2;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    let Some(parent) = file.parent() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "the file has no folder",
+        ));
+    };
+    let top = if folder.as_os_str().is_empty() {
+        parent
+    } else {
+        folder
+    };
+    let Ok(below) = parent.strip_prefix(top) else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "the file is not in the app's folder",
+        ));
+    };
+    let mut dir = top.to_path_buf();
+    let mut pins = Vec::new();
+    for name in std::iter::once(None).chain(below.components().map(Some)) {
+        if let Some(name) = name {
+            dir.push(name);
+        }
+        // The last name is not followed; those before it are held already.
+        let pinned = std::fs::OpenOptions::new()
+            .access_mode(FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&dir)?;
+        let metadata = pinned.metadata()?;
+        if metadata.is_symlink() || !metadata.is_dir() {
+            return Err(std::io::Error::other(Linked(dir)));
+        }
+        pins.push(pinned);
+    }
+    Ok(pins)
+}
+
+#[cfg(not(windows))]
+fn pin(_folder: &Path, _file: &Path) -> std::io::Result<Vec<std::fs::File>> {
+    Ok(Vec::new())
+}
+
+/// The drive `path` is on: its prefix and root.
+fn volume(path: &Path) -> PathBuf {
+    path.components()
+        .take_while(|part| matches!(part, Component::Prefix(_) | Component::RootDir))
+        .collect()
 }
 
 #[cfg(windows)]
@@ -897,7 +1050,9 @@ pub fn apply(
     }
     for file in files {
         let wanted: Vec<&Target> = targets.iter().filter(|t| t.file == file).collect();
+        let folder = wanted[0].folder.as_path();
         let found = reach(access, || {
+            let _pins = pin(folder, file)?;
             let bytes = read(file)?;
             // A file that is still the one resolved: a link put in its place since is not followed.
             if std::fs::canonicalize(file)? != file {
@@ -968,6 +1123,7 @@ pub fn apply(
                 None => next.changes.push(Change {
                     session: session.to_owned(),
                     path: file.to_path_buf(),
+                    folder: folder.to_path_buf(),
                     section: target.section.clone(),
                     key: target.key.clone(),
                     original: current,
@@ -1002,7 +1158,11 @@ pub fn apply(
             continue;
         }
         if edited != bytes
-            && let Err(error) = reach(access, || replace(file, &edited)).and_then(|done| done)
+            && let Err(error) = reach(access, || {
+                let _pins = pin(folder, file)?;
+                replace(file, &edited)
+            })
+            .and_then(|done| done)
         {
             for target in &wanted {
                 skip(
@@ -1063,23 +1223,33 @@ enum Found {
     File(Vec<u8>),
     /// A link or junction now: it is not followed.
     Link,
-    /// The file is gone from a folder that is still there.
+    /// The file is gone, or its folder, from a drive that is still there.
     Gone,
 }
 
-/// Look at `file` for a restore. A folder that is missing too (a drive not mounted yet) is an
-/// error, so the changes stay journaled.
-fn look_up(file: &Path) -> std::io::Result<Found> {
-    match std::fs::canonicalize(file) {
+/// Look at `file`, in the app's `folder`, for a restore. A file that a [`replace`] which failed
+/// twice left under its temporary name is moved back first. A missing drive (not mounted yet)
+/// is an error, so the changes stay journaled.
+fn look_up(folder: &Path, file: &Path) -> std::io::Result<Found> {
+    let found = pin(folder, file).and_then(|_pins| match std::fs::canonicalize(file) {
         Ok(resolved) if resolved == file => read(file).map(Found::File),
         Ok(_) => Ok(Found::Link),
-        Err(error)
-            if error.kind() == std::io::ErrorKind::NotFound
-                && file.parent().is_some_and(Path::is_dir) =>
-        {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => match left_behind(file)? {
+            Some(temporary) => {
+                std::fs::rename(&temporary, file)?;
+                tracing::warn!(file = %file.display(), from = %temporary.display(), "a managed game file a failed write had left under a temporary name is back in place");
+                read(file).map(Found::File)
+            }
+            None => Ok(Found::Gone),
+        },
+        Err(error) => Err(error),
+    });
+    match found {
+        Err(error) if linked(&error) => Ok(Found::Link),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && volume(file).is_dir() => {
             Ok(Found::Gone)
         }
-        Err(error) => Err(error),
+        found => found,
     }
 }
 
@@ -1118,14 +1288,15 @@ pub fn restore(journal_path: &Path, scope: Scope<'_>, access: Access) -> Result<
                 report.failed.push(format!("{change}: {error}"));
             }
         };
-        let bytes = match reach(access, || look_up(&file)).and_then(|found| found) {
+        let folder = changes[0].folder.clone();
+        let bytes = match reach(access, || look_up(&folder, &file)).and_then(|found| found) {
             Ok(Found::File(bytes)) => bytes,
             Ok(Found::Link) => {
                 for change in &changes {
                     skip(
                         &mut report,
                         &change.to_string(),
-                        "the file was replaced by a link; it is left alone",
+                        "the file or a folder on the way to it was replaced by a link; it is left alone",
                     );
                 }
                 drop_them(&mut journal);
@@ -1149,7 +1320,11 @@ pub fn restore(journal_path: &Path, scope: Scope<'_>, access: Access) -> Result<
             put_back(&mut edited, change, &mut done);
         }
         if edited != bytes
-            && let Err(error) = reach(access, || replace(&file, &edited)).and_then(|done| done)
+            && let Err(error) = reach(access, || {
+                let _pins = pin(&folder, &file)?;
+                replace(&file, &edited)
+            })
+            .and_then(|done| done)
         {
             failed(&mut report, &error);
             continue;
@@ -1577,6 +1752,7 @@ mod tests {
         journal.changes.push(Change {
             session: "phone".into(),
             path: game.resolved.clone(),
+            folder: PathBuf::new(),
             section: "Framerate".into(),
             key: "FramerateLimit".into(),
             original: "30".into(),
@@ -1592,14 +1768,129 @@ mod tests {
         let report = restore(&game.journal, Scope::All).unwrap();
         assert_eq!(report.skipped.len(), 1);
         assert!(Journal::load(&game.journal).unwrap().changes.is_empty());
-        // A folder gone too, as a drive not mounted yet, keeps them for a later restore.
-        journal.changes[0].path = game.folder.join("unmounted").join("OptiScaler.ini");
+        // So does a game folder deleted with it, on a drive that is still there.
+        journal.changes[0].path = game
+            .resolved
+            .with_file_name("Deleted")
+            .join("OptiScaler.ini");
+        journal.changes[0].folder = game.resolved.with_file_name("Deleted");
         journal.save(&game.journal).unwrap();
         let report = restore(&game.journal, Scope::All).unwrap();
-        assert_eq!(report.failed.len(), 1, "{report:?}");
+        assert_eq!(report.skipped.len(), 1, "{report:?}");
+        assert!(Journal::load(&game.journal).unwrap().changes.is_empty());
+        // A drive that is not there (not mounted yet) keeps them for a later restore.
+        #[cfg(windows)]
+        if let Some(drive) = ('D'..='Z')
+            .rev()
+            .map(|letter| PathBuf::from(format!(r"\\?\{letter}:\")))
+            .find(|drive| !drive.exists())
+        {
+            journal.changes[0].path = drive.join("Games").join("OptiScaler.ini");
+            journal.changes[0].folder = drive.join("Games");
+            journal.save(&game.journal).unwrap();
+            let report = restore(&game.journal, Scope::All).unwrap();
+            assert_eq!(report.failed.len(), 1, "{report:?}");
+            assert_eq!(
+                Journal::load(&game.journal).unwrap().changes,
+                journal.changes
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_a_failed_write_left_under_its_temporary_name_goes_back() {
+        let game = game();
+        let folders = folders([game.folder.clone()]);
+        let targets = targets(
+            &[limit("120")],
+            None,
+            Some(&game.folder),
+            &folders,
+            &mut Report::default(),
+        );
+        apply(&game.journal, "phone", &targets).unwrap();
+        // The swap failed halfway and the move after it too: only the temporary file is left.
+        let temporary = game
+            .resolved
+            .with_file_name(format!(".OptiScaler.ini.{}.tmp", uuid::Uuid::new_v4()));
+        std::fs::rename(&game.resolved, &temporary).unwrap();
+        let report = restore(&game.journal, Scope::All).unwrap();
+        assert_eq!(report.restored.len(), 1, "{report:?}");
+        assert_eq!(std::fs::read_to_string(&game.file).unwrap(), OPTISCALER);
+        assert!(!temporary.exists());
+        assert!(Journal::load(&game.journal).unwrap().changes.is_empty());
+    }
+
+    #[test]
+    fn a_swap_that_failed_halfway_moves_the_new_file_in_and_no_other_failure_makes_one() {
+        let game = game();
+        let temporary = game.folder.join(".OptiScaler.ini.halfway.tmp");
+        // ERROR_UNABLE_TO_MOVE_REPLACEMENT: the file is gone, its new contents are beside it.
+        std::fs::remove_file(&game.file).unwrap();
+        std::fs::write(&temporary, "[Framerate]\r\nFramerateLimit=120\r\n").unwrap();
+        let halfway = recover(
+            &game.file,
+            &temporary,
+            std::io::Error::from_raw_os_error(1176),
+        );
+        if cfg!(windows) {
+            halfway.unwrap();
+            assert_eq!(current(&game.file), "120");
+            assert!(!temporary.exists());
+        } else {
+            assert!(halfway.is_err());
+        }
+        // Any other failure leaves no new file, and no temporary one.
+        std::fs::remove_file(&game.file).ok();
+        std::fs::write(&temporary, "new").unwrap();
+        assert!(recover(&game.file, &temporary, std::io::Error::from_raw_os_error(5)).is_err());
+        assert!(!game.file.exists() && !temporary.exists());
+        // A file the user deleted while it was written stays deleted.
+        assert!(replace(&game.resolved, b"[Framerate]\r\nFramerateLimit=120\r\n").is_err());
+        assert!(!game.file.exists());
+        assert_eq!(std::fs::read_dir(&game.folder).unwrap().count(), 0);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn the_folders_down_to_a_file_are_held_while_it_is_written() {
+        let game = game();
+        let sub = game.folder.join("Binaries");
+        std::fs::create_dir(&sub).unwrap();
+        let file = std::fs::canonicalize(&sub).unwrap().join("OptiScaler.ini");
+        std::fs::write(&file, OPTISCALER).unwrap();
+        let folder = std::fs::canonicalize(&game.folder).unwrap();
+        let pins = pin(&folder, &file).unwrap();
+        assert_eq!(pins.len(), 2);
+        // Neither the app's folder nor the one below it can move, so neither can be swapped.
+        assert!(std::fs::rename(&sub, game.folder.join("Moved")).is_err());
+        assert!(std::fs::rename(&game.folder, game.folder.with_file_name("Moved")).is_err());
+        drop(pins);
+        std::fs::rename(&sub, game.folder.join("Moved")).unwrap();
+        // A folder swapped for a junction before the write is refused, and the write with it.
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&sub)
+            .arg(game.folder.join("Moved"))
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        assert!(linked(&pin(&folder, &file).unwrap_err()));
+        let target = Target {
+            file: file.clone(),
+            folder: folder.clone(),
+            section: "Framerate".into(),
+            key: "FramerateLimit".into(),
+            value: "120".into(),
+        };
+        let report = apply(&game.journal, "phone", &[target]).unwrap();
+        assert!(
+            report.written.is_empty() && report.skipped.len() == 1,
+            "{report:?}"
+        );
         assert_eq!(
-            Journal::load(&game.journal).unwrap().changes,
-            journal.changes
+            current(&game.folder.join("Moved").join("OptiScaler.ini")),
+            "59"
         );
     }
 
@@ -1609,6 +1900,7 @@ mod tests {
         let change = |session: &str, written: &str| Change {
             session: session.into(),
             path: game.resolved.clone(),
+            folder: PathBuf::new(),
             section: "Framerate".into(),
             key: "FramerateLimit".into(),
             original: "59".into(),
@@ -1865,6 +2157,7 @@ mod tests {
     fn frame_limit_keys_that_disagree_with_the_limiter_are_named() {
         let target = |key: &str, value: &str| Target {
             file: PathBuf::from("x.ini"),
+            folder: PathBuf::new(),
             section: String::new(),
             key: key.into(),
             value: value.into(),

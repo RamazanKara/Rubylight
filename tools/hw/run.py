@@ -50,6 +50,7 @@ class Case:
     verdict: str = 'exit'
     pass_regex: str = ''
     note: str = ''
+    manages_locks: bool = False
 
 
 def expand(text, values, where):
@@ -81,7 +82,7 @@ def load(text, overrides=None):
         if missing:
             raise CatalogError(f'{where}: missing {", ".join(missing)}')
         unknown = set(raw) - {'id', 'device', 'title', 'command', 'preconditions', 'pass', 'output', 'collect',
-                              'status', 'verdict', 'pass_regex', 'note'}
+                              'status', 'verdict', 'pass_regex', 'note', 'manages_locks'}
         if unknown:
             raise CatalogError(f'{where}: unknown fields {", ".join(sorted(unknown))}')
         if raw['id'] in seen:
@@ -101,6 +102,11 @@ def load(text, overrides=None):
             raise CatalogError(f'{where}: verdict {verdict!r} is not exit or review')
         if raw.get('pass_regex'):
             re.compile(raw['pass_regex'])
+        manages_locks = raw.get('manages_locks', False)
+        if not isinstance(manages_locks, bool):
+            raise CatalogError(f'{where}: manages_locks {manages_locks!r} is not true or false')
+        if manages_locks and 'gpu-lock' in pre:
+            raise CatalogError(f'{where}: a case that manages its locks cannot need gpu-lock')
         # {{out}} is per case; check every other placeholder now.
         probe = dict(variables, out='<out>')
         for field in ('command', 'output'):
@@ -109,7 +115,7 @@ def load(text, overrides=None):
             expand(str(path), probe, f'{where} collect')
         cases.append(Case(raw['id'], raw['device'], str(raw['title']), str(raw['command']), list(pre),
                           str(raw['pass']), str(raw['output']), [str(c) for c in raw.get('collect') or []],
-                          status, verdict, raw.get('pass_regex') or '', str(raw.get('note', ''))))
+                          status, verdict, raw.get('pass_regex') or '', str(raw.get('note', '')), manages_locks))
     return variables, cases
 
 
@@ -223,6 +229,34 @@ def probe_gpu_lock(lock=None, ours=None):
     if ours and holder == ours:
         return True, 'held by this batch'
     return False, f'{lock} held: {holder or "(empty)"}'
+
+
+def release_gpu_lock(owner, lock=None):
+    lock = lock or GPU_LOCK
+    if probe_gpu_lock(lock, ours=owner)[1] == 'held by this batch':
+        lock.unlink()
+
+
+def take_gpu_lock(owner, lock=None, deadline=1800, poll=3, warn=60, clock=time.monotonic, sleep=time.sleep):
+    """Waits for the lock and writes it; (True, detail) or (False, the holder past the deadline).
+    Never breaks another session's lock."""
+    lock = lock or GPU_LOCK
+    start, said = clock(), None
+    while True:
+        try:
+            with open(lock, 'x', encoding='utf-8') as f:
+                f.write(owner)
+            return True, 'taken'
+        except FileExistsError:
+            pass
+        holder = probe_gpu_lock(lock)[1]
+        waited = clock() - start
+        if waited >= deadline:
+            return False, f'waited {waited:.0f} s for the GPU lock: {holder}'
+        if said is None or waited - said >= warn:
+            print(f'   waiting for the GPU lock ({waited:.0f} s): {holder}', flush=True)
+            said = waited
+        sleep(poll)
 
 
 def probes(lock_owner=None):
@@ -388,9 +422,22 @@ def main(argv=None):
         return 0
     directory.mkdir(parents=True, exist_ok=True)
     owner = f'tools/hw/run.py --batch {args.batch} pid {os.getpid()} since {datetime.datetime.now():%Y-%m-%d %H:%M}'
-    lock_taken, rows, stopped, code = False, [], '', 0
+    lock_taken, gave_back, rows, stopped, code = False, False, [], '', 0
     try:
         for i, case in enumerate(run):
+            # check.ps1 takes GPU-LOCK per stream and BUILD-LOCK for its builds. Holding
+            # GPU-LOCK through it would keep the GPU from others while it builds.
+            if case.manages_locks and lock_taken:
+                release_gpu_lock(owner)
+                lock_taken, gave_back = False, True
+                print(f'   GPU lock released: {case.id} takes its own locks', flush=True)
+            if gave_back and 'gpu-lock' in case.preconditions and not lock_taken:
+                lock_taken, detail = take_gpu_lock(owner)
+                if not lock_taken:
+                    stopped = f'before {case.id}: gpu-lock: {detail}'
+                    skipped += [(c, 'NOT RUN', 'batch stopped') for c in run[i:]]
+                    code = max(code, 1)
+                    break
             failed = [(n, d) for n, ok, d in check(case.preconditions, probes(owner)) if not ok]
             if failed:
                 stopped = f'before {case.id}: ' + '; '.join(f'{n}: {d}' for n, d in failed)
@@ -413,8 +460,8 @@ def main(argv=None):
             if result['result'] == 'FAIL':
                 code = max(code, 1)
     finally:
-        if lock_taken and probe_gpu_lock(ours=owner)[1] == 'held by this batch':
-            GPU_LOCK.unlink()
+        if lock_taken:
+            release_gpu_lock(owner)
         summary(args.batch, directory, rows, skipped, stopped)
     print(f'summary: {directory / "summary.md"}')
     if stopped:

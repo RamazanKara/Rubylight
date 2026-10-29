@@ -19,7 +19,8 @@
 #                    system          the ButterpolloReleaseElevated task exists
 #                                    (rust/release/elevation.ps1) for SYSTEM steps
 #                    gpu-lock        C:\src\butterpollo-release\GPU-LOCK is free;
-#                                    the batch holds it until it ends
+#                                    the batch holds it until it ends,
+#                                    except through a manages_locks case
 #   pass           what passing means. The verdict is the exit code (0 passes,
 #                  3 is an AMD encoder hang and stops the batch) unless
 #                  verdict: review (a person reads the output against `pass`).
@@ -31,6 +32,9 @@
 #                  needs a branch that is not on main. Batches skip pending
 #                  cases; -Only <id> runs one anyway.
 #   note           optional
+#   manages_locks  optional, true: the command takes GPU-LOCK itself (check.ps1),
+#                  so the batch gives its GPU-LOCK back before the case and
+#                  waits to take it again before the next gpu-lock case
 vars:
   python: python
   release: 3.0.0-rc.3
@@ -60,6 +64,7 @@ cases:
     title: rust/release/check.ps1 on the published release (download, streams, protocol, SYSTEM self-test, install)
     command: 'pwsh -NoProfile -File rust\release\check.ps1 v{{release}} -NoUpload; exit $LASTEXITCODE'
     # check.ps1 takes GPU-LOCK per stream itself (and BUILD-LOCK for its builds).
+    manages_locks: true
     preconditions: [idle, isolated-ports, system]
     pass: exit 0 and VALIDATION.json all passed; installs over the running host, so only with the host idle
     output: C:\src\butterpollo-release\{{release}}\VALIDATION.json and e2e-*\result.json

@@ -367,25 +367,6 @@ impl KeyframeLoss {
             false,
         )
     }
-    /// The host's socket was full and this frame waited longer than today's
-    /// writable wait for room (`network_pacing::socket_wait`) instead of
-    /// dropping packets. It arrived, so a held keyframe alone does not latch;
-    /// three held or lost frames within two seconds slow the stream as send
-    /// loss does (provisional, never remembered).
-    pub fn held(&mut self, frame: u32, period: Duration, now: Instant) -> Option<Latched> {
-        if !self.enabled {
-            return None;
-        }
-        self.count_loss(
-            frame,
-            frame,
-            period,
-            now,
-            "three recent video frames waited for a full socket within two seconds",
-            "frames held by a full socket",
-            false,
-        )
-    }
     /// Tests that start a stream and then lose a keyframe skip the wait.
     #[cfg(test)]
     pub(crate) fn settle(&mut self) {
@@ -1364,36 +1345,6 @@ mod tests {
         assert_eq!(latched.kind, LatchKind::Send);
         assert!(!latched.confirmed);
         loss
-    }
-
-    #[test]
-    fn frames_held_by_a_full_socket_count_like_send_loss() {
-        let t0 = Instant::now();
-        // One held frame, even a keyframe, does nothing.
-        let mut loss = running(100);
-        loss.sending_at(101, true, t0);
-        assert_eq!(loss.held(101, PERIOD, t0), None);
-        assert!(!loss.latched());
-        // Three within two seconds make a provisional send latch.
-        for frame in 102..=103 {
-            loss.sending_at(frame, false, t0);
-        }
-        assert_eq!(loss.held(102, PERIOD, t0), None);
-        let latched = loss.held(103, PERIOD, t0).unwrap();
-        assert_eq!(latched.kind, LatchKind::Send);
-        assert!(!latched.confirmed);
-        assert!(latched.reason.contains("full socket"), "{}", latched.reason);
-        assert!(loss.sustained_at().is_none());
-        // A held frame the client also reports is not counted twice.
-        let mut loss = running(100);
-        for frame in 101..=103 {
-            loss.sending_at(frame, false, t0);
-        }
-        assert_eq!(loss.held(101, PERIOD, t0), None);
-        assert_eq!(loss.held(102, PERIOD, t0), None);
-        assert_eq!(loss.unrecoverable(101, 103, PERIOD, t0), None);
-        assert_eq!(loss.unrecoverable(102, 103, PERIOD, t0), None);
-        assert!(!loss.latched());
     }
 
     #[test]

@@ -4152,19 +4152,6 @@ impl<P, A> Session<P, A> {
         }
         self.report_keyframe_loss(latched, ignored);
     }
-    /// The paced sender held this frame for room in a full socket instead of
-    /// dropping it: evidence like send loss, but nothing was lost.
-    pub fn keyframe_held(&self, wire_frame: u32) {
-        let period = self.stream_mode().period();
-        let (latched, ignored) = {
-            let mut loss = self.keyframe_loss.lock().unwrap();
-            (
-                loss.held(wire_frame, period, Instant::now()),
-                loss.take_ignored(),
-            )
-        };
-        self.report_keyframe_loss(latched, ignored);
-    }
     pub fn keyframe_loss_active(&self) -> bool {
         self.keyframe_loss.lock().unwrap().latched()
     }

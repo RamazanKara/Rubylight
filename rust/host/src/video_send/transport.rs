@@ -1,12 +1,12 @@
 //! Socket pacing consumes packets whose Moonlight timing was already written.
 use super::*;
 use butterpollo_core::{
-    network_pacing::{self, WRITABLE_WAIT},
+    network_pacing,
     performance::Timing,
     stream_policy::{AdapterStall, SendDrop, SendLoss, SendLossRecovery, SendOutage},
 };
 use butterpollo_windows::{
-    net::{Batch, Link, WritableWaits},
+    net::{Batch, Link, WRITABLE_WAIT, WritableWaits},
     timing::Timer,
 };
 
@@ -78,10 +78,6 @@ struct Sending {
     lost: SendLoss,
     /// The socket refused more than FEC repairs: the rest is not sent.
     given_up: bool,
-    /// What this frame's batches waited for room in a full socket.
-    socket_wait: Duration,
-    /// A batch waited past [`WRITABLE_WAIT`], where it used to drop.
-    held: bool,
     abandoned: usize,
     sent_packets: usize,
 }
@@ -106,8 +102,6 @@ struct Transport<'a> {
     /// `BUTTERPOLLO_TEST_SEND_OUTAGE=..:stall`: a large frame meets a stalled
     /// adapter.
     stall: Option<AdapterStall>,
-    /// When a frame held by a full socket was last logged.
-    held_reported: Option<Instant>,
     send_drop: Option<SendDrop>,
     send_loss: SendLossRecovery,
     batch_kb: usize,
@@ -184,21 +178,13 @@ impl Transport<'_> {
                 SendLoss::new(frame.layout.clone())
             },
             given_up: false,
-            socket_wait: Duration::ZERO,
-            held: false,
             abandoned: 0,
             sent_packets: 0,
         }
     }
 
-    /// One batch to the socket, waiting up to `wait` for room, or to the test
-    /// outage or loss in its place.
-    fn send_batch(
-        &mut self,
-        packets: &[Vec<u8>],
-        peer: SocketAddr,
-        wait: Duration,
-    ) -> Result<usize> {
+    /// One batch to the socket, or to the test outage or loss in its place.
+    fn send_batch(&mut self, packets: &[Vec<u8>], peer: SocketAddr) -> Result<usize> {
         Ok(
             match self
                 .outage
@@ -217,7 +203,7 @@ impl Transport<'_> {
                         peer,
                         drop,
                     )?,
-                    None => self.batch.send_waiting(&self.socket, packets, peer, wait)?,
+                    None => self.batch.send(&self.socket, packets, peer)?,
                 },
             },
         )
@@ -286,10 +272,6 @@ impl Transport<'_> {
                 };
                 let send_started = Instant::now();
                 let refused = self.batch.dropped;
-                // `cur.wire_bytes` includes this part, so a streamed frame's
-                // allowance only grows as its parts arrive.
-                let wait = network_pacing::socket_wait(cur.wire_bytes, bps, cur.socket_wait);
-                let waited_before = self.batch.waits.unwrap().elapsed;
                 let full_until = self.stall.as_mut().and_then(|stall| {
                     stall.full_until(remaining[..count].iter().map(Vec::len).sum(), send_started)
                 });
@@ -297,24 +279,20 @@ impl Transport<'_> {
                     // The stalled adapter's socket is full: wait for room as a
                     // refused send does, then send if the stall is over.
                     Some(end) => {
-                        self.timer.until(end.min(send_started + wait));
+                        self.timer.until(end.min(send_started + WRITABLE_WAIT));
                         if let Some(waits) = self.batch.waits.as_mut() {
                             waits.count += 1;
                             waits.elapsed += send_started.elapsed();
                         }
                         if Instant::now() >= end {
-                            self.send_batch(&remaining[..count], peer, wait)?
+                            self.send_batch(&remaining[..count], peer)?
                         } else {
                             self.batch.refuse(count);
                             0
                         }
                     }
-                    None => self.send_batch(&remaining[..count], peer, wait)?,
+                    None => self.send_batch(&remaining[..count], peer)?,
                 };
-                let waited = self.batch.waits.unwrap().elapsed - waited_before;
-                cur.socket_wait += waited;
-                // Today's allowance would have dropped this batch.
-                cur.held |= wait > WRITABLE_WAIT && waited > WRITABLE_WAIT;
                 let finished = Instant::now();
                 cur.first_send.get_or_insert(send_started);
                 cur.last_send = Some(finished);
@@ -395,8 +373,6 @@ impl Transport<'_> {
             first_sent,
             lost,
             abandoned,
-            socket_wait,
-            held,
             ..
         } = cur;
         s.record_link_sent(frame.wire_frame, packet_count, wire_bytes as u64);
@@ -410,25 +386,6 @@ impl Transport<'_> {
             );
         } else {
             self.send_loss.delivered(frame.idr);
-            if held {
-                s.keyframe_held(frame.wire_frame);
-                let now = Instant::now();
-                if self
-                    .held_reported
-                    .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(5))
-                {
-                    self.held_reported = Some(now);
-                    tracing::info!(
-                        frame = frame.wire_frame,
-                        wire_bytes,
-                        writable_wait_ms = socket_wait.as_secs_f64() * 1000.,
-                        pacing_bps = bps,
-                        "the video socket was full; frame {} waited {:.1} ms for room instead of dropping packets",
-                        frame.wire_frame,
-                        socket_wait.as_secs_f64() * 1000.
-                    );
-                }
-            }
         }
         if self.batch.dropped != dropped {
             s.launch.warnings.event("network_send", "Video packets were dropped by the host after transient socket send failures. You may see stutter or recovery frames; lower bitrate and check the network adapter. The log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
@@ -613,7 +570,6 @@ pub(super) fn run_with(
         slow_reported: None,
         outage,
         stall: outage.and_then(|outage| outage.stall()),
-        held_reported: None,
         send_drop,
         send_loss,
         batch_kb,

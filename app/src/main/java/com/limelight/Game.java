@@ -4757,7 +4757,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setPositiveButton(android.R.string.ok, null).create();
         showStreamDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            if (!connected || rateChanges != stream) {
+            // connected stays true until stopConnection, which closes this dialog: a termination
+            // that has arrived but not yet stopped the stream counts as ended (streamEnding).
+            if (!connected || streamEnding() || rateChanges != stream) {
                 // The stream this dialog was opened for ended or restarted: nothing goes out.
                 dialog.dismiss();
                 LimeLog.warning("Rate change: the stream ended before the request was sent");

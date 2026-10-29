@@ -319,20 +319,30 @@ pub fn datagram_lost(error: &std::io::Error) -> bool {
             transient(code) || code == WSAEMSGSIZE
         })
 }
-/// How long one send, or all of one batch's sends together, wait for room in
-/// a full socket buffer before dropping. Per datagram, 64 refused datagrams
-/// would hold the sender for 256 ms.
-pub const WRITABLE_WAIT: std::time::Duration = std::time::Duration::from_millis(4);
+use butterpollo_core::network_pacing::WRITABLE_WAIT;
 const BUFFER_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(1);
 /// The writable wait left to one send call, started at its first full buffer.
-#[derive(Default)]
 struct WaitBudget {
     deadline: Option<std::time::Instant>,
+    /// How long, [`WRITABLE_WAIT`] unless a video frame earned more.
+    length: std::time::Duration,
     backoff_timer: Option<crate::timing::Timer>,
 }
+impl Default for WaitBudget {
+    fn default() -> Self {
+        Self::new(WRITABLE_WAIT)
+    }
+}
 impl WaitBudget {
+    fn new(length: std::time::Duration) -> Self {
+        Self {
+            deadline: None,
+            length,
+            backoff_timer: None,
+        }
+    }
     fn deadline_at(&mut self, now: std::time::Instant) -> std::time::Instant {
-        *self.deadline.get_or_insert(now + WRITABLE_WAIT)
+        *self.deadline.get_or_insert(now + self.length)
     }
     /// Milliseconds to wait for a full buffer now; 0 once the budget is spent.
     fn take(&mut self, now: std::time::Instant) -> i32 {
@@ -803,11 +813,23 @@ impl Batch {
         packets: &[Vec<u8>],
         peer: SocketAddr,
     ) -> Result<usize> {
+        self.send_waiting(socket, packets, peer, WRITABLE_WAIT)
+    }
+    /// [`Batch::send`], with the batch's sends sharing `wait` for room in a
+    /// full socket instead of [`WRITABLE_WAIT`]: a large video frame's
+    /// allowance, `network_pacing::socket_wait`.
+    pub fn send_waiting(
+        &mut self,
+        socket: &ReplySocket,
+        packets: &[Vec<u8>],
+        peer: SocketAddr,
+        wait: std::time::Duration,
+    ) -> Result<usize> {
         if packets.is_empty() {
             return Ok(0);
         }
         let mut source = socket.source(peer);
-        let mut budget = WaitBudget::default();
+        let mut budget = WaitBudget::new(wait);
         if self.offload
             && packets.len() > 1
             && packets.len() <= 64
@@ -1747,6 +1769,19 @@ mod tests {
         assert!(!writable(&socket, &mut spent, Some(&mut waits)));
         assert_eq!(waits.count, 0);
         Ok(())
+    }
+
+    #[test]
+    fn a_large_frame_s_batch_waits_its_own_length_and_others_keep_four_ms() {
+        let start = std::time::Instant::now();
+        let us = std::time::Duration::from_micros;
+        assert_eq!(WaitBudget::default().length, WRITABLE_WAIT);
+        let mut budget = WaitBudget::new(us(14_600));
+        assert_eq!(budget.take(start), 15);
+        assert_eq!(budget.take(start + us(10_000)), 5);
+        assert_eq!(budget.take(start + us(14_600)), 0);
+        assert!(budget.backoff_at(start + us(13_000)).is_some());
+        assert!(budget.backoff_at(start + us(14_000)).is_none());
     }
 
     fn interface(kind: u32, hardware: bool) -> MIB_IF_ROW2 {

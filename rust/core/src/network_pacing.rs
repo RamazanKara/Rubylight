@@ -306,6 +306,23 @@ pub fn fec_whole_frame_limit(fec_whole: usize, bitrate_kbps: u32, period: Durati
     (minimum <= fec_whole as u64).then_some(fec_whole as u64)
 }
 
+/// How long one send, or all of one batch's sends together, wait for room in
+/// a full socket buffer before dropping. Per datagram, 64 refused datagrams
+/// would hold the sender for 256 ms.
+pub const WRITABLE_WAIT: Duration = Duration::from_millis(4);
+
+/// How long a video batch waits for room in a full socket before dropping:
+/// the frame's own wire time at its pace (`frame_wire_bytes` so far) less
+/// what its batches already waited, and never less than [`WRITABLE_WAIT`].
+/// An ordinary frame gets [`WRITABLE_WAIT`]; a large frame that meets a
+/// stalled adapter (#59's 1.46 MB frame 1001) can wait up to its own wire
+/// time instead of losing packets FEC cannot repair.
+pub fn socket_wait(frame_wire_bytes: usize, bps: u64, spent: Duration) -> Duration {
+    Duration::from_secs_f64(frame_wire_bytes as f64 * 8. / bps.max(1) as f64)
+        .saturating_sub(spent)
+        .max(WRITABLE_WAIT)
+}
+
 /// Time spent in the send call or waking late that still counts toward the
 /// batch's interval. It covers a typical 64 KB send (about 0.2 ms) plus timer
 /// lateness; a longer stall or idle gap earns no more than this.
@@ -343,6 +360,36 @@ impl Pacer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_full_socket_holds_a_frame_for_its_own_wire_time_and_never_less_than_today() {
+        let ms = Duration::from_millis;
+        let us = Duration::from_micros;
+        let close = |wait: Duration, want: Duration| wait.abs_diff(want) < us(1);
+        // An ordinary 283 KB frame at 800 Mbps takes 2.8 ms: today's 4 ms.
+        assert_eq!(
+            socket_wait(283_000, 800_000_000, Duration::ZERO),
+            WRITABLE_WAIT
+        );
+        // #59's frame 1001, 1.46 MB at 800 Mbps: 14.6 ms less what it already waited.
+        assert!(close(
+            socket_wait(1_460_000, 800_000_000, Duration::ZERO),
+            us(14_600)
+        ));
+        assert!(close(socket_wait(1_460_000, 800_000_000, ms(6)), us(8_600)));
+        assert_eq!(socket_wait(1_460_000, 800_000_000, ms(12)), WRITABLE_WAIT);
+        assert_eq!(socket_wait(1_460_000, 800_000_000, ms(100)), WRITABLE_WAIT);
+        // A slower pace gives the same frame longer; no pace, no hold beyond today's.
+        assert!(close(
+            socket_wait(1_460_000, 400_000_000, Duration::ZERO),
+            us(29_200)
+        ));
+        assert_eq!(socket_wait(0, 800_000_000, Duration::ZERO), WRITABLE_WAIT);
+        for bytes in [0, 1_000, 100_000, 1_000_000, 10_000_000] {
+            for spent in [Duration::ZERO, ms(4), ms(50)] {
+                assert!(socket_wait(bytes, 1_000_000_000, spent) >= WRITABLE_WAIT);
+            }
+        }
+    }
     #[test]
     fn unmeasured_and_wireless_pyrowave_routes_do_not_burst_at_the_host_link() {
         let demand = 200_000_000;

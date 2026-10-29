@@ -1670,16 +1670,18 @@ impl App {
             streaming.exit = Some(Exit::Terminated(nightjar_core::session::error::NO_VIDEO_TRAFFIC));
         }
         if let Some(auto) = &self.autostream {
-            if streaming.exit.is_none() && streaming.since_start() >= auto.length() {
+            if streaming.exit.is_none() && auto.ran_its_time() {
                 streaming.exit = Some(Exit::User);
             }
         }
         if let Some(exit) = streaming.exit.take() {
             let planned = matches!(exit, Exit::User);
             self.end_stream(exit);
+            // A dropped stream may reconnect (end_stream started it); a failed reconnect ends the
+            // run through its message, in autostream_step.
+            let reconnecting = self.connecting.is_some();
             if let Some(auto) = self.autostream.as_mut() {
-                if !planned { auto.fail("the stream ended before its time"); }
-                self.running = false;
+                if !auto.stream_ended(planned, reconnecting) { self.running = false; }
             }
         }
     }

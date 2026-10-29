@@ -258,6 +258,42 @@ unsafe fn sid_text(sid: PSID) -> Result<String> {
         sid.context("Windows returned an invalid SID")
     }
 }
+/// The account `sid` (`S-1-...`) names, as `DOMAIN\name` in this PC's
+/// language; None for one Windows doesn't know.
+pub fn account_name(sid: &str) -> Option<String> {
+    use windows::Win32::Security::{
+        Authorization::ConvertStringSidToSidW, LookupAccountSidW, SID_NAME_USE,
+    };
+    let text = wide(std::ffi::OsStr::new(sid)).ok()?;
+    let mut binary = PSID::default();
+    // SAFETY: `text` is NUL-terminated and outlives the call; the SID it
+    // returns is read by the lookups and freed once after them.
+    unsafe {
+        ConvertStringSidToSidW(PCWSTR(text.as_ptr()), &mut binary).ok()?;
+        let mut name = [0u16; 256];
+        let mut domain = [0u16; 256];
+        let (mut name_len, mut domain_len) = (name.len() as u32, domain.len() as u32);
+        let mut kind = SID_NAME_USE::default();
+        let found = LookupAccountSidW(
+            PCWSTR::null(),
+            binary,
+            Some(PWSTR(name.as_mut_ptr())),
+            &mut name_len,
+            Some(PWSTR(domain.as_mut_ptr())),
+            &mut domain_len,
+            &mut kind,
+        );
+        let _ = LocalFree(Some(HLOCAL(binary.0)));
+        found.ok()?;
+        let name = String::from_utf16_lossy(&name[..name_len as usize]);
+        let domain = String::from_utf16_lossy(&domain[..domain_len as usize]);
+        Some(if domain.is_empty() {
+            name
+        } else {
+            format!("{domain}\\{name}")
+        })
+    }
+}
 pub(crate) fn token_user_sid(token: &OwnedHandle) -> Result<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from

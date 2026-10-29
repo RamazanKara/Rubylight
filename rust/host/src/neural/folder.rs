@@ -726,7 +726,7 @@ fn guard(folder: &Path, relative: &str, writer: Writer) -> Outcome<()> {
             )));
         }
         if writer == Writer::System && depth > 0 && meta.is_dir() {
-            security(&path, false)
+            security(&path, Rights::Change)
                 .map_err(|e| {
                     Failure::Error(format!(
                         "cannot check who may change {}: {e:#}",
@@ -744,26 +744,44 @@ fn guard(folder: &Path, relative: &str, writer: Writer) -> Outcome<()> {
 pub(super) struct Security {
     pub link: bool,
     pub owner: String,
-    /// Those its permissions let change it, or for a drive's root or a folder
-    /// above the cache, move or delete what it holds: those let users add
-    /// folders, which moves nothing.
+    /// Those its permissions give the [`Rights`] asked about.
     pub writers: Vec<String>,
 }
 
-pub(super) fn security(path: &Path, root: bool) -> anyhow::Result<Security> {
+/// What [`security`] asks who may do to a folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Rights {
+    /// Change it or what it holds.
+    Change,
+    /// Move or delete what it holds, as for a drive's root, which lets
+    /// users add folders, which moves nothing.
+    MoveContents,
+    /// That, or move or delete the folder itself, as for a folder above the
+    /// cache: C:\ProgramData lets users add folders too.
+    Move,
+}
+
+pub(super) fn security(path: &Path, rights: Rights) -> anyhow::Result<Security> {
     use butterpollo_windows::process::{
-        open_file_child_movers, open_file_owner, open_file_writers, open_unfollowed,
+        open_file_child_movers, open_file_movers, open_file_owner, open_file_writers,
+        open_unfollowed,
     };
     let file = open_unfollowed(path, true)?;
     Ok(Security {
         link: file.metadata()?.file_attributes() & LINK != 0,
         owner: open_file_owner(&file)?,
-        writers: if root {
-            open_file_child_movers(&file)
-        } else {
-            open_file_writers(&file)
+        writers: match rights {
+            Rights::Change => open_file_writers(&file),
+            Rights::MoveContents => open_file_child_movers(&file),
+            Rights::Move => open_file_movers(&file),
         }?,
     })
+}
+
+/// An account as the console names it: `DOMAIN\name`, or "another account"
+/// for one Windows doesn't know or a permission entry naming none.
+fn account(sid: &str) -> String {
+    butterpollo_windows::process::account_name(sid).unwrap_or_else(|| "another account".into())
 }
 
 /// Whether only administrators may change `path`.
@@ -775,7 +793,7 @@ pub(super) fn verdict(path: &Path, security: &Security) -> Result<(), String> {
         return Err(format!(
             "{} is owned by {}, not by SYSTEM or Administrators",
             path.display(),
-            security.owner
+            account(&security.owner)
         ));
     }
     match security
@@ -783,15 +801,18 @@ pub(super) fn verdict(path: &Path, security: &Security) -> Result<(), String> {
         .iter()
         .find(|sid| !ADMINISTRATORS.contains(&sid.as_str()))
     {
-        Some(other) => Err(format!("{} can be changed by {other}", path.display())),
+        Some(other) => Err(format!(
+            "{} can be changed by {}",
+            path.display(),
+            account(other)
+        )),
         None => Ok(()),
     }
 }
 
 /// Whether administrators own `path` and alone may change it, or for a
-/// folder above the cache (not `whole`) move or delete what it holds: users
-/// may add folders to C:\ProgramData, which moves nothing ([`verdict`]); the
-/// cache's check ([`super::trusted_root`]).
+/// folder above the cache (not `whole`) move or delete it or what it holds
+/// ([`Rights::Move`], [`verdict`]); the cache's check ([`super::trusted_root`]).
 pub(super) fn administrators_hold(path: &Path, whole: bool) -> Result<(), String> {
     hold(path, whole, security)
 }
@@ -800,9 +821,10 @@ pub(super) fn administrators_hold(path: &Path, whole: bool) -> Result<(), String
 pub(super) fn hold(
     path: &Path,
     whole: bool,
-    read: impl FnOnce(&Path, bool) -> anyhow::Result<Security>,
+    read: impl FnOnce(&Path, Rights) -> anyhow::Result<Security>,
 ) -> Result<(), String> {
-    let security = read(path, !whole)
+    let rights = if whole { Rights::Change } else { Rights::Move };
+    let security = read(path, rights)
         .map_err(|e| format!("cannot check who may change {}: {e:#}", path.display()))?;
     verdict(path, &security)
 }
@@ -813,7 +835,12 @@ pub(super) fn hold(
 /// could swap one for a link and send SYSTEM's copies anywhere.
 pub(super) fn administrators_only(folder: &Path) -> Result<(), String> {
     for path in folder.ancestors().filter(|p| !p.as_os_str().is_empty()) {
-        let security = security(path, path.parent().is_none())
+        let rights = if path.parent().is_none() {
+            Rights::MoveContents
+        } else {
+            Rights::Change
+        };
+        let security = security(path, rights)
             .map_err(|e| format!("cannot check who may change {}: {e:#}", path.display()))?;
         verdict(path, &security)?;
     }

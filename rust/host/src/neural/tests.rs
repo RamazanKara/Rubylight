@@ -947,24 +947,37 @@ fn a_folder_only_administrators_may_write_is_written_only_by_system_and_only_the
         super::folder::verdict(path, &security(false, "S-1-5-32-544", &[])),
         Ok(())
     );
+    // Accounts by name in this PC's language, never a raw SID or entry.
+    let users = users();
     for (security, problem) in [
-        (security(true, trusted, &admins), "link"),
+        (security(true, trusted, &admins), "link".to_string()),
         (
             security(false, "S-1-5-21-1-2-3-1001", &admins),
-            "owned by S-1-5-21-1-2-3-1001",
+            "owned by another account".into(),
         ),
         (
             security(false, trusted, &["S-1-5-18", "S-1-5-32-545"]),
-            "changed by S-1-5-32-545",
+            format!("changed by {users}"),
         ),
         (
             security(false, trusted, &["S-1-5-18", "ACE type 9"]),
-            "changed by ACE type 9",
+            "changed by another account".into(),
         ),
     ] {
         let error = super::folder::verdict(path, &security).unwrap_err();
-        assert!(error.contains(problem), "{error}");
+        assert!(error.contains(&problem), "{error}");
+        assert!(
+            !error.contains("S-1-5-21") && !error.contains("ACE"),
+            "{error}"
+        );
     }
+}
+
+/// The Users group as Windows names it here (`BUILTIN\Users` in English).
+fn users() -> String {
+    let name = butterpollo_windows::process::account_name("S-1-5-32-545").unwrap();
+    assert!(name.contains('\\'), "{name}");
+    name
 }
 
 /// This PC's Program Files, as an ordinary user: where a SYSTEM host's check
@@ -1083,21 +1096,30 @@ fn a_folder_above_the_cache_lets_nobody_but_administrators_move_what_it_holds() 
     icacls(&["/grant", "*S-1-5-32-545:(RX)"]);
     icacls(&["/grant", "*S-1-5-32-545:(AD,WD)"]);
     let held = |whole| {
-        super::folder::hold(&above, whole, |path, movers| {
-            super::folder::security(path, movers).map(|security| super::folder::Security {
+        super::folder::hold(&above, whole, |path, rights| {
+            super::folder::security(path, rights).map(|security| super::folder::Security {
                 owner: "S-1-5-32-544".into(),
                 ..security
             })
         })
     };
+    let users = format!("changed by {}", users());
     assert_eq!(held(false), Ok(()));
     // The cache itself is held only when users may not add to it either.
     let error = held(true).unwrap_err();
-    assert!(error.contains("changed by S-1-5-32-545"), "{error}");
+    assert!(error.contains(&users), "{error}");
     // Users who may delete what it holds could swap the cache's folder.
     icacls(&["/grant", "*S-1-5-32-545:(DC)"]);
     let error = held(false).unwrap_err();
-    assert!(error.contains("changed by S-1-5-32-545"), "{error}");
+    assert!(error.contains(&users), "{error}");
+    // So could users who may delete or rename the folder itself.
+    icacls(&["/remove:g", "*S-1-5-32-545"]);
+    icacls(&["/grant", "*S-1-5-32-545:(RX)"]);
+    icacls(&["/grant", "*S-1-5-32-545:(AD,WD)"]);
+    assert_eq!(held(false), Ok(()));
+    icacls(&["/grant", "*S-1-5-32-545:(D)"]);
+    let error = held(false).unwrap_err();
+    assert!(error.contains(&users), "{error}");
 }
 
 fn archive(path: &Path, files: &[(&str, &[u8])]) {
@@ -1817,6 +1839,28 @@ fn the_gpu_check_is_asked_again_once_the_streaming_gpu_is_set_otherwise() {
         answer("AMD Radeon RX 9070 XT");
         assert_eq!(capability(h), Ok(name), "{config}");
     }
+}
+
+/// A SYSTEM host asks of the cache itself who may change it, and of each
+/// folder above it who may move it or what it holds.
+#[test]
+fn only_the_cache_itself_is_held_whole() {
+    let temp = tempdir();
+    let root = temp.path().join("data/neural");
+    std::fs::create_dir_all(&root).unwrap();
+    let asked = Mutex::new(Vec::new());
+    super::trusted_root_with(&root, true, |path, whole| {
+        asked.lock().unwrap().push((path.to_path_buf(), whole));
+        Ok(())
+    })
+    .unwrap();
+    let asked = asked.into_inner().unwrap();
+    assert_eq!(asked.len(), root.ancestors().count());
+    for (path, whole) in asked {
+        assert_eq!(whole, path == root, "{}", path.display());
+    }
+    // An ordinary host asks nothing of the kind.
+    super::trusted_root_with(&root, false, |_, _| panic!("asked")).unwrap();
 }
 
 /// A cache is used only as this host keeps it: no link on the way to it,

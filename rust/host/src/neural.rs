@@ -466,6 +466,15 @@ fn ensure_root(root: &Path) -> Result<()> {
 /// they don't own or whose folders they may move away and replace. A release
 /// planted there would reach every game.
 fn trusted_root(root: &Path, system: bool) -> Result<()> {
+    trusted_root_with(root, system, folder::administrators_hold)
+}
+
+/// [`trusted_root`], with `hold` in place of [`folder::administrators_hold`].
+fn trusted_root_with(
+    root: &Path,
+    system: bool,
+    hold: impl Fn(&Path, bool) -> Result<(), String>,
+) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
     for path in root.ancestors().filter(|path| !path.as_os_str().is_empty()) {
         let meta = std::fs::symlink_metadata(path)
@@ -476,7 +485,7 @@ fn trusted_root(root: &Path, system: bool) -> Result<()> {
             path.display()
         );
         if system {
-            folder::administrators_hold(path, path == root).map_err(|problem| {
+            hold(path, path == root).map_err(|problem| {
                 anyhow!(
                     "Neural Rendering keeps its download only where nobody but administrators may change it: {problem}"
                 )

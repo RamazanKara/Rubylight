@@ -324,16 +324,17 @@ impl Pc for OnPc {
         butterpollo_windows::process::user_runs_elevated()
     }
     fn game_need(&self, exe: &str, folder: bool) -> Result<Need> {
-        let sid = butterpollo_windows::process::user_sid()
-            .context("finding the signed-in user, whose compatibility settings count")?;
+        // The game's folder is usually the user's to change: its files are
+        // read as them, never as the host.
+        let user = user_copy::user()?;
+        let sid = user_copy::sid(&user)?;
         let exe = Path::new(exe);
         let need = elevation::most([
-            butterpollo_windows::nucleus::elevation::game_need(exe, &sid)?,
+            butterpollo_windows::nucleus::elevation::game_need(exe, &sid, Some(&user))?,
             match exe.parent().filter(|_| folder) {
-                Some(parent) => butterpollo_windows::nucleus::elevation::folder_need(
-                    parent,
-                    Some(&user_copy::user()?),
-                )?,
+                Some(parent) => {
+                    butterpollo_windows::nucleus::elevation::folder_need(parent, Some(&user))?
+                }
                 None => Need::Nothing,
             },
         ]);

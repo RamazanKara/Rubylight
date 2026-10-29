@@ -781,7 +781,7 @@ impl Drop for PartFile {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use windows::Win32::{
         Foundation::CloseHandle,
@@ -829,7 +829,7 @@ mod tests {
 
     /// This process's token with its user's SID only able to deny: it is
     /// refused what is granted to the user by name, like another user.
-    fn without_own_sid() -> OwnedHandle {
+    pub(crate) fn without_own_sid() -> OwnedHandle {
         let own = own_token();
         let own = HANDLE(own.as_raw_handle());
         let mut bytes = 0;

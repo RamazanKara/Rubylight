@@ -3,8 +3,12 @@
 //! (or Windows' installer detection without one), the compatibility
 //! settings of the machine and of the signed-in user, and whether that user
 //! may change the files Nucleus Co-op changes before it starts the game.
+//!
+//! The game's folder is usually one its user may change, so the host never
+//! opens a file there as itself: a link planted there would let that user
+//! have SYSTEM read any file. Every read of it is done as the user.
 use super::layers::{self, Layers};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use butterpollo_core::nucleus::elevation::{self as rule, Need, Why};
 use std::os::windows::io::OwnedHandle;
 use std::path::{Path, PathBuf};
@@ -15,15 +19,18 @@ use windows::Win32::System::LibraryLoader::{
 };
 use windows::core::PCWSTR;
 
-/// What the game at `exe` needs, for the user `sid`: the most of its
-/// manifest, Windows' installer detection and both compatibility settings.
-pub fn game_need(exe: &Path, sid: &str) -> Result<Need> {
-    let manifest = manifest_need(exe)?;
-    let installer = manifest.is_none()
-        && thirty_two_bit(exe)?
-        && exe
-            .file_name()
-            .is_some_and(|name| rule::installer_name(&name.to_string_lossy()));
+/// The most of a `<name>.exe.manifest` that is read: Windows' own are a few
+/// KiB.
+const MANIFEST_LIMIT: u64 = 64 * 1024;
+
+/// What the game at `exe` needs, for the user `sid` of `token` (None: as the
+/// host, in tests), who its files are read as: the most of its manifest,
+/// Windows' installer detection and both compatibility settings.
+pub fn game_need(exe: &Path, sid: &str, token: Option<&OwnedHandle>) -> Result<Need> {
+    let Program {
+        manifest,
+        installer,
+    } = program(exe, token)?;
     let path = exe.to_string_lossy();
     let machine = layers::machine_values()?;
     let user = layers::UserHive::of(sid.to_string()).values()?;
@@ -48,19 +55,40 @@ pub fn game_need(exe: &Path, sid: &str) -> Result<Need> {
     Ok(need)
 }
 
+/// What the game's own files ask of Windows.
+struct Program {
+    /// Its manifest's level ([`manifest_need`]).
+    manifest: Option<Need>,
+    /// Whether Windows' installer detection takes it for an installer.
+    installer: bool,
+}
+
+/// Every read of `exe` and its manifest, done here as the user of `token`
+/// (None: as the host, in tests).
+fn program(exe: &Path, token: Option<&OwnedHandle>) -> Result<Program> {
+    let _user =
+        crate::user_folder::Impersonation::begin(token).context("acting as the signed-in user")?;
+    let manifest = manifest_need(exe)?;
+    let installer = manifest.is_none()
+        && exe
+            .file_name()
+            .is_some_and(|name| rule::installer_name(&name.to_string_lossy()))
+        && thirty_two_bit(exe)?;
+    Ok(Program {
+        manifest,
+        installer,
+    })
+}
+
 /// The level the manifest of `exe` asks for: the one it embeds, else the
 /// `<name>.exe.manifest` beside it, as Windows reads them. None when it
-/// names none.
+/// names none. Read as this thread is: [`game_need`] reads it as the user.
 pub fn manifest_need(exe: &Path) -> Result<Option<Need>> {
     let text = match embedded_manifest(exe)? {
         Some(text) => text,
-        None => match std::fs::read(external_manifest(exe)) {
-            Ok(bytes) => decode(&bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("reading {}", external_manifest(exe).display()));
-            }
+        None => match external_manifest_text(exe)? {
+            Some(text) => text,
+            None => return Ok(None),
         },
     };
     Ok(rule::manifest_need(&text))
@@ -70,6 +98,64 @@ fn external_manifest(exe: &Path) -> PathBuf {
     let mut name = exe.as_os_str().to_owned();
     name.push(".manifest");
     PathBuf::from(name)
+}
+
+/// The text of the `<name>.exe.manifest` beside `exe`, None without one:
+/// only a file on a disk, never through a link in its place, and at most
+/// [`MANIFEST_LIMIT`] bytes.
+fn external_manifest_text(exe: &Path) -> Result<Option<String>> {
+    use std::io::Read;
+    use std::os::windows::fs::MetadataExt;
+    let path = external_manifest(exe);
+    let not_a_file = || {
+        anyhow::anyhow!(
+            "{} is a link or a folder, not a manifest, so Rubylight does not read it: replace it with the file or remove it",
+            path.display()
+        )
+    };
+    let mut file = match crate::process::open_unfollowed(&path, false) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            // A junction or a folder opens only as a folder.
+            if std::fs::symlink_metadata(&path)
+                .is_ok_and(|metadata| metadata.file_attributes() & (0x400 | 0x10) != 0)
+            {
+                return Err(not_a_file());
+            }
+            return Err(error).with_context(|| format!("reading {}", path.display()));
+        }
+    };
+    let attributes = file
+        .metadata()
+        .with_context(|| format!("reading {}", path.display()))?
+        .file_attributes();
+    if attributes & (0x400 | 0x10) != 0 || !on_disk(&file) {
+        return Err(not_a_file());
+    }
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(MANIFEST_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("reading {}", path.display()))?;
+    if bytes.len() as u64 > MANIFEST_LIMIT {
+        bail!(
+            "{} is larger than {} KiB, which no manifest is, so Rubylight does not read it: remove it",
+            path.display(),
+            MANIFEST_LIMIT / 1024
+        );
+    }
+    Ok(Some(decode(&bytes)))
+}
+
+/// Whether `file` is a file on a disk, not a pipe or a device a path
+/// through the object manager could name.
+fn on_disk(file: &std::fs::File) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{FILE_TYPE_DISK, GetFileType};
+    // SAFETY: the handle is open for as long as `file` is.
+    unsafe { GetFileType(HANDLE(file.as_raw_handle())) == FILE_TYPE_DISK }
 }
 
 /// The manifest resource (`RT_MANIFEST` 1) `exe` embeds, read as data: no
@@ -130,7 +216,7 @@ fn decode(bytes: &[u8]) -> String {
 }
 
 /// Whether `exe` is a 32-bit Windows program, which installer detection
-/// applies to.
+/// applies to. Read as this thread is.
 fn thirty_two_bit(exe: &Path) -> Result<bool> {
     use windows::Win32::Storage::FileSystem::GetBinaryTypeW;
     const SCS_32BIT_BINARY: u32 = 0;
@@ -356,15 +442,15 @@ mod tests {
         let sid = crate::process::own_sid().unwrap();
         // A level turns detection off.
         let invoker = copy(&wow, folder.path(), "setup.exe", Some("asInvoker"));
-        assert_eq!(game_need(&invoker, &sid).unwrap(), Need::Nothing);
+        assert_eq!(game_need(&invoker, &sid, None).unwrap(), Need::Nothing);
         let setup = copy(&wow, folder.path(), "game_setup.exe", None);
         assert_eq!(manifest_need(&setup).unwrap(), None);
         assert_eq!(
-            game_need(&setup, &sid).unwrap(),
+            game_need(&setup, &sid, None).unwrap(),
             Need::Administrator(Why::Installer)
         );
         let game = copy(&wow, folder.path(), "game.exe", None);
-        assert_eq!(game_need(&game, &sid).unwrap(), Need::Nothing);
+        assert_eq!(game_need(&game, &sid, None).unwrap(), Need::Nothing);
         // A 64-bit one is never taken for an installer.
         let system = std::env::var("SystemRoot").unwrap();
         let native = copy(
@@ -373,7 +459,99 @@ mod tests {
             "update.exe",
             None,
         );
-        assert_eq!(game_need(&native, &sid).unwrap(), Need::Nothing);
+        assert_eq!(game_need(&native, &sid, None).unwrap(), Need::Nothing);
+    }
+
+    /// The manifest beside `exe`, asking for administrator rights, then
+    /// `padding` spaces.
+    fn admin_manifest(exe: &Path, padding: usize) -> PathBuf {
+        let path = external_manifest(exe);
+        let mut text =
+            b"<assembly><requestedExecutionLevel level=\"requireAdministrator\"/></assembly>"
+                .to_vec();
+        text.resize(text.len() + padding, b' ');
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_manifest_beside_the_game_is_read_up_to_its_limit() {
+        let folder = tempfile::tempdir().unwrap();
+        let bare = program(folder.path(), "bare.exe", None);
+        let manifest = admin_manifest(&bare, 0);
+        let fits = MANIFEST_LIMIT as usize - std::fs::metadata(&manifest).unwrap().len() as usize;
+        admin_manifest(&bare, fits);
+        assert_eq!(
+            manifest_need(&bare).unwrap(),
+            Some(Need::Administrator(Why::Manifest))
+        );
+        // One byte more and it is refused, never read whole.
+        admin_manifest(&bare, fits + 1);
+        let error = format!("{:#}", manifest_need(&bare).unwrap_err());
+        assert!(
+            error.contains("bare.exe.manifest is larger than 64 KiB"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_link_in_place_of_the_manifest_is_not_followed() {
+        let folder = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let bare = program(folder.path(), "bare.exe", None);
+        junction(elsewhere.path(), &external_manifest(&bare));
+        let error = format!("{:#}", manifest_need(&bare).unwrap_err());
+        assert!(
+            error.contains("bare.exe.manifest is a link or a folder, not a manifest"),
+            "{error}"
+        );
+        // A folder of that name the same.
+        let other = program(folder.path(), "other.exe", None);
+        std::fs::create_dir(external_manifest(&other)).unwrap();
+        let error = format!("{:#}", manifest_need(&other).unwrap_err());
+        assert!(error.contains("is a link or a folder"), "{error}");
+    }
+
+    #[test]
+    fn the_games_files_are_read_as_the_user() {
+        let sid = crate::process::own_sid().unwrap();
+        let user = crate::user_folder::tests::without_own_sid();
+        let root = tempfile::tempdir().unwrap();
+        // A game whose folder only this account by name may read: the
+        // token without its SID, standing in for the user, is refused it.
+        let named = root.path().join("named");
+        crate::process::create_folder(&named, &format!("D:P(A;OICI;FA;;;{sid})")).unwrap();
+        let game = program(&named, "game_setup.exe", Some("asInvoker"));
+        assert_eq!(game_need(&game, &sid, None).unwrap(), Need::Nothing);
+        let error = format!("{:#}", game_need(&game, &sid, Some(&user)).unwrap_err());
+        assert!(error.contains("game_setup.exe's manifest"), "{error}");
+        assert!(error.contains("0x80070005"), "{error}");
+        // A game anyone may read, whose manifest only this account may: the
+        // manifest is read as the user too.
+        let open = root.path().join("open");
+        crate::process::create_folder(&open, "D:P(A;OICI;FA;;;WD)").unwrap();
+        let bare = program(&open, "bare.exe", None);
+        assert_eq!(game_need(&bare, &sid, Some(&user)).unwrap(), Need::Nothing);
+        let manifest = admin_manifest(&bare, 0);
+        let status = std::process::Command::new("icacls")
+            .arg(&manifest)
+            .args(["/inheritance:r", "/grant:r", &format!("*{sid}:F")])
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "icacls failed");
+        assert_eq!(
+            game_need(&bare, &sid, None).unwrap(),
+            Need::Administrator(Why::Manifest)
+        );
+        let error = format!("{:#}", game_need(&bare, &sid, Some(&user)).unwrap_err());
+        assert!(error.contains("reading"), "{error}");
+        assert!(error.contains("bare.exe.manifest"), "{error}");
+        // The host is itself again once the user's reads are done.
+        assert_eq!(
+            game_need(&bare, &sid, None).unwrap(),
+            Need::Administrator(Why::Manifest)
+        );
     }
 
     fn junction(target: &Path, link: &Path) {

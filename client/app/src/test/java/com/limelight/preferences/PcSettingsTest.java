@@ -363,6 +363,55 @@ public class PcSettingsTest {
         }
     }
 
+    @Test
+    public void aSyncedExportSaysSoAndCanBeStopped() throws Exception {
+        new FrontendExportStore(app, "sync-pc", FrontendLauncher.BEACON)
+                .save(Uri.parse("content://documents/tree/roms"), null);
+        ActivityController<HostStreamSettings> controller = open("sync-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            assertEquals(app.getString(R.string.frontend_sync_summary, "Beacon"),
+                    row(screen, "frontend_export").getSummary().toString());
+            click(row(screen, "frontend_export"));
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView()
+                    .performItemClick(null, FrontendLauncher.BEACON.ordinal(), 0);
+            AlertDialog actions = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals(app.getString(R.string.frontend_sync_stop), actions.getListView().getAdapter().getItem(3));
+            actions.getListView().performItemClick(null, 3, 0);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertNull(new FrontendExportStore(app, "sync-pc", FrontendLauncher.BEACON).romsTree());
+            assertEquals(app.getString(R.string.pc_settings_export_summary),
+                    row(screen, "frontend_export").getSummary().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aLostExportFolderIsShownOnThePcAndOffersANewOne() throws Exception {
+        new FrontendExportStore(app, "lost-pc", FrontendLauncher.ES_DE)
+                .save(Uri.parse("content://documents/tree/roms"), null);
+        app.getSharedPreferences("frontend_exports", android.content.Context.MODE_PRIVATE).edit()
+                .putBoolean("lost-pc:ES_DE:failed", true).commit();
+        ActivityController<HostStreamSettings> controller = open("lost-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            assertEquals(app.getString(R.string.frontend_sync_failed_summary, "ES-DE"),
+                    row(screen, "frontend_export").getSummary().toString());
+            click(row(screen, "frontend_export"));
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView()
+                    .performItemClick(null, FrontendLauncher.ES_DE.ordinal(), 0);
+            AlertDialog lost = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals(app.getString(R.string.frontend_sync_failed_message),
+                    ((TextView) lost.findViewById(android.R.id.message)).getText().toString());
+            assertEquals(app.getString(R.string.frontend_export_pick),
+                    lost.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     private static com.limelight.computers.ComputerManagerService.ComputerManagerBinder manager(
             List<String> renamed, List<ComputerDetails> removed) {
         return new com.limelight.computers.ComputerManagerService().new ComputerManagerBinder() {

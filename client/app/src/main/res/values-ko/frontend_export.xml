@@ -22,4 +22,11 @@
     <string name="frontend_setup_esde">ES-DE를 다시 시작하여 Nightjar 시스템을 불러오세요. 설정 폴더를 건너뛰었다면 다음 내보내기에서 선택하여 시스템과 캐시된 표지를 추가하세요.</string>
     <string name="frontend_setup_daijisho">내보낸 butterpollo 폴더의 .art 파일용 플랫폼을 만드세요. 아래 인텐트 인수로 Android 플레이어를 추가한 뒤 폴더를 스캔하세요.</string>
     <string name="frontend_setup_pegasus">내보낸 butterpollo 폴더와 .art 파일을 사용하세요. 컬렉션 메타데이터에 아래 실행 명령을 설정하세요.</string>
+    <string name="frontend_sync_title">%1$s · 동기화 중</string>
+    <string name="frontend_sync_stop">동기화 중지</string>
+    <string name="frontend_sync_summary">동기화 중: %1$s</string>
+    <string name="frontend_sync_note">PC의 게임이 바뀌면 %1$s이(가) 이 폴더를 자동으로 업데이트합니다.</string>
+    <string name="frontend_sync_failed">%2$s의 %1$s 게임이 더 이상 동기화되지 않습니다. 폴더를 사용할 수 없습니다. PC 설정에서 폴더를 다시 선택하세요.</string>
+    <string name="frontend_sync_failed_message">폴더를 사용할 수 없어 이 게임들이 더 이상 동기화되지 않습니다. 폴더를 다시 선택하거나 동기화를 중지하세요.</string>
+    <string name="frontend_sync_failed_summary">동기화 중지됨, 폴더를 사용할 수 없음: %1$s</string>
 </resources>

@@ -113,12 +113,13 @@ public class FrontendExporterTest {
     @Test
     public void differentUuidDoesNotOverwriteAnAppThatReusedItsNumericId() throws Exception {
         File existing = file("roms/butterpollo/Game.art");
-        String original = FrontendEntry.serialize("host", "PC", "old-uuid", "Game", 42);
-        Files.writeString(existing.toPath(), original);
+        Files.writeString(existing.toPath(), FrontendEntry.serialize("host", "PC", "old-uuid", "Game", 42));
+        NvApp old = new NvApp("Game", 7, false);
+        old.setAppUuid("old-uuid");
         app.setAppUuid("new-uuid");
-        exporter.export(Collections.singletonList(app), romsTree, null);
-        assertEquals(original, Files.readString(existing.toPath()));
-        assertTrue(file("roms/butterpollo/Game (PC).art").isFile());
+        exporter.export(java.util.Arrays.asList(old, app), romsTree, null);
+        assertEquals(FrontendEntry.serialize("host", "PC", "old-uuid", "Game", 7), Files.readString(existing.toPath()));
+        assertTrue(Files.readString(file("roms/butterpollo/Game (PC).art").toPath()).contains("[app_uuid] new-uuid"));
     }
 
     @Test
@@ -144,7 +145,7 @@ public class FrontendExporterTest {
     @Test
     public void failedExistingEntryIsNotDeleted() throws Exception {
         File existing = file("roms/butterpollo/Game.art");
-        String original = entry("host", "Game", 42);
+        String original = entry("host", "Old name", 42);
         Files.writeString(existing.toPath(), original);
         provider.failWriteSuffix = ".art";
 
@@ -190,6 +191,63 @@ public class FrontendExporterTest {
         exporter.export(Collections.singletonList(app), romsTree, null);
         assertEquals("Not a game entry", Files.readString(existing.toPath()));
         assertTrue(file("roms/butterpollo/Game (PC).art").isFile());
+    }
+
+    @Test
+    public void pruningRemovesOnlyThisPcsStaleEntriesAndTheCoversItWrote() throws Exception {
+        temporary.newFolder("esde", "downloaded_media", "butterpollo", "covers");
+        Files.writeString(file("roms/butterpollo/Gone.art").toPath(), entry("host", "Gone", 7));
+        Files.writeString(file("roms/butterpollo/Gone too.art").toPath(), entry("host", "Gone too", 8));
+        Files.writeString(file("roms/butterpollo/Other PC.art").toPath(), entry("another-host", "Other", 7));
+        Files.writeString(file("roms/butterpollo/Notes.art").toPath(), "Not a game entry");
+        Files.writeString(file("roms/butterpollo/readme.txt").toPath(), "mine");
+        Files.writeString(file("esde/downloaded_media/butterpollo/covers/Gone.png").toPath(), "ours");
+        Files.writeString(file("esde/downloaded_media/butterpollo/covers/Gone too.png").toPath(), "user's");
+        java.util.Map<String, String> ownCovers = new java.util.HashMap<>();
+        ownCovers.put("Gone.png", "7");
+
+        exporter.export(Collections.singletonList(app), romsTree, esdeTree, ownCovers);
+
+        String[] left = file("roms/butterpollo").list();
+        java.util.Arrays.sort(left);
+        assertArrayEquals(new String[] {"Game.art", "Notes.art", "Other PC.art", "readme.txt"}, left);
+        assertFalse(file("esde/downloaded_media/butterpollo/covers/Gone.png").exists());
+        assertEquals("user's", Files.readString(file("esde/downloaded_media/butterpollo/covers/Gone too.png").toPath()));
+        assertFalse(ownCovers.containsKey("Gone.png"));
+    }
+
+    @Test
+    public void aRemovedGamesFileNameGoesToTheNewGame() throws Exception {
+        Files.writeString(file("roms/butterpollo/Game.art").toPath(), FrontendEntry.serialize("host", "PC", "old", "Game", 42));
+        app.setAppUuid("new");
+        exporter.export(Collections.singletonList(app), romsTree, null);
+        assertArrayEquals(new String[] {"Game.art"}, file("roms/butterpollo").list());
+        assertTrue(Files.readString(file("roms/butterpollo/Game.art").toPath()).contains("[app_uuid] new"));
+    }
+
+    @Test
+    public void changedArtReplacesOnlyCoversNightjarWrote() throws Exception {
+        cacheCover();
+        java.util.Map<String, String> ownCovers = new java.util.HashMap<>();
+        exporter.export(Collections.singletonList(app), romsTree, esdeTree, ownCovers);
+        assertEquals(app.getAssetCacheKey(), ownCovers.get("Game.png"));
+
+        app.setArtVersion("2");
+        cacheCover();
+        Files.write(CacheHelper.openPath(false, context.getCacheDir(), "boxart", computer.uuid,
+                app.getAssetCacheKey() + ".png").toPath(), new byte[] {9});
+        exporter.export(Collections.singletonList(app), romsTree, esdeTree, ownCovers);
+        File cover = file("esde/downloaded_media/butterpollo/covers/Game.png");
+        assertArrayEquals(new byte[] {9}, Files.readAllBytes(cover.toPath()));
+        assertEquals(app.getAssetCacheKey(), ownCovers.get("Game.png"));
+
+        // A cover Nightjar has no record of writing (the user's, or an older export's) stays.
+        Files.writeString(cover.toPath(), "Custom cover");
+        ownCovers.clear();
+        app.setArtVersion("3");
+        cacheCover();
+        exporter.export(Collections.singletonList(app), romsTree, esdeTree, ownCovers);
+        assertEquals("Custom cover", Files.readString(cover.toPath()));
     }
 
     @Test

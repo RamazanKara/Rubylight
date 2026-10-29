@@ -22,4 +22,11 @@
     <string name="frontend_setup_esde">重新啟動 ES-DE 以載入 Nightjar 系統。如果略過了設定資料夾，請在下次匯出時選取它，以新增系統和已快取的封面。</string>
     <string name="frontend_setup_daijisho">為匯出的 butterpollo 資料夾中的 .art 檔案建立平台。使用下方 intent 參數新增 Android 播放器，然後掃描資料夾。</string>
     <string name="frontend_setup_pegasus">使用匯出的 butterpollo 資料夾與 .art 檔案。在收藏集的中繼資料中設定下方啟動命令。</string>
+    <string name="frontend_sync_title">%1$s · 保持同步</string>
+    <string name="frontend_sync_stop">停止同步</string>
+    <string name="frontend_sync_summary">保持同步：%1$s</string>
+    <string name="frontend_sync_note">這部電腦的遊戲有變動時，%1$s 會自動更新此資料夾。</string>
+    <string name="frontend_sync_failed">%2$s 的 %1$s 遊戲已不再同步：無法使用資料夾。請在這部電腦的設定中重新選擇資料夾。</string>
+    <string name="frontend_sync_failed_message">無法使用資料夾，這些遊戲已不再同步。請重新選擇資料夾，或停止同步。</string>
+    <string name="frontend_sync_failed_summary">已停止同步，無法使用資料夾：%1$s</string>
 </resources>

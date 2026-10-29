@@ -22,4 +22,11 @@
     <string name="frontend_setup_esde">重新启动 ES-DE 以加载 Nightjar 系统。如果跳过了配置文件夹，请在下次导出时选择它，以添加系统和已缓存的封面。</string>
     <string name="frontend_setup_daijisho">为导出的 butterpollo 文件夹中的 .art 文件创建平台。使用下方 intent 参数添加 Android 播放器，然后扫描文件夹。</string>
     <string name="frontend_setup_pegasus">使用导出的 butterpollo 文件夹和 .art 文件。在收藏集元数据中设置下方启动命令。</string>
+    <string name="frontend_sync_title">%1$s · 保持同步</string>
+    <string name="frontend_sync_stop">停止同步</string>
+    <string name="frontend_sync_summary">保持同步：%1$s</string>
+    <string name="frontend_sync_note">此电脑的游戏有变化时，%1$s 会自动更新此文件夹。</string>
+    <string name="frontend_sync_failed">%2$s 的 %1$s 游戏已不再同步：文件夹不可用。请在此电脑的设置中重新选择文件夹。</string>
+    <string name="frontend_sync_failed_message">文件夹不可用，这些游戏已不再同步。请重新选择文件夹，或停止同步。</string>
+    <string name="frontend_sync_failed_summary">同步已停止，文件夹不可用：%1$s</string>
 </resources>

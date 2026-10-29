@@ -22,4 +22,11 @@
     <string name="frontend_setup_esde">ES-DEを再起動してNightjarシステムを読み込みます。設定フォルダーをスキップした場合は、次のエクスポートで選択してシステムとキャッシュ済みカバーを追加してください。</string>
     <string name="frontend_setup_daijisho">エクスポートしたbutterpolloフォルダーの.artファイル用プラットフォームを作成します。下のインテント引数でAndroidプレーヤーを追加し、フォルダーをスキャンしてください。</string>
     <string name="frontend_setup_pegasus">エクスポートしたbutterpolloフォルダーと.artファイルを使用します。コレクションのメタデータに下の起動コマンドを設定してください。</string>
+    <string name="frontend_sync_title">%1$s · 同期中</string>
+    <string name="frontend_sync_stop">同期を停止</string>
+    <string name="frontend_sync_summary">同期中: %1$s</string>
+    <string name="frontend_sync_note">PC のゲームが変わると、%1$s がこのフォルダを自動で更新します。</string>
+    <string name="frontend_sync_failed">%2$s の %1$s 用ゲームは同期されなくなりました。フォルダを利用できません。PC の設定でフォルダを選び直してください。</string>
+    <string name="frontend_sync_failed_message">フォルダを利用できないため、これらのゲームは同期されなくなりました。フォルダを選び直すか、同期を停止してください。</string>
+    <string name="frontend_sync_failed_summary">同期停止 (フォルダを利用できません): %1$s</string>
 </resources>

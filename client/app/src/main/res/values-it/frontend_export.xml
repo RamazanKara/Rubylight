@@ -24,4 +24,11 @@
     <string name="frontend_setup_esde">Riavvia ES-DE per caricare il sistema Nightjar. Se hai saltato la cartella di configurazione, selezionala alla prossima esportazione per aggiungere il sistema e le copertine in cache.</string>
     <string name="frontend_setup_daijisho">Crea una piattaforma per i file .art nella cartella esportata butterpollo. Aggiungi un player Android con gli argomenti intent qui sotto e scansiona la cartella.</string>
     <string name="frontend_setup_pegasus">Usa la cartella esportata butterpollo e i file .art. Imposta il comando di avvio qui sotto nei metadati della raccolta.</string>
+    <string name="frontend_sync_title">%1$s · Sincronizzato</string>
+    <string name="frontend_sync_stop">Interrompi sincronizzazione</string>
+    <string name="frontend_sync_summary">Sincronizzato: %1$s</string>
+    <string name="frontend_sync_note">%1$s tiene aggiornata questa cartella quando cambiano i giochi del PC.</string>
+    <string name="frontend_sync_failed">I giochi %1$s per %2$s non sono più sincronizzati: la cartella non è disponibile. Sceglila di nuovo nelle impostazioni del PC.</string>
+    <string name="frontend_sync_failed_message">La cartella non è disponibile, quindi questi giochi non sono più sincronizzati. Sceglila di nuovo o interrompi la sincronizzazione.</string>
+    <string name="frontend_sync_failed_summary">Sincronizzazione interrotta, cartella non disponibile: %1$s</string>
 </resources>

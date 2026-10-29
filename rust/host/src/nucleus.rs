@@ -16,15 +16,16 @@ use butterpollo_core::config::Config;
 use butterpollo_core::input::Input;
 use butterpollo_core::input_policy::Policy;
 use butterpollo_core::nucleus::coop::{self, Admit, End, Kind, Phase, Refused};
+use butterpollo_core::nucleus::elevation::{self, Need, Run, Script};
 use butterpollo_core::nucleus::generic::{self, Setup};
-use butterpollo_core::nucleus::handler::{Catalog, Handler, Match, Missing};
+use butterpollo_core::nucleus::handler::{self, Catalog, Handler, Match, Missing};
 use butterpollo_core::nucleus::mode;
 use butterpollo_core::session::{Seat, Warnings};
 use butterpollo_core::state::{App, Client};
 use butterpollo_windows::input::PadReport;
 use butterpollo_windows::nucleus::pads::{self, Dropped};
 use butterpollo_windows::nucleus::session::{Opened, Running, Start};
-use butterpollo_windows::nucleus::{files, install};
+use butterpollo_windows::nucleus::{files, install, user_copy};
 use butterpollo_windows::process::AudioProcess;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -121,20 +122,33 @@ pub trait Pc: Send + Sync {
     /// this PC, for a Steam link the one Steam starts. Another launcher's
     /// link names none.
     fn one_player(&self, app: &App) -> Result<Setup, Refusal>;
+    /// Whether Windows gives the signed-in user an elevated token to start
+    /// Nucleus Co-op with.
+    fn elevates(&self) -> Result<bool>;
+    /// What the game at `exe` asks of Windows to start; with `folder`, also
+    /// whether the signed-in user may change its folder's files as Nucleus
+    /// does (a walk of the folder: at launch, not for the console).
+    fn game_need(&self, exe: &str, folder: bool) -> Result<Need>;
+    /// The signed-in user's own copy of Nucleus Co-op, made when it isn't
+    /// there ([`butterpollo_windows::nucleus::user_copy`]).
+    fn user_copy(&self) -> Result<PathBuf>;
     /// Write Rubylight's one-player handler for `setup` into the Nucleus at
-    /// `folder` and add its game for the signed-in user; refused while
-    /// Nucleus Co-op runs.
-    fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler>;
+    /// `folder`, or into the user's own copy at `copy` (as the user, with
+    /// `folder`'s handlers), and add its game for the signed-in user;
+    /// refused while Nucleus Co-op runs.
+    fn write_own(&self, folder: &Path, copy: Option<&Path>, setup: &Setup) -> Result<Handler>;
     /// Remove Rubylight's handler `own`, which a hub handler replaces or no
     /// game uses ([`Catalog::stale`]), and its game; refused while Nucleus
     /// Co-op runs.
     fn remove_own(&self, folder: &Path, own: &Handler) -> Result<()>;
     /// What a session's start needs that doesn't need Nucleus Co-op closed
-    /// (administrator rights, the signed-in user, the compatibility settings
-    /// an earlier session left put back, `own`'s handler file being
-    /// Rubylight's, a game list that takes `own`'s game and loses
-    /// `stale`'s): checked before the console's window closes for it.
-    fn ready(&self, folder: &Path, own: Option<&Setup>, stale: &[&Handler]) -> Result<()>;
+    /// (administrator rights when it runs elevated, the signed-in user, the
+    /// compatibility settings an earlier session left put back, `own`'s
+    /// handler file being Rubylight's, a game list that takes `own`'s game
+    /// and loses `stale`'s): checked before the console's window closes for
+    /// it.
+    fn ready(&self, folder: &Path, run: Run, own: Option<&Setup>, stale: &[&Handler])
+    -> Result<()>;
     fn start(
         &self,
         start: &Start,
@@ -306,14 +320,53 @@ impl Pc for OnPc {
             },
         })
     }
-    fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler> {
+    fn elevates(&self) -> Result<bool> {
+        butterpollo_windows::process::user_runs_elevated()
+    }
+    fn game_need(&self, exe: &str, folder: bool) -> Result<Need> {
+        let sid = butterpollo_windows::process::user_sid()
+            .context("finding the signed-in user, whose compatibility settings count")?;
+        let exe = Path::new(exe);
+        let need = elevation::most([
+            butterpollo_windows::nucleus::elevation::game_need(exe, &sid)?,
+            match exe.parent().filter(|_| folder) {
+                Some(parent) => butterpollo_windows::nucleus::elevation::folder_need(
+                    parent,
+                    Some(&user_copy::user()?),
+                )?,
+                None => Need::Nothing,
+            },
+        ]);
+        Ok(need)
+    }
+    fn user_copy(&self) -> Result<PathBuf> {
+        let data = butterpollo_core::paths::data_root();
+        let user = user_copy::user()?;
+        let sid = user_copy::sid(&user)?;
+        let mut archive = || {
+            let mut download = Download(
+                tokio::runtime::Handle::try_current()
+                    .context("downloading Nucleus Co-op needs the host's runtime")?,
+                &|_| {},
+            );
+            install::archive(&data, &mut download)
+        };
+        user_copy::ensure(&data, &sid, &user, &mut archive)
+    }
+    fn write_own(&self, folder: &Path, copy: Option<&Path>, setup: &Setup) -> Result<Handler> {
         if let Some(pid) = self.running()? {
             anyhow::bail!(butterpollo_windows::nucleus::session::already_running(pid));
         }
         let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
             anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
         })?;
-        files::write_own(folder, &appdata, setup)
+        let Some(copy) = copy else {
+            return files::write_own(folder, &appdata, setup);
+        };
+        let user = user_copy::user()?;
+        let handlers = user_copy::mirror_handlers(folder, copy, Some(&user))?;
+        tracing::debug!(handlers, copy = %copy.display(), "Nucleus Co-op: the user's own copy has the host's handlers");
+        files::write_own_as(copy, &appdata, setup, Some(&user))
     }
     fn remove_own(&self, folder: &Path, own: &Handler) -> Result<()> {
         if let Some(pid) = self.running()? {
@@ -324,11 +377,14 @@ impl Pc for OnPc {
         })?;
         files::remove_own(folder, &appdata, own)
     }
-    fn ready(&self, folder: &Path, own: Option<&Setup>, stale: &[&Handler]) -> Result<()> {
-        butterpollo_windows::nucleus::session::ready(
-            folder,
-            butterpollo_core::nucleus::elevation::Run::Elevated,
-        )?;
+    fn ready(
+        &self,
+        folder: &Path,
+        run: Run,
+        own: Option<&Setup>,
+        stale: &[&Handler],
+    ) -> Result<()> {
+        butterpollo_windows::nucleus::session::ready(folder, run)?;
         if own.is_some() || !stale.is_empty() {
             let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
                 anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
@@ -656,30 +712,65 @@ fn refuse_anti_cheat(setup: &Setup) -> Result<(), Missing> {
     }
 }
 
-/// Why a background stream of `app`, which has no hub handler with the game
-/// added, would be refused, as far as the console can tell without Steam: a relative or
-/// missing .exe, a path the host must not open, a launcher, anti-cheat by
-/// name or in the game's folder. A Steam link's game is checked at launch.
-fn own_status(app: &App) -> Option<Missing> {
+/// How a background stream of `app`, which has no hub handler with the game
+/// added, runs Nucleus Co-op, or why it would be refused, as far as the
+/// console can tell without Steam and without walking the game's folder: a
+/// relative or missing .exe, a path the host must not open, a launcher,
+/// anti-cheat by name or in the game's folder, a game that needs
+/// administrator rights on an account without them. None for a Steam link,
+/// whose game is checked at launch.
+fn own_status(pc: &dyn Pc, app: &App) -> Result<Option<Run>, Missing> {
     if !starts_exe(app) {
-        return None;
+        return Ok(None);
     }
-    let exe = executable(app)?;
+    let Some(exe) = executable(app) else {
+        return Ok(None);
+    };
     if !Path::new(exe).is_absolute() {
-        return Some(Missing::NoExecutable {
+        return Err(Missing::NoExecutable {
             app: app.name.clone(),
         });
     }
-    let setup = match prepared(Setup::new(exe, &app.name, None)) {
-        Ok(setup) => setup,
-        Err(missing) => return Some(missing),
-    };
+    let setup = prepared(Setup::new(exe, &app.name, None))?;
     if !Path::new(&setup.exe_path).is_file() {
-        return Some(Missing::Refused {
+        return Err(Missing::Refused {
             reason: not_on_this_pc(exe),
         });
     }
-    refuse_anti_cheat(&setup).err()
+    refuse_anti_cheat(&setup)?;
+    run_of(pc, &setup, false)
+        .map(Some)
+        .map_err(|reason| Missing::Refused { reason })
+}
+
+/// How a session of Rubylight's own handler for `setup` runs Nucleus Co-op
+/// ([`elevation::choose`]), or why it is refused. `folder` also walks the
+/// game's folder as the user, as Nucleus does at launch.
+fn run_of(pc: &dyn Pc, setup: &Setup, folder: bool) -> Result<Run, String> {
+    let needs_admin = handler::parse(&setup.file(), &setup.handler())
+        .map(|own| handler::needs_admin(&own))
+        .map_err(|error| {
+            format!(
+                "Rubylight's handler for {} did not parse: {error}",
+                setup.name
+            )
+        })?;
+    let unknown = |error: anyhow::Error| {
+        format!(
+            "Rubylight could not tell whether {} needs administrator rights: {error:#}",
+            file_name(&setup.exe_path)
+        )
+    };
+    let elevates = pc.elevates().map_err(unknown)?;
+    let script = Script::Own { needs_admin };
+    let need = pc.game_need(&setup.exe_path, false).map_err(unknown)?;
+    let run = elevation::choose(script, need, elevates)?;
+    if run == Run::Elevated || !folder {
+        return Ok(run);
+    }
+    // Only when it would run as the user: the walk is as long as the folder.
+    let need = elevation::most([need, pc.game_need(&setup.exe_path, true).map_err(unknown)?]);
+    elevation::choose(script, need, elevates)
 }
 
 fn not_on_this_pc(exe: &str) -> String {
@@ -735,6 +826,9 @@ pub enum GameStatus {
     },
     /// Why not: the host's text, as a launch would answer it.
     Missing(Missing),
+    /// Not for co-op, for `missing`, but a background stream of it runs
+    /// Rubylight's own handler, `run` says how.
+    Own { missing: Missing, run: Run },
     /// The entry's name gives it the id another app or an earlier entry
     /// already has (two apps named alike): the library can't list it.
     Taken { entry: String },
@@ -841,7 +935,7 @@ struct Cached {
 struct OwnStatus {
     at: Instant,
     modified: Option<std::time::SystemTime>,
-    missing: Option<Missing>,
+    status: Result<Option<Run>, Missing>,
 }
 
 /// The host's Nucleus Co-op sessions.
@@ -1273,18 +1367,24 @@ impl Registry {
                 // Shown as a background launch would answer it: one without
                 // the user's added game streams with ours.
                 Listing::Missing(missing @ Missing::NoHandler { .. }) => {
-                    GameStatus::Missing(self.own_status(app).unwrap_or(missing))
+                    match self.own_status(app) {
+                        Ok(Some(run)) => GameStatus::Own { missing, run },
+                        Ok(None) => GameStatus::Missing(missing),
+                        Err(refused) => GameStatus::Missing(refused),
+                    }
                 }
                 // Adding the game makes it ready, for co-op and background
                 // streams alike, through the hub handler: only what adding
-                // can't fix (no .exe, one not on this PC) says otherwise.
+                // can't fix (no .exe, one not on this PC, administrator
+                // rights the account lacks) says otherwise.
                 Listing::Missing(missing @ Missing::NotAdded { .. }) => {
-                    GameStatus::Missing(match self.own_status(app) {
-                        Some(
-                            refused @ (Missing::NoExecutable { .. } | Missing::Refused { .. }),
-                        ) => refused,
-                        _ => missing,
-                    })
+                    match self.own_status(app) {
+                        Err(refused @ (Missing::NoExecutable { .. } | Missing::Refused { .. })) => {
+                            GameStatus::Missing(refused)
+                        }
+                        Ok(Some(run)) => GameStatus::Own { missing, run },
+                        _ => GameStatus::Missing(missing),
+                    }
                 }
                 Listing::Missing(missing) => GameStatus::Missing(missing),
             })
@@ -1295,16 +1395,14 @@ impl Registry {
     /// [`own_status`] for the console, read again once [`OWN_STATUS_TTL`]
     /// passed or the .exe changed. The path is checked before anything opens
     /// it, and nothing else waits while the answer is worked out.
-    fn own_status(&self, app: &App) -> Option<Missing> {
+    fn own_status(&self, app: &App) -> Result<Option<Run>, Missing> {
         let Some(exe) = executable(app)
             .filter(|_| starts_exe(app))
             .filter(|exe| Path::new(exe).is_absolute())
         else {
-            return own_status(app);
+            return own_status(self.pc().as_ref(), app);
         };
-        if let Err(missing) = refuse_path(exe) {
-            return Some(missing);
-        }
+        refuse_path(exe)?;
         let modified = std::fs::metadata(exe)
             .and_then(|metadata| metadata.modified())
             .ok();
@@ -1318,9 +1416,9 @@ impl Registry {
             .get(exe)
             .filter(fresh)
         {
-            return status.missing.clone();
+            return status.status.clone();
         }
-        let missing = own_status(app);
+        let status = own_status(self.pc().as_ref(), app);
         let mut statuses = self
             .own_statuses
             .lock()
@@ -1331,10 +1429,10 @@ impl Registry {
             OwnStatus {
                 at: Instant::now(),
                 modified,
-                missing: missing.clone(),
+                status: status.clone(),
             },
         );
-        missing
+        status
     }
 
     /// Admit a launch: start a session of its game, or seat the device in
@@ -1471,11 +1569,37 @@ impl Registry {
                     Chosen::Own(setup) => Some(setup),
                     Chosen::Hub(_) => None,
                 };
+                let refused = |error: String| {
+                    Refusal::unavailable(format!(
+                        "Nucleus Co-op did not start {}: {error}",
+                        app.name
+                    ))
+                };
+                // A hub handler always runs elevated; ours as the user unless
+                // it or the game needs administrator rights.
+                let run = match own {
+                    Some(setup) => run_of(pc.as_ref(), setup, true),
+                    None => pc
+                        .elevates()
+                        .map_err(|error| format!("{error:#}"))
+                        .and_then(|elevates| {
+                            elevation::choose(Script::Hub, Need::Nothing, elevates)
+                        }),
+                }
+                .map_err(refused)?;
+                let copy = match run {
+                    Run::User => Some(pc.user_copy().map_err(|error| {
+                        refused(format!(
+                            "the signed-in user's own copy of Nucleus Co-op was not made: {error:#}"
+                        ))
+                    })?),
+                    Run::Elevated => None,
+                };
                 // Ours that a hub handler replaces or no game uses, but the
                 // one this session starts with.
                 let current = own.map(Setup::guid);
                 let stale = catalog.stale(current.as_deref());
-                pc.ready(&folder, own, &stale).map_err(|error| {
+                pc.ready(&folder, run, own, &stale).map_err(|error| {
                     Refusal::unavailable(format!(
                         "Nucleus Co-op did not start {}: {error:#}",
                         app.name
@@ -1519,7 +1643,7 @@ impl Registry {
                 let (handler, steam_app) = match found {
                     Chosen::Hub(found) => (found.handler, None),
                     Chosen::Own(setup) => (
-                        pc.write_own(&folder, &setup).map_err(|error| {
+                        pc.write_own(&folder, copy.as_deref(), &setup).map_err(|error| {
                             Refusal::unavailable(format!(
                                 "Rubylight's Nucleus Co-op handler for {} was not written: {error:#}",
                                 app.name
@@ -1537,7 +1661,7 @@ impl Registry {
                     id,
                     kind,
                     folder: &folder,
-                    user_copy: None,
+                    user_copy: copy.as_deref(),
                     handler: &handler,
                     exe_path: &exe_path,
                     steam_app,
@@ -1567,7 +1691,7 @@ impl Registry {
                         ended: None,
                     },
                 );
-                tracing::info!(session = id, ?kind, players, game = %handler.guid, own = handler.own, client = %client.name, title = %app.name, "Nucleus Co-op: session started");
+                tracing::info!(session = id, ?kind, players, game = %handler.guid, own = handler.own, ?run, client = %client.name, title = %app.name, "Nucleus Co-op: session started");
                 Ok(Seat {
                     session: id,
                     slot: 0,
@@ -2119,6 +2243,22 @@ pub(crate) mod fake {
         pub exe_paths: Mutex<Vec<String>>,
         /// How often an app's game was looked up for Rubylight's handler.
         pub lookups: AtomicUsize,
+        /// Whether the signed-in user has an elevated token.
+        pub elevates: Mutex<bool>,
+        /// What each game's .exe asks of Windows, by path; Nothing else.
+        pub needs: Mutex<BTreeMap<String, Need>>,
+        /// What walking each game's folder adds, by .exe path.
+        pub folder_needs: Mutex<BTreeMap<String, Need>>,
+        /// How often the game's folder was walked.
+        pub walks: AtomicUsize,
+        /// What making the user's own copy fails with.
+        pub copy_error: Mutex<Option<String>>,
+        /// The run each [`super::Pc::ready`] got.
+        pub ready_runs: Mutex<Vec<Run>>,
+        /// The copy each own handler was written to (None: the host's).
+        pub own_in: Mutex<Vec<Option<PathBuf>>>,
+        /// The copy each started session ran (None: the host's, elevated).
+        pub user_copies: Mutex<Vec<Option<PathBuf>>>,
     }
     impl Pc {
         pub(crate) fn unavailable() -> Self {
@@ -2175,6 +2315,14 @@ pub(crate) mod fake {
                 ready_stale: Mutex::new(Vec::new()),
                 exe_paths: Mutex::new(Vec::new()),
                 lookups: AtomicUsize::new(0),
+                elevates: Mutex::new(true),
+                needs: Mutex::new(BTreeMap::new()),
+                folder_needs: Mutex::new(BTreeMap::new()),
+                walks: AtomicUsize::new(0),
+                copy_error: Mutex::new(None),
+                ready_runs: Mutex::new(Vec::new()),
+                own_in: Mutex::new(Vec::new()),
+                user_copies: Mutex::new(Vec::new()),
             }
         }
         /// The session started last.
@@ -2264,7 +2412,36 @@ pub(crate) mod fake {
                 })),
             }
         }
-        fn write_own(&self, _folder: &Path, setup: &Setup) -> Result<Handler> {
+        fn elevates(&self) -> Result<bool> {
+            Ok(*self.elevates.lock().unwrap())
+        }
+        fn game_need(&self, exe: &str, folder: bool) -> Result<Need> {
+            let need = |needs: &Mutex<BTreeMap<String, Need>>| {
+                needs
+                    .lock()
+                    .unwrap()
+                    .get(exe)
+                    .copied()
+                    .unwrap_or(Need::Nothing)
+            };
+            if !folder {
+                return Ok(need(&self.needs));
+            }
+            self.walks.fetch_add(1, Ordering::Relaxed);
+            Ok(elevation::most([
+                need(&self.needs),
+                need(&self.folder_needs),
+            ]))
+        }
+        fn user_copy(&self) -> Result<PathBuf> {
+            if let Some(error) = self.copy_error.lock().unwrap().clone() {
+                anyhow::bail!(error);
+            }
+            Ok(PathBuf::from(format!(
+                r"C:\ProgramData\Butterpollo\nucleus-user\{USER}\2.4.2"
+            )))
+        }
+        fn write_own(&self, _folder: &Path, copy: Option<&Path>, setup: &Setup) -> Result<Handler> {
             if let Some(error) = self.write_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
             }
@@ -2273,6 +2450,10 @@ pub(crate) mod fake {
                 anyhow::bail!(butterpollo_windows::nucleus::session::already_running(pid));
             }
             self.own.lock().unwrap().push(setup.clone());
+            self.own_in
+                .lock()
+                .unwrap()
+                .push(copy.map(Path::to_path_buf));
             butterpollo_core::nucleus::handler::parse(&setup.file(), &setup.handler_of(Some(USER)))
                 .map_err(anyhow::Error::msg)
         }
@@ -2283,7 +2464,14 @@ pub(crate) mod fake {
             self.removed.lock().unwrap().push(own.file.clone());
             Ok(())
         }
-        fn ready(&self, _folder: &Path, _own: Option<&Setup>, stale: &[&Handler]) -> Result<()> {
+        fn ready(
+            &self,
+            _folder: &Path,
+            run: Run,
+            _own: Option<&Setup>,
+            stale: &[&Handler],
+        ) -> Result<()> {
+            self.ready_runs.lock().unwrap().push(run);
             self.ready_stale
                 .lock()
                 .unwrap()
@@ -2325,6 +2513,10 @@ pub(crate) mod fake {
             });
             self.started.lock().unwrap().push(instance.clone());
             self.steam_apps.lock().unwrap().push(start.steam_app);
+            self.user_copies
+                .lock()
+                .unwrap()
+                .push(start.user_copy.map(Path::to_path_buf));
             self.exe_paths
                 .lock()
                 .unwrap()
@@ -2452,6 +2644,7 @@ pub(crate) mod fake {
 mod tests {
     use super::*;
     use butterpollo_core::nucleus::coop::{Phase, Refused};
+    use butterpollo_core::nucleus::elevation::Why;
     use serde_json::json;
 
     fn app(name: &str, cmd: &str) -> App {
@@ -2638,7 +2831,9 @@ mod tests {
         let shown: Vec<String> = statuses
             .iter()
             .map(|status| match status {
-                GameStatus::Missing(missing) => missing.to_string(),
+                GameStatus::Missing(missing) | GameStatus::Own { missing, .. } => {
+                    missing.to_string()
+                }
                 other => format!("{other:?}"),
             })
             .collect();
@@ -2665,6 +2860,14 @@ mod tests {
             "{}",
             shown[5]
         );
+        // Without administrator rights, as nothing asks for them.
+        assert!(matches!(
+            statuses[5],
+            GameStatus::Own {
+                missing: Missing::NoHandler { .. },
+                run: Run::User
+            }
+        ));
         assert!(matches!(
             statuses[6],
             GameStatus::Missing(Missing::NoHandler { .. })
@@ -2751,7 +2954,10 @@ mod tests {
         )];
         assert!(matches!(
             &registry.games(&apps, &Config::default()).unwrap().unwrap()[0],
-            GameStatus::Missing(Missing::NotAdded { .. })
+            GameStatus::Own {
+                missing: Missing::NotAdded { .. },
+                run: Run::User
+            }
         ));
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2765,17 +2971,20 @@ mod tests {
         std::fs::write(&exe, b"").unwrap();
         let apps = [app("Ice", &format!("\"{}\"", exe.display()))];
         let status = || registry.games(&apps, &Config::default()).unwrap().unwrap()[0].clone();
-        assert!(matches!(
-            status(),
-            GameStatus::Missing(Missing::NoHandler { .. })
-        ));
+        let streams = |status: GameStatus| {
+            matches!(
+                status,
+                GameStatus::Own {
+                    missing: Missing::NoHandler { .. },
+                    ..
+                }
+            )
+        };
+        assert!(streams(status()));
         // Anti-cheat added beside it: the console asks again within the
         // minute and gets the kept answer, without a scan.
         std::fs::create_dir(dir.join("Ice").join("EasyAntiCheat")).unwrap();
-        assert!(matches!(
-            status(),
-            GameStatus::Missing(Missing::NoHandler { .. })
-        ));
+        assert!(streams(status()));
         // The .exe changed: read again.
         let file = std::fs::File::options().write(true).open(&exe).unwrap();
         file.set_modified(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000))
@@ -2794,10 +3003,7 @@ mod tests {
         for kept in registry.own_statuses.lock().unwrap().values_mut() {
             kept.at = Instant::now() - OWN_STATUS_TTL;
         }
-        assert!(matches!(
-            status(),
-            GameStatus::Missing(Missing::NoHandler { .. })
-        ));
+        assert!(streams(status()));
         // A share is refused before anything opens it, and never kept.
         let shared = [app("Shared", r"\\nas\games\Ice\Ice.exe")];
         let _ = registry.games(&shared, &Config::default());
@@ -3453,6 +3659,224 @@ mod tests {
         assert!(registry.end(first));
         background(&registry, &ice, "b", &owner, &config).unwrap();
         assert_eq!(*pc.steam_apps.lock().unwrap(), [Some(242050), None]);
+    }
+
+    /// The copy the fake PC makes for the signed-in user.
+    fn user_copy() -> PathBuf {
+        PathBuf::from(format!(
+            r"C:\ProgramData\Butterpollo\nucleus-user\{}\2.4.2",
+            fake::USER
+        ))
+    }
+
+    #[test]
+    fn ours_runs_as_the_user_for_a_game_that_needs_no_administrator_rights() {
+        let (registry, pc, _) = setup();
+        let ice = app("Ice", r"C:\NoSuchGames\Ice\Ice.exe");
+        // Least privilege: also on an account that could elevate, and on one
+        // that can't.
+        for (launch, elevates) in [("a", true), ("b", false)] {
+            *pc.elevates.lock().unwrap() = elevates;
+            let seat = background(
+                &registry,
+                &ice,
+                launch,
+                &client(launch, false),
+                &Config::default(),
+            )
+            .unwrap();
+            assert!(registry.end(seat.session));
+        }
+        assert_eq!(*pc.ready_runs.lock().unwrap(), [Run::User, Run::User]);
+        // Its handler and Nucleus in the user's copy, never the host's.
+        assert_eq!(
+            *pc.own_in.lock().unwrap(),
+            [Some(user_copy()), Some(user_copy())]
+        );
+        assert_eq!(
+            *pc.user_copies.lock().unwrap(),
+            [Some(user_copy()), Some(user_copy())]
+        );
+        // The game's folder was walked at launch, as Nucleus will.
+        assert_eq!(pc.walks.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn ours_runs_elevated_for_a_game_that_needs_administrator_rights() {
+        let (registry, pc, _) = setup();
+        let exe = r"C:\NoSuchGames\Ice\Ice.exe";
+        let ice = app("Ice", exe);
+        for (launch, need) in [
+            ("a", Need::Administrator(Why::Manifest)),
+            ("b", Need::Administrator(Why::Compatibility)),
+            ("c", Need::Highest),
+        ] {
+            pc.needs.lock().unwrap().insert(exe.into(), need);
+            let seat = background(
+                &registry,
+                &ice,
+                launch,
+                &client("A", false),
+                &Config::default(),
+            )
+            .unwrap();
+            assert!(registry.end(seat.session));
+        }
+        // Found only by walking its folder (a game under Program Files).
+        pc.needs.lock().unwrap().clear();
+        pc.folder_needs
+            .lock()
+            .unwrap()
+            .insert(exe.into(), Need::Administrator(Why::Folder));
+        background(
+            &registry,
+            &ice,
+            "d",
+            &client("A", false),
+            &Config::default(),
+        )
+        .unwrap();
+        assert_eq!(*pc.ready_runs.lock().unwrap(), [Run::Elevated; 4]);
+        assert_eq!(*pc.own_in.lock().unwrap(), [None, None, None, None]);
+        assert_eq!(*pc.user_copies.lock().unwrap(), [None, None, None, None]);
+    }
+
+    #[test]
+    fn an_admin_game_or_a_hub_handler_on_an_account_without_elevation_is_refused() {
+        let (registry, pc, apps) = setup();
+        *pc.elevates.lock().unwrap() = false;
+        let exe = r"C:\NoSuchGames\Ice\Ice.exe";
+        pc.needs
+            .lock()
+            .unwrap()
+            .insert(exe.into(), Need::Administrator(Why::Manifest));
+        let refused = background(
+            &registry,
+            &app("Ice", exe),
+            "a",
+            &client("A", false),
+            &Config::default(),
+        )
+        .unwrap_err();
+        assert_eq!(refused.status, 503);
+        assert_eq!(
+            refused.message,
+            format!(
+                "Ice can't stream in the background: Nucleus Co-op did not start Ice: The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and {}",
+                elevation::NO_ELEVATION
+            )
+        );
+        // A hub handler, whatever it says, background or co-op.
+        let refused = background(
+            &registry,
+            &apps[1],
+            "b",
+            &client("B", false),
+            &Config::default(),
+        )
+        .unwrap_err();
+        assert!(
+            refused
+                .message
+                .contains("needs administrator rights for a hub handler"),
+            "{refused:?}"
+        );
+        let coop = registry.entries(&apps, "").remove(0);
+        let refused = admit(&registry, &coop, "c", &client("C", true)).unwrap_err();
+        assert!(
+            refused
+                .message
+                .contains("needs administrator rights for a hub handler"),
+            "{refused:?}"
+        );
+        // Nothing written, opened or started another way.
+        assert!(pc.own.lock().unwrap().is_empty());
+        assert!(pc.ready_runs.lock().unwrap().is_empty());
+        assert!(pc.started.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_hub_handler_runs_elevated_whatever_it_says() {
+        let (registry, pc, apps) = setup();
+        background(
+            &registry,
+            &apps[1],
+            "a",
+            &client("A", false),
+            &Config::default(),
+        )
+        .unwrap();
+        assert_eq!(*pc.ready_runs.lock().unwrap(), [Run::Elevated]);
+        assert_eq!(*pc.user_copies.lock().unwrap(), [None]);
+        // Its game's needs are never read.
+        assert_eq!(pc.walks.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_user_copy_that_is_not_made_refuses_the_stream_with_the_window_open() {
+        let (registry, pc, _) = setup();
+        registry.open("").unwrap();
+        *pc.copy_error.lock().unwrap() =
+            Some(r"delete C:\ProgramData\Butterpollo\nucleus-user".into());
+        let refused = background(
+            &registry,
+            &app("Ice", r"C:\NoSuchGames\Ice\Ice.exe"),
+            "a",
+            &client("A", false),
+            &Config::default(),
+        )
+        .unwrap_err();
+        assert_eq!(refused.status, 503);
+        assert!(
+            refused
+                .message
+                .contains("the signed-in user's own copy of Nucleus Co-op was not made: delete"),
+            "{refused:?}"
+        );
+        assert!(pc.started.lock().unwrap().is_empty());
+        assert!(
+            pc.windows.lock().unwrap()[0]
+                .open
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+
+    #[test]
+    fn the_console_says_how_ours_runs_or_why_it_cant() {
+        let (registry, pc, _) = setup();
+        let dir = std::env::temp_dir().join(format!("nucleus-own-{}", uuid::Uuid::new_v4()));
+        let exe = dir.join("Ice").join("Ice.exe");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, b"").unwrap();
+        let apps = [app("Ice", &format!("\"{}\"", exe.display()))];
+        let path = exe.to_string_lossy().into_owned();
+        let status = || {
+            registry.own_statuses.lock().unwrap().clear();
+            registry.games(&apps, &Config::default()).unwrap().unwrap()[0].clone()
+        };
+        let run = |status: GameStatus| match status {
+            GameStatus::Own { run, .. } => Ok(run),
+            GameStatus::Missing(missing) => Err(missing.to_string()),
+            other => Err(format!("{other:?}")),
+        };
+        assert_eq!(run(status()), Ok(Run::User));
+        pc.needs
+            .lock()
+            .unwrap()
+            .insert(path.clone(), Need::Administrator(Why::Compatibility));
+        assert_eq!(run(status()), Ok(Run::Elevated));
+        *pc.elevates.lock().unwrap() = false;
+        let refused = run(status()).unwrap_err();
+        assert!(
+            refused.starts_with("The game needs administrator rights (its compatibility settings run it as administrator)"),
+            "{refused}"
+        );
+        // "The most the account has" is the user's own rights without elevation.
+        pc.needs.lock().unwrap().insert(path, Need::Highest);
+        assert_eq!(run(status()), Ok(Run::User));
+        // The console never walks the game's folder.
+        assert_eq!(pc.walks.load(std::sync::atomic::Ordering::Relaxed), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -22,6 +22,7 @@ use butterpollo_core::{
     native_api::coop as wire,
     nucleus::{
         coop::Phase,
+        elevation::Run,
         handler::Missing,
         install::{SIZE, VERSION},
         mode::{Decision, KEY},
@@ -170,6 +171,21 @@ fn status(h: &Shared) -> Value {
         .filter(|(app, _)| crate::nucleus::names_executable(app))
         .filter_map(|(app, status)| {
             let uuid = app.extra.get("uuid")?.as_str()?;
+            let missing_status = |missing: &Missing| match missing {
+                Missing::NoExecutable { .. } => "no_executable",
+                Missing::NoHandler { .. } => "no_handler",
+                Missing::NotAdded { .. } => "not_added",
+                Missing::AntiCheat { .. } => "anti_cheat",
+                Missing::Refused { .. } => "refused",
+            };
+            // How a background stream of it runs Rubylight's own handler.
+            let runs = match &status {
+                Some(GameStatus::Own { run, .. }) => Some(match run {
+                    Run::User => "user",
+                    Run::Elevated => "elevated",
+                }),
+                _ => None,
+            };
             let (status, reason, handler, players) = match status {
                 // Started through a launcher: no handler can match it.
                 _ if !crate::nucleus::starts_exe(app) || crate::nucleus::starts_launcher(app) => {
@@ -179,16 +195,12 @@ fn status(h: &Shared) -> Value {
                 Some(GameStatus::Ready { handler, players }) => {
                     ("ready", None, Some(handler), Some(players))
                 }
-                Some(GameStatus::Missing(missing)) => {
-                    let status = match missing {
-                        Missing::NoExecutable { .. } => "no_executable",
-                        Missing::NoHandler { .. } => "no_handler",
-                        Missing::NotAdded { .. } => "not_added",
-                        Missing::AntiCheat { .. } => "anti_cheat",
-                        Missing::Refused { .. } => "refused",
-                    };
-                    (status, Some(missing.to_string()), None, None)
-                }
+                Some(GameStatus::Missing(missing) | GameStatus::Own { missing, .. }) => (
+                    missing_status(&missing),
+                    Some(missing.to_string()),
+                    None,
+                    None,
+                ),
                 Some(GameStatus::Taken { entry }) => (
                     "taken",
                     Some(format!(
@@ -205,6 +217,7 @@ fn status(h: &Shared) -> Value {
                 "reason": reason,
                 "handler": handler,
                 "players": players,
+                "runs": runs,
                 "entry": crate::nucleus::entry_name(&app.name),
             }))
         })
@@ -767,24 +780,51 @@ mod tests {
                 "portal1",
             ),
         ];
+        let dir = std::env::temp_dir().join(format!("coop-runs-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (ice, fort) = (dir.join("Ice.exe"), dir.join("Fort.exe"));
+        std::fs::write(&ice, b"").unwrap();
+        std::fs::write(&fort, b"").unwrap();
+        pc.needs.lock().unwrap().insert(
+            fort.to_string_lossy().into_owned(),
+            butterpollo_core::nucleus::elevation::Need::Administrator(
+                butterpollo_core::nucleus::elevation::Why::Manifest,
+            ),
+        );
+        f.host.apps.write().unwrap().extend([
+            app("Ice", &format!("\"{}\"", ice.display()), "ice"),
+            app("Fort", &format!("\"{}\"", fort.display()), "fort"),
+        ]);
         let body = value(
             request(&f, "GET", "/api/coop", Value::Null).await,
             StatusCode::OK,
         )
         .await;
+        std::fs::remove_dir_all(&dir).unwrap();
+        let no_handler = |name: &str| {
+            format!(
+                "No Nucleus Co-op handler for {name}.exe: add one in Nucleus Co-op's handler hub"
+            )
+        };
         assert_eq!(
             body["games"],
             json!([
                 {"app": "portal", "name": "Portal 2", "status": "ready", "reason": null,
-                 "handler": "Portal 2", "players": 2, "entry": "Portal 2 (Co-op)"},
+                 "handler": "Portal 2", "players": 2, "runs": null, "entry": "Portal 2 (Co-op)"},
                 // Without a handler, as a background launch would answer.
                 {"app": "puzzle", "name": "Puzzle", "status": "refused",
                  "reason": r"C:\Games\Puzzle.exe is not on this PC: set the app's command to the game's .exe",
-                 "handler": null, "players": null, "entry": "Puzzle (Co-op)"},
+                 "handler": null, "players": null, "runs": null, "entry": "Puzzle (Co-op)"},
                 {"app": "cs2", "name": "Counter-Strike 2", "status": "launcher", "reason": null,
-                 "handler": null, "players": null, "entry": "Counter-Strike 2 (Co-op)"},
+                 "handler": null, "players": null, "runs": null, "entry": "Counter-Strike 2 (Co-op)"},
                 {"app": "portal1", "name": "Portal", "status": "launcher", "reason": null,
-                 "handler": null, "players": null, "entry": "Portal (Co-op)"},
+                 "handler": null, "players": null, "runs": null, "entry": "Portal (Co-op)"},
+                // Rubylight's own handler: as the user, or elevated as the
+                // game asks.
+                {"app": "ice", "name": "Ice", "status": "no_handler", "reason": no_handler("Ice"),
+                 "handler": null, "players": null, "runs": "user", "entry": "Ice (Co-op)"},
+                {"app": "fort", "name": "Fort", "status": "no_handler", "reason": no_handler("Fort"),
+                 "handler": null, "players": null, "runs": "elevated", "entry": "Fort (Co-op)"},
             ])
         );
         assert_eq!(body["catalog_error"], Value::Null);

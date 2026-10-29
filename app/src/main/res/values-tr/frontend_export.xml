@@ -30,4 +30,5 @@
     <string name="frontend_sync_failed">%2$s için %1$s oyunları artık eşitlenmiyor: klasöre erişilemiyor. Bilgisayarın ayarlarından klasörü yeniden seçin.</string>
     <string name="frontend_sync_failed_message">Klasöre erişilemediği için bu oyunlar artık eşitlenmiyor. Klasörü yeniden seçin veya eşitlemeyi durdurun.</string>
     <string name="frontend_sync_failed_summary">Eşitleme durdu, klasöre erişilemiyor: %1$s</string>
+    <string name="frontend_sync_unavailable">Bu klasör erişime yalnızca bu seferlik izin verdiği için %1$s onu eşitleyemiyor. Güncel kalması için yerel veya SD karttaki bir klasör seçin.</string>
 </resources>

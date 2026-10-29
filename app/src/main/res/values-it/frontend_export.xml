@@ -31,4 +31,5 @@
     <string name="frontend_sync_failed">I giochi %1$s per %2$s non sono più sincronizzati: la cartella non è disponibile. Sceglila di nuovo nelle impostazioni del PC.</string>
     <string name="frontend_sync_failed_message">La cartella non è disponibile, quindi questi giochi non sono più sincronizzati. Sceglila di nuovo o interrompi la sincronizzazione.</string>
     <string name="frontend_sync_failed_summary">Sincronizzazione interrotta, cartella non disponibile: %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s non può tenere sincronizzata questa cartella perché ha concesso l\'accesso solo questa volta. Scegli una cartella locale o della scheda SD per tenerla aggiornata.</string>
 </resources>

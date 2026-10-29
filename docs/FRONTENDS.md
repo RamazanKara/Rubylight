@@ -42,7 +42,7 @@ The custom-command placeholders are also documented by [Bannerlator's Beacon int
 
 Entries are matched by PC and app identity and updated in place even if a game was renamed; the existing filename and matching cover filename stay stable. Same-name games from different PCs are disambiguated. This behavior also applies to exports for the other launchers.
 
-An unsuccessful new entry or cover write is removed when the document provider permits it, so a retry does not leave a broken duplicate or empty cover. Existing custom covers and files belonging to other PCs are preserved. Every export (by hand or in sync) removes this PC's entries for games that were removed or hidden, and the covers Nightjar wrote for them; other files, other PCs' entries and covers Nightjar did not write are never touched. Covers Nightjar wrote are replaced when the PC's art changes, and covers the library never loaded are fetched from the PC. Exports never empty the folder when no game list is cached. If storage permission or a provider failure prevents cleanup, remove the incomplete file before retrying.
+An unsuccessful new entry or cover write is removed when the document provider permits it, so a retry does not leave a broken duplicate or empty cover. Existing custom covers and files belonging to other PCs are preserved. Every export (by hand or in sync) removes the entries it wrote for this PC's games that were removed or hidden, and the covers Nightjar wrote for them. Entries it writes carry `[nightjar_export] 1`; an unmarked entry counts as the export's only when it is exactly what an earlier export wrote for one game. Entries you wrote (only a PC, a game by name, or edited), other files, other PCs' entries, and covers Nightjar did not write or that changed since (by you or a scraper) are never touched. Covers Nightjar wrote are replaced when the PC's art changes, and covers the library never loaded are fetched from the PC. Exports never empty the folder when no game list is cached. If storage permission or a provider failure prevents cleanup, remove the incomplete file before retrying.
 
 The system folder and emulator name stay `butterpollo` and `BUTTERPOLLO` from the app's earlier name, so existing ROM and media folders keep working; ES-DE shows the system as **Nightjar**. The exporter uses these literal paths and identifiers:
 
@@ -92,7 +92,10 @@ A game entry is plain UTF-8 text. This example uses synthetic identifiers:
 [app_uuid] 22222222-2222-2222-2222-222222222222
 [app_name] Example game
 [app_id] 1234567
+[nightjar_export] 1
 ```
+
+`[nightjar_export] 1` marks an entry Nightjar's export wrote and may update or remove; leave it out of entries you write yourself.
 
 The host UUID is preferred over its name. The app UUID is preferred over a numeric ID, then an app name; name lookup uses the known app list. Entries without app fields open the PC library.
 

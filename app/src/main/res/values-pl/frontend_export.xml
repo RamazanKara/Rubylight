@@ -32,4 +32,5 @@
     <string name="frontend_sync_failed">Gry %1$s dla %2$s nie są już synchronizowane: folder jest niedostępny. Wybierz go ponownie w ustawieniach komputera.</string>
     <string name="frontend_sync_failed_message">Folder jest niedostępny, więc te gry nie są już synchronizowane. Wybierz go ponownie lub zatrzymaj synchronizację.</string>
     <string name="frontend_sync_failed_summary">Synchronizacja zatrzymana, folder niedostępny: %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s nie może synchronizować tego folderu, bo zezwolił on na dostęp tylko ten jeden raz. Wybierz folder lokalny lub na karcie SD, aby był aktualny.</string>
 </resources>

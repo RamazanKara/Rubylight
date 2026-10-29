@@ -88,8 +88,7 @@ public final class FrontendExportStore {
     /** Saves a background sync's result unless the user stopped syncing or moved the export meanwhile. */
     boolean saveIfUnchanged(Uri roms, Uri esde, String fingerprint, Map<String, String> covers) {
         synchronized (LOCK) {
-            if (!roms.equals(romsTree()) || (esde == null ? esdeTree() != null : !esde.equals(esdeTree())) ||
-                    failed()) {
+            if (!sameFolders(roms, esde) || failed()) {
                 return false;
             }
             save(roms, esde, fingerprint, covers);
@@ -97,10 +96,20 @@ public final class FrontendExportStore {
         }
     }
 
-    void markFailed(Uri roms) {
+    /**
+     * Stops syncing this export after its folders failed. False when the user stopped syncing or
+     * picked other folders meanwhile: that export is not marked, and nothing is to be reported.
+     */
+    public boolean markFailed(Uri roms, Uri esde) {
         synchronized (LOCK) {
-            if (roms.equals(romsTree())) preferences.edit().putBoolean(key + ":failed", true).apply();
+            if (!sameFolders(roms, esde)) return false;
+            preferences.edit().putBoolean(key + ":failed", true).apply();
+            return true;
         }
+    }
+
+    private boolean sameFolders(Uri roms, Uri esde) {
+        return roms.equals(romsTree()) && (esde == null ? esdeTree() == null : esde.equals(esdeTree()));
     }
 
     /** Stops syncing: the destination is forgotten and the files stay where they are. */

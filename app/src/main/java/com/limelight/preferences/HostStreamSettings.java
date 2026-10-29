@@ -674,15 +674,20 @@ public class HostStreamSettings extends NightjarActivity {
                 java.util.List<com.limelight.nvstream.http.NvApp> apps = exporter.loadApps();
                 if (apps.isEmpty()) message = getString(R.string.frontend_export_no_apps);
                 else {
-                    java.util.Map<String, String> covers = store.covers(esdeTree);
                     int count;
+                    boolean lasting = FrontendSync.hasAccess(HostStreamSettings.this, romsTree) &&
+                            (esdeTree == null || FrontendSync.hasAccess(HostStreamSettings.this, esdeTree));
                     synchronized (FrontendSync.EXPORT_LOCK) {
+                        java.util.Map<String, String> covers = store.covers(esdeTree);
                         count = exporter.export(apps, romsTree, esdeTree, covers);
+                        store.save(romsTree, esdeTree, FrontendSync.fingerprint(target.name, apps), covers);
+                        // A provider that granted only this visit: the export worked, syncing can't.
+                        if (!lasting) store.markFailed(romsTree, esdeTree);
                     }
-                    store.save(romsTree, esdeTree, FrontendSync.fingerprint(target.name, apps), covers);
                     succeeded = true;
                     message = getResources().getQuantityString(R.plurals.frontend_export_done, count, count) +
-                            "\n" + getString(R.string.frontend_sync_note, getString(R.string.app_name));
+                            "\n" + getString(lasting ? R.string.frontend_sync_note : R.string.frontend_sync_unavailable,
+                            getString(R.string.app_name));
                 }
             } catch (IOException | RuntimeException e) {
                 LimeLog.warning("Frontend export failed: " + e);

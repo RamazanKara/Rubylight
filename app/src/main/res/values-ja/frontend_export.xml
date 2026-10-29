@@ -29,4 +29,5 @@
     <string name="frontend_sync_failed">%2$s の %1$s 用ゲームは同期されなくなりました。フォルダを利用できません。PC の設定でフォルダを選び直してください。</string>
     <string name="frontend_sync_failed_message">フォルダを利用できないため、これらのゲームは同期されなくなりました。フォルダを選び直すか、同期を停止してください。</string>
     <string name="frontend_sync_failed_summary">同期停止 (フォルダを利用できません): %1$s</string>
+    <string name="frontend_sync_unavailable">このフォルダは今回だけアクセスを許可したため、%1$s は同期を保てません。最新の状態に保つには、端末内または SD カードのフォルダを選択してください。</string>
 </resources>

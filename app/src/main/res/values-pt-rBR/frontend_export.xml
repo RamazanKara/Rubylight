@@ -31,4 +31,5 @@
     <string name="frontend_sync_failed">Os jogos do %1$s para %2$s não são mais sincronizados: a pasta não está disponível. Escolha-a de novo nas configurações do PC.</string>
     <string name="frontend_sync_failed_message">A pasta não está disponível, então estes jogos não são mais sincronizados. Escolha-a de novo ou pare de sincronizar.</string>
     <string name="frontend_sync_failed_summary">Sincronização parada, pasta indisponível: %1$s</string>
+    <string name="frontend_sync_unavailable">O %1$s não consegue manter esta pasta sincronizada porque ela só permitiu o acesso desta vez. Escolha uma pasta local ou do cartão SD para mantê-la atualizada.</string>
 </resources>

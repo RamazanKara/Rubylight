@@ -207,6 +207,21 @@ public class FrontendSyncTest {
     }
 
     @Test
+    public void onlyTheFailedFoldersMarkTheExportFailed() throws Exception {
+        store.save(romsTree, esdeTree, "apps", new java.util.HashMap<String, String>());
+        Uri oldEsde = DocumentsContract.buildTreeDocumentUri(AUTHORITY, "old-esde");
+        // A sync still writing the ES-DE folder the user just replaced.
+        assertFalse(store.markFailed(romsTree, oldEsde));
+        assertFalse(store.markFailed(romsTree, null));
+        assertFalse(store.failed());
+
+        // A sync failing after the user stopped syncing: nothing to mark or announce.
+        store.forget();
+        assertFalse(store.markFailed(romsTree, esdeTree));
+        assertFalse(store.failed());
+    }
+
+    @Test
     public void noCachedGameListNeverEmptiesTheLauncher() throws Exception {
         hostGames("Game");
         exported();

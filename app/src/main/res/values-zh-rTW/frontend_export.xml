@@ -29,4 +29,5 @@
     <string name="frontend_sync_failed">%2$s 的 %1$s 遊戲已不再同步：無法使用資料夾。請在這部電腦的設定中重新選擇資料夾。</string>
     <string name="frontend_sync_failed_message">無法使用資料夾，這些遊戲已不再同步。請重新選擇資料夾，或停止同步。</string>
     <string name="frontend_sync_failed_summary">已停止同步，無法使用資料夾：%1$s</string>
+    <string name="frontend_sync_unavailable">此資料夾只允許這次存取，%1$s 無法保持同步。請選擇本機或 SD 卡上的資料夾，以便保持最新。</string>
 </resources>

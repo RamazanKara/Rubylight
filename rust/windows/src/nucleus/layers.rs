@@ -221,6 +221,10 @@ const LOCK_FOLDER: &str = "nucleus-locks";
 struct Locks {
     folder: PathBuf,
     owners: Vec<String>,
+    /// Creates `folder` with SYSTEM's and Administrators' permissions from the
+    /// start, so nobody else can open it before they are set; AlreadyExists
+    /// when it is there.
+    create: fn(&Path) -> std::io::Result<()>,
     /// Leaves `folder` and the files in it to SYSTEM and Administrators.
     restrict: fn(&Path) -> Result<()>,
 }
@@ -244,6 +248,7 @@ impl Locks {
         Self {
             folder,
             owners: vec!["S-1-5-18".into(), "S-1-5-32-544".into()],
+            create: crate::process::create_folder_administrators_only,
             restrict: crate::process::restrict_to_administrators,
         }
     }
@@ -269,8 +274,15 @@ impl Locks {
         use windows::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
         const REPARSE_POINT: u32 = 0x400;
         let folder = &self.folder;
-        std::fs::create_dir_all(folder)
-            .with_context(|| format!("creating {}", folder.display()))?;
+        // Made with its final permissions, never given them after: a user who
+        // opened a folder that inherited the data root's read access in
+        // between would hold every lock in it.
+        match (self.create)(folder) {
+            Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => {
+                return Err(error).with_context(|| format!("creating {}", folder.display()));
+            }
+            _ => {}
+        }
         // Open while the lock file is opened in it, so it is the folder
         // checked: it can't be renamed or deleted meanwhile.
         let open = crate::process::open_unfollowed(folder, true)
@@ -863,7 +875,9 @@ pub mod tests {
             .join(LOCK_FOLDER);
         let mut locks = Locks::administrators(folder);
         if !crate::process::elevated().unwrap() {
+            // Only an elevated process can make Administrators the owner.
             locks.owners.extend(crate::process::user_sid());
+            locks.create = |folder| std::fs::create_dir(folder);
             locks.restrict = |_| Ok(());
         }
         locks
@@ -1326,6 +1340,48 @@ pub mod tests {
         );
         assert!(error.contains("is a link to elsewhere"), "{error}");
         assert!(names(&target).is_empty());
+    }
+
+    #[test]
+    fn the_lock_folder_is_made_with_its_permissions_never_given_them_after() {
+        let temporary = tempfile::tempdir().unwrap();
+        let journal = temporary.path().join("Rubylight-layers-S-1-5-21-7.json");
+        // The installed lock makes its folder for SYSTEM and Administrators
+        // alone in one step, which only an elevated process can: a plain
+        // create, whose folder would inherit the read access of the folder
+        // around it until restricted, would succeed here unelevated too.
+        let installed = Locks::administrators(temporary.path().join(LOCK_FOLDER));
+        match Lock::acquire(&installed, &journal, Duration::ZERO) {
+            Ok(lock) => {
+                assert!(crate::process::elevated().unwrap());
+                assert!(lock.is_some());
+                let open = crate::process::open_unfollowed(&installed.folder, true).unwrap();
+                let mut writers = crate::process::open_file_writers(&open).unwrap();
+                writers.sort();
+                writers.dedup();
+                assert_eq!(writers, ["S-1-5-18", "S-1-5-32-544"]);
+            }
+            Err(error) => {
+                assert!(!crate::process::elevated().unwrap(), "{error:#}");
+                let error = format!("{error:#}");
+                assert!(error.contains("creating"), "{error}");
+                assert!(!installed.folder.exists());
+            }
+        }
+        // One there already is taken as it is, and checked.
+        let mut locks = Locks {
+            restrict: |_| Ok(()),
+            ..installed
+        };
+        locks.owners.extend(crate::process::user_sid());
+        if !locks.folder.exists() {
+            std::fs::create_dir(&locks.folder).unwrap();
+        }
+        drop(
+            Lock::acquire(&locks, &journal, Duration::ZERO)
+                .unwrap()
+                .unwrap(),
+        );
     }
 
     /// Layers whose first change removes the file, as a restore elsewhere

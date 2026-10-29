@@ -28,12 +28,12 @@ This reverses the ordinary flow: you enter the host's PIN on Android. Generate a
 
 ## Pair with a QR code
 
-This needs a Rubylight host with **Pair with a QR code** turned on in its settings. Its Devices page then shows a QR code for each of the PC's network addresses, with a one-time PIN that works once and expires after three minutes.
+This needs a Rubylight host. Its Devices page shows a QR code for each of the PC's network addresses, with a one-time PIN that works once and expires after three minutes.
 
 - **Android:** choose **Add PC**, tap **Scan QR code** and point the camera at the code. Nightjar asks for the camera only then; without it, type the address instead. The button is missing on devices without a camera.
 - **Windows and Linux:** choose **Copy pairing link** under the code on the PC, then **Paste link** in Nightjar's Add PC dialog, or paste the link in its address field.
 
-Nightjar adds the PC at the code's address and pairs at once. It refuses to pair when the PC presents a certificate other than the one the code names, so a code is only good for the PC that showed it. A failed code is used up: show a new one.
+Nightjar adds the PC at the code's address and pairs at once. It refuses to pair when the PC presents a certificate other than the one the code names, so a code is only good for the PC that showed it. A failed code is used up: show a new one. A used or expired code, scanned again, says so and asks for a new one rather than for a network check.
 
 ### Pairing link
 

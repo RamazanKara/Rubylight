@@ -167,3 +167,9 @@ client/protocol/client/src/control/clipboard_sync.rs, the host's side in
 rust/host/src/stream/clipboard_sync.rs, and Nightjar's in
 client/app/src/main/java/com/limelight/utils/ClipboardSync.java and
 client/protocol/desktop/src/stream/clipboard_sync.rs.
+
+Nightjar desktop's AI enhancement on Windows follows Moonlight V+ PC
+(https://github.com/qiin2333/moonlight-qt, GPL-3.0, d3d11va.cpp and amfsession.cpp):
+the per-vendor probe, the NVIDIA and Intel video processor extensions, RTX Video HDR,
+the AMF HQ Scaler session and its sharpness, in
+client/protocol/desktop/src/stream/enhance.rs and amf_scaler.rs.

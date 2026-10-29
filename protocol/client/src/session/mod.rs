@@ -15,6 +15,7 @@
 mod audio;
 mod net;
 mod roam;
+mod trace;
 mod usb;
 mod video;
 

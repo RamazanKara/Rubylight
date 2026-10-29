@@ -1533,18 +1533,29 @@ fn a_cache_is_used_only_as_this_host_keeps_it() {
     }
     std::fs::remove_dir(&linked).unwrap();
 
-    // A launch takes the cached release only as its files were checked.
+    // A launch takes the cached release without hashing it: the copy checks
+    // each file as it goes, so a changed one never reaches the game.
     assert_eq!(launch_cache(h).unwrap(), None);
     let folder = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
     let pak = folder.join("files/LmxxfNrRuntime.pak");
     std::fs::write(&pak, "tampered").unwrap();
-    let error = format!("{:#}", launch_cache(h).unwrap_err());
+    assert_eq!(launch_cache(h).unwrap(), Some(folder.clone()));
+    assert_eq!(h.neural.lock().verified, None);
+    let exe = game(temp.path());
+    let before = names(exe.parent().unwrap());
+    let Response::Error { message } = install(Some(&exe), None, &folder) else {
+        panic!("a changed cache was copied")
+    };
+    assert!(message.contains("does not match its release"), "{message}");
+    assert_eq!(names(exe.parent().unwrap()), before);
+    // A fetch's cache hit hashes it once per host start.
+    let package = Package::read(&folder).unwrap();
+    let error = format!("{:#}", verify_cache(h, &folder, &package).unwrap_err());
     assert!(error.contains("LmxxfNrRuntime.pak in"), "{error}");
     std::fs::write(&pak, "model").unwrap();
-    assert_eq!(launch_cache(h).unwrap(), Some(folder.clone()));
-    // Once per host start: copies check each file again as they go.
+    verify_cache(h, &folder, &package).unwrap();
     std::fs::write(&pak, "tampered").unwrap();
-    assert_eq!(launch_cache(h).unwrap(), Some(folder));
+    verify_cache(h, &folder, &package).unwrap();
 
     // The same tag with other archives is another release.
     let mut package = Package::read(&cache_root(h).join("Alpha0.3.5.8")).unwrap();

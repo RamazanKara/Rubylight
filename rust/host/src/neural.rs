@@ -500,19 +500,16 @@ fn verify_cache(h: &Shared, folder: &Path, package: &Package) -> Result<()> {
     Ok(())
 }
 
-/// The cached release for a launch: from a cache this host trusts, its
-/// files checked once per host start. None when nothing is cached. Blocks.
+/// The cached release for a launch, from a cache this host trusts. None when
+/// nothing is cached. Not rehashed: a launch's update copies each file
+/// checked against the release as it goes, and most launches copy nothing.
 fn launch_cache(h: &Shared) -> Result<Option<PathBuf>> {
     let root = cache_root(h);
     if !root.exists() {
         return Ok(None);
     }
     trusted_root(&root, butterpollo_windows::process::is_system())?;
-    let Some((folder, package)) = cached(&root) else {
-        return Ok(None);
-    };
-    verify_cache(h, &folder, &package)?;
-    Ok(Some(folder))
+    Ok(cached(&root).map(|(folder, _)| folder))
 }
 
 /// Where GitHub's release list and the release files are: GitHub, or a

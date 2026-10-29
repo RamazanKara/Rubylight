@@ -583,16 +583,23 @@ pub fn library_app(
 /// launch option starts the .exe; then those whose option's arguments the
 /// .exe's include, the most of them (Half-Life 2: Episode One is `hl2.exe
 /// -game episodic`); then games before tools and demos. The lowest app id
-/// stands for those left, with Valve Anti-Cheat when any has it. None when
-/// several share the folder and none starts the .exe.
+/// stands for those left. Valve Anti-Cheat comes with it when any app that
+/// starts the .exe has it: the arguments only choose the app id, and the
+/// .exe may still load the anti-cheat app's game. None when several share
+/// the folder and none starts the .exe.
 fn one_of(candidates: &[(u32, &Vdf)], relative: &str, arguments: &str) -> Option<(u32, bool)> {
     if let [(appid, info)] = candidates {
         return Some((*appid, vac(info)));
     }
-    let given: Vec<String> = arguments
-        .split_whitespace()
-        .map(str::to_ascii_lowercase)
-        .collect();
+    // `-game "cstrike"` is `-game cstrike`.
+    let tokens = |arguments: &str| -> Vec<String> {
+        arguments
+            .split_whitespace()
+            .map(|token| token.trim_matches('"').to_ascii_lowercase())
+            .filter(|token| !token.is_empty())
+            .collect()
+    };
+    let given = tokens(arguments);
     // Each app that starts the .exe, with the most of its options' arguments
     // the .exe has, when all of one option's are.
     let starting: Vec<(u32, &Vdf, Option<usize>)> = candidates
@@ -611,10 +618,7 @@ fn one_of(candidates: &[(u32, &Vdf)], relative: &str, arguments: &str) -> Option
             let matched = options
                 .iter()
                 .filter_map(|option| {
-                    let tokens: Vec<String> = option
-                        .split_whitespace()
-                        .map(str::to_ascii_lowercase)
-                        .collect();
+                    let tokens = tokens(option);
                     tokens
                         .iter()
                         .all(|token| given.contains(token))
@@ -639,7 +643,7 @@ fn one_of(candidates: &[(u32, &Vdf)], relative: &str, arguments: &str) -> Option
         left.retain(|(_, info)| game(info));
     }
     let appid = left.iter().map(|(appid, _)| *appid).min()?;
-    Some((appid, left.iter().any(|(_, info)| vac(info))))
+    Some((appid, starting.iter().any(|(_, info, _)| vac(info))))
 }
 
 /// The executables and arguments of an app's launch options for Windows
@@ -1904,6 +1908,51 @@ mod tests {
             library_app(&other, "", &[steam.path().to_path_buf()]).unwrap_err(),
             "Steam apps 220, 221 install to Half-Life 2, and none of them starts other.exe: start the game from its Steam link"
         );
+    }
+    #[test]
+    fn valve_anti_cheat_of_any_app_starting_the_exe_is_never_narrowed_away() {
+        // The .exe loads Counter-Strike's game with `-game cstrike`, whichever
+        // app id stands for it.
+        let steam = half_life_2(&[
+            (70, "Game", &[("hl.exe", "")], false),
+            (10, "Game", &[("hl.exe", "-game cstrike")], true),
+            (90, "Game", &[("other.exe", "")], true),
+        ]);
+        let roots = [steam.path().to_path_buf()];
+        let exe = steam.path().join(r"steamapps\common\Half-Life 2\hl.exe");
+        let app = |arguments: &str| {
+            let found = library_app(&exe, arguments, &roots).unwrap().unwrap();
+            (found.appid, found.vac)
+        };
+        // Quoted, the argument still names the anti-cheat app.
+        assert_eq!(app(r#"-game "cstrike""#), (10, true));
+        // The argument match drops it, and its anti-cheat stays.
+        assert_eq!(app("-novid"), (70, true));
+        // The type filter drops it, and its anti-cheat stays.
+        let steam = half_life_2(&[
+            (70, "Game", &[("hl.exe", "")], false),
+            (80, "Tool", &[("hl.exe", "")], true),
+        ]);
+        let found = library_app(&exe_in(&steam, "hl.exe"), "", &[steam.path().to_path_buf()])
+            .unwrap()
+            .unwrap();
+        assert_eq!((found.appid, found.vac), (70, true));
+        // An app that starts another .exe in the folder says nothing about
+        // this one.
+        let steam = half_life_2(&[
+            (70, "Game", &[("hl.exe", "")], false),
+            (90, "Game", &[("other.exe", "")], true),
+        ]);
+        let found = library_app(&exe_in(&steam, "hl.exe"), "", &[steam.path().to_path_buf()])
+            .unwrap()
+            .unwrap();
+        assert_eq!((found.appid, found.vac), (70, false));
+    }
+    fn exe_in(steam: &tempfile::TempDir, name: &str) -> PathBuf {
+        steam
+            .path()
+            .join(r"steamapps\common\Half-Life 2")
+            .join(name)
     }
     #[test]
     fn a_library_folder_is_read_from_the_exes_path_on_this_pc_only() {

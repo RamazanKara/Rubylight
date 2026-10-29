@@ -573,6 +573,40 @@ mod tests {
             None
         );
     }
+    /// 2026-10-29: a PyroWave stream to a phone on Wi-Fi lost about a quarter
+    /// of its packets for the whole stream and nothing lowered its bitrate.
+    #[test]
+    fn lost_pyrowave_frames_lower_the_bitrate_too() {
+        let s = Session::new(
+            launch("link-rate-pyrowave", Role::Stream),
+            Negotiated {
+                codec: 3,
+                pyrowave_records: true,
+                bitrate_kbps: 198_732,
+                configured_bitrate_kbps: 200_000,
+                ..Default::default()
+            },
+        );
+        s.configure_link_rate(true, 0);
+        assert_eq!(s.info()["link_rate"]["state"], "full");
+        let end = Instant::now();
+        for frame in 1..=60u32 {
+            let at = end - Duration::from_millis(17 * u64::from(60 - frame));
+            s.record_link_sent_at(frame, 300, 420_000, at);
+        }
+        s.stats.video_frame.store(70, Ordering::Release);
+        lose_frames(&s, 50..=54);
+        let (from, to) = s
+            .tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10))
+            .expect("the controller lowers the PyroWave bitrate");
+        assert_eq!(from, 198_732);
+        assert!(
+            (198_732 * 40 / 100..198_732 * 85 / 100).contains(&to),
+            "{to}"
+        );
+        assert_eq!(s.bitrate.load(Ordering::Acquire), to);
+        assert_eq!(s.info()["link_rate"]["state"], "limited");
+    }
     fn ask_for_notices(s: &Session) {
         use crate::link_notice::LinkNoticeRequest;
         assert_eq!(
@@ -716,7 +750,7 @@ mod tests {
         );
     }
     #[test]
-    fn the_controller_is_off_when_disabled_or_for_pyrowave() {
+    fn the_controller_is_off_when_disabled() {
         let (s, end) = link_session(60, false);
         lose_frames(&s, 50..=54);
         assert_eq!(
@@ -725,19 +759,6 @@ mod tests {
         );
         assert_eq!(s.bitrate.load(Ordering::Acquire), 20_000);
         assert_eq!(s.info()["link_rate"]["state"], "off");
-
-        let p = Session::new(
-            launch("link-pyrowave", Role::Stream),
-            Negotiated {
-                codec: 3,
-                bitrate_kbps: 200_000,
-                ..Default::default()
-            },
-        );
-        p.configure_link_rate(true, 0);
-        p.record_link_sent(1, 100, 112_600);
-        assert_eq!(p.link_sent.head(), 0, "nothing is recorded for PyroWave");
-        assert_eq!(p.info()["link_rate"]["reason"], "pyrowave");
     }
     #[test]
     fn a_client_that_sets_the_bitrate_clears_the_warning_and_restores_nothing() {

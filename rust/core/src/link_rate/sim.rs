@@ -138,6 +138,8 @@ pub struct Sim {
     /// The lowest bitrate the simulated encoder produces, however low it is
     /// asked (H.264 on AMD stops near 14 Mbps on noise).
     pub encoder_min_kbps: u32,
+    /// PyroWave pictures (see [`Sim::pyrowave`]) instead of H.26x frames.
+    pub pyrowave: bool,
     encoder_kbps: u32,
     applied: [u32; 2],
     noise: Rng,
@@ -164,11 +166,29 @@ impl Sim {
             keyframe_requests: false,
             client_pings: true,
             encoder_min_kbps: 0,
+            pyrowave: false,
             encoder_kbps: negotiated_kbps,
             applied: [negotiated_kbps; 2],
             noise: Rng::new(99),
             inbox: Vec::new(),
         }
+    }
+
+    /// A PyroWave stream with record framing. Its rate control holds every
+    /// picture to one frame's budget, keyframes included, and a game scene fills
+    /// about 60 % of it (2026-10-29: 239 of 414 KB at 200 Mbps). Records carry
+    /// their parity inside that budget.
+    pub fn pyrowave(link: Link, negotiated_kbps: u32, feedback_ms: f64) -> Self {
+        let mut sim = Self::new(link, negotiated_kbps, feedback_ms);
+        let stream = Negotiated {
+            codec: 3,
+            pyrowave_records: true,
+            bitrate_kbps: negotiated_kbps,
+            ..Default::default()
+        };
+        sim.lr = LinkRate::new(true, &stream, 0, FEC);
+        sim.pyrowave = true;
+        sim
     }
 
     pub fn at(&self, t: f64) -> Instant {
@@ -180,12 +200,16 @@ impl Sim {
         self.applied.rotate_left(1);
         self.applied[1] = self.encoder_kbps;
         let average = f64::from(kbps) * 125. / 60.;
-        let scale = match index {
-            0 => 2.,
-            i if i % 120 == 0 => 3.,
-            _ => 1.,
+        let size = if self.pyrowave {
+            average * (0.5 + 0.2 * self.noise.next()) * 100. / (100. + FEC as f64)
+        } else {
+            let scale = match index {
+                0 => 2.,
+                i if i % 120 == 0 => 3.,
+                _ => 1.,
+            };
+            average * (0.9 + 0.2 * self.noise.next()) * scale
         };
-        let size = average * (0.9 + 0.2 * self.noise.next()) * scale;
         let packetizer = VideoPacketizer {
             sequence: 0,
             frame: index,

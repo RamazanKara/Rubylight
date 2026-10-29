@@ -58,8 +58,10 @@ pub(super) fn run(
             }
         }
         let mut sent = 0;
+        let mut sent_packets = 0;
         let mut first_sent = None;
         let packets_dropped = batch.dropped;
+        let ipv6 = frame.peer.ip().to_canonical().is_ipv6();
         current
             .stats
             .video_frame
@@ -82,24 +84,13 @@ pub(super) fn run(
                 {
                     return Ok(());
                 }
-                let count = Batch::count(
-                    remaining,
-                    batch_limit(
-                        bps,
-                        remaining[0].len(),
-                        frame.peer.ip().to_canonical().is_ipv6(),
-                    ),
-                );
+                let count = Batch::count(remaining, batch_limit(bps, remaining[0].len(), ipv6));
                 let bytes = batch.send(&socket, &remaining[..count], frame.peer)?;
                 first_sent.get_or_insert_with(Instant::now);
                 sent += bytes;
-                pacer.sent(
-                    Instant::now(),
-                    bytes,
-                    if bytes > 0 { count } else { 0 },
-                    frame.peer.ip().to_canonical().is_ipv6(),
-                    bps,
-                );
+                let left = if bytes > 0 { count } else { 0 };
+                sent_packets += left;
+                pacer.sent(Instant::now(), bytes, left, ipv6, bps);
                 current
                     .stats
                     .packets
@@ -115,6 +106,13 @@ pub(super) fn run(
             current.request_send_loss_recovery();
             current.launch.warnings.event("network_send", "PyroWave video packets were dropped by the host after transient socket send failures. Lower bitrate and check the network adapter; the log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
         }
+        // What left for the client, which the link-rate controller weighs the
+        // client's loss reports against.
+        current.record_link_sent(
+            frame.wire_frame,
+            sent_packets,
+            (sent + sent_packets * network_pacing::overhead(ipv6)) as u64,
+        );
         current
             .stats
             .latency_us

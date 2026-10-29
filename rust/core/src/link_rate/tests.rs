@@ -833,29 +833,49 @@ fn it_never_goes_below_the_floor_and_says_so() {
     assert!(probe.delivered_kbps > 0, "{probe:?}");
 }
 
+fn pyrowave(kbps: u32) -> Negotiated {
+    Negotiated {
+        codec: 3,
+        pyrowave_records: true,
+        ..stream(kbps)
+    }
+}
+
+/// 2026-10-29: PyroWave at 200 Mbps to a phone on Wi-Fi lost frames for the
+/// whole stream and its bitrate never moved; the controller was off for it.
 #[test]
-fn it_is_off_when_disabled_for_pyrowave_and_after_the_client_sets_the_bitrate() {
+fn pyrowave_loss_is_cut_like_any_codecs_and_a_healthy_pyrowave_link_is_left_alone() {
+    let lr = LinkRate::new(true, &pyrowave(200_000), 0, 20);
+    assert_eq!(lr.state(), State::Full);
+    let mut rig = Rig::with(lr, 200_000);
+    rig.run(60_000, |lr, frame, now| {
+        if frame % 7 == 0 {
+            repaired(lr, frame, 2, now);
+        }
+    });
+    assert!(rig.changes.is_empty(), "{:?}", rig.kinds());
+    assert_eq!(rig.kbps, 200_000);
+    rig.lose_three();
+    rig.clean(500);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.kinds());
+    let (_, cut) = rig.changes[0];
+    assert_eq!(cut.reason, "unrecoverable_frames");
+    assert!(cut.to_kbps < 200_000 * 85 / 100, "{cut:?}");
+    assert!(cut.to_kbps >= 200_000 * 40 / 100, "{cut:?}");
+    assert_eq!(rig.kbps, cut.to_kbps);
+    assert_eq!(rig.lr.state(), State::Limited);
+}
+
+#[test]
+fn it_is_off_when_disabled_and_after_the_client_sets_the_bitrate() {
     let disabled = LinkRate::new(false, &stream(40_000), 0, 20);
     assert_eq!(disabled.state(), State::Off);
-    let pyrowave = LinkRate::new(
-        true,
-        &Negotiated {
-            codec: 3,
-            ..stream(40_000)
-        },
-        0,
-        20,
-    );
-    assert_eq!(pyrowave.state(), State::Off);
-    assert_eq!(pyrowave.snapshot(Instant::now())["reason"], "pyrowave");
-    for lr in [disabled, pyrowave] {
-        let mut rig = Rig::with(lr, 40_000);
-        rig.clean(1_000);
-        rig.lose_three();
-        rig.clean(2_000);
-        assert!(rig.changes.is_empty());
-        assert_eq!(rig.kbps, 40_000);
-    }
+    let mut rig = Rig::with(disabled, 40_000);
+    rig.clean(1_000);
+    rig.lose_three();
+    rig.clean(2_000);
+    assert!(rig.changes.is_empty());
+    assert_eq!(rig.kbps, 40_000);
 
     let mut rig = Rig::new(40_000);
     rig.clean(1_000);
@@ -1634,6 +1654,32 @@ fn a_stream_above_its_link_settles_near_the_link_rate_with_little_loss() {
                     sim.longest_gap(3., 75.)
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn a_pyrowave_stream_above_its_wifi_link_comes_down_until_it_fits() {
+    // 2026-10-29: PyroWave 1080p60 at 200 Mbps to a phone on 5 GHz Wi-Fi (a
+    // 288 Mbit/s link that delivered about 90) sent 114 Mbit/s and lost about a
+    // quarter of it for the whole stream. Without hints the host paces such a
+    // client at 1.25 times wire demand, so a picture leaves over about 40 % of
+    // the period.
+    for feedback in [2., 20., 80.] {
+        for (queue, spread) in [(50., 0.4), (5., 0.4), (50., 1.)] {
+            let mut sim = Sim::pyrowave(q(Link::constant(90.), queue), 200_000, feedback);
+            sim.spread = spread;
+            sim.run(60.);
+            let what = format!("fb {feedback}, q {queue}, sp {spread}");
+            assert!(sim.cuts() >= 1, "{what}");
+            assert!(
+                sim.frame_loss(15., 60.) < 0.02,
+                "{what}: {}",
+                sim.frame_loss(15., 60.)
+            );
+            let wire = sim.mean_wire_bps(30., 60.) / 1e6;
+            assert!(wire >= 90. * 0.5, "{what}: {wire:.1} Mbit/s");
+            assert!(wire <= 90. * 1.08, "{what}: {wire:.1} Mbit/s");
         }
     }
 }

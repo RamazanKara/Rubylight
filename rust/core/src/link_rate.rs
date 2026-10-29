@@ -15,8 +15,14 @@
 //! runs it cut once a second (179 to 24.7 Mbps in 9 s on a link that carries
 //! about 115) because late reports kept counting against the lower bitrate.
 //!
-//! Inactive (`State::Off`) when disabled in the configuration, for PyroWave,
-//! and once the client sets the bitrate itself. The caller also passes
+//! PyroWave streams get it too: nothing else on the host reacts to their loss
+//! (the loss guard and Wi-Fi pacing leave PyroWave alone), and on 2026-10-29 a
+//! 200 Mbps stream to a phone on 5 GHz Wi-Fi lost about a quarter of its
+//! packets for the whole stream. Its rate control holds every picture to one
+//! frame's budget and its pace follows the bitrate, so a cut shrinks both.
+//!
+//! Inactive (`State::Off`) when disabled in the configuration and once the
+//! client sets the bitrate itself. The caller also passes
 //! `enabled = false` while `host_adaptive_bitrate` is on
 //! ([`crate::config::Config::link_rate_adaptation`] folds that in).
 //!
@@ -265,7 +271,7 @@ struct Confirmed {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
-    /// Disabled, PyroWave, or the client owns the bitrate.
+    /// Disabled, or the client owns the bitrate.
     Off,
     /// At the requested bitrate. `tick` returns `None`.
     Full,
@@ -606,10 +612,6 @@ impl LinkRate {
     pub fn new(enabled: bool, stream: &Negotiated, max_kbps: u32, fec: usize) -> Self {
         let mut this = Self::off("disabled");
         if !enabled {
-            return this;
-        }
-        if stream.codec == 3 {
-            this.reason = "pyrowave";
             return this;
         }
         let ceiling =

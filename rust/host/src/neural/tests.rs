@@ -974,6 +974,50 @@ fn the_installed_hosts_data_folder_holds_a_system_cache() {
     super::trusted_root(&data, true).unwrap();
 }
 
+/// A folder above a SYSTEM host's cache passes when users may only add to
+/// it, as to C:\ProgramData, and not when they may move or delete what it
+/// holds: they could move the cache away and put their own in its place.
+/// The folder's own permissions, its owner taken as Administrators, which
+/// an unelevated test cannot give it to.
+#[test]
+fn a_folder_above_the_cache_lets_nobody_but_administrators_move_what_it_holds() {
+    let temp = tempdir();
+    let above = temp.path().join("above");
+    std::fs::create_dir(&above).unwrap();
+    let icacls = |args: &[&str]| {
+        let changed = std::process::Command::new("icacls")
+            .arg(&above)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(changed.status.success(), "{changed:?}");
+    };
+    icacls(&[
+        "/inheritance:r",
+        "/grant:r",
+        "*S-1-5-18:(OI)(CI)F",
+        "*S-1-5-32-544:(OI)(CI)F",
+    ]);
+    icacls(&["/grant", "*S-1-5-32-545:(RX)"]);
+    icacls(&["/grant", "*S-1-5-32-545:(AD,WD)"]);
+    let held = |whole| {
+        super::folder::hold(&above, whole, |path, movers| {
+            super::folder::security(path, movers).map(|security| super::folder::Security {
+                owner: "S-1-5-32-544".into(),
+                ..security
+            })
+        })
+    };
+    assert_eq!(held(false), Ok(()));
+    // The cache itself is held only when users may not add to it either.
+    let error = held(true).unwrap_err();
+    assert!(error.contains("changed by S-1-5-32-545"), "{error}");
+    // Users who may delete what it holds could swap the cache's folder.
+    icacls(&["/grant", "*S-1-5-32-545:(DC)"]);
+    let error = held(false).unwrap_err();
+    assert!(error.contains("changed by S-1-5-32-545"), "{error}");
+}
+
 fn archive(path: &Path, files: &[(&str, &[u8])]) {
     let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
     let options =

@@ -730,12 +730,13 @@ fn guard(folder: &Path, relative: &str, writer: Writer) -> Outcome<()> {
 pub(super) struct Security {
     pub link: bool,
     pub owner: String,
-    /// Those its permissions let change it, or for a drive's root, move or
-    /// delete what it holds: a root lets users add folders, which moves nothing.
+    /// Those its permissions let change it, or for a drive's root or a folder
+    /// above the cache, move or delete what it holds: those let users add
+    /// folders, which moves nothing.
     pub writers: Vec<String>,
 }
 
-fn security(path: &Path, root: bool) -> anyhow::Result<Security> {
+pub(super) fn security(path: &Path, root: bool) -> anyhow::Result<Security> {
     use butterpollo_windows::process::{
         open_file_child_movers, open_file_owner, open_file_writers, open_unfollowed,
     };
@@ -773,21 +774,23 @@ pub(super) fn verdict(path: &Path, security: &Security) -> Result<(), String> {
     }
 }
 
-/// Whether administrators own `path`, and with `whole` alone may change it
-/// ([`verdict`]); the cache's check ([`super::trusted_root`]).
+/// Whether administrators own `path` and alone may change it, or for a
+/// folder above the cache (not `whole`) move or delete what it holds: users
+/// may add folders to C:\ProgramData, which moves nothing ([`verdict`]); the
+/// cache's check ([`super::trusted_root`]).
 pub(super) fn administrators_hold(path: &Path, whole: bool) -> Result<(), String> {
-    let security = security(path, false)
+    hold(path, whole, security)
+}
+
+/// [`administrators_hold`], with `read` in place of [`security`].
+pub(super) fn hold(
+    path: &Path,
+    whole: bool,
+    read: impl FnOnce(&Path, bool) -> anyhow::Result<Security>,
+) -> Result<(), String> {
+    let security = read(path, !whole)
         .map_err(|e| format!("cannot check who may change {}: {e:#}", path.display()))?;
-    if whole {
-        return verdict(path, &security);
-    }
-    verdict(
-        path,
-        &Security {
-            writers: Vec::new(),
-            ..security
-        },
-    )
+    verdict(path, &security)
 }
 
 /// A SYSTEM host's check before it writes `folder` for the user: it and

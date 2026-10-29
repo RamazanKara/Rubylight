@@ -440,8 +440,9 @@ fn ensure_root(root: &Path) -> Result<()> {
 
 /// Refuse a cache that is not this host's own: a link on the way to it, or
 /// for a SYSTEM host, which copies from it into game folders and deletes in
-/// it, a cache anyone but administrators may change or a folder above it
-/// they don't own. A release planted there would reach every game.
+/// it, a cache anyone but administrators may change, or a folder above it
+/// they don't own or whose folders they may move away and replace. A release
+/// planted there would reach every game.
 fn trusted_root(root: &Path, system: bool) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
     for path in root.ancestors().filter(|path| !path.as_os_str().is_empty()) {

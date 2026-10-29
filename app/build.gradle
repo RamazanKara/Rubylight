@@ -17,6 +17,51 @@ if (hasReleaseSigning && !releaseSigning.values().every { it }) {
 }
 def brandName = project.property('brandName').toString()
 
+// The task timeout says only that the task took too long. A test still running after 3 minutes,
+// or 3 minutes without any test running, names itself here with the test JVMs' threads.
+def watchForHungTests(Test task) {
+    long limitNs = 3L * 60 * 1_000_000_000L
+    def running = new java.util.concurrent.ConcurrentHashMap<String, Long>()
+    def reported = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    def lastEventNs = new java.util.concurrent.atomic.AtomicLong()
+    task.beforeTest { d -> running.put("${d.className} > ${d.name}".toString(), System.nanoTime()); lastEventNs.set(System.nanoTime()) }
+    task.afterTest { d, r -> running.remove("${d.className} > ${d.name}".toString()); lastEventNs.set(System.nanoTime()) }
+    def dumpTestJvms = {
+        def jcmd = new File(System.getProperty('java.home'), 'bin/jcmd' + (System.getProperty('os.name').startsWith('Windows') ? '.exe' : ''))
+        if (!jcmd.exists()) { task.logger.lifecycle("No thread dump: ${jcmd} is missing"); return }
+        def run = { List<String> args ->
+            def p = new ProcessBuilder([jcmd.path] + args).redirectErrorStream(true).start()
+            def out = p.inputStream.getText('UTF-8')
+            p.waitFor()
+            out
+        }
+        run(['-l']).readLines().findAll { it.contains('Gradle Test Executor') }.each { line ->
+            task.logger.lifecycle("Threads of ${line}:\n" + run([line.tokenize()[0], 'Thread.print']))
+        }
+    }
+    task.doFirst {
+        lastEventNs.set(System.nanoTime())
+        def watchdog = new Timer("${task.name} watchdog", true)
+        watchdog.schedule(new TimerTask() {
+            void run() {
+                if (task.state.executed) { watchdog.cancel(); return }
+                try {
+                    long now = System.nanoTime()
+                    def hung = running.findAll { name, startNs -> now - startNs > limitNs && reported.add(name) }
+                    boolean idle = running.isEmpty() && now - lastEventNs.get() > limitNs && reported.add(lastEventNs.get())
+                    if (!hung && !idle) return
+                    hung.each { name, startNs -> task.logger.lifecycle("HUNG TEST: ${name} has run for ${(now - startNs).intdiv(1_000_000_000L)} s") }
+                    if (idle) task.logger.lifecycle("HUNG TEST: no test has run for ${(now - lastEventNs.get()).intdiv(1_000_000_000L)} s")
+                    dumpTestJvms()
+                } catch (Exception e) {
+                    // An exception would end the timer's thread without a word.
+                    task.logger.lifecycle("Unit test watchdog failed: ${e}")
+                }
+            }
+        }, 30_000L, 30_000L)
+    }
+}
+
 android {
     ndkVersion "29.0.14206865"
 
@@ -113,6 +158,7 @@ android {
             // The suite takes about 5 minutes; a test that hangs fails the task here instead of
             // running into CI's 60-minute job limit.
             timeout = java.time.Duration.ofMinutes(20)
+            watchForHungTests(it)
         }
     }
 

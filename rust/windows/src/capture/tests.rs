@@ -1092,6 +1092,12 @@ fn wgc_window_capture_follows_resize_and_fails_on_minimise_and_close() -> Result
         SW_MINIMIZE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos,
         ShowWindow, WS_OVERLAPPEDWINDOW,
     };
+    // Its log names the restart at the new size, which rc.4 lacked.
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::INFO)
+        .try_init();
     enable_dpi_awareness();
     let _com = ComGuard::new()?;
     let window = TestWindow::new(WS_OVERLAPPEDWINDOW)?;
@@ -1102,7 +1108,11 @@ fn wgc_window_capture_follows_resize_and_fails_on_minimise_and_close() -> Result
     let display = primary_display().context("no display")?;
     let mut capture = Capture::new(&window.target(&display), "wgc")?;
     assert_eq!(capture.backend(), "wgc");
-    let next = |capture: &mut Capture, until: &dyn Fn(&GpuImage) -> bool| -> Result<GpuImage> {
+    // what names the step: rc.4's resize failure read as a missing first frame.
+    let next = |capture: &mut Capture,
+                what: &str,
+                until: &dyn Fn(&GpuImage) -> bool|
+     -> Result<GpuImage> {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             window.pump();
@@ -1111,14 +1121,11 @@ fn wgc_window_capture_follows_resize_and_fails_on_minimise_and_close() -> Result
             {
                 return Ok(image);
             }
-            ensure!(
-                Instant::now() < deadline,
-                "no matching window frame within 5 s"
-            );
+            ensure!(Instant::now() < deadline, "no {what} within 5 s");
             std::thread::sleep(Duration::from_millis(5));
         }
     };
-    let first = next(&mut capture, &|_| true)?;
+    let first = next(&mut capture, "first window frame", &|_| true)?;
     tracing::info!(
         width = first.width,
         height = first.height,
@@ -1138,13 +1145,15 @@ fn wgc_window_capture_follows_resize_and_fails_on_minimise_and_close() -> Result
     }
     // The STATIC window draws once after the resize and then never again, like
     // a paused game: its new-size frame comes only from the restarted capture.
-    let resized = next(&mut capture, &|image| image.width != first.width)?;
+    let resized = next(&mut capture, "window frame at the new size", &|image| {
+        image.width != first.width
+    })?;
     assert!(resized.width > first.width && resized.height > first.height);
     // SAFETY: The window was created on this thread.
     unsafe {
         let _ = ShowWindow(window.0, SW_MINIMIZE);
     }
-    let Err(error) = next(&mut capture, &|_| false) else {
+    let Err(error) = next(&mut capture, "refusal of the minimised window", &|_| false) else {
         unreachable!("no frame matches");
     };
     let error = format!("{error:#}");
@@ -1157,7 +1166,7 @@ fn wgc_window_capture_follows_resize_and_fails_on_minimise_and_close() -> Result
         window.pump();
         Capture::new(&window.target(&display), "wgc")?
     };
-    next(&mut capture, &|_| true)?;
+    next(&mut capture, "window frame after the restore", &|_| true)?;
     drop(window);
     let deadline = Instant::now() + Duration::from_secs(5);
     let error = loop {

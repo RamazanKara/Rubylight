@@ -201,6 +201,78 @@ class Batch(unittest.TestCase):
             summary, = (root / 'hw').glob('*/desktop/summary.md')
             self.assertIn('someone else', summary.read_text(encoding='utf-8'))
 
+    def test_a_case_that_manages_its_locks_runs_without_the_batchs_gpu_lock(self):
+        # Each case's exit code says whether it ran under the batch's GPU lock.
+        held = 'if (Test-Path {{lock}}) { exit 0 } else { exit 1 }'
+        free = 'if (Test-Path {{lock}}) { exit 1 } else { exit 0 }'
+        text = catalog(dict(id='first', command=held, pre='[gpu-lock]'), dict(id='check', command=free),
+                       dict(id='after', command=held, pre='[gpu-lock]'), variables='vars: {lock: "%LOCK%"}\n')
+        text = text.replace('id: check\n    device: desktop\n', 'id: check\n    device: desktop\n    manages_locks: true\n')
+        with tempfile.TemporaryDirectory() as t:
+            root = pathlib.Path(t)
+            lock = root / 'GPU-LOCK'
+            (root / 'catalog.yaml').write_text(text.replace('%LOCK%', str(lock).replace('\\', '\\\\')), encoding='utf-8')
+            self.assertTrue(run.load((root / 'catalog.yaml').read_text(encoding='utf-8'))[1][1].manages_locks)
+            with mock.patch.object(run, 'GPU_LOCK', lock), mock.patch.object(run, 'HOST_LOG', root / 'none.log'), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                code = run.main(['--batch', 'desktop', '--catalog', str(root / 'catalog.yaml'),
+                                 '--out-root', str(root / 'hw')])
+            summary, = (root / 'hw').glob('*/desktop/summary.md')
+            text = summary.read_text(encoding='utf-8')
+            self.assertEqual(code, 0, text)
+            for case in ('first', 'check', 'after'):
+                self.assertIn(f'| {case} | PASS | 0 |', text)
+            self.assertFalse(lock.exists())
+        with self.assertRaisesRegex(run.CatalogError, 'cannot need gpu-lock'):
+            run.load(catalog(dict(pre='[gpu-lock]')) + '    manages_locks: true\n')
+        with self.assertRaisesRegex(run.CatalogError, 'not true or false'):
+            run.load(catalog() + '    manages_locks: yes please\n')
+
+    def test_the_gpu_lock_is_waited_for_never_broken(self):
+        with tempfile.TemporaryDirectory() as t:
+            lock = pathlib.Path(t) / 'GPU-LOCK'
+            lock.write_text('rc4 pass tv t6 4242', encoding='utf-8')
+            now = [0.0]
+            def sleep(seconds):
+                now[0] += seconds
+                if now[0] >= 30:
+                    lock.unlink(missing_ok=True)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(run.take_gpu_lock('me', lock, clock=lambda: now[0], sleep=sleep), (True, 'taken'))
+            self.assertEqual(lock.read_text(encoding='utf-8'), 'me')
+            self.assertIn('rc4 pass tv t6 4242', out.getvalue())
+            lock.write_text('rc4 pass tv t6 4242', encoding='utf-8')
+            # A holder that never lets go: said at 0 and 60 s, given up on at 120 s.
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                ok, detail = run.take_gpu_lock('me', lock, deadline=120, clock=lambda: now[0],
+                                               sleep=lambda s: now.__setitem__(0, now[0] + s))
+            self.assertFalse(ok)
+            self.assertIn('rc4 pass tv t6 4242', detail)
+            self.assertEqual(lock.read_text(encoding='utf-8'), 'rc4 pass tv t6 4242')
+            self.assertEqual(out.getvalue().count('waiting for the GPU lock'), 2)
+
+    def test_the_gpu_lock_is_released_past_a_reader(self):
+        with tempfile.TemporaryDirectory() as t:
+            lock = pathlib.Path(t) / 'GPU-LOCK'
+            lock.write_text('me', encoding='utf-8')
+            unlink, calls = pathlib.Path.unlink, []
+            def busy_once(path, *args, **kwargs):
+                calls.append(path)
+                if len(calls) == 1:
+                    raise PermissionError(32, 'The process cannot access the file because it is being used')
+                return unlink(path, *args, **kwargs)
+            with mock.patch.object(pathlib.Path, 'unlink', busy_once):
+                run.release_gpu_lock('me', lock, sleep=lambda s: None)
+            self.assertEqual(len(calls), 2)
+            self.assertFalse(lock.exists())
+            lock.write_text('me', encoding='utf-8')
+            with mock.patch.object(pathlib.Path, 'unlink', side_effect=PermissionError(32, 'in use')), \
+                    self.assertRaises(PermissionError):
+                run.release_gpu_lock('me', lock, sleep=lambda s: None)
+            lock.write_text('someone else', encoding='utf-8')
+            run.release_gpu_lock('me', lock)
+            self.assertEqual(lock.read_text(encoding='utf-8'), 'someone else')
+
     def test_dry_run_runs_nothing(self):
         out = io.StringIO()
         with tempfile.TemporaryDirectory() as t, contextlib.redirect_stdout(out):

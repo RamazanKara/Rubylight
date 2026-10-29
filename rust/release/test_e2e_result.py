@@ -243,6 +243,16 @@ class ReleaseMeasurements(unittest.TestCase):
         again = check(moving, AGAIN)
         self.assertEqual(again['host_pictures_encoded_again'], 1)
         self.assertTrue(any('unchanged picture again' in f for f in again['failures']), again['failures'])
+        # A host that names its reason: a repeat for a pending request fails,
+        # one keeping a still source alive (rc.4 under load) is only counted.
+        named = lambda choice: AGAIN.replace('fresh=true\n', 'fresh=true choice="fresh"\n').replace(
+            'fresh=false\n', f'fresh=false choice="{choice}" selected_is_latest=true\n')
+        recovery_repeat = check(moving, named('recovery_repeat'))
+        self.assertEqual((recovery_repeat['host_pictures_encoded_again'], recovery_repeat['host_static_repeats']), (1, 0))
+        self.assertTrue(any('unchanged picture again' in f for f in recovery_repeat['failures']))
+        static = check(moving, named('static_repeat'))
+        self.assertTrue(static['passed'], static['failures'])
+        self.assertEqual((static['host_pictures_encoded_again'], static['host_static_repeats']), (0, 1))
         untraced = check(moving, 'INFO stream timings fps=60\n')
         self.assertTrue(any('host_claims' in f for f in untraced['failures']), untraced['failures'])
         # A run whose RUST_LOG left out the trace is judged on the rest.

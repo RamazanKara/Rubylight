@@ -154,6 +154,7 @@ def main():
                               config=['wgc_user_helper=true', 'pyrowave=true', 'lan_encryption_mode=2', *args.config])
     env, display, sink = prepare(fixture, run, PORT)
     write(run / 'display.json', display)
+    report.update(audio_sink=sink, warnings=[sink['warning']] if sink['warning'] else [])
     kernel, job = create_job()
     owned = []
 

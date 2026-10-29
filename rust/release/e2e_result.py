@@ -54,15 +54,18 @@ def host_frames(receiver):
 
 
 def claims(log):
-    """(claim, presented in microseconds since the stream began, new picture) per encode, from a host log with
-    RUST_LOG=info,pacing=trace."""
+    """(claim, presented in microseconds since the stream began, new picture, choice) per encode, from a host log
+    with RUST_LOG=info,pacing=trace. choice is the host's reason: fresh, recovery_repeat (the unchanged picture
+    for a keyframe request, an invalidation or a menu change) or static_repeat (the source had no new picture
+    for the static period); None from hosts that did not log it."""
     found = []
     for line in log.splitlines():
         if 'pacing' not in line or ' claim' not in line:
             continue
         fields = dict(re.findall(r'(\w+)=(\S+)', line))
         if 'claim' in fields and 'presented' in fields and 'fresh' in fields:
-            found.append((int(fields['claim']), int(fields['presented']), fields['fresh'] == 'true'))
+            found.append((int(fields['claim']), int(fields['presented']), fields['fresh'] == 'true',
+                          fields['choice'].strip('"') if 'choice' in fields else None))
     return found
 
 
@@ -151,12 +154,20 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
         )
         if claim_trace:
             encodes = claims(host_log)
+            # A static repeat is the host keeping a still source alive. Counted
+            # apart; a stall it fills shows in the delivery gaps. The host reads
+            # its pending requests for the choice before it takes them
+            # (stream.rs), so a request landing in between is logged
+            # static_repeat too and is missed here.
             result.update(host_claims=len(encodes) or None,
-                          host_pictures_encoded_again=sum(not new for *_, new in encodes) if encodes else None)
+                          host_pictures_encoded_again=sum(not new and choice != 'static_repeat'
+                                                          for *_, new, choice in encodes) if encodes else None,
+                          host_static_repeats=sum(choice == 'static_repeat' for *_, choice in encodes)
+                          if encodes else None)
     failures = []
     missing = [key for key, value in result.items() if value is None]
     if recovery and not claim_trace:
-        result.update(host_claims=None, host_pictures_encoded_again=None)
+        result.update(host_claims=None, host_pictures_encoded_again=None, host_static_repeats=None)
     # Older conventional-codec fixtures lack picture age; report it without
     # changing their acceptance rules. PyroWave still requires it above.
     result.update({f'picture_age_{key}': find(r'^PICTURE_AGE .*?' + key + r'=([0-9.]+)', cast)
@@ -212,6 +223,9 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
         # rides the next new frame. rc.28 encoded the unchanged picture again
         # at once and let it take that frame's slot (10 of 16 requests); the
         # host's own claim trace shows it, the receiver's picture count does not.
+        # Static repeats are left out: rc.4's check under 25-100 % CPU had one
+        # or two after the source sent nothing for 50 ms (see above for the
+        # request that can land between the host's choice and its trace).
         if result['host_pictures_encoded_again']:
             failures.append('the host encoded an unchanged picture again for a keyframe request')
         if result['recovery_p95_ms'] > 3000 / fps:

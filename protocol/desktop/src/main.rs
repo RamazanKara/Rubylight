@@ -221,6 +221,14 @@ fn main() {
             }
             return;
         }
+        // No box: install checks run it without a console and must not wait on a click.
+        Ok(cli::Parsed::Version) => {
+            cli::use_parent_console();
+            // Not println!: a reader that is gone already (PowerShell does not wait for a window
+            // program behind `>`) is no reason to panic.
+            let _ = std::io::Write::write_all(&mut std::io::stdout(), format!("Nightjar {VERSION}\n").as_bytes());
+            return;
+        }
         Err(e) => {
             let text = format!("{e}\n{}", cli::USAGE);
             eprintln!("nightjar: {text}");

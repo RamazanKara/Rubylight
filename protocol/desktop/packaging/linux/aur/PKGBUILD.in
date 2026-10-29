@@ -1,0 +1,32 @@
+# Nightjar for Linux from the release tar.gz, as an Arch Linux package. Not published to the
+# AUR: packaging/linux/build-packages.sh fills in the version and the archive's SHA-256 and
+# writes the result beside the packages. Build it with `makepkg -si` in a folder holding it.
+pkgname=nightjar-desktop-bin
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc='Moonlight-protocol game-streaming client'
+arch=('x86_64')
+url='https://github.com/RamazanKara/nightjar'
+license=('GPL-3.0-only')
+# What the binaries link (FFmpeg's decoders and dav1d are in the archive's lib/).
+# alsa-lib, libx11 and libxext: SDL3 opens them at run time and does not start without them.
+depends=('glibc' 'gcc-libs' 'opus' 'libva' 'alsa-lib' 'libx11' 'libxext' 'systemd-libs' 'hicolor-icon-theme')
+# Opened at run time by SDL3 and the PyroWave decoder.
+optdepends=('vulkan-icd-loader: PyroWave GPU decoding'
+            'libva-mesa-driver: hardware decoding on AMD and Intel GPUs'
+            'libpulse: PulseAudio and PipeWire audio'
+            'libdecor: window decorations on Wayland')
+provides=('nightjar')
+conflicts=('nightjar')
+options=('!strip' '!debug')
+_name=nightjar-desktop-@VERSION@-linux-x86_64
+source=("https://github.com/RamazanKara/nightjar/releases/download/v@VERSION@/$_name.tar.gz")
+sha256sums=('@SHA256@')
+
+package() {
+  install -d "$pkgdir/opt" "$pkgdir/usr/bin" "$pkgdir/usr/share"
+  cp -a "$_name" "$pkgdir/opt/nightjar"
+  mv "$pkgdir/opt/nightjar/share"/* "$pkgdir/usr/share/"
+  rmdir "$pkgdir/opt/nightjar/share"
+  ln -s /opt/nightjar/nightjar "$pkgdir/usr/bin/nightjar"
+}

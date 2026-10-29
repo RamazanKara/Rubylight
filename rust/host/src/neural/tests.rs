@@ -898,6 +898,18 @@ fn program_files_folders_are_left_to_system() {
     );
 }
 
+/// The installed host's data folder, read only: a SYSTEM host keeps its
+/// download in `neural` there (made writable by administrators only), and
+/// the folder and every one above it pass its check:
+/// `cargo test -p butterpollo neural::tests::the_installed -- --ignored`.
+#[test]
+#[ignore = "reads this PC's installed host"]
+fn the_installed_hosts_data_folder_holds_a_system_cache() {
+    let data = butterpollo_core::paths::data_root();
+    assert!(data.is_dir(), "{} is not installed", data.display());
+    super::trusted_root(&data, true).unwrap();
+}
+
 fn archive(path: &Path, files: &[(&str, &[u8])]) {
     let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
     let options =

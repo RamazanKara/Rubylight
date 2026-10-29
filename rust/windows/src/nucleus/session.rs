@@ -1415,6 +1415,7 @@ mod tests {
         assert!(!elevation::is_kept(game.path()));
         // Nor one Nucleus never started for.
         elevation::folder_need(game.path(), None).unwrap();
+        assert!(elevation::is_kept(game.path()));
         let exe = game.path().join("Game.exe");
         let folder = tempfile::tempdir().unwrap();
         *probe.refused.lock().unwrap() = Some("access denied".into());

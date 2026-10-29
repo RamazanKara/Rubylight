@@ -385,7 +385,7 @@ enum Differs {
 
 /// None when the copy at `copy` is a whole copy of the program `text`
 /// lists: its marker says so and its program files are those, with the
-/// same sizes and times.
+/// same sizes and times, and its `NucleusCoop.exe` has no other name.
 fn differs(copy: &Path, text: &str) -> Option<Differs> {
     // No more than it should hold: the copy is the user's to fill.
     let read = std::fs::File::open(copy.join(MARKER)).and_then(|file| {
@@ -409,10 +409,45 @@ fn differs(copy: &Path, text: &str) -> Option<Differs> {
         )));
     }
     match Listing::of(copy) {
-        Ok(found) if found.text == text => None,
-        Ok(found) => Some(Differs::Changed(difference(text, &found.text))),
-        Err(error) => Some(Differs::Changed(format!("{error:#}"))),
+        Ok(found) if found.text == text => {}
+        Ok(found) => return Some(Differs::Changed(difference(text, &found.text))),
+        Err(error) => return Some(Differs::Changed(format!("{error:#}"))),
     }
+    // [`hold`] refuses a program with another name: copied again, it has one.
+    match names_of(&copy.join(pinned::EXECUTABLE)) {
+        Ok(1) => None,
+        Ok(names) => Some(Differs::Changed(format!(
+            "its {} has {names} names",
+            pinned::EXECUTABLE
+        ))),
+        Err(error) => Some(Differs::Changed(format!(
+            "reading its {}: {error}",
+            pinned::EXECUTABLE
+        ))),
+    }
+}
+
+/// How many names (hard links) the file at `path` has, never following a
+/// link.
+fn names_of(path: &Path) -> std::io::Result<u32> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+    };
+    let file = std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle is open for as long as `file` is, and `info` is
+    // writable.
+    unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }
+        .map_err(crate::user_folder::os_error)?;
+    Ok(info.nNumberOfLinks)
 }
 
 /// The first line of two listings that differs, for the log.
@@ -1556,6 +1591,28 @@ mod tests {
         assert!(status.success(), "{status}");
         drop(held);
         std::fs::rename(&key, &moved).unwrap();
+    }
+
+    #[test]
+    fn a_program_given_another_name_is_copied_again_and_then_starts() {
+        let data = tempfile::tempdir().unwrap();
+        let host = host_folder();
+        let copy = ensure_with(data.path(), host.path(), SID, None, &TEST).unwrap();
+        // A hard link the user (or a dedupe tool) made: refused to start.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let other = elsewhere.path().join("other.exe");
+        std::fs::hard_link(copy.join(pinned::EXECUTABLE), &other).unwrap();
+        let error = format!("{:#}", hold_with(&copy, SID, open).err().unwrap());
+        assert!(error.contains("has 2 names"), "{error}");
+        // The next stream copies it again, with one name.
+        assert_eq!(
+            ensure_with(data.path(), host.path(), SID, None, &TEST).unwrap(),
+            copy
+        );
+        assert_eq!(names_of(&copy.join(pinned::EXECUTABLE)).unwrap(), 1);
+        hold_with(&copy, SID, open).unwrap();
+        // The other name is left as it was.
+        assert_eq!(std::fs::read(&other).unwrap(), b"MZ nucleus");
     }
 
     #[test]

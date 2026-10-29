@@ -436,6 +436,21 @@ fn walk(folder: &Path) -> Result<Walk> {
         match std::fs::canonicalize(&path) {
             Ok(real) => {
                 if !walked.insert(real) {
+                    // Kept while this path still leads there (a link above
+                    // it may be led elsewhere).
+                    match change_time(&path, true) {
+                        Ok(time) => seen.push((path, true, Some(time))),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            seen.push((path, true, None));
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                            return Ok(stop(&path, seen));
+                        }
+                        Err(error) => {
+                            return Err(error)
+                                .with_context(|| format!("reading {}", path.display()));
+                        }
+                    }
                     continue;
                 }
             }
@@ -1012,5 +1027,38 @@ mod tests {
         std::fs::write(later.join("1.map"), b"x").unwrap();
         assert_eq!(look(t0), Need::Administrator(Why::Folder));
         assert_eq!(walks.get(), 4);
+    }
+
+    #[test]
+    fn a_folder_reached_again_is_kept_while_the_way_there_leads_there() {
+        use crate::user_folder::tests::mount;
+        let game = tempfile::tempdir().unwrap();
+        std::fs::create_dir(game.path().join("data")).unwrap();
+        // `a` leads to `outer\data`, `outer` back into the game: to its
+        // `data`, walked already.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let outer = elsewhere.path().join("outer");
+        junction(game.path(), &outer);
+        junction(&outer.join("data"), &game.path().join("a"));
+        let walked = Mutex::new(Walked::new());
+        let walks = std::cell::Cell::new(0);
+        let mut counted = |folder: &Path| {
+            walks.set(walks.get() + 1);
+            walk(folder)
+        };
+        let t0 = Instant::now();
+        let mut look = |at: Instant| kept(&walked, game.path(), None, at, &mut counted).unwrap();
+        assert_eq!(look(t0), Need::Nothing);
+        assert_eq!(look(t0), Need::Nothing);
+        assert_eq!(walks.get(), 1);
+        // `outer` led elsewhere: `a` now reaches files the user may not
+        // change, though neither `a` nor the game's folders changed.
+        let other = elsewhere.path().join("other");
+        std::fs::create_dir(&other).unwrap();
+        read_only_files(&other.join("data"));
+        std::fs::write(other.join("data").join("1.map"), b"x").unwrap();
+        mount(&outer, &other).unwrap();
+        assert_eq!(look(t0), Need::Administrator(Why::Folder));
+        assert_eq!(walks.get(), 2);
     }
 }

@@ -288,24 +288,26 @@ pub fn refused_path(exe_path: &str, windows: &str) -> Option<String> {
 }
 
 /// `path` as a plain drive path (`C:\...`) when it is on one of this PC's
-/// drives; None for `\\server\share`, `\\?\UNC\...`, `\\?\GLOBALROOT\...`
-/// and every other `\\?\` or `\\.\` path but `\\?\C:\...`. The host runs as
-/// SYSTEM and must not reach out to a share.
+/// drives; None for `\\server\share`, `\\?\UNC\...`, `\\?\GLOBALROOT\...`,
+/// every other `\\?\` or `\\.\` path but `\\?\C:\...`, and every other path
+/// starting with `\`, such as NT's `\??\UNC\...`. The host runs as SYSTEM and
+/// must not reach out to a share.
 pub fn on_this_pc(path: &str) -> Option<String> {
     let path = normalized(path);
     let drive = |rest: &str| {
         let bytes = rest.as_bytes();
         bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && &bytes[1..3] == br":\"
     };
+    // Any other path from the root of a namespace (`\??\UNC\...`,
+    // `\Device\...`) is no drive path either.
     let local = match path
         .strip_prefix(r"\\?\")
         .or_else(|| path.strip_prefix(r"\\.\"))
     {
-        Some(rest) => rest,
-        None => &path,
+        Some(rest) => drive(rest).then_some(rest)?,
+        None => (!path.starts_with('\\')).then_some(path.as_str())?,
     };
-    (!local.starts_with(r"\\") && (local.len() == path.len() || drive(local)))
-        .then(|| local.to_string())
+    Some(local.to_string())
 }
 
 /// Whether `exe_path` is a launcher rather than a game: Nucleus would hook
@@ -983,6 +985,13 @@ mod tests {
             r"\\?\GLOBALROOT\Device\Mup\nas\games\Ice.exe",
             r"\\.\UNC\nas\games\Ice\Ice.exe",
             r"\\?\Volume{0c0d2a1e-0000-0000-0000-100000000000}\Ice.exe",
+            // NT's own namespace, which Windows resolves too.
+            r"\??\UNC\nas\games\Ice\Ice.exe",
+            r"\??\GLOBALROOT\Device\Mup\nas\games\Ice.exe",
+            r"\??\C:\Games\Ice\Ice.exe",
+            "/??/UNC/nas/games/Ice/Ice.exe",
+            r"\Device\Mup\nas\games\Ice.exe",
+            r"\Games\Ice\Ice.exe",
         ] {
             let why = refused_path(share, windows).unwrap();
             assert!(

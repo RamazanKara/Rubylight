@@ -1633,15 +1633,20 @@ mod tests {
         let local = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(local.path().join("steamapps")).unwrap();
         let globalroot = format!(r"\\?\GLOBALROOT\GLOBAL??\{}", reached.path().display());
+        // NT's namespace, which Windows resolves as well.
+        let nt = format!(r"\??\{}", reached.path().display());
         if cfg!(windows) {
-            // The path reaches the library: skipping it is what keeps it out.
+            // The paths reach the library: skipping them is what keeps it out.
             assert!(steamapps(Path::new(&globalroot)).is_some());
+            assert!(steamapps(Path::new(&nt)).is_some());
         }
         let listed = [
             r"\\nas\games".to_string(),
             r"\\?\UNC\nas\games".into(),
             r"\\.\UNC\nas\games".into(),
+            r"\??\UNC\nas\games".into(),
             globalroot,
+            nt,
             local.path().display().to_string(),
         ];
         let folders: String = listed

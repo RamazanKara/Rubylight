@@ -866,6 +866,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("AudioCodecs", Reading::Read),
     ("AudioLayouts", Reading::Read),
     ("PipelineRatesVersion", Reading::Read),
+    ("DisplayScaleVersion", Reading::Read),
     ("TextInputVersion", Reading::Read),
     ("KeyboardLayoutVersion", Reading::Read),
     ("PenBarrelRollVersion", Reading::Read),
@@ -990,7 +991,10 @@ fn expected(feature: Feature) -> Availability {
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),
         // Display modes are the virtual display's. Before Windows 11 (CI's Server 2022)
         // the default mode is disabled, so the host says it is off, not missing a driver.
-        Feature::VirtualDisplay | Feature::VirtualDisplayHdr | Feature::HostDisplayModes => {
+        Feature::VirtualDisplay
+        | Feature::VirtualDisplayHdr
+        | Feature::HostDisplayModes
+        | Feature::DisplayScale => {
             if butterpollo_windows::display::virtual_display_os() {
                 Unsupported(Some(Reason::VirtualDisplayDriver))
             } else {

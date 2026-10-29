@@ -216,6 +216,33 @@ pub fn render_dimensions(width: u32, height: u32, client_scale: i64, app_scale: 
         _ => (width, height),
     }
 }
+/// The launch option a client sets the Windows scale (text and interface
+/// size) of its virtual display with, in percent. `scaleFactor` is a
+/// different thing: it multiplies the size the PC renders at
+/// ([`render_dimensions`]).
+pub const DISPLAY_SCALE_PARAMETER: &str = "rlDisplayScale";
+/// The serverinfo element that says the host reads [`DISPLAY_SCALE_PARAMETER`].
+pub const DISPLAY_SCALE_SERVERINFO_FIELD: &str = "DisplayScaleVersion";
+/// The display scales Windows offers, in percent.
+pub const DISPLAY_SCALES: [u32; 12] = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
+
+/// The client's `rlDisplayScale` choice: None when it sent none, an error for
+/// a scale Windows does not offer. A choice comes before the device, app and
+/// host `dd_virtual_display_scale`, as the client's display arrangement does.
+pub fn client_display_scale(
+    options: &std::collections::BTreeMap<String, String>,
+) -> Result<Option<i64>> {
+    let Some(value) = options.get(DISPLAY_SCALE_PARAMETER) else {
+        return Ok(None);
+    };
+    match value.trim().parse::<u32>() {
+        Ok(percent) if DISPLAY_SCALES.contains(&percent) => Ok(Some(i64::from(percent))),
+        _ => bail!(
+            "invalid {DISPLAY_SCALE_PARAMETER} {value:?}: Windows offers {DISPLAY_SCALES:?} percent"
+        ),
+    }
+}
+
 /// Where a source of another shape sits in the stream, as `(x, y, width,
 /// height)`: centred, keeping its aspect ratio, with black bars around it.
 /// Sizes and offsets are even for 4:2:0 chroma. A shape within a pixel of
@@ -733,6 +760,30 @@ impl LayoutWatch {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_client_display_scale_is_one_windows_offers() {
+        use super::{DISPLAY_SCALE_PARAMETER, client_display_scale};
+        let options = |value: &str| {
+            std::collections::BTreeMap::from([(
+                DISPLAY_SCALE_PARAMETER.to_owned(),
+                value.to_owned(),
+            )])
+        };
+        assert_eq!(client_display_scale(&Default::default()).unwrap(), None);
+        assert_eq!(client_display_scale(&options("150")).unwrap(), Some(150));
+        assert_eq!(client_display_scale(&options(" 500 ")).unwrap(), Some(500));
+        for refused in ["0", "275", "-1", "600", "big", ""] {
+            assert!(
+                client_display_scale(&options(refused)).is_err(),
+                "{refused}"
+            );
+        }
+        // The render scale is a separate option and never reads as a display scale.
+        let render =
+            std::collections::BTreeMap::from([("scaleFactor".to_owned(), "200".to_owned())]);
+        assert_eq!(client_display_scale(&render).unwrap(), None);
+    }
+
     #[test]
     fn a_kept_resolution_is_width_by_height() {
         use super::parse_resolution;

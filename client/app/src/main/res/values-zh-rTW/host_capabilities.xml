@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">虛擬顯示器</string>
     <string name="host_feature_virtual_display_hdr">HDR 虛擬顯示器</string>
     <string name="host_feature_display_modes">電腦顯示模式</string>
+    <string name="host_feature_display_scale">電腦顯示縮放</string>
     <string name="host_feature_fractional_refresh">非整數更新率</string>
     <string name="host_feature_vrr">主機端 VRR</string>
     <string name="host_feature_runtime_bitrate">串流期間變更位元速率</string>

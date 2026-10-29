@@ -277,6 +277,9 @@
     <string name="summary_content_rate_frame_rate">게임이 실제로 실행되는 프레임 속도를 Android에 알려, 일치하는 모드가 있는 화면이 화면이 꺼지지 않고 해당 모드로 전환할 수 있게 합니다. 프레임 타이밍을 보내는 PC와 ‘낮은 주사율 허용’이 필요하며, 2초에 한 번까지만 변경합니다. PyroWave와 적응형 주사율에서는 사용되지 않습니다.</string>
     <string name="title_virtual_display_scale">PC 렌더링 해상도</string>
     <string name="summary_virtual_display_scale">PC가 렌더링하는 해상도를 스트림 해상도의 백분율로 정합니다. 전송되는 영상 크기는 바뀌지 않습니다. 더 적은 픽셀을 보내고 이 기기에서 업스케일하려면 스트림 해상도를 낮추세요.</string>
+    <string name="title_virtual_display_dpi">PC 디스플레이 배율</string>
+    <string name="summary_virtual_display_dpi">가상 디스플레이의 텍스트와 인터페이스 크기입니다. Rubylight PC에서 적용됩니다.</string>
+    <string name="virtual_display_dpi_pc_own">PC 설정 그대로</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">아직 데이터 없음</string>
     <string name="title_export_latency_csv">지연 시간 CSV 내보내기</string>

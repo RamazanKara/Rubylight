@@ -26,3 +26,8 @@ test('an invalid display mode or an unknown preset still opens its section', () 
   assert.match(section(editor({ config_overrides: { stream_preset: 'gone' } }), 'Stream preset'), /\sopen/);
   assert.doesNotMatch(section(editor({}), 'Stream preset'), /\sopen/);
 });
+
+test('the display scale says a scale the device asks for comes first', () => {
+  // Nightjar's PC display scaling (rlDisplayScale) wins over this override on the virtual display.
+  assert.match(editor({}), /A scale the device asks for itself \(Nightjar(&#39;|')s PC display scaling\) comes first on its virtual display\./);
+});

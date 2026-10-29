@@ -176,6 +176,9 @@ public class PreferenceConfiguration {
     static final String ROAMING_METERED_PREF_STRING = "checkbox_roaming_metered";
     private static final String VIRTUAL_DISPLAY_PREF_STRING = "checkbox_virtual_display";
     private static final String VIRTUAL_DISPLAY_SCALE_PREF_STRING = "seekbar_virtual_display_scale";
+    static final String VIRTUAL_DISPLAY_DPI_PREF_STRING = "list_virtual_display_dpi";
+    /** The Windows scales "PC display scaling" offers (rlDisplayScale); 0 keeps the PC's own. */
+    static final int[] VIRTUAL_DISPLAY_DPI_VALUES = {0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500};
     private static final String YUV444_PREF_STRING = "checkbox_yuv444";
     private static final String VRR_PREF_STRING = "checkbox_vrr";
     static final String HOST_FRAME_TIMES_PREF_STRING = "checkbox_host_frame_times";
@@ -375,6 +378,8 @@ public class PreferenceConfiguration {
     // Vote the content rate the host's frame times show to the display (Surface.setFrameRate).
     public boolean contentRateFrameRate;
     public int virtualDisplayScale;
+    // The virtual display's Windows scale in percent; 0 keeps the PC's own.
+    public int virtualDisplayDpi;
     // Where the launch values came from, for the stream log.
     public boolean resolutionFollowsScreen, fromPcProfile;
     // What this PC's displays do during the stream, and the PC's own stream values (for the log).
@@ -648,6 +653,23 @@ public class PreferenceConfiguration {
         try {
             int kbps = Integer.parseInt(stored.trim());
             return kbps < 500 ? 0 : Math.min(kbps, HostStreamProfile.MAX_BITRATE_KBPS);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    static boolean isVirtualDisplayDpi(int percent) {
+        for (int offered : VIRTUAL_DISPLAY_DPI_VALUES) {
+            if (offered == percent) return true;
+        }
+        return false;
+    }
+
+    /** A stored "PC display scaling" choice; anything Windows does not offer keeps the PC's own. */
+    static int virtualDisplayDpi(String stored) {
+        try {
+            int percent = Integer.parseInt(stored.trim());
+            return isVirtualDisplayDpi(percent) ? percent : 0;
         } catch (NumberFormatException e) {
             return 0;
         }
@@ -1397,6 +1419,7 @@ public class PreferenceConfiguration {
         config.roamingMetered = prefs.getBoolean(ROAMING_METERED_PREF_STRING, false);
         config.virtualDisplay = prefs.getBoolean(VIRTUAL_DISPLAY_PREF_STRING, false);
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
+        config.virtualDisplayDpi = virtualDisplayDpi(prefs.getString(VIRTUAL_DISPLAY_DPI_PREF_STRING, "0"));
         config.enableYuv444 = prefs.getBoolean(YUV444_PREF_STRING, false);
         config.vrr = prefs.getBoolean(VRR_PREF_STRING, false);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));

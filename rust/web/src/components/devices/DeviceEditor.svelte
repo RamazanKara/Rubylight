@@ -440,7 +440,7 @@
       <Field
         label="Display scale"
         id="{uid}-scale"
-        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream."
+        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream. A scale the device asks for itself (Nightjar's PC display scaling) comes first on its virtual display."
         error={unknownDisplay('dd_virtual_display_scale') ? `${draft.display.dd_virtual_display_scale} is not a scale the host takes. Choose one.` : undefined}
       >
         <select id="{uid}-scale" class="select" bind:value={draft.display.dd_virtual_display_scale}>

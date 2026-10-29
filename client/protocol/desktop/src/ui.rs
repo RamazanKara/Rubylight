@@ -2343,6 +2343,26 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution.", |ui, s| {
                 ui.add(egui::Slider::new(&mut s.virtual_display_scale, crate::config::RENDER_SCALE).step_by(5.0).suffix("%"))
             });
+            // A PC's own settings offer it only if its host reads rlDisplayScale (DisplayScale).
+            let dpi_gate = display_scale_gate(test_host.and_then(|h| h.info.as_ref())
+                .map_or(nightjar_core::http::Availability::Unknown, |i| i.capabilities.availability(nightjar_core::http::Feature::DisplayScale)));
+            if let Some(note) = dpi_gate {
+                let description = match note {
+                    Some(note) => format!("{} {}", tr("Text and interface size on the virtual display, on Rubylight PCs."), tr(note)),
+                    None => tr("Text and interface size on the virtual display, on Rubylight PCs.").to_owned(),
+                };
+                ui.add_enabled_ui(note.is_none(), |ui| {
+                    setting_row(ui, s, &mut rows, &["virtual_display_dpi"], "PC display scaling", &description, |ui, s| {
+                        egui::ComboBox::from_id_salt("virtual-display-dpi")
+                            .selected_text(display_scale_name(s.virtual_display_dpi))
+                            .show_ui(ui, |ui| {
+                                for percent in crate::config::DISPLAY_SCALES {
+                                    ui.selectable_value(&mut s.virtual_display_dpi, percent, display_scale_name(percent));
+                                }
+                            }).response
+                    });
+                });
+            }
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
                     .selected_text(match s.window_mode {
@@ -3638,6 +3658,26 @@ fn remote_report(ui: &mut Ui, report: &crate::host_page::Report) {
     );
 }
 
+/// How a PC's own settings offer PC display scaling, as Android's per-PC "dpi" row: None hides
+/// it on a host that can never read `rlDisplayScale`; Some(note) draws it, turned off with the
+/// note on a host that could (an older Rubylight, a virtual display that is off or not ready).
+/// The main settings and a PC not reached yet offer it; the launch sends it only to hosts with
+/// `Feature::DisplayScale`.
+fn display_scale_gate(availability: nightjar_core::http::Availability) -> Option<Option<&'static str>> {
+    use nightjar_core::http::{Availability, Reason};
+    match availability {
+        Availability::Supported | Availability::Unknown => Some(None),
+        Availability::Unsupported(Some(Reason::UpdateHost)) => Some(Some(en("Update the host software to use this."))),
+        Availability::Unsupported(Some(Reason::VirtualDisplayOff)) => Some(Some(en("Turn on the virtual display in the host’s settings."))),
+        Availability::Unsupported(Some(Reason::VirtualDisplayDriver)) => Some(Some(en("The host’s virtual display driver isn’t ready."))),
+        Availability::Unsupported(_) => None,
+    }
+}
+
+fn display_scale_name(percent: u32) -> String {
+    if percent == 0 { tr("PC’s own").into() } else { format!("{percent}%") }
+}
+
 fn host_display_name(mode: HostDisplay) -> &'static str {
     match mode {
         HostDisplay::HostDefault => en("Host default"),
@@ -4704,12 +4744,48 @@ mod tests {
         f.settle();
         assert!(shows(&f, "PC render resolution"), "{:?}", f.drawn);
         assert!(shows(&f, "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution."));
-        assert!(!f.drawn.iter().any(|t| t.contains("display scaling") || t.contains("Text and interface size")), "{:?}", f.drawn);
+        // The old name and description went to the Windows scale, a row of its own.
+        assert!(!f.drawn.iter().any(|t| t == "Text and interface size on the virtual display."), "{:?}", f.drawn);
+        assert!(shows(&f, "PC display scaling") && shows(&f, "Text and interface size on the virtual display, on Rubylight PCs."));
         // The slider holds Android's 50-200 %.
         for (set, kept) in [(300, 200), (25, 50), (135, 135)] {
             f.l.settings.virtual_display_scale = set;
             f.settle();
             assert_eq!(f.l.settings.virtual_display_scale, kept, "{set} %");
+        }
+    }
+
+    #[test]
+    fn a_pcs_own_display_scaling_is_offered_only_by_hosts_that_read_it() {
+        use nightjar_core::http::{Availability, Reason};
+        assert_eq!(display_scale_gate(Availability::Supported), Some(None));
+        assert_eq!(display_scale_gate(Availability::Unknown), Some(None), "the main settings and a PC not reached");
+        assert_eq!(display_scale_gate(Availability::Unsupported(None)), None);
+        assert_eq!(display_scale_gate(Availability::Unsupported(Some(Reason::UpdateHost))), Some(Some("Update the host software to use this.")));
+        let info = |extra: &str| {
+            let xml = format!(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state><Permission>1</Permission>{extra}</root>"
+            );
+            nightjar_core::http::ServerInfo::parse(&xml, 47989).expect("the answer parses")
+        };
+        let rubylight = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
+        let description = "Text and interface size on the virtual display, on Rubylight PCs.";
+        for (host, extra, drawn) in [
+            ("Rubylight that reads it", format!("{rubylight}<DisplayScaleVersion>1</DisplayScaleVersion>"), Some(description.to_owned())),
+            ("older Rubylight", rubylight.to_owned(), Some(format!("{description} Update the host software to use this."))),
+            ("Apollo", String::new(), None),
+        ] {
+            let mut f = Frames::with(record("PC", true, false), Reach::Online, Some(info(&extra)), Vec::new());
+            f.size = vec2(1280.0, 12000.0);
+            f.l.unfolded.insert("Display & image");
+            let id = f.hosts.list[0].id;
+            f.l.go(Screen::HostSettings(id));
+            f.settle();
+            assert!(shows(&f, "PC render resolution"), "{host}: {:?}", f.drawn);
+            assert_eq!(shows(&f, "PC display scaling"), drawn.is_some(), "{host}: {:?}", f.drawn);
+            if let Some(drawn) = drawn {
+                assert!(shows(&f, &drawn), "{host}: {:?}", f.drawn);
+            }
         }
     }
 

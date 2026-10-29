@@ -75,7 +75,13 @@ pub struct LaunchRequest {
     pub client_refresh_rate_x100: u32,
     /// The "Host virtual display" setting.
     pub virtual_display: bool,
+    /// The PC's render resolution, in percent of the stream resolution (`scaleFactor`): the
+    /// virtual display is made this much larger or smaller and scaled to the stream size.
     pub virtual_display_scale: u32,
+    /// The Windows scale (text and interface size) of the virtual display, in percent
+    /// (`rlDisplayScale`); 0 keeps the PC's own. Sent only to hosts with
+    /// [`Feature::DisplayScale`].
+    pub virtual_display_dpi: u32,
     pub host_display: HostDisplay,
     pub vrr: bool,
     pub sops: bool,
@@ -121,6 +127,7 @@ impl Default for LaunchRequest {
             client_refresh_rate_x100: 0,
             virtual_display: false,
             virtual_display_scale: 100,
+            virtual_display_dpi: 0,
             host_display: HostDisplay::HostDefault,
             vrr: false,
             sops: true,
@@ -254,6 +261,11 @@ impl LaunchRequest {
                 self.virtual_display_scale
             ));
         }
+        // Also without virtualDisplay=1: the host makes a virtual display of its own by default
+        // and ignores the scale for a stream on a physical one.
+        if !input_only && self.virtual_display_dpi != 0 && caps.has(Feature::DisplayScale) {
+            q.push_str(&format!("&rlDisplayScale={}", self.virtual_display_dpi));
+        }
         if let Some(value) = host_display.wire_value() {
             q.push_str(&format!("&hostDisplay={value}"));
         }
@@ -326,15 +338,24 @@ pub fn parse_launch_reply(text: &str, resume: bool) -> Result<Option<Launched>, 
 
 #[cfg(test)]
 mod tests {
+    use super::super::capabilities::{Availability, Reason};
     use super::super::serverinfo::{tests::RUBYLIGHT, ServerInfo};
     use super::*;
 
     fn rubylight() -> HostCapabilities {
+        rubylight_host(true)
+    }
+
+    /// The Rubylight fixture, with or without `DisplayScaleVersion`.
+    fn rubylight_host(display_scale: bool) -> HostCapabilities {
         // The fixture's virtual display driver is not ready; make it ready.
-        let xml = RUBYLIGHT.replace(
+        let mut xml = RUBYLIGHT.replace(
             "<VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>",
             "<VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>",
         );
+        if display_scale {
+            xml = xml.replace("</root>", "<DisplayScaleVersion>1</DisplayScaleVersion></root>");
+        }
         ServerInfo::parse(&xml, 47989).unwrap().capabilities
     }
 
@@ -389,6 +410,37 @@ mod tests {
     }
 
     #[test]
+    fn the_display_scale_goes_when_chosen_with_or_without_the_virtual_display_switch() {
+        let query = |virtual_display, dpi| {
+            LaunchRequest { virtual_display, virtual_display_dpi: dpi, ..request() }.query(&rubylight(), false)
+        };
+        assert!(!query(true, 0).contains("rlDisplayScale"), "0 keeps the PC's own scale");
+        assert!(query(true, 200).contains("&scaleFactor=100&rlDisplayScale=200"), "the render resolution stays 100 %");
+        // The host makes a virtual display of its own by default (per_client), so the switch
+        // being off does not mean a physical display; the host ignores the scale on one.
+        let off = query(false, 200);
+        assert!(off.contains("&rlDisplayScale=200&") && !off.contains("virtualDisplay"), "{off}");
+        // An input-only launch has no display.
+        let input_only = LaunchRequest { role: AppRole::InputOnly, virtual_display_dpi: 200, ..request() }.query(&rubylight(), false);
+        assert!(!input_only.contains("rlDisplayScale"), "{input_only}");
+    }
+
+    #[test]
+    fn hosts_without_display_scale_version_get_no_display_scale() {
+        // Older Rubylight hosts (2.6.x, 3.0.0-rc.5) ignore rlDisplayScale.
+        let request = LaunchRequest { virtual_display: true, virtual_display_dpi: 200, ..request() };
+        let older = rubylight_host(false);
+        assert_eq!(
+            older.availability(Feature::DisplayScale),
+            Availability::Unsupported(Some(Reason::UpdateHost))
+        );
+        let query = request.query(&older, false);
+        assert!(query.contains("&virtualDisplay=1&scaleFactor=100&"), "{query}");
+        assert!(!query.contains("rlDisplayScale"), "{query}");
+        assert!(request.query(&rubylight_host(true), false).contains("&rlDisplayScale=200&"));
+    }
+
+    #[test]
     fn rubylight_launch_with_every_extension() {
         let request = LaunchRequest {
             app_uuid: "u 1".into(),
@@ -398,6 +450,7 @@ mod tests {
             client_refresh_rate_x100: 5994,
             virtual_display: true,
             virtual_display_scale: 150,
+            virtual_display_dpi: 175,
             host_display: HostDisplay::ExtendedPrimary,
             vrr: true,
             hdr: true,
@@ -412,7 +465,7 @@ mod tests {
             request.query(&rubylight(), false),
             format!(
                 "appid=881448767&appuuid=u%201&mode=2560x1440x59.94&virtualDisplay=1&scaleFactor=150\
-                 &hostDisplay=extended_primary&clientVrrRequested=1&vrr=1&additionalStates=1&sops=1\
+                 &rlDisplayScale=175&hostDisplay=extended_primary&clientVrrRequested=1&vrr=1&additionalStates=1&sops=1\
                  &rikey={KEY}&rikeyid=-2147483525&hdrMode=1&clientHdrCapVersion=0\
                  &clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1\
                  &clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0&localAudioPlayMode=1\

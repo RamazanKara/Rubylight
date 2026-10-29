@@ -1427,6 +1427,8 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         butterpollo_core::extensions::fec_choice(&launch.options)?;
         // So does a refused `rlRateChange`, rather than a stream without 0x553C.
         butterpollo_core::rate_change::launch_choice(&launch.options)?;
+        // And a display scale Windows does not offer (`rlDisplayScale`).
+        butterpollo_core::display_policy::client_display_scale(&launch.options)?;
         // A co-op launch is no background stream; a background stream runs
         // in a Nucleus Co-op session of its own ([`launch_back_half`]).
         launch.background = Some(coop.is_none() && validate_background_launch(&h, &launch)?);

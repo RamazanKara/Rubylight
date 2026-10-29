@@ -324,7 +324,13 @@ pub fn launcher(exe_path: &str) -> bool {
             "ubisoftconnect.exe",
             "battle.net.exe",
             "playgtav.exe",
+            "playrdr2.exe",
             "xboxpcapp.exe",
+            // Frontends that start a library's games.
+            "retrobat.exe",
+            "emulationstation.exe",
+            "launchbox.exe",
+            "bigbox.exe",
         ]
         .contains(&name.as_str())
 }
@@ -648,6 +654,11 @@ mod tests {
             r"D:\Steam\steamapps\common\Fallout 4\Fallout4Launcher.exe",
             r"D:\Steam\steamapps\common\Skyrim Special Edition\SkyrimSELauncher.exe",
             r"D:\Games\GTAV\PlayGTAV.exe",
+            // Named like no launcher.
+            r"D:\Games\RDR2\PlayRDR2.exe",
+            r"D:\games\RetroBat\RetroBat.exe",
+            r"C:\Users\Player\LaunchBox\LaunchBox.exe",
+            r"C:\Users\Player\LaunchBox\BigBox.exe",
         ] {
             assert!(launcher(exe), "{exe}");
         }

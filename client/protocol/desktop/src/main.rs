@@ -181,6 +181,14 @@ fn mode_pixels(w: i32, h: i32, pixel_density: f32) -> (u32, u32) {
     (pixels(w), pixels(h))
 }
 
+/// The refresh rate exclusive fullscreen asks the display for. With VRR it keeps the display's
+/// own: the panel follows the frames up to its top rate, and a mode at the stream's rate would cap
+/// the range (a 60 fps stream would put a 240 Hz panel at 60 Hz). Without VRR the stream's rate,
+/// so each frame gets whole refreshes.
+fn fullscreen_refresh_hz(vrr: bool, display_hz: f32, stream_fps: i32) -> f32 {
+    if vrr && display_hz > 0.0 { display_hz } else { stream_fps as f32 }
+}
+
 /// What the display reported, for the log: the stream's "native" resolution comes from it.
 fn log_display(window: *mut SDL_Window, display: Display) {
     // SAFETY: a live window; the mode pointer is owned by SDL.
@@ -1473,7 +1481,7 @@ impl App {
                         id,
                         facts.width,
                         facts.height,
-                        facts.fps as f32,
+                        fullscreen_refresh_hz(connecting.vrr(), display.refresh_hz, facts.fps),
                         true,
                         &mut mode,
                     ) {
@@ -2294,6 +2302,13 @@ mod tests {
 
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn exclusive_fullscreen_keeps_a_vrr_panels_top_refresh() {
+        assert_eq!(fullscreen_refresh_hz(true, 240.0, 60), 240.0, "a 60 fps stream keeps the 240 Hz mode");
+        assert_eq!(fullscreen_refresh_hz(false, 240.0, 60), 60.0, "without VRR a mode at the stream's rate");
+        assert_eq!(fullscreen_refresh_hz(true, 0.0, 120), 120.0, "no display rate known");
+    }
 
     #[test]
     fn native_resolution_is_the_display_in_pixels_at_any_scaling() {

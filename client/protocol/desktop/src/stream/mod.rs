@@ -513,6 +513,9 @@ impl Connecting {
         }
     }
 
+    /// The stream presents for a VRR display (the setting is on and the swap chain tears).
+    pub fn vrr(&self) -> bool { self.plan.vrr }
+
     /// Ok(Some) once streaming, Err on failure.
     pub fn poll(&mut self) -> Result<Option<(Session, Facts)>, ConnectFailed> {
         let expired = self.plan.recovery.as_ref().is_some_and(|r| r.remaining(recovery::now_ms()) == 0);
@@ -653,6 +656,22 @@ fn race_line(frames: u64, slices: u64, unordered: u64) -> String {
         line.push_str(" (the host is not sending the row order)");
     }
     line
+}
+
+/// Whether a stream runs the display check for VRR: every VRR stream (`vrr`: the setting is on and
+/// the swap chain tears) that presents with tearing, unless `NIGHTJAR_VRR_CHECK` (`forced`) says off.
+/// The VRR setting is on by default, and without the check a fixed refresh display tears.
+fn checks_display_for_vrr(vrr: bool, pacing: PacingMode, forced: Option<bool>) -> bool {
+    vrr && pacing != PacingMode::Vsync && forced != Some(false)
+}
+
+/// The overlay's pacing, which says why a VRR stream waits for the refresh when the display
+/// check turned it to V-Sync.
+fn pacing_label(mode: PacingMode, vsync_fallback: bool) -> &'static str {
+    match mode {
+        PacingMode::Vsync if vsync_fallback => "V-Sync: this display does not refresh on present",
+        mode => mode.label(),
+    }
 }
 
 /// What early decode does on a stream. `NoRecords` is the failure the earlier measurements
@@ -1380,8 +1399,20 @@ pub struct Streaming {
     upscaler: Option<upscale::Upscaler>,
     upscale_failed: bool,
     phase: phase::Phase,
-    /// Whether racing the display's beam can work here, once the beam race is on and a picture is shown.
+    /// Whether racing the display's beam can work here, once the beam race is on and a picture is
+    /// shown; on a VRR stream that tears, whether the display refreshes on present (`sync_vrr`).
     race_probe: Option<race_probe::RaceProbe>,
+    /// The display check runs for VRR: the stream presents with tearing, and a display found to
+    /// scan at its own rate gets V-Sync (off under `NIGHTJAR_VRR_CHECK=0`, for measurement runs).
+    vrr_check: bool,
+    /// The stream turned to V-Sync because the display does not refresh on present.
+    vsync_fallback: bool,
+    /// `NIGHTJAR_VRR_SYNC` on a VRR stream.
+    vrr_sync: present::VrrSync,
+    /// The sync interval the renderer was last given.
+    sync_interval: i32,
+    /// Presents `VrrSync::Scan` held for a scan under way, and how long in all (ns).
+    scan_waits: (u32, u64),
     /// The picture on the display's beam, while racing it is possible (see `sync_race`).
     race_scan: Option<race::Scan>,
     /// The frame in flight under the raced presenter, and what it plans from.
@@ -1572,6 +1603,9 @@ impl Streaming {
         let usb = if settings.usb_forwarding && usb_refused.is_none() { lock(&connecting.shared.host_client).clone() } else { None }
             .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
         let hdr_stream = present::hdr_negotiated(settings.hdr, facts.format);
+        let vrr_check = checks_display_for_vrr(connecting.plan.vrr, connecting.pacing, env_flag("NIGHTJAR_VRR_CHECK"));
+        let vrr_sync = if connecting.plan.vrr { present::VrrSync::parse(std::env::var("NIGHTJAR_VRR_SYNC").ok().as_deref()) } else { present::VrrSync::Off };
+        if vrr_sync != present::VrrSync::Off { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
         let mut streaming = Self {
             usb,
             usb_refused,
@@ -1584,6 +1618,12 @@ impl Streaming {
             upscale_failed: false,
             phase: phase::Phase::default(),
             race_probe: None,
+            vrr_check,
+            vsync_fallback: false,
+            vrr_sync,
+            // As `App::begin_stream` set it.
+            sync_interval: i32::from(connecting.pacing == PacingMode::Vsync),
+            scan_waits: (0, 0),
             race_scan: None,
             racer: race::Racer::default(),
             predictor: None,
@@ -2681,6 +2721,45 @@ impl Streaming {
         }
     }
 
+    /// Turns a VRR stream to V-Sync once the display check finds the display scanning at its own
+    /// rate (`present::after_display_check`), and gives the renderer the sync interval the pacing
+    /// and `NIGHTJAR_VRR_SYNC` ask for.
+    fn sync_vrr(&mut self, renderer: *mut SDL_Renderer) {
+        if let (true, Some(probe)) = (self.vrr_check, &self.race_probe) {
+            let mode = present::after_display_check(self.pacer.mode, probe.verdict());
+            if mode != self.pacer.mode {
+                eprintln!("nightjar: pacing: V-Sync, this display does not refresh on present (display check: {})", probe.line());
+                self.pacer.mode = mode;
+                self.vsync_fallback = true;
+            }
+        }
+        let interval = present::sync_interval(self.pacer.mode, self.vrr_sync);
+        if interval != self.sync_interval {
+            // SAFETY: the live renderer belongs to the presenting thread.
+            if !unsafe { SDL_SetRenderVSync(renderer, interval) } {
+                eprintln!("nightjar: pacing: could not set the sync interval to {interval}: {}", crate::sdl::error());
+            }
+            // Asked once: a renderer that refuses it refuses it every frame.
+            self.sync_interval = interval;
+        }
+    }
+
+    /// `VrrSync::Scan`: while the beam is in the picture's rows, waits for it to leave the last one,
+    /// so the present shows its picture whole. Returns how long it waited (ns).
+    fn wait_out_scan(&mut self) -> u64 {
+        // The tearing modes that present whole pictures; the beam race times its own presents.
+        if self.vrr_sync != present::VrrSync::Scan || !matches!(self.pacer.mode, PacingMode::Immediate | PacingMode::HostTimes) { return 0; }
+        let Some(probe) = &self.race_probe else { return 0 };
+        let (Some(beam), Some(sample)) = (probe.beam(), probe.before()) else { return 0 };
+        let Some(left) = beam.scan_left_ns(&sample) else { return 0 };
+        // Spinning: the wait is under one scan (4.2 ms at 240 Hz), shorter than a sleep can be exact.
+        let until = Instant::now() + Duration::from_nanos(left);
+        while Instant::now() < until { std::hint::spin_loop(); }
+        self.scan_waits.0 += 1;
+        self.scan_waits.1 += left;
+        left
+    }
+
     /// Takes the slices the decoder finished since the last call into the racer.
     fn observe_slices(&mut self, slices: Vec<pyrowave::SliceReady>) {
         // Anything the racer does not take is dropped here, which lets go of its plane set.
@@ -2762,10 +2841,13 @@ impl Streaming {
             }
         }
         draw_overlay(self, renderer);
-        // The beam race probe reads the scan line around the present (nothing when the race is off).
-        if self.facts.beam_race && probe && self.race_probe.is_none() {
-            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps)));
+        // The display probe reads the scan line around the present (nothing with the beam race off
+        // and no VRR check).
+        if (self.facts.beam_race || self.vrr_check) && probe && self.race_probe.is_none() {
+            let topic = if self.facts.beam_race { "beam race" } else { "display check" };
+            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps), topic));
         }
+        if probe { self.wait_out_scan(); }
         let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
@@ -2792,6 +2874,7 @@ impl Streaming {
             self.needs_redraw = true;
         }
         self.sync_race(renderer);
+        self.sync_vrr(renderer);
         // The slices of a frame still being received go out ahead of the beam.
         let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
         let now = session::now_us();
@@ -3041,7 +3124,7 @@ impl Streaming {
         if let Some(reason) = self.facts.beam_race_off {
             lines.push(("Beam race".into(), reason.into()));
         }
-        if let Some(probe) = &self.race_probe {
+        if let (true, Some(probe)) = (self.facts.beam_race, &self.race_probe) {
             lines.push(("Beam race".into(), probe.line()));
         }
         if self.facts.beam_race {
@@ -3055,7 +3138,13 @@ impl Streaming {
             "Render".into(),
             format!("{:.2} ms", avg(w.render_us as f64, w.shown) / 1000.0),
         ));
-        let mut pacing = self.pacer.mode.label().to_owned();
+        let mut pacing = pacing_label(self.pacer.mode, self.vsync_fallback).to_owned();
+        if self.vrr_sync != present::VrrSync::Off && self.pacer.mode != PacingMode::Vsync {
+            pacing.push_str(&format!(", VRR sync {}", self.vrr_sync.label()));
+            if self.scan_waits.0 > 0 {
+                pacing.push_str(&format!(" ({} waits, {:.2} ms each)", self.scan_waits.0, self.scan_waits.1 as f64 / f64::from(self.scan_waits.0) / 1e6));
+            }
+        }
         if self.pacer.mode == PacingMode::HostTimes {
             if let Some(delay) = self.pacer.clock.delay_us() {
                 pacing.push_str(&format!(
@@ -3610,6 +3699,11 @@ impl Streaming {
             eprintln!("nightjar: beam race: frames not raced: {} with under 1 ms to gain, {} not in slices, {} with the first slice missed",
                 skipped[0], skipped[1], skipped[2]);
         }
+        if self.vrr_sync == present::VrrSync::Scan {
+            let (waits, ns) = self.scan_waits;
+            eprintln!("nightjar: VRR sync scan: {waits} presents waited for a scan under way, {:.2} ms each",
+                if waits > 0 { ns as f64 / f64::from(waits) / 1e6 } else { 0.0 });
+        }
         lock(&self.shared.roam_watch).take();
         self.session.stop();
     }
@@ -3804,6 +3898,32 @@ mod tests {
         assert_eq!(roaming_config(&metered, false), RoamingConfig { enabled: true, metered: true, platform_hints: false });
         let off = Settings { client_roaming: false, roaming_metered: true, ..Default::default() };
         assert!(!roaming_config(&off, true).enabled && !roaming_config(&off, false).enabled);
+    }
+
+    #[test]
+    fn every_tearing_vrr_stream_checks_its_display_not_only_the_beam_race() {
+        // The default settings: VRR on, the swap chain tears, Immediate.
+        let (pacing, vrr) = present::pacing(&Settings::default(), true);
+        assert!(checks_display_for_vrr(vrr, pacing, None), "a fixed refresh display would tear on every present unchecked");
+        let host_times = Settings { present_at_host_times: true, ..Default::default() };
+        let (pacing, vrr) = present::pacing(&host_times, true);
+        assert!(checks_display_for_vrr(vrr, pacing, None));
+        // Nothing to check: V-Sync already waits, VRR is off, or the chain cannot tear.
+        let (pacing, vrr) = present::pacing(&Settings::default(), false);
+        assert!(!checks_display_for_vrr(vrr, pacing, None));
+        let off = Settings { vrr: false, vsync: false, ..Default::default() };
+        let (pacing, vrr) = present::pacing(&off, true);
+        assert_eq!(pacing, PacingMode::Immediate);
+        assert!(!checks_display_for_vrr(vrr, pacing, None), "tearing asked for without VRR is the user's choice");
+        assert!(!checks_display_for_vrr(true, PacingMode::Immediate, Some(false)), "NIGHTJAR_VRR_CHECK=0");
+        assert!(checks_display_for_vrr(true, PacingMode::Immediate, Some(true)));
+    }
+
+    #[test]
+    fn the_pacing_line_says_why_a_vrr_stream_waits_for_the_refresh() {
+        assert_eq!(pacing_label(PacingMode::Vsync, true), "V-Sync: this display does not refresh on present");
+        assert_eq!(pacing_label(PacingMode::Vsync, false), "V-Sync", "V-Sync the settings asked for");
+        assert_eq!(pacing_label(PacingMode::Immediate, false), "Immediate");
     }
 
     #[test]

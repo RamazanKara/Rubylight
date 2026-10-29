@@ -2,9 +2,12 @@
 //! line of the window's monitor, calibrates the scan on a thread for the first second, runs the
 //! scan-restart check on the presents that follow (the polling that watches for the new scan runs
 //! on a helper thread, never on the render thread) and keeps the verdict the overlay and the timing
-//! CSV show. Created only when the beam race is on, so a default stream does none of it.
+//! CSV show. Created when the beam race is on, and on a VRR stream that presents with tearing,
+//! where a "no VRR" verdict switches the stream to V-Sync (`Streaming::sync_vrr`). Other streams do
+//! none of it.
 
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use sdl3_sys::everything::*;
 
@@ -45,6 +48,40 @@ fn delays(delays: &[u64]) -> String {
     format!("median {:.2} ms, longest {:.2} ms ({} presents that began a scan)", sorted[sorted.len() / 2] as f64 / 1e6, sorted[sorted.len() - 1] as f64 / 1e6, sorted.len())
 }
 
+/// Presents per second over the last second or so: what the display is asked to show, which can be
+/// far below the stream's rate (a still desktop, a game held at 30 fps).
+#[derive(Debug, Default)]
+struct PresentRate {
+    since: Option<Instant>,
+    count: u32,
+    hz: Option<f64>,
+}
+
+impl PresentRate {
+    fn note(&mut self, at: Instant) {
+        let Some(since) = self.since else {
+            self.since = Some(at);
+            return;
+        };
+        self.count += 1;
+        let elapsed = at.duration_since(since).as_secs_f64();
+        if elapsed >= 1.0 {
+            self.hz = Some(f64::from(self.count) / elapsed);
+            (self.since, self.count) = (Some(at), 0);
+        }
+    }
+
+    /// The rate the display is shown pictures at: the measured one once there is one, never above
+    /// the stream's (`stream_hz`, 0 when not known).
+    fn content_hz(&self, stream_hz: f64) -> f64 {
+        match self.hz {
+            Some(hz) if stream_hz > 0.0 => hz.min(stream_hz),
+            Some(hz) => hz,
+            None => stream_hz,
+        }
+    }
+}
+
 /// How the stream's window sits on its display, read by the presenter.
 #[derive(Clone, Copy, Debug)]
 pub struct Surroundings {
@@ -57,8 +94,11 @@ pub struct Surroundings {
 }
 
 pub struct RaceProbe {
+    /// What the log lines start with: "beam race", or "display check" when only VRR asked for it.
+    topic: &'static str,
     verdict: Verdict,
     reported: String,
+    rate: PresentRate,
     check: RestartCheck,
     beam: Option<Result<Beam, CalibrationError>>,
     calibration: Calibration,
@@ -80,10 +120,12 @@ pub struct RaceProbe {
 }
 
 impl RaceProbe {
-    fn new(scanline_ok: bool) -> Self {
+    fn new(scanline_ok: bool, topic: &'static str) -> Self {
         Self {
+            topic,
             verdict: Verdict::Checking,
             reported: String::new(),
+            rate: PresentRate::default(),
             check: RestartCheck::default(),
             beam: None,
             calibration: Calibration::default(),
@@ -107,6 +149,21 @@ impl RaceProbe {
     /// The overlay's value for the "Beam race" line.
     pub fn line(&self) -> String { self.verdict.line() }
 
+    /// What the display check says so far.
+    pub fn verdict(&self) -> &Verdict { &self.verdict }
+
+    /// The display scans at its own rate whatever is presented ("no VRR"), so a tearing present
+    /// tears: the stream is better off with V-Sync.
+    pub fn fixed_refresh(&self) -> bool { self.verdict.fixed_refresh() }
+
+    /// The scan of the window's display, once calibrated.
+    pub fn beam(&self) -> Option<Beam> {
+        match self.beam {
+            Some(Ok(beam)) => Some(beam),
+            _ => None,
+        }
+    }
+
     /// The beam and how long a tearing present on an idle display takes to start the scan (ns),
     /// when racing is possible: the verdict is on and a present that began a scan was timed.
     pub fn racing(&self) -> Option<(Beam, u64)> {
@@ -119,7 +176,7 @@ impl RaceProbe {
     fn log_change(&mut self) {
         let line = self.verdict.line();
         if line != self.reported {
-            eprintln!("nightjar: beam race: {line}");
+            eprintln!("nightjar: {}: {line}", self.topic);
             self.reported = line;
         }
     }
@@ -139,12 +196,13 @@ impl RaceProbe {
                 self.delay_ns = 0;
                 self.longest_idle_ns = 0;
                 self.beam = None;
+                self.verdict = Verdict::Checking;
                 if follow == Follow::Lost {
-                    eprintln!("nightjar: beam race: the scan line of the monitor the window moved to cannot be read");
+                    eprintln!("nightjar: {}: the scan line of the monitor the window moved to cannot be read", self.topic);
                     self.scanline_ok = false;
                     return false;
                 }
-                eprintln!("nightjar: beam race: the window moved to another monitor, measuring it again");
+                eprintln!("nightjar: {}: the window moved to another monitor, measuring it again", self.topic);
                 true
             }
         }
@@ -157,20 +215,23 @@ impl RaceProbe {
             if let Some(Ok(beam)) = &self.beam {
                 self.longest_idle_ns = beam.longest_idle_ns;
                 eprintln!(
-                    "nightjar: beam race: scan {:.2} ms, {} rows behind {} lines of blanking, {:.1} lines per ms, {:.1} Hz at the top, \
-                     {:.0}% of the readings in the blanking, idling counted from line {}, longest idle {:.1} ms, {} scans",
-                    beam.scan_ns as f64 / 1e6, beam.rows, beam.blank_rows, beam.lines_per_ms, beam.refresh_hz, beam.vblank_fraction * 100.0,
-                    beam.idle_from, beam.longest_idle_ns as f64 / 1e6, beam.scans
+                    "nightjar: {}: scan {:.2} ms, {} rows behind {} lines of blanking, {:.1} lines per ms, {:.1} Hz at the top, \
+                     {:.0}% of the readings in the blanking, idling counted from line {}, longest idle {:.1} ms, {} scans, {:.0} presents a second",
+                    self.topic, beam.scan_ns as f64 / 1e6, beam.rows, beam.blank_rows, beam.lines_per_ms, beam.refresh_hz, beam.vblank_fraction * 100.0,
+                    beam.idle_from, beam.longest_idle_ns as f64 / 1e6, beam.scans, self.rate.content_hz(around.content_hz)
                 );
             }
         }
         if !self.check_said && !self.check.running() {
             self.check_said = true;
             eprintln!(
-                "nightjar: beam race: restart check over {} presents: {} tested, {} did not start a scan within {} ms; scan began after {}",
-                self.check.frames, self.check.tested, self.check.missed, super::scanline::RESTART_WINDOW_NS / 1_000_000, delays(&self.delays)
+                "nightjar: {}: restart check over {} presents: {} tested, {} did not start a scan within {} ms; scan began after {}",
+                self.topic, self.check.frames, self.check.tested, self.check.missed, super::scanline::RESTART_WINDOW_NS / 1_000_000, delays(&self.delays)
             );
         }
+        // A display found to scan at its own rate stays so until the window moves to another one:
+        // the V-Sync it gets then presents without tearing, which would otherwise become the reason.
+        if self.fixed_refresh() { return; }
         let display_hz = match &self.beam { Some(Ok(beam)) => beam.refresh_hz, _ => 0.0 };
         self.verdict = decide(&Evidence {
             tearing: around.tearing,
@@ -178,7 +239,7 @@ impl RaceProbe {
             fullscreen: around.fullscreen,
             beam: self.beam,
             check: self.check,
-            content_hz: around.content_hz,
+            content_hz: self.rate.content_hz(around.content_hz),
             display_hz,
         });
         self.log_change();
@@ -267,21 +328,21 @@ mod win {
 
     impl RaceProbe {
         /// Opens the scan line of the monitor `window` is on and starts the calibration.
-        pub fn start(window: HWND, around: Surroundings) -> Self {
+        pub fn start(window: HWND, around: Surroundings, topic: &'static str) -> Self {
             let scan = Scanline::open(window, Instant::now());
-            let mut probe = Self::new(scan.is_some());
+            let mut probe = Self::new(scan.is_some(), topic);
             probe.scan = scan;
             match &probe.scan {
                 Some(scan) => {
-                    eprintln!("nightjar: beam race: reading the scan line of {} ({} rows)", scan.device_name(), scan.rows());
+                    eprintln!("nightjar: {topic}: reading the scan line of {} ({} rows)", scan.device_name(), scan.rows());
                     probe.helper = Helper::spawn(window, scan.clock());
                     if probe.helper.is_none() {
-                        eprintln!("nightjar: beam race: could not start the restart check's thread");
+                        eprintln!("nightjar: {topic}: could not start the restart check's thread");
                         probe.scanline_ok = false;
                     }
                     probe.calibrate_in_background(window);
                 }
-                None => eprintln!("nightjar: beam race: the scan line of the window's monitor cannot be read (D3DKMTGetScanLine)"),
+                None => eprintln!("nightjar: {topic}: the scan line of the window's monitor cannot be read (D3DKMTGetScanLine)"),
             }
             probe.decide(around);
             probe
@@ -303,7 +364,7 @@ mod win {
                 if let Ok(mut slot) = result.lock() { *slot = Some((generation, outcome)); }
             });
             if let Err(error) = spawned {
-                eprintln!("nightjar: beam race: could not start the calibration: {error}");
+                eprintln!("nightjar: {}: could not start the calibration: {error}", self.topic);
                 self.scanline_ok = false;
             }
         }
@@ -361,7 +422,7 @@ mod win {
                         }
                     }
                     if gone {
-                        eprintln!("nightjar: beam race: the restart check's thread stopped, its scan line cannot be read");
+                        eprintln!("nightjar: {}: the restart check's thread stopped, its scan line cannot be read", self.topic);
                         self.helper = None;
                         self.scanline_ok = false;
                     }
@@ -380,8 +441,8 @@ mod win {
 #[cfg(not(windows))]
 impl RaceProbe {
     /// The scan line is a Windows call: another platform has none to read.
-    fn start_unavailable(around: Surroundings) -> Self {
-        let mut probe = Self::new(false);
+    fn start_unavailable(around: Surroundings, topic: &'static str) -> Self {
+        let mut probe = Self::new(false, topic);
         probe.decide(around);
         probe
     }
@@ -416,17 +477,18 @@ fn hwnd_of(window: *mut SDL_Window) -> windows::Win32::Foundation::HWND {
 
 impl RaceProbe {
     /// Starts the probe for the stream's renderer. `mode_tears`: the pacing mode presents with
-    /// tearing (everything but V-Sync).
-    pub fn begin(renderer: *mut SDL_Renderer, mode_tears: bool, content_hz: f64) -> Self {
+    /// tearing (everything but V-Sync). `topic` starts its log lines.
+    pub fn begin(renderer: *mut SDL_Renderer, mode_tears: bool, content_hz: f64, topic: &'static str) -> Self {
         let (around, window) = surroundings(renderer, mode_tears, content_hz);
         #[cfg(windows)]
-        { Self::start(hwnd_of(window), around) }
+        { Self::start(hwnd_of(window), around, topic) }
         #[cfg(not(windows))]
-        { let _ = window; Self::start_unavailable(around) }
+        { let _ = window; Self::start_unavailable(around, topic) }
     }
 
     /// After a present call returned. `before` is `before()`'s reading from just ahead of it.
     pub fn after_present(&mut self, renderer: *mut SDL_Renderer, before: Option<Sample>, mode_tears: bool, content_hz: f64) {
+        self.rate.note(Instant::now());
         let (around, window) = surroundings(renderer, mode_tears, content_hz);
         #[cfg(windows)]
         self.after(hwnd_of(window), before, around);
@@ -457,7 +519,7 @@ mod tests {
 
     #[test]
     fn a_probe_ignores_the_stale_calibration_and_takes_the_new_one() {
-        let mut probe = RaceProbe::new(true);
+        let mut probe = RaceProbe::new(true, "beam race");
         *probe.calibration.lock().unwrap() = Some((0, Ok(beam())));
         assert!(probe.apply_follow(Follow::Moved), "the new display is measured again");
         probe.decide(around());
@@ -469,7 +531,7 @@ mod tests {
 
     #[test]
     fn a_monitor_that_cannot_be_opened_says_no_scanline() {
-        let mut probe = RaceProbe::new(true);
+        let mut probe = RaceProbe::new(true, "beam race");
         *probe.calibration.lock().unwrap() = Some((0, Ok(beam())));
         probe.decide(around());
         assert!(probe.beam.is_some());
@@ -481,11 +543,43 @@ mod tests {
 
     #[test]
     fn staying_on_the_monitor_keeps_the_measurements() {
-        let mut probe = RaceProbe::new(true);
+        let mut probe = RaceProbe::new(true, "beam race");
         *probe.calibration.lock().unwrap() = Some((0, Ok(beam())));
         probe.decide(around());
         assert!(!probe.apply_follow(Follow::Same));
         assert!(probe.beam.is_some());
         assert_eq!(probe.longest_idle_ns, 17_000_000);
+    }
+
+    #[test]
+    fn the_rate_is_the_presents_measured_never_above_the_streams() {
+        let start = Instant::now();
+        let mut rate = PresentRate::default();
+        let at = |ms: u64| start + std::time::Duration::from_millis(ms);
+        for i in 0..=20 { rate.note(at(i * 50)); }
+        assert_eq!(rate.content_hz(120.0), 20.0, "a still desktop the host repeats at 20 fps, on a 120 fps stream");
+        assert_eq!(rate.content_hz(0.0), 20.0, "with the stream's rate unknown");
+        let mut fast = PresentRate::default();
+        for i in 0..=250 { fast.note(at(i * 4)); }
+        assert_eq!(fast.content_hz(120.0), 120.0, "never above the stream's");
+        assert_eq!(PresentRate::default().content_hz(60.0), 60.0, "the stream's until a second is measured");
+    }
+
+    #[test]
+    fn a_fixed_refresh_stays_fixed_under_the_v_sync_it_gets_until_the_window_moves() {
+        let mut probe = RaceProbe::new(true, "display check");
+        *probe.calibration.lock().unwrap() = Some((0, Ok(Beam { vblank_fraction: 0.01, refresh_hz: 119.5, ..beam() })));
+        probe.decide(around());
+        assert!(!probe.fixed_refresh(), "the calibration alone decides nothing");
+        for _ in 0..super::super::scanline::FIXED_FRAMES { probe.check.push(super::super::scanline::Restart::NotTested); }
+        probe.decide(around());
+        assert!(probe.fixed_refresh(), "{}", probe.line());
+        assert!(probe.beam().is_some());
+        // V-Sync presents do not tear: that is not the reason the display was found fixed.
+        probe.decide(Surroundings { tearing: false, ..around() });
+        assert!(probe.fixed_refresh(), "{}", probe.line());
+        assert!(probe.apply_follow(Follow::Moved));
+        assert!(!probe.fixed_refresh(), "another display is checked again");
+        assert!(probe.beam().is_none());
     }
 }

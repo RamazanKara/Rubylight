@@ -70,6 +70,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | PC display mode<br>`host_display_location` | More | No stored default | Action | Explains where the mode is set: open the PC's menu, choose a mode and confirm Save display mode. Keep PC display primary preserves the monitor's primary role; make virtual display primary moves it to the stream. Saved separately per PC. |
 | Host virtual display<br>`checkbox_virtual_display` | More | Off | On; Off | Enable to request a host display matching the stream. Requires host support and a ready display driver. |
 | PC render resolution<br>`seekbar_virtual_display_scale` | More | 100% | 50%–200%; step 5% | Change the PC's render resolution relative to the stream. Desktop text size stays as set on the host. Requires Host virtual display On. |
+| PC display scaling<br>`list_virtual_display_dpi` | More | PC’s own | PC’s own; 100%; 125%; 150%; 175%; 200%; 225%; 250%; 300%; 350%; 400%; 450%; 500% | Raise for larger text and interface on the virtual display, for example on a small screen; the resolution does not change. PC's own keeps the scale set on the PC. Rubylight PCs read it; other hosts ignore it. |
 | More settings<br>`more_display` | Main | Closed | Action | Shows or hides the Display & image rows that are not main: refresh, image and PC display settings. Settings search and links find them while it is closed. |
 
 ### Controls
@@ -302,6 +303,7 @@ These controls are created in [HostStreamSettings.java](../app/src/main/java/com
 | Frame pacing | Same as all PCs, Lowest latency, Balanced, Balanced with FPS limit, Smoothest video | Pick this PC's trade-off between latency and smoothness. Adaptive refresh replaces it with Lowest latency. |
 | Host virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. |
 | PC render resolution | Same as all PCs, or 50–200% | Change the PC's render resolution relative to the stream. Used with the virtual-display request. |
+| PC display scaling | Same as all PCs, PC’s own, or 100–500% in Windows' steps | Larger text and interface on this PC's virtual display; the resolution does not change. Shown only for PCs whose host reads it, and turned off with the reason on an older Rubylight host. |
 | Prefer YUV 4:4:4 / Force full-range video | Same as all PCs, On, Off | Request supported chroma/range behavior for this PC. |
 | Save | Action | Stores this PC's own values. Takes effect next stream. |
 

@@ -23,4 +23,5 @@
   <AudioCodecs>15</AudioCodecs><AudioLayouts>15</AudioLayouts><TextInputVersion>1</TextInputVersion>
   <KeyboardLayoutVersion>1</KeyboardLayoutVersion><PenBarrelRollVersion>1</PenBarrelRollVersion>
   <PipelineRatesVersion>1</PipelineRatesVersion>
+  <DisplayScaleVersion>1</DisplayScaleVersion>
 </root>

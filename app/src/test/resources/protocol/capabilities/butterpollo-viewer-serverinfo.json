@@ -12,6 +12,7 @@
     "virtual_display": "unsupported",
     "virtual_display_hdr": "unsupported",
     "host_display_modes": "unsupported:update_host",
+    "display_scale": "unsupported:update_host",
     "fractional_refresh": "supported",
     "host_vrr": "supported",
     "runtime_bitrate": "unsupported:update_host",

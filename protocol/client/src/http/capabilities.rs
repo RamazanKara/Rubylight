@@ -28,6 +28,9 @@ pub enum Feature {
     VirtualDisplay,
     VirtualDisplayHdr,
     HostDisplayModes,
+    /// The device sets its virtual display's Windows scale (`rlDisplayScale`,
+    /// `DisplayScaleVersion`); older Rubylight hosts ignore it.
+    DisplayScale,
     FractionalRefresh,
     HostVrr,
     RuntimeBitrate,
@@ -87,7 +90,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Feature; 42] = [
+    pub const ALL: [Feature; 43] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -97,6 +100,7 @@ impl Feature {
         Feature::VirtualDisplay,
         Feature::VirtualDisplayHdr,
         Feature::HostDisplayModes,
+        Feature::DisplayScale,
         Feature::FractionalRefresh,
         Feature::HostVrr,
         Feature::RuntimeBitrate,
@@ -247,6 +251,8 @@ pub struct Evidence {
     pub keyboard_layout_version: i32,
     pub pen_barrel_roll_version: i32,
     pub pipeline_rates_version: i32,
+    /// -1 without `DisplayScaleVersion`: the host ignores `rlDisplayScale`.
+    pub display_scale_version: i32,
     /// `usb`, `clipboard.image` and `folders` in the native features, and the device's `usb`
     /// and `shared_folders` permissions.
     pub usb_offered: bool,
@@ -345,6 +351,7 @@ impl Evidence {
             keyboard_layout_version: -1,
             pen_barrel_roll_version: -1,
             pipeline_rates_version: -1,
+            display_scale_version: -1,
             ..Default::default()
         };
         let (mut encoder, mut initial_encoder) = (false, false);
@@ -394,6 +401,7 @@ impl Evidence {
                     e.pen_barrel_roll_version = unsigned(&text, 0xFFFF) as i32
                 }
                 "PipelineRatesVersion" => e.pipeline_rates_version = unsigned(&text, 0xFFFF) as i32,
+                "DisplayScaleVersion" => e.display_scale_version = unsigned(&text, 0xFFFF) as i32,
                 "NativeApiVersion" => e.native_api_version = unsigned(&text, 0xFFFF) as i32,
                 "PowerActionVersion" => e.power_action_version = unsigned(&text, 0xFFFF) as i32,
                 "SleepSupported" => e.sleep_supported = flag(&text) == Some(true),
@@ -563,6 +571,15 @@ impl Evidence {
                     .rubylight_version()
                     .is_some_and(|v| v >= HOST_DISPLAY_MODES_VERSION)
                 {
+                    update
+                } else {
+                    self.virtual_display()
+                }
+            }
+            Feature::DisplayScale => {
+                if !rubylight {
+                    self.absent(false)
+                } else if self.display_scale_version < 1 {
                     update
                 } else {
                     self.virtual_display()

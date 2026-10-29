@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">Ekran wirtualny</string>
     <string name="host_feature_virtual_display_hdr">Ekran wirtualny HDR</string>
     <string name="host_feature_display_modes">Tryby ekranu komputera</string>
+    <string name="host_feature_display_scale">Skalowanie ekranu komputera</string>
     <string name="host_feature_fractional_refresh">Ułamkowe częstotliwości odświeżania</string>
     <string name="host_feature_vrr">VRR po stronie hosta</string>
     <string name="host_feature_runtime_bitrate">Zmiana szybkości transmisji w trakcie strumienia</string>

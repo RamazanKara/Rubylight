@@ -1,0 +1,35 @@
+# Nightjar for Linux from the release tar.gz, as a Flatpak. Not published anywhere:
+# packaging/linux/build-packages.sh fills in the version and the archive's SHA-256 and writes the
+# result beside the packages. Build it with
+#   flatpak-builder --user --install --install-deps-from=flathub build io.github.ramazankara.nightjar.yml
+# The settings live in ~/.var/app/io.github.ramazankara.nightjar/config/nightjar, apart from a
+# native install's ~/.config/nightjar.
+id: io.github.ramazankara.nightjar
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: nightjar
+finish-args:
+  # Hosts, mDNS discovery and Wake-on-LAN.
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  # The GPU (VA-API, Vulkan), controllers and USB forwarding.
+  - --device=all
+  # SDL3 keeps the screen on during a stream.
+  - --talk-name=org.freedesktop.ScreenSaver
+modules:
+  - name: nightjar
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/nightjar /app/bin /app/share
+      - cp -a . /app/lib/nightjar/
+      - cp -a /app/lib/nightjar/share/. /app/share/
+      - rm -r /app/lib/nightjar/share
+      - ln -s /app/lib/nightjar/nightjar /app/bin/nightjar
+    sources:
+      - type: archive
+        url: https://github.com/RamazanKara/nightjar/releases/download/v@VERSION@/nightjar-desktop-@VERSION@-linux-x86_64.tar.gz
+        sha256: '@SHA256@'

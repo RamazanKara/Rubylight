@@ -19,7 +19,7 @@ const START_LIMIT: Duration = Duration::from_secs(60);
 /// sooner.
 const LAUNCH_LIMIT: Duration = Duration::from_secs(180);
 
-pub const USAGE: &str = "usage: nightjar [--host <name|uuid> [--app <name|uuid>] [--quit-on-exit]]";
+pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit]]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Launch {
@@ -33,6 +33,8 @@ pub enum Parsed {
     /// No arguments: the launcher as usual.
     Gui,
     Help,
+    /// `--version`: print the version and exit, without a window (the packages' install checks).
+    Version,
     Launch(Launch),
 }
 
@@ -54,6 +56,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
         };
         match flag.as_str() {
             "--help" | "-h" if inline.is_none() => return Ok(Parsed::Help),
+            "--version" if inline.is_none() => return Ok(Parsed::Version),
             "--quit-on-exit" if inline.is_none() => quit_on_exit = true,
             "--host" | "--app" => {
                 let value = match inline {
@@ -100,6 +103,39 @@ pub fn shows_error_box(launch: Option<&Launch>) -> bool {
 
 /// Whether this build has a console for the usage text: a Windows release build has none.
 pub const HAS_CONSOLE: bool = !cfg!(all(windows, not(debug_assertions)));
+
+/// Lets a build without a console print into the console it was started from (cmd, PowerShell),
+/// for `--version`. Output redirected into a file or a pipe keeps going there.
+pub fn use_parent_console() {
+    #[cfg(windows)]
+    if !HAS_CONSOLE {
+        use windows::core::w;
+        use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, GetFileType, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_DISK, FILE_TYPE_PIPE, OPEN_EXISTING,
+        };
+        use windows::Win32::System::Console::{AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_OUTPUT_HANDLE};
+        // SAFETY: plain console and file calls on handles of this process; a failure leaves stdout
+        // as it was, and printing then shows nothing, as before.
+        unsafe {
+            if let Ok(handle) = GetStdHandle(STD_OUTPUT_HANDLE) {
+                if !handle.is_invalid() && !handle.0.is_null() {
+                    let kind = GetFileType(handle);
+                    if kind == FILE_TYPE_DISK || kind == FILE_TYPE_PIPE {
+                        return;
+                    }
+                }
+            }
+            // A console parent hands a window program its own console's handles, which are no use
+            // to it until it attaches; then CONOUT$ is that console's screen.
+            if AttachConsole(ATTACH_PARENT_PROCESS).is_ok() {
+                if let Ok(out) = CreateFileW(w!("CONOUT$"), (GENERIC_READ | GENERIC_WRITE).0, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES(0), None) {
+                    let _ = SetStdHandle(STD_OUTPUT_HANDLE, out);
+                }
+            }
+        }
+    }
+}
 
 /// Whether the usage text (`--help`, or a wrong command line) is shown in a box too: only by a
 /// build without a console, where printing it shows nothing, and never for a command line that
@@ -510,6 +546,7 @@ mod tests {
         );
         assert_eq!(args(&["--host", " pc "]), Ok(launch("pc", None, false)));
         assert_eq!(args(&["--help"]), Ok(Parsed::Help));
+        assert_eq!(args(&["--version"]), Ok(Parsed::Version));
     }
 
     #[test]
@@ -523,6 +560,7 @@ mod tests {
         assert!(args(&["--host", "pc", "--fullscreen"]).is_err());
         assert!(args(&["--quit-on-exit=yes", "--host", "pc"]).is_err());
         assert!(args(&["pc"]).is_err());
+        assert!(args(&["--version=1"]).is_err());
     }
 
     fn entry<'a>(

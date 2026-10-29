@@ -870,7 +870,7 @@ fn a_stop_logs_its_reason_the_client_that_asked_and_the_app() {
         .with_target(false)
         .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
         .finish();
-    tracing::subscriber::with_default(subscriber, || {
+    crate::test_log::capture_during(subscriber, || {
         assert_eq!(setup.host().close_game(setup.uuid()), Ok(Outcome::Done));
         // Nothing runs any more: a second stop has nothing to log.
         setup.host().stop_app(crate::state::AppStop::Shutdown);

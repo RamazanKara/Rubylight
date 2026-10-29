@@ -581,10 +581,7 @@ impl Harness {
     async fn configured(timeout_ms: u32, clients: usize, extra: &str) -> Result<Self> {
         let started = Instant::now();
         // A failed test prints what its host logged (the test writer is captured per test).
-        let _ = tracing_subscriber::fmt()
-            .with_test_writer()
-            .with_max_level(tracing::Level::INFO)
-            .try_init();
+        crate::test_log::install();
         let directory =
             std::env::temp_dir().join(format!("butterpollo-reconnect-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory)?;

@@ -2096,7 +2096,7 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
         .with_ansi(false)
         .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
         .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
+    let guard = crate::test_log::capture(subscriber);
     for length in [Some(MIB + 1), None] {
         assert_eq!(
             post_png(&f, Some("image/png"), length, vec![0; MIB + 1]).await,
@@ -2216,7 +2216,7 @@ async fn an_unpaired_device_over_the_clipboard_limit_is_logged_once() {
         .with_ansi(false)
         .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
         .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
+    let guard = crate::test_log::capture(subscriber);
     for _ in 0..3 {
         let request = Request::builder()
             .method("POST")

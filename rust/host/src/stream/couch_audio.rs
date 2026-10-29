@@ -283,7 +283,7 @@ mod tests {
             .finish();
         let memory = Memory::default();
         let warnings = Warnings::default();
-        tracing::subscriber::with_default(subscriber, || {
+        crate::test_log::capture_during(subscriber, || {
             let config = Config::parse("").unwrap();
             let mut audio = CouchAudio::start(&s, &config, &memory, false, false).unwrap();
             assert_eq!(audio.capture_channels(), 8);

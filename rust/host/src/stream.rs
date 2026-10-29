@@ -5635,7 +5635,7 @@ mod tests {
             .with_target(false)
             .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
             .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        crate::test_log::capture_during(subscriber, || {
             let mut config = Config::parse("parity_number=not-a-number").unwrap();
             assert_eq!(config.integer("parity_number", 7), 7);
             apply_overrides(

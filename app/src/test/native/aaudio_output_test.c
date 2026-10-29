@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 static int hardwareFrames = 384;
-static jint stats[11];
+static jint stats[13];
 static int concealCalls, concealResult = -1;
 
 static int32_t burst(AAudioStream* stream) { (void)stream; return 192; }
@@ -18,7 +18,7 @@ static int32_t setSize(AAudioStream* stream, int32_t frames) {
 }
 static jintArray newStats(JNIEnv* env, jsize length) {
     (void)env;
-    assert(length <= 11);
+    assert(length <= 13);
     return stats;
 }
 // Opus concealment stand-in: 2.5 ms units, each sample 1000, or concealResult frames when that is set.
@@ -129,6 +129,38 @@ static void stallsAreConcealedAndTheirPacketsSkipped(void) {
     concealResult = -1;
 }
 
+// Retroid: 192-frame callbacks, a 672-frame reserve. A gap the ring is dry for up to a host period is
+// jitter, which grows the reserve; a longer one is a stall, concealed. The wait for the reserve to fill
+// again once audio is back is not part of the gap.
+static void gapsAreJitterOrStalls(void) {
+    static AudioOutput output;
+    static int16_t ring[4096 * 2], input[4096 * 2], pcm[192 * 2];
+    memset(&output, 0, sizeof(output));
+    audioQueueInit(&output.queue, ring, 4096, 672);
+    output.rate = 48000;
+    assert(audioQueueWrite(&output.queue, input, 672) == 672);
+    for (int i = 0; i < 3; i++) audioFill(&output, pcm, 192);
+    // A packet 2 ms late: the ring runs dry for 96 frames, then refills for three more callbacks.
+    audioFill(&output, pcm, 192);
+    assert(atomic_load(&output.queue.underruns) == 1 && output.dryRun == 96);
+    assert(audioQueueWrite(&output.queue, input, 240) == 240);
+    for (int i = 0; i < 3; i++) audioFill(&output, pcm, 192);
+    assert(output.dryRun == 96);
+    assert(atomic_load(&output.jitterGaps) == 0 && atomic_load(&output.stallGaps) == 0);
+    assert(audioQueueWrite(&output.queue, input, 480) == 432);
+    audioFill(&output, pcm, 192);
+    assert(!output.concealing);
+    assert(atomic_load(&output.jitterGaps) == 1 && atomic_load(&output.stallGaps) == 0);
+
+    // Wi-Fi quiet for 44 ms: the reserve lasts 10 ms of it, then the ring is dry for 34 ms.
+    for (int i = 0; i < 11; i++) audioFill(&output, pcm, 192);
+    assert(output.dryRun == 96 + 8 * 192);
+    assert(audioQueueWrite(&output.queue, input, 672) == 672);
+    audioFill(&output, pcm, 192);
+    assert(atomic_load(&output.jitterGaps) == 1 && atomic_load(&output.stallGaps) == 1);
+    assert(atomic_load(&output.queue.underruns) == 2);
+}
+
 static void copyStats(JNIEnv* env, jintArray array, jsize start, jsize length, const jint* values) {
     (void)env;
     memcpy((jint*)array + start, values, length * sizeof(jint));
@@ -157,6 +189,7 @@ int main(void) {
     assert(stats[7] == 42);
     assert(stats[8] == 384);
     assert(stats[9] == 0 && stats[10] == 0);
+    assert(stats[11] == 0 && stats[12] == 0);
     // The device buffer and the jitter reserve are sized apart: a larger device buffer only adds latency.
     hardwareFrames = 192;
     assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioBuffer(NULL, NULL, handle, 768) == 384);
@@ -199,6 +232,7 @@ int main(void) {
     assert(played > 47000);
     assert(atomic_load(&output.queue.underruns) == 0);
     stallsAreConcealedAndTheirPacketsSkipped();
+    gapsAreJitterOrStalls();
     puts("AAudio output tests passed");
     return 0;
 }

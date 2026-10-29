@@ -221,15 +221,27 @@ pub fn amf_frame_cap_automatic(config: &Config) -> bool {
 /// lowers the scale to what would have fit (`written / bytes`), never below
 /// [`KeyframeCapScale::FLOOR`]; a keyframe that kept to the lower cap and
 /// would still fit at the next step up relaxes it by
-/// [`KeyframeCapScale::RELAX`], back to 1. Only keyframes feed it (IDR,
-/// recovery, a re-encoded cut); a new encoder starts at 1.
+/// [`KeyframeCapScale::RELAX`], back to 1. The written cap holds every frame,
+/// so a driver that ignores it for keyframes must not keep inter frames under
+/// it: a keyframe over the target under a lowered cap, no smaller against its
+/// target than the one that lowered it, returns the scale to 1 for the
+/// encoder's life. Only keyframes feed it (IDR, recovery, a re-encoded cut);
+/// a new encoder starts at 1.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KeyframeCapScale {
     scale: f64,
+    /// The overshoot (bytes over target) of the keyframe that last lowered it.
+    lowered_at: Option<f64>,
+    /// A lower cap did not shrink keyframes: the driver ignores it.
+    ignored: bool,
 }
 impl Default for KeyframeCapScale {
     fn default() -> Self {
-        Self { scale: 1. }
+        Self {
+            scale: 1.,
+            lowered_at: None,
+            ignored: false,
+        }
     }
 }
 impl KeyframeCapScale {
@@ -251,9 +263,20 @@ impl KeyframeCapScale {
         if target == 0 || written == 0 {
             return;
         }
+        if self.ignored {
+            return;
+        }
         let (bytes, target, written) = (bytes as f64, target as f64, written as f64);
         let next = (self.scale * Self::RELAX).min(1.);
         if bytes > 1.1 * target {
+            let overshoot = bytes / target;
+            if written < target && self.lowered_at.is_some_and(|at| overshoot >= at) {
+                self.scale = 1.;
+                self.lowered_at = None;
+                self.ignored = true;
+                return;
+            }
+            self.lowered_at = Some(overshoot);
             self.scale = self.scale.min(written / bytes).max(Self::FLOOR);
         } else if self.scale < 1.
             && bytes >= 0.9 * written
@@ -674,19 +697,39 @@ mod tests {
     }
 
     #[test]
-    fn an_ignored_cap_floors_the_scale_and_the_cap_at_two_frames() {
+    fn a_large_overshoot_floors_the_scale_and_the_cap_at_two_frames() {
         let mut scale = KeyframeCapScale::default();
-        for _ in 0..5 {
-            let written = scale.apply(TARGET, TWO_FRAMES);
-            assert!(written >= TWO_FRAMES);
-            scale.observe(1_908_217, TARGET, written);
-        }
+        scale.observe(4 * TARGET, TARGET, TARGET);
         assert_eq!(scale.scale(), KeyframeCapScale::FLOOR);
         assert_eq!(scale.apply(TARGET, TWO_FRAMES), 583_447);
         // Two frames above the scaled cap hold it there; a target under two
         // frames is not raised.
         assert_eq!(scale.apply(TARGET, 700_000), 700_000);
         assert_eq!(scale.apply(400_000, 700_000), 400_000);
+    }
+
+    #[test]
+    fn a_cap_the_driver_ignores_for_keyframes_returns_the_scale_to_one_for_good() {
+        // RX 9070 XT: keyframes come out the same size whatever the cap.
+        let mut scale = KeyframeCapScale::default();
+        scale.observe(1_908_217, TARGET, TARGET);
+        assert!(scale.scale() < 0.62);
+        let written = scale.apply(TARGET, TWO_FRAMES);
+        scale.observe(1_908_217, TARGET, written);
+        assert_eq!(scale.scale(), 1.);
+        assert_eq!(scale.apply(TARGET, TWO_FRAMES), TARGET);
+        // Inter frames are not held under the target again.
+        for bytes in [1_908_217, 4 * TARGET, TARGET, TARGET / 2] {
+            scale.observe(bytes, TARGET, TARGET);
+            assert_eq!(scale.scale(), 1.);
+        }
+        // A lower cap that shrank the keyframe, if not enough, lowers it more.
+        let mut scale = KeyframeCapScale::default();
+        scale.observe(3 * TARGET / 2, TARGET, TARGET);
+        let first = scale.scale();
+        let written = scale.apply(TARGET, TWO_FRAMES);
+        scale.observe(13 * TARGET / 10, TARGET, written);
+        assert!(scale.scale() < first, "{} {first}", scale.scale());
     }
 
     #[test]

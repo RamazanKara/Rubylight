@@ -19,6 +19,8 @@ pub(super) struct FrameCap {
     automatic: bool,
     requested: Option<u64>,
     effective: Option<u64>,
+    /// The last cap was written under its target (`KeyframeCapScale`).
+    scaled: bool,
 }
 
 impl FrameCap {
@@ -27,7 +29,26 @@ impl FrameCap {
             automatic,
             requested: None,
             effective: None,
+            scaled: false,
         }
+    }
+
+    /// [`FrameCap::update`] for a cap `bytes` written for `target`. The step
+    /// back to the unscaled target always reaches the driver, even a rise the
+    /// 10% filter would skip, so the driver never stays under a target the
+    /// scale says it is back at. Unscaled caps are filtered as before.
+    pub(super) fn update_toward(
+        &mut self,
+        codec: u8,
+        bytes: u64,
+        target: u64,
+        warnings: &Warnings,
+        apply: impl FnMut(&str, i64) -> (Result<()>, Option<i64>),
+    ) -> Option<u64> {
+        if std::mem::replace(&mut self.scaled, bytes < target) && bytes == target {
+            self.requested = None;
+        }
+        self.update(codec, bytes, warnings, apply)
     }
 
     pub(super) fn observe(&mut self, bits: Option<i64>) {
@@ -277,6 +298,30 @@ mod tests {
             bytes = (bytes as f64 * KeyframeCapScale::RELAX) as u64;
         }
         assert_eq!(writes.len(), 4, "{writes:?}");
+    }
+
+    #[test]
+    fn the_clamped_last_relax_step_back_to_the_target_reaches_the_driver() {
+        const TARGET: u64 = 1_166_893;
+        let warnings = Warnings::default();
+        let mut cap = FrameCap::new(true);
+        let mut writes = Vec::new();
+        let mut write = |cap: &mut FrameCap, bytes: u64| {
+            cap.update_toward(2, bytes, TARGET, &warnings, |_, bits| {
+                writes.push(bits as u64 / 8);
+                (Ok(()), Some(bits))
+            })
+        };
+        // A scale of 0.95, then RELAX clamped at 1: a 5% rise.
+        write(&mut cap, 1_108_548);
+        assert_eq!(write(&mut cap, TARGET), Some(TARGET));
+        // Back at the target, small rises of the target itself are filtered
+        // as before.
+        let unscaled = |cap: &mut FrameCap, bytes: u64| {
+            cap.update_toward(2, bytes, bytes, &warnings, |_, _| panic!("{bytes}"))
+        };
+        unscaled(&mut cap, 1_200_000);
+        assert_eq!(writes, [1_108_548, TARGET]);
     }
 
     #[test]

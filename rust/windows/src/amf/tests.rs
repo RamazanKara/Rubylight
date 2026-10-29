@@ -2052,6 +2052,18 @@ fn a_keyframe_is_over_its_cap_past_one_tenth_more() {
 }
 
 #[test]
+fn only_an_automatic_cap_is_a_keyframe_target() {
+    assert_eq!(frame_cap_target(true, 1_166_893), Some(1_166_893));
+    assert_eq!(frame_cap_target(true, 0), None);
+    // An explicit amd_max_frame_size, or driver default: nothing to be over.
+    assert_eq!(frame_cap_target(false, 1_166_893), None);
+    assert!(!over_cap_target(
+        1_908_217,
+        frame_cap_target(false, 1_166_893)
+    ));
+}
+
+#[test]
 #[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
 fn native_an_oversize_scene_cut_goes_out_once_as_a_keyframe_at_its_own_index() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;

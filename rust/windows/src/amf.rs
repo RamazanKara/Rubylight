@@ -281,6 +281,12 @@ fn reencodes_cut(keyframe: bool, bytes: u64, limit: Option<u64>, alone: bool) ->
 fn over_cap_target(bytes: u64, target: Option<u64>) -> bool {
     target.is_some_and(|target| target > 0 && bytes * 10 > target * 11)
 }
+/// The pace-based cap target keyframes are measured against: none for an
+/// explicit `amd_max_frame_size` (including driver default), which is the
+/// user's limit, not the host's.
+fn frame_cap_target(automatic: bool, bytes: u64) -> Option<u64> {
+    (automatic && bytes > 0).then_some(bytes)
+}
 pub struct Encoder {
     pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     component: *mut AMFComponent,
@@ -2207,17 +2213,18 @@ impl Encoder {
     /// keyframes overshoot it ([`KeyframeCapScale`]), never under `floor`;
     /// submissions keep `bytes` as their target.
     pub fn set_frame_cap(&mut self, bytes: u64, floor: u64) -> Option<u64> {
-        self.frame_cap_target = (bytes > 0).then_some(bytes);
+        let target = bytes;
+        self.frame_cap_target = frame_cap_target(self.frame_cap.automatic(), target);
         let bytes = butterpollo_core::encoder_policy::keyframe_cap_bytes(
             self.frame_cap.automatic(),
             self.slice_blocks,
             &self.keyframe_cap,
-            bytes,
+            target,
             floor,
         );
         let component = self.component;
         self.frame_cap
-            .update(self.codec, bytes, &self.warnings, |name, bits| {
+            .update_toward(self.codec, bytes, target, &self.warnings, |name, bits| {
                 // SAFETY: Self owns the live component/runtime for this entire
                 // update. SetProperty copies the terminated name and integer.
                 unsafe {

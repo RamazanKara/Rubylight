@@ -9,9 +9,8 @@
 //! game's .exe of the same name. The values wait in a file beside Nucleus
 //! until then, so what a host that stopped mid-session left comes back when
 //! the service next sees the user sign in at the console or starts a host,
-//! or before the next session. A lock only SYSTEM and administrators open
-//! keeps a restore off a running session's values.
-use crate::child_session::lock::NamedLock;
+//! or before the next session. A lock file only SYSTEM and administrators
+//! open keeps a restore off a running session's values.
 use crate::text::to_wide;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -211,23 +210,47 @@ fn remove_journal(journal: &Path) -> Result<()> {
 /// How long a session's start or check waits for a restore by the service
 /// or another check, each a few registry calls.
 const LOCK_WAIT: Duration = Duration::from_secs(5);
+/// How often a waiting start or check tries the lock again.
+const LOCK_POLL: Duration = Duration::from_millis(50);
+/// The folder below the data root ([`butterpollo_core::paths::data_root`])
+/// that keeps the locks.
+const LOCK_FOLDER: &str = "nucleus-locks";
 
-/// A user's file in use, by a session from before Nucleus starts until its
-/// values are back, or by a restore: a restore never puts back a running
-/// session's values, and two never restore the same file. A `Global\` named
-/// mutex ([`NamedLock`]) only SYSTEM and administrators open, so no other
-/// account can hold it; a host that stopped leaves it abandoned, which the
-/// next one takes. Windows ties a mutex to the thread that took it, and a
-/// session may end on another thread: a thread of the lock's own holds it.
-struct Lock {
-    release: Option<std::sync::mpsc::Sender<()>>,
-    holder: Option<std::thread::JoinHandle<()>>,
+/// Where the locks are kept, and who may own that folder: its owner may
+/// change its permissions, and so hold or replace any lock in it.
+struct Locks {
+    folder: PathBuf,
+    owners: Vec<String>,
+    /// Leaves `folder` and the files in it to SYSTEM and Administrators.
+    restrict: fn(&Path) -> Result<()>,
 }
 
-impl Lock {
-    /// The mutex's name for `journal`: one per file, the same in every
-    /// process (FNV-1a of its path, case aside).
-    fn name(journal: &Path) -> String {
+impl Locks {
+    /// `%ProgramData%\Butterpollo\nucleus-locks`.
+    #[cfg(not(test))]
+    fn installed() -> Self {
+        Self::administrators(butterpollo_core::paths::data_root().join(LOCK_FOLDER))
+    }
+
+    /// Tests keep theirs in a folder of their own.
+    #[cfg(test)]
+    fn installed() -> Self {
+        tests::locks()
+    }
+
+    /// Locks in `folder`, which SYSTEM or Administrators own and alone may
+    /// write.
+    fn administrators(folder: PathBuf) -> Self {
+        Self {
+            folder,
+            owners: vec!["S-1-5-18".into(), "S-1-5-32-544".into()],
+            restrict: crate::process::restrict_to_administrators,
+        }
+    }
+
+    /// The lock file of `journal`: one per file, the same in every process
+    /// (FNV-1a of its path, case aside).
+    fn file(&self, journal: &Path) -> PathBuf {
         let hash = journal
             .to_string_lossy()
             .to_lowercase()
@@ -235,17 +258,88 @@ impl Lock {
             .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
                 (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
             });
-        format!(r"Global\Rubylight.NucleusLayers.{hash:016x}")
+        self.folder.join(format!("{hash:016x}.lock"))
     }
 
+    /// The lock file of `journal`, open without sharing; None while another
+    /// handle has it open.
+    fn open(&self, journal: &Path) -> Result<Option<std::fs::File>> {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        use windows::Win32::Foundation::ERROR_SHARING_VIOLATION;
+        use windows::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        const REPARSE_POINT: u32 = 0x400;
+        let folder = &self.folder;
+        std::fs::create_dir_all(folder)
+            .with_context(|| format!("creating {}", folder.display()))?;
+        // Open while the lock file is opened in it, so it is the folder
+        // checked: it can't be renamed or deleted meanwhile.
+        let open = crate::process::open_unfollowed(folder, true)
+            .with_context(|| format!("opening {}", folder.display()))?;
+        let metadata = open
+            .metadata()
+            .with_context(|| format!("reading {}", folder.display()))?;
+        anyhow::ensure!(
+            metadata.file_attributes() & REPARSE_POINT == 0,
+            "{} is a link to elsewhere, not Rubylight's folder, so Rubylight starts no Nucleus Co-op session: delete it",
+            folder.display()
+        );
+        let owner = crate::process::open_file_owner(&open)
+            .with_context(|| format!("reading the owner of {}", folder.display()))?;
+        anyhow::ensure!(
+            self.owners.contains(&owner),
+            "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may hold or replace its locks; Rubylight starts no Nucleus Co-op session until it is deleted",
+            folder.display()
+        );
+        // Also repairs the permissions of a lock file there already.
+        (self.restrict)(folder)?;
+        let path = self.file(journal);
+        let opened = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .share_mode(0)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+            .open(&path);
+        let file = match opened {
+            Ok(file) => file,
+            Err(error) if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION.0 as i32) => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error).with_context(|| format!("opening {}", path.display())),
+        };
+        let metadata = file
+            .metadata()
+            .with_context(|| format!("reading {}", path.display()))?;
+        anyhow::ensure!(
+            metadata.is_file() && metadata.file_attributes() & REPARSE_POINT == 0,
+            "{} is a link or not a file, not Rubylight's lock, so Rubylight starts no Nucleus Co-op session: delete it",
+            path.display()
+        );
+        drop(open);
+        Ok(Some(file))
+    }
+}
+
+/// A user's file in use, by a session from before Nucleus starts until its
+/// values are back, or by a restore: a restore never puts back a running
+/// session's values, and two never restore the same file. A file below the
+/// data root ([`Locks`]) open without sharing: only SYSTEM and
+/// administrators may open it, and a name nobody else can make first, as
+/// they could a named mutex's. Windows closes the handle of a host that
+/// stopped, which lets go of it, whichever thread took it.
+struct Lock {
+    _file: std::fs::File,
+}
+
+impl Lock {
     /// The lock, or None while a session or another restore holds it.
     fn try_take(journal: &Path) -> Result<Option<Self>> {
-        Self::acquire(journal, Duration::ZERO)
+        Self::acquire(&Locks::installed(), journal, Duration::ZERO)
     }
 
     /// The lock, waiting up to `wait` for a restore to finish.
     fn take(journal: &Path, wait: Duration) -> Result<Self> {
-        Self::acquire(journal, wait)?.with_context(|| {
+        Self::acquire(&Locks::installed(), journal, wait)?.with_context(|| {
             format!(
                 "{} stays in use: a Nucleus Co-op session or the Rubylight service is putting the game's compatibility settings back. Start the stream again once that session ends",
                 journal.display()
@@ -253,55 +347,23 @@ impl Lock {
         })
     }
 
-    fn acquire(journal: &Path, wait: Duration) -> Result<Option<Self>> {
-        let name = Self::name(journal);
-        let (taken, was_taken) = std::sync::mpsc::channel();
-        let (release, released) = std::sync::mpsc::channel::<()>();
-        let holder = std::thread::Builder::new()
-            .name("nucleus-layers-lock".into())
-            .spawn(move || match NamedLock::acquire(&name, wait) {
-                Ok(Some(lock)) => {
-                    let _ = taken.send(Ok(true));
-                    // Until the lock is dropped.
-                    let _ = released.recv();
-                    drop(lock);
-                }
-                Ok(None) => {
-                    let _ = taken.send(Ok(false));
-                }
-                Err(error) => {
-                    let _ = taken.send(Err(error));
-                }
-            })
-            .context("starting the compatibility settings' lock thread")?;
-        let outcome = was_taken
-            .recv()
-            .context("the compatibility settings' lock thread ended")?;
-        match outcome {
-            Ok(true) => Ok(Some(Self {
-                release: Some(release),
-                holder: Some(holder),
-            })),
-            outcome => {
-                let _ = holder.join();
-                outcome.map(|_| None).with_context(|| {
-                    format!(
-                        "taking the lock on {}, which keeps a session's compatibility settings",
-                        journal.display()
-                    )
-                })
+    fn acquire(locks: &Locks, journal: &Path, wait: Duration) -> Result<Option<Self>> {
+        let started = std::time::Instant::now();
+        loop {
+            let file = locks.open(journal).with_context(|| {
+                format!(
+                    "taking the lock on {}, which keeps a session's compatibility settings",
+                    journal.display()
+                )
+            })?;
+            if let Some(file) = file {
+                return Ok(Some(Self { _file: file }));
             }
-        }
-    }
-}
-
-impl Drop for Lock {
-    fn drop(&mut self) {
-        // The holder lets go once its channel closes; released before this
-        // returns, so the next taker never waits on a lock nobody holds.
-        drop(self.release.take());
-        if let Some(holder) = self.holder.take() {
-            let _ = holder.join();
+            let left = wait.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return Ok(None);
+            }
+            std::thread::sleep(left.min(LOCK_POLL));
         }
     }
 }
@@ -790,6 +852,23 @@ pub mod tests {
 
     const GAME: &str = r"D:\Games\Puzzle\Puzzle.exe";
 
+    /// The locks of this process' tests: a folder of their own, never
+    /// Nucleus' or the installed host's. Without administrator rights it
+    /// can't be given to SYSTEM and Administrators, so it stays the user's.
+    pub(super) fn locks() -> Locks {
+        static FOLDER: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let folder = FOLDER
+            .get_or_init(|| tempfile::tempdir().unwrap())
+            .path()
+            .join(LOCK_FOLDER);
+        let mut locks = Locks::administrators(folder);
+        if !crate::process::elevated().unwrap() {
+            locks.owners.extend(crate::process::user_sid());
+            locks.restrict = |_| Ok(());
+        }
+        locks
+    }
+
     /// What Nucleus does as it starts the instances: set each one's DPI mode.
     fn nucleus_runs(map: &Map, paths: &[&str]) {
         for path in paths {
@@ -1126,49 +1205,127 @@ pub mod tests {
     }
 
     #[test]
-    fn the_lock_is_a_mutex_no_other_account_holds_and_a_stopped_host_lets_go() {
+    fn the_lock_is_a_file_only_administrators_write_and_a_closed_holder_lets_go() {
+        use std::os::windows::io::IntoRawHandle;
         let map = Map::default();
         let folder = tempfile::tempdir().unwrap();
         let journal = journal(folder.path(), "S-1-5-21-7");
-        // One per file, the same in every process: a SYSTEM-and-administrators
-        // mutex (NamedLock), never a file another account could open.
-        let name = Lock::name(&journal);
-        assert!(
-            name.starts_with(r"Global\Rubylight.NucleusLayers."),
-            "{name}"
-        );
+        let locks = locks();
+        let elevated = crate::process::elevated().unwrap();
+        // One file per journal in the locks' folder, the same in every
+        // process; nothing of it beside Nucleus.
+        let file = locks.file(&journal);
+        assert_eq!(file.parent(), Some(locks.folder.as_path()));
+        assert_eq!(file.extension().unwrap(), "lock");
         let upper = PathBuf::from(journal.to_string_lossy().to_uppercase());
-        assert_eq!(Lock::name(&upper), name);
-        assert_ne!(Lock::name(&journal.with_extension("other")), name);
+        assert_eq!(locks.file(&upper), file);
+        assert_ne!(locks.file(&journal.with_extension("other")), file);
         let guard = take(&map, folder.path()).unwrap();
-        let other = name.clone();
-        let held = std::thread::spawn(move || {
-            NamedLock::acquire(&other, Duration::ZERO)
+        assert!(file.is_file());
+        let names = |path: &Path| {
+            let mut names: Vec<_> = std::fs::read_dir(path)
                 .unwrap()
-                .is_none()
-        });
-        assert!(held.join().unwrap());
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(names(folder.path()), ["Rubylight-layers-S-1-5-21-7.json"]);
+        // A second taker, on another thread as in another process, waits.
+        let other = journal.clone();
+        let busy = std::thread::spawn(move || Lock::try_take(&other).unwrap().is_none());
+        assert!(busy.join().unwrap());
         drop(guard);
-        let mut files: Vec<_> = std::fs::read_dir(folder.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        files.sort();
-        assert!(files.is_empty(), "{files:?}");
-        // A session that ends on another thread lets go there.
+        assert!(names(folder.path()).is_empty());
+        // Only SYSTEM and Administrators may write the folder and the file.
+        if elevated {
+            for (path, is_folder) in [(&locks.folder, true), (&file, false)] {
+                let open = crate::process::open_unfollowed(path, is_folder).unwrap();
+                let mut writers = crate::process::open_file_writers(&open).unwrap();
+                writers.sort();
+                writers.dedup();
+                assert_eq!(writers, ["S-1-5-18", "S-1-5-32-544"], "{}", path.display());
+            }
+        } else {
+            eprintln!(
+                "not elevated: the lock folder's permissions are checked only in an elevated run, which can give it to SYSTEM and Administrators"
+            );
+        }
+        // A drop lets go, and so does the holder's handle closing on another
+        // thread, as Windows closes the handles of a host that stopped.
         let lock = Lock::try_take(&journal).unwrap().unwrap();
-        std::thread::spawn(move || drop(lock)).join().unwrap();
-        // A host that stopped holding it leaves it abandoned: taken.
-        let other = name.clone();
+        assert!(Lock::try_take(&journal).unwrap().is_none());
+        drop(lock);
+        let lock = Lock::try_take(&journal).unwrap().unwrap();
+        let handle = lock._file.into_raw_handle() as usize;
         std::thread::spawn(move || {
-            std::mem::forget(NamedLock::acquire(&other, Duration::ZERO).unwrap().unwrap());
+            // SAFETY: the handle is open and closed once, here.
+            unsafe {
+                windows::Win32::Foundation::CloseHandle(windows::Win32::Foundation::HANDLE(
+                    handle as *mut _,
+                ))
+            }
+            .unwrap();
         })
         .join()
         .unwrap();
-        let lock = Lock::try_take(&journal).unwrap();
-        assert!(lock.is_some());
-        drop(lock);
+        drop(Lock::try_take(&journal).unwrap().unwrap());
         drop(take(&map, folder.path()).unwrap());
+
+        // A folder another account owns is refused: its owner could change
+        // its permissions and hold or replace the locks.
+        let foreign = tempfile::tempdir().unwrap();
+        let theirs = Locks::administrators(foreign.path().join(LOCK_FOLDER));
+        std::fs::create_dir(&theirs.folder).unwrap();
+        let owner = if elevated {
+            // An administrator's folder is theirs; give it to the user.
+            let user = crate::process::user_sid().unwrap();
+            let status = std::process::Command::new("icacls")
+                .arg(&theirs.folder)
+                .args(["/setowner", &format!("*{user}"), "/Q"])
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "icacls /setowner failed");
+            user
+        } else {
+            crate::process::user_sid().unwrap()
+        };
+        let error = format!(
+            "{:#}",
+            Lock::acquire(&theirs, &journal, Duration::ZERO)
+                .err()
+                .unwrap()
+        );
+        assert!(error.contains(&format!("is owned by {owner}")), "{error}");
+        assert!(
+            error.contains(&theirs.folder.display().to_string()),
+            "{error}"
+        );
+        assert!(names(&theirs.folder).is_empty());
+        // So is a link where the folder should be, never followed.
+        let target = foreign.path().join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        let linked = Locks {
+            folder: foreign.path().join("linked"),
+            ..locks
+        };
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&linked.folder)
+            .arg(&target)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "mklink /J failed");
+        let error = format!(
+            "{:#}",
+            Lock::acquire(&linked, &journal, Duration::ZERO)
+                .err()
+                .unwrap()
+        );
+        assert!(error.contains("is a link to elsewhere"), "{error}");
+        assert!(names(&target).is_empty());
     }
 
     /// Layers whose first change removes the file, as a restore elsewhere

@@ -4,6 +4,7 @@
 # clip from its first picture when the device's stream starts. No display mode, HDR or virtual display change.
 #   tools\hw\demo-stream.ps1 -Clip D:\testmedia\xiph-twitch\GTAV.y4m -Seconds 30 -Package <package dir>
 #       [-Profile C:\tests\game] [-Port 48623] [-Bind 192.168.4.69] [-Stage <dir>] [-Out <dir>] [-Extra 'key = value',...]
+#       [-Wait <seconds for the device's stream to start, 600>]
 # The profile is an existing, paired test profile; only its output_name line changes, and it is put back at the end.
 # The stage directory needs its firewall rule already (never add one); the package is mirrored into it.
 # The caller holds GPU-LOCK (its text starts with -LockOwner). Start the device's stream once READY is printed;
@@ -12,7 +13,7 @@
 param([Parameter(Mandatory)][string]$Clip, [Parameter(Mandatory)][int]$Seconds, [Parameter(Mandatory)][string]$Package,
     [string]$Profile = 'C:\tests\game', [int]$Port = 48623, [string]$Bind = '192.168.4.69',
     [string]$Stage = 'C:\src\butterpollo-release\p444\hostdir', [string]$Out = '', [string[]]$Extra = @(),
-    [string]$At = '0,0', [string]$LockOwner = '', [string]$Log = 'info')
+    [string]$At = '0,0', [string]$LockOwner = '', [string]$Log = 'info', [int]$Wait = 600)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).ProviderPath
 if (-not $Out) { $Out = Join-Path $env:TEMP "demo-stream-$(Get-Date -Format yyyyMMdd-HHmmss)" }
@@ -35,7 +36,8 @@ $player = $null; $hostProcess = $null
 try {
     $player = Start-Process -PassThru -NoNewWindow -FilePath python -ArgumentList @(
         "`"$repo\rust\release\demo_content.py`"", "`"$Clip`"", '--display', "`"$display`"", '--out', "`"$Out`"",
-        '--host-log', "`"$hostLog`"", '--seconds', "$Seconds", '--at', $At) -RedirectStandardOutput "$Out\player.out" -RedirectStandardError "$Out\player.err"
+        '--host-log', "`"$hostLog`"", '--seconds', "$Seconds", '--at', $At, '--wait', "$Wait") -RedirectStandardOutput "$Out\player.out" -RedirectStandardError "$Out\player.err"
+    $null = $player.Handle  # without a handle taken now, ExitCode reads empty after the exit
     $end = (Get-Date).AddSeconds(20)
     while (-not (Test-Path "$Out\target.txt")) {
         if ($player.HasExited -or (Get-Date) -gt $end) { throw "the clip player did not open: $(Get-Content "$Out\player.err" -Raw)" }

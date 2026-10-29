@@ -11,6 +11,8 @@
 # (folder check on, favourites only, only single-keyboard games listed) and
 # puts it back afterwards, also on a failure; the test then checks the click
 # within 15 s, the DPI mode set and restored, and the forced values.
+# Nucleus' Settings.ini is copied to $Out\Settings.ini.before first, so the
+# user's own file is at hand whatever the run does to it.
 # Exit code: the test's.
 param(
     [Parameter(Mandatory)] [string] $Out,
@@ -28,6 +30,17 @@ $exe = ($built | ForEach-Object { try { $_ | ConvertFrom-Json } catch { $null } 
     Where-Object { $_ -and $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'butterpollo' -and $_.profile.test } |
     Select-Object -Last 1).executable
 if (-not $exe) { throw 'the butterpollo test binary was not built' }
+
+# The folder the test runs Nucleus Co-op from (the host's own install).
+$nucleus = Join-Path $env:ProgramData 'Butterpollo\nucleus\2.4.2'
+$settings = Join-Path $nucleus 'Settings.ini'
+if (Test-Path -LiteralPath $settings) {
+    $kept = Join-Path $Out 'Settings.ini.before'
+    Copy-Item -LiteralPath $settings -Destination $kept -Force
+    "Settings.ini kept: $kept"
+} else {
+    "no Settings.ini in $nucleus before the run"
+}
 
 $log = Join-Path $Out 'session.log'
 $done = Join-Path $Out 'done.txt'

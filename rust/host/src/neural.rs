@@ -4,10 +4,11 @@
 //! The mod is AMDNR by 3zwr1 (https://github.com/3zwr1/AMD-NR---OptiScaler,
 //! GPL-3.0), an OptiScaler fork that loads as a proxy DLL. Rubylight never
 //! hosts, bundles, mirrors or modifies its files: when the user turns the
-//! switch on, this PC downloads the release archive straight from that GitHub
-//! release ([`butterpollo_core::neural::allowed_asset`] says which), checks
-//! it against GitHub's digest and the release's own SHA256SUMS.txt, keeps it
-//! in a cache and copies the files unmodified into the game's folder
+//! switch on, this PC downloads the release archive, and the release's own
+//! runtime component when the archive lacks the runtime, straight from that
+//! GitHub release ([`butterpollo_core::neural::asset`] says which), checks
+//! them against GitHub's digests and the release's SHA256SUMS.txt, keeps
+//! them in a cache and copies the files unmodified into the game's folder
 //! ([`folder`]). A launch checks them and applies a newer cached release; a
 //! daily check outside streams refreshes the cache.
 pub mod folder;
@@ -17,7 +18,7 @@ mod tests;
 use crate::state::Shared;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use butterpollo_core::{
-    neural::{self, Gpu, Placed, Release},
+    neural::{self, Download, Gpu, Placed, Release},
     state::App,
 };
 use folder::{PACKAGE, Package, Request, Response};
@@ -376,35 +377,74 @@ pub async fn fetch(
         .await?;
     let have = cached(&root);
     let mut chosen = None;
-    for release in neural::releases(&list).into_iter().take(CANDIDATES) {
+    for mut release in neural::releases(&list).into_iter().take(CANDIDATES) {
         if let Some(have) = have
             .as_ref()
             .filter(|(_, package)| package.tag == release.tag)
         {
             return Ok(have.clone());
         }
-        if whole(&api, &release).await? {
-            chosen = Some(release);
-            break;
+        match whole(&api, &release).await? {
+            Some(neural::Runtime::Package) => {
+                release.runtime = None;
+                chosen = Some(release);
+                break;
+            }
+            Some(neural::Runtime::Component) => {
+                chosen = Some(release);
+                break;
+            }
+            None => {
+                tracing::info!(release = %release.tag, "Neural Rendering: the release lacks the neural runtime or checksums; looking at the one before")
+            }
         }
-        tracing::info!(release = %release.tag, "Neural Rendering: the release's package lacks the neural runtime; looking at the one before");
     }
     let Some(release) = chosen else {
         return have.context(
             "no recent release of the mod has the whole package (its DLL, neural runtime and checksums)",
         );
     };
-    let archive = root.join(format!("{}.zip.partial", release.tag));
-    if let Err(error) = download(h, &release, &archive, background, progress).await {
-        let _ = std::fs::remove_file(&archive);
-        return Err(error);
+    let archives: Vec<&Download> = [Some(&release.package), release.runtime.as_ref()]
+        .into_iter()
+        .flatten()
+        .collect();
+    if let Some(sums) = &release.sums {
+        let path = root.join(format!("{}.partial", sums.asset));
+        let text = match download(h, sums, &path, background, &|_, _| {}).await {
+            Ok(()) => std::fs::read_to_string(&path)
+                .with_context(|| format!("the release's {} is unreadable", sums.asset)),
+            Err(error) => Err(error),
+        };
+        let _ = std::fs::remove_file(&path);
+        let sums = neural::sums(&text?).map_err(anyhow::Error::msg)?;
+        neural::check_archives(&archives, &sums)
+            .map_err(|e| anyhow!("{e}; nothing was downloaded"))?;
+    }
+    let paths: Vec<PathBuf> = archives
+        .iter()
+        .map(|archive| root.join(format!("{}.partial", archive.asset)))
+        .collect();
+    let discard = || {
+        for path in &paths {
+            let _ = std::fs::remove_file(path);
+        }
+    };
+    let total = archives.iter().map(|archive| archive.size).sum();
+    let mut before = 0;
+    for (archive, path) in archives.iter().zip(&paths) {
+        let progress = |done: u64, _: u64| progress(before + done, total);
+        if let Err(error) = download(h, archive, path, background, &progress).await {
+            discard();
+            return Err(error);
+        }
+        before += archive.size;
     }
     let (folder, package) = {
-        let (root, release, archive) = (root.clone(), release.clone(), archive.clone());
-        tokio::task::spawn_blocking(move || extract(&archive, &root, &release)).await?
+        let (root, release, paths) = (root.clone(), release.clone(), paths.clone());
+        tokio::task::spawn_blocking(move || extract(&paths, &root, &release)).await?
     }
-    .inspect_err(|_| drop(std::fs::remove_file(&archive)))?;
-    let _ = std::fs::remove_file(&archive);
+    .inspect_err(|_| discard())?;
+    discard();
     // Games have their own copies; older releases in the cache serve nothing.
     for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
         if entry.path() != folder {
@@ -415,31 +455,42 @@ pub async fn fetch(
             };
         }
     }
-    tracing::info!(release = %release.tag, asset = %release.asset, folder = %folder.display(), "Neural Rendering: downloaded and checked the mod's release");
+    tracing::info!(release = %release.tag, asset = %release.package.asset, runtime = release.runtime.as_ref().map(|r| r.asset.as_str()), folder = %folder.display(), "Neural Rendering: downloaded and checked the mod's release");
     Ok((folder, package))
 }
 
-/// Whether the release's archive has the whole mod, from its file list read
-/// with two range requests.
-async fn whole(api: &reqwest::Client, release: &Release) -> Result<bool> {
-    let span = release.size.min(22 + 65_535);
-    let start = release.size - span;
-    let tail = range(api, &release.url, start, span).await?;
-    let (offset, length) = neural::directory_span(&tail, release.size)
-        .map_err(|e| anyhow!("{}: {e}", release.asset))?;
+/// Whether the release has the whole mod and where its runtime is, from its
+/// archives' file lists read with range requests.
+async fn whole(api: &reqwest::Client, release: &Release) -> Result<Option<neural::Runtime>> {
+    let package = listing(api, &release.package).await?;
+    if let found @ Some(_) = neural::complete(release, &package, None) {
+        return Ok(found);
+    }
+    let Some(runtime) = &release.runtime else {
+        return Ok(None);
+    };
+    let component = listing(api, runtime).await?;
+    Ok(neural::complete(release, &package, Some(&component)))
+}
+
+/// An archive's file names, from its directory read with two range requests.
+async fn listing(api: &reqwest::Client, archive: &Download) -> Result<Vec<String>> {
+    let span = archive.size.min(22 + 65_535);
+    let start = archive.size - span;
+    let tail = range(api, &archive.url, start, span).await?;
+    let (offset, length) = neural::directory_span(&tail, archive.size)
+        .map_err(|e| anyhow!("{}: {e}", archive.asset))?;
     ensure!(
         length <= 16 << 20,
         "{}'s file list is implausibly large",
-        release.asset
+        archive.asset
     );
     let directory = if offset >= start {
         tail[(offset - start) as usize..][..length as usize].to_vec()
     } else {
-        range(api, &release.url, offset, length).await?
+        range(api, &archive.url, offset, length).await?
     };
-    let names =
-        neural::directory_names(&directory).map_err(|e| anyhow!("{}: {e}", release.asset))?;
-    Ok(neural::complete(&names))
+    neural::directory_names(&directory).map_err(|e| anyhow!("{}: {e}", archive.asset))
 }
 
 async fn range(api: &reqwest::Client, url: &str, start: u64, length: u64) -> Result<Vec<u8>> {
@@ -473,11 +524,17 @@ async fn range(api: &reqwest::Client, url: &str, start: u64, length: u64) -> Res
 
 async fn download(
     h: &Shared,
-    release: &Release,
+    release: &Download,
     path: &Path,
     background: bool,
     progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<()> {
+    // `releases` offers nothing else; this keeps it so.
+    ensure!(
+        neural::allowed_asset(&release.asset),
+        "{} is not a file Rubylight fetches",
+        release.asset
+    );
     let _ = std::fs::remove_file(path);
     let mut response = crate::updater::client(Duration::from_secs(1800))?
         .get(&release.url)
@@ -510,8 +567,8 @@ async fn download(
     verified(size, &hex::encode(hash.finalize()), release)
 }
 
-/// The archive is exactly what GitHub published for the release.
-fn verified(size: u64, sha256: &str, release: &Release) -> Result<()> {
+/// The file is exactly what GitHub published for the release.
+fn verified(size: u64, sha256: &str, release: &Download) -> Result<()> {
     ensure!(
         size == release.size,
         "{} is {size} bytes, its release says {}",
@@ -526,34 +583,103 @@ fn verified(size: u64, sha256: &str, release: &Release) -> Result<()> {
     Ok(())
 }
 
-/// Unpack the archive into the cache, each file checked against the
-/// release's SHA256SUMS.txt. Blocks.
-fn extract(archive: &Path, root: &Path, release: &Release) -> Result<(PathBuf, Package)> {
+/// Unpack the release into the cache: the package's files and, from the
+/// runtime component when the release uses one, only the runtime and its
+/// licences. `archives` are the package and the component as downloaded
+/// (already checked against the release's SHA256SUMS.txt when it has one);
+/// an archive with its own checksum list has each file checked against it.
+/// Blocks.
+fn extract(archives: &[PathBuf], root: &Path, release: &Release) -> Result<(PathBuf, Package)> {
     let staging = root.join(format!("{}.partial", release.tag));
     if staging.exists() {
         std::fs::remove_dir_all(&staging)?;
     }
-    std::fs::create_dir_all(staging.join("files"))?;
-    let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
-        .with_context(|| format!("{} is no zip archive", release.asset))?;
-    let mut files = BTreeMap::new();
+    let into = staging.join("files");
+    std::fs::create_dir_all(&into)?;
     let mut total = 0u64;
+    let [package, rest @ ..] = archives else {
+        bail!("no archive to unpack");
+    };
+    let asset = &release.package.asset;
+    let (mut files, sums) = unpack(package, asset, &into, |_| true, &mut total)?;
+    checked(asset, &files, sums, release)?;
+    match (rest, &release.runtime) {
+        ([], None) => {}
+        ([component], Some(runtime)) => {
+            // The package's own licence files stay; the runtime is only in the component.
+            let (taken, sums) = unpack(
+                component,
+                &runtime.asset,
+                &into,
+                |path| neural::from_component(path) && !files.contains_key(path),
+                &mut total,
+            )?;
+            checked(&runtime.asset, &taken, sums, release)?;
+            files.extend(taken);
+        }
+        _ => bail!("the release's archives and its runtime component do not match"),
+    }
+    neural::check_whole(&files)
+        .map_err(|e| anyhow!("{}: {e}; nothing was installed", release.tag))?;
+    let package = Package {
+        tag: release.tag.clone(),
+        asset: asset.clone(),
+        runtime: release
+            .runtime
+            .as_ref()
+            .map(|runtime| runtime.asset.clone()),
+        files,
+    };
+    butterpollo_core::state::write_json(&staging.join(PACKAGE), &package)?;
+    let folder = root.join(&release.tag);
+    if folder.exists() {
+        std::fs::remove_dir_all(&folder)?;
+    }
+    std::fs::rename(&staging, &folder)?;
+    Ok((folder, package))
+}
+
+/// Unpack the entries of one archive that `take` accepts into `into`, with
+/// their SHA-256, and read the archive's own checksum list if it has one.
+/// Every entry must name a path inside the folder, taken or not. Blocks.
+fn unpack(
+    archive: &Path,
+    asset: &str,
+    into: &Path,
+    take: impl Fn(&str) -> bool,
+    total: &mut u64,
+) -> Result<(BTreeMap<String, Placed>, Option<String>)> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
+        .with_context(|| format!("{asset} is no zip archive"))?;
+    let mut files = BTreeMap::new();
+    let mut sums = None;
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
         let name = entry.name().to_owned();
-        let path = neural::entry_path(&name).with_context(|| {
-            format!("{} has a file outside its folder: {name:?}", release.asset)
-        })?;
-        let target = staging.join("files").join(&path);
+        let path = neural::entry_path(&name)
+            .with_context(|| format!("{asset} has a file outside its folder: {name:?}"))?;
         if entry.is_dir() {
-            std::fs::create_dir_all(&target)?;
             continue;
         }
-        ensure!(
-            !files.contains_key(&path),
-            "{} has {path} twice",
-            release.asset
-        );
+        if path == neural::SUMS {
+            ensure!(sums.is_none(), "{asset} has {path} twice");
+            let mut text = String::new();
+            (&mut entry)
+                .take(neural::MAX_SUMS + 1)
+                .read_to_string(&mut text)
+                .with_context(|| format!("{asset}'s {path} is unreadable"))?;
+            ensure!(
+                text.len() as u64 <= neural::MAX_SUMS,
+                "{asset}'s {path} is implausibly large"
+            );
+            sums = Some(text);
+            continue;
+        }
+        if !take(&path) {
+            continue;
+        }
+        ensure!(!files.contains_key(&path), "{asset} has {path} twice");
+        let target = into.join(&path);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -567,11 +693,10 @@ fn extract(archive: &Path, root: &Path, release: &Release) -> Result<(PathBuf, P
                 break;
             }
             size += read as u64;
-            total += read as u64;
+            *total += read as u64;
             ensure!(
-                total <= 4 * neural::MAX_ARCHIVE,
-                "{} unpacks to more than it should",
-                release.asset
+                *total <= 4 * neural::MAX_ARCHIVE,
+                "{asset} unpacks to more than it should"
             );
             hash.update(&buffer[..read]);
             output.write_all(&buffer[..read])?;
@@ -585,27 +710,31 @@ fn extract(archive: &Path, root: &Path, release: &Release) -> Result<(PathBuf, P
             },
         );
     }
-    let sums = std::fs::read_to_string(staging.join("files").join(neural::SUMS))
-        .with_context(|| format!("{} has no {}", release.asset, neural::SUMS))?;
+    Ok((files, sums))
+}
+
+/// An archive's files against its own checksum list; one without a list
+/// needs the release's, which [`fetch`] checked it against.
+fn checked(
+    asset: &str,
+    files: &BTreeMap<String, Placed>,
+    sums: Option<String>,
+    release: &Release,
+) -> Result<()> {
+    let Some(sums) = sums else {
+        ensure!(
+            release.sums.is_some(),
+            "neither {asset} nor its release has a {}; nothing was installed",
+            neural::SUMS
+        );
+        return Ok(());
+    };
     let sums = neural::sums(&sums).map_err(anyhow::Error::msg)?;
     let hashes = files
         .iter()
         .map(|(path, placed)| (path.clone(), placed.sha256.clone()))
         .collect();
-    neural::check_package(&hashes, &sums)
-        .map_err(|e| anyhow!("{}: {e}; nothing was installed", release.asset))?;
-    let package = Package {
-        tag: release.tag.clone(),
-        asset: release.asset.clone(),
-        files,
-    };
-    butterpollo_core::state::write_json(&staging.join(PACKAGE), &package)?;
-    let folder = root.join(&release.tag);
-    if folder.exists() {
-        std::fs::remove_dir_all(&folder)?;
-    }
-    std::fs::rename(&staging, &folder)?;
-    Ok((folder, package))
+    neural::check_files(&hashes, &sums).map_err(|e| anyhow!("{asset}: {e}; nothing was installed"))
 }
 
 // ---- Apps ----

@@ -3,33 +3,42 @@ use serde_json::json;
 use std::io::Write;
 
 #[test]
-fn only_the_mods_own_package_may_be_fetched() {
-    for allowed in [
-        "AMDNR-v0.3.5.8.zip",
-        "AMDNR-v0.3.5.8R4.zip",
-        "AMDNR-v1.0.zip",
-        "AMDNR-v0.4.zip",
+fn only_the_mods_own_package_its_runtime_and_checksums_may_be_fetched() {
+    for (allowed, what) in [
+        ("AMDNR-v0.3.5.8.zip", Asset::Package("0.3.5.8")),
+        ("AMDNR-v0.3.5.8R4.zip", Asset::Package("0.3.5.8R4")),
+        ("AMDNR-v1.0.zip", Asset::Package("1.0")),
+        ("AMDNR-lmxxf-0.3.5.8R2.zip", Asset::Runtime("0.3.5.8R2")),
+        ("SHA256SUMS.txt", Asset::Sums),
     ] {
+        assert_eq!(super::asset(allowed), Some(what), "{allowed}");
         assert!(allowed_asset(allowed), "{allowed}");
     }
     // Everything else the releases carry: the launcher (all rights reserved),
     // the danielblnc runtimes (licensed to the mod only), the capture host,
-    // separate components, the source archive, checksums, and NVIDIA's files.
+    // the Mochi component, the source archive, and NVIDIA's files.
     for refused in [
         "AMDNR-Launcher.exe",
         "v0.8.0-Runtime.zip",
         "v0.6.0-Runtime.zip",
         "Runtime.zip",
+        "AMDNR-lmxxf-0.3.5.8R2-Runtime.zip",
         "Daniel-0.8.0-Manual-AMDNR-0.3.5.8.zip",
         "AMDNR-Anywhere-0.3.5.8R2.zip",
-        "AMDNR-lmxxf-0.3.5.8R2.zip",
         "AMDNR-Mochi-0.3.5.8R2-component.zip",
+        "AMDNR-Mochi-0.0.7-component.zip",
+        "AMDNR-HelixSR-0.3.5.8R2.zip",
         "AMDNR-v0.3.5.8R4-source.zip",
-        "SHA256SUMS.txt",
+        "Launcher/AMDNR-Launcher.zip",
+        "OptiPatcher.zip",
         "nvngx_dlssnr.dll",
         "nvngx_dlss.dll",
+        "SHA256SUMS.txt.exe",
+        "sha256sums.txt",
         "AMDNR-v.zip",
         "AMDNR-vR1.zip",
+        "AMDNR-lmxxf-.zip",
+        "AMDNR-lmxxf-v0.3.5.8.zip",
         "AMDNR-v0.3.5.8.zip.exe",
         "AMDNR-v0.3.5.8.exe",
         "amdnr-v0.3.5.8.zip",
@@ -133,23 +142,98 @@ fn releases_offer_only_the_package_newest_first() {
         found[0],
         Release {
             tag: "Alpha0.3.5.8".into(),
-            asset: "AMDNR-v0.3.5.8.zip".into(),
-            url: format!(
-                "https://github.com/{REPOSITORY}/releases/download/Alpha0.3.5.8/AMDNR-v0.3.5.8.zip"
-            ),
-            digest: "ab".repeat(32),
-            size: 30,
+            package: Download {
+                asset: "AMDNR-v0.3.5.8.zip".into(),
+                url: format!(
+                    "https://github.com/{REPOSITORY}/releases/download/Alpha0.3.5.8/AMDNR-v0.3.5.8.zip"
+                ),
+                digest: "ab".repeat(32),
+                size: 30,
+            },
+            runtime: None,
+            sums: None,
         }
     );
-    assert!(found.iter().all(|r| allowed_asset(&r.asset)));
+    assert!(found.iter().all(|r| allowed_asset(&r.package.asset)));
     assert!(releases(&json!({"message": "rate limited"})).is_empty());
 }
 
-/// The file lists of two real packages: 0.3.5.8 has the whole mod, 0.3.5.8R4
-/// ships the neural runtime as a separate component.
+/// The assets of 0.3.5.8R2 and R4 as GitHub lists them.
+fn split_releases() -> Value {
+    json!([
+        release(
+            "Alpha0.3.5.8R4",
+            "2026-10-29T14:07:20Z",
+            vec![
+                asset("Alpha0.3.5.8R4", "AMDNR-Launcher.exe", 10),
+                asset("Alpha0.3.5.8R4", "AMDNR-v0.3.5.8R4.zip", 535),
+                asset("Alpha0.3.5.8R4", "SHA256SUMS.txt", 5),
+                // A component of another release: never paired with R4's DLL.
+                asset("Alpha0.3.5.8R4", "AMDNR-lmxxf-0.3.5.8R2.zip", 766),
+            ]
+        ),
+        release(
+            "Alpha0.3.5.8R2",
+            "2026-10-28T03:54:54Z",
+            vec![
+                asset("Alpha0.3.5.8R2", "AMDNR-Anywhere-0.3.5.8R2.zip", 132),
+                asset("Alpha0.3.5.8R2", "AMDNR-Launcher.exe", 74),
+                asset("Alpha0.3.5.8R2", "AMDNR-lmxxf-0.3.5.8R2.zip", 766),
+                asset("Alpha0.3.5.8R2", "AMDNR-Mochi-0.3.5.8R2-component.zip", 36),
+                asset("Alpha0.3.5.8R2", "AMDNR-v0.3.5.8R2.zip", 243),
+                asset("Alpha0.3.5.8R2", "SHA256SUMS.txt", 5),
+            ]
+        ),
+    ])
+}
+
 #[test]
-fn a_package_without_the_runtime_is_not_the_whole_mod() {
+fn a_release_pairs_its_package_only_with_its_own_runtime_component() {
+    let found = releases(&split_releases());
+    let (r4, r2) = (&found[0], &found[1]);
+    assert_eq!(r4.tag, "Alpha0.3.5.8R4");
+    assert_eq!(r4.runtime, None, "R2's component does not belong to R4");
+    assert_eq!(r4.sums.as_ref().unwrap().asset, SUMS);
+    assert_eq!(r2.package.asset, "AMDNR-v0.3.5.8R2.zip");
+    let runtime = r2.runtime.as_ref().unwrap();
+    assert_eq!(runtime.asset, "AMDNR-lmxxf-0.3.5.8R2.zip");
+    assert_eq!(
+        runtime.url,
+        format!(
+            "https://github.com/{REPOSITORY}/releases/download/Alpha0.3.5.8R2/AMDNR-lmxxf-0.3.5.8R2.zip"
+        )
+    );
+    // Mochi, Anywhere and the launcher are in no release the host takes.
+    for release in &found {
+        let fetched = [
+            Some(&release.package),
+            release.runtime.as_ref(),
+            release.sums.as_ref(),
+        ];
+        for download in fetched.into_iter().flatten() {
+            assert!(allowed_asset(&download.asset), "{}", download.asset);
+            assert!(!download.asset.contains("Mochi") && !download.asset.contains("Anywhere"));
+        }
+    }
+    // A checksum list too large to be one is left out.
+    let mut list = split_releases();
+    list[1]["assets"][5] = asset("Alpha0.3.5.8R2", "SHA256SUMS.txt", MAX_SUMS + 1);
+    assert_eq!(releases(&list)[1].sums, None);
+}
+
+/// The file lists of real releases: 0.3.5.8 has the whole mod in its
+/// package, 0.3.5.8R2 has its runtime in a separate component, 0.3.5.8R4
+/// has neither.
+#[test]
+fn the_whole_mod_is_in_the_package_or_in_its_releases_runtime_component() {
     let names = |list: &[&str]| list.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    let found = releases(&split_releases());
+    let (r4, r2) = (&found[0], &found[1]);
+    let mut no_sums = r2.clone();
+    no_sums.sums = None;
+    let mut no_component = r2.clone();
+    no_component.runtime = None;
+
     let whole = names(&[
         "Licenses/lmxxf_LICENSE.txt",
         "OptiScaler/libxess.dll",
@@ -159,16 +243,91 @@ fn a_package_without_the_runtime_is_not_the_whole_mod() {
         "OptiScaler.ini",
         "SHA256SUMS.txt",
     ]);
-    assert!(complete(&whole));
+    assert_eq!(complete(&no_sums, &whole, None), Some(Runtime::Package));
+    // The package's own runtime wins over a component.
+    assert_eq!(complete(r2, &whole, Some(&whole)), Some(Runtime::Package));
+
     let split = names(&[
         "Licenses/lmxxf_LICENSE.txt",
         "OptiScaler/libxess.dll",
         "OptiScaler.dll",
         "OptiScaler.ini",
     ]);
-    assert!(!complete(&split));
+    let component = names(&[
+        "Licenses/lmxxf_LICENSE.txt",
+        "LmxxfNrRuntime.dll",
+        "LmxxfNrRuntime.pak",
+        "README.txt",
+        "R2-UPDATE.txt",
+    ]);
+    assert_eq!(
+        complete(r2, &split, Some(&component)),
+        Some(Runtime::Component)
+    );
+    // Without its component (R4), or with one that lacks the model: not whole.
+    assert_eq!(complete(r4, &split, None), None);
+    assert_eq!(
+        complete(r4, &split, Some(&component)),
+        None,
+        "R4 has no component of its own"
+    );
+    assert_eq!(complete(&no_component, &split, Some(&component)), None);
+    assert_eq!(
+        complete(r2, &split, Some(&names(&["LmxxfNrRuntime.dll"]))),
+        None
+    );
+    // Neither the release nor the archive has a checksum list.
+    assert_eq!(complete(&no_sums, &split, Some(&component)), None);
     let unchecked = names(&["LmxxfNrRuntime.dll", "LmxxfNrRuntime.pak", "OptiScaler.dll"]);
-    assert!(!complete(&unchecked), "no checksum list");
+    assert_eq!(complete(&no_sums, &unchecked, None), None);
+    assert_eq!(
+        complete(
+            r2,
+            &names(&["LmxxfNrRuntime.dll", "LmxxfNrRuntime.pak"]),
+            None
+        ),
+        None
+    );
+
+    // Only the runtime and licences come out of a component.
+    assert!(from_component("LmxxfNrRuntime.pak") && from_component("Licenses/lmxxf_LICENSE.txt"));
+    assert!(
+        !from_component("README.txt")
+            && !from_component("R2-UPDATE.txt")
+            && !from_component("OptiScaler.dll")
+    );
+}
+
+#[test]
+fn every_archive_must_be_in_the_releases_checksums_with_its_digest() {
+    let found = releases(&split_releases());
+    let r2 = &found[1];
+    let (package, runtime) = (&r2.package, r2.runtime.as_ref().unwrap());
+    let listed = |runtime_digest: &str| {
+        sums(&format!(
+            "{}  AMDNR-Launcher.exe\n{runtime_digest}  AMDNR-lmxxf-0.3.5.8R2.zip\n{}  AMDNR-v0.3.5.8R2.zip\n",
+            "cd".repeat(32),
+            package.digest
+        ))
+        .unwrap()
+    };
+    assert_eq!(
+        check_archives(&[package, runtime], &listed(&"AB".repeat(32))),
+        Ok(())
+    );
+    assert_eq!(
+        check_archives(&[package, runtime], &listed(&"ef".repeat(32))),
+        Err(format!(
+            "AMDNR-lmxxf-0.3.5.8R2.zip does not match the release's {SUMS}"
+        ))
+    );
+    let mut other = runtime.clone();
+    other.asset = "AMDNR-lmxxf-0.3.5.8R1.zip".into();
+    assert!(
+        check_archives(&[package, &other], &listed(&"ab".repeat(32)))
+            .unwrap_err()
+            .contains("is not in")
+    );
 }
 
 fn archive(names: &[&str], comment: &str) -> Vec<u8> {
@@ -272,24 +431,26 @@ fn every_file_must_match_the_release_checksums() {
     .map(|(path, hash)| (path.to_string(), hash))
     .collect();
     // The runtime zip's file in the list has no file here: that is fine.
-    assert_eq!(check_package(&files, &sums), Ok(()));
+    assert_eq!(check_files(&files, &sums), Ok(()));
+    assert_eq!(check_whole(&files), Ok(()));
 
     let mut changed = files.clone();
     changed.insert("LmxxfNrRuntime.pak".into(), hash("other pak"));
     assert_eq!(
-        check_package(&changed, &sums),
+        check_files(&changed, &sums),
         Err("LmxxfNrRuntime.pak does not match the release's SHA256SUMS.txt".into())
     );
     let mut extra = files.clone();
     extra.insert("payload.dll".into(), hash("payload"));
     assert_eq!(
-        check_package(&extra, &sums),
+        check_files(&extra, &sums),
         Err("payload.dll is not in the release's SHA256SUMS.txt".into())
     );
     let mut missing = files.clone();
     missing.remove("LmxxfNrRuntime.dll");
+    assert_eq!(check_files(&missing, &sums), Ok(()));
     assert_eq!(
-        check_package(&missing, &sums),
+        check_whole(&missing),
         Err("the release has no LmxxfNrRuntime.dll".into())
     );
 

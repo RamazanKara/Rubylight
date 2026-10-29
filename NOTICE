@@ -78,10 +78,14 @@ The per-app Neural Rendering switch (rust/core/src/neural.rs, rust/host/src/neur
 installs AMDNR by 3zwr1 (https://github.com/3zwr1/AMD-NR---OptiScaler), a GPL-3.0
 licensed fork of OptiScaler, into a game's folder. Rubylight does not host, bundle,
 mirror or modify any of its files: at the user's request the host downloads the
-release's AMDNR-v*.zip from that GitHub release on the user's PC, checks it against
-GitHub's digest and the release's SHA256SUMS.txt, and copies its files unmodified,
-license texts included. It never fetches the release's other assets (the launcher,
-separately licensed runtimes, the capture host and other components). The console
+release's AMDNR-v*.zip from that GitHub release on the user's PC and, when that
+package lacks the neural runtime, the same release's AMDNR-lmxxf-*.zip of the same
+version (the lmxxf runtime by Kien, MIT, as the mod's authors distribute it). It
+checks them against GitHub's digests and the release's SHA256SUMS.txt, and copies
+the files unmodified, license texts included; from the runtime component it takes
+only the runtime and its licenses. It never fetches the release's other assets (the
+launcher, the danielblnc runtimes, the capture host, the Mochi component and other
+components). The console
 calls the feature Neural Rendering and does not brand it with the mod's name.
 
 InputPlumber and SDL

@@ -33,12 +33,16 @@ const HASHED_AT_LAUNCH: u64 = 64 << 20;
 const DEPTH: usize = 6;
 const ENTRIES: usize = 50_000;
 
-/// A release in the host's cache: `files/` holds the archive's contents,
-/// each checked against the release's SHA256SUMS.txt.
+/// A release in the host's cache: `files/` holds the package's contents and
+/// the runtime from the release's component, each checked against the
+/// release's SHA256SUMS.txt or the archive's own.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Package {
     pub tag: String,
     pub asset: String,
+    /// The runtime component the runtime came from, when not the package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
     pub files: BTreeMap<String, Placed>,
 }
 impl Package {

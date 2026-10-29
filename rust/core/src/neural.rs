@@ -18,15 +18,21 @@ use std::collections::BTreeMap;
 pub const REPOSITORY: &str = "3zwr1/AMD-NR---OptiScaler";
 /// The largest archive the host downloads (the releases so far are 0.2 to 1.0 GB).
 pub const MAX_ARCHIVE: u64 = 2 << 30;
+/// The largest checksum list the host reads.
+pub const MAX_SUMS: u64 = 1 << 20;
 /// The record of what the host placed in a game folder.
 pub const MANIFEST: &str = "rubylight-neural.json";
-/// The archive's checksum list. It is checked, not placed.
+/// A checksum list: the release's own (of its archives) and, in some
+/// packages, the archive's (of its files). It is checked, not placed.
 pub const SUMS: &str = "SHA256SUMS.txt";
 /// The mod's DLL, placed under one of [`PROXIES`].
 pub const PROXY_SOURCE: &str = "OptiScaler.dll";
-/// What makes an archive the whole mod: the mod, the neural runtime and its
-/// model, which only work as files of one release.
-pub const REQUIRED: [&str; 3] = [PROXY_SOURCE, "LmxxfNrRuntime.dll", "LmxxfNrRuntime.pak"];
+/// The neural runtime and its model: in the package, or in the release's
+/// separate runtime component.
+pub const RUNTIME: [&str; 2] = ["LmxxfNrRuntime.dll", "LmxxfNrRuntime.pak"];
+/// What makes the whole mod: the mod, the neural runtime and its model,
+/// which only work as files of one release.
+pub const REQUIRED: [&str; 3] = [PROXY_SOURCE, RUNTIME[0], RUNTIME[1]];
 /// The names the mod loads under, in the order its guide tries them.
 pub const PROXIES: [&str; 7] = [
     "dxgi.dll",
@@ -50,19 +56,47 @@ const LOGS: [&str; 5] = [
 /// What the manifest's `by` says; removal trusts no other manifest.
 pub const PLACED_BY: &str = "Rubylight";
 
-/// Whether a release asset may be fetched: only the mod's own GPL package,
-/// `AMDNR-v<version>.zip`. The releases also carry other people's work under
-/// other terms (the danielblnc runtime zips are all rights reserved and
-/// licensed to the mod alone), the mod's launcher (all rights reserved), its
-/// capture host and separate components; none of it is fetched, and nothing
-/// from NVIDIA ever is.
-pub fn allowed_asset(name: &str) -> bool {
-    let Some(version) = name
-        .strip_prefix("AMDNR-v")
-        .and_then(|rest| rest.strip_suffix(".zip"))
-    else {
-        return false;
+/// What a release asset the host may fetch is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Asset<'a> {
+    /// `AMDNR-v<version>.zip`: the mod's own package (GPL-3.0).
+    Package(&'a str),
+    /// `AMDNR-lmxxf-<version>.zip`: the neural runtime as the mod's authors
+    /// distribute it beside the package since 0.3.5.8R1 (lmxxf by Kien, MIT).
+    Runtime(&'a str),
+    /// `SHA256SUMS.txt`: the release's checksums of its archives.
+    Sums,
+}
+
+/// What a release asset is, or `None` for one that is never fetched. Only
+/// the mod's own GPL package, the MIT runtime component its authors ship
+/// with it and the release's checksum list may be. The releases also carry
+/// other people's work under other terms: the danielblnc runtime zips
+/// (`*-Runtime.zip`, `Daniel-*`) are all rights reserved and licensed to the
+/// mod alone, the launcher is all rights reserved, and the Anywhere host,
+/// the Mochi component and the HelixSR and d4r models are not the mod's to
+/// pass on. None of it is fetched, and nothing from NVIDIA ever is.
+pub fn asset(name: &str) -> Option<Asset<'_>> {
+    if name == SUMS {
+        return Some(Asset::Sums);
+    }
+    let version = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix(".zip"))
+            .filter(|version| valid_version(version))
     };
+    version("AMDNR-v")
+        .map(Asset::Package)
+        .or_else(|| version("AMDNR-lmxxf-").map(Asset::Runtime))
+}
+
+/// Whether a release asset may be fetched at all; see [`asset`].
+pub fn allowed_asset(name: &str) -> bool {
+    asset(name).is_some()
+}
+
+/// `0.3.5.8` or `0.3.5.8R2`.
+fn valid_version(version: &str) -> bool {
     let digits =
         |part: &str| (1..=4).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit());
     let (numbers, revision) = match version.split_once('R') {
@@ -72,20 +106,32 @@ pub fn allowed_asset(name: &str) -> bool {
     numbers.split('.').count() <= 5 && numbers.split('.').all(digits) && revision.is_none_or(digits)
 }
 
-/// One release's package, as GitHub lists it.
+/// One file of a release, as GitHub lists it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Release {
-    pub tag: String,
+pub struct Download {
     pub asset: String,
     pub url: String,
-    /// GitHub's SHA-256 of the archive, lower-case hex.
+    /// GitHub's SHA-256 of the file, lower-case hex.
     pub digest: String,
     pub size: u64,
 }
 
+/// What one release offers the host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Release {
+    pub tag: String,
+    pub package: Download,
+    /// The runtime component of the package's own version, when the
+    /// release has one. A component of any other version is never paired.
+    pub runtime: Option<Download>,
+    /// The release's `SHA256SUMS.txt`.
+    pub sums: Option<Download>,
+}
+
 /// The releases in GitHub's list (`/repos/{REPOSITORY}/releases`) that offer
 /// the package, newest first. Drafts, pre-releases and releases whose package
-/// has no GitHub digest, an unexpected address or size are left out.
+/// has no GitHub digest, an unexpected address or size are left out; so is a
+/// runtime component or checksum list that has one of those faults.
 pub fn releases(list: &Value) -> Vec<Release> {
     let mut found: Vec<(&str, Release)> = list
         .as_array()
@@ -103,34 +149,45 @@ pub fn releases(list: &Value) -> Vec<Release> {
             {
                 return None;
             }
-            let mut packages = release["assets"]
-                .as_array()?
-                .iter()
-                .filter(|asset| asset["name"].as_str().is_some_and(allowed_asset));
-            let asset = packages.next()?;
-            if packages.next().is_some() {
-                return None;
-            }
-            let name = asset["name"].as_str()?;
-            let url = format!("https://github.com/{REPOSITORY}/releases/download/{tag}/{name}");
-            if asset["browser_download_url"] != url.as_str() {
-                return None;
-            }
-            let digest = asset["digest"]
-                .as_str()?
-                .strip_prefix("sha256:")
-                .filter(|d| d.len() == 64 && d.bytes().all(|b| b.is_ascii_hexdigit()))?;
-            let size = asset["size"]
-                .as_u64()
-                .filter(|size| *size > 0 && *size <= MAX_ARCHIVE)?;
-            Some((
-                release["published_at"].as_str().unwrap_or(""),
-                Release {
-                    tag: tag.into(),
+            let assets = release["assets"].as_array()?;
+            let download = |name: &str, limit: u64| {
+                let asset = assets.iter().find(|asset| asset["name"] == name)?;
+                let url = format!("https://github.com/{REPOSITORY}/releases/download/{tag}/{name}");
+                if asset["browser_download_url"] != url.as_str() {
+                    return None;
+                }
+                let digest = asset["digest"]
+                    .as_str()?
+                    .strip_prefix("sha256:")
+                    .filter(|d| d.len() == 64 && d.bytes().all(|b| b.is_ascii_hexdigit()))?;
+                let size = asset["size"]
+                    .as_u64()
+                    .filter(|size| *size > 0 && *size <= limit)?;
+                Some(Download {
                     asset: name.into(),
                     url,
                     digest: digest.to_ascii_lowercase(),
                     size,
+                })
+            };
+            let mut packages =
+                assets
+                    .iter()
+                    .filter_map(|asset| match self::asset(asset["name"].as_str()?)? {
+                        Asset::Package(version) => Some((asset["name"].as_str()?, version)),
+                        _ => None,
+                    });
+            let (name, version) = packages.next()?;
+            if packages.next().is_some() {
+                return None;
+            }
+            Some((
+                release["published_at"].as_str().unwrap_or(""),
+                Release {
+                    tag: tag.into(),
+                    package: download(name, MAX_ARCHIVE)?,
+                    runtime: download(&format!("AMDNR-lmxxf-{version}.zip"), MAX_ARCHIVE),
+                    sums: download(SUMS, MAX_SUMS),
                 },
             ))
         })
@@ -139,14 +196,64 @@ pub fn releases(list: &Value) -> Vec<Release> {
     found.into_iter().map(|(_, release)| release).collect()
 }
 
-/// Whether an archive with these entries holds the whole mod. Some releases
-/// ship the neural runtime as a separate component; their package alone
-/// would install a mod without its model.
-pub fn complete(names: &[String]) -> bool {
-    REQUIRED
-        .iter()
-        .chain([&SUMS])
-        .all(|required| names.iter().any(|name| name == required))
+/// Where a release's neural runtime comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Runtime {
+    Package,
+    Component,
+}
+
+/// Whether a release holds the whole mod, from its archives' file lists:
+/// the mod's DLL in the package, the neural runtime in the package or else
+/// in the release's own runtime component, and a checksum list for each
+/// archive used (the release's or the archive's own). Without them the
+/// package alone would install a mod without its model.
+pub fn complete(
+    release: &Release,
+    package: &[String],
+    component: Option<&[String]>,
+) -> Option<Runtime> {
+    let has = |names: &[String], file: &str| names.iter().any(|name| name == file);
+    let checked = |names: &[String]| release.sums.is_some() || has(names, SUMS);
+    if !has(package, PROXY_SOURCE) || !checked(package) {
+        return None;
+    }
+    if RUNTIME.iter().all(|file| has(package, file)) {
+        return Some(Runtime::Package);
+    }
+    release.runtime.as_ref()?;
+    let component = component?;
+    (RUNTIME.iter().all(|file| has(component, file)) && checked(component))
+        .then_some(Runtime::Component)
+}
+
+/// Each archive the host downloads must be in the release's checksum list
+/// with the digest GitHub reports for it.
+pub fn check_archives(
+    archives: &[&Download],
+    sums: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    for archive in archives {
+        match sums.get(&archive.asset) {
+            None => return Err(format!("{} is not in the release's {SUMS}", archive.asset)),
+            Some(listed) if *listed != archive.digest => {
+                return Err(format!(
+                    "{} does not match the release's {SUMS}",
+                    archive.asset
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// What the host takes from a runtime component: the runtime and its
+/// licences. The component also carries notes for the mod's launcher that
+/// clash with the package's own, and its authors say not to unpack it into
+/// the game folder whole.
+pub fn from_component(path: &str) -> bool {
+    RUNTIME.contains(&path) || path.to_ascii_lowercase().starts_with("licenses/")
 }
 
 fn u16_at(bytes: &[u8], at: usize) -> Option<u64> {
@@ -258,11 +365,11 @@ pub fn sums(text: &str) -> Result<BTreeMap<String, String>, String> {
     Ok(sums)
 }
 
-/// Check an unpacked package: every file is in its checksum list with the
-/// same SHA-256, and the whole mod is there. `files` maps each path (with
-/// `/`) to its SHA-256. Paths in the list without a file are other
-/// downloads' files (the list also covers the separate runtime zips).
-pub fn check_package(
+/// Check an unpacked archive against its own checksum list: every file is
+/// in it with the same SHA-256. `files` maps each path (with `/`) to its
+/// SHA-256. Paths in the list without a file are other downloads' files
+/// (the list also covers the separate runtime zips).
+pub fn check_files(
     files: &BTreeMap<String, String>,
     sums: &BTreeMap<String, String>,
 ) -> Result<(), String> {
@@ -278,6 +385,11 @@ pub fn check_package(
             Some(_) => {}
         }
     }
+    Ok(())
+}
+
+/// The whole mod is among the unpacked files.
+pub fn check_whole<V>(files: &BTreeMap<String, V>) -> Result<(), String> {
     match REQUIRED
         .iter()
         .find(|required| !files.contains_key(**required))

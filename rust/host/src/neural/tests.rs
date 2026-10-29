@@ -44,6 +44,7 @@ fn package(root: &Path, tag: &str, files: &[(&str, &[u8])]) -> PathBuf {
     let package = Package {
         tag: tag.into(),
         asset: format!("AMDNR-v{tag}.zip"),
+        runtime: None,
         files: placed,
     };
     std::fs::write(
@@ -450,13 +451,22 @@ fn sums(files: &[(&str, &[u8])]) -> String {
         .collect()
 }
 
-fn listed(tag: &str) -> Release {
-    Release {
-        tag: tag.into(),
-        asset: format!("AMDNR-v{tag}.zip"),
+fn file(asset: String) -> Download {
+    Download {
+        asset,
         url: String::new(),
         digest: String::new(),
         size: 0,
+    }
+}
+
+/// A release whose package carries the runtime and its own checksum list.
+fn listed(tag: &str) -> Release {
+    Release {
+        tag: tag.into(),
+        package: file(format!("AMDNR-v{tag}.zip")),
+        runtime: None,
+        sums: None,
     }
 }
 
@@ -474,7 +484,8 @@ fn the_cache_takes_a_release_only_when_every_file_matches_its_checksums() {
     good.push(("SHA256SUMS.txt", text.as_bytes()));
     let zip = temp.path().join("good.zip");
     archive(&zip, &good);
-    let (folder, package) = extract(&zip, temp.path(), &listed("Alpha0.3.5.8")).unwrap();
+    let extract = |zip: &Path, release: &Release| extract(&[zip.to_owned()], temp.path(), release);
+    let (folder, package) = extract(&zip, &listed("Alpha0.3.5.8")).unwrap();
     assert_eq!(folder, temp.path().join("Alpha0.3.5.8"));
     assert_eq!(package.files["LmxxfNrRuntime.pak"].sha256, sha(b"model"));
     assert_eq!(
@@ -487,7 +498,7 @@ fn the_cache_takes_a_release_only_when_every_file_matches_its_checksums() {
     changed[2] = ("LmxxfNrRuntime.pak", b"other model");
     let zip = temp.path().join("changed.zip");
     archive(&zip, &changed);
-    let error = extract(&zip, temp.path(), &listed("Alpha0.3.5.9"))
+    let error = extract(&zip, &listed("Alpha0.3.5.9"))
         .unwrap_err()
         .to_string();
     assert!(
@@ -500,16 +511,91 @@ fn the_cache_takes_a_release_only_when_every_file_matches_its_checksums() {
     outside.push(("../evil.dll", b"evil"));
     let zip = temp.path().join("outside.zip");
     archive(&zip, &outside);
-    assert!(extract(&zip, temp.path(), &listed("Alpha0.4")).is_err());
+    assert!(extract(&zip, &listed("Alpha0.4")).is_err());
     assert!(!temp.path().join("evil.dll").exists());
+
+    // No checksum list in the archive and none in the release.
+    let zip = temp.path().join("unchecked.zip");
+    archive(&zip, &files);
+    let error = extract(&zip, &listed("Alpha0.5")).unwrap_err().to_string();
+    assert!(error.contains("neither"), "{error}");
     // The good release is still the one cached.
     assert_eq!(cached(temp.path()).unwrap().1.tag, "Alpha0.3.5.8");
 }
 
+/// 0.3.5.8R2's layout: the package without the runtime, the runtime in the
+/// release's component beside notes for the mod's launcher, and the
+/// release's checksum list (checked before the download) instead of the
+/// archives' own.
+#[test]
+fn a_release_with_a_runtime_component_takes_only_the_runtime_from_it() {
+    let temp = tempdir();
+    let package = temp.path().join("AMDNR-v0.3.5.8R2.zip.partial");
+    archive(
+        &package,
+        &[
+            ("OptiScaler.dll", b"dll"),
+            ("OptiScaler.ini", b"[Upscalers]\n"),
+            ("Licenses/lmxxf_LICENSE.txt", b"MIT"),
+            ("R2-UPDATE.txt", b"the package's notes"),
+        ],
+    );
+    let component = temp.path().join("AMDNR-lmxxf-0.3.5.8R2.zip.partial");
+    archive(
+        &component,
+        &[
+            (
+                "Licenses/lmxxf_LICENSE.txt",
+                b"MIT, as the component has it",
+            ),
+            ("LmxxfNrRuntime.dll", b"runtime"),
+            ("LmxxfNrRuntime.pak", b"model"),
+            ("Licenses/AMDNR_NOTICE.txt", b"notice"),
+            ("README.txt", b"use the launcher"),
+            ("R2-UPDATE.txt", b"the component's notes"),
+        ],
+    );
+    let mut r2 = Release {
+        tag: "Alpha0.3.5.8R2".into(),
+        package: file("AMDNR-v0.3.5.8R2.zip".into()),
+        runtime: Some(file("AMDNR-lmxxf-0.3.5.8R2.zip".into())),
+        sums: Some(file("SHA256SUMS.txt".into())),
+    };
+    let (folder, taken) = extract(&[package.clone(), component.clone()], temp.path(), &r2).unwrap();
+    assert_eq!(taken.runtime.as_deref(), Some("AMDNR-lmxxf-0.3.5.8R2.zip"));
+    let names: Vec<_> = taken.files.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        [
+            "Licenses/AMDNR_NOTICE.txt",
+            "Licenses/lmxxf_LICENSE.txt",
+            "LmxxfNrRuntime.dll",
+            "LmxxfNrRuntime.pak",
+            "OptiScaler.dll",
+            "OptiScaler.ini",
+            "R2-UPDATE.txt",
+        ]
+    );
+    let read = |path: &str| std::fs::read(folder.join("files").join(path)).unwrap();
+    assert_eq!(read("R2-UPDATE.txt"), b"the package's notes");
+    assert_eq!(read("Licenses/lmxxf_LICENSE.txt"), b"MIT");
+    assert_eq!(read("LmxxfNrRuntime.pak"), b"model");
+
+    // The package alone, its runtime component left out: not the whole mod.
+    r2.runtime = None;
+    let error = extract(std::slice::from_ref(&package), temp.path(), &r2)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("no LmxxfNrRuntime.dll"), "{error}");
+    // A component without a checksum list of its own or the release's.
+    r2.runtime = Some(file("AMDNR-lmxxf-0.3.5.8R2.zip".into()));
+    r2.sums = None;
+    assert!(extract(&[package, component], temp.path(), &r2).is_err());
+}
+
 #[test]
 fn a_download_must_match_its_published_digest_and_size() {
-    let release = Release {
-        tag: "Alpha0.3.5.8".into(),
+    let release = Download {
         asset: "AMDNR-v0.3.5.8.zip".into(),
         url: String::new(),
         digest: sha(b"archive"),
@@ -631,8 +717,10 @@ async fn real_release_into_a_fake_game() {
     let started = Instant::now();
     let (folder, package) = fetch(h, false, &|_, _| {}).await.unwrap();
     println!(
-        "cached {} ({} files) in {:?} at {}",
+        "cached {} from {} and {:?} ({} files) in {:?} at {}",
         package.tag,
+        package.asset,
+        package.runtime,
         package.files.len(),
         started.elapsed(),
         folder.display()

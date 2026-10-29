@@ -276,6 +276,12 @@ the last nine columns. Rubylight's `rust/release/timing_report.py` joins it with
 record (`BUTTERPOLLO_TIMING_RECORD`). It is off unless the variable is set, and a writer thread
 does the file work.
 
+`NIGHTJAR_PACKET_TRACE=<prefix>` keeps every video and audio datagram's receive time, the time
+the receive thread waited for it, its length and RTP sequence and timestamp (0 for encrypted
+video) in memory, and a writer thread writes `<prefix>-video.csv`, `<prefix>-audio.csv` and
+`<prefix>-canary.csv` (a 1 ms sleeper's late wakes) when the stream ends: it tells a network that hands packets over in bursts from a receive
+thread that woke late (`nightjar-core`'s `session/trace.rs`). Off unless the variable is set.
+
 ## What works
 
 Done, on Windows and Linux unless noted:

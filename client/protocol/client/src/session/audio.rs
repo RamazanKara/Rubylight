@@ -13,6 +13,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
 use super::net::{self, NextSocket};
+use super::trace::{PacketTrace, Stream};
 use super::{now_us, AudioRenderer, Shared};
 use crate::audio::{AudioOutput, AudioReceiver, AudioStats};
 
@@ -303,7 +304,11 @@ fn receive_thread(
     let mut buffer = vec![0u8; 65536];
     let mut received = false;
     let mut jitter: Option<ArrivalJitter> = None;
+    let mut trace = PacketTrace::from_env(Stream::Audio);
     while !stop.load(Ordering::Acquire) {
+        if let Some(trace) = trace.as_mut() {
+            trace.waiting();
+        }
         let length = match net::receive(&socket, &mut buffer) {
             Ok(Some(length)) => length,
             Ok(None) => {
@@ -337,6 +342,9 @@ fn receive_thread(
             session.log("Received first audio packet");
         }
         let now = now_us();
+        if let Some(trace) = trace.as_mut() {
+            trace.push(now, &buffer[..length]);
+        }
         receiver.receive(&buffer[..length], now, &mut |output| {
             shared.packets.fetch_add(1, Ordering::Relaxed);
             let lost = matches!(output, AudioOutput::Lost);
@@ -358,6 +366,10 @@ fn receive_thread(
             }
         });
         *lock(&shared.stats) = receiver.stats();
+    }
+    if let Some(trace) = trace {
+        let session = session.clone();
+        trace.finish(move |line| session.log(line));
     }
     direct
 }

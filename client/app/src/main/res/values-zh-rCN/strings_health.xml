@@ -18,4 +18,5 @@
     <string name="health_trial_replaced">试验后主机码率已发生变化。为保留该变化，已取消撤消。</string>
     <string name="health_bitrate_minimum">编码器已处于最低试验码率。未进行任何更改。</string>
     <string name="health_periodic">周期性卡顿：过去 20 分钟内有 %2$d 次网络卡顿，大约每 %1$s 出现一次。这种稳定的节奏通常来自此设备或电脑上的后台 Wi-Fi 扫描。减少方法：\n• Android：设置 → 位置信息 → 位置信息服务，关闭 WLAN 扫描和蓝牙扫描。\n• Android：保持开启开发者选项 → WLAN 扫描调节。\n• 串流时关闭会搜索网络或附近设备的应用。\n• 电脑：使用网线连接，或停止扫描 Wi-Fi 网络的工具。\nNightjar 在串流时已持有 Android 的低延迟 Wi-Fi 锁，请求系统推迟扫描；但有些设备仍会扫描。</string>
+    <string name="health_bursts">突发到达：在最近 %2$d 秒中有 %1$d 秒，主机按时发送了画面，但网络把画面扣住后多帧一起送达；使用有线连接或较空闲的 5 或 6 GHz Wi-Fi 信道会有帮助。</string>
 </resources>

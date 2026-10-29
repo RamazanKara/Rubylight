@@ -6,8 +6,8 @@
     <string name="refresh_diag_battery_saver">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti: il risparmio energetico la limita.</string>
     <string name="refresh_diag_thermal">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti: il dispositivo è caldo e la limita a 60 Hz.</string>
     <string name="refresh_diag_unexplained">Lo schermo resta a %2$s Hz invece dei %1$s Hz richiesti. Android non indica alcun motivo (modalità: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">La frequenza variabile richiede Android 16, quindi lo schermo funziona alla frequenza massima. Con un PC Rubylight, segue la frequenza del gioco dove può cambiare senza diventare nero.</string>
-    <string name="stream_vrr_no_arr">Questo schermo non ha una frequenza di aggiornamento adattiva, quindi funziona alla frequenza massima. Con un PC Rubylight, segue la frequenza del gioco dove può cambiare senza diventare nero.</string>
+    <string name="stream_vrr_old_android">La frequenza variabile richiede Android 16, quindi lo schermo funziona alla frequenza massima. Con un PC Rubylight, passa a una frequenza più bassa adatta solo se quella del gioco scatterebbe alla massima e può cambiare senza diventare nero.</string>
+    <string name="stream_vrr_no_arr">Questo schermo non ha una frequenza di aggiornamento adattiva, quindi funziona alla frequenza massima. Con un PC Rubylight, passa a una frequenza più bassa adatta solo se quella del gioco scatterebbe alla massima e può cambiare senza diventare nero.</string>
     <string name="stream_vrr_arr_half_rate">Lo schermo mostra solo %1$d di %2$d FPS: Android lo limita a metà della frequenza dello stream.</string>
     <string name="stream_hdr_mode_unsupported">Questa modalità dello schermo non può mostrare l’HDR, quindi lo stream è in SDR.</string>
     <string name="stream_hdr_not_negotiated">È stato richiesto l’HDR, ma il PC non ha inviato video HDR, quindi lo stream è in SDR.</string>

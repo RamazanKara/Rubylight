@@ -258,6 +258,7 @@ impl<T> Latest<T> {
             .filter_map(Weak::upgrade)
             .all(|consumer| consumer.released.load(Ordering::Acquire) == state.generation)
     }
+    #[cfg(test)]
     pub(super) fn publish_captured(&self, image: Arc<T>, captured: Instant) -> Result<()> {
         self.publish_focus(image, captured, None)
     }

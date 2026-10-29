@@ -1,7 +1,7 @@
 use super::folder::{Package, Request, Response, Writer, handle};
 use super::*;
 use butterpollo_core::neural::{MANIFEST, Manifest};
-use std::io::Write as _;
+use std::{io::Write as _, sync::Arc};
 
 /// A folder of its own under the temp folder, deleted when dropped.
 struct Temp(PathBuf);
@@ -44,7 +44,9 @@ fn package(root: &Path, tag: &str, files: &[(&str, &[u8])]) -> PathBuf {
     let package = Package {
         tag: tag.into(),
         asset: format!("AMDNR-v{tag}.zip"),
+        digest: String::new(),
         runtime: None,
+        runtime_digest: None,
         files: placed,
     };
     std::fs::write(
@@ -1255,6 +1257,299 @@ async fn the_switch_is_offered_only_on_a_capable_gpu_after_the_notice() {
     h.neural.lock().probe = None;
     assert_eq!(capability(h), Ok("AMD Radeon RX 7900 XT".into()));
     assert!(matches!(enable(h, "missing", None), Err(Refusal::NotFound)));
+}
+
+/// A cache is used only as this host keeps it: no link on the way to it,
+/// for SYSTEM nobody but administrators may change it, its files checked
+/// once per host start, and its archives the ones GitHub lists now.
+#[test]
+fn a_cache_is_used_only_as_this_host_keeps_it() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let root = temp.path().join("neural");
+    std::fs::create_dir(&root).unwrap();
+    trusted_root(&root, false).unwrap();
+    // This test's folders are its user's to change.
+    let error = format!("{:#}", trusted_root(&root, true).unwrap_err());
+    assert!(error.contains("nobody but administrators"), "{error}");
+    let elsewhere = temp.path().join("elsewhere");
+    std::fs::create_dir_all(elsewhere.join("neural")).unwrap();
+    let linked = temp.path().join("linked");
+    junction(&linked, &elsewhere);
+    for root in [linked.clone(), linked.join("neural")] {
+        let error = format!("{:#}", trusted_root(&root, false).unwrap_err());
+        assert!(error.contains("is a link"), "{error}");
+    }
+    std::fs::remove_dir(&linked).unwrap();
+
+    // A launch takes the cached release only as its files were checked.
+    assert_eq!(launch_cache(h).unwrap(), None);
+    let folder = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let pak = folder.join("files/LmxxfNrRuntime.pak");
+    std::fs::write(&pak, "tampered").unwrap();
+    let error = format!("{:#}", launch_cache(h).unwrap_err());
+    assert!(error.contains("LmxxfNrRuntime.pak in"), "{error}");
+    std::fs::write(&pak, "model").unwrap();
+    assert_eq!(launch_cache(h).unwrap(), Some(folder.clone()));
+    // Once per host start: copies check each file again as they go.
+    std::fs::write(&pak, "tampered").unwrap();
+    assert_eq!(launch_cache(h).unwrap(), Some(folder));
+
+    // The same tag with other archives is another release.
+    let mut package = Package::read(&cache_root(h).join("Alpha0.3.5.8")).unwrap();
+    package.digest = "1".repeat(64);
+    let mut listed = Release {
+        tag: "Alpha0.3.5.8".into(),
+        package: Download {
+            digest: "1".repeat(64),
+            ..file(package.asset.clone())
+        },
+        runtime: Some(Download {
+            digest: "2".repeat(64),
+            ..file("AMDNR-lmxxf-0.3.5.8.zip".into())
+        }),
+        sums: None,
+    };
+    assert!(serves(&package, &listed));
+    package.runtime = Some("AMDNR-lmxxf-0.3.5.8.zip".into());
+    package.runtime_digest = Some("2".repeat(64));
+    assert!(serves(&package, &listed));
+    listed.runtime.as_mut().unwrap().digest = "3".repeat(64);
+    assert!(!serves(&package, &listed));
+    listed.runtime = None;
+    assert!(!serves(&package, &listed));
+    package.runtime = None;
+    listed.package.digest = "3".repeat(64);
+    assert!(!serves(&package, &listed));
+}
+
+/// GitHub as [`fetch`] sees it, on this PC: the release list and each file,
+/// a part of one by range; every request logged in order.
+struct Server {
+    base: String,
+    log: Arc<Mutex<Vec<String>>>,
+}
+type Files = Arc<BTreeMap<String, Vec<u8>>>;
+async fn serve(listener: tokio::net::TcpListener, list: Value, files: Files) -> Server {
+    use axum::{
+        extract::{Path as Url, State},
+        http::{HeaderMap, StatusCode, header},
+        response::IntoResponse,
+        routing::get,
+    };
+    type Shared = (Arc<Value>, Files, Arc<Mutex<Vec<String>>>);
+    async fn list_route(State((list, _, log)): State<Shared>) -> axum::Json<Value> {
+        log.lock().unwrap().push("list".into());
+        axum::Json((*list).clone())
+    }
+    async fn file_route(
+        State((_, files, log)): State<Shared>,
+        Url((_, name)): Url<(String, String)>,
+        headers: HeaderMap,
+    ) -> axum::response::Response {
+        let Some(bytes) = files.get(&name) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let range = headers
+            .get(header::RANGE)
+            .and_then(|range| range.to_str().ok()?.strip_prefix("bytes=")?.split_once('-'))
+            .map(|(start, end)| {
+                (
+                    start.parse::<usize>().unwrap(),
+                    end.parse::<usize>().unwrap(),
+                )
+            });
+        match range {
+            Some((start, end)) => {
+                log.lock().unwrap().push(format!("{name} (part)"));
+                (StatusCode::PARTIAL_CONTENT, bytes[start..=end].to_vec()).into_response()
+            }
+            None => {
+                log.lock().unwrap().push(name);
+                bytes.clone().into_response()
+            }
+        }
+    }
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let repository = neural::REPOSITORY;
+    let app = axum::Router::new()
+        .route(
+            &format!("/api/repos/{repository}/releases"),
+            get(list_route),
+        )
+        .route(
+            &format!("/{repository}/releases/download/{{tag}}/{{name}}"),
+            get(file_route),
+        )
+        .with_state((Arc::new(list), files, log.clone()));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Server { base, log }
+}
+
+/// 0.3.5.8R2 as GitHub lists it: the package without the runtime, the
+/// runtime component and the release's checksum list; `sums` may lie.
+fn r2_files() -> BTreeMap<String, Vec<u8>> {
+    let temp = tempdir();
+    let zip = |name: &str, files: &[(&str, &[u8])]| {
+        let path = temp.path().join(name);
+        archive(&path, files);
+        (name.to_owned(), std::fs::read(path).unwrap())
+    };
+    let mut files: BTreeMap<String, Vec<u8>> = [
+        zip(
+            "AMDNR-v0.3.5.8R2.zip",
+            &[
+                ("OptiScaler.dll", b"dll"),
+                ("OptiScaler.ini", b"[Upscalers]\n"),
+            ],
+        ),
+        zip(
+            "AMDNR-lmxxf-0.3.5.8R2.zip",
+            &[
+                ("LmxxfNrRuntime.dll", b"runtime"),
+                ("LmxxfNrRuntime.pak", b"model"),
+            ],
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let sums: String = files
+        .iter()
+        .map(|(name, bytes)| format!("{}  {name}\n", sha(bytes)))
+        .collect();
+    files.insert("SHA256SUMS.txt".into(), sums.into_bytes());
+    files
+}
+
+fn release_list(base: &str, tag: &str, files: &BTreeMap<String, Vec<u8>>) -> Value {
+    let assets: Vec<Value> = files
+        .iter()
+        .map(|(name, bytes)| {
+            json!({
+                "name": name,
+                "browser_download_url": format!("{base}/{}/releases/download/{tag}/{name}", neural::REPOSITORY),
+                "digest": format!("sha256:{}", sha(bytes)),
+                "size": bytes.len(),
+            })
+        })
+        .collect();
+    json!([{"tag_name": tag, "published_at": "2026-10-01T00:00:00Z", "assets": assets}])
+}
+
+/// The whole download against a server of its own: the list, the archives'
+/// file lists, the checksum list checked against GitHub's digests before
+/// any archive comes, the archives, then the cache. An older release in
+/// the cache goes only once no copy reads it; a lie in the checksum list
+/// or a file other than GitHub's digest says caches nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_download_goes_list_checksums_archives_cache() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let tag = "Alpha0.3.5.8R2";
+    let files = r2_files();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = serve(
+        listener,
+        release_list(&base, tag, &files),
+        Arc::new(files.clone()),
+    )
+    .await;
+    *h.neural.origin.lock().unwrap() = Some(server.base.clone());
+    let older = release(&cache_root(h), "Alpha0.3.5.7", b"OptiScaler proxy");
+
+    // A copy from the older release holds the cache: it stays until then.
+    let (held, done) = (mpsc::channel(), mpsc::channel::<()>());
+    let copy = {
+        let h = h.clone();
+        std::thread::spawn(move || {
+            let _reading = h.neural.reading();
+            held.0.send(()).unwrap();
+            let _ = done.1.recv();
+        })
+    };
+    held.1.recv().unwrap();
+    let fetching = {
+        let h = h.clone();
+        tokio::spawn(async move { fetch(&h, false, &|_, _| {}).await })
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while server.log.lock().unwrap().len() < 6 && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!fetching.is_finished());
+    assert!(older.exists());
+    done.0.send(()).unwrap();
+    copy.join().unwrap();
+    let (folder, package) = fetching.await.unwrap().unwrap();
+    assert_eq!(
+        *server.log.lock().unwrap(),
+        [
+            "list",
+            "AMDNR-v0.3.5.8R2.zip (part)",
+            "AMDNR-lmxxf-0.3.5.8R2.zip (part)",
+            "SHA256SUMS.txt",
+            "AMDNR-v0.3.5.8R2.zip",
+            "AMDNR-lmxxf-0.3.5.8R2.zip",
+        ]
+    );
+    assert_eq!(folder, cache_root(h).join(tag));
+    assert!(!older.exists());
+    assert_eq!(package.digest, sha(&files["AMDNR-v0.3.5.8R2.zip"]));
+    assert_eq!(
+        package.runtime_digest,
+        Some(sha(&files["AMDNR-lmxxf-0.3.5.8R2.zip"]))
+    );
+    assert_eq!(
+        std::fs::read(folder.join("files/LmxxfNrRuntime.pak")).unwrap(),
+        b"model"
+    );
+    // The same release again: from the cache, after the list alone.
+    server.log.lock().unwrap().clear();
+    assert_eq!(fetch(h, false, &|_, _| {}).await.unwrap().1, package);
+    assert_eq!(*server.log.lock().unwrap(), ["list"]);
+    std::fs::remove_dir_all(cache_root(h)).unwrap();
+
+    // The checksum list doesn't name the package's digest: no archive comes.
+    let mut lying = files.clone();
+    lying.insert(
+        "SHA256SUMS.txt".into(),
+        format!(
+            "{}  AMDNR-v0.3.5.8R2.zip\n{}  AMDNR-lmxxf-0.3.5.8R2.zip\n",
+            sha(b"another"),
+            sha(&files["AMDNR-lmxxf-0.3.5.8R2.zip"])
+        )
+        .into_bytes(),
+    );
+    // A file other than GitHub's digest says, its file list the same.
+    let mut tampered = files.clone();
+    let component = tampered.get_mut("AMDNR-lmxxf-0.3.5.8R2.zip").unwrap();
+    let at = component.windows(5).position(|w| w == b"model").unwrap();
+    component[at + 1] = b'a';
+    for (served, listed, problem) in [
+        (
+            lying.clone(),
+            lying,
+            "does not match the release's SHA256SUMS.txt",
+        ),
+        (tampered, files.clone(), "SHA-256"),
+    ] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let list = release_list(&base, tag, &listed);
+        let server = serve(listener, list, Arc::new(served)).await;
+        *h.neural.origin.lock().unwrap() = Some(server.base.clone());
+        let error = format!("{:#}", fetch(h, false, &|_, _| {}).await.unwrap_err());
+        assert!(error.contains(problem), "{error}");
+        assert!(cached(&cache_root(h)).is_none());
+        let log = server.log.lock().unwrap().clone();
+        if problem.contains("SHA256SUMS") {
+            assert_eq!(log.last().unwrap(), "SHA256SUMS.txt", "{log:?}");
+        }
+    }
 }
 
 /// The real release into `C:\tests\neural\fakegame` and out again, then

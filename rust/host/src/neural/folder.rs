@@ -67,9 +67,15 @@ pub enum Writer {
 pub struct Package {
     pub tag: String,
     pub asset: String,
+    /// GitHub's SHA-256 of `asset`, and of `runtime`: the cache serves the
+    /// release only while its archives are these.
+    #[serde(default)]
+    pub digest: String,
     /// The runtime component the runtime came from, when not the package.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_digest: Option<String>,
     pub files: BTreeMap<String, Placed>,
 }
 impl Package {
@@ -452,7 +458,7 @@ fn refuse_anti_cheat(exe: &Path, install: Option<&Path>) -> Outcome<()> {
     }
 }
 
-fn sha256_file(path: &Path) -> std::io::Result<(String, u64)> {
+pub(super) fn sha256_file(path: &Path) -> std::io::Result<(String, u64)> {
     let mut file = std::fs::File::open(path)?;
     let mut hash = Sha256::new();
     let mut buffer = vec![0; 1 << 20];
@@ -600,6 +606,23 @@ pub(super) fn verdict(path: &Path, security: &Security) -> Result<(), String> {
         Some(other) => Err(format!("{} can be changed by {other}", path.display())),
         None => Ok(()),
     }
+}
+
+/// Whether administrators own `path`, and with `whole` alone may change it
+/// ([`verdict`]); the cache's check ([`super::trusted_root`]).
+pub(super) fn administrators_hold(path: &Path, whole: bool) -> Result<(), String> {
+    let security = security(path, false)
+        .map_err(|e| format!("cannot check who may change {}: {e:#}", path.display()))?;
+    if whole {
+        return verdict(path, &security);
+    }
+    verdict(
+        path,
+        &Security {
+            writers: Vec::new(),
+            ..security
+        },
+    )
 }
 
 /// A SYSTEM host's check before it writes `folder` for the user: it and

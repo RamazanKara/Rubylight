@@ -29,7 +29,7 @@ use std::{
     collections::BTreeMap,
     io::{BufRead, Read, Write},
     path::{Path, PathBuf},
-    sync::{Mutex, PoisonError, mpsc},
+    sync::{Mutex, PoisonError, RwLock, mpsc},
     time::{Duration, Instant},
 };
 
@@ -62,8 +62,14 @@ pub struct Neural {
     record: Mutex<()>,
     /// One pass over the pending removals at a time.
     removing: Mutex<()>,
+    /// Copies out of the cache hold it to read; replacing or clearing a
+    /// release in the cache holds it to write.
+    cache: RwLock<()>,
     #[cfg(test)]
     pub probe: Mutex<Option<Probe>>,
+    /// A test's server in place of GitHub.
+    #[cfg(test)]
+    pub origin: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
@@ -75,6 +81,8 @@ struct State {
     due_at: Option<u64>,
     /// When the pending removals are tried next.
     removal_at: Option<Instant>,
+    /// The cached release this host start checked file by file.
+    verified: Option<PathBuf>,
 }
 
 /// What a switch is doing for one app, or how it ended.
@@ -104,6 +112,12 @@ pub struct Probe {
 impl Neural {
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+    fn reading(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.cache.read().unwrap_or_else(PoisonError::into_inner)
+    }
+    fn writing(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.cache.write().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -374,6 +388,104 @@ fn ensure_root(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Refuse a cache that is not this host's own: a link on the way to it, or
+/// for a SYSTEM host, which copies from it into game folders and deletes in
+/// it, a cache anyone but administrators may change or a folder above it
+/// they don't own. A release planted there would reach every game.
+fn trusted_root(root: &Path, system: bool) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    for path in root.ancestors().filter(|path| !path.as_os_str().is_empty()) {
+        let meta = std::fs::symlink_metadata(path)
+            .with_context(|| format!("cannot read {}", path.display()))?;
+        ensure!(
+            meta.file_attributes() & 0x400 == 0,
+            "{} is a link to elsewhere, and Neural Rendering keeps no download behind one",
+            path.display()
+        );
+        if system {
+            folder::administrators_hold(path, path == root).map_err(|problem| {
+                anyhow!(
+                    "Neural Rendering keeps its download only where nobody but administrators may change it: {problem}"
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether the cached `package` is `release` as GitHub lists it now: the
+/// same archives by name and digest, not only the same tag.
+fn serves(package: &Package, release: &Release) -> bool {
+    let runtime = match (&package.runtime, &release.runtime) {
+        // The package held the runtime itself.
+        (None, _) => true,
+        (Some(asset), Some(runtime)) => {
+            *asset == runtime.asset && package.runtime_digest.as_ref() == Some(&runtime.digest)
+        }
+        (Some(_), None) => false,
+    };
+    package.tag == release.tag
+        && package.asset == release.package.asset
+        && package.digest == release.package.digest
+        && runtime
+}
+
+/// The cached release's files against its package.json, once per host
+/// start: a file changed in the cache must not reach a game. Blocks.
+fn verify_cache(h: &Shared, folder: &Path, package: &Package) -> Result<()> {
+    if h.neural.lock().verified.as_deref() == Some(folder) {
+        return Ok(());
+    }
+    for (path, placed) in &package.files {
+        let file = folder.join("files").join(path);
+        let (sha256, size) = folder::sha256_file(&file)
+            .with_context(|| format!("cannot read {}", file.display()))?;
+        ensure!(
+            sha256 == placed.sha256 && size == placed.size,
+            "the downloaded {path} in {} changed since it was checked",
+            folder.display()
+        );
+    }
+    h.neural.lock().verified = Some(folder.to_path_buf());
+    Ok(())
+}
+
+/// The cached release for a launch: from a cache this host trusts, its
+/// files checked once per host start. None when nothing is cached. Blocks.
+fn launch_cache(h: &Shared) -> Result<Option<PathBuf>> {
+    let root = cache_root(h);
+    if !root.exists() {
+        return Ok(None);
+    }
+    trusted_root(&root, butterpollo_windows::process::is_system())?;
+    let Some((folder, package)) = cached(&root) else {
+        return Ok(None);
+    };
+    verify_cache(h, &folder, &package)?;
+    Ok(Some(folder))
+}
+
+/// Where GitHub's release list and the release files are: GitHub, or a
+/// test's own server.
+fn origins(h: &Shared) -> (String, String) {
+    #[cfg(test)]
+    if let Some(base) = h.neural.origin.lock().unwrap().clone() {
+        return (format!("{base}/api"), base);
+    }
+    let _ = h;
+    ("https://api.github.com".into(), neural::GITHUB.to_owned())
+}
+
+#[cfg(not(test))]
+fn http(timeout: Duration) -> Result<reqwest::Client> {
+    crate::updater::client(timeout)
+}
+/// A test's server speaks plain HTTP.
+#[cfg(test)]
+fn http(timeout: Duration) -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder().timeout(timeout).build()?)
+}
+
 /// The release in the cache, the newest when a crash left two.
 pub fn cached(root: &Path) -> Option<(PathBuf, Package)> {
     std::fs::read_dir(root)
@@ -404,10 +516,12 @@ pub async fn fetch(
     let _one = h.neural.fetching.lock().await;
     let root = cache_root(h);
     ensure_root(&root)?;
-    let api = crate::updater::client(Duration::from_secs(35))?;
+    trusted_root(&root, butterpollo_windows::process::is_system())?;
+    let (api_origin, files_origin) = origins(h);
+    let api = http(Duration::from_secs(35))?;
     let list: Value = api
         .get(format!(
-            "https://api.github.com/repos/{}/releases?per_page=30",
+            "{api_origin}/repos/{}/releases?per_page=30",
             neural::REPOSITORY
         ))
         .header("Accept", "application/vnd.github+json")
@@ -416,14 +530,34 @@ pub async fn fetch(
         .error_for_status()?
         .json()
         .await?;
-    let have = cached(&root);
+    let mut have = cached(&root);
+    // Its files as checked when they came, or it goes and comes again.
+    let checked = |have: Option<(PathBuf, Package)>| {
+        let h = h.clone();
+        tokio::task::spawn_blocking(move || {
+            let (folder, package) = have?;
+            match verify_cache(&h, &folder, &package) {
+                Ok(()) => Some((folder, package)),
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the cached release is damaged; it is downloaded again");
+                    None
+                }
+            }
+        })
+    };
     let mut chosen = None;
-    for mut release in neural::releases(&list).into_iter().take(CANDIDATES) {
-        if let Some(have) = have
+    for mut release in neural::releases_from(&list, &files_origin)
+        .into_iter()
+        .take(CANDIDATES)
+    {
+        if have
             .as_ref()
-            .filter(|(_, package)| package.tag == release.tag)
+            .is_some_and(|(_, package)| serves(package, &release))
         {
-            return Ok(have.clone());
+            have = checked(have.take()).await?;
+            if let Some(have) = have {
+                return Ok(have);
+            }
         }
         match whole(&api, &release).await? {
             Some(neural::Runtime::Package) => {
@@ -441,7 +575,7 @@ pub async fn fetch(
         }
     }
     let Some(release) = chosen else {
-        return have.context(
+        return checked(have).await?.context(
             "no recent release of the mod has the whole package (its DLL, neural runtime and checksums)",
         );
     };
@@ -481,21 +615,29 @@ pub async fn fetch(
         before += archive.size;
     }
     let (folder, package) = {
-        let (root, release, paths) = (root.clone(), release.clone(), paths.clone());
-        tokio::task::spawn_blocking(move || extract(&paths, &root, &release)).await?
+        let (h, root, release, paths) = (h.clone(), root.clone(), release.clone(), paths.clone());
+        tokio::task::spawn_blocking(move || {
+            // No copy reads the cache while a release in it is replaced
+            // or older ones go.
+            let _writing = h.neural.writing();
+            let (folder, package) = extract(&paths, &root, &release)?;
+            // Games have their own copies; older releases in the cache serve nothing.
+            for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+                if entry.path() != folder {
+                    let _ = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                        std::fs::remove_dir_all(entry.path())
+                    } else {
+                        std::fs::remove_file(entry.path())
+                    };
+                }
+            }
+            h.neural.lock().verified = Some(folder.clone());
+            Ok::<_, anyhow::Error>((folder, package))
+        })
+        .await?
     }
     .inspect_err(|_| discard())?;
     discard();
-    // Games have their own copies; older releases in the cache serve nothing.
-    for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
-        if entry.path() != folder {
-            let _ = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                std::fs::remove_dir_all(entry.path())
-            } else {
-                std::fs::remove_file(entry.path())
-            };
-        }
-    }
     tracing::info!(release = %release.tag, asset = %release.package.asset, runtime = release.runtime.as_ref().map(|r| r.asset.as_str()), folder = %folder.display(), "Neural Rendering: downloaded and checked the mod's release");
     Ok((folder, package))
 }
@@ -577,7 +719,7 @@ async fn download(
         release.asset
     );
     let _ = std::fs::remove_file(path);
-    let mut response = crate::updater::client(Duration::from_secs(1800))?
+    let mut response = http(Duration::from_secs(1800))?
         .get(&release.url)
         .send()
         .await?
@@ -665,10 +807,15 @@ fn extract(archives: &[PathBuf], root: &Path, release: &Release) -> Result<(Path
     let package = Package {
         tag: release.tag.clone(),
         asset: asset.clone(),
+        digest: release.package.digest.clone(),
         runtime: release
             .runtime
             .as_ref()
             .map(|runtime| runtime.asset.clone()),
+        runtime_digest: release
+            .runtime
+            .as_ref()
+            .map(|runtime| runtime.digest.clone()),
         files,
     };
     butterpollo_core::state::write_json(&staging.join(PACKAGE), &package)?;
@@ -950,6 +1097,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
         let worker = h.clone();
         let task_uuid = uuid.clone();
         let response = tokio::task::spawn_blocking(move || {
+            let _reading = worker.neural.reading();
             run_folder(request, &|done, total| {
                 update_job(&worker, &task_uuid, |job| {
                     (job.done, job.total) = (done, total)
@@ -1297,10 +1445,14 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
 }
 
 fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
+    let _reading = h.neural.reading();
+    let package = launch_cache(h).context(
+        "Neural Rendering's download can't be used; turn Neural Rendering off and on again",
+    )?;
     let request = Request::Prepare {
         exe,
         install: install(app),
-        package: cached(&cache_root(h)).map(|(folder, _)| folder),
+        package,
     };
     match run_folder(request, &|_, _| {})? {
         Response::Placed {

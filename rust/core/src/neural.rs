@@ -133,6 +133,15 @@ pub struct Release {
 /// has no GitHub digest, an unexpected address or size are left out; so is a
 /// runtime component or checksum list that has one of those faults.
 pub fn releases(list: &Value) -> Vec<Release> {
+    releases_from(list, GITHUB)
+}
+
+/// Where release files are downloaded from.
+pub const GITHUB: &str = "https://github.com";
+
+/// [`releases`] with the files at `origin` instead of [`GITHUB`] (a test's
+/// own server).
+pub fn releases_from(list: &Value, origin: &str) -> Vec<Release> {
     let mut found: Vec<(&str, Release)> = list
         .as_array()
         .into_iter()
@@ -152,7 +161,7 @@ pub fn releases(list: &Value) -> Vec<Release> {
             let assets = release["assets"].as_array()?;
             let download = |name: &str, limit: u64| {
                 let asset = assets.iter().find(|asset| asset["name"] == name)?;
-                let url = format!("https://github.com/{REPOSITORY}/releases/download/{tag}/{name}");
+                let url = format!("{origin}/{REPOSITORY}/releases/download/{tag}/{name}");
                 if asset["browser_download_url"] != url.as_str() {
                     return None;
                 }

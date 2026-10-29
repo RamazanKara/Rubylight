@@ -43,4 +43,12 @@ final class StreamExitPolicy {
                 return false;
         }
     }
+
+    /**
+     * The text of the dialog for a decoder that was given up: with "Render through Vulkan" on, it
+     * names that setting, as the Vulkan path is what a decoder short of memory may not manage.
+     */
+    static int decoderFailureMessage(boolean withVulkan) {
+        return withVulkan ? R.string.decoder_failed_vulkan : R.string.decoder_failed;
+    }
 }

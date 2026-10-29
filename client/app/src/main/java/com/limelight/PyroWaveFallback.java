@@ -1,5 +1,6 @@
 package com.limelight;
 
+import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.nvstream.jni.MoonBridge;
 
 /**
@@ -12,6 +13,18 @@ final class PyroWaveFallback {
     /** True when PyroWave was chosen and the stream that started carries video in another codec. */
     static boolean fellBack(boolean pyroWaveChosen, int activeFormat) {
         return pyroWaveChosen && activeFormat != 0 && (activeFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
+    }
+
+    enum Notice { NONE, DEVICE, PC }
+
+    /**
+     * Which notice a fallback gets. dropReason: the renderer's getPyroWaveDropReason().
+     * hdrLossSaid: PyroWave HDR failed on this device and HDR streams in another codec, which the
+     * connection has said already. The PC is blamed only when its codecs lack PyroWave.
+     */
+    static Notice notice(int dropReason, boolean hdrLossSaid) {
+        if (dropReason == MediaCodecDecoderRenderer.PYROWAVE_NOT_OFFERED) return Notice.PC;
+        return dropReason == 0 || hdrLossSaid ? Notice.NONE : Notice.DEVICE;
     }
 
     /** The codec of {@code format} as the settings name it. */

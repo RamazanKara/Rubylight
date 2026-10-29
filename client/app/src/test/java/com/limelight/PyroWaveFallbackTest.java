@@ -1,5 +1,6 @@
 package com.limelight;
 
+import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.nvstream.jni.MoonBridge;
 
 import org.junit.Test;
@@ -24,6 +25,24 @@ public class PyroWaveFallbackTest {
         assertFalse(PyroWaveFallback.fellBack(false, MoonBridge.VIDEO_FORMAT_H265));
         // A stream without video (input only) has nothing to say.
         assertFalse(PyroWaveFallback.fellBack(true, 0));
+    }
+
+    @Test
+    public void thePcIsBlamedOnlyWhenItsCodecsLackPyroWave() {
+        assertEquals(PyroWaveFallback.Notice.PC,
+                PyroWaveFallback.notice(MediaCodecDecoderRenderer.PYROWAVE_NOT_OFFERED, false));
+        // The device's HDR surface failed, or every surface: the device's reason, never "This PC".
+        assertEquals(PyroWaveFallback.Notice.DEVICE,
+                PyroWaveFallback.notice(R.string.pyrowave_missing_swapchain, false));
+        assertEquals(PyroWaveFallback.Notice.DEVICE, PyroWaveFallback.notice(R.string.pyrowave_needs_64_bit, false));
+        // No known reason: no notice that would guess one.
+        assertEquals(PyroWaveFallback.Notice.NONE, PyroWaveFallback.notice(0, false));
+    }
+
+    @Test
+    public void anHdrLossTheConnectionAnnouncedIsNotSaidTwice() {
+        assertEquals(PyroWaveFallback.Notice.NONE,
+                PyroWaveFallback.notice(R.string.pyrowave_hdr_display_refused, true));
     }
 
     @Test

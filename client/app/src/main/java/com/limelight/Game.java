@@ -7120,8 +7120,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                 case MoonBridge.CLIENT_ERROR_DECODER:
                                     MediaCodecDecoderRenderer decoder = decoderRenderer;
                                     String reason = decoder != null ? decoder.getDecoderFailure() : null;
-                                    message = getResources().getString(decoder != null && decoder.decoderFailedWithVulkan() ?
-                                                    R.string.decoder_failed_vulkan : R.string.decoder_failed,
+                                    message = getResources().getString(StreamExitPolicy.decoderFailureMessage(
+                                                    decoder != null && decoder.decoderFailedWithVulkan()),
                                             reason != null ? reason : getResources().getString(R.string.vulkan_failure_unknown));
                                     break;
 
@@ -7447,12 +7447,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         String codec = PyroWaveFallback.codecName(format);
-        int reason = decoderRenderer.getPyroWaveUnavailableReason();
+        int reason = decoderRenderer.getPyroWaveDropReason();
+        boolean hdrLossSaid = (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 &&
+                decoderRenderer.pyroWaveHdrFailureReason() != 0;
+        PyroWaveFallback.Notice notice = PyroWaveFallback.notice(reason, hdrLossSaid);
         LimeLog.warning("PyroWave was chosen, but the stream uses " + codec + ": " +
-                (reason != 0 ? getString(reason) : "the PC did not offer it"));
-        messages.notice(pc, HostNotices.Notice.PYROWAVE_FALLBACK, reason != 0 ?
-                getString(R.string.stream_pyrowave_device_unavailable, codec, getString(reason)) :
-                getString(R.string.host_pyrowave_unavailable, codec));
+                (notice == PyroWaveFallback.Notice.PC ? "the PC did not offer it" :
+                        reason > 0 ? getString(reason) : "the negotiation picked it"));
+        if (notice == PyroWaveFallback.Notice.PC) {
+            messages.notice(pc, HostNotices.Notice.PYROWAVE_FALLBACK, getString(R.string.host_pyrowave_unavailable, codec));
+        } else if (notice == PyroWaveFallback.Notice.DEVICE) {
+            messages.notice(pc, HostNotices.Notice.PYROWAVE_FALLBACK,
+                    getString(R.string.stream_pyrowave_device_unavailable, codec, getString(reason)));
+        }
     }
 
     @Override

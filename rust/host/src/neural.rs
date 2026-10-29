@@ -506,14 +506,15 @@ fn origins(h: &Shared) -> (String, String) {
     ("https://api.github.com".into(), neural::GITHUB.to_owned())
 }
 
-#[cfg(not(test))]
-fn http(timeout: Duration) -> Result<reqwest::Client> {
+/// The updater's client for GitHub (HTTPS only, a User-Agent, which
+/// GitHub's API requires), a plain one for a test's own server.
+fn http(h: &Shared, timeout: Duration) -> Result<reqwest::Client> {
+    #[cfg(test)]
+    if h.neural.origin.lock().unwrap().is_some() {
+        return Ok(reqwest::Client::builder().timeout(timeout).build()?);
+    }
+    let _ = h;
     crate::updater::client(timeout)
-}
-/// A test's server speaks plain HTTP.
-#[cfg(test)]
-fn http(timeout: Duration) -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder().timeout(timeout).build()?)
 }
 
 /// The release in the cache, the newest when a crash left two.
@@ -548,7 +549,7 @@ pub async fn fetch(
     ensure_root(&root)?;
     trusted_root(&root, butterpollo_windows::process::is_system())?;
     let (api_origin, files_origin) = origins(h);
-    let api = http(Duration::from_secs(35))?;
+    let api = http(h, Duration::from_secs(35))?;
     let list: Value = api
         .get(format!(
             "{api_origin}/repos/{}/releases?per_page=30",
@@ -749,7 +750,7 @@ async fn download(
         release.asset
     );
     let _ = std::fs::remove_file(path);
-    let mut response = http(Duration::from_secs(1800))?
+    let mut response = http(h, Duration::from_secs(1800))?
         .get(&release.url)
         .send()
         .await?

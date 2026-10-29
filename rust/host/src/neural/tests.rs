@@ -1580,6 +1580,23 @@ fn release_list(base: &str, tag: &str, files: &BTreeMap<String, Vec<u8>>) -> Val
     json!([{"tag_name": tag, "published_at": "2026-10-01T00:00:00Z", "assets": assets}])
 }
 
+/// Only a test's own server gets a plain client: GitHub gets the updater's,
+/// HTTPS only and with the User-Agent its API requires (without one it
+/// answers 403).
+#[tokio::test]
+async fn github_gets_the_updaters_client() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let error = super::http(h, Duration::from_secs(5))
+        .unwrap()
+        .get("http://127.0.0.1:9/")
+        .send()
+        .await
+        .unwrap_err();
+    // Refused before it connects: the updater's client is HTTPS only.
+    assert!(error.is_builder(), "{error:#}");
+}
+
 /// The whole download against a server of its own: the list, the archives'
 /// file lists, the checksum list checked against GitHub's digests before
 /// any archive comes, the archives, then the cache. An older release in

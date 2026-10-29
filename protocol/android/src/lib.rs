@@ -27,7 +27,7 @@ use jni::JNIEnv;
 
 use nightjar_core::control::ClientMessage;
 use nightjar_core::input::InputQueue;
-use nightjar_core::session::{HostInfo, SessionConfig};
+use nightjar_core::session::{HostInfo, NetworkChange, SessionConfig};
 use rubylight_protocol::control::{HostTimingRequest, LinkNoticeRequest, Reconfigure};
 
 use crate::extras::input_result;
@@ -192,14 +192,22 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_interruptConne
 }
 
 /// The default network changed while a stream runs (`NvConnection`'s network callback):
-/// whether a roam started.
+/// `MoonBridge.NETWORK_CARRIES_ON` (0), `NETWORK_ROAMED` (1) or `NETWORK_CANNOT_CONTINUE` (2).
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_networkChanged(
     _: JNIEnv,
     _: JClass,
     metered: jboolean,
-) -> jboolean {
-    jbool(engine::network_changed(metered == JNI_TRUE))
+) -> jint {
+    network_change_code(engine::network_changed(metered == JNI_TRUE))
+}
+
+fn network_change_code(change: NetworkChange) -> jint {
+    match change {
+        NetworkChange::CarriesOn => 0,
+        NetworkChange::Roamed => 1,
+        NetworkChange::CannotContinue => 2,
+    }
 }
 
 #[no_mangle]

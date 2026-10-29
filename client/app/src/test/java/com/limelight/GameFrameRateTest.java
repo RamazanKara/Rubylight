@@ -30,7 +30,7 @@ import static org.junit.Assert.*;
 public class GameFrameRateTest {
     @Test
     @Config(sdk = 36, shadows = FrameRateSurface.class)
-    public void automaticArrClearsTheMaximumRefreshFallbackVote() {
+    public void automaticArrReplacesTheMaximumRefreshVoteWithASeamlessOne() {
         Game activity = Robolectric.buildActivity(Game.class).get();
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.vrr = true;
@@ -46,11 +46,12 @@ public class GameFrameRateTest {
             assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
 
+            // No stream rate known yet: ARR votes the panel's top rate, seamless only.
             ReflectionHelpers.setField(activity, "useArr", true);
             ReflectionHelpers.callInstanceMethod(activity, "voteSurfaceFrameRate",
                     ReflectionHelpers.ClassParameter.from(Surface.class, surface));
-            assertEquals(0, vote.frameRate, 0);
-            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_DEFAULT, vote.compatibility);
+            assertEquals(120, vote.frameRate, 0);
+            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
         } finally {
             surface.release();
@@ -101,7 +102,7 @@ public class GameFrameRateTest {
 
     @Test
     @Config(sdk = 36, shadows = FrameRateSurface.class)
-    public void exactStreamRateDoesNotReplacePanelOrAutomaticArrVotes() {
+    public void exactStreamRateIsTheArrVoteButNotThePanelVote() {
         Game activity = Robolectric.buildActivity(Game.class).get();
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
@@ -127,10 +128,12 @@ public class GameFrameRateTest {
             assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
 
+            // ARR votes the exact stream rate, seamless only: a 0 vote would leave a game at
+            // Android's 60 Hz default.
             ReflectionHelpers.setField(activity, "useArr", true);
             vote(activity, surface);
-            assertEquals(0f, vote.frameRate, 0);
-            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_DEFAULT, vote.compatibility);
+            assertEquals(59.94f, vote.frameRate, 0.001f);
+            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
         } finally {
             surface.release();

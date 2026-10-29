@@ -35,6 +35,13 @@ pub(super) trait AudioSink {
     }
 }
 
+/// Whether a sink that is not ready means the client's audio pings timed out. A session that is
+/// ending forgets its peers right after it stops, so a pass that started before the stop finds
+/// no peer: that is the quit, not a timeout.
+pub(super) fn ping_timed_out(stopping: bool, waited: Duration, timeout: Duration) -> bool {
+    !stopping && waited > timeout
+}
+
 /// Where the audio thread is in its stream, in 48 kHz samples. It counts what the thread encoded
 /// and sent, or would have sent, and the audio that never became a packet (Windows dropped it,
 /// this host trimmed it, or the thread was too late to make silence for it), so a receiver
@@ -456,6 +463,17 @@ mod tests {
         // A hole the size of one sample at 48 kHz rounds down, never up past the audio.
         clock.lost(Duration::from_nanos(20_000));
         assert_eq!(clock.packet(240), 2640);
+    }
+
+    #[test]
+    fn a_session_that_is_ending_has_no_audio_ping_timeout() {
+        let timeout = Duration::from_secs(10);
+        let long = Duration::from_secs(70);
+        // The quit stops the session and then forgets its peers: no warning.
+        assert!(!ping_timed_out(true, long, timeout));
+        // A running session whose client went quiet still fails loudly, after the window only.
+        assert!(ping_timed_out(false, long, timeout));
+        assert!(!ping_timed_out(false, Duration::from_secs(3), timeout));
     }
 
     fn audio(count: usize) -> Vec<Vec<f32>> {

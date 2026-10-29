@@ -231,10 +231,19 @@ def probe_gpu_lock(lock=None, ours=None):
     return False, f'{lock} held: {holder or "(empty)"}'
 
 
-def release_gpu_lock(owner, lock=None):
+def release_gpu_lock(owner, lock=None, sleep=time.sleep):
     lock = lock or GPU_LOCK
-    if probe_gpu_lock(lock, ours=owner)[1] == 'held by this batch':
-        lock.unlink()
+    if probe_gpu_lock(lock, ours=owner)[1] != 'held by this batch':
+        return
+    # Another session reading the lock holds it open without delete sharing for a moment.
+    for attempt in range(20):
+        try:
+            lock.unlink()
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            sleep(.05)
 
 
 def take_gpu_lock(owner, lock=None, deadline=1800, poll=3, warn=60, clock=time.monotonic, sleep=time.sleep):
@@ -460,9 +469,11 @@ def main(argv=None):
             if result['result'] == 'FAIL':
                 code = max(code, 1)
     finally:
-        if lock_taken:
-            release_gpu_lock(owner)
-        summary(args.batch, directory, rows, skipped, stopped)
+        try:
+            if lock_taken:
+                release_gpu_lock(owner)
+        finally:
+            summary(args.batch, directory, rows, skipped, stopped)
     print(f'summary: {directory / "summary.md"}')
     if stopped:
         print(f'stopped {stopped}')

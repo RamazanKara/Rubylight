@@ -251,6 +251,28 @@ class Batch(unittest.TestCase):
             self.assertEqual(lock.read_text(encoding='utf-8'), 'rc4 pass tv t6 4242')
             self.assertEqual(out.getvalue().count('waiting for the GPU lock'), 2)
 
+    def test_the_gpu_lock_is_released_past_a_reader(self):
+        with tempfile.TemporaryDirectory() as t:
+            lock = pathlib.Path(t) / 'GPU-LOCK'
+            lock.write_text('me', encoding='utf-8')
+            unlink, calls = pathlib.Path.unlink, []
+            def busy_once(path, *args, **kwargs):
+                calls.append(path)
+                if len(calls) == 1:
+                    raise PermissionError(32, 'The process cannot access the file because it is being used')
+                return unlink(path, *args, **kwargs)
+            with mock.patch.object(pathlib.Path, 'unlink', busy_once):
+                run.release_gpu_lock('me', lock, sleep=lambda s: None)
+            self.assertEqual(len(calls), 2)
+            self.assertFalse(lock.exists())
+            lock.write_text('me', encoding='utf-8')
+            with mock.patch.object(pathlib.Path, 'unlink', side_effect=PermissionError(32, 'in use')), \
+                    self.assertRaises(PermissionError):
+                run.release_gpu_lock('me', lock, sleep=lambda s: None)
+            lock.write_text('someone else', encoding='utf-8')
+            run.release_gpu_lock('me', lock)
+            self.assertEqual(lock.read_text(encoding='utf-8'), 'someone else')
+
     def test_dry_run_runs_nothing(self):
         out = io.StringIO()
         with tempfile.TemporaryDirectory() as t, contextlib.redirect_stdout(out):

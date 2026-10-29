@@ -172,7 +172,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 bufferPolicy = new AudioBufferPolicy(stats[0], stats[8], stats[4], stats[5], now);
                 // Before the first packet: the ring has not primed, so the larger start only delays that.
                 int start = nativeAudioReserve(nativeAudio, AudioBufferPolicy.reserveStartFrames(stats[0], sampleRate));
-                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], start, stats[6], now, sampleRate);
+                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], start, stats[11], now, sampleRate);
                 stats = nativeAudioStats(nativeAudio);
                 setReserve(stats[2]);
                 LimeLog.info("Audio output: AAudio low latency, burst " + stats[0] + ", reserve " + stats[2] +
@@ -398,7 +398,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
         String output;
         if (nativeAudio != 0) {
             int[] stats = nativeAudioStats(nativeAudio);
-            output = "AAudio, underruns " + stats[6] + ", xruns " + stats[5] + ", device buffer " + stats[4] +
+            output = "AAudio, underruns " + stats[6] + " (stalls " + stats[12] + "), xruns " + stats[5] +
+                    ", device buffer " + stats[4] +
                     ", concealed " + framesToMs(stats[9]) + " ms, skipped late " + framesToMs(stats[10]) + " ms";
         } else if (track != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             output = "AudioTrack, underruns " + track.getUnderrunCount();
@@ -639,8 +640,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
         if (nativeAudio != 0) {
             int[] stats = nativeAudioStats(nativeAudio);
             // Starvation of the ring is the network's or the decoder's: only the reserve grows. Device
-            // xruns grow only the device buffer, the callback keeps that one full of whatever it has.
-            int reserve = reservePolicy.sample(stats[6], now);
+            // xruns grow only the device buffer, the callback keeps that one full of whatever it has. Only
+            // jitter grows the reserve: a stall longer than a host period is concealed (aaudio_output.c), and
+            // on the Retroid the 37 to 56 ms ones took the reserve from 14 to 32 ms without covering the next.
+            int reserve = reservePolicy.sample(stats[11], now);
             int device = bufferPolicy.sample(stats[5], now);
             if (reserve != stats[2] || device != stats[4]) {
                 if (reserve != stats[2]) {
@@ -651,7 +654,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 if (device != stats[4]) bufferPolicy.applied(nativeAudioBuffer(nativeAudio, device));
                 stats = nativeAudioStats(nativeAudio);
                 LimeLog.info("AAudio reserve " + stats[2] + " frames, device buffer " + stats[4] + ", underruns " +
-                        stats[6] + ", xruns " + stats[5]);
+                        stats[6] + ", stalls " + stats[12] + ", xruns " + stats[5]);
             }
             if (reservePolicy.needsFallback() && !reserveStarvationShown) {
                 // Loud, but no switch: AudioTrack would starve on the same late audio.

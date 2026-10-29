@@ -50,7 +50,8 @@ final class AudioBufferPolicy {
 
     /**
      * AAudio jitter reserve in the ring ahead of the stream: two bursts, growing a burst at a time on
-     * starvation up to eight bursts, or fewer where that is over MAX_RESERVE_MS, within the ring.
+     * starvation up to eight bursts, or fewer where that is over MAX_RESERVE_MS, within the ring. The
+     * renderer counts only jitter gaps as starvation here; stalls are concealed instead.
      */
     static AudioBufferPolicy forReserve(int burst, int capacity, int initial, int underruns, long nowMs,
                                         int sampleRate) {

@@ -24,16 +24,46 @@ fn streaming(h: &Shared) -> bool {
         .any(|session| session.launch.role == Role::Stream && !session.stopping())
 }
 fn application_finished(h: &Shared) -> bool {
+    application_finished_with(h, butterpollo_windows::process::processes)
+}
+/// The process list a Steam game is looked for in is read with `current_app`
+/// released (the stream and input threads look at the app every second) and
+/// applied only to the app it was read for.
+fn application_finished_with(
+    h: &Shared,
+    processes: impl FnOnce() -> anyhow::Result<Vec<butterpollo_core::steam::Process>>,
+) -> bool {
     let connected = streaming(h);
+    let scan_for = {
+        let mut current = h.current_app.lock().unwrap();
+        let Some(app) = current.as_mut() else {
+            return false;
+        };
+        if app.connection_state(connected) {
+            return true;
+        }
+        app.wants_processes().then(|| app.generation.clone())
+    };
+    let processes = match scan_for.as_ref().map(|_| processes()) {
+        Some(Err(error)) => {
+            tracing::warn!(%error, "application exit check failed");
+            return false;
+        }
+        Some(Ok(processes)) => Some(processes),
+        None => None,
+    };
     h.current_app.lock().unwrap().as_mut().is_some_and(|app| {
-        app.connection_state(connected)
-            || match app.exited() {
-                Ok(finished) => finished,
-                Err(error) => {
-                    tracing::warn!(%error, "application exit check failed");
-                    false
-                }
+        // An app that replaced the one scanned for is looked at with its own list next time.
+        let processes = processes
+            .as_deref()
+            .filter(|_| scan_for.as_deref() == Some(app.generation.as_str()));
+        match app.exited(processes) {
+            Ok(finished) => finished,
+            Err(error) => {
+                tracing::warn!(%error, "application exit check failed");
+                false
             }
+        }
     })
 }
 /// Start an app that was launched before anyone signed in, keeping its
@@ -347,6 +377,49 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         assert!(spawn_exclusive(&running, || ()));
+    }
+
+    fn steam_app() -> crate::process::RunningApp {
+        let mut app = crate::process::RunningApp::with_environment(
+            &butterpollo_core::state::App::desktop(),
+            Default::default(),
+        )
+        .unwrap();
+        app.track_steam(r"C:\not-a-game");
+        app
+    }
+
+    #[test]
+    fn a_steam_games_process_scan_leaves_the_running_app_to_the_stream() {
+        let fixture = Fixture::new();
+        *fixture.host.current_app.lock().unwrap() = Some(steam_app());
+        let mut scanned = false;
+        assert!(!application_finished_with(&fixture.host, || {
+            // The stream and input threads look at the app while the list is read.
+            assert!(
+                fixture.host.try_current_app().is_some(),
+                "the process scan held the running app"
+            );
+            scanned = true;
+            Ok(Vec::new())
+        }));
+        assert!(scanned);
+        // The list was applied: the next look is a second away.
+        let current = fixture.host.current_app.lock().unwrap();
+        assert!(!current.as_ref().unwrap().wants_processes());
+    }
+
+    #[test]
+    fn a_process_list_read_for_a_replaced_app_is_not_applied_to_its_successor() {
+        let fixture = Fixture::new();
+        *fixture.host.current_app.lock().unwrap() = Some(steam_app());
+        assert!(!application_finished_with(&fixture.host, || {
+            *fixture.host.current_app.lock().unwrap() = Some(steam_app());
+            Ok(Vec::new())
+        }));
+        // The new app still gets its own first look.
+        let current = fixture.host.current_app.lock().unwrap();
+        assert!(current.as_ref().unwrap().wants_processes());
     }
 
     #[test]

@@ -405,6 +405,22 @@ impl<'a> AppStop<'a> {
     }
 }
 impl Host {
+    /// The running app, or None while another thread holds it. A stream or
+    /// input thread skips its once-a-second look instead of waiting: housekeeping
+    /// and launches hold the app, and on a PC busy loading a game a thread
+    /// holding it can wait for the CPU. A poisoned lock panics, as
+    /// `lock().unwrap()` does.
+    pub fn try_current_app(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Option<crate::process::RunningApp>>> {
+        match self.current_app.try_lock() {
+            Ok(current) => Some(current),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                panic!("the running app's lock is poisoned: {error}")
+            }
+        }
+    }
     pub fn stop_app(&self, why: AppStop<'_>) {
         let teardown = self.session_teardown(crate::session_control::Scope::Game);
         // Stopping the app waits for it to exit, up to its exit timeout and

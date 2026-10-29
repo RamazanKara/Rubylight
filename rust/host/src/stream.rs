@@ -64,6 +64,24 @@ fn server_command(
             .unwrap_or(false),
     ))
 }
+/// How soon the stream looks again when another thread held the running app.
+const QUIT_SCAN_RETRY: Duration = Duration::from_millis(50);
+/// Hand the program the stream's display shows (`pid`) to the running app, for
+/// quitting it later. Only the stream of the client that launched the app:
+/// another client's display shows its own programs; an app started from the
+/// console has no owner. False, having waited for nothing, when another thread
+/// holds the app: the stream thread never waits behind housekeeping.
+fn observe_foreground_game(h: &crate::state::Host, client: &str, program: &str, pid: u32) -> bool {
+    let Some(mut current) = h.try_current_app() else {
+        return false;
+    };
+    if let Some(app) = current.as_mut()
+        && (app.owner.is_empty() || app.owner == client)
+    {
+        app.observe_foreground(pid, program);
+    }
+    true
+}
 /// A WebRTC HDR stream carries the display's HDR or nothing: SDR content labelled HDR, or HDR
 /// tone-mapped to SDR, is not what the client asked for, so the session ends with an error.
 /// `display_in_hdr` is the capture's reading of the output's colour space (HDR10 or not); the
@@ -2857,13 +2875,12 @@ impl Media {
                                 if let Some((program, pid)) = quit_scan
                                     .get_or_insert_with(butterpollo_windows::foreground::Tracker::default)
                                     .poll_process(&[], &image.gpu.display)
-                                    && let Some(app) = h.current_app.lock().unwrap().as_mut()
-                                    // Only the stream of the client that launched the app:
-                                    // another client's display shows its own programs.
-                                    // An app started from the console has no owner.
-                                    && (app.owner.is_empty() || app.owner == s.launch.client.uuid)
                                 {
-                                    app.observe_foreground(pid, &program);
+                                    progress.mark(crate::stall_watch::Phase::AppTracking);
+                                    if !observe_foreground_game(&h, &s.launch.client.uuid, &program, pid) {
+                                        quit_scan_due = Instant::now() + QUIT_SCAN_RETRY;
+                                    }
+                                    progress.mark(crate::stall_watch::Phase::Picture);
                                 }
                             }
                             let rebuilt = rebuild_encoder;
@@ -3648,8 +3665,10 @@ impl Media {
         let mut controller_cleanup = Instant::now();
         while !h.stop.load(Ordering::Acquire) {
             while self.control_wake_receiver.recv(&mut [0]).is_ok() {}
-            if controller_cleanup.elapsed() >= Duration::from_secs(1) {
-                let app_running = h.current_app.lock().unwrap().is_some();
+            // Input never waits behind housekeeping: a held app is looked at on the next pass.
+            if controller_cleanup.elapsed() >= Duration::from_secs(1)
+                && let Some(app_running) = h.try_current_app().map(|current| current.is_some())
+            {
                 h.controller_sessions.expire(app_running);
                 controller_cleanup = Instant::now();
             }
@@ -5644,6 +5663,42 @@ mod tests {
             Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
         assert_eq!(server_command(&f.host, &client, &[0], true, &mut at), None);
         assert!(at.is_none());
+    }
+    #[test]
+    fn the_stream_thread_skips_its_game_look_while_another_thread_holds_the_app() {
+        use crate::state::test_support::Fixture;
+        let f = Fixture::new();
+        *f.host.current_app.lock().unwrap() = Some(
+            crate::process::RunningApp::with_environment(
+                &butterpollo_core::state::App::desktop(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+        // Housekeeping holds the app for 400 ms, as on a PC busy loading a game.
+        let (held, holding) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let host = &f.host;
+            scope.spawn(move || {
+                let _current = host.current_app.lock().unwrap();
+                held.send(()).unwrap();
+                let _ = released.recv_timeout(Duration::from_millis(400));
+            });
+            holding.recv().unwrap();
+            let started = Instant::now();
+            assert!(!observe_foreground_game(
+                &f.host, "client", "game.exe", 4242
+            ));
+            let waited = started.elapsed();
+            release.send(()).unwrap();
+            assert!(
+                waited < Duration::from_millis(50),
+                "the stream thread waited {waited:?}"
+            );
+        });
+        // Free again, the look goes through.
+        assert!(observe_foreground_game(&f.host, "client", "game.exe", 4242));
     }
     #[test]
     fn app_overrides_win_over_device_and_host_without_changing_saved_configuration() {

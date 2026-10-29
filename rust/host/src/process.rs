@@ -610,18 +610,35 @@ impl RunningApp {
             .then(|| self.deferred.take())
             .flatten()
     }
-    pub fn exited(&mut self) -> Result<bool> {
+    /// Whether the next [`Self::exited`] wants the PC's process list: a Steam
+    /// game is looked for in it once a second. The caller reads the list
+    /// without `current_app` held, since reading it takes a creation-time query
+    /// per process (8 ms on an idle PC, more on one loading a game) and the
+    /// stream and input threads look at the app too.
+    pub fn wants_processes(&self) -> bool {
+        self.playnite.is_none()
+            && self.steam.is_some()
+            && self.steam_check.elapsed() >= Duration::from_secs(1)
+    }
+    /// `processes` is the process list read for a [`Self::wants_processes`]
+    /// that said yes; without one, a Steam game is looked for next time.
+    pub fn exited(
+        &mut self,
+        processes: Option<&[butterpollo_core::steam::Process]>,
+    ) -> Result<bool> {
         if let Some(launch) = &self.playnite {
             return Ok(launch.finished());
         }
         if let Some(tracker) = &mut self.steam {
             use butterpollo_core::steam::Tracked;
-            if self.steam_check.elapsed() < Duration::from_secs(1) {
+            let Some(processes) =
+                processes.filter(|_| self.steam_check.elapsed() >= Duration::from_secs(1))
+            else {
                 return Ok(false);
-            }
+            };
             self.steam_check = std::time::Instant::now();
-            let processes = butterpollo_windows::process::processes()?;
-            match tracker.update(&processes, butterpollo_windows::process::image_path) {
+            // Image paths are read only for processes started since the last look.
+            match tracker.update(processes, butterpollo_windows::process::image_path) {
                 Tracked::Waiting => return Ok(false),
                 Tracked::Running => {
                     self.game_seen = true;
@@ -737,6 +754,16 @@ impl RunningApp {
                 .as_ref()
                 .is_some_and(|launch| launch.game_up());
         Some((game_up, age))
+    }
+    /// A Steam game looked for in `install_dir`, with its first look due.
+    #[cfg(test)]
+    pub fn track_steam(&mut self, install_dir: &str) {
+        self.steam = Some(butterpollo_core::steam::Tracker::new(
+            &[],
+            install_dir,
+            Duration::ZERO,
+        ));
+        self.steam_check = std::time::Instant::now() - Duration::from_secs(2);
     }
     #[cfg(test)]
     pub fn mark_game_seen(&mut self) {
@@ -1309,8 +1336,12 @@ mod tests {
             Duration::ZERO,
         ));
         app.steam_check = std::time::Instant::now() - Duration::from_secs(2);
-        assert!(!app.exited().unwrap());
+        assert!(app.wants_processes());
+        let processes = butterpollo_windows::process::processes().unwrap();
+        assert!(!app.exited(Some(&processes)).unwrap());
         assert!(app.steam.is_some());
+        // Looked once: the next look is a second away.
+        assert!(!app.wants_processes());
     }
     #[test]
     fn quitting_closes_a_store_launched_game_but_not_the_store_or_older_programs() {

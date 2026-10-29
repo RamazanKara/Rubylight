@@ -129,9 +129,10 @@ pub trait Pc: Send + Sync {
     /// whether the signed-in user may change its folder's files as Nucleus
     /// does (a walk of the folder: at launch, not for the console).
     fn game_need(&self, exe: &str, folder: bool) -> Result<Need>;
-    /// The signed-in user's own copy of Nucleus Co-op, made when it isn't
-    /// there ([`butterpollo_windows::nucleus::user_copy`]).
-    fn user_copy(&self) -> Result<PathBuf>;
+    /// The signed-in user's own copy of the Nucleus at `folder`, made again
+    /// when it isn't that one's program
+    /// ([`butterpollo_windows::nucleus::user_copy`]).
+    fn user_copy(&self, folder: &Path) -> Result<PathBuf>;
     /// Write Rubylight's one-player handler for `setup` into the Nucleus at
     /// `folder`, or into the user's own copy at `copy` (as the user, with
     /// `folder`'s handlers), and add its game for the signed-in user;
@@ -340,19 +341,10 @@ impl Pc for OnPc {
         ]);
         Ok(need)
     }
-    fn user_copy(&self) -> Result<PathBuf> {
-        let data = butterpollo_core::paths::data_root();
+    fn user_copy(&self, folder: &Path) -> Result<PathBuf> {
         let user = user_copy::user()?;
         let sid = user_copy::sid(&user)?;
-        let mut archive = || {
-            let mut download = Download(
-                tokio::runtime::Handle::try_current()
-                    .context("downloading Nucleus Co-op needs the host's runtime")?,
-                &|_| {},
-            );
-            install::archive(&data, &mut download)
-        };
-        user_copy::ensure(&data, &sid, &user, &mut archive)
+        user_copy::ensure(&butterpollo_core::paths::data_root(), folder, &sid, &user)
     }
     fn write_own(&self, folder: &Path, copy: Option<&Path>, setup: &Setup) -> Result<Handler> {
         if let Some(pid) = self.running()? {
@@ -1589,7 +1581,7 @@ impl Registry {
                 }
                 .map_err(refused)?;
                 let copy = match run {
-                    Run::User => Some(pc.user_copy().map_err(|error| {
+                    Run::User => Some(pc.user_copy(&folder).map_err(|error| {
                         refused(format!(
                             "the signed-in user's own copy of Nucleus Co-op was not made: {error:#}"
                         ))
@@ -2260,6 +2252,8 @@ pub(crate) mod fake {
         pub own_in: Mutex<Vec<Option<PathBuf>>>,
         /// The copy each started session ran (None: the host's, elevated).
         pub user_copies: Mutex<Vec<Option<PathBuf>>>,
+        /// The Nucleus folder each user's copy was made from.
+        pub copied_from: Mutex<Vec<PathBuf>>,
     }
     impl Pc {
         pub(crate) fn unavailable() -> Self {
@@ -2324,6 +2318,7 @@ pub(crate) mod fake {
                 ready_runs: Mutex::new(Vec::new()),
                 own_in: Mutex::new(Vec::new()),
                 user_copies: Mutex::new(Vec::new()),
+                copied_from: Mutex::new(Vec::new()),
             }
         }
         /// The session started last.
@@ -2335,9 +2330,12 @@ pub(crate) mod fake {
         fn unavailable(&self) -> Option<String> {
             self.unavailable.lock().unwrap().clone()
         }
-        fn installed(&self, _configured: &str) -> Result<Option<PathBuf>> {
+        fn installed(&self, configured: &str) -> Result<Option<PathBuf>> {
             if let Some(error) = self.installed_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
+            }
+            if !configured.is_empty() {
+                return Ok(Some(PathBuf::from(configured)));
             }
             Ok(self.installed.lock().unwrap().clone())
         }
@@ -2434,12 +2432,13 @@ pub(crate) mod fake {
                 need(&self.folder_needs),
             ]))
         }
-        fn user_copy(&self) -> Result<PathBuf> {
+        fn user_copy(&self, folder: &Path) -> Result<PathBuf> {
             if let Some(error) = self.copy_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
             }
+            self.copied_from.lock().unwrap().push(folder.to_path_buf());
             Ok(PathBuf::from(format!(
-                r"C:\ProgramData\Butterpollo\nucleus-user\{USER}\2.4.2"
+                r"C:\ProgramData\Butterpollo\nucleus-user\{USER}\0123456789abcdef"
             )))
         }
         fn write_own(&self, _folder: &Path, copy: Option<&Path>, setup: &Setup) -> Result<Handler> {
@@ -3665,7 +3664,7 @@ mod tests {
     /// The copy the fake PC makes for the signed-in user.
     fn user_copy() -> PathBuf {
         PathBuf::from(format!(
-            r"C:\ProgramData\Butterpollo\nucleus-user\{}\2.4.2",
+            r"C:\ProgramData\Butterpollo\nucleus-user\{}\0123456789abcdef",
             fake::USER
         ))
     }
@@ -3700,6 +3699,31 @@ mod tests {
         );
         // The game's folder was walked at launch, as Nucleus will.
         assert_eq!(pc.walks.load(std::sync::atomic::Ordering::Relaxed), 2);
+        // Made from the host's Nucleus at each launch, which checks it.
+        assert_eq!(
+            *pc.copied_from.lock().unwrap(),
+            [PathBuf::from(r"C:\Nucleus"), PathBuf::from(r"C:\Nucleus")]
+        );
+    }
+
+    #[test]
+    fn the_users_copy_is_made_from_the_configured_nucleus() {
+        let (registry, pc, _) = setup();
+        let config = Config::parse("nucleus_path = D:\\Games\\Nucleus\n").unwrap();
+        let seat = background(
+            &registry,
+            &app("Ice", r"C:\NoSuchGames\Ice\Ice.exe"),
+            "a",
+            &client("A", false),
+            &config,
+        )
+        .unwrap();
+        assert!(registry.end(seat.session));
+        assert_eq!(
+            *pc.copied_from.lock().unwrap(),
+            [PathBuf::from(r"D:\Games\Nucleus")]
+        );
+        assert_eq!(*pc.user_copies.lock().unwrap(), [Some(user_copy())]);
     }
 
     #[test]
@@ -4263,7 +4287,7 @@ mod tests {
         );
         assert_eq!(
             registry.install(r"D:\Nucleus"),
-            Install::Configured(PathBuf::from(r"C:\Nucleus"))
+            Install::Configured(PathBuf::from(r"D:\Nucleus"))
         );
     }
 

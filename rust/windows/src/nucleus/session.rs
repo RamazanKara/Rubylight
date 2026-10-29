@@ -895,7 +895,8 @@ mod tests {
     fn the_users_own_copy_starts_as_them_with_the_elevated_ones_environment() {
         let local = Path::new(r"C:\Users\Player\AppData\Local");
         let environment = webview_environment(local, &steam_environment(Some(400)));
-        let copy = Path::new(r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\2.4.2");
+        let copy =
+            Path::new(r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\0123456789abcdef");
         let user = launch_of(copy, "Rubylight-game", &environment, Run::User);
         assert_eq!(
             user,

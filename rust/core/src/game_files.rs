@@ -810,6 +810,11 @@ fn replace(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
         out.write_all(bytes)?;
         out.sync_all()?;
         drop(out);
+        #[cfg(test)]
+        if tests::HALFWAY.get() {
+            std::fs::remove_file(file)?;
+            return Err(std::io::Error::from_raw_os_error(1176));
+        }
         swap(file, &temporary)
     })();
     match result {
@@ -821,9 +826,10 @@ fn replace(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// After a failed [`replace`]: a swap that failed halfway (ERROR_UNABLE_TO_MOVE_REPLACEMENT,
 /// when the new file is held open) has taken the file away and left its new contents under
 /// the temporary name, which is moved in, tried for a second. The temporary file is the only
-/// copy then and is never deleted; a restore finds it if this fails too ([`left_behind`]).
-/// After any other failure the file is as it was, or gone because it was deleted meanwhile and
-/// stays gone, and the temporary file goes.
+/// copy then and is never deleted; when this fails too, the error is [`LeftBehind`] and a
+/// restore finds it ([`left_behind`]). A file that turns up meanwhile (the game wrote one) is
+/// not overwritten. After any other failure the file is as it was, or gone because it was
+/// deleted meanwhile and stays gone, and the temporary file goes.
 fn recover(file: &Path, temporary: &Path, error: std::io::Error) -> std::io::Result<()> {
     // ERROR_UNABLE_TO_MOVE_REPLACEMENT and ERROR_UNABLE_TO_MOVE_REPLACEMENT_2.
     let halfway = cfg!(windows) && matches!(error.raw_os_error(), Some(1176 | 1177));
@@ -833,20 +839,79 @@ fn recover(file: &Path, temporary: &Path, error: std::io::Error) -> std::io::Res
     }
     let mut tries = 0;
     loop {
-        match std::fs::rename(temporary, file) {
+        match move_in(temporary, file) {
             Ok(()) => return Ok(()),
+            Err(_) if std::fs::symlink_metadata(file).is_ok() => {
+                let _ = std::fs::remove_file(temporary);
+                return Err(error);
+            }
             Err(_) if tries < 10 => {
                 tries += 1;
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
             Err(again) => {
-                return Err(std::io::Error::other(format!(
+                return Err(std::io::Error::other(LeftBehind(format!(
                     "{error}; the file is gone and its new contents are in {}: {again}",
                     temporary.display()
-                )));
+                ))));
             }
         }
     }
+}
+
+/// A write whose file is gone, its new contents left under the temporary name ([`recover`]):
+/// its journal entries stay, so the restore moves them back and puts the originals in.
+#[derive(Debug)]
+struct LeftBehind(String);
+impl fmt::Display for LeftBehind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for LeftBehind {}
+
+fn left_behind_error(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<LeftBehind>())
+}
+
+/// Move `from` to `to`, failing when `to` exists rather than replacing it.
+#[cfg(windows)]
+fn move_in(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[cfg(test)]
+    if tests::HALFWAY.get() {
+        return Err(std::io::Error::other("the new file is held open"));
+    }
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    let wide = |path: &Path| -> Vec<u16> {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+    let (from, to) = (wide(from), wide(to));
+    if from[..from.len() - 1].contains(&0) || to[..to.len() - 1].contains(&0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "file path contains a NUL",
+        ));
+    }
+    // SAFETY: both paths are NUL-terminated UTF-16 buffers that outlive the call.
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn move_in(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(from, to)?;
+    std::fs::remove_file(from)
 }
 
 /// The new contents of `file` a [`replace`] that failed twice left under a temporary name (the
@@ -895,8 +960,9 @@ fn linked(error: &std::io::Error) -> bool {
 
 /// Hold the folders from `folder` (the app's, [`Target::folder`]) down to `file`'s own open
 /// without delete sharing, so none can be moved, or swapped for a link, until the handles drop.
-/// One that is a link already fails with [`Linked`]. Without `folder`, only the file's own
-/// folder is held. Opened through the caller's access, so as the user.
+/// One that is a link already fails with [`Linked`], and so does a folder above the app's that
+/// is one now (the held folders keep those from moving too). Without `folder`, only the file's
+/// own folder is held. Opened through the caller's access, so as the user.
 #[cfg(windows)]
 fn pin(folder: &Path, file: &Path) -> std::io::Result<Vec<std::fs::File>> {
     use std::os::windows::fs::OpenOptionsExt;
@@ -942,6 +1008,10 @@ fn pin(folder: &Path, file: &Path) -> std::io::Result<Vec<std::fs::File>> {
             return Err(std::io::Error::other(Linked(dir)));
         }
         pins.push(pinned);
+    }
+    // The first folder was opened through those above it, which could be links by now.
+    if std::fs::canonicalize(parent)? != parent {
+        return Err(std::io::Error::other(Linked(parent.to_path_buf())));
     }
     Ok(pins)
 }
@@ -1171,6 +1241,11 @@ pub fn apply(
                     &format!("the file could not be written: {error}"),
                 );
             }
+            // Gone, with the new contents beside it: the entries stay for the restore.
+            if left_behind_error(&error) {
+                journal = before;
+                continue;
+            }
             if before != journal
                 && let Err(error) = journal.save(journal_path)
             {
@@ -1223,20 +1298,21 @@ enum Found {
     File(Vec<u8>),
     /// A link or junction now: it is not followed.
     Link,
-    /// The file is gone, or its folder, from a drive that is still there.
+    /// The file is gone, or the app's folder, from a folder that is still there.
     Gone,
 }
 
 /// Look at `file`, in the app's `folder`, for a restore. A file that a [`replace`] which failed
-/// twice left under its temporary name is moved back first. A missing drive (not mounted yet)
-/// is an error, so the changes stay journaled.
+/// twice left under its temporary name is moved back first. When the folder the app's folder
+/// is in is missing too (a drive not mounted yet, or another drive under its letter), it is an
+/// error, so the changes stay journaled.
 fn look_up(folder: &Path, file: &Path) -> std::io::Result<Found> {
     let found = pin(folder, file).and_then(|_pins| match std::fs::canonicalize(file) {
         Ok(resolved) if resolved == file => read(file).map(Found::File),
         Ok(_) => Ok(Found::Link),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => match left_behind(file)? {
             Some(temporary) => {
-                std::fs::rename(&temporary, file)?;
+                move_in(&temporary, file)?;
                 tracing::warn!(file = %file.display(), from = %temporary.display(), "a managed game file a failed write had left under a temporary name is back in place");
                 read(file).map(Found::File)
             }
@@ -1244,9 +1320,13 @@ fn look_up(folder: &Path, file: &Path) -> std::io::Result<Found> {
         },
         Err(error) => Err(error),
     });
+    let above = match folder.parent() {
+        Some(above) if !folder.as_os_str().is_empty() => above.to_path_buf(),
+        _ => volume(file),
+    };
     match found {
         Err(error) if linked(&error) => Ok(Found::Link),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound && volume(file).is_dir() => {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && above.is_dir() => {
             Ok(Found::Gone)
         }
         found => found,
@@ -1260,6 +1340,7 @@ fn look_up(folder: &Path, file: &Path) -> std::io::Result<Found> {
 /// journal cannot be read or saved.
 pub fn restore(journal_path: &Path, scope: Scope<'_>, access: Access) -> Result<Report> {
     let mut journal = Journal::load(journal_path)?;
+    let loaded = journal.clone();
     let mut report = Report::default();
     let mut files: Vec<PathBuf> = Vec::new();
     for change in journal.changes.iter().filter(|c| scope.matches(c)) {
@@ -1334,7 +1415,9 @@ pub fn restore(journal_path: &Path, scope: Scope<'_>, access: Access) -> Result<
         report.kept.append(&mut done.kept);
         report.skipped.append(&mut done.skipped);
     }
-    journal.save(journal_path)?;
+    if journal != loaded {
+        journal.save(journal_path)?;
+    }
     Ok(report)
 }
 
@@ -1344,6 +1427,12 @@ mod tests {
     use serde_json::json;
 
     const OPTISCALER: &str = "; OptiScaler settings\r\n[Framerate]\r\n; 0 = no limit\r\nFramerateLimit = 59\r\n\r\n[Upscalers]\r\nDx12Upscaler=fsr31\r\n";
+
+    thread_local! {
+        /// Makes this thread's swaps fail halfway, as ERROR_UNABLE_TO_MOVE_REPLACEMENT does
+        /// (the file gone, its new contents under the temporary name), and the move after.
+        pub(super) static HALFWAY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
 
     // The tests reach their files as the test process.
     fn folders(candidates: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
@@ -1840,15 +1929,85 @@ mod tests {
         } else {
             assert!(halfway.is_err());
         }
+        // A file that turns up meanwhile (the game wrote one) is not overwritten.
+        std::fs::write(&game.file, "[Framerate]\r\nFramerateLimit=120\r\n").unwrap();
+        std::fs::write(&temporary, "new").unwrap();
+        assert!(move_in(&temporary, &game.file).is_err());
+        assert_eq!(current(&game.file), "120");
+        assert!(
+            recover(
+                &game.file,
+                &temporary,
+                std::io::Error::from_raw_os_error(1176)
+            )
+            .is_err()
+        );
+        assert_eq!(current(&game.file), "120");
+        assert!(!temporary.exists());
         // Any other failure leaves no new file, and no temporary one.
         std::fs::remove_file(&game.file).ok();
         std::fs::write(&temporary, "new").unwrap();
         assert!(recover(&game.file, &temporary, std::io::Error::from_raw_os_error(5)).is_err());
         assert!(!game.file.exists() && !temporary.exists());
         // A file the user deleted while it was written stays deleted.
+        #[cfg(windows)]
         assert!(replace(&game.resolved, b"[Framerate]\r\nFramerateLimit=120\r\n").is_err());
         assert!(!game.file.exists());
         assert_eq!(std::fs::read_dir(&game.folder).unwrap().count(), 0);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_write_whose_new_file_is_left_beside_it_stays_journaled_and_goes_back() {
+        let game = game();
+        let folders = folders([game.folder.clone()]);
+        let targets = targets(
+            &[limit("120")],
+            None,
+            Some(&game.folder),
+            &folders,
+            &mut Report::default(),
+        );
+        HALFWAY.set(true);
+        let report = apply(&game.journal, "phone", &targets);
+        HALFWAY.set(false);
+        let report = report.unwrap();
+        assert!(
+            report.written.is_empty() && report.skipped.len() == 1,
+            "{report:?}"
+        );
+        assert!(!game.file.exists());
+        assert_eq!(Journal::load(&game.journal).unwrap().changes.len(), 1);
+        let report = restore(&game.journal, Scope::All).unwrap();
+        assert_eq!(report.restored.len(), 1, "{report:?}");
+        assert_eq!(std::fs::read_to_string(&game.file).unwrap(), OPTISCALER);
+        assert_eq!(std::fs::read_dir(&game.folder).unwrap().count(), 1);
+        assert!(Journal::load(&game.journal).unwrap().changes.is_empty());
+    }
+
+    #[test]
+    fn a_restore_that_changes_nothing_leaves_the_journal_alone() {
+        let game = game();
+        let folders = folders([game.folder.clone()]);
+        let targets = targets(
+            &[limit("60")],
+            None,
+            Some(&game.folder),
+            &folders,
+            &mut Report::default(),
+        );
+        apply(&game.journal, "phone", &targets).unwrap();
+        let mut permissions = std::fs::metadata(&game.journal).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&game.journal, permissions.clone()).unwrap();
+        // At the sign-in screen nothing goes back, and the journal is not written again.
+        let report = super::restore(&game.journal, Scope::All, no_user).unwrap();
+        assert_eq!(report.failed.len(), 1, "{report:?}");
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&game.journal, permissions).unwrap();
+        restore(&game.journal, Scope::All).unwrap();
+        assert_eq!(std::fs::read_to_string(&game.file).unwrap(), OPTISCALER);
     }
 
     #[test]
@@ -1892,6 +2051,27 @@ mod tests {
             current(&game.folder.join("Moved").join("OptiScaler.ini")),
             "59"
         );
+
+        // A folder above the app's: the held ones keep it from moving, and one that is a
+        // junction by the time they are held is refused, though the app's folder opens.
+        let library = game.folder.with_file_name("Library");
+        std::fs::create_dir_all(library.join("Game")).unwrap();
+        std::fs::write(library.join("Game").join("OptiScaler.ini"), OPTISCALER).unwrap();
+        let folder = std::fs::canonicalize(library.join("Game")).unwrap();
+        let file = folder.join("OptiScaler.ini");
+        let pins = pin(&folder, &file).unwrap();
+        let elsewhere = game.folder.with_file_name("Elsewhere");
+        assert!(std::fs::rename(&library, &elsewhere).is_err());
+        drop(pins);
+        std::fs::rename(&library, &elsewhere).unwrap();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&library)
+            .arg(&elsewhere)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        assert!(linked(&pin(&folder, &file).unwrap_err()));
     }
 
     #[test]

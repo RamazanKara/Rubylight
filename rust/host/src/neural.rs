@@ -1208,25 +1208,50 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
         update_job(&h, &uuid, |job| {
             (job.phase, job.done, job.total) = ("place", 0, 0)
         });
-        let request = Request::Install {
-            exe: exe.or_else(|| game_command(&app)),
-            install: install(&app),
-            package: using.folder.clone(),
-        };
+        let (exe, install, package) = (
+            exe.or_else(|| game_command(&app)),
+            install(&app),
+            using.folder.clone(),
+        );
         let worker = h.clone();
         let task_uuid = uuid.clone();
         let finished = tokio::task::spawn_blocking(move || {
-            let response = {
-                let _reading = worker.neural.reading();
-                let _using = using;
-                run_folder(request, &|done, total| {
-                    update_job(&worker, &task_uuid, |job| {
-                        (job.done, job.total) = (done, total)
-                    })
+            let progress = |done, total| {
+                update_job(&worker, &task_uuid, |job| {
+                    (job.done, job.total) = (done, total)
                 })
             };
+            let mut recorded = None;
+            let response = (|| {
+                let _reading = worker.neural.reading();
+                let _using = using;
+                // The game's program first: its removal is recorded before
+                // anything is written, so an install cut short (a timeout,
+                // a host restart) is taken out by the pending removals.
+                let request = Request::Find {
+                    exe,
+                    install: install.clone(),
+                };
+                let exe = match run_folder(request, &|_, _| {})? {
+                    Response::Found { exe } => exe,
+                    other => return Ok(other),
+                };
+                let pending = Pending {
+                    name: app.name.clone(),
+                    exe: exe.clone(),
+                    uuid: Some(task_uuid.clone()),
+                };
+                record_pending(&worker, std::slice::from_ref(&pending))?;
+                recorded = Some(exe.clone());
+                let request = Request::Install {
+                    exe: Some(exe),
+                    install,
+                    package,
+                };
+                run_folder(request, &progress)
+            })();
             // Saving the app and any taking back block too.
-            finish_install(&worker, &task_uuid, &app, response);
+            finish_install(&worker, &task_uuid, &app, recorded.as_deref(), response);
         })
         .await;
         if let Err(error) = finished {
@@ -1236,7 +1261,21 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     Ok(())
 }
 
-fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>) {
+/// The install's end: the app saved with the mod, or the job failed. The
+/// removal `recorded` before the install goes once the mod is in and saved,
+/// or nothing was written; otherwise it takes out what is left. Blocks.
+fn finish_install(
+    h: &Shared,
+    uuid: &str,
+    app: &App,
+    recorded: Option<&Path>,
+    response: Result<Response>,
+) {
+    let clear = || {
+        if let Some(exe) = recorded {
+            clear_pending(h, exe);
+        }
+    };
     match response {
         Ok(Response::Placed {
             exe,
@@ -1250,7 +1289,10 @@ fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>)
                 // or could not be saved: nothing would remove the mod later.
                 tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the app could not be saved with the mod; taking it out again");
                 let after = match take_back(h, uuid, &app.name, &exe) {
-                    Ok(true) => "Neural Rendering was taken out again".to_owned(),
+                    Ok(true) => {
+                        clear();
+                        "Neural Rendering was taken out again".to_owned()
+                    }
                     Ok(false) => "Neural Rendering's removal is pending until the game's folder can be changed".to_owned(),
                     Err(error) => format!("{error:#}"),
                 };
@@ -1261,14 +1303,18 @@ fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>)
                     false,
                 );
             }
+            clear();
             tracing::info!(app = %app.name, folder = %exe.parent().unwrap_or(&exe).display(), %release, %proxy, "Neural Rendering installed");
             update_job(h, uuid, |job| job.phase = "done");
         }
+        // Refused before anything was written.
         Ok(Response::ChooseExe { reason }) => {
+            clear();
             tracing::info!(app = %app.name, %reason, "Neural Rendering needs the game's program chosen");
             fail_job(h, uuid, reason, true);
         }
         Ok(Response::Refused { reason }) => {
+            clear();
             tracing::warn!(app = %app.name, %reason, "Neural Rendering refused the game");
             fail_job(h, uuid, reason, false);
         }
@@ -1277,7 +1323,10 @@ fn finish_install(h: &Shared, uuid: &str, app: &App, response: Result<Response>)
             fail_job(h, uuid, message, false);
         }
         Ok(
-            Response::Removed { .. } | Response::Unreachable { .. } | Response::NotWritable { .. },
+            Response::Removed { .. }
+            | Response::Unreachable { .. }
+            | Response::NotWritable { .. }
+            | Response::Found { .. },
         ) => fail_job(h, uuid, "unexpected helper answer".into(), false),
         Err(error) => {
             tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering could not be installed");
@@ -1350,7 +1399,7 @@ fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
             tracing::warn!(app = %name, error = %message, "Neural Rendering could not be removed");
             bail!("{message}")
         }
-        Response::Placed { .. } | Response::NotWritable { .. } => {
+        Response::Placed { .. } | Response::NotWritable { .. } | Response::Found { .. } => {
             bail!("unexpected helper answer")
         }
     }
@@ -1467,6 +1516,20 @@ fn take_back(h: &Shared, uuid: &str, name: &str, exe: &Path) -> Result<bool> {
     Ok(false)
 }
 
+/// Drop the removal beside `exe` from the record: the mod is meant to be
+/// there, or nothing was written.
+fn clear_pending(h: &Shared, exe: &Path) {
+    let saved = update_settings(h, |value| {
+        let mut list: Vec<Pending> =
+            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        list.retain(|removal| removal.exe != exe);
+        value[PENDING] = json!(list);
+    });
+    if let Err(error) = saved {
+        tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");
+    }
+}
+
 /// Add removals to the record (once each).
 fn record_pending(h: &Shared, removals: &[Pending]) -> Result<()> {
     update_settings(h, |value| {
@@ -1552,8 +1615,20 @@ fn try_pending(h: &Shared, also: &[Pending]) {
             removals.push(removal.clone());
         }
     }
+    // The mod an app has on stays: such a record is stale.
+    let wanted: Vec<PathBuf> = h
+        .apps
+        .read()
+        .unwrap()
+        .iter()
+        .filter_map(placed_exe)
+        .collect();
     let mut done = Vec::new();
     for removal in &removals {
+        if wanted.contains(&removal.exe) {
+            done.push(removal.exe.clone());
+            continue;
+        }
         let Ok(_slot) = Removing::take(h, removal.uuid.as_deref()) else {
             tracing::info!(app = %removal.name, "Neural Rendering is busy with the game; its removal stays pending");
             continue;
@@ -1653,7 +1728,10 @@ fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
             tracing::warn!(app = %app.name, error = %message, "Neural Rendering's check failed before the launch");
             bail!("{message}")
         }
-        Response::Removed { .. } | Response::Unreachable { .. } | Response::NotWritable { .. } => {
+        Response::Removed { .. }
+        | Response::Unreachable { .. }
+        | Response::NotWritable { .. }
+        | Response::Found { .. } => {
             bail!("unexpected helper answer")
         }
     }

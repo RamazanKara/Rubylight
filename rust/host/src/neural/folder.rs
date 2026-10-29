@@ -105,6 +105,12 @@ impl Package {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
+    /// The program [`Request::Install`] would place beside, writing nothing:
+    /// `exe` checked, or the game's .exe found in `install`.
+    Find {
+        exe: Option<PathBuf>,
+        install: Option<PathBuf>,
+    },
     /// Place `package` beside `exe`, or beside the game's .exe found in `install`.
     Install {
         exe: Option<PathBuf>,
@@ -126,6 +132,10 @@ pub enum Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Response {
+    /// The game's program ([`Request::Find`]).
+    Found {
+        exe: PathBuf,
+    },
     Placed {
         exe: PathBuf,
         release: String,
@@ -160,6 +170,9 @@ pub enum Response {
 
 pub fn handle(request: Request, writer: Writer, progress: &dyn Fn(u64, u64)) -> Response {
     let result = match request {
+        Request::Find { exe, install } => {
+            find_exe(exe, install.as_deref()).map(|exe| Response::Found { exe })
+        }
         Request::Install {
             exe,
             install,

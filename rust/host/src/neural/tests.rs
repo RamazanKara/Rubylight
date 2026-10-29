@@ -1370,7 +1370,13 @@ fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
     assert!(error.is::<Busy>(), "{error:#}");
     let placed = install(Some(&exe), None, &cache);
     assert!(matches!(placed, Response::Placed { .. }), "{placed:?}");
-    finish_install(h, "gone", &gone, Ok(placed));
+    let recorded = Pending {
+        name: "Gone".into(),
+        exe: exe.clone(),
+        uuid: Some("gone".into()),
+    };
+    record_pending(h, &[recorded]).unwrap();
+    finish_install(h, "gone", &gone, Some(&exe), Ok(placed));
     assert_eq!(names(folder), before);
     let job = h.neural.lock().jobs["gone"].clone();
     assert_eq!(job.phase, "failed");
@@ -1385,6 +1391,7 @@ fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
         h,
         "gone",
         &gone,
+        None,
         Ok(Response::Placed {
             exe: away.clone(),
             release: "Alpha0.3.5.8".into(),
@@ -1402,6 +1409,76 @@ fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
             uuid: Some("gone".into()),
         }]
     );
+}
+
+/// The switch's job for `uuid` once it ended (or after 20 s).
+async fn ended(h: &Shared, uuid: &str) -> Job {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let job = h.neural.lock().jobs[uuid].clone();
+        if matches!(job.phase, "done" | "failed") || Instant::now() > deadline {
+            return job;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A first install records its removal before anything is written, so one
+/// cut short is taken out by the pending removals; one that ends well
+/// leaves no record.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_first_install_cut_short_is_taken_out_by_the_pending_removals() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    *h.neural.probe.lock().unwrap() = Some(Probe {
+        gpus: vec![Gpu {
+            name: "AMD Radeon RX 7900 XT".into(),
+            arch: "gfx1100".into(),
+            compute_units: 84,
+            luid: None,
+        }],
+        driver: Some("26.10.1".into()),
+        error: None,
+    });
+    accept(h).unwrap();
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({"name": "Game", "uuid": "game"}));
+        true
+    })
+    .unwrap();
+    let temp = tempdir();
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    let cache = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
+    // From the cache alone (a stream runs); GitHub is a dead address here.
+    *h.neural.origin.lock().unwrap() = Some("http://127.0.0.1:9".into());
+    f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
+
+    enable(h, "game", Some(exe.clone())).unwrap();
+    let job = ended(h, "game").await;
+    assert_eq!(job.phase, "done", "{job:?}");
+    assert!(pending(h).is_empty());
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    set_key(h, "game", None).unwrap();
+
+    // The cache, checked once at this host start, lost a file since: the
+    // install fails partway.
+    std::fs::remove_file(cache.join("files/LmxxfNrRuntime.pak")).unwrap();
+    enable(h, "game", Some(exe.clone())).unwrap();
+    let job = ended(h, "game").await;
+    assert_eq!(job.phase, "failed", "{job:?}");
+    assert_eq!(
+        pending(h),
+        [Pending {
+            name: "Game".into(),
+            exe: exe.clone(),
+            uuid: Some("game".into()),
+        }]
+    );
+    remove_pending(h);
+    assert_eq!(names(folder), before);
+    assert!(pending(h).is_empty());
 }
 
 /// A delete holds the switch's slot until the app is gone, so no launch's

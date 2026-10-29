@@ -130,6 +130,9 @@ pub struct LinkControl {
     pub lowest_kbps: u32,
     /// When the last change was logged at INFO.
     pub logged: Option<Instant>,
+    /// The no-room PyroWave floor (see [`LinkRate::pyrowave_no_room`]) was
+    /// logged at WARN; later ones of this stream go to INFO.
+    pub floor_warned: bool,
     sample: Option<(Instant, u64, u64)>,
     busy: bool,
 }
@@ -150,6 +153,7 @@ impl LinkControl {
             loss_share: 0.,
             lowest_kbps: 0,
             logged: None,
+            floor_warned: false,
             sample: None,
             busy: false,
         }

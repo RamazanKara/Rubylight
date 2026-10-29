@@ -960,6 +960,16 @@ fn only_a_lost_coarse_block_loses_a_pyrowave_frame() {
     assert!(!records.frame_lost(&detail(1)));
     assert!(!records.frame_lost(&detail(2)));
     assert!(!records.frame_lost(&status(1, 80, 2)), "rebuilt");
+    // Review 2026-10-29: without coarse parity (critical FEC 0, or coarse
+    // records and parity over 255 packets) the picture goes in quarters and
+    // block 0 is a quarter of the detail.
+    let quarter = Status {
+        block: 0,
+        blocks: 4,
+        parity: 0,
+        ..status(1, 60, 16)
+    };
+    assert!(!records.frame_lost(&quarter));
     let legacy = LinkRate::new(
         true,
         &Negotiated {
@@ -1865,6 +1875,33 @@ fn a_pyrowave_stream_above_its_link_comes_down_until_it_fits() {
     }
 }
 
+/// Review 2026-10-29: 1080p120 at 200 Mbps sits under PyroWave's 373 Mbps
+/// floor, so the floor is the stream's own bitrate. Lost pictures reach the
+/// floor once and the stream stays there while they go on, instead of
+/// flipping between floor and full every ten seconds; it is back to full after
+/// ten quiet seconds.
+#[test]
+fn a_pyrowave_stream_under_its_own_floor_stays_there_while_it_loses() {
+    let negotiated = Negotiated {
+        fps: 120,
+        ..pyrowave(200_000)
+    };
+    let lr = LinkRate::new(true, &negotiated, 0, 20);
+    assert!(lr.pyrowave_no_room());
+    assert_eq!(lr.floor_kbps, 200_000);
+    assert!(!LinkRate::new(true, &pyrowave(400_000), 0, 20).pyrowave_no_room());
+    assert!(!LinkRate::new(true, &stream(40_000), 0, 20).pyrowave_no_room());
+    let mut rig = Rig::with(lr, 200_000);
+    rig.clean(1_000);
+    for _ in 0..40 {
+        rig.lose_three();
+        rig.clean(1_200);
+    }
+    assert_eq!(rig.kinds(), [ChangeKind::Floor]);
+    rig.clean(12_000);
+    assert_eq!(rig.kinds(), [ChangeKind::Floor, ChangeKind::Full]);
+}
+
 #[test]
 fn a_pyrowave_stream_on_a_link_under_its_floor_stops_there_and_says_so() {
     // The field case itself: 200 Mbps into a link that carries 90. PyroWave
@@ -2247,6 +2284,57 @@ fn keyframe_requests_while_the_picture_is_static_do_not_fail_a_pending_probe() {
     assert!(rig.lr.probe_unconfirmed(rig.now()));
     rig.lr.static_picture = true;
     assert!(!rig.lr.probe_unconfirmed(rig.now()));
+}
+
+/// Review 2026-10-29: repeated invalidations for one range count once, but
+/// not while a probe step is unconfirmed, where three requests fail it as
+/// three keyframe requests do.
+#[test]
+fn repeated_invalidations_fail_an_unconfirmed_probe() {
+    let mut rig = Rig::new(59_000);
+    rig.clean(2_000);
+    rig.run(10, |lr, frame, now| repaired(lr, frame, 2, now));
+    rig.lose_three();
+    rig.clean(500);
+    rig.until_probe();
+    let before = rig.changes.len();
+    let mut n = 0u32;
+    rig.run(1_500, |lr, _, now| {
+        n += 1;
+        if n == 10 || n == 17 || n == 24 {
+            lr.on_invalidation(5_000, 5_000 + u64::from(n), true, now);
+        }
+    });
+    assert!(
+        rig.changes[before..]
+            .iter()
+            .any(|(_, c)| c.kind == ChangeKind::ProbeFailed),
+        "{:?}",
+        rig.kinds()
+    );
+}
+
+/// Review 2026-10-29: under a latch watch two requests 100 ms or more apart
+/// fail the latch, and repeated invalidations of one range are two requests
+/// there, not one incident.
+#[test]
+fn repeated_invalidations_under_a_latch_watch_fail_the_latch() {
+    let mut rig = Rig::new(58_988);
+    rig.run(300, |lr, frame, now| repaired(lr, frame, 1, now));
+    rig.lr.on_latch(rig.now(), true, true);
+    rig.clean(600);
+    // A keyframe got through since the latch: one request alone is no cut.
+    let (frame, now) = (rig.frame, rig.now());
+    rig.lr.on_keyframe_sent(frame, now);
+    rig.clean(1_000);
+    let first = u64::from(rig.frame);
+    rig.lr.on_invalidation(first, first + 2, true, rig.now());
+    rig.clean(200);
+    assert!(rig.changes.is_empty(), "{:?}", rig.changes);
+    rig.lr.on_invalidation(first, first + 14, true, rig.now());
+    rig.clean(300);
+    assert_eq!(rig.cuts(), 1, "{:?}", rig.changes);
+    assert_eq!(rig.changes[0].1.reason, "keyframe_requests");
 }
 
 #[test]

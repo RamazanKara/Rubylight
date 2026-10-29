@@ -531,6 +531,10 @@ pub struct LinkRate {
     /// PyroWave record framing: only the coarse block (block 0) carries the
     /// picture, so only its loss loses the frame (see [`Self::frame_lost`]).
     records: bool,
+    /// PyroWave whose floor (its severe-detail-loss rate) is at or above the
+    /// stream's own bitrate: there is nothing to cut, and the warning says this
+    /// link loses PyroWave at the requested rate (see [`Self::pyrowave_no_room`]).
+    pyrowave_no_room: bool,
     /// The newest frame of the reference invalidation incident counted last,
     /// and when it began: the client's repeats for the same loss are one
     /// request (see [`Self::on_invalidation`]).
@@ -619,6 +623,7 @@ impl LinkRate {
             events: Events::default(),
             fec_status_seen: false,
             records: false,
+            pyrowave_no_room: false,
             incident: None,
             last_ping: None,
             minimum_rtt: None,
@@ -647,9 +652,20 @@ impl LinkRate {
     /// detail packet blurs part of one picture, so it counts toward the loss
     /// share (E2) only. 0.1 % random loss hits about one picture in six at
     /// 200 Mbps, and counted as lost frames it cut a healthy link to the floor.
+    /// Block 0 is the coarse block only while it carries parity: with
+    /// `pyrowave_critical_fec_percentage = 0`, or coarse records and parity
+    /// over 255 packets, the sender splits the picture into quarters without
+    /// parity (`packet.rs`), and block 0 is a quarter of the detail.
     pub fn frame_lost(&self, status: &Status) -> bool {
         let received = u32::from(status.received_data) + u32::from(status.received_parity);
-        received < u32::from(status.data) && (!self.records || status.block == 0)
+        received < u32::from(status.data)
+            && (!self.records || (status.block == 0 && status.parity > 0))
+    }
+
+    /// PyroWave's floor is at or above the stream's own bitrate (1080p120 at
+    /// 200 Mbps needs 373): a lost picture can lower nothing.
+    pub fn pyrowave_no_room(&self) -> bool {
+        self.pyrowave_no_room
     }
 
     /// `enabled` is the configuration (`link_rate_adaptation` and no
@@ -681,10 +697,14 @@ impl LinkRate {
         this.floor_kbps = ceiling.min(lowest).max(minimum).min(ceiling);
         this.ceiling_kbps = ceiling;
         this.records = pyrowave && stream.pyrowave_records;
+        this.pyrowave_no_room = pyrowave && lowest >= ceiling;
         // A client that announced FEC status reports every frame it lost, so
         // its keyframe requests are no loss evidence from the first frame on,
         // as `KeyframeLoss` already treats them (it calls such a client's
-        // repeated request its decoder asking again).
+        // repeated request its decoder asking again). The trade-off: a client
+        // that sets the flag but never sends a valid report (0x5502) gets no
+        // request-based evidence either, except while a probe step is
+        // unconfirmed or under a latch watch.
         this.fec_status_seen = stream.moonlight_features & crate::rtsp::FEC_STATUS_FEATURE != 0;
         this.budget = Some(budget);
         this.ring = vec![Sent::default(); RING].into_boxed_slice();
@@ -968,14 +988,18 @@ impl LinkRate {
     /// 11 requests for frames 2685-2695 after one lost frame counted as 10
     /// and cut 21 to 14.5 Mbps on a link that carried the stream). A range
     /// the host cannot read (`first` 0 or past `last`) is a request of its own.
+    /// Under a latch watch or an unconfirmed probe step every request counts,
+    /// as keyframe requests do: there repeats are the evidence.
     pub fn on_invalidation(&mut self, first: u64, last: u64, network: bool, now: Instant) {
         if first == 0 || first > last {
             self.on_keyframe_request(network, now);
             return;
         }
+        let merge = !(self.watching(now) || self.probe_unconfirmed(now));
         match &mut self.incident {
             Some((newest, began))
-                if first <= newest.saturating_add(1)
+                if merge
+                    && first <= newest.saturating_add(1)
                     && now.saturating_duration_since(*began) < INCIDENT_GAP =>
             {
                 *newest = (*newest).max(last);
@@ -1485,7 +1509,11 @@ impl LinkRate {
         let floor = self.cut_floor(fec, period).min(cur);
         if cur <= floor {
             // Nothing left to cut. At the encoder's own minimum the stream is
-            // already as low as it goes and has said so.
+            // already as low as it goes and has said so. Loss at the floor
+            // restarts the wait for `Full`: where the floor is the ceiling
+            // (PyroWave with no room) the state would otherwise flip between
+            // `Floor` and `Full` every ten seconds while the loss goes on.
+            self.at_ceiling = None;
             if let Some((sent, share)) = estimate.filter(|_| why.share_known) {
                 evidence.loss_share = share;
                 self.delivered_bps = (sent as f64 * (1. - share)) as u64;

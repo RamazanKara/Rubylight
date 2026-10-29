@@ -317,5 +317,23 @@ mod tests {
         );
         assert!(session.keyframe_loss.lock().unwrap().is_abandoned(7));
         assert!(!session.keyframe_loss.lock().unwrap().is_abandoned(8));
+        // Review 2026-10-29: and the link-rate controller counts it as a send
+        // loss (E3): three such frames lower the bitrate.
+        session.configure_link_rate(true, 0);
+        for frame in 1..=60 {
+            session.record_link_sent(frame, 300, 420_000);
+        }
+        session.stats.video_frame.store(70, Ordering::Release);
+        for frame in 50..=52 {
+            host_dropped(&session, frame);
+        }
+        let (from, to) = session
+            .tick_link_rate(
+                Instant::now() + Duration::from_millis(200),
+                Duration::from_millis(10),
+            )
+            .expect("three frames the socket refused lower the bitrate");
+        assert!(to < from, "{from} -> {to}");
+        assert_eq!(session.info()["link_rate"]["state"], "limited");
     }
 }

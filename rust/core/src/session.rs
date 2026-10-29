@@ -53,9 +53,12 @@ fn note_link_change(
         ChangeKind::Probe | ChangeKind::ProbeFailed => {}
     }
     // Routine changes go to the log at most once a second; the first
-    // step down and the floors have their own WARN.
+    // step down and the floors have their own WARN. A PyroWave stream with no
+    // room under it reaches its floor again after every quiet spell: once.
+    let no_room = link.rate.pyrowave_no_room();
     let warned = match change.kind {
         ChangeKind::StepDown => !was_limited,
+        ChangeKind::Floor if no_room => !std::mem::replace(&mut link.floor_warned, true),
         ChangeKind::Floor | ChangeKind::EncoderFloor => true,
         _ => false,
     };
@@ -69,6 +72,8 @@ fn note_link_change(
     LinkReport {
         change,
         was_limited,
+        warned,
+        no_room,
         ceiling_kbps: link.rate.ceiling_kbps(),
         loss_share: link.loss_share,
         lowest_kbps: link.lowest_kbps,
@@ -81,6 +86,10 @@ fn note_link_change(
 struct LinkReport {
     change: crate::link_rate::Change,
     was_limited: bool,
+    /// The change has its own WARN line.
+    warned: bool,
+    /// PyroWave's floor is the stream's own bitrate.
+    no_room: bool,
     ceiling_kbps: u32,
     loss_share: f64,
     lowest_kbps: u32,
@@ -650,6 +659,115 @@ mod tests {
         assert_eq!(s.bitrate.load(Ordering::Acquire), to);
         assert_eq!(s.info()["link_rate"]["state"], "limited");
     }
+    /// Review 2026-10-29: 1080p120 at 200 Mbps is under PyroWave's 373 Mbps
+    /// floor. Its warning must not call the user's bitrate the lowest at which
+    /// PyroWave keeps a usable picture: this link loses PyroWave at that rate,
+    /// and HEVC or AV1 will hold up better. Its WARN line comes once.
+    #[test]
+    fn a_pyrowave_stream_with_no_room_under_it_is_told_to_use_hevc_or_av1() {
+        let s = Session::new(
+            launch("link-rate-pyrowave-no-room", Role::Stream),
+            Negotiated {
+                codec: 3,
+                pyrowave_records: true,
+                width: 1920,
+                height: 1080,
+                fps: 120,
+                bitrate_kbps: 200_000,
+                configured_bitrate_kbps: 200_000,
+                ..Default::default()
+            },
+        );
+        s.configure_link_rate(true, 0);
+        let end = Instant::now();
+        for frame in 1..=60u32 {
+            let at = end - Duration::from_millis(8 * u64::from(60 - frame));
+            s.record_link_sent_at(frame, 300, 420_000, at);
+        }
+        s.stats.video_frame.store(70, Ordering::Release);
+        lose_frames(&s, 50..=54);
+        assert_eq!(
+            s.tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10)),
+            None,
+            "nothing to lower"
+        );
+        assert_eq!(s.info()["link_rate"]["state"], "floor");
+        let message = link_warning(&s).expect("the link warning");
+        assert!(
+            message.contains("loses PyroWave video at 200 Mbps"),
+            "{message}"
+        );
+        assert!(message.contains("HEVC or AV1"), "{message}");
+        assert!(!message.contains("lowest bitrate"), "{message}");
+        // The floor again after a quiet spell is INFO, not a second WARN.
+        let floor = crate::link_rate::Change {
+            kind: crate::link_rate::ChangeKind::Floor,
+            reason: "unrecoverable_frames",
+            from_kbps: 200_000,
+            to_kbps: 200_000,
+            delivered_kbps: 0,
+            evidence: crate::link_rate::Evidence::default(),
+        };
+        let mut link = s.link_rate.lock().unwrap();
+        assert!(!note_link_change(&mut link, end, floor).warned);
+        // A PyroWave stream with room under it warns at every floor, as before.
+        let mut room = crate::link_control::LinkControl::new(
+            crate::link_rate::LinkRate::new(
+                true,
+                &Negotiated {
+                    codec: 3,
+                    width: 1920,
+                    height: 1080,
+                    fps: 60,
+                    bitrate_kbps: 400_000,
+                    ..Default::default()
+                },
+                0,
+                20,
+            ),
+            0,
+        );
+        for _ in 0..2 {
+            let report = note_link_change(&mut room, end, floor);
+            assert!(report.warned && !report.no_room);
+        }
+    }
+    /// The floor warning of a PyroWave stream with room under it names the
+    /// floor as the lowest rate at which PyroWave keeps a usable picture.
+    #[test]
+    fn a_pyrowave_floor_warning_names_its_floor_and_hevc_or_av1() {
+        let s = Session::new(
+            launch("link-rate-pyrowave-floor", Role::Stream),
+            Negotiated {
+                codec: 3,
+                bitrate_kbps: 400_000,
+                ..Default::default()
+            },
+        );
+        s.announce_link_change(LinkReport {
+            change: crate::link_rate::Change {
+                kind: crate::link_rate::ChangeKind::Floor,
+                reason: "unrecoverable_frames",
+                from_kbps: 186_624,
+                to_kbps: 186_624,
+                delivered_kbps: 0,
+                evidence: crate::link_rate::Evidence::default(),
+            },
+            was_limited: true,
+            warned: true,
+            no_room: false,
+            ceiling_kbps: 400_000,
+            loss_share: 0.,
+            lowest_kbps: 186_624,
+            log_info: false,
+        });
+        let message = link_warning(&s).expect("the link warning");
+        assert!(
+            message.contains("the lowest bitrate at which PyroWave keeps a usable picture"),
+            "{message}"
+        );
+        assert!(message.contains("Use HEVC or AV1"), "{message}");
+    }
     /// Review 2026-10-29: a PyroWave client's keyframe requests are no
     /// evidence of loss, even from a client that sends no FEC status; only
     /// lost coarse blocks are.
@@ -782,6 +900,8 @@ mod tests {
                     evidence: Evidence::default(),
                 },
                 was_limited: true,
+                warned: false,
+                no_room: false,
                 ceiling_kbps: 20_000,
                 loss_share: 0.,
                 lowest_kbps: 5_000,
@@ -4050,6 +4170,8 @@ impl<P, A> Session<P, A> {
         let LinkReport {
             change,
             was_limited,
+            warned,
+            no_room,
             ceiling_kbps: ceiling,
             loss_share,
             lowest_kbps,
@@ -4067,6 +4189,10 @@ impl<P, A> Session<P, A> {
         match change.kind {
             ChangeKind::StepDown | ChangeKind::Floor | ChangeKind::EncoderFloor => {
                 let message = match change.kind {
+                    ChangeKind::Floor if no_room => format!(
+                        "This network loses PyroWave video at {}, and PyroWave cannot go lower at this resolution and frame rate and keep a usable picture, so the picture will keep breaking up. HEVC or AV1 will hold up better on this device; or check the network path (Wi-Fi signal, cable, router).",
+                        mbps(change.to_kbps)
+                    ),
                     ChangeKind::Floor if self.config.codec == 3 => format!(
                         "The network to this device cannot carry even {} of video, the lowest bitrate at which PyroWave keeps a usable picture, so the picture will keep breaking up. Use HEVC or AV1 for this device, or check the network path (Wi-Fi signal, cable, router).",
                         mbps(change.to_kbps)
@@ -4115,7 +4241,7 @@ impl<P, A> Session<P, A> {
                 loss_share_percent = e.loss_share * 100.,
                 "the network to this device cannot carry the stream; lowering the video bitrate"
             ),
-            ChangeKind::Floor => tracing::warn!(
+            ChangeKind::Floor if warned => tracing::warn!(
                 stream_id = %self.launch.id,
                 link_rate_change = kind,
                 reason = change.reason,
@@ -4126,6 +4252,7 @@ impl<P, A> Session<P, A> {
                 send_losses = e.send_losses,
                 keyframe_requests = e.keyframe_requests,
                 loss_share_percent = e.loss_share * 100.,
+                pyrowave_no_room = no_room,
                 "the network to this device cannot carry the stream even at the lowest video bitrate"
             ),
             ChangeKind::EncoderFloor => tracing::warn!(

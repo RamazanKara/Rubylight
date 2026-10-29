@@ -79,6 +79,10 @@ pub enum Notice {
     HostMenu(Result<(), String>),
     Bitrate { requested: u32, result: Result<u32, String> },
     AdaptiveBitrate(Result<(u32, u32), String>),
+    /// A Foundation PC turned its own bitrate controller on; None when it has none.
+    HostAbr(Result<Option<nightjar_core::http::foundation::AbrConfigured>, String>),
+    /// A Foundation PC's answer to a network report; None when the report failed.
+    HostAbrAction(Option<nightjar_core::http::foundation::AbrAction>),
     /// A step of the stream doctor's bitrate trial came back.
     HealthTrial(super::doctor::TrialOutcome),
     /// The network watcher saw this device change networks; true when it came back after the

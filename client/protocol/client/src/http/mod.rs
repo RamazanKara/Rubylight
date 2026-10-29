@@ -14,6 +14,7 @@ mod crypto;
 mod der;
 mod files;
 mod folders;
+pub mod foundation;
 mod hardware_metrics;
 mod identity;
 mod launch;

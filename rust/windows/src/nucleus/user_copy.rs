@@ -22,6 +22,7 @@ use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::nucleus::generic::Setup;
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::{self as pinned, Part};
+use butterpollo_core::nucleus::profile;
 use std::collections::BTreeSet;
 use std::os::windows::fs::MetadataExt;
 use std::os::windows::io::OwnedHandle;
@@ -153,8 +154,35 @@ fn ensure_with(
             make(source, &listing, &copy, token)?;
         }
     }
+    as_user(token, || seed_settings(&copy))??;
     remove_others(&folder, &key, token)?;
     Ok(copy)
+}
+
+/// Give the copy at `copy` Nucleus Co-op's own settings when it has none
+/// ([`profile::default_settings_ini`]): never the host's, which hold its
+/// user's nicknames, Steam IDs and helper accounts' password. What the
+/// user's Nucleus changed in them stays.
+fn seed_settings(copy: &Path) -> Result<()> {
+    use std::io::Write;
+    let path = copy.join("Settings.ini");
+    let mut file = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("creating {}", path.display())),
+    };
+    let written = file.write_all(profile::default_settings_ini().as_bytes());
+    if let Err(error) = written {
+        drop(file);
+        // Not left part-written: Nucleus refuses to start on a missing key.
+        let _ = std::fs::remove_file(&path);
+        return Err(error).with_context(|| format!("writing {}", path.display()));
+    }
+    Ok(())
 }
 
 /// The user's copy at `copy`, open while Nucleus Co-op starts from it:
@@ -710,13 +738,16 @@ mod tests {
         check: open,
     };
 
+    /// The host's Nucleus settings, with its user's own values.
+    const HOST_SETTINGS: &str = "[Misc]\r\nNucleusAccountPassword=hunter2\r\n[ControllerMapping]\r\nPlayer_1=Alice\r\n[SteamIDs]\r\nPlayer_1=76561190000000001\r\n";
+
     /// A host's Nucleus folder after it ran: its program and settings, and
     /// what it and the host wrote as they ran.
     fn host_folder() -> tempfile::TempDir {
         let folder = tempfile::tempdir().unwrap();
         for (name, data) in [
             ("NucleusCoop.exe", &b"MZ nucleus"[..]),
-            ("Settings.ini", b"[Dev]\r\n"),
+            ("Settings.ini", HOST_SETTINGS.as_bytes()),
             (r"gui\theme\theme.ini", b"theme"),
             (r"webview\darkreader.js", b"dark"),
             (r"handlers\Puzzle.js", b"Game.GUID = 'Puzzle';"),
@@ -770,7 +801,6 @@ mod tests {
             "NucleusCoop.exe",
             r"gui\theme\theme.ini",
             r"webview\darkreader.js",
-            "Settings.ini",
         ] {
             assert_eq!(
                 std::fs::read(copy.join(name)).unwrap(),
@@ -800,6 +830,17 @@ mod tests {
         }
         assert!(copy.join(MARKER).is_file());
         assert_eq!(names(&folder), [key.as_str()]);
+        // Nucleus' own settings, with every key it ships and ours, and none
+        // of the host's user's.
+        let settings = std::fs::read_to_string(copy.join("Settings.ini")).unwrap();
+        assert_eq!(settings, profile::default_settings_ini());
+        for line in profile::DEFAULT_SETTINGS.lines() {
+            let key = line.split('=').next().unwrap();
+            assert!(settings.contains(key), "{key}");
+        }
+        for private in ["hunter2", "Alice", "76561190000000001"] {
+            assert!(!settings.contains(private), "{private}");
+        }
 
         // What the host's Nucleus or the user's writes as they run is no
         // change: the same copy is kept, with what the user's wrote.
@@ -818,6 +859,13 @@ mod tests {
         assert_eq!(
             std::fs::read(copy.join("Settings.ini")).unwrap(),
             b"[Dev]\r\ntheirs"
+        );
+        // Gone, Nucleus' own are back.
+        std::fs::remove_file(copy.join("Settings.ini")).unwrap();
+        ensure_with(data.path(), source, SID, None, &TEST).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(copy.join("Settings.ini")).unwrap(),
+            profile::default_settings_ini()
         );
     }
 

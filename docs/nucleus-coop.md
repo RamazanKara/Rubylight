@@ -103,10 +103,12 @@ That holds on an administrator account too. It runs from the user's own copy
 of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which
 the host copies from the elevated one (the downloaded release, or
 `nucleus_path`), without its settings, logs and game data, and copies again
-when a program file changes on either side. It keeps the copy's handlers in
-step with the elevated one's. Only SYSTEM and Administrators
-can change the folders above it; the user can change only what is inside
-their own.
+when a program file changes on either side. The copy starts from Nucleus
+Co-op's own default settings, never another account's nicknames or Steam
+IDs. It keeps the copy's handlers in step with the elevated one's. Only
+SYSTEM and Administrators can change the folders above it; the user can
+change only what is inside their own copy, never move or delete the copy's
+folder.
 
 A game needs administrator rights when:
 

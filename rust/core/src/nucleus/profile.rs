@@ -140,6 +140,18 @@ const FORCED: [(&str, &str, &str); 2] = [
     ("Misc", "DisableGameProfiles", "False"),
 ];
 
+/// Nucleus Co-op 2.4.2's `Settings.ini` as its release ships it (the pinned
+/// `NucleusApp.zip`'s, line ends aside). Nucleus stops with a message box
+/// when a key it reads is missing (`App_Settings_Loader`), so a user's own
+/// copy starts from this, never from the host's, which holds its user's
+/// nicknames, Steam IDs and helper accounts' password.
+pub const DEFAULT_SETTINGS: &str = include_str!("settings-2.4.2.ini");
+
+/// A new copy's `Settings.ini`: [`DEFAULT_SETTINGS`] with [`FORCED`] set.
+pub fn default_settings_ini() -> String {
+    settings_ini(DEFAULT_SETTINGS)
+}
+
 /// Nucleus' `Settings.ini` with [`FORCED`] set; other lines stay as they are.
 pub fn settings_ini(text: &str) -> String {
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
@@ -262,6 +274,128 @@ mod tests {
         assert_eq!(file_number("Profile[12].json"), Some(12));
         assert_eq!(file_number("Profile[x].json"), None);
         assert_eq!(file_number("notes.txt"), None);
+    }
+
+    /// The value of `key` in `[section]` of `text`, as Windows' profile
+    /// functions read it.
+    fn value<'a>(text: &'a str, section: &str, key: &str) -> Option<&'a str> {
+        let mut current = "";
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+                current = name;
+            } else if current.eq_ignore_ascii_case(section)
+                && let Some((name, value)) = line.split_once('=')
+                && name.trim().eq_ignore_ascii_case(key)
+            {
+                return Some(value.trim());
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_new_copys_settings_have_every_key_nucleus_parses() {
+        let text = default_settings_ini();
+        // What Nucleus 2.4.2's App_Settings_Loader parses, each a message
+        // box when missing or empty.
+        let bools = [
+            ("Misc", "UseNicksInGame"),
+            ("Misc", "DebugLog"),
+            ("Misc", "KeepAccounts"),
+            ("Misc", "DisableForcedNote"),
+            ("Misc", "IgnoreInputLockReminder"),
+            ("Misc", "AutoDesktopScaling"),
+            ("Misc", "NucleusMultiInstances"),
+            ("Misc", "DisableGameProfiles"),
+            ("Dev", "ShowFavoriteOnly"),
+            ("Dev", "DisablePathCheck"),
+            ("Dev", "UseXinputIndex"),
+            ("Dev", "ProfileAssignGamepadByButonPress"),
+            ("XUINav", "Enabled"),
+            ("CustomLayout", "WindowsMerger"),
+            ("CustomLayout", "LosslessHook"),
+            ("CustomLayout", "SplitDiv"),
+            ("CustomLayout", "HideOnly"),
+            ("CustomLayout", "Cts_KeepAspectRatio"),
+            ("CustomLayout", "Cts_MuteAudioOnly"),
+            ("CustomLayout", "Cts_Unfocus"),
+        ];
+        for (section, key) in bools {
+            let found = value(&text, section, key);
+            assert!(
+                matches!(found, Some(v) if v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("false")),
+                "[{section}] {key} = {found:?}"
+            );
+        }
+        let numbers = [
+            ("Dev", "Blur"),
+            ("XUINav", "Deadzone"),
+            ("XUINav", "DragDrop"),
+            ("XUINav", "RightClick"),
+            ("XUINav", "LeftClick"),
+            ("CustomLayout", "HorizontalLines"),
+            ("CustomLayout", "VerticalLines"),
+            ("CustomLayout", "MaxPlayers"),
+        ];
+        for (section, key) in numbers {
+            let found = value(&text, section, key);
+            assert!(
+                found.is_some_and(|v| v.parse::<i32>().is_ok()),
+                "[{section}] {key} = {found:?}"
+            );
+        }
+        // `a+b`, read as two parts (numbers for the pad's).
+        let hotkeys = [
+            "Close",
+            "Stop",
+            "TopMost",
+            "SetFocus",
+            "ResetWindows",
+            "Cutscenes",
+            "Switch",
+            "ShortcutsReminder",
+            "SwitchMergerChildForeGround",
+        ];
+        for key in hotkeys {
+            let found = value(&text, "Hotkeys", key);
+            assert!(
+                found.is_some_and(|v| v.split('+').count() >= 2),
+                "[Hotkeys] {key} = {found:?}"
+            );
+        }
+        let pads = [
+            ("XShortcuts", "Close"),
+            ("XShortcuts", "Stop"),
+            ("XShortcuts", "TopMost"),
+            ("XShortcuts", "SetFocus"),
+            ("XShortcuts", "ResetWindows"),
+            ("XShortcuts", "Cutscenes"),
+            ("XShortcuts", "Switch"),
+            ("XShortcuts", "LockInputs"),
+            ("XShortcuts", "ReleaseCursor"),
+            ("XUINav", "LockUIControl"),
+            ("XUINav", "OpenOsk"),
+        ];
+        for (section, key) in pads {
+            let found = value(&text, section, key);
+            assert!(
+                found.is_some_and(|v| {
+                    let parts: Vec<_> = v.split('+').collect();
+                    parts.len() >= 2 && parts[..2].iter().all(|p| p.parse::<i32>().is_ok())
+                }),
+                "[{section}] {key} = {found:?}"
+            );
+        }
+        // Every key of the shipped file, ours set on top.
+        for line in DEFAULT_SETTINGS.lines() {
+            assert!(text.contains(line.trim()) || line.starts_with("UseXinputIndex="));
+        }
+        assert_eq!(value(&text, "Dev", "UseXinputIndex"), Some("True"));
+        assert_eq!(value(&text, "Theme", "Theme"), Some("default"));
+        // As the release ships it: nobody's own values.
+        assert!(text.contains("NucleusAccountPassword=12345\r\n"), "{text}");
+        assert!(text.contains("WindowSize=1470X830\r\n"), "{text}");
     }
 
     #[test]

@@ -92,10 +92,14 @@ const STATE_FOLDERS: [&str; 11] = [
     "GameControllerDB",
 ];
 
-/// The files Nucleus Co-op 2.4.2 writes in its folder as it runs: its logs,
-/// the hub's debug address, Goldberg's generated interfaces and Flawless
-/// Widescreen's backup of its settings.
-const STATE_FILES: [&str; 6] = [
+/// The files Nucleus Co-op 2.4.2 writes in its folder as it runs: its
+/// settings (a user's, with their nicknames, Steam IDs and the password of
+/// its helper accounts: a copy starts from Nucleus' own,
+/// [`super::profile::DEFAULT_SETTINGS`]), its logs, the hub's debug
+/// address, Goldberg's generated interfaces and Flawless Widescreen's
+/// backup of its settings.
+const STATE_FILES: [&str; 7] = [
+    "Settings.ini",
     "debug-log.txt",
     "crashlog.txt",
     r"webview\debugUri.txt",
@@ -104,10 +108,9 @@ const STATE_FILES: [&str; 6] = [
     r"utils\FlawlessWidescreen\x86\settings_NUCLEUS_BACKUP.xml",
 ];
 
-/// Settings Nucleus Co-op ships and then changes: its own (which the host
-/// changes too) and Flawless Widescreen's.
-const SEEDED: [&str; 3] = [
-    "Settings.ini",
+/// Settings Nucleus Co-op ships and then changes, which hold nothing of its
+/// user's: Flawless Widescreen's (its display detection and plugins).
+const SEEDED: [&str; 2] = [
     r"utils\FlawlessWidescreen\x64\settings.xml",
     r"utils\FlawlessWidescreen\x86\settings.xml",
 ];
@@ -258,9 +261,12 @@ mod tests {
         ] {
             assert_eq!(part(path, folder), Part::State, "{path}");
         }
-        for path in ["settings.ini", r"utils\FlawlessWidescreen\x86\settings.xml"] {
-            assert_eq!(part(path, false), Part::Seeded, "{path}");
-        }
+        // A user's own settings are never copied into another's copy.
+        assert_eq!(part("settings.ini", false), Part::State);
+        assert_eq!(
+            part(r"utils\FlawlessWidescreen\x86\settings.xml", false),
+            Part::Seeded
+        );
         // A file is not a folder of the same name.
         assert_eq!(part("content", false), Part::Program);
     }

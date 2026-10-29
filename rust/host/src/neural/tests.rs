@@ -1544,6 +1544,9 @@ async fn a_first_install_cut_short_is_taken_out_by_the_pending_removals() {
     remove_pending(h);
     assert_eq!(names(folder), before);
     assert!(pending(h).is_empty());
+    // The install's failure still shows, not the removal behind it.
+    let now = h.neural.lock().jobs["game"].clone();
+    assert_eq!((now.phase, now.error), (job.phase, job.error));
 }
 
 /// A delete holds the switch's slot until the app is gone, so no launch's

@@ -1458,28 +1458,44 @@ pub fn before_delete(h: &Shared, app: &App) -> Result<Removing> {
 }
 
 /// The switch's slot taken for an app's removal, so no install or launch
-/// update writes its folder meanwhile; done when dropped.
+/// update writes its folder meanwhile; done when dropped. A failure the
+/// slot held before (an install that failed, its removal pending) shows
+/// again after, not a removal the user never asked for.
 pub struct Removing {
     h: Shared,
     uuid: Option<String>,
+    failed: Option<Job>,
 }
 impl Removing {
     fn take(h: &Shared, uuid: Option<&str>) -> Result<Self, Refusal> {
+        let failed = uuid.and_then(|uuid| {
+            h.neural
+                .lock()
+                .jobs
+                .get(uuid)
+                .filter(|job| job.phase == "failed")
+                .cloned()
+        });
         if let Some(uuid) = uuid {
             start_job(h, uuid, "remove", "remove")?;
         }
         Ok(Self {
             h: h.clone(),
             uuid: uuid.map(str::to_owned),
+            failed,
         })
     }
 }
 impl Drop for Removing {
     fn drop(&mut self) {
         if let Some(uuid) = &self.uuid {
+            let failed = self.failed.take();
             update_job(&self.h, uuid, |job| {
                 if job.phase == "remove" {
-                    job.phase = "done";
+                    match failed {
+                        Some(failed) => *job = failed,
+                        None => job.phase = "done",
+                    }
                 }
             });
         }

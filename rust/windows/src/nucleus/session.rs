@@ -424,6 +424,11 @@ impl Runner {
             }
         }
         self.failed = 0;
+        if !running && roots == 0 && self.clicked {
+            // A box Nucleus shows after the click (its End-key reminder, a
+            // check of the game) holds the start as one before it does.
+            self.look(&job);
+        }
         if !running && now >= self.deadline {
             return Some(End::Failed(self.timeout()));
         }
@@ -465,6 +470,8 @@ impl Runner {
                     tracing::warn!(why, "Nucleus Co-op profile {TITLE} not clicked");
                 }
                 self.unclicked = Some(why);
+                // What covers the list may be Nucleus' own message box.
+                self.look(job);
             }
         }
         None
@@ -474,15 +481,18 @@ impl Runner {
     /// before its window (its folder check, a missing runtime) waits for an
     /// answer no one gives during a background stream (#59).
     fn look(&mut self, job: &BTreeSet<u32>) {
-        let looked = (|| -> Result<bool> {
-            self.showing = self.desktop.message_boxes(job)?;
-            let shown = self
-                .desktop
-                .windows()?
-                .iter()
-                .any(|w| w.visible && job.contains(&w.pid));
-            Ok(shown)
-        })();
+        let looked = match self.desktop.message_boxes(job) {
+            Ok(boxes) => {
+                self.showing = boxes;
+                self.desktop
+                    .windows()
+                    .map(|windows| windows.iter().any(|w| w.visible && job.contains(&w.pid)))
+            }
+            Err(error) => {
+                self.showing.clear();
+                Err(error)
+            }
+        };
         match looked {
             Ok(shown) => {
                 self.shown |= shown;
@@ -520,6 +530,8 @@ impl Runner {
                 "Nucleus Co-op shows no profile {TITLE} for {}; open Nucleus Co-op and load the profile {TITLE} once",
                 self.title
             )
+        } else if let Some(unseen) = &self.unseen {
+            format!("Nucleus Co-op's windows could not be listed: {unseen}")
         } else {
             "Nucleus Co-op showed no window".to_string()
         };
@@ -541,6 +553,8 @@ impl Runner {
         let (clicked, roots, _) = self.progress;
         let hint = format!("open Nucleus Co-op and load the profile {TITLE} once");
         match (&self.unclicked, clicked, roots) {
+            // The box is why: it covers the list or holds the start.
+            (_, _, 0) if !self.showing.is_empty() => self.unshown(),
             (Some(why), false, 0) => format!("Nucleus Co-op did not start {}: {why}", self.title),
             (None, false, 0) => self.unshown(),
             (_, _, 0) => format!("Nucleus Co-op did not start {}; {hint}", self.title),
@@ -1316,6 +1330,70 @@ mod tests {
             runner.step(t0 + START_TIMEOUT),
             Some(End::Failed(
                 "Nucleus Co-op did not start Game: covered".into()
+            ))
+        );
+    }
+
+    fn reminder() -> MessageBox {
+        MessageBox {
+            caption: "Nucleus Co-op".into(),
+            text: "Press the End key to unlock the input.".into(),
+        }
+    }
+    const REMINDED: &str = "Nucleus Co-op shows \"Nucleus Co-op: Press the End key to unlock the input.\" on the PC's screen";
+
+    #[test]
+    fn a_box_covering_the_profile_list_is_named_instead_of_the_cover() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        {
+            let mut desktop = screen.0.lock().unwrap();
+            desktop.covered = true;
+            desktop.boxes.push((NUCLEUS, reminder()));
+        }
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [reminder()]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(REMINDED.into()))
+        );
+    }
+
+    #[test]
+    fn a_box_nucleus_shows_after_the_click_is_named() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(screen.0.lock().unwrap().clicks, vec![7]);
+        screen.0.lock().unwrap().boxes.push((NUCLEUS, reminder()));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [reminder()]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(REMINDED.into()))
+        );
+    }
+
+    #[test]
+    fn a_box_gone_from_the_list_is_not_quoted_and_a_failed_list_is_named() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        screen.0.lock().unwrap().boxes.push((NUCLEUS, reminder()));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.showing, [reminder()]);
+        // The box may be gone; a list that failed doesn't say it's still up.
+        screen.0.lock().unwrap().unlisted = true;
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.showing, []);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op's windows could not be listed: access denied".into()
             ))
         );
     }

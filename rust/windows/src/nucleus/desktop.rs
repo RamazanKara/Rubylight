@@ -97,26 +97,36 @@ fn top_level(processes: Option<&BTreeSet<u32>>) -> Result<Vec<Window>> {
     Ok(scan.found)
 }
 
-/// A control's text. Another process's control answers WM_GETTEXT itself
-/// (GetWindowText reads only captions there); a hung one is skipped.
+/// A control's text, whole. Another process's control answers WM_GETTEXT
+/// itself (GetWindowText reads only captions there); a hung one is skipped.
 fn text_of(window: HWND) -> Option<String> {
-    let mut buffer = [0u16; 256];
-    let mut copied = 0usize;
-    // SAFETY: the buffer outlives the call and its length in characters is passed; the system
-    // copies the text across processes. The timeout never waits long on a hung window.
-    let sent = unsafe {
-        SendMessageTimeoutW(
-            window,
-            WM_GETTEXT,
-            WPARAM(buffer.len()),
-            LPARAM(buffer.as_mut_ptr() as isize),
-            SMTO_ABORTIFHUNG | SMTO_NORMAL,
-            200,
-            Some(&mut copied),
-        )
+    let send = |message: u32, size: usize, buffer: *mut u16| {
+        let mut answer = 0usize;
+        // SAFETY: a buffer passed outlives the call and `size` is its length in characters; the
+        // system copies the text across processes. The timeout never waits long on a hung window.
+        let sent = unsafe {
+            SendMessageTimeoutW(
+                window,
+                message,
+                WPARAM(size),
+                LPARAM(buffer as isize),
+                SMTO_ABORTIFHUNG | SMTO_NORMAL,
+                200,
+                Some(&mut answer),
+            )
+        };
+        (sent.0 != 0).then_some(answer)
     };
-    (sent.0 != 0).then(|| String::from_utf16_lossy(&buffer[..copied.min(buffer.len())]))
+    // A message box's text runs to a few hundred characters (OneDrive's
+    // folder warning in Nucleus Co-op); the cap only bounds a broken answer.
+    let length = send(WM_GETTEXTLENGTH, 0, std::ptr::null_mut())?.min(TEXT_LIMIT);
+    let mut buffer = vec![0u16; length + 1];
+    let copied = send(WM_GETTEXT, buffer.len(), buffer.as_mut_ptr())?;
+    Some(String::from_utf16_lossy(&buffer[..copied.min(length)]))
 }
+
+/// The longest text read from a control, in characters.
+const TEXT_LIMIT: usize = 8192;
 
 /// A window's class name.
 fn class_of(window: HWND) -> Option<String> {
@@ -306,8 +316,23 @@ impl Desktop for Win32 {
             return Ok(Vec::new());
         }
         crate::input::follow_input_desktop();
+        // A box shown with MB_SERVICE_NOTIFICATION is raised as a hard error
+        // (NtRaiseHardError), which csrss.exe shows, not the process that
+        // asked; MB_DEFAULT_DESKTOP_ONLY, which waits for the default desktop,
+        // takes the same way. Nucleus Co-op 2.4.2 uses WinForms'
+        // DefaultDesktopOnly for a Settings.ini it can't read and for its
+        // End-key reminder. Either owner is listed. EnumWindows lists only
+        // this thread's desktop, the console's, so a csrss.exe owning a
+        // window there is this session's.
+        let mut owners = processes.clone();
+        owners.extend(
+            crate::process::processes()?
+                .into_iter()
+                .filter(|p| p.name.eq_ignore_ascii_case("csrss.exe"))
+                .map(|p| p.pid),
+        );
         let mut found = Vec::new();
-        for window in top_level(Some(processes))? {
+        for window in top_level(Some(&owners))? {
             let dialog = hwnd(window.id);
             if !window.visible || class_of(dialog).as_deref() != Some(DIALOG_CLASS) {
                 continue;
@@ -362,12 +387,88 @@ mod tests {
                 .unwrap(),
             None
         );
-        // Nor a message box.
-        assert_eq!(
-            desktop
-                .message_boxes(&BTreeSet::from([std::process::id()]))
-                .unwrap(),
-            []
+        // Nor a message box; one Windows shows for another program may be
+        // up.
+        let own = BTreeSet::from([std::process::id()]);
+        let before = desktop.message_boxes(&own).unwrap();
+        let new = |desktop: &mut Win32| -> Vec<MessageBox> {
+            let mut boxes = desktop.message_boxes(&own).unwrap();
+            boxes.retain(|b| !before.contains(b));
+            boxes
+        };
+
+        // A box as MessageBox makes it, off every screen and never active:
+        // a dialog with its icon and its text, a few hundred characters as
+        // OneDrive's warning in Nucleus Co-op. A plain window beside it is
+        // no message box. In this test, not a test of its own: the empty
+        // list above would see them.
+        struct Made(Vec<HWND>);
+        impl Drop for Made {
+            fn drop(&mut self) {
+                for &window in self.0.iter().rev() {
+                    // SAFETY: a window this thread made; one its parent took along fails harmlessly.
+                    let _ = unsafe { DestroyWindow(window) };
+                }
+            }
+        }
+        let make = |class: &str, text: &str, ex: WINDOW_EX_STYLE, style, parent| {
+            // SAFETY: the class and text are NUL-terminated strings that outlive the call; the
+            // parent, when given, is a window this thread made.
+            unsafe {
+                CreateWindowExW(
+                    ex,
+                    &windows::core::HSTRING::from(class),
+                    &windows::core::HSTRING::from(text),
+                    style,
+                    -32000,
+                    -32000,
+                    300,
+                    200,
+                    parent,
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .unwrap()
+        };
+        let hidden = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+        let said = "Your Documents folder is in OneDrive. ".repeat(11);
+        assert!(said.len() > 400);
+        let mut made = Made(Vec::new());
+        let dialog = make(
+            DIALOG_CLASS,
+            "Rubylight test box",
+            hidden,
+            WS_POPUP | WS_VISIBLE,
+            None,
         );
+        made.0.push(dialog);
+        let child = WS_CHILD | WS_VISIBLE;
+        made.0
+            .push(make("Static", "", Default::default(), child, Some(dialog)));
+        made.0.push(make(
+            "Static",
+            &said,
+            Default::default(),
+            child,
+            Some(dialog),
+        ));
+        made.0.push(make(
+            "Static",
+            "not a box",
+            hidden,
+            WS_POPUP | WS_VISIBLE,
+            None,
+        ));
+        assert_eq!(
+            new(&mut desktop),
+            [MessageBox {
+                caption: "Rubylight test box".into(),
+                text: said.clone(),
+            }]
+        );
+        drop(made);
+        assert_eq!(new(&mut desktop), []);
     }
 }

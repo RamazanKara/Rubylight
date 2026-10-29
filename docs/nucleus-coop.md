@@ -154,9 +154,10 @@ file, are filled in from Nucleus Co-op 2.4.2's own defaults; another Nucleus
 Co-op release set with `nucleus_path` ignores keys it doesn't read.
 
 A start that times out says what Nucleus Co-op shows instead: a message on the
-PC's screen (answer or fix it there), no profile Rubylight (open Nucleus Co-op
-and load the profile Rubylight once, then launch again), or no window at all,
-with the last error from its `crashlog.txt` if it wrote one.
+PC's screen, from Nucleus Co-op or from Windows on its behalf, before or after
+the click on the profile (answer or fix it there), no profile Rubylight (open
+Nucleus Co-op and load the profile Rubylight once, then launch again), or no
+window at all, with the last error from its `crashlog.txt` if it wrote one.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs elevated as the signed-in user. A portable host refuses

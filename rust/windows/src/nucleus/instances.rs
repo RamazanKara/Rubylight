@@ -27,7 +27,8 @@ pub trait Desktop: Send {
     fn label(&mut self, processes: &BTreeSet<u32>, text: &str) -> Result<Option<u64>>;
     /// Click it as the mouse would; refused while another window covers it.
     fn click(&mut self, label: u64) -> Result<()>;
-    /// The visible message boxes (`#32770` dialogs) of `processes`.
+    /// The visible message boxes (`#32770` dialogs) of `processes`, and those
+    /// Windows shows for a program (hard errors).
     fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>>;
 }
 
@@ -391,6 +392,8 @@ pub(crate) mod tests {
         pub covered: bool,
         /// Message boxes and the process showing each.
         pub boxes: Vec<(u32, MessageBox)>,
+        /// Listing message boxes fails.
+        pub unlisted: bool,
         /// Placing a window moves it there, as a cooperative game does.
         pub obey: bool,
     }
@@ -437,6 +440,7 @@ pub(crate) mod tests {
             Ok(())
         }
         fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
+            anyhow::ensure!(!self.unlisted, "access denied");
             Ok(self
                 .boxes
                 .iter()

@@ -283,6 +283,7 @@ impl Pc for OnPc {
         // An .exe in a Steam library is its Steam app's, as a link would be.
         let steam = butterpollo_core::steam::library_app(
             Path::new(exe),
+            &arguments(app),
             &butterpollo_windows::steam::roots(),
         )
         .map_err(|message| Refusal {

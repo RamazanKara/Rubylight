@@ -6,9 +6,9 @@
     <string name="refresh_diag_battery_saver">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el ahorro de batería la limita.</string>
     <string name="refresh_diag_thermal">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos: el dispositivo está caliente y la limita a 60 Hz.</string>
     <string name="refresh_diag_unexplained">La pantalla se queda en %2$s Hz en lugar de los %1$s Hz pedidos. Android no da ningún motivo (modos: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">La frecuencia variable necesita Android 16, así que la pantalla sigue la frecuencia del juego solo donde puede cambiar sin quedarse en negro.</string>
-    <string name="stream_vrr_no_arr">Esta pantalla no tiene frecuencia de actualización adaptable, así que sigue la frecuencia del juego solo donde puede cambiar sin quedarse en negro.</string>
-    <string name="stream_vrr_arr_half_rate">La pantalla muestra solo %1$d de los %2$d FPS recibidos: Android la limita a la mitad de la frecuencia de la transmisión.</string>
+    <string name="stream_vrr_old_android">La frecuencia variable necesita Android 16, así que la pantalla funciona a su frecuencia máxima. Con un PC con Rubylight, sigue la frecuencia del juego donde puede cambiar sin quedarse en negro.</string>
+    <string name="stream_vrr_no_arr">Esta pantalla no tiene frecuencia de actualización adaptable, así que funciona a su frecuencia máxima. Con un PC con Rubylight, sigue la frecuencia del juego donde puede cambiar sin quedarse en negro.</string>
+    <string name="stream_vrr_arr_half_rate">La pantalla muestra solo %1$d de %2$d FPS: Android la limita a la mitad de la frecuencia de la transmisión.</string>
     <string name="stream_hdr_mode_unsupported">Este modo de pantalla no puede mostrar HDR, así que la transmisión es en SDR.</string>
     <string name="stream_hdr_not_negotiated">Se pidió HDR, pero el PC no envió vídeo HDR, así que la transmisión es en SDR.</string>
     <string name="stream_hdr_host_sdr">Se pidió HDR, pero el PC indica SDR. Activa HDR en Windows para la pantalla transmitida.</string>

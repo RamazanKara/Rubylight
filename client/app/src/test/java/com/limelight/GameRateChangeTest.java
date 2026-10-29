@@ -180,6 +180,22 @@ public class GameRateChangeTest {
     }
 
     @Test
+    public void sendAfterTheTerminationArrivedClosesTheDialogAndSaysTheStreamEnded() {
+        // The Retroid's R8: the host died with the dialog open. connectionTerminated marks the
+        // stream terminated at once; connected stays true until stopConnection closes the dialog,
+        // so this text never showed and "not sent" or "no answer" did instead.
+        startStream(recording());
+        AlertDialog dialog = openDialog();
+        fields(dialog).get(0).setText("30");
+        ReflectionHelpers.setField(game, "streamTerminated", true);
+        assertTrue((boolean) ReflectionHelpers.getField(game, "connected"));
+        send(dialog);
+        assertTrue(sent.isEmpty());
+        assertFalse(dialog.isShowing());
+        assertEquals(game.getString(R.string.stream_rate_change_stream_ended), ShadowToast.getTextOfLatestToast());
+    }
+
+    @Test
     public void sendAfterTheStreamRestartedClosesTheDialogInsteadOfAskingTheNewStream() {
         startStream(recording());
         AlertDialog dialog = openDialog();

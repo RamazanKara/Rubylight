@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Vulkan işleyicisi çalışmayı durdurdu: %1$s\n\nVideo ayarlarında “Vulkan ile işle” seçeneğini kapatıp yayını yeniden başlatın.</string>
     <string name="stream_vulkan_behind">“Vulkan ile işle” bu ekranda yetişemiyor. Akıcı görüntü için video ayarlarında kapatın.</string>
     <string name="vulkan_failure_unknown">bilinmeyen hata</string>
+    <string name="decoder_failed">Video kod çözücü çalışmayı durdurdu: %1$s\n\nYayını yeniden başlatın. Tekrar olursa ayarlarda çözünürlüğü düşürün.</string>
+    <string name="decoder_failed_vulkan">Video kod çözücü çalışmayı durdurdu: %1$s\n\nVideo ayarlarında “Vulkan ile işle” seçeneğini kapatın veya çözünürlüğü düşürün, ardından yayını yeniden başlatın.</string>
     <string name="upscaling_fallback">Ölçeklendirme: doğrudan çıkış. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bit, rengi ve hassasiyeti korumak için doğrudan çıkışı kullanır.</string>
     <string name="upscaling_pyrowave">PyroWave yayınları hem FSR hem SGSR için GPU’da SGSR kullanır.</string>

@@ -95,6 +95,24 @@ public class HostStreamSettingsGatingTest {
     }
 
     @Test
+    public void pyroWaveSaysWhyWhenThisDeviceCanNeverRunIt() {
+        // The JVM has no PyroWave renderer library, like a 32-bit app: the list for all PCs labels
+        // PyroWave with the reason, and so does the per-PC picker.
+        int reason = com.limelight.binding.video.PyroWaveDecoderRenderer.neverAvailableReason();
+        assertNotEquals(0, reason);
+        withSettings("rubylight-pc", TestHosts.rubylight(), fragment -> {
+            ReflectionHelpers.callInstanceMethod(fragment, "showCodec");
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            int pyroWave = PreferenceConfiguration.FormatOption.FORCE_PYROWAVE.ordinal() + 1;
+            String item = dialog.getListView().getAdapter().getItem(pyroWave).toString();
+            String other = dialog.getListView().getAdapter().getItem(pyroWave - 1).toString();
+            dialog.dismiss();
+            assertTrue(item, item.endsWith(" · " + app.getString(reason)));
+            assertFalse(other, other.contains(app.getString(reason)));
+        });
+    }
+
+    @Test
     public void olderRubylightExplainsWhyThePickerIsUnavailable() {
         withSettings("old-rubylight-pc", TestHosts.fixture("butterpollo-serverinfo.xml"), fragment -> {
             Preference display = fragment.findPreference("host_display");

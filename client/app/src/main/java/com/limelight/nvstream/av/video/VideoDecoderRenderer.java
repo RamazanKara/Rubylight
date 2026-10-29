@@ -5,6 +5,9 @@ public abstract class VideoDecoderRenderer {
     // when the freshly discovered host supports it; renderers without pacing may ignore it.
     public void setStreamFrameRateMilliHz(int frameRateMilliHz) {}
 
+    /** The PC's codec mode support (serverinfo's ServerCodecModeSupport), set before prepareVideoFormats. */
+    public void setHostCodecModeSupport(int serverCodecModeSupport) {}
+
     public int prepareVideoFormats(int formats, int width, int height, int redrawRate) {
         return formats;
     }

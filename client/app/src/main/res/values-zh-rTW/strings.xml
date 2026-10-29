@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Vulkan 算繪器已停止運作：%1$s\n\n請在影片設定中關閉「透過 Vulkan 算繪」，然後重新開始串流。</string>
     <string name="stream_vulkan_behind">「透過 Vulkan 算繪」在此螢幕上跟不上。請在影片設定中關閉它，讓畫面流暢。</string>
     <string name="vulkan_failure_unknown">未知錯誤</string>
+    <string name="decoder_failed">影片解碼器已停止運作：%1$s\n\n請重新開始串流。如果再次發生，請在設定中降低解析度。</string>
+    <string name="decoder_failed_vulkan">影片解碼器已停止運作：%1$s\n\n請在影片設定中關閉「透過 Vulkan 算繪」或降低解析度，然後重新開始串流。</string>
     <string name="upscaling_fallback">升頻：直接輸出。%1$s</string>
     <string name="upscaling_hdr">HDR/10 位元會維持直接輸出，以保留色彩和精確度。</string>
     <string name="upscaling_pyrowave">PyroWave 串流在選擇 FSR 和 SGSR 時，都會在 GPU 上使用 SGSR。</string>

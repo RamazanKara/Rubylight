@@ -395,6 +395,8 @@
     <string name="vulkan_renderer_failed">Der Vulkan-Renderer funktioniert nicht mehr: %1$s\n\nSchalte „Über Vulkan rendern“ in den Einstellungen (Bereich Decoder) aus und starte den Stream neu.</string>
     <string name="stream_vulkan_behind">„Über Vulkan rendern“ kommt auf diesem Bildschirm nicht mit. Schalte es in den Einstellungen (Bereich Decoder) aus, damit das Bild flüssig läuft.</string>
     <string name="vulkan_failure_unknown">unbekannter Fehler</string>
+    <string name="decoder_failed">Der Videodecoder funktioniert nicht mehr: %1$s\n\nStarte den Stream neu. Passiert das wieder, senke die Auflösung in den Einstellungen.</string>
+    <string name="decoder_failed_vulkan">Der Videodecoder funktioniert nicht mehr: %1$s\n\nSchalte „Über Vulkan rendern“ in den Einstellungen (Bereich Decoder) aus oder senke die Auflösung und starte den Stream neu.</string>
     <string name="upscaling_fallback">Hochskalierung: direkte Ausgabe. %1$s</string>
     <string name="upscaling_hdr">HDR/10-Bit nutzt direkte Ausgabe für volle Farbpräzision.</string>
     <string name="upscaling_pyrowave">PyroWave-Streams nutzen für FSR und SGSR immer SGSR auf der GPU.</string>

@@ -39,6 +39,9 @@
     <string name="host_details_features_unknown">连接此电脑一次即可查看其支持的功能。</string>
     <string name="host_details_features_none">未报告额外功能</string>
     <string name="host_pyrowave_unavailable">此电脑无法使用 PyroWave 串流，因此改用 %1$s。</string>
+    <string name="stream_pyrowave_device_unavailable">此设备无法运行 PyroWave，因此串流改用 %1$s。\n%2$s</string>
+    <string name="stream_pyrowave_full_chroma">开启“%2$s”时无法使用 PyroWave，因此串流改用 %1$s。</string>
+    <string name="stream_pyrowave_no_hdr_on_pc">此电脑不支持 PyroWave HDR，因此 HDR 串流改用 %1$s。</string>
     <string name="connection_test_intro_delay">测试到你电脑的延迟。</string>
     <string name="host_feature_cursor_shape">光标形状</string>
 </resources>

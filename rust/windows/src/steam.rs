@@ -1,6 +1,7 @@
 //! Where Steam is installed on this PC.
 
-use std::path::PathBuf;
+use butterpollo_core::nucleus::generic;
+use std::path::{Path, PathBuf};
 use windows::{
     Win32::System::Registry::{
         HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW,
@@ -34,7 +35,7 @@ pub(crate) fn registry_string(root: HKEY, key: &str, value: &str) -> Option<Stri
 }
 /// Steam installations: the installer's registry entries, then the usual
 /// folders. The host runs as SYSTEM, so the signed-in user's folders come
-/// from that user's environment.
+/// from that user's environment, and a folder on a network share is skipped.
 pub fn roots() -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = [
         (
@@ -58,11 +59,27 @@ pub fn roots() -> Vec<PathBuf> {
     if let Some(local) = user.get("LOCALAPPDATA") {
         candidates.push(PathBuf::from(local).join("Steam"));
     }
+    installations(candidates)
+}
+
+/// Whether `path` is on one of this PC's drives. The host runs as SYSTEM:
+/// opening a network share would hand it the PC's account.
+fn on_this_pc(path: &Path) -> bool {
+    generic::on_this_pc(&path.to_string_lossy()).is_some()
+}
+
+/// The `candidates` that are Steam installations on this PC's drives; one on
+/// a share is dropped before anything opens it.
+fn installations(candidates: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = vec![];
-    for candidate in candidates {
+    for candidate in candidates.into_iter().filter(|path| on_this_pc(path)) {
         let Ok(path) = std::fs::canonicalize(&candidate) else {
             continue;
         };
+        // A link to a share resolves to one.
+        if !on_this_pc(&path) {
+            continue;
+        }
         // %LOCALAPPDATA%\Steam holds only Steam's web cache.
         let installation = path.join("steamapps").is_dir() || path.join("steam.exe").is_file();
         if installation && !roots.contains(&path) {
@@ -77,4 +94,37 @@ pub fn roots() -> Vec<PathBuf> {
             PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_steam_folder_on_a_network_share_is_never_opened() {
+        let local = tempfile::tempdir().unwrap();
+        std::fs::write(local.path().join("steam.exe"), b"").unwrap();
+        let reached = tempfile::tempdir().unwrap();
+        std::fs::write(reached.path().join("steam.exe"), b"").unwrap();
+        // A share path that reaches a real installation: dropping it is what
+        // keeps it out.
+        let globalroot = PathBuf::from(format!(
+            r"\\?\GLOBALROOT\GLOBAL??\{}",
+            reached.path().display()
+        ));
+        assert!(globalroot.join("steam.exe").is_file());
+        let found = installations(vec![
+            PathBuf::from(r"\\nas\Steam"),
+            PathBuf::from(r"\\?\UNC\nas\Steam"),
+            PathBuf::from(r"\\.\UNC\nas\Steam"),
+            globalroot,
+            local.path().to_path_buf(),
+        ]);
+        let canonical = std::fs::canonicalize(local.path()).unwrap();
+        let text = canonical.to_string_lossy();
+        assert_eq!(
+            found,
+            [PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text))]
+        );
+    }
 }

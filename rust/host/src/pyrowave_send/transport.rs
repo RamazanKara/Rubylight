@@ -103,8 +103,7 @@ pub(super) fn run(
             }
         }
         if batch.dropped != packets_dropped {
-            current.request_send_loss_recovery();
-            current.launch.warnings.event("network_send", "PyroWave video packets were dropped by the host after transient socket send failures. Lower bitrate and check the network adapter; the log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
+            host_dropped(&current, frame.wire_frame);
         }
         // What left for the client, which the link-rate controller weighs the
         // client's loss reports against.
@@ -225,6 +224,15 @@ fn pace(current: &Session, config: &Config, kbps: u32, wire_frame: u32, route: L
     current.keyframe_loss_bps(paced, safe, wire_frame, true)
 }
 
+/// The socket refused packets of this frame. That is the host's loss, not
+/// the network's: the client's report of the frame is not counted against the
+/// link, and the link-rate controller counts it as a send loss (E3).
+fn host_dropped(current: &Session, wire_frame: u32) {
+    current.keyframe_abandoned(wire_frame);
+    current.request_send_loss_recovery();
+    current.launch.warnings.event("network_send", "PyroWave video packets were dropped by the host after transient socket send failures. Lower bitrate and check the network adapter; the log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,5 +292,30 @@ mod tests {
             (0, 0)
         );
         assert_eq!(pace(&session, &config, 40_000, 2, route), unhinted);
+    }
+
+    /// Review 2026-10-29: packets the socket refused were counted as the
+    /// network's loss when the client reported the frame, and never as the
+    /// host's.
+    #[test]
+    fn a_frame_the_socket_refused_is_the_hosts_loss() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated {
+                codec: 3,
+                pyrowave_records: true,
+                bitrate_kbps: 400_000,
+                ..Default::default()
+            },
+        );
+        host_dropped(&session, 7);
+        assert_eq!(session.stats.frames_lost_on_send.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            session.stats.send_loss_recoveries.load(Ordering::Relaxed),
+            1
+        );
+        assert!(session.keyframe_loss.lock().unwrap().is_abandoned(7));
+        assert!(!session.keyframe_loss.lock().unwrap().is_abandoned(8));
     }
 }

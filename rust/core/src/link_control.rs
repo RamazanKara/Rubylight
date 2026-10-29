@@ -10,6 +10,14 @@ use std::time::{Duration, Instant};
 
 use crate::link_rate::LinkRate;
 
+/// The share of its bitrate in payload bytes that makes an H.26x stream busy.
+pub const BYTE_SHARE: f64 = 0.6;
+/// The same for PyroWave: its rate control holds each picture to one frame's
+/// budget, and a moving game scene fills about 58 % of it (2026-10-29: 239 of
+/// 414 KB at 200 Mbps), payload only. At 60 % such a stream never probed back
+/// up. A static desktop is still idle by its frame count.
+pub const PYROWAVE_BYTE_SHARE: f64 = 0.3;
+
 /// Frames kept. The control thread drains every few milliseconds; a drain more
 /// than this many frames late (17 s at 60 fps) loses the oldest frames.
 const LOG: usize = 1024;
@@ -157,7 +165,8 @@ impl LinkControl {
 
     /// Whether video is busy, as the legacy controller defines it: over the
     /// last sample (at least 500 ms, at most 2 s old) at least 60 % of the
-    /// frames and bytes the stream should send. A static desktop sends almost
+    /// frames and `byte_share` of the bytes the stream should send
+    /// ([`BYTE_SHARE`], [`PYROWAVE_BYTE_SHARE`]). A static desktop sends almost
     /// nothing, so a probe sent then proves nothing.
     pub fn busy(
         &mut self,
@@ -166,6 +175,7 @@ impl LinkControl {
         bytes: u64,
         period: Duration,
         kbps: u32,
+        byte_share: f64,
     ) -> bool {
         let Some((at, before_frames, before_bytes)) = self.sample else {
             self.sample = Some((now, frames, bytes));
@@ -180,7 +190,7 @@ impl LinkControl {
         self.busy = elapsed <= Duration::from_secs(2)
             && frames.saturating_sub(before_frames) as f64 >= seconds / period.as_secs_f64() * 0.6
             && bytes.saturating_sub(before_bytes) as f64 * 8.
-                >= f64::from(kbps) * 1000. * seconds * 0.6;
+                >= f64::from(kbps) * 1000. * seconds * byte_share;
         self.busy
     }
 
@@ -283,12 +293,12 @@ mod tests {
         let period = Duration::from_micros(16_667);
         let mut link = LinkControl::default();
         // 10 Mbps for one second is 1.25 MB.
-        assert!(!link.busy(t0, 0, 0, period, 10_000));
+        assert!(!link.busy(t0, 0, 0, period, 10_000, BYTE_SHARE));
         let t1 = t0 + Duration::from_secs(1);
-        assert!(link.busy(t1, 60, 1_250_000, period, 10_000));
+        assert!(link.busy(t1, 60, 1_250_000, period, 10_000, BYTE_SHARE));
         let t2 = t1 + Duration::from_secs(1);
         assert!(
-            !link.busy(t2, 62, 1_250_100, period, 10_000),
+            !link.busy(t2, 62, 1_250_100, period, 10_000, BYTE_SHARE),
             "a static picture"
         );
         // Between samples the last verdict stands.
@@ -297,7 +307,30 @@ mod tests {
             90,
             9_000_000,
             period,
-            10_000
+            10_000,
+            BYTE_SHARE
         ));
+    }
+
+    /// Review 2026-10-29: a PyroWave game scene fills about 58 % of its frame
+    /// budget, under the 60 % that makes H.26x busy, so a cut PyroWave stream
+    /// never probed back up.
+    #[test]
+    fn a_pyrowave_game_scene_is_busy_and_its_static_desktop_is_not() {
+        let t0 = Instant::now();
+        let period = Duration::from_micros(16_667);
+        // 200 Mbps for one second is 25 MB; the scene sends 58 % of it.
+        let scene = 25_000_000 * 58 / 100;
+        for (share, busy) in [(PYROWAVE_BYTE_SHARE, true), (BYTE_SHARE, false)] {
+            let mut link = LinkControl::default();
+            link.busy(t0, 0, 0, period, 200_000, share);
+            let t1 = t0 + Duration::from_secs(1);
+            assert_eq!(link.busy(t1, 60, scene, period, 200_000, share), busy);
+        }
+        // A still desktop sends full pictures at the minimum frame rate only.
+        let mut link = LinkControl::default();
+        link.busy(t0, 0, 0, period, 200_000, PYROWAVE_BYTE_SHARE);
+        let t1 = t0 + Duration::from_secs(1);
+        assert!(!link.busy(t1, 20, 25_000_000 / 3, period, 200_000, PYROWAVE_BYTE_SHARE));
     }
 }

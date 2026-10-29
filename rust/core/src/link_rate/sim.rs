@@ -174,21 +174,40 @@ impl Sim {
         }
     }
 
-    /// A PyroWave stream with record framing. Its rate control holds every
-    /// picture to one frame's budget, keyframes included, and a game scene fills
-    /// about 60 % of it (2026-10-29: 239 of 414 KB at 200 Mbps). Records carry
-    /// their parity inside that budget.
+    /// A 1080p60 PyroWave stream with record framing. Its rate control holds
+    /// every picture to one frame's budget, keyframes included, and a game
+    /// scene fills about 60 % of it (2026-10-29: 239 of 414 KB at 200 Mbps).
+    /// Packets follow [`crate::pyrowave::plan`] as the host sends a moving
+    /// picture: the coarse block first with its parity, the detail blocks with
+    /// none.
     pub fn pyrowave(link: Link, negotiated_kbps: u32, feedback_ms: f64) -> Self {
         let mut sim = Self::new(link, negotiated_kbps, feedback_ms);
         let stream = Negotiated {
             codec: 3,
             pyrowave_records: true,
+            width: 1920,
+            height: 1080,
+            fps: 60,
             bitrate_kbps: negotiated_kbps,
             ..Default::default()
         };
         sim.lr = LinkRate::new(true, &stream, 0, FEC);
         sim.pyrowave = true;
         sim
+    }
+
+    /// Data and parity packets per block of a PyroWave picture of `bytes`:
+    /// coarse records about 5 % of it, protected at [`FEC`] percent (at least
+    /// two parity packets), detail without parity, as `DetailFec` leaves it
+    /// while the picture moves.
+    fn pyrowave_layout(bytes: f64) -> Vec<(usize, usize)> {
+        let total = ((bytes / 1024.).ceil() as usize).clamp(1, 4000);
+        let blocks = crate::pyrowave::plan(total, (total / 20).max(1), FEC, 2, 0, 0)
+            .expect("a PyroWave plan");
+        blocks
+            .iter()
+            .map(|b| (b.data, crate::pyrowave::parity(b.data, b.percentage, 2)))
+            .collect()
     }
 
     pub fn at(&self, t: f64) -> Instant {
@@ -200,26 +219,25 @@ impl Sim {
         self.applied.rotate_left(1);
         self.applied[1] = self.encoder_kbps;
         let average = f64::from(kbps) * 125. / 60.;
-        let size = if self.pyrowave {
-            average * (0.5 + 0.2 * self.noise.next()) * 100. / (100. + FEC as f64)
+        let layout = if self.pyrowave {
+            Self::pyrowave_layout(average * (0.5 + 0.2 * self.noise.next()))
         } else {
             let scale = match index {
                 0 => 2.,
                 i if i % 120 == 0 => 3.,
                 _ => 1.,
             };
-            average * (0.9 + 0.2 * self.noise.next()) * scale
+            let packetizer = VideoPacketizer {
+                sequence: 0,
+                frame: index,
+                iv_counter: 0,
+                packet_size: 1024,
+                fec_percent: FEC,
+                min_fec: 0,
+                key: None,
+            };
+            packetizer.block_layout((average * (0.9 + 0.2 * self.noise.next()) * scale) as usize)
         };
-        let packetizer = VideoPacketizer {
-            sequence: 0,
-            frame: index,
-            iv_counter: 0,
-            packet_size: 1024,
-            fec_percent: FEC,
-            min_fec: 0,
-            key: None,
-        };
-        let layout = packetizer.block_layout(size as usize);
         let packets: usize = layout.iter().map(|(d, p)| d + p).sum();
         self.lr.on_sent(
             index,
@@ -244,7 +262,8 @@ impl Sim {
                 }
             }
             let received = got_data + got_parity;
-            if usize::from(received) < data {
+            // A PyroWave picture shows without a detail block (blurred there).
+            if usize::from(received) < data && (!self.pyrowave || block == 0) {
                 complete = false;
             }
             if usize::from(received) < data + parity {
@@ -287,8 +306,7 @@ impl Sim {
             }
             let (_, Feedback::Status(status)) = self.inbox.remove(i);
             self.lr.on_status(&status, now);
-            let received = u32::from(status.received_data) + u32::from(status.received_parity);
-            if received < u32::from(status.data) {
+            if self.lr.frame_lost(&status) {
                 if self.keyframe_requests {
                     self.lr.on_keyframe_request(true, now);
                 }

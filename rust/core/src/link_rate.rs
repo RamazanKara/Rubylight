@@ -19,7 +19,13 @@
 //! (the loss guard and Wi-Fi pacing leave PyroWave alone), and on 2026-10-29 a
 //! 200 Mbps stream to a phone on 5 GHz Wi-Fi lost about a quarter of its
 //! packets for the whole stream. Its rate control holds every picture to one
-//! frame's budget and its pace follows the bitrate, so a cut shrinks both.
+//! frame's budget, so a cut shrinks every picture; the pace shrinks with it only
+//! where it follows the stream's demand, not a client pace hint,
+//! `pacing_max_bitrate_kbps` or a wired client link. With record framing only a
+//! lost coarse block loses the frame ([`LinkRate::frame_lost`]). PyroWave stops
+//! at its severe-detail-loss rate, and its keyframe requests are no evidence:
+//! every picture is intra, so the session passes none of them on, and a
+//! PyroWave client is judged by its FEC status reports alone.
 //!
 //! Inactive (`State::Off`) when disabled in the configuration and once the
 //! client sets the bitrate itself. The caller also passes
@@ -515,6 +521,9 @@ pub struct LinkRate {
     ring: Box<[Sent]>,
     events: Events,
     fec_status_seen: bool,
+    /// PyroWave record framing: only the coarse block (block 0) carries the
+    /// picture, so only its loss loses the frame (see [`Self::frame_lost`]).
+    records: bool,
     last_ping: Option<Instant>,
     minimum_rtt: Option<Duration>,
     /// Lowest RTT per second over [`QUEUE_FLOOR_WINDOW`], oldest first.
@@ -544,6 +553,19 @@ impl Default for LinkRate {
     fn default() -> Self {
         Self::off("disabled")
     }
+}
+
+/// PyroWave's floor: its severe-detail-loss rate
+/// ([`crate::pyrowave::minimum_kbps`], about 186 Mbps at 1080p60), in the
+/// session's bitrate, which the sender scales by configured over negotiated.
+fn pyrowave_floor_kbps(stream: &Negotiated) -> u32 {
+    let minimum = crate::pyrowave::minimum_kbps(stream.width, stream.height, stream.fps_millihz());
+    if stream.configured_bitrate_kbps == 0 {
+        return minimum;
+    }
+    (u64::from(minimum) * u64::from(stream.bitrate_kbps)
+        / u64::from(stream.configured_bitrate_kbps))
+    .min(u64::from(u32::MAX)) as u32
 }
 
 impl LinkRate {
@@ -585,6 +607,7 @@ impl LinkRate {
             ring: Box::default(),
             events: Events::default(),
             fec_status_seen: false,
+            records: false,
             last_ping: None,
             minimum_rtt: None,
             rtt_floor: VecDeque::with_capacity(FLOOR_BUCKETS),
@@ -606,6 +629,17 @@ impl LinkRate {
         }
     }
 
+    /// Whether a block the client could not rebuild lost its frame (E1). In
+    /// PyroWave's record framing the coarse block (block 0) carries the
+    /// picture and the detail blocks have no parity while it moves: a lost
+    /// detail packet blurs part of one picture, so it counts toward the loss
+    /// share (E2) only. 0.1 % random loss hits about one picture in six at
+    /// 200 Mbps, and counted as lost frames it cut a healthy link to the floor.
+    pub fn frame_lost(&self, status: &Status) -> bool {
+        let received = u32::from(status.received_data) + u32::from(status.received_parity);
+        received < u32::from(status.data) && (!self.records || status.block == 0)
+    }
+
     /// `enabled` is the configuration (`link_rate_adaptation` and no
     /// `host_adaptive_bitrate`). `max_kbps` is the user's `max_bitrate` (0 for
     /// none), `fec` the FEC percentage in use.
@@ -614,19 +648,27 @@ impl LinkRate {
         if !enabled {
             return this;
         }
-        let ceiling =
-            stream
-                .bitrate_kbps
-                .min(500_000)
-                .min(if max_kbps > 0 { max_kbps } else { u32::MAX });
+        let pyrowave = stream.codec == 3;
+        let ceiling = stream
+            .bitrate_kbps
+            .min(if pyrowave { 2_000_000 } else { 500_000 })
+            .min(if max_kbps > 0 { max_kbps } else { u32::MAX });
         let budget = WireBudget::of(stream);
         let period = crate::reconfigure::Mode::of(stream).period();
         let Some(minimum) = budget.minimum_encoder_kbps(ceiling, fec, period) else {
             this.reason = "wire_budget_too_small";
             return this;
         };
-        this.floor_kbps = ceiling.min(2_000).max(minimum).min(ceiling);
+        // Below its severe-detail-loss rate PyroWave is no picture worth having:
+        // it stops there and the warning says to use HEVC or AV1.
+        let lowest = if pyrowave {
+            pyrowave_floor_kbps(stream)
+        } else {
+            2_000
+        };
+        this.floor_kbps = ceiling.min(lowest).max(minimum).min(ceiling);
         this.ceiling_kbps = ceiling;
+        this.records = pyrowave && stream.pyrowave_records;
         this.budget = Some(budget);
         this.ring = vec![Sent::default(); RING].into_boxed_slice();
         for events in [&mut this.events.unrecoverable, &mut this.events.send_losses] {

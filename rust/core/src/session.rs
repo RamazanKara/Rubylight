@@ -575,6 +575,9 @@ mod tests {
     }
     /// 2026-10-29: a PyroWave stream to a phone on Wi-Fi lost about a quarter
     /// of its packets for the whole stream and nothing lowered its bitrate.
+    /// Review 2026-10-29: only a lost coarse block (block 0) loses the picture;
+    /// detail blocks carry no parity while it moves, and one lost packet there
+    /// only blurs part of it.
     #[test]
     fn lost_pyrowave_frames_lower_the_bitrate_too() {
         let s = Session::new(
@@ -582,8 +585,8 @@ mod tests {
             Negotiated {
                 codec: 3,
                 pyrowave_records: true,
-                bitrate_kbps: 198_732,
-                configured_bitrate_kbps: 200_000,
+                bitrate_kbps: 397_464,
+                configured_bitrate_kbps: 400_000,
                 ..Default::default()
             },
         );
@@ -592,20 +595,68 @@ mod tests {
         let end = Instant::now();
         for frame in 1..=60u32 {
             let at = end - Duration::from_millis(17 * u64::from(60 - frame));
-            s.record_link_sent_at(frame, 300, 420_000, at);
+            s.record_link_sent_at(frame, 600, 840_000, at);
         }
         s.stats.video_frame.store(70, Ordering::Release);
-        lose_frames(&s, 50..=54);
+        let block = |frame, block| {
+            let mut report = fec_report(frame, 7, 1);
+            report[19] = block;
+            report[20] = 3;
+            report
+        };
+        for frame in 40..=49 {
+            s.record_fec_status(&block(frame, 1));
+            s.record_fec_status(&block(frame, 2));
+        }
+        assert_eq!(
+            s.tick_link_rate(end + Duration::from_millis(100), Duration::from_millis(10)),
+            None,
+            "lost detail blocks are not lost pictures"
+        );
+        for frame in 50..=54 {
+            s.record_fec_status(&block(frame, 0));
+        }
         let (from, to) = s
             .tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10))
             .expect("the controller lowers the PyroWave bitrate");
-        assert_eq!(from, 198_732);
+        assert_eq!(from, 397_464);
         assert!(
-            (198_732 * 40 / 100..198_732 * 85 / 100).contains(&to),
+            (397_464 * 40 / 100..397_464 * 85 / 100).contains(&to),
             "{to}"
         );
         assert_eq!(s.bitrate.load(Ordering::Acquire), to);
         assert_eq!(s.info()["link_rate"]["state"], "limited");
+    }
+    /// Review 2026-10-29: a PyroWave client's keyframe requests are no
+    /// evidence of loss, even from a client that sends no FEC status; only
+    /// lost coarse blocks are.
+    #[test]
+    fn pyrowave_keyframe_requests_lower_nothing() {
+        let s = Session::new(
+            launch("link-rate-pyrowave-requests", Role::Stream),
+            Negotiated {
+                codec: 3,
+                pyrowave_records: true,
+                bitrate_kbps: 400_000,
+                configured_bitrate_kbps: 400_000,
+                ..Default::default()
+            },
+        );
+        s.configure_link_rate(true, 0);
+        let end = Instant::now();
+        for frame in 1..=60u32 {
+            let at = end - Duration::from_millis(17 * u64::from(60 - frame));
+            s.record_link_sent_at(frame, 600, 840_000, at);
+        }
+        s.stats.video_frame.store(70, Ordering::Release);
+        for _ in 0..10 {
+            s.request_client_keyframe();
+        }
+        assert_eq!(
+            s.tick_link_rate(end + Duration::from_millis(200), Duration::from_millis(10)),
+            None
+        );
+        assert_eq!(s.info()["link_rate"]["state"], "full");
     }
     fn ask_for_notices(s: &Session) {
         use crate::link_notice::LinkNoticeRequest;
@@ -3842,7 +3893,11 @@ impl<P, A> Session<P, A> {
             return;
         }
         let now = Instant::now();
-        let network = self.keyframe_loss.lock().unwrap().network_request(now);
+        // Every PyroWave picture is intra: no keyframe answers a request, and
+        // what it lost is in the FEC status already, so a request is no
+        // evidence of its own.
+        let network =
+            self.config.codec != 3 && self.keyframe_loss.lock().unwrap().network_request(now);
         let mut link = self.link_rate.lock().unwrap();
         link.drain(&self.link_sent);
         link.rate.on_keyframe_request(network, now);
@@ -3872,7 +3927,7 @@ impl<P, A> Session<P, A> {
         if !abandoned {
             link.rate.on_status(&status, now);
         }
-        if network {
+        if network && link.rate.frame_lost(&status) {
             link.rate.on_unrecoverable(frame, keyframe, now);
         }
     }
@@ -3921,6 +3976,11 @@ impl<P, A> Session<P, A> {
             self.stats.bytes.load(Ordering::Relaxed),
             period,
             current,
+            if self.config.codec == 3 {
+                crate::link_control::PYROWAVE_BYTE_SHARE
+            } else {
+                crate::link_control::BYTE_SHARE
+            },
         );
         let target = link
             .rate
@@ -3971,6 +4031,10 @@ impl<P, A> Session<P, A> {
         match change.kind {
             ChangeKind::StepDown | ChangeKind::Floor | ChangeKind::EncoderFloor => {
                 let message = match change.kind {
+                    ChangeKind::Floor if self.config.codec == 3 => format!(
+                        "The network to this device cannot carry even {} of video, the lowest bitrate at which PyroWave keeps a usable picture, so the picture will keep breaking up. Use HEVC or AV1 for this device, or check the network path (Wi-Fi signal, cable, router).",
+                        mbps(change.to_kbps)
+                    ),
                     ChangeKind::Floor => format!(
                         "The network to this device cannot carry even {} of video, the lowest bitrate the host uses, so the picture will keep breaking up. Check the network path (Wi-Fi signal, cable, router) or lower the resolution or frame rate in Moonlight.",
                         mbps(change.to_kbps)
@@ -4241,7 +4305,9 @@ impl<P, A> Session<P, A> {
         // Fast is what was applied to this frame, not what the route allows.
         let fast = bps > safe;
         self.pace_was_fast.store(fast, Ordering::Relaxed);
-        if keyframe && self.link_sent.live() {
+        // Every PyroWave picture is intra and its loss guard is off, so no
+        // latch watch needs them, and the sender must not wait for this lock.
+        if keyframe && self.config.codec != 3 && self.link_sent.live() {
             self.link_rate
                 .lock()
                 .unwrap()

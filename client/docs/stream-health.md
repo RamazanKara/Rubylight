@@ -36,6 +36,10 @@ To reduce scans:
 
 Nightjar already holds Android's low-latency Wi-Fi lock while streaming, which asks the system to defer scans and power saving. Some devices scan anyway, which is why the rhythm check exists.
 
+## Frames in bursts
+
+Some Wi-Fi links hold video back for a few tens of milliseconds and then deliver several frames at once, although the host sent every frame on time. The picture then hitches once per burst. Nightjar compares each frame's arrival with the host's timestamps: a frame that comes at least three quarters of a frame interval (8 ms at the least) later than its timestamp says, after the frame before it, is late. Frames the host itself sent late, such as a still desktop or a game that slows down, do not count. When late frames show up in at least 5 of the samples and in a third of them, the report adds **Bursts**. A launch or a switch to fullscreen holds frames back once and is not reported.
+
 Thresholds are conservative troubleshooting hints, not a measured improvement guarantee. Live stream, decoder and device testing is still needed to compare actual latency and picture quality.
 
 [Documentation](index.md) · [Video and latency](video-and-latency.md) · [Troubleshooting](TROUBLESHOOTING.md)

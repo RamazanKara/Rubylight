@@ -482,6 +482,7 @@ fn receive_thread(
                 break;
             }
         };
+        session.received(length);
         let first = *first_data.get_or_insert_with(|| {
             session.log(&format!(
                 "Received first video packet after {} ms",

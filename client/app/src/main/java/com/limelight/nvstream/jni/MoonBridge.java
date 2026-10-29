@@ -849,6 +849,13 @@ public class MoonBridge {
     }
     private static native void cFlushPhaseLockReport();
 
+    // Bytes of every video and audio datagram received this stream, FEC parity included: the
+    // stream's bandwidth on the wire (Moonlight V+'s LiGetRTPVideoBytesReceived, with audio).
+    public static long getWireBytesReceived() {
+        return rustStream ? RustBridge.getWireBytesReceived() : cGetWireBytesReceived();
+    }
+    private static native long cGetWireBytesReceived();
+
     // Early edge of the last phase-lock report in microseconds before the latch, or
     // Integer.MIN_VALUE before the first one.
     public static int getPhaseLockLeadUs() {

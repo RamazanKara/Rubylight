@@ -1,0 +1,84 @@
+Count the bytes of every video and audio datagram received, FEC parity included, so the
+performance overlay can show the stream's bandwidth on the wire (LiGetWireBytesReceived), as
+Moonlight V+ (qiin2333/moonlight-vplus) shows LiGetRTPVideoBytesReceived, with audio added.
+Independent of the other patches; add it at the end of the list.
+
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -929,6 +929,10 @@
+ 
+ const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
+ 
++// Returns the bytes of every video and audio datagram received since the stream started, FEC
++// parity included: the stream's bandwidth on the wire. Safe to call from any thread.
++uint64_t LiGetWireBytesReceived(void);
++
+ // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
+ #define ML_PORT_INDEX_TCP_47984 0
+ #define ML_PORT_INDEX_TCP_47989 1
+--- a/src/Limelight-internal.h
++++ b/src/Limelight-internal.h
+@@ -138,6 +138,7 @@
+ void notifyFrameLost(unsigned int frameNumber, bool speculative);
+ 
+ void initializeVideoStream(void);
++void addWireBytesReceived(int bytes);
+ void destroyVideoStream(void);
+ void notifyKeyFrameReceived(void);
+ int startVideoStream(void* rendererContext, int drFlags);
+--- a/src/VideoStream.c
++++ b/src/VideoStream.c
+@@ -1,5 +1,7 @@
+ #include "Limelight-internal.h"
+ 
++#include <stdatomic.h>
++
+ #define FIRST_FRAME_MAX 1500
+ #define FIRST_FRAME_TIMEOUT_SEC 10
+ 
+@@ -20,6 +22,9 @@
+ static uint64_t firstDataTimeMs;
+ static bool receivedFullFrame;
+ 
++// Video and audio datagrams received, FEC parity included (LiGetWireBytesReceived).
++static atomic_uint_fast64_t wireBytesReceived;
++
+ // We can't request an IDR frame until the depacketizer knows
+ // that a packet was lost. This timeout bounds the time that
+ // the RTP queue will wait for missing/reordered packets.
+@@ -42,6 +47,15 @@
+     receivedDataFromPeer = false;
+     firstDataTimeMs = 0;
+     receivedFullFrame = false;
++    atomic_store(&wireBytesReceived, 0);
++}
++
++void addWireBytesReceived(int bytes) {
++    atomic_fetch_add_explicit(&wireBytesReceived, (uint_fast64_t)bytes, memory_order_relaxed);
++}
++
++uint64_t LiGetWireBytesReceived(void) {
++    return (uint64_t)atomic_load_explicit(&wireBytesReceived, memory_order_relaxed);
+ }
+ 
+ // Clean up the video stream
+@@ -159,6 +173,8 @@
+             continue;
+         }
+ 
++        addWireBytesReceived(err);
++
+         if (!receivedDataFromPeer) {
+             receivedDataFromPeer = true;
+             Limelog("Received first video packet after %d ms\n", waitingForVideoMs);
+--- a/src/AudioStream.c
++++ b/src/AudioStream.c
+@@ -287,6 +287,8 @@
+             continue;
+         }
+ 
++        addWireBytesReceived(packet->header.size);
++
+         if (packet->header.size < (int)sizeof(RTP_PACKET)) {
+             // Runt packet
+             continue;

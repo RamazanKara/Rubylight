@@ -6,6 +6,7 @@
     <string name="stats_waiting">Очікування статистики трансляції…</string>
     <string name="stats_frame_rates">Відрендерено: %1$s FPS · Отримано: %2$s FPS</string>
     <string name="stats_throughput">Відеодані: %1$s Мбіт/с · Втрати: %2$s%%</string>
+    <string name="stats_wire">У мережі: %1$s Мбіт/с з FEC і звуком</string>
     <string name="stats_network">RTT мережі: %1$s мс (±%2$s мс)</string>
     <string name="stats_host">Обробка на хості: %1$s мс</string>
     <string name="stats_host_network">Хост до мережі: %1$s мс</string>

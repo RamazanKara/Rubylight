@@ -787,13 +787,15 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
     } else {
         h264_p()
     };
+    // Every video and audio datagram the host sends, parity included: the session's wire bytes.
+    let mut sent = 0u64;
     let frames = [(&idr, 2), (&p, 1), (&p, 1), (&p, 1), (&p, 1)];
     for (payload, kind) in &frames {
         for (index, packet) in packetizer.frame(payload, *kind).into_iter().enumerate() {
             if packed_format.is_some() && index == 1 {
                 continue;
             }
-            host.video.send_to(&packet, client).unwrap();
+            sent += host.video.send_to(&packet, client).unwrap() as u64;
         }
         thread::sleep(Duration::from_millis(20));
     }
@@ -807,7 +809,7 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
             >= 2
     });
     for packet in packetizer.frame(&idr, 2) {
-        host.video.send_to(&packet, client).unwrap();
+        sent += host.video.send_to(&packet, client).unwrap() as u64;
     }
     until("the recovery frame", || {
         record.lock().unwrap().frames.len() >= 4
@@ -816,10 +818,11 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
     // Audio: 100 packets of backlog are dropped, the rest play in order.
     let client = host.peer(Media::Audio);
     for packet in audio_stream(200) {
-        host.audio.send_to(&packet, client).unwrap();
+        sent += host.audio.send_to(&packet, client).unwrap() as u64;
         thread::sleep(Duration::from_micros(200));
     }
     until("audio", || record.lock().unwrap().audio.len() >= 90);
+    until("every datagram counted on the wire", || session.wire_bytes() == sent);
 
     let stats = session.stats();
     assert!(stats.rtt.is_some());

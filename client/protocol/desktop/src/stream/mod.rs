@@ -1642,6 +1642,7 @@ pub struct Streaming {
     window: Window,
     last_counters: (u64, u64, u64, u64, u64, u64, u64),
     last_video_bytes: u64,
+    last_wire_bytes: u64,
     host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
@@ -1835,6 +1836,7 @@ impl Streaming {
             window: Window::default(),
             last_counters: (0, 0, 0, 0, 0, 0, 0),
             last_video_bytes: 0,
+            last_wire_bytes: 0,
             host_average: HostAverage::default(),
             last_early: (0, 0),
             last_video: (0, 0),
@@ -3389,10 +3391,14 @@ impl Streaming {
             lines.push(("Notice".into(), link_notice_line(notice)));
         }
         let video_bytes = c.video_bytes.load(Ordering::Relaxed);
+        let wire_bytes = self.session.wire_bytes();
         let measures = overlay::Measures {
             rendered_fps: (w.shown > 0 || received > 0).then(|| (f64::from(w.shown) / secs) as f32),
             received_fps: (received > 0).then(|| (received as f64 / secs) as f32),
             video_mbps: (received > 0).then(|| overlay::video_mbps(video_bytes.saturating_sub(self.last_video_bytes), secs)).flatten(),
+            wire_mbps: (wire_bytes > self.last_wire_bytes)
+                .then(|| overlay::video_mbps(wire_bytes - self.last_wire_bytes, secs))
+                .flatten(),
             loss_percent: (completed + drops > 0).then_some(loss as f32),
             network_ms: stats.rtt.map(|(rtt, _)| (rtt.as_secs_f64() * 1000.0) as f32),
             variance_ms: stats.rtt.map(|(_, var)| (var.as_secs_f64() * 1000.0) as f32),
@@ -3402,6 +3408,8 @@ impl Streaming {
             render_ms: (w.shown > 0).then(|| (avg(w.render_us as f64, w.shown) / 1000.0) as f32),
         };
         self.last_video_bytes = video_bytes;
+        self.last_wire_bytes = wire_bytes;
+        lines.extend(overlay::wire(&measures));
         let mut statistics = overlay::statistics(&lines[0].1, &measures);
         let now_ms = self.started.elapsed().as_millis() as u64;
         let wanted = self.overlay_visible && self.overlay_mode != OverlayMode::Compact && self.facts.role != AppRole::InputOnly;

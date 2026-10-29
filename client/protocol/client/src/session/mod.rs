@@ -21,7 +21,7 @@ mod video;
 
 use std::io;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -333,6 +333,9 @@ pub(crate) struct Shared {
     start_gate: Mutex<StartGate>,
     /// "Prioritize stream traffic" ([`SessionConfig::network_priority`]).
     network_priority: bool,
+    /// Bytes of every video and audio datagram received, FEC parity included: what the stream
+    /// takes on the wire ([`Session::wire_bytes`]).
+    wire_bytes: AtomicU64,
 }
 
 enum StartGate {
@@ -348,7 +351,13 @@ impl Shared {
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
+            wire_bytes: AtomicU64::new(0),
         }
+    }
+
+    /// Counts a received video or audio datagram toward [`Session::wire_bytes`].
+    pub(crate) fn received(&self, bytes: usize) {
+        self.wire_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
     /// Reports a termination once, on its own thread, unless the session is stopping. While
@@ -610,6 +619,12 @@ impl Session {
     /// or when the size could not be read back.
     pub fn video_receive_buffer(&self) -> Option<ReceiveBuffer> {
         self.parts.video_receive_buffer
+    }
+
+    /// Bytes of video and audio datagrams received so far, FEC parity included: the stream's
+    /// bandwidth on the wire, as Moonlight V+'s `LiGetRTPVideoBytesReceived` with audio added.
+    pub fn wire_bytes(&self) -> u64 {
+        self.parts.shared.wire_bytes.load(Ordering::Relaxed)
     }
 
     /// `LiGetPendingAudioDuration`: the milliseconds of audio queued for the renderer, counted

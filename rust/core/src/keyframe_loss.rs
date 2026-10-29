@@ -147,6 +147,10 @@ pub struct KeyframeLoss {
     /// Frames the host did not finish sending.
     abandoned: [Option<u32>; 8],
     next_abandoned: usize,
+    /// The latest keyframe the host's socket refused, until a newer keyframe
+    /// goes out: a request [`DECODE_QUEUE`] frames later still asks for it,
+    /// after more given-up frames than `abandoned` holds.
+    refused_keyframe: Option<u32>,
     /// Evidence set aside because of the host's own doing, for the log.
     ignored: Option<String>,
     latched: Option<&'static str>,
@@ -251,6 +255,8 @@ impl KeyframeLoss {
                         .is_some_and(|at| now.saturating_duration_since(at) <= STARTUP_SPAN));
             self.keyframes[self.next] = Some(frame);
             self.next = (self.next + 1) % self.keyframes.len();
+            // Whole unless the socket refuses it too ([`KeyframeLoss::abandoned`]).
+            self.refused_keyframe = None;
             self.since_keyframe = 0;
         } else {
             self.since_keyframe = self.since_keyframe.saturating_add(1);
@@ -346,6 +352,9 @@ impl KeyframeLoss {
         // tells the bitrate controller which frames the host already counted.
         self.abandoned[self.next_abandoned] = Some(frame);
         self.next_abandoned = (self.next_abandoned + 1) % self.abandoned.len();
+        if self.keyframes.contains(&Some(frame)) {
+            self.refused_keyframe = Some(frame);
+        }
         if !self.enabled {
             return None;
         }
@@ -593,7 +602,9 @@ impl KeyframeLoss {
         );
         // A keyframe the host's socket refused never reached the client:
         // asking again for it is the host's loss, counted on send.
-        let reported = !keyframe.is_some_and(|frame| self.abandoned.contains(&Some(frame)));
+        let reported = !keyframe.is_some_and(|frame| {
+            self.refused_keyframe == Some(frame) || self.abandoned.contains(&Some(frame))
+        });
         self.latch(
             "the client asked again for the keyframe it was just sent",
             detail,
@@ -1498,6 +1509,39 @@ mod tests {
         let frame = flow(&mut loss, 108, t, t + Duration::from_millis(10_300));
         assert!(!loss.latched(), "{frame}");
         assert!(loss.sustained_at().is_none());
+    }
+
+    #[test]
+    fn a_refused_keyframe_stays_the_host_s_loss_past_the_abandoned_ring() {
+        // A 240 fps stream on a flapping adapter: after refused recovery
+        // keyframe 104, nine more frames are given up, more than the eight
+        // the abandoned ring holds, and the client asks again within
+        // DECODE_QUEUE frames of 104.
+        let t0 = Instant::now();
+        let mut loss = send_latched(t0);
+        let t = t0 + Duration::from_millis(20);
+        assert_eq!(loss.requested(t), None);
+        let sent = t + Duration::from_millis(5);
+        loss.sending_at(104, true, sent);
+        loss.abandoned(104, PERIOD, sent);
+        for frame in 105..=113 {
+            loss.sending_at(frame, false, sent);
+            loss.abandoned(frame, PERIOD, sent);
+        }
+        assert!(!loss.is_abandoned(104));
+        assert_eq!(loss.requested(t + Duration::from_millis(60)), None);
+        assert_eq!(loss.kind(), Some(LatchKind::Send));
+        assert!(loss.sustained_at().is_none());
+        // A newer keyframe that goes out whole is the one asked for again.
+        let mut loss = send_latched(t0);
+        assert_eq!(loss.requested(t), None);
+        loss.sending_at(104, true, sent);
+        loss.abandoned(104, PERIOD, sent);
+        assert_eq!(loss.requested(t + Duration::from_millis(60)), None);
+        loss.sending_at(105, true, t + Duration::from_millis(65));
+        let confirmed = loss.requested(t + Duration::from_millis(110)).unwrap();
+        assert!(confirmed.confirmed);
+        assert!(loss.sustained_at().is_some());
     }
 
     #[test]

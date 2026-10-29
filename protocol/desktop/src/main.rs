@@ -1504,6 +1504,16 @@ impl App {
         if focused {
             streaming.set_capture(self.window, true);
         }
+        let (pyrowave, notices_changed) = match self.hosts.get_mut(streaming.host_id) {
+            Some(host) => stream::pyrowave_notice(&mut host.record, settings.codec.is_pyrowave(),
+                streaming.facts.pyrowave_fallback.as_deref(), streaming.facts.format),
+            None => (None, false),
+        };
+        if notices_changed {
+            self.save_hosts();
+        }
+        let notices: Vec<&str> = pyrowave.as_deref().into_iter().chain(streaming.facts.color_notice.as_deref()).collect();
+        let notices = notices.join("\n");
         let network = &self.launcher.network;
         let profiles = &self.launcher.profiles;
         let selected = profiles.selected(network.kind(&profiles.home_wifi));
@@ -1514,7 +1524,7 @@ impl App {
         } else if profiles.automatic && profiles.home.is_some() && !profiles.home_wifi.is_empty() && network.wifi && network.ssid.is_none() {
             Some(tr("Wi-Fi name unavailable; using the other Wi-Fi profile."))
         } else { None };
-        let toast = start_toast(warning, streaming.facts.color_notice.as_deref());
+        let toast = start_toast(warning, (!notices.is_empty()).then_some(notices.as_str()));
         streaming.show_toast(toast);
         self.streaming = Some((streaming, TimerResolution::begin()));
     }
@@ -2111,8 +2121,8 @@ fn probed_once(cache: &mut Option<(Hardware, (u32, String))>, hardware: Hardware
     }
 }
 
-/// The toast a stream starts with: a network warning and what became of 4:4:4 and 10-bit SDR,
-/// else the controls hint.
+/// The toast a stream starts with: a network warning, the PyroWave fallback and what became of
+/// 4:4:4 and 10-bit SDR, else the controls hint.
 fn start_toast(warning: Option<&str>, color: Option<&str>) -> String {
     let lines: Vec<&str> = warning.into_iter().chain(color).collect();
     if lines.is_empty() { tr("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input").to_owned() } else { lines.join("\n") }

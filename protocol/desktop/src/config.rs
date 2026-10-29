@@ -590,7 +590,12 @@ pub struct HostRecord {
     /// The games whose stream quits them on the PC when the player leaves it, kept as Android's
     /// `AppQuitOnLeave` does: under `uuid:<uuid>` and `id:<id>`.
     pub quit_on_leave: BTreeSet<String>,
+    /// The once-per-PC notices already shown for this PC, by Android's `HostNotices` names.
+    pub notices: BTreeSet<String>,
 }
+
+/// PyroWave was chosen and a stream from this PC ran another codec.
+pub const NOTICE_PYROWAVE_FALLBACK: &str = "PYROWAVE_FALLBACK";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaceCalibration {
@@ -622,6 +627,16 @@ impl HostRecord {
 
     pub fn settings(&self, global: &Settings) -> Settings {
         self.settings.as_ref().map_or_else(|| global.clone(), |own| own.apply(global))
+    }
+
+    /// True the first time `notice` is shown for this PC, and remembered (Android's `HostNotices.claim`).
+    pub fn claim_notice(&mut self, notice: &str) -> bool {
+        self.notices.insert(notice.to_owned())
+    }
+
+    /// The PC has the feature again: if it loses it later, the notice is shown again. True when it was shown.
+    pub fn reset_notice(&mut self, notice: &str) -> bool {
+        self.notices.remove(notice)
     }
 
     pub fn app_settings(&self, uuid: &str, id: i32) -> Option<&Overrides> {

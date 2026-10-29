@@ -204,7 +204,7 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 16] = [
+    const SOURCES: [(&str, &str); 17] = [
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
@@ -220,6 +220,7 @@ pub(crate) mod tests {
         ("radeon.rs", include_str!("radeon.rs")),
         ("gamepad.rs", include_str!("gamepad.rs")),
         ("usb.rs", include_str!("usb.rs")),
+        ("usb_linux.rs", include_str!("usb_linux.rs")),
         ("stream/doctor.rs", include_str!("stream/doctor.rs")),
     ];
 

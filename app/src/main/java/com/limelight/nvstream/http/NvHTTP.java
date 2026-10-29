@@ -1427,7 +1427,8 @@ public class NvHTTP {
                     inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ? "&input_only=1" : "") +
             "&mode=" + context.negotiatedWidth + "x" + context.negotiatedHeight + "x" + launchRate +
             (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() +
-                    (context.streamConfig.getVirtualDisplayDpi() == 0 ? "" :
+                    (context.streamConfig.getVirtualDisplayDpi() == 0 ||
+                            !context.hostCaps.has(HostCapabilities.Feature.DISPLAY_SCALE) ? "" :
                             "&rlDisplayScale=" + context.streamConfig.getVirtualDisplayDpi()) : "") +
             (hostDisplay.wireValue == null ? "" :
                     "&" + HostDisplayChoice.LAUNCH_PARAMETER + "=" + hostDisplay.wireValue) +

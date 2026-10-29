@@ -8,6 +8,7 @@
     <string name="host_feature_virtual_display">Virtual display</string>
     <string name="host_feature_virtual_display_hdr">HDR virtual display</string>
     <string name="host_feature_display_modes">PC display modes</string>
+    <string name="host_feature_display_scale">PC display scaling</string>
     <string name="host_feature_fractional_refresh">Fractional refresh rates</string>
     <string name="host_feature_vrr">Host-side VRR</string>
     <string name="host_feature_runtime_bitrate">Bitrate changes during a stream</string>

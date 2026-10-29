@@ -3651,7 +3651,7 @@ fn remote_report(ui: &mut Ui, report: &crate::host_page::Report) {
 const DISPLAY_SCALES: [u32; 13] = [0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
 
 fn display_scale_name(percent: u32) -> String {
-    if percent == 0 { tr("PC's own").into() } else { format!("{percent}%") }
+    if percent == 0 { tr("PC’s own").into() } else { format!("{percent}%") }
 }
 
 fn host_display_name(mode: HostDisplay) -> &'static str {

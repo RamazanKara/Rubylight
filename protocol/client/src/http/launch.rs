@@ -79,7 +79,8 @@ pub struct LaunchRequest {
     /// virtual display is made this much larger or smaller and scaled to the stream size.
     pub virtual_display_scale: u32,
     /// The Windows scale (text and interface size) of the virtual display, in percent
-    /// (`rlDisplayScale`); 0 keeps the PC's own. Hosts that don't know it ignore it.
+    /// (`rlDisplayScale`); 0 keeps the PC's own. Sent only to hosts with
+    /// [`Feature::DisplayScale`].
     pub virtual_display_dpi: u32,
     pub host_display: HostDisplay,
     pub vrr: bool,
@@ -259,7 +260,7 @@ impl LaunchRequest {
                 "&virtualDisplay=1&scaleFactor={}",
                 self.virtual_display_scale
             ));
-            if self.virtual_display_dpi != 0 {
+            if self.virtual_display_dpi != 0 && caps.has(Feature::DisplayScale) {
                 q.push_str(&format!("&rlDisplayScale={}", self.virtual_display_dpi));
             }
         }
@@ -335,15 +336,24 @@ pub fn parse_launch_reply(text: &str, resume: bool) -> Result<Option<Launched>, 
 
 #[cfg(test)]
 mod tests {
+    use super::super::capabilities::{Availability, Reason};
     use super::super::serverinfo::{tests::RUBYLIGHT, ServerInfo};
     use super::*;
 
     fn rubylight() -> HostCapabilities {
+        rubylight_host(true)
+    }
+
+    /// The Rubylight fixture, with or without `DisplayScaleVersion`.
+    fn rubylight_host(display_scale: bool) -> HostCapabilities {
         // The fixture's virtual display driver is not ready; make it ready.
-        let xml = RUBYLIGHT.replace(
+        let mut xml = RUBYLIGHT.replace(
             "<VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>",
             "<VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>",
         );
+        if display_scale {
+            xml = xml.replace("</root>", "<DisplayScaleVersion>1</DisplayScaleVersion></root>");
+        }
         ServerInfo::parse(&xml, 47989).unwrap().capabilities
     }
 
@@ -405,6 +415,21 @@ mod tests {
         assert!(!query(true, 0).contains("rlDisplayScale"), "0 keeps the PC's own scale");
         assert!(query(true, 200).contains("&scaleFactor=100&rlDisplayScale=200"), "the render resolution stays 100 %");
         assert!(!query(false, 200).contains("rlDisplayScale"), "no virtual display, nothing to scale");
+    }
+
+    #[test]
+    fn hosts_without_display_scale_version_get_no_display_scale() {
+        // Older Rubylight hosts (2.6.x, 3.0.0-rc.4) ignore rlDisplayScale.
+        let request = LaunchRequest { virtual_display: true, virtual_display_dpi: 200, ..request() };
+        let older = rubylight_host(false);
+        assert_eq!(
+            older.availability(Feature::DisplayScale),
+            Availability::Unsupported(Some(Reason::UpdateHost))
+        );
+        let query = request.query(&older, false);
+        assert!(query.contains("&virtualDisplay=1&scaleFactor=100&"), "{query}");
+        assert!(!query.contains("rlDisplayScale"), "{query}");
+        assert!(request.query(&rubylight_host(true), false).contains("&rlDisplayScale=200&"));
     }
 
     #[test]

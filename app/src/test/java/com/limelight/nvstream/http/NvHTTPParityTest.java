@@ -759,6 +759,7 @@ public class NvHTTPParityTest {
         for (boolean virtualDisplay : new boolean[] {false, true}) {
             for (int dpi : new int[] {0, 200}) {
                 ConnectionContext context = context("rubylight-serverinfo.xml");
+                context.hostCaps = TestHosts.rubylightWithDisplayScale();
                 context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
                         .setVirtualDisplay(virtualDisplay, 100).setVirtualDisplayDpi(dpi).build();
                 String query = NvHTTP.getLaunchQuery(context, 42, false);
@@ -770,6 +771,23 @@ public class NvHTTPParityTest {
                 }
             }
         }
+    }
+
+    @Test
+    public void hostsWithoutDisplayScaleVersionGetNoDisplayScale() throws Exception {
+        // Older Rubylight hosts (2.6.x, 3.0.0-rc.4) ignore rlDisplayScale, so a chosen scale would silently do nothing.
+        ConnectionContext context = context("rubylight-serverinfo.xml");
+        assertEquals(HostCapabilities.Availability.unsupported(HostCapabilities.Reason.UPDATE_HOST),
+                context.hostCaps.availability(HostCapabilities.Feature.DISPLAY_SCALE));
+        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                .setVirtualDisplay(true, 100).setVirtualDisplayDpi(200).build();
+        HttpUrl query = query(context, false);
+        assertEquals("1", query.queryParameter("virtualDisplay"));
+        assertNull(query.queryParameter("rlDisplayScale"));
+        ConnectionContext apollo = context("apollo-serverinfo.xml");
+        apollo.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                .setVirtualDisplay(true, 100).setVirtualDisplayDpi(200).build();
+        assertNull(query(apollo, false).queryParameter("rlDisplayScale"));
     }
 
     @Test

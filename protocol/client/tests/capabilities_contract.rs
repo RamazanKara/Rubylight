@@ -69,6 +69,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::VirtualDisplay => "virtual_display",
         Feature::VirtualDisplayHdr => "virtual_display_hdr",
         Feature::HostDisplayModes => "host_display_modes",
+        Feature::DisplayScale => "display_scale",
         Feature::FractionalRefresh => "fractional_refresh",
         Feature::HostVrr => "host_vrr",
         Feature::RuntimeBitrate => "runtime_bitrate",

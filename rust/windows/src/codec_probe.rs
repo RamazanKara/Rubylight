@@ -18,6 +18,8 @@ use std::{
 
 const PIPE_PREFIX: &str = r"\\.\pipe\Butterpollo.CodecProbe.";
 const TIMEOUT: Duration = Duration::from_secs(15);
+/// A probe takes about 0.4 s per mode; an AMF call over 2 s has hung.
+const HANG: Duration = Duration::from_secs(2);
 const FLAGS: u32 = 0x0780_0000;
 const STATUS_DLL_INIT_FAILED: u32 = 0xC000_0142;
 
@@ -71,13 +73,26 @@ fn early_exit(code: u32) -> anyhow::Error {
         anyhow::anyhow!(message)
     }
 }
+/// `requested` is when the worker got its request. A worker still running
+/// [`HANG`] after it when a stream stops it may hold an AMF call that hung,
+/// and the stream opens the encoder at once: that is warned about.
 fn check_worker(
     exit_code: Option<u32>,
     now: Instant,
     deadline: Instant,
     stopped: bool,
+    requested: Option<Instant>,
 ) -> Result<()> {
     if stopped {
+        if let Some(elapsed) = requested
+            .map(|at| now.saturating_duration_since(at))
+            .filter(|elapsed| *elapsed >= HANG)
+        {
+            tracing::warn!(
+                elapsed_ms = elapsed.as_millis() as u64,
+                "optional codec probe still ran when a stream stopped it; the encoder may have hung"
+            );
+        }
         return Err(Interrupted.into());
     }
     if let Some(code) = exit_code {
@@ -134,6 +149,10 @@ pub fn packed(config: &Config, stream: &Negotiated, stop: &dyn Fn() -> bool) -> 
 }
 
 fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) -> Result<u32> {
+    // A stream that started while the caller waited gets the encoder alone.
+    if stop() {
+        return Err(Interrupted.into());
+    }
     // The pipe admits only the signed-in user, so it fails before sign-in.
     let (pipe, name) =
         Pipe::server(PIPE_PREFIX).map_err(|error| SessionNotReady(format!("{error:#}")))?;
@@ -153,13 +172,19 @@ fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) ->
     )
     .map_err(|error| SessionNotReady(format!("start optional codec probe: {error:#}")))?;
     let deadline = Instant::now() + TIMEOUT;
-    let check = || -> Result<()> {
-        check_worker(worker.exit_code()?, Instant::now(), deadline, stop())?;
+    let check = |requested: Option<Instant>| -> Result<()> {
+        check_worker(
+            worker.exit_code()?,
+            Instant::now(),
+            deadline,
+            stop(),
+            requested,
+        )?;
         std::thread::sleep(Duration::from_millis(5));
         Ok(())
     };
     while !pipe.connected(worker.pid)? {
-        check()?;
+        check(None)?;
     }
     pipe.send(&Request {
         output: config.get("output_name", "").into(),
@@ -177,11 +202,12 @@ fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) ->
             BTreeMap::new()
         },
     })?;
+    let requested = Some(Instant::now());
     let reply = loop {
         if let Some(reply) = pipe.receive::<Reply>()? {
             break reply;
         }
-        check()?;
+        check(requested)?;
     };
     pipe.send(&())?;
     ensure!(
@@ -391,14 +417,14 @@ mod tests {
     fn optional_codec_worker_exit_and_stall_end_the_probe_with_an_error() {
         let start = Instant::now();
         let deadline = start + TIMEOUT;
-        assert!(check_worker(None, start, deadline, false).is_ok());
+        assert!(check_worker(None, start, deadline, false, None).is_ok());
         for code in [0, 1, 0xc0000005] {
-            let error = check_worker(Some(code), start, deadline, false).unwrap_err();
+            let error = check_worker(Some(code), start, deadline, false, None).unwrap_err();
             assert!(error.to_string().contains("exited before replying"));
             assert!(!error.is::<SessionNotReady>());
         }
         for now in [deadline, deadline + Duration::from_secs(1)] {
-            let error = check_worker(None, now, deadline, false).unwrap_err();
+            let error = check_worker(None, now, deadline, false, Some(start)).unwrap_err();
             assert_eq!(error.to_string(), "optional codec probe timed out");
             // A stall under load is probed again once the host is idle.
             assert!(error.is::<TimedOut>());
@@ -412,13 +438,62 @@ mod tests {
         let start = Instant::now();
         let deadline = start + TIMEOUT;
         for (exit_code, now) in [(None, start), (Some(1), start), (None, deadline)] {
-            let error = check_worker(exit_code, now, deadline, true).unwrap_err();
+            let error = check_worker(exit_code, now, deadline, true, None).unwrap_err();
             assert!(error.is::<Interrupted>());
             assert_eq!(
                 error.to_string(),
                 "optional codec probe stopped for a stream"
             );
         }
+    }
+    /// A stream that started while the caller waited for the probe's turn
+    /// starts no worker at all.
+    #[test]
+    fn a_probe_stopped_before_it_starts_starts_no_worker() {
+        let error = pyrowave(&Config::default(), &|| true).unwrap_err();
+        assert!(error.is::<Interrupted>());
+    }
+    fn warnings(check: impl FnOnce()) -> String {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("probe.log");
+        let file = std::fs::File::create(&path).unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(move || file.try_clone().unwrap())
+            .finish();
+        tracing::subscriber::with_default(subscriber, check);
+        std::fs::read_to_string(path).unwrap()
+    }
+    /// A worker a stream stops more than 2 s after its request, as when an
+    /// AMF call hangs, is a possible encoder hang: the stream opens the
+    /// encoder at once, so the log must say so.
+    #[test]
+    fn a_probe_stopped_past_its_normal_time_warns_of_an_encoder_hang() {
+        let start = Instant::now();
+        let deadline = start + TIMEOUT;
+        for now in [start, start + Duration::from_millis(1999)] {
+            let log = warnings(|| {
+                let error = check_worker(None, now, deadline, true, Some(start)).unwrap_err();
+                assert!(error.is::<Interrupted>());
+            });
+            assert!(log.is_empty(), "{log}");
+        }
+        let log = warnings(|| {
+            let error = check_worker(None, start + HANG, deadline, true, None).unwrap_err();
+            assert!(error.is::<Interrupted>());
+        });
+        assert!(log.is_empty(), "no request, no encoder call: {log}");
+        let log = warnings(|| {
+            let now = start + Duration::from_millis(2500);
+            let error = check_worker(None, now, deadline, true, Some(start)).unwrap_err();
+            assert!(error.is::<Interrupted>());
+        });
+        assert!(log.contains("WARN"), "{log}");
+        assert!(log.contains("the encoder may have hung"), "{log}");
+        assert!(log.contains("elapsed_ms=2500"), "{log}");
     }
     #[test]
     fn only_a_session_desktop_failure_is_worth_probing_again() {

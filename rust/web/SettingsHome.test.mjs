@@ -136,6 +136,6 @@ test('full chroma applies when saved: no restart tag, text or notice', async () 
   assert.doesNotMatch(`${packed.label} ${packed.description}`, /restart/i);
   // The restart notice follows the host's answer, which is false for a save of only live settings.
   for (const name of ['pages/Settings.svelte', 'pages/SettingsHome.svelte']) {
-    assert.match(await source(name), /saved = result\.restart_required !== false;\n\s*if \(!saved\) notify\('Settings saved\.', 'ok'\);/, name);
+    assert.match(await source(name), /saved = result\.restart_required !== false;\r?\n\s*if \(!saved\) notify\('Settings saved\.', 'ok'\);/, name);
   }
 });

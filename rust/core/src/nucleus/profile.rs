@@ -563,7 +563,7 @@ mod tests {
     fn a_value_in_the_pcs_code_page_its_bom_and_line_ends_are_kept() {
         // Nucleus writes through kernel32's ANSI calls: ü is 0xFC in Latin-1.
         let mut ini = b"\xef\xbb\xbf[Misc]\nSettingsLocation=C:\\M\xfcnchen\n".to_vec();
-        ini.extend_from_slice(&shipped().as_bytes()[..]);
+        ini.extend_from_slice(shipped().as_bytes());
         let settings = settings_ini(&ini);
         assert!(
             settings

@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 
 use nightjar_core::color;
 use nightjar_core::control::{ClientMessage, ControlEvent};
-use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, ServerInfo};
+use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, NativeCapabilities, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
@@ -83,7 +83,10 @@ pub struct LaunchPlan {
     pub record: HostRecord,
     /// What this device calls the PC: the name chosen here, else the PC's own.
     pub host_name: String,
+    /// Serverinfo with the native read merged in (`hosts::merge_native`).
     pub info: ServerInfo,
+    /// The native read, merged into the serverinfo a resume reads again.
+    pub native: Option<NativeCapabilities>,
     pub app: App,
     pub resume: bool,
     /// Input-only on a PC without its own mode: an ordinary small stream, shown and played nowhere.
@@ -953,6 +956,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         plan.info = client.server_info_https().map_err(|e| ConnectError {
             retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"), asks_replace: false,
         })?;
+        crate::hosts::merge_native(&mut plan.info, plan.native.as_ref());
         if !plan.info.paired || !plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref()) {
             return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
         }
@@ -4148,6 +4152,7 @@ mod replace_tests {
             record: Default::default(),
             host_name: "PC".into(),
             info: ServerInfo::parse(xml, 47989).expect("the answer parses"),
+            native: None,
             app: nightjar_core::http::App {
                 name: "Zelda".into(),
                 id: 9,

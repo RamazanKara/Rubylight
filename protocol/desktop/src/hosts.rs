@@ -9,13 +9,12 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::feature;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
-    App, AppControl, Availability, ClientIdentity, Feature, HostClient, PairResult, PowerError, PowerReply, Reason,
-    ServerInfo, DEFAULT_HTTP_PORT,
+    App, AppControl, Availability, ClientIdentity, Feature, HostClient, NativeCapabilities, PairResult, PowerError,
+    PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
 use rubylight_protocol::pairing_uri::{PairingUri, PREFIX};
@@ -62,7 +61,8 @@ pub enum Art {
 /// is away is the one saved on disk, so Home still has something to show.
 #[derive(Default)]
 pub struct Native {
-    pub capabilities: Option<Capabilities>,
+    /// Its features and this device's permissions; `Host::info` carries them merged in.
+    pub capabilities: Option<NativeCapabilities>,
     pub library: Option<Library>,
     /// The library was read from the PC in this run (not loaded from disk).
     pub library_live: bool,
@@ -79,13 +79,22 @@ impl Native {
     /// Whether this device may end games on the PC (the host's `host_control` permission);
     /// unknown counts as no.
     pub fn host_control(&self) -> bool {
-        self.capabilities.as_ref().is_some_and(|c| c.permissions.host_control)
+        self.capabilities.as_ref().is_some_and(|c| c.capabilities.permissions.host_control)
+    }
+}
+
+/// Takes what the native API said into serverinfo's capabilities, so every gate on them
+/// (shared folders, co-op, the image clipboard) sees it. Without a native read nothing changes,
+/// and a PC without the native API offers none of those features either way.
+pub fn merge_native(info: &mut ServerInfo, native: Option<&NativeCapabilities>) {
+    if let Some(native) = native {
+        info.capabilities = info.capabilities.with_native(native);
     }
 }
 
 /// One successful native read.
 pub struct NativeRead {
-    capabilities: Option<Capabilities>,
+    capabilities: Option<NativeCapabilities>,
     library: Option<Library>,
     session: Result<Session, String>,
     /// The PC's wake targets (`wol::targets`) to keep in place of the stored ones: empty for a
@@ -941,14 +950,14 @@ impl Hosts {
             let result = client_for(&identity, &record, &record.address).and_then(|client| {
                 let (capabilities, library) = if full {
                     (
-                        Some(client.native_capabilities().map_err(|e| describe(&e))?),
+                        Some(client.native_capabilities_with_files().map_err(|e| describe(&e))?),
                         Some(client.library().map_err(|e| describe(&e))?),
                     )
                 } else {
                     (None, None)
                 };
                 let wake = capabilities.as_ref().and_then(|c| {
-                    if !c.features.iter().any(|f| f == feature::WAKE) {
+                    if !c.capabilities.features.iter().any(|f| f == feature::WAKE) {
                         return Some((Vec::new(), Vec::new()));
                     }
                     match client.wake() {
@@ -1197,6 +1206,9 @@ impl Hosts {
                                 let read = *read;
                                 host.native.error = None;
                                 if let Some(capabilities) = read.capabilities {
+                                    if let Some(info) = host.info.as_mut() {
+                                        merge_native(info, Some(&capabilities));
+                                    }
                                     host.native.capabilities = Some(capabilities);
                                 }
                                 if let Some((macs, broadcasts)) = read.wake {
@@ -1378,7 +1390,10 @@ impl Hosts {
                     changed = true;
                 }
                 crate::logfile::add_secrets(&host.record);
-                host.info = Some(*info);
+                // Serverinfo alone says nothing of the native features: keep the last native read's.
+                let mut info = *info;
+                merge_native(&mut info, host.native.capabilities.as_ref());
+                host.info = Some(info);
             }
             Err(e) => {
                 host.reach = Reach::Offline;
@@ -1432,8 +1447,79 @@ fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// The native-api capabilities fixture with these features added, and the folder grant.
+    pub(crate) fn native_caps(features: &[&str], shared_folders: bool) -> NativeCapabilities {
+        let mut value: serde_json::Value =
+            serde_json::from_str(include_str!("../../client/tests/fixtures/native-api/capabilities.json")).unwrap();
+        let listed = value["features"].as_array_mut().unwrap();
+        listed.extend(features.iter().map(|f| serde_json::Value::from(*f)));
+        value["permissions"]["shared_folders"] = shared_folders.into();
+        serde_json::from_value(value).unwrap()
+    }
+
+    /// A full native read of `id` with these capabilities lands, as the worker would send it.
+    pub(crate) fn native_lands(hosts: &mut Hosts, id: u64, capabilities: NativeCapabilities) {
+        let epoch = hosts.get(id).unwrap().native_epoch;
+        let read = NativeRead { capabilities: Some(capabilities), library: Some(library()), session: Ok(session("idle")), wake: None };
+        send(hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
+    }
+
+    /// The PC answers serverinfo again, as every poll does.
+    pub(crate) fn info_lands(hosts: &mut Hosts, id: u64, info: ServerInfo) {
+        let seq = hosts.get(id).unwrap().info_seq + 1;
+        let address = hosts.get(id).unwrap().record.address.clone();
+        send(hosts, Event::Info { id, seq, address, result: Ok(Box::new(info)) });
+    }
+
+    /// Serverinfo of a paired PC with the native API and the clipboard permission.
+    pub(crate) fn native_info() -> ServerInfo {
+        let xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid>\
+             <HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame>\
+             <state>SUNSHINE_SERVER_FREE</state><RustHostVersion>3.0.0</RustHostVersion><NativeApiVersion>1</NativeApiVersion>\
+             <Permission>100859904</Permission></root>";
+        ServerInfo::parse(xml, 47989).unwrap()
+    }
+
+    /// The same PC as a stock Moonlight host sees it: no native API.
+    pub(crate) fn stock_info() -> ServerInfo {
+        let xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid>\
+             <HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame>\
+             <state>SUNSHINE_SERVER_FREE</state><Permission>100859904</Permission></root>";
+        ServerInfo::parse(xml, 47989).unwrap()
+    }
+
+    pub(crate) const NATIVE_EXTRAS: &[&str] = &["folders", "coop", "clipboard.image"];
+
+    #[test]
+    fn the_native_read_reaches_every_gate_and_stays_across_polls() {
+        let gated = |info: &ServerInfo| {
+            [Feature::SharedFolders, Feature::Coop, Feature::ImageClipboard].map(|f| info.capabilities.has(f))
+        };
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        info_lands(&mut hosts, id, native_info());
+        assert_eq!(gated(hosts.list[0].info.as_ref().unwrap()), [false; 3], "serverinfo alone offers none of them");
+        native_lands(&mut hosts, id, native_caps(NATIVE_EXTRAS, true));
+        assert_eq!(gated(hosts.list[0].info.as_ref().unwrap()), [true; 3], "the native read is merged in");
+        info_lands(&mut hosts, id, native_info());
+        assert_eq!(gated(hosts.list[0].info.as_ref().unwrap()), [true; 3], "and kept when serverinfo is read again");
+        // A resume reads serverinfo again too, and merges the plan's native read the same way.
+        let mut fresh = native_info();
+        merge_native(&mut fresh, hosts.list[0].native.capabilities.as_ref());
+        assert_eq!(gated(&fresh), [true; 3]);
+        // Without the folder grant the folders stay hidden, the rest stays.
+        native_lands(&mut hosts, id, native_caps(NATIVE_EXTRAS, false));
+        assert_eq!(gated(hosts.list[0].info.as_ref().unwrap()), [false, true, true]);
+        // A PC that no longer offers the native API offers none of them, whatever was read before.
+        info_lands(&mut hosts, id, stock_info());
+        assert_eq!(gated(hosts.list[0].info.as_ref().unwrap()), [false; 3]);
+        let mut fresh = stock_info();
+        merge_native(&mut fresh, Some(&native_caps(NATIVE_EXTRAS, true)));
+        assert_eq!(gated(&fresh), [false; 3], "offered by capability, never by an old read");
+    }
 
     fn paired_record(unique_id: &str) -> HostRecord {
         HostRecord {

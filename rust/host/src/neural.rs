@@ -85,6 +85,26 @@ struct State {
     removal_at: Option<Instant>,
     /// The cached release this host start checked file by file.
     verified: Option<PathBuf>,
+    /// Cached releases an install is about to copy, and how many: a newer
+    /// release fetched meanwhile leaves them to the next fetch to clear.
+    using: BTreeMap<PathBuf, usize>,
+}
+
+/// A cached release kept while an install copies it ([`fetch_using`]).
+struct Using {
+    h: Shared,
+    folder: PathBuf,
+}
+impl Drop for Using {
+    fn drop(&mut self) {
+        let mut state = self.h.neural.lock();
+        if let Some(count) = state.using.get_mut(&self.folder) {
+            *count -= 1;
+            if *count == 0 {
+                state.using.remove(&self.folder);
+            }
+        }
+    }
 }
 
 /// What a switch is doing for one app, or how it ended.
@@ -537,17 +557,52 @@ pub fn cached(root: &Path) -> Option<(PathBuf, Package)> {
 }
 
 /// The newest release with the whole mod, in the cache: downloaded and
-/// checked unless it is there already. `background` gives up when a stream
-/// starts.
-pub async fn fetch(
+/// checked unless it is there already. A download gives up when a stream
+/// starts ([`StreamStarted`]).
+pub async fn fetch(h: &Shared, progress: &(dyn Fn(u64, u64) + Sync)) -> Result<(PathBuf, Package)> {
+    let _one = h.neural.fetching.lock().await;
+    fetch_locked(h, false, progress).await
+}
+
+/// [`fetch`] for an install, the release kept in the cache until the
+/// [`Using`] goes; `cached_only` takes the cached release as it is, without
+/// asking GitHub (a stream is running).
+async fn fetch_using(
     h: &Shared,
-    background: bool,
+    cached_only: bool,
+    progress: &(dyn Fn(u64, u64) + Sync),
+) -> Result<(Using, Package)> {
+    // Older releases go only under this lock: the release is kept before
+    // another fetch may clear it.
+    let _one = h.neural.fetching.lock().await;
+    let (folder, package) = fetch_locked(h, cached_only, progress).await?;
+    *h.neural.lock().using.entry(folder.clone()).or_default() += 1;
+    Ok((
+        Using {
+            h: h.clone(),
+            folder,
+        },
+        package,
+    ))
+}
+
+async fn fetch_locked(
+    h: &Shared,
+    cached_only: bool,
     progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<(PathBuf, Package)> {
-    let _one = h.neural.fetching.lock().await;
     let root = cache_root(h);
     ensure_root(&root)?;
     trusted_root(&root, butterpollo_windows::process::is_system())?;
+    if cached_only {
+        let have = cached(&root).context("no release of the mod is downloaded yet")?;
+        let h = h.clone();
+        return tokio::task::spawn_blocking(move || {
+            verify_cache(&h, &have.0, &have.1)?;
+            Ok(have)
+        })
+        .await?;
+    }
     let (api_origin, files_origin) = origins(h);
     let api = http(h, Duration::from_secs(35))?;
     let list: Value = api
@@ -616,7 +671,7 @@ pub async fn fetch(
         .collect();
     if let Some(sums) = &release.sums {
         let path = root.join(format!("{}.partial", sums.asset));
-        let text = match download(h, sums, &path, background, &|_, _| {}).await {
+        let text = match download(h, sums, &path, &|_, _| {}).await {
             Ok(()) => std::fs::read_to_string(&path)
                 .with_context(|| format!("the release's {} is unreadable", sums.asset)),
             Err(error) => Err(error),
@@ -639,7 +694,7 @@ pub async fn fetch(
     let mut before = 0;
     for (archive, path) in archives.iter().zip(&paths) {
         let progress = |done: u64, _: u64| progress(before + done, total);
-        if let Err(error) = download(h, archive, path, background, &progress).await {
+        if let Err(error) = download(h, archive, path, &progress).await {
             discard();
             return Err(error);
         }
@@ -652,9 +707,11 @@ pub async fn fetch(
             // or older ones go.
             let _writing = h.neural.writing();
             let (folder, package) = extract(&paths, &root, &release)?;
-            // Games have their own copies; older releases in the cache serve nothing.
+            // Games have their own copies; older releases in the cache serve
+            // nothing once no install is about to copy them.
+            let using = h.neural.lock().using.clone();
             for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
-                if entry.path() != folder {
+                if entry.path() != folder && !using.contains_key(&entry.path()) {
                     let _ = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                         std::fs::remove_dir_all(entry.path())
                     } else {
@@ -740,7 +797,6 @@ async fn download(
     h: &Shared,
     release: &Download,
     path: &Path,
-    background: bool,
     progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<()> {
     // `releases` offers nothing else; this keeps it so.
@@ -764,8 +820,8 @@ async fn download(
     let mut hash = Sha256::new();
     let mut size = 0;
     while let Some(chunk) = response.chunk().await? {
-        if background && crate::updater::streaming(h) {
-            bail!("a stream started; the download waits for the next check");
+        if crate::updater::streaming(h) {
+            return Err(StreamStarted.into());
         }
         size += chunk.len() as u64;
         ensure!(
@@ -1062,6 +1118,17 @@ impl std::fmt::Display for Busy {
 }
 impl std::error::Error for Busy {}
 
+/// A download given up as a stream started: it would take the stream's
+/// bandwidth.
+#[derive(Debug)]
+pub struct StreamStarted;
+impl std::fmt::Display for StreamStarted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a stream started, so the download stopped; turn Neural Rendering on again once the stream ends")
+    }
+}
+impl std::error::Error for StreamStarted {}
+
 fn running(state: &State, uuid: &str) -> bool {
     state
         .jobs
@@ -1114,7 +1181,9 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     }
     capability(h).map_err(Refusal::Unavailable)?;
     let app = app(h, uuid).ok_or(Refusal::NotFound)?;
-    if crate::updater::streaming(h) {
+    // During a stream only a release already downloaded is used.
+    let streaming = crate::updater::streaming(h);
+    if streaming && cached(&cache_root(h)).is_none() {
         return Err(Refusal::Streaming);
     }
     start_job(h, uuid, "install", "download")?;
@@ -1126,12 +1195,17 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
                 job.total = total;
             })
         };
-        let (package, _) = match fetch(&h, false, &progress).await {
+        let (using, _) = match fetch_using(&h, streaming, &progress).await {
             Ok(cached) => cached,
             Err(error) => {
                 // The details name the mod's files; the console says what happened.
                 tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the download failed");
-                return fail_job(&h, &uuid, DOWNLOAD_FAILED.into(), false);
+                let shown = if error.is::<StreamStarted>() {
+                    StreamStarted.to_string()
+                } else {
+                    DOWNLOAD_FAILED.into()
+                };
+                return fail_job(&h, &uuid, shown, false);
             }
         };
         update_job(&h, &uuid, |job| {
@@ -1140,22 +1214,27 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
         let request = Request::Install {
             exe: exe.or_else(|| game_command(&app)),
             install: install(&app),
-            package,
+            package: using.folder.clone(),
         };
         let worker = h.clone();
         let task_uuid = uuid.clone();
-        let response = tokio::task::spawn_blocking(move || {
-            let _reading = worker.neural.reading();
-            run_folder(request, &|done, total| {
-                update_job(&worker, &task_uuid, |job| {
-                    (job.done, job.total) = (done, total)
+        let finished = tokio::task::spawn_blocking(move || {
+            let response = {
+                let _reading = worker.neural.reading();
+                let _using = using;
+                run_folder(request, &|done, total| {
+                    update_job(&worker, &task_uuid, |job| {
+                        (job.done, job.total) = (done, total)
+                    })
                 })
-            })
+            };
+            // Saving the app and any taking back block too.
+            finish_install(&worker, &task_uuid, &app, response);
         })
-        .await
-        .map_err(anyhow::Error::from)
-        .and_then(|result| result);
-        finish_install(&h, &uuid, &app, response);
+        .await;
+        if let Err(error) = finished {
+            fail_job(&h, &uuid, format!("the install stopped: {error}"), false);
+        }
     });
     Ok(())
 }
@@ -1578,7 +1657,7 @@ pub fn check(h: &Shared) {
     h.neural.lock().checking = true;
     let h = h.clone();
     tokio::spawn(async move {
-        let result = fetch(&h, true, &|_, _| {}).await;
+        let result = fetch(&h, &|_, _| {}).await;
         let saved = update_settings(&h, |value| {
             value["checked_at"] = json!(now());
             value["check_failures"] = match &result {

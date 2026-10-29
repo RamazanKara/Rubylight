@@ -1725,7 +1725,14 @@ async fn a_download_goes_list_checksums_archives_cache() {
     )
     .await;
     *h.neural.origin.lock().unwrap() = Some(server.base.clone());
+    let stale = release(&cache_root(h), "Alpha0.3.5.6", b"OptiScaler proxy");
     let older = release(&cache_root(h), "Alpha0.3.5.7", b"OptiScaler proxy");
+    // An install about to copy the older release, taken as cached (a
+    // stream runs): GitHub isn't asked, and the release outlasts the newer
+    // one's download.
+    let (using, _) = fetch_using(h, true, &|_, _| {}).await.unwrap();
+    assert_eq!(using.folder, older);
+    assert!(server.log.lock().unwrap().is_empty());
 
     // A copy from the older release holds the cache: it stays until then.
     let (held, done) = (mpsc::channel(), mpsc::channel::<()>());
@@ -1740,7 +1747,7 @@ async fn a_download_goes_list_checksums_archives_cache() {
     held.1.recv().unwrap();
     let fetching = {
         let h = h.clone();
-        tokio::spawn(async move { fetch(&h, false, &|_, _| {}).await })
+        tokio::spawn(async move { fetch(&h, &|_, _| {}).await })
     };
     let deadline = Instant::now() + Duration::from_secs(20);
     while server.log.lock().unwrap().len() < 6 && Instant::now() < deadline {
@@ -1764,7 +1771,10 @@ async fn a_download_goes_list_checksums_archives_cache() {
         ]
     );
     assert_eq!(folder, cache_root(h).join(tag));
-    assert!(!older.exists());
+    assert!(!stale.exists());
+    assert!(older.exists(), "an install was about to copy it");
+    drop(using);
+    assert!(h.neural.lock().using.is_empty());
     assert_eq!(package.digest, sha(&files["AMDNR-v0.3.5.8R2.zip"]));
     assert_eq!(
         package.runtime_digest,
@@ -1776,9 +1786,16 @@ async fn a_download_goes_list_checksums_archives_cache() {
     );
     // The same release again: from the cache, after the list alone.
     server.log.lock().unwrap().clear();
-    assert_eq!(fetch(h, false, &|_, _| {}).await.unwrap().1, package);
+    assert_eq!(fetch(h, &|_, _| {}).await.unwrap().1, package);
     assert_eq!(*server.log.lock().unwrap(), ["list"]);
     std::fs::remove_dir_all(cache_root(h)).unwrap();
+
+    // A stream starts while the switch's own download runs: it stops.
+    f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
+    let error = fetch(h, &|_, _| {}).await.unwrap_err();
+    assert!(error.is::<StreamStarted>(), "{error:#}");
+    assert!(cached(&cache_root(h)).is_none());
+    h.sessions.lock().unwrap().active.clear();
 
     // The checksum list doesn't name the package's digest: no archive comes.
     let mut lying = files.clone();
@@ -1809,7 +1826,7 @@ async fn a_download_goes_list_checksums_archives_cache() {
         let list = release_list(&base, tag, &listed);
         let server = serve(listener, list, Arc::new(served)).await;
         *h.neural.origin.lock().unwrap() = Some(server.base.clone());
-        let error = format!("{:#}", fetch(h, false, &|_, _| {}).await.unwrap_err());
+        let error = format!("{:#}", fetch(h, &|_, _| {}).await.unwrap_err());
         assert!(error.contains(problem), "{error}");
         assert!(cached(&cache_root(h)).is_none());
         let log = server.log.lock().unwrap().clone();
@@ -1844,6 +1861,22 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
     assert!(matches!(enable(h, "game", None), Err(Refusal::Streaming)));
     assert!(!h.neural.lock().jobs.contains_key("game"));
+    // With a release downloaded the switch goes on during the stream, from
+    // the cache alone: GitHub (a dead address here) isn't asked.
+    let cache = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
+    *h.neural.origin.lock().unwrap() = Some("http://127.0.0.1:9".into());
+    enable(h, "game", None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let job = loop {
+        let job = h.neural.lock().jobs["game"].clone();
+        if job.phase == "failed" || job.phase == "done" || Instant::now() > deadline {
+            break job;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    // The app names no program or install: the user chooses the game's.
+    assert!(job.choose_exe, "{job:?}");
+    std::fs::remove_dir_all(cache.parent().unwrap()).unwrap();
     h.sessions.lock().unwrap().active.clear();
 
     let mut files = r2_files();
@@ -1897,7 +1930,7 @@ async fn real_release_into_a_fake_game() {
     };
     show("before install");
     let started = Instant::now();
-    let (folder, package) = fetch(h, false, &|_, _| {}).await.unwrap();
+    let (folder, package) = fetch(h, &|_, _| {}).await.unwrap();
     println!(
         "cached {} from {} and {:?} ({} files) in {:?} at {}",
         package.tag,

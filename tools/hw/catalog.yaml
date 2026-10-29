@@ -59,7 +59,8 @@ cases:
     device: desktop
     title: rust/release/check.ps1 on the published release (download, streams, protocol, SYSTEM self-test, install)
     command: 'pwsh -NoProfile -File rust\release\check.ps1 v{{release}} -NoUpload; exit $LASTEXITCODE'
-    preconditions: [idle, isolated-ports, system, gpu-lock]
+    # check.ps1 takes GPU-LOCK per stream itself (and BUILD-LOCK for its builds).
+    preconditions: [idle, isolated-ports, system]
     pass: exit 0 and VALIDATION.json all passed; installs over the running host, so only with the host idle
     output: C:\src\butterpollo-release\{{release}}\VALIDATION.json and e2e-*\result.json
     collect:

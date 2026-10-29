@@ -43,9 +43,13 @@ param(
     # A smoke.ps1 result from the laptop to include; smoke.ps1 normally
     # uploads its own REAL-CLIENT.json after this check installed the release.
     [string] $RealClient,
-    # The shared build lock of parallel sessions on this machine. Without it
-    # the streams still wait for a quiet CPU.
-    [string] $BuildLockScript = 'C:\src\butterpollo-release\build-lock.ps1',
+    # The shared BUILD-LOCK and GPU-LOCK of parallel sessions on this machine
+    # (check_streams.ps1); without build-lock.ps1 there the streams only wait
+    # for a quiet CPU. Take no lock around this script: it takes them itself.
+    [string] $LockDirectory = 'C:\src\butterpollo-release',
+    # The caller holds GPU-LOCK for this check under its own name. A holder
+    # among this process's parents (tools/hw/run.py) is found without it.
+    [switch] $GpuLockHeld,
     [switch] $NoInstall,
     [switch] $NoUpload
 )
@@ -95,30 +99,19 @@ foreach ($line in Get-Content "$out\SHA256SUMS") {
 }
 Expand-Archive $zip -DestinationPath $out
 
-# Other sessions' builds starved the fixtures: rc.4's check failed twice at
-# 25-100 % CPU and passed on a quiet one. The fixture builds and each stream
-# hold the build lock, released in between so the others' builds still get
-# their turn, and a stream starts only on a quiet CPU (machine_load.py).
-$locked = Test-Path -LiteralPath $BuildLockScript
-if ($locked) { . $BuildLockScript } else { Write-Warning "No build lock at $BuildLockScript; the streams only wait for a quiet CPU." }
-function Exclusive([scriptblock] $Body) {
-    if ($locked) {
-        $holder = Get-Content -LiteralPath $script:BuildLock -ErrorAction SilentlyContinue
-        if ($holder) { Write-Host "waiting for the build lock: $holder" }
-        Enter-BuildLock 'check'
-    }
-    try { . $Body } finally { if ($locked) { Exit-BuildLock } }
-}
-function Wait-Quiet { & $python "$tools\machine_load.py" }
+. "$PSScriptRoot\check_streams.ps1"
+Initialize-CheckLocks $LockDirectory -GpuLockHeld:$GpuLockHeld
 
 Step 'test receivers and probes'
 git -C $checkout submodule update --init --recursive --depth 1 third-party/moonlight-common-c
-Exclusive {
+# Builds hold BUILD-LOCK only; GPU-LOCK is for the streams.
+$held = Enter-CheckBuildLock
+try {
     & "$checkout\rust\tests\build-moonlight-client.ps1" -ArtifactDirectory $fixtures *> "$qa\receiver-build.log"
     & "$checkout\rust\tests\build-pyrowave-client.ps1" -ArtifactDirectory $fixtures -PyrowaveRoot $env:BUTTERPOLLO_PYROWAVE_ROOT *> "$qa\pyrowave-receiver-build.log"
     cargo build --release --locked --manifest-path "$checkout\Cargo.toml" --target-dir "$checkout\target\ship" -p butterpollo-windows `
         --example audio_probe --example motion_probe --example udp_shaper *> "$qa\probe-build.log"
-}
+} finally { Exit-CheckLocks $held }
 # udp_shaper is for bottleneck.py, the slow-link check, which this check does not run.
 Copy-Item "$checkout\target\ship\release\examples\audio_probe.exe", "$checkout\target\ship\release\examples\motion_probe.exe",
     "$checkout\target\ship\release\examples\udp_shaper.exe" $fixtures
@@ -148,37 +141,7 @@ foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'hevc-120'
                     '--codec', $codec, '--mode', '1920x1080x60', '--seconds', '12', '--bitrate', '400000')
     }
     Step "stream $case"
-    Exclusive {
-        Wait-Quiet
-        try {
-            & $python "$tools\e2e.py" @stream
-        } catch {
-            $resultPath = Join-Path $run "e2e-$case\result.json"
-            # e2e.py stopped at an AMD video engine hang (gpu_hang.py). Windows is
-            # resetting the GPU; a retry would stream on it and hang or fail again.
-            if ($LASTEXITCODE -eq 3) {
-                $hang = (Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json).gpu_hang
-                throw "stream $case stopped at an AMD video engine hang: $hang. Not retried: reboot if Device Manager shows the Radeon with Code 31, then run the check again."
-            }
-            # Shared-machine load can starve the tone or motion fixture too. Keep
-            # the evidence: a passing retry does not explain the first failure.
-            if (Test-Path -LiteralPath $resultPath) {
-                $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
-                $load = $result.machine_load
-                Write-Warning ("stream $case failed: " + ($result.failures -join '; ') + $(if ($load) {
-                    " (beside $($load.cpu_percent) % CPU" + $(if ($load.busy_tools) { ', ' + ($load.busy_tools -join ', ') }) + ')'
-                }))
-            }
-            Write-Warning "stream $case failed; preserving its logs and retrying once. Check shared CPU/GPU load and tone.log; a second failure stops the check."
-            $failed = Join-Path $run "e2e-$case-failed"
-            if (([IO.Path]::GetFullPath($failed) | Split-Path -Parent) -ne [IO.Path]::GetFullPath($run)) { throw 'Test output left the work directory' }
-            Remove-Item -LiteralPath $failed -Recurse -Force -ErrorAction SilentlyContinue
-            # A run refused before it started (a busy installed host) left no logs.
-            if (Test-Path -LiteralPath "$run\e2e-$case") { Move-Item -LiteralPath "$run\e2e-$case" -Destination $failed }
-            Wait-Quiet
-            & $python "$tools\e2e.py" @stream
-        }
-    }
+    Invoke-StreamCase $case $stream $run
 }
 Step 'protocol checks'
 & $python "$tools\protocol.py" --package $package --work $run

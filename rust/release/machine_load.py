@@ -12,9 +12,10 @@ Quiet: the whole machine under THRESHOLD percent CPU over a WINDOW, and no
 build tool (BUSY_TOOLS) using CPU in it. An idle Gradle or Kotlin daemon
 (java) stays for hours and does not count; a new or working one does.
 
-usage: machine_load.py [--threshold 30] [--window 5] [--timeout 900]
-Prints the measurement as JSON; waits at most --timeout seconds, then warns
-and goes on, the load recorded, rather than leaving the release unchecked.
+usage: machine_load.py [--threshold 30] [--window 5] [--timeout 900] [--out FILE]
+Prints the verdict as JSON (and writes it to FILE); waits at most --timeout
+seconds, then warns and goes on, the load recorded, rather than leaving the
+release unchecked. check.ps1 spends one such budget over all its streams.
 """
 import argparse
 import ctypes
@@ -40,13 +41,15 @@ def cpu_percent(before, after):
 
 def active_tools(before, after, seconds):
     """Names of build tools that used CPU between two tool_processes() readings.
-    One that started in between, or whose times cannot be read, counts too."""
+    One that started in between counts too. One whose times cannot be read
+    (another user's, or gone) counts only in the window it first appears:
+    a protected idle process must not hold up every stream."""
     active = set()
     for pid, (name, used) in after.items():
         previous = before.get(pid)
-        if previous is None or previous[0] != name or used is None or previous[1] is None:
+        if previous is None or previous[0] != name:
             active.add(name)
-        elif used - previous[1] > TOOL_ACTIVE_CORES * seconds * 1e7:
+        elif used is not None and previous[1] is not None and used - previous[1] > TOOL_ACTIVE_CORES * seconds * 1e7:
             active.add(name)
     return sorted(active)
 
@@ -155,5 +158,10 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', type=float, default=THRESHOLD, help='percent of the whole CPU')
     parser.add_argument('--window', type=float, default=WINDOW, help='seconds each measurement spans')
     parser.add_argument('--timeout', type=float, default=TIMEOUT, help='seconds to wait before going on under load')
+    parser.add_argument('--out', help='also write the verdict here, for e2e.py --quiet-wait')
     args = parser.parse_args()
-    print(json.dumps(wait_quiet(args.threshold, args.window, args.timeout)))
+    verdict = json.dumps(wait_quiet(args.threshold, args.window, args.timeout))
+    if args.out:
+        with open(args.out, 'w', encoding='utf-8') as out:
+            out.write(verdict)
+    print(verdict)

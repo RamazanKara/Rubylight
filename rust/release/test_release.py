@@ -814,14 +814,17 @@ class MachineLoad(unittest.TestCase):
 
     def test_only_working_or_new_build_tools_count(self):
         second = 10_000_000  # 100 ns units
-        before = {1: ('java', 50 * second), 2: ('rustc', 0), 3: ('cargo', None), 9: ('ninja', 0)}
+        before = {1: ('java', 50 * second), 2: ('rustc', 0), 3: ('cargo', None), 5: ('java', None), 9: ('ninja', 0)}
         after = {1: ('java', 50 * second + 1000),   # an idle Gradle daemon: stays for hours
                  2: ('rustc', 2 * second),          # compiling
-                 3: ('cargo', 5),                   # times unreadable before
+                 3: ('cargo', 5),                   # unreadable when first seen: idle from then on
                  4: ('gradle', 0),                  # started in the window
+                 5: ('java', None),                 # another user's, never readable
+                 6: ('ninja', None),                # new and unreadable: counts this once
                  9: ('java', 0)}                    # the pid was reused
-        self.assertEqual(self.load.active_tools(before, after, 5), ['cargo', 'gradle', 'java', 'rustc'])
-        self.assertEqual(self.load.active_tools(before, {1: after[1]}, 5), [])
+        self.assertEqual(self.load.active_tools(before, after, 5), ['gradle', 'java', 'ninja', 'rustc'])
+        self.assertEqual(self.load.active_tools(before, {1: after[1], 5: after[5]}, 5), [])
+        self.assertEqual(self.load.active_tools(after, {6: after[6]}, 5), [])
 
     def wait(self, loads, timeout=60):
         loads, said, now = iter(loads), [], [0.0]
@@ -851,19 +854,203 @@ class MachineLoad(unittest.TestCase):
         self.assertTrue(0 <= load['cpu_percent'] <= 100, load)
         self.assertIsInstance(load['busy_tools'], list)
 
-    def test_the_release_scripts_wait_and_take_the_build_lock_only_if_present(self):
-        check = (ROOT / 'rust/release/check.ps1').read_text()
-        soak = (ROOT / 'rust/release/soak.ps1').read_text()
-        self.assertIn('function Wait-Quiet { & $python "$tools\\machine_load.py" }', check)
-        stream = check.index('Step "stream $case"')
-        first, retry = (check.index('& $python "$tools\\e2e.py" @stream', stream),
-                        check.rindex('& $python "$tools\\e2e.py" @stream'))
-        self.assertIn('Exclusive {\n        Wait-Quiet\n', check[stream:first])
-        self.assertIn('Wait-Quiet', check[check.index('} catch {', first):retry])
-        self.assertIn('$locked = Test-Path -LiteralPath $BuildLockScript', check)
-        self.assertIn('if ($locked) { Exit-BuildLock }', check)
-        self.assertLess(soak.index('machine_load.py'), soak.index('soak.py'))
+    def test_the_verdict_is_written_for_e2e(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = pathlib.Path(temp) / 'quiet.json'
+            run = subprocess.run([sys.executable, str(ROOT / 'rust/release/machine_load.py'), '--threshold', '101',
+                                  '--window', '0.1', '--timeout', '0', '--out', str(out)],
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            verdict = json.loads(out.read_text())
+            self.assertEqual(json.loads(run.stdout), verdict)
+            self.assertEqual(verdict['threshold_percent'], 101)
+            self.assertIn('waited_seconds', verdict)
 
+
+FAKE_QUIET = """import json, os, sys
+args = sys.argv[1:]
+timeout = float(args[args.index('--timeout') + 1])
+with open(os.environ['FAKE_LOG'], 'a') as log:
+    log.write(f'{timeout:g}\\n')
+if os.environ.get('FAKE_QUIET_FAIL'):
+    sys.exit(2)
+waited = min(timeout, float(os.environ.get('FAKE_WAITED', '1')))
+with open(args[args.index('--out') + 1], 'w') as out:
+    json.dump(dict(quiet=waited < timeout, waited_seconds=waited, cpu_percent=5.0, busy_tools=[]), out)
+"""
+# Records the locks it streamed under, and steals BUILD-LOCK when asked, as
+# a session breaking it as stale would.
+FAKE_E2E = """import json, os, pathlib, sys
+args = sys.argv[1:]
+work = pathlib.Path(args[args.index('--work') + 1])
+quiet = json.loads(pathlib.Path(args[args.index('--quiet-wait') + 1]).read_text())
+locks = pathlib.Path(os.environ['FAKE_LOCKS'])
+runs = work / 'runs.jsonl'
+done = len(runs.read_text().splitlines()) if runs.exists() else 0
+codes = os.environ['FAKE_CODES'].split(',')
+code = int(codes[min(done, len(codes) - 1)])
+held = {name: (locks / name).read_text() if (locks / name).exists() else None for name in ('GPU-LOCK', 'BUILD-LOCK')}
+with open(runs, 'a') as out:
+    out.write(json.dumps(held) + '\\n')
+if os.environ.get('FAKE_STEAL'):
+    (locks / 'BUILD-LOCK').write_text('thief 2026-10-29 pid=1')
+case = work / 'e2e-hevc'
+case.mkdir(exist_ok=True)
+result = dict(passed=code == 0, failures=[] if code == 0 else ['frame delivery has excessive gaps'], quiet_wait=quiet)
+if code == 3:
+    result['gpu_hang'] = 'slow encoder call call="AMF QueryOutput" elapsed_ms=3000'
+(case / 'result.json').write_text(json.dumps(result))
+sys.exit(code)
+"""
+DRIVER = """param([string]$Locks, [string]$Run, [switch]$GpuLockHeld)
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
+$python = $env:FAKE_PYTHON
+$tools = $env:FAKE_TOOLS
+. $env:CHECK_STREAMS
+Initialize-CheckLocks $Locks -GpuLockHeld:$GpuLockHeld
+$CheckLockPause = 0; $CheckLockBackoff = 0.2; $CheckLockPoll = 0.1
+Invoke-StreamCase 'hevc' @('--work', $Run) $Run
+'DONE'
+"""
+
+
+@unittest.skipUnless(shutil.which('pwsh'), 'PowerShell 7')
+class CheckStreams(unittest.TestCase):
+    """check.ps1's per-stream locks, quiet-CPU budget, retry and hang exit (check_streams.ps1)."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = pathlib.Path(temp.name)
+        self.locks, self.tools, self.run = (self.root / name for name in ('locks', 'tools', 'run'))
+        for folder in (self.locks, self.tools, self.run):
+            folder.mkdir()
+        (self.locks / 'build-lock.ps1').write_text('# marker: this machine shares locks\n')
+        (self.tools / 'machine_load.py').write_text(FAKE_QUIET)
+        (self.tools / 'e2e.py').write_text(FAKE_E2E)
+        (self.root / 'driver.ps1').write_text(DRIVER)
+
+    def stream(self, codes, *switches, **env):
+        environment = dict(os.environ, FAKE_PYTHON=sys.executable, FAKE_TOOLS=str(self.tools),
+                           FAKE_LOCKS=str(self.locks), FAKE_LOG=str(self.root / 'quiet.log'), FAKE_CODES=codes,
+                           CHECK_STREAMS=str(ROOT / 'rust/release/check_streams.ps1'), **env)
+        run = subprocess.run(['pwsh', '-NoProfile', '-File', str(self.root / 'driver.ps1'), '-Locks', str(self.locks),
+                              '-Run', str(self.run), *switches], capture_output=True, text=True, env=environment, timeout=120)
+        runs = self.run / 'runs.jsonl'
+        held = [json.loads(line) for line in runs.read_text().splitlines()] if runs.exists() else []
+        timeouts = (self.root / 'quiet.log').read_text().split() if (self.root / 'quiet.log').exists() else []
+        return run, held, timeouts
+
+    def assertReleased(self):
+        self.assertEqual(sorted(p.name for p in self.locks.iterdir()), ['build-lock.ps1'])
+
+    def test_a_stream_holds_both_locks_after_a_quiet_wait_and_releases_them(self):
+        run, held, timeouts = self.stream('0')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('DONE', run.stdout)
+        self.assertEqual(len(held), 1)
+        self.assertTrue(held[0]['GPU-LOCK'].startswith('release check.ps1 '), held)
+        self.assertTrue(held[0]['BUILD-LOCK'].startswith('check '), held)
+        self.assertEqual(timeouts, ['900'])
+        self.assertEqual(json.loads((self.run / 'e2e-hevc/result.json').read_text())['quiet_wait']['waited_seconds'], 1)
+        self.assertReleased()
+
+    def test_one_quiet_budget_spans_the_retry(self):
+        run, held, timeouts = self.stream('1,0', FAKE_WAITED='600')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(len(held), 2)
+        self.assertEqual(timeouts, ['900', '300'])
+        self.assertTrue((self.run / 'e2e-hevc-failed/result.json').exists())
+        self.assertReleased()
+
+    def test_a_second_failure_stops_the_check(self):
+        run, held, _ = self.stream('1,1')
+        self.assertEqual((run.returncode, len(held)), (1, 2), run.stdout + run.stderr)
+        self.assertReleased()
+
+    def test_an_encoder_hang_exits_3_without_a_retry(self):
+        # tools/hw/run.py stops its batch only on exit code 3.
+        for codes, streams in (('3', 1), ('1,3', 2)):
+            with self.subTest(codes=codes):
+                for leftover in self.run.iterdir():
+                    shutil.rmtree(leftover) if leftover.is_dir() else leftover.unlink()
+                run, held, _ = self.stream(codes)
+                self.assertEqual((run.returncode, len(held)), (3, streams), run.stdout + run.stderr)
+                self.assertIn('AMD video engine hang: slow encoder call', run.stdout)
+                self.assertReleased()
+
+    def test_a_lock_held_by_a_parent_or_the_caller_is_used_not_waited_for(self):
+        batch = f'tools/hw/run.py --batch desktop pid {os.getpid()} since 2026-10-29 02:00'
+        (self.locks / 'GPU-LOCK').write_text(batch)
+        run, held, _ = self.stream('0')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(held[0]['GPU-LOCK'], batch)
+        self.assertEqual((self.locks / 'GPU-LOCK').read_text(), batch)
+        (self.locks / 'GPU-LOCK').write_text('rc4 pass pc d8 4242 2026-10-29T02:00:00+01:00')
+        run, held, _ = self.stream('0', '-GpuLockHeld')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue(held[1]['GPU-LOCK'].startswith('rc4 pass pc'))
+        self.assertTrue(held[1]['BUILD-LOCK'].startswith('check '))
+
+    def test_a_busy_build_lock_gives_the_gpu_back_and_tries_again(self):
+        import threading, time
+        (self.locks / 'BUILD-LOCK').write_text('pacing2 narrow 2026-10-29T02:00:00 pid=4242')
+        gpu_while_waiting = []
+        def builder():
+            for _ in range(20):
+                time.sleep(.1)
+                gpu_while_waiting.append((self.locks / 'GPU-LOCK').exists())
+            (self.locks / 'BUILD-LOCK').unlink()
+        thread = threading.Thread(target=builder)
+        thread.start()
+        run, held, _ = self.stream('0')
+        thread.join()
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('waiting for the build lock', run.stdout)
+        self.assertTrue(held[0]['GPU-LOCK'] and held[0]['BUILD-LOCK'].startswith('check '), held)
+        # Held only for the instant of each try while the build runs.
+        self.assertGreater(gpu_while_waiting.count(False), 15, gpu_while_waiting)
+        self.assertReleased()
+
+    def test_a_lock_taken_over_by_another_session_is_left_alone(self):
+        run, _, _ = self.stream('0', FAKE_STEAL='1')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual((self.locks / 'BUILD-LOCK').read_text(), 'thief 2026-10-29 pid=1')
+        self.assertFalse((self.locks / 'GPU-LOCK').exists())
+
+    def test_without_the_shared_locks_only_the_cpu_is_waited_for(self):
+        (self.locks / 'build-lock.ps1').unlink()
+        run, held, timeouts = self.stream('0')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(held, [{'GPU-LOCK': None, 'BUILD-LOCK': None}])
+        self.assertEqual(timeouts, ['900'])
+
+    def test_a_failed_quiet_wait_stops_the_stream(self):
+        run, held, _ = self.stream('0', FAKE_QUIET_FAIL='1')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(held, [])
+        self.assertReleased()
+
+    def test_check_ps1_runs_every_stream_through_it(self):
+        check = (ROOT / 'rust/release/check.ps1').read_text()
+        self.assertIn('Invoke-StreamCase $case $stream $run', check)
+        self.assertNotIn('$tools\\e2e.py', check)
+        builds = check[check.index('$held = Enter-CheckBuildLock'):check.index('Exit-CheckLocks $held')]
+        self.assertIn('cargo build', builds)
+
+    @unittest.skipUnless(os.name == 'nt', 'a .cmd stand-in for Python')
+    def test_soak_stops_when_the_quiet_wait_fails(self):
+        log = self.root / 'python.log'
+        fake = self.root / 'python.cmd'
+        fake.write_text(f'@echo %* >> "{log}"\r\n@exit /b 2\r\n')
+        run = subprocess.run(['pwsh', '-NoProfile', '-File', str(ROOT / 'rust/release/soak.ps1'), '-Package', 'p',
+                              '-Client', 'c', '-GpuLoad', 'g'], capture_output=True, text=True, timeout=60,
+                             env=dict(os.environ, BUTTERPOLLO_TEST_PYTHON=str(fake)))
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        calls = log.read_text().splitlines()
+        self.assertEqual(len(calls), 1)
+        self.assertIn('machine_load.py', calls[0])
 
 if __name__ == '__main__':
     unittest.main()

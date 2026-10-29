@@ -72,7 +72,10 @@ parser.add_argument('--port', type=int, default=48523, help="the host's HTTP por
 parser.add_argument('--skip-first', type=float, default=0, metavar='SECONDS', help='warm-up left out of the --record timing table')
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
+parser.add_argument('--quiet-wait', type=pathlib.Path, metavar='JSON',
+                    help="machine_load.py's verdict before this stream (check.ps1), recorded as quiet_wait")
 args = parser.parse_args()
+quiet_wait = json.loads(args.quiet_wait.read_text()) if args.quiet_wait else None
 RECOVERY_INTERVAL_MS = 500
 MOTION_SCRIPT_EXTRA = 30  # seconds the strip runs beyond the stream when a script is set
 at_rate = bool(args.recovery) or args.motion_at_rate
@@ -189,7 +192,7 @@ finally:
 # A watchdog report can land after the receiver gave up on a frozen stream.
 hang = hang or guard.check()
 if hang:
-    result = hang_result(name, args.codec, args.mode, args.vrr, hang)
+    result = dict(hang_result(name, args.codec, args.mode, args.vrr, hang), machine_load=stream_load, quiet_wait=quiet_wait)
     (case / 'result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
     sys.exit(EXIT_GPU_HANG)
@@ -205,7 +208,7 @@ result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.rec
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),
                   claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
-result = dict(case=name, **result, machine_load=stream_load)
+result = dict(case=name, **result, machine_load=stream_load, quiet_wait=quiet_wait)
 if args.launch_fps:
     result['launch_fps'] = args.launch_fps
 if args.record:

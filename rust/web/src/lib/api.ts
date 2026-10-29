@@ -650,6 +650,34 @@ export interface CoopGame {
   /** The co-op entry's name in the library: `<name> (Co-op)`. */
   entry: string;
 }
+/** What the Neural Rendering switch is doing for one app, or how it ended. */
+export interface NeuralJob {
+  action: 'install' | 'remove';
+  phase: 'download' | 'place' | 'remove' | 'done' | 'failed';
+  /** Bytes so far and in all: the download, then the copy into the game's folder. */
+  done: number;
+  total: number;
+  error?: string;
+  /** The game's program could not be found: the user picks it. */
+  choose_exe: boolean;
+  /** Files that changed since they were placed and stayed in the game's folder. */
+  kept: string[];
+}
+/** `GET /api/neural?uuid=`: the game page's Neural Rendering switch. */
+export interface NeuralStatus {
+  /** The one-time notice before the first download. */
+  accepted: boolean;
+  /** Whether this PC's GPU and driver can run it; `reason` says why not. */
+  available: boolean;
+  gpu: string | null;
+  reason: string | null;
+  found: boolean;
+  enabled: boolean;
+  /** The program the mod sits beside, once it is in. */
+  exe: string | null;
+  release: string | null;
+  job: NeuralJob | null;
+}
 /** `GET /api/coop`: background streaming and co-op through Nucleus Co-op. */
 export interface CoopStatus {
   mode: {
@@ -1024,6 +1052,15 @@ export const api = {
     kick: (session: number, slot: number) => post<{ device: string }>('/api/coop/kick', { session, slot }, ACTION_TIMEOUT_MS),
     /** Stops Nucleus Co-op and every instance, and ends each player's stream. */
     end: (session: number) => post<Record<string, never>>('/api/coop/end', { session }, ACTION_TIMEOUT_MS),
+  },
+  neural: {
+    status: (uuid: string) => get<NeuralStatus>(`/api/neural?uuid=${encodeURIComponent(uuid)}`),
+    /** Records the notice's acceptance; the host refuses a download before it. */
+    accept: () => post<Ok>('/api/neural/accept', {}),
+    /** Downloads unless cached and installs; progress and a refusal show in `status`. */
+    enable: (uuid: string, exe?: string) => post<Ok>('/api/neural/enable', exe ? { uuid, exe } : { uuid }),
+    /** Removes exactly what was installed. */
+    disable: (uuid: string) => post<Ok>('/api/neural/disable', { uuid }),
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),

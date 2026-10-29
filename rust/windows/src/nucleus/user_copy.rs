@@ -823,6 +823,7 @@ mod tests {
             (r"webview\darkreader.js", b"dark"),
             (r"handlers\Puzzle.js", b"Game.GUID = 'Puzzle';"),
             (r"content\Puzzle\Instance0\game.exe", b"MZ game"),
+            (r"content\userprofile.json", b"{\"Games\":[\"host\"]}"),
             (r"game profiles\Puzzle\Profile[1].json", b"{}"),
             (r"webview\cache\data_0", b"cache"),
             ("debug-log.txt", b"log"),
@@ -916,6 +917,14 @@ mod tests {
         // What the host's Nucleus or the user's writes as they run is no
         // change: the same copy is kept, with what the user's wrote.
         std::fs::write(copy.join("content").join("Puzzle"), b"theirs").unwrap();
+        // Its game list, where Nucleus 2.4.2 reads it, and the host's.
+        let list = copy.join("content").join("userprofile.json");
+        std::fs::write(&list, b"{\"Games\":[\"theirs\"]}").unwrap();
+        std::fs::write(
+            source.join(r"content\userprofile.json"),
+            b"{\"Games\":[\"host\",\"hub\"]}",
+        )
+        .unwrap();
         std::fs::write(copy.join("Settings.ini"), b"[Dev]\r\ntheirs").unwrap();
         std::fs::write(source.join("debug-log.txt"), b"more").unwrap();
         std::fs::write(source.join("crashlog.txt"), b"crash").unwrap();
@@ -927,6 +936,12 @@ mod tests {
             copy
         );
         assert!(copy.join("content").join("Puzzle").is_file());
+        assert_eq!(std::fs::read(&list).unwrap(), b"{\"Games\":[\"theirs\"]}");
+        assert!(
+            !std::fs::read_to_string(copy.join(MARKER))
+                .unwrap()
+                .contains("userprofile")
+        );
         assert_eq!(
             std::fs::read(copy.join("Settings.ini")).unwrap(),
             b"[Dev]\r\ntheirs"

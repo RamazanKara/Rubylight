@@ -451,11 +451,20 @@ cases:
   - id: nucleus-generic-background
     device: desktop
     title: Background stream of a one-player game without a hub handler, through Rubylight's own Nucleus Co-op handler
-    command: '& {{repo}}\tools\hw\nucleus-generic.ps1 -Out {{out}} -Game D:\games\RetroBat\RetroBat.exe; exit $LASTEXITCODE'
+    command: '& {{repo}}\tools\hw\nucleus-generic.ps1 -Out {{out}} -Game D:\games\BFME1\lotrbfme.exe; exit $LASTEXITCODE'
     preconditions: [idle, gpu-lock]
-    pass: exit 0; session.log has the Rubylight-retrobat-*.js handler, "running after", a WGC "player 1 capture window:" line with a size, "pad reports" with the slot's pad, "stopped in" and "compatibility settings as before"
+    pass: 'exit 0; session.log has "handler Rubylight-lotrbfme-*.js for lotrbfme.exe", "running after", "game process", "capture window:...: wgc" with a size and at least 5 % lit, "pad A held and released at XInput index", "stopped in", "compatibility settings as before" and "handler and entry removed"'
     output: '{{out}}\session.log'
-    note: runs the ignored test nucleus::session::tests::a_session_on_this_pc as SYSTEM through a one-shot scheduled task; Nucleus Co-op installed (console, Set up co-op) and not running, no host session. For a Steam game run nucleus-generic.ps1 -SteamApp 394360 (Hearts of Iron IV) instead of -Game. Covers the session, not a client; the stream itself is in the rc pass
+    note: runs the host's ignored test nucleus::tests::a_background_stream_without_a_hub_handler_on_this_pc as SYSTEM through a one-shot scheduled task; Nucleus Co-op installed (console, Set up co-op) and not running, no host session. The app goes through the host's admission (path, launcher, anti-cheat, arguments, Unreal stub). The pad is checked at the session's XInput index, not inside the game. Covers the session, not a client; the stream itself is in the rc pass
+
+  - id: nucleus-generic-background-steam
+    device: desktop
+    title: Background stream of a Steam link without a hub handler, through Rubylight's own Nucleus Co-op handler
+    command: '& {{repo}}\tools\hw\nucleus-generic.ps1 -Out {{out}} -SteamApp 2155180; exit $LASTEXITCODE'
+    preconditions: [idle, gpu-lock]
+    pass: as in nucleus-generic-background, for the .exe Steam starts for Pioneers of Pagonia (app 2155180), started with its Steam app id
+    output: '{{out}}\session.log'
+    note: the link steam://rungameid/2155180 goes through the host's Steam lookup (libraryfolders.vdf, the app's launch option) before the same checks as nucleus-generic-background
 
   - id: child-session-cleanup-this-pc
     device: desktop

@@ -3958,4 +3958,447 @@ mod tests {
         assert_eq!(codes(&warnings), ["coop_audio"]);
         assert!(warnings.snapshot()[0].message.contains("20348"));
     }
+
+    /// The app a hardware case streams in the background: the game's .exe as
+    /// its command, or a Steam game's link.
+    fn case_app(game: Option<&str>, steam_app: Option<u32>) -> Result<App> {
+        match (game, steam_app) {
+            (Some(game), None) => {
+                let name = Path::new(game)
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+                    .context("the game's .exe has no name")?;
+                Ok(app(&name, &format!("\"{game}\"")))
+            }
+            (None, Some(id)) => Ok(app(
+                &format!("Steam app {id}"),
+                &format!("steam://rungameid/{id}"),
+            )),
+            _ => anyhow::bail!("set RUBYLIGHT_NUCLEUS_GAME or RUBYLIGHT_NUCLEUS_STEAM_APP"),
+        }
+    }
+
+    #[test]
+    fn a_hardware_case_streams_the_exe_or_the_steam_link_as_an_app_would() {
+        let exe = case_app(Some(r"D:\games\BFME1\lotrbfme.exe"), None).unwrap();
+        assert_eq!(exe.name, "lotrbfme");
+        assert!(starts_exe(&exe));
+        assert_eq!(executable(&exe), Some(r"D:\games\BFME1\lotrbfme.exe"));
+        let link = case_app(None, Some(2155180)).unwrap();
+        assert!(!starts_exe(&link));
+        assert_eq!(
+            butterpollo_core::steam::game_of(&serde_json::to_value(&link).unwrap()),
+            Some(2155180)
+        );
+        assert!(case_app(None, None).is_err());
+        assert!(case_app(Some("a.exe"), Some(1)).is_err());
+    }
+
+    /// The share of a BGRA frame's pixels that are not near black.
+    fn lit(image: &butterpollo_windows::capture::Image) -> Result<f64> {
+        ensure!(
+            image.pixel == butterpollo_windows::capture::Pixel::Bgra8,
+            "a {:?} frame, not BGRA",
+            image.pixel
+        );
+        let (width, height) = (image.width as usize, image.height as usize);
+        ensure!(
+            width > 0 && height > 0 && image.bytes.len() >= image.stride * (height - 1) + width * 4,
+            "a {width}x{height} frame of {} bytes",
+            image.bytes.len()
+        );
+        let (mut seen, mut bright) = (0usize, 0usize);
+        for y in (0..height).step_by(4) {
+            let row = &image.bytes[y * image.stride..][..width * 4];
+            for pixel in row.as_chunks::<4>().0.iter().step_by(4) {
+                seen += 1;
+                bright += usize::from(pixel[..3].iter().any(|&c| c > 24));
+            }
+        }
+        Ok(bright as f64 / seen as f64)
+    }
+
+    #[test]
+    fn a_black_frame_is_told_from_a_picture() {
+        let frame = |fill: &dyn Fn(usize) -> [u8; 4]| butterpollo_windows::capture::Image {
+            width: 64,
+            height: 32,
+            stride: 64 * 4 + 16,
+            bytes: (0..(64 * 4 + 16) * 32)
+                .map(|at| fill(at % (64 * 4 + 16) / 4)[at % 4])
+                .collect(),
+            captured: Instant::now(),
+            pixel: butterpollo_windows::capture::Pixel::Bgra8,
+        };
+        assert_eq!(lit(&frame(&|_| [8, 8, 8, 255])).unwrap(), 0.0);
+        assert_eq!(lit(&frame(&|_| [0, 0, 200, 255])).unwrap(), 1.0);
+        // The left half lit.
+        let half = lit(&frame(&|x| if x < 32 { [90, 90, 90, 255] } else { [0; 4] })).unwrap();
+        assert!((0.4..0.6).contains(&half), "{half}");
+        let mut hdr = frame(&|_| [0; 4]);
+        hdr.pixel = butterpollo_windows::capture::Pixel::RgbaF16;
+        assert!(lit(&hdr).is_err());
+    }
+
+    /// The compatibility settings the case changes back to `before`: each
+    /// value of a program named `executable` that is not as it was, with the
+    /// data it gets, None to remove it. Other programs' are never touched.
+    fn layer_changes(
+        before: &BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
+        after: &BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
+        executable: &str,
+    ) -> Vec<(String, Option<butterpollo_windows::nucleus::layers::Value>)> {
+        let named = |name: &&String| file_name(name).eq_ignore_ascii_case(executable);
+        let mut changes: Vec<_> = after
+            .iter()
+            .filter(|(name, _)| named(name))
+            .filter(|(name, value)| before.get(*name) != Some(*value))
+            .map(|(name, _)| (name.clone(), before.get(name).cloned()))
+            .collect();
+        changes.extend(
+            before
+                .iter()
+                .filter(|(name, _)| named(name) && !after.contains_key(*name))
+                .map(|(name, value)| (name.clone(), Some(value.clone()))),
+        );
+        changes
+    }
+
+    #[test]
+    fn a_hardware_case_puts_back_only_its_games_compatibility_settings() {
+        use butterpollo_windows::nucleus::layers::Value;
+        let text = |byte: u8| Value {
+            kind: 1,
+            data: vec![byte, 0, 0, 0],
+        };
+        let before = BTreeMap::from([
+            (r"D:\G\Game.exe".to_string(), text(1)),
+            (r"D:\Gone\Game.exe".to_string(), text(2)),
+            (r"C:\Other.exe".to_string(), text(3)),
+        ]);
+        let after = BTreeMap::from([
+            (r"D:\G\Game.exe".to_string(), text(9)),
+            (
+                r"C:\Nucleus\content\G\Instance0\GAME.exe".to_string(),
+                text(9),
+            ),
+            (r"C:\Other.exe".to_string(), text(9)),
+        ]);
+        assert_eq!(
+            layer_changes(&before, &after, "game.exe"),
+            [
+                (r"C:\Nucleus\content\G\Instance0\GAME.exe".to_string(), None),
+                (r"D:\G\Game.exe".to_string(), Some(text(1))),
+                (r"D:\Gone\Game.exe".to_string(), Some(text(2))),
+            ]
+        );
+        assert!(layer_changes(&before, &before, "game.exe").is_empty());
+    }
+
+    /// What a hardware case leaves: the session, Rubylight's handlers and
+    /// list entries it wrote, and the game's compatibility settings, undone
+    /// once, also when the case fails.
+    struct CaseCleanup {
+        registry: Arc<Registry>,
+        folder: PathBuf,
+        /// Rubylight's handlers before the case.
+        own_before: BTreeSet<String>,
+        layers_before: BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
+        executable: Option<String>,
+        done: bool,
+    }
+    impl CaseCleanup {
+        fn run(&mut self) -> Result<()> {
+            if std::mem::replace(&mut self.done, true) {
+                return Ok(());
+            }
+            let mut failures = Vec::new();
+            for listed in self.registry.sessions() {
+                self.registry.end(listed.session.id);
+            }
+            let pc = OnPc;
+            match pc.catalog(&self.folder) {
+                Ok(catalog) => {
+                    for own in catalog
+                        .handlers
+                        .iter()
+                        .filter(|h| h.own && !self.own_before.contains(&h.guid))
+                    {
+                        match pc.remove_own(&self.folder, own) {
+                            Ok(()) => println!("cleanup: removed handler {}", own.file),
+                            Err(error) => failures.push(format!("{}: {error:#}", own.file)),
+                        }
+                    }
+                }
+                Err(error) => failures.push(format!("the catalog: {error:#}")),
+            }
+            if let Some(executable) = &self.executable {
+                let changed = (|| -> Result<usize> {
+                    use butterpollo_windows::nucleus::layers::Layers;
+                    let mut hive = butterpollo_windows::nucleus::layers::UserHive::signed_in()?;
+                    let changes = layer_changes(&self.layers_before, &hive.values()?, executable);
+                    for (name, value) in &changes {
+                        match value {
+                            Some(value) => hive.set(name, value)?,
+                            None => hive.delete(name)?,
+                        }
+                    }
+                    Ok(changes.len())
+                })();
+                match changed {
+                    Ok(0) => {}
+                    Ok(changed) => println!("cleanup: {changed} compatibility settings put back"),
+                    Err(error) => failures.push(format!("compatibility settings: {error:#}")),
+                }
+            }
+            ensure!(
+                failures.is_empty(),
+                "cleanup failed: {}",
+                failures.join("; ")
+            );
+            Ok(())
+        }
+    }
+    impl Drop for CaseCleanup {
+        fn drop(&mut self) {
+            if let Err(error) = self.run() {
+                eprintln!("{error:#}");
+            }
+        }
+    }
+
+    /// A background stream of a one-player game without a hub handler on
+    /// this PC, through the host's own admission (tools/hw/catalog.yaml,
+    /// nucleus-generic-background): the app's .exe `RUBYLIGHT_NUCLEUS_GAME`
+    /// or the Steam link of `RUBYLIGHT_NUCLEUS_STEAM_APP` goes through the
+    /// path, launcher, anti-cheat, argument and Unreal checks, Rubylight's
+    /// handler and list entry are written, and Nucleus Co-op starts the game.
+    /// Asserted: the handler file and the entry; a process of the handler's
+    /// .exe started by the session; the session running with its window;
+    /// that window captured through WGC with a frame not black; the first
+    /// player's A press and release at the session's XInput index (where
+    /// Nucleus' input hooks read the pad; whether the game reacts is not
+    /// observable here); and the game's compatibility settings as before once
+    /// it stops. The handler, entry and settings are put back afterwards,
+    /// also on a failure. Run as SYSTEM, like the service, with Nucleus Co-op
+    /// installed by the console and not running.
+    #[test]
+    #[ignore = "starts a game through Nucleus Co-op on this PC as SYSTEM"]
+    fn a_background_stream_without_a_hub_handler_on_this_pc() -> Result<()> {
+        use butterpollo_windows::nucleus::layers::{Layers, UserHive};
+        let game = std::env::var("RUBYLIGHT_NUCLEUS_GAME").ok();
+        let steam_app = std::env::var("RUBYLIGHT_NUCLEUS_STEAM_APP")
+            .ok()
+            .map(|id| id.parse::<u32>().context("RUBYLIGHT_NUCLEUS_STEAM_APP"))
+            .transpose()?;
+        let hold = Duration::from_secs(
+            std::env::var("RUBYLIGHT_NUCLEUS_HOLD")
+                .ok()
+                .map(|s| s.parse().context("RUBYLIGHT_NUCLEUS_HOLD"))
+                .transpose()?
+                .unwrap_or(20),
+        );
+        let app = case_app(game.as_deref(), steam_app)?;
+        let pc = OnPc;
+        if let Some(why) = pc.unavailable() {
+            anyhow::bail!(why);
+        }
+        let folder = pc.installed("")?.context(
+            "Nucleus Co-op is not installed: set it up in the console's Play together panel",
+        )?;
+        if let Some(pid) = pc.running()? {
+            anyhow::bail!("Nucleus Co-op runs (process {pid}): close it first");
+        }
+        let registry = Arc::new(Registry::new(Arc::new(OnPc)));
+        let mut cleanup = CaseCleanup {
+            registry: registry.clone(),
+            folder: folder.clone(),
+            own_before: pc
+                .catalog(&folder)?
+                .handlers
+                .iter()
+                .filter(|h| h.own)
+                .map(|h| h.guid.clone())
+                .collect(),
+            layers_before: UserHive::signed_in()?.values()?,
+            executable: None,
+            done: false,
+        };
+        let owner = client("hw-case", false);
+        let config = Config::default();
+        let warnings = Arc::new(Warnings::default());
+        let since = butterpollo_windows::process::now();
+        let seat = registry
+            .admit(Admission {
+                launch: "hw-case",
+                client: &owner,
+                game: Game::Background(&app),
+                size: (1280, 720),
+                config: &config,
+                warnings: warnings.clone(),
+            })
+            .map_err(|refused| anyhow!("refused ({}): {}", refused.status, refused.message))?;
+        let instance = registry
+            .instance(seat.session)
+            .context("the admitted session is not listed")?;
+        let guid = instance.session(|s| s.game.clone());
+        let catalog = pc.catalog(&folder)?;
+        let handler = catalog
+            .handlers
+            .iter()
+            .find(|h| h.guid == guid)
+            .with_context(|| format!("no handler {guid} in Nucleus Co-op's handlers"))?
+            .clone();
+        cleanup.executable = Some(handler.executable.clone());
+        ensure!(handler.own, "{} is not Rubylight's handler", handler.file);
+        ensure!(
+            folder.join("handlers").join(&handler.file).is_file(),
+            "{} was not written",
+            handler.file
+        );
+        let entry = catalog
+            .games
+            .iter()
+            .find(|g| g.guid == guid)
+            .with_context(|| format!("{guid} is not in the user's game list"))?;
+        println!(
+            "handler {} for {} at {}",
+            handler.file, handler.executable, entry.exe_path
+        );
+        let started = Instant::now();
+        loop {
+            match instance.session(|s| s.phase.clone()) {
+                Phase::Running => break,
+                Phase::Ended(why) => anyhow::bail!("{why}"),
+                Phase::Starting => {
+                    ensure!(
+                        started.elapsed() < Duration::from_secs(180),
+                        "not running after {:?}",
+                        started.elapsed()
+                    );
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+        println!("running after {:?}", started.elapsed());
+        let game_processes: Vec<u32> = butterpollo_windows::process::processes()?
+            .into_iter()
+            .filter(|p| p.started >= since && p.name.eq_ignore_ascii_case(&handler.executable))
+            .map(|p| p.pid)
+            .collect();
+        ensure!(
+            !game_processes.is_empty(),
+            "no {} started with the session",
+            handler.executable
+        );
+        println!("game process {game_processes:?}");
+        // The window streams through WGC, on the primary display's GPU.
+        let display = butterpollo_windows::capture::primary_display().context("no display")?;
+        let _com = butterpollo_windows::capture::ComGuard::new()?;
+        let target = instance.capture_target(0, &display)?;
+        let mut capture = butterpollo_windows::capture::Capture::open_for_stream_reported(
+            &target,
+            "wgc",
+            false,
+            &Default::default(),
+            warnings.clone(),
+        )?;
+        let (mut staging, mut best) = (None, 0.0f64);
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let image = loop {
+            if let Some(frame) = capture.next_gpu()? {
+                let image = frame.readback(&mut staging)?;
+                let share = lit(&image)?;
+                best = best.max(share);
+                if share >= 0.05 {
+                    break image;
+                }
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "the window gave no frame that is not black within 60 s (at most {:.1} % lit)",
+                best * 100.0
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        println!(
+            "capture {target}: {} {}x{}, {:.0} % lit",
+            capture.backend(),
+            image.width,
+            image.height,
+            lit(&image)? * 100.0
+        );
+        drop(capture);
+        // A held, then released, through the player's slot to its XInput index.
+        let index = instance.session(|s| s.slots[0].pad);
+        let xinput = pads::System::open()?;
+        for (buttons, expected) in [(0x1000u32, 0x1000u16), (0, 0)] {
+            instance
+                .input(
+                    &owner.uuid,
+                    Input::Controller {
+                        id: 0,
+                        active: 1,
+                        buttons,
+                        left_trigger: 0,
+                        right_trigger: 0,
+                        sticks: [0; 4],
+                    },
+                )
+                .map_err(|dropped| anyhow!("the pad input was dropped: {dropped:?}"))?;
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                let seen = xinput.buttons(index)?;
+                if seen.map(|b| b & 0x1000) == Some(expected) {
+                    break;
+                }
+                ensure!(
+                    Instant::now() < deadline,
+                    "XInput index {index} shows {seen:?}, not A {}",
+                    if expected == 0 { "released" } else { "held" }
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        println!("pad A held and released at XInput index {index}");
+        std::thread::sleep(hold);
+        let phase = instance.session(|s| s.phase.clone());
+        ensure!(phase == Phase::Running, "after {hold:?}: {phase:?}");
+        let stopping = Instant::now();
+        ensure!(registry.end(seat.session), "the session was gone");
+        println!("stopped in {:?}", stopping.elapsed());
+        let left: Vec<String> = butterpollo_windows::process::processes()?
+            .into_iter()
+            .filter(|p| p.started >= since)
+            .filter(|p| {
+                p.name.eq_ignore_ascii_case("NucleusCoop.exe")
+                    || p.name.eq_ignore_ascii_case(&handler.executable)
+            })
+            .map(|p| format!("{} {}", p.name, p.pid))
+            .collect();
+        ensure!(left.is_empty(), "still running after the stop: {left:?}");
+        // The session put them back itself; the cleanup only covers a failure.
+        let changes = layer_changes(
+            &cleanup.layers_before,
+            &UserHive::signed_in()?.values()?,
+            &handler.executable,
+        );
+        ensure!(
+            changes.is_empty(),
+            "the compatibility settings changed: {changes:?}"
+        );
+        println!("compatibility settings as before");
+        for warning in warnings.snapshot() {
+            println!("warning {}: {}", warning.code, warning.message);
+        }
+        cleanup.run()?;
+        let after = pc.catalog(&folder)?;
+        ensure!(
+            !after.handlers.iter().any(|h| h.guid == guid)
+                && !after.games.iter().any(|g| g.guid == guid),
+            "the handler or its entry stayed"
+        );
+        println!("handler and entry removed");
+        Ok(())
+    }
 }

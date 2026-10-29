@@ -72,6 +72,27 @@ impl System {
                 .context("XInput is not available on this PC")?,
         })
     }
+
+    /// The buttons XInput reports at user index `index` (`XINPUT_GAMEPAD`'s
+    /// `wButtons`); None without a controller there. What a game that reads
+    /// that index sees, before Nucleus Co-op's hooks.
+    pub fn buttons(&self, index: u8) -> Result<Option<u16>> {
+        type GetState = unsafe extern "system" fn(u32, *mut [u32; 4]) -> u32;
+        // SAFETY: as in `connected`: the signature matches XInputGetState and
+        // the library outlives the symbol.
+        let get: libloading::Symbol<GetState> = unsafe { self.library.get(b"XInputGetState\0")? };
+        let mut state = [0; 4];
+        // SAFETY: the output has room for the whole XINPUT_STATE of this
+        // synchronous call; XInput refuses an index outside 0..4.
+        let result = unsafe { get(u32::from(index), &mut state) };
+        Ok((result == 0).then(|| buttons_of(&state)))
+    }
+}
+
+/// `wButtons` of an `XINPUT_STATE` read as four `u32`s: after the packet
+/// number, the first two bytes of `XINPUT_GAMEPAD`.
+fn buttons_of(state: &[u32; 4]) -> u16 {
+    (state[1] & 0xffff) as u16
 }
 impl XInput for System {
     fn connected(&mut self) -> Result<[bool; MAX_PLAYERS]> {
@@ -226,6 +247,13 @@ pub fn feedback(report: PadReport, players: usize) -> Option<(usize, PadReport)>
 pub(crate) mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn the_buttons_come_after_the_packet_number() {
+        // Packet 7, A and B held, a left trigger of 0x40.
+        let state = [7, 0x0040_3000, 0, 0];
+        assert_eq!(buttons_of(&state), 0x3000);
+    }
 
     /// Pads that record what they are sent; a plugged pad reaches XInput at
     /// the next free index.

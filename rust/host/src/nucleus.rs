@@ -276,9 +276,29 @@ impl Pc for OnPc {
                 message: not_on_this_pc(exe),
             });
         }
-        Ok(Setup {
-            arguments: arguments(app),
-            ..Setup::new(exe, &app.name, None)
+        // An .exe in a Steam library is its Steam app's, as a link would be.
+        let steam = butterpollo_core::steam::library_app(
+            Path::new(exe),
+            &butterpollo_windows::steam::roots(),
+        )
+        .map_err(|message| Refusal {
+            status: 404,
+            message,
+        })?;
+        Ok(match steam {
+            Some(steam) => Setup {
+                anti_cheat: steam.vac.then_some("Valve Anti-Cheat"),
+                arguments: arguments(app),
+                ..Setup::new(
+                    exe,
+                    &app.name,
+                    Some((steam.appid, &steam.install_dir.to_string_lossy())),
+                )
+            },
+            None => Setup {
+                arguments: arguments(app),
+                ..Setup::new(exe, &app.name, None)
+            },
         })
     }
     fn write_own(&self, folder: &Path, setup: &Setup) -> Result<Handler> {

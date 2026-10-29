@@ -346,6 +346,8 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         SDL_SetRenderVSync(renderer, 1);
         (window, renderer, SDL_RegisterEvents(1))
     };
+    // Windows windows take the executable's icon (build.rs) in every size the shell asks for.
+    #[cfg(not(windows))]
     sdl::set_icon(window, &theme::logo_rgba(64), 64);
     sdl::exclude_from_capture_if_asked(window);
     // SAFETY: a live window.

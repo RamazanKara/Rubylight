@@ -1261,6 +1261,7 @@ dependencies = [
  "bindgen",
  "directories",
  "egui",
+ "embed-resource",
  "if-addrs",
  "image",
  "libc",

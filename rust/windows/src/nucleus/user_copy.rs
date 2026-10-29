@@ -6,10 +6,10 @@
 //! `C:\Users` (Nucleus refuses to run from there) and removed with the
 //! host's data. It is copied from the host's Nucleus folder (its own install
 //! or `nucleus_path`), program files only, and `<key>` changes with them.
-//! SYSTEM makes `nucleus-user` (only SYSTEM and Administrators may change
-//! it; Users may list it) and `<SID>` (its user may add to it and change
-//! what is in it, never its permissions), each with its permissions from
-//! the start, and checks them when they exist, never following a link.
+//! SYSTEM makes `nucleus-user` (only SYSTEM and Administrators may open
+//! it) and `<SID>` (its user may add to it and change what is in it, never
+//! its permissions), each with its permissions from the start, and checks
+//! them when they exist, never following a link.
 //! Everything below `<SID>` is done as that user: writing the copy, checking
 //! it, removing an older one, the handlers, the profile and settings. What
 //! the user can change there runs with their rights only.
@@ -25,8 +25,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// The folder holding every user's copy: SYSTEM and Administrators own and
-/// change it, Users may list it (not what is inside).
-const ROOT: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;0x1200a9;;;BU)";
+/// change it, and nobody else may open it. A user reaches their own folder
+/// below it with the bypass traverse checking every account has, never
+/// learning whose others are there.
+const ROOT: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
 
 /// The file a whole copy holds: the listing of the program it was copied
 /// from ([`Listing::text`]), written last. Its name is the host's, so it is
@@ -965,8 +967,9 @@ mod tests {
         // Owned by Administrators: the user can't change the permissions.
         assert!(ROOT.starts_with("O:BAD:P("));
         assert!(user_sddl(SID).starts_with("O:BAD:P("));
-        // Users list the root, nothing inside it, and change nothing.
-        assert!(ROOT.ends_with("(A;;0x1200a9;;;BU)"));
+        // Only SYSTEM and Administrators may open the root: a user reaches
+        // their own folder by traverse, and never lists whose are there.
+        assert_eq!(ROOT, "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
         // The user's folder itself: list, add files and folders, read; what
         // is inside: modify (no permissions, owner or delete-child).
         let sddl = user_sddl(SID);
@@ -984,7 +987,6 @@ mod tests {
             0
         );
         assert_eq!(0x1301bf & (WRITE_DAC | WRITE_OWNER | DELETE_CHILD), 0);
-        assert_eq!(0x1200a9 & 0x2_0000, 0x2_0000);
         // Each makes a valid descriptor.
         for sddl in [ROOT.to_string(), sddl] {
             let folder = tempfile::tempdir().unwrap();
@@ -1001,6 +1003,33 @@ mod tests {
                 Err(error) => assert_eq!(error.raw_os_error(), Some(1307), "{error}"),
             }
         }
+    }
+
+    #[test]
+    fn a_user_reaches_their_folder_through_a_root_they_cannot_open() {
+        let sid = crate::process::own_sid().unwrap();
+        // Standing in for the user: no rights by this account's name, and
+        // only the privileges every account has (bypass traverse checking).
+        let user = crate::user_folder::tests::without_own_sid();
+        let data = tempfile::tempdir().unwrap();
+        let root = data.path().join("nucleus-user");
+        // As it is made, with this account in place of Administrators.
+        crate::process::create_folder(&root, &ROOT.replace("BA", &sid)).unwrap();
+        let theirs = root.join(SID);
+        crate::process::create_folder(&theirs, "D:P(A;OICI;FA;;;WD)").unwrap();
+        std::fs::write(theirs.join("NucleusCoop.exe"), b"MZ").unwrap();
+        let (listed, reached) = as_user(Some(&user), || {
+            (
+                std::fs::read_dir(&root).map(|_| ()),
+                std::fs::read(theirs.join("NucleusCoop.exe")),
+            )
+        })
+        .unwrap();
+        assert_eq!(
+            listed.unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        assert_eq!(reached.unwrap(), b"MZ");
     }
 
     #[test]

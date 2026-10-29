@@ -42,7 +42,7 @@ export function neuralView(status: NeuralStatus): NeuralView {
       job.phase === 'download'
         ? job.total > 0
           ? `Downloading Neural Rendering: ${megabytes(job.done)} of ${megabytes(job.total)}`
-          : 'Looking for the newest release…'
+          : 'Checking the download…'
         : job.phase === 'place'
           ? 'Installing into the game’s folder…'
           : 'Removing from the game’s folder…';

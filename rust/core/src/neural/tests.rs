@@ -65,8 +65,17 @@ fn release(tag: &str, published: &str, assets: Vec<Value>) -> Value {
     json!({"tag_name": tag, "published_at": published, "draft": false, "prerelease": false, "assets": assets})
 }
 
+/// Each release of `list` that offers the package ([`release`]), in order.
+fn releases(list: &Value) -> Vec<Release> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|listed| super::release(listed, GITHUB))
+        .collect()
+}
+
 #[test]
-fn releases_offer_only_the_package_newest_first() {
+fn a_release_offers_only_the_package() {
     let mut draft = release(
         "Alpha0.9",
         "2026-12-01T00:00:00Z",
@@ -116,7 +125,6 @@ fn releases_offer_only_the_package_newest_first() {
                 asset("Alpha0.3", "AMDNR-v0.3R1.zip", 10)
             ]
         ),
-        // Listed out of order: published dates decide.
         release(
             "Alpha0.3.5.7",
             "2026-10-22T18:09:28Z",
@@ -137,9 +145,9 @@ fn releases_offer_only_the_package_newest_first() {
     ]);
     let found = releases(&list);
     let tags: Vec<_> = found.iter().map(|r| r.tag.as_str()).collect();
-    assert_eq!(tags, ["Alpha0.3.5.8", "Alpha0.3.5.7"]);
+    assert_eq!(tags, ["Alpha0.3.5.7", "Alpha0.3.5.8"]);
     assert_eq!(
-        found[0],
+        found[1],
         Release {
             tag: "Alpha0.3.5.8".into(),
             package: Download {
@@ -156,6 +164,72 @@ fn releases_offer_only_the_package_newest_first() {
     );
     assert!(found.iter().all(|r| allowed_asset(&r.package.asset)));
     assert!(releases(&json!({"message": "rate limited"})).is_empty());
+}
+
+/// Only the pinned release is taken, and only with GitHub's digest of each
+/// archive the pinned one; another release, another file or a runtime
+/// component the pin does not name is not.
+#[test]
+fn only_the_pinned_release_with_its_pinned_digests_is_taken() {
+    let list = split_releases();
+    let digest = "ab".repeat(32);
+    let file = |asset| PinnedFile {
+        asset,
+        sha256: &digest,
+    };
+    let pin = Pin {
+        tag: "Alpha0.3.5.8R2",
+        package: file("AMDNR-v0.3.5.8R2.zip"),
+        runtime: Some(file("AMDNR-lmxxf-0.3.5.8R2.zip")),
+    };
+    let found = pinned(&list[1], GITHUB, &pin).unwrap();
+    assert_eq!(found, releases(&list)[1]);
+    let error = pinned(&list[0], GITHUB, &pin).unwrap_err();
+    assert!(
+        error.contains("does not list the mod's release Alpha0.3.5.8R2"),
+        "{error}"
+    );
+    let other = "cd".repeat(32);
+    for changed in [
+        Pin {
+            package: PinnedFile {
+                asset: "AMDNR-v0.3.5.8R2.zip",
+                sha256: &other,
+            },
+            ..pin
+        },
+        Pin {
+            runtime: Some(PinnedFile {
+                asset: "AMDNR-lmxxf-0.3.5.8R2.zip",
+                sha256: &other,
+            }),
+            ..pin
+        },
+    ] {
+        let error = pinned(&list[1], GITHUB, &changed).unwrap_err();
+        assert!(
+            error.contains("another SHA-256 than Rubylight pins"),
+            "{error}"
+        );
+    }
+    let alone = Pin {
+        runtime: None,
+        ..pin
+    };
+    assert_eq!(pinned(&list[1], GITHUB, &alone).unwrap().runtime, None);
+    // What Rubylight ships: R2's package and runtime component.
+    assert_eq!(PINNED.tag, "Alpha0.3.5.8R2");
+    for file in [Some(PINNED.package), PINNED.runtime] {
+        let file = file.unwrap();
+        assert!(allowed_asset(file.asset), "{}", file.asset);
+        assert!(file.asset.contains("0.3.5.8R2"), "{}", file.asset);
+        assert_eq!(file.sha256.len(), 64);
+        assert!(
+            file.sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        );
+    }
 }
 
 /// The assets of 0.3.5.8R2 and R4 as GitHub lists them.

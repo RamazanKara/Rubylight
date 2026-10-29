@@ -1,16 +1,17 @@
 //! Neural Rendering: a per-app switch that puts a neural upscaling mod into
-//! the game's folder, keeps it current and takes it out again.
+//! the game's folder and takes it out again.
 //!
 //! The mod is AMDNR by 3zwr1 (https://github.com/3zwr1/AMD-NR---OptiScaler,
 //! GPL-3.0), an OptiScaler fork that loads as a proxy DLL. Rubylight never
 //! hosts, bundles, mirrors or modifies its files: when the user turns the
-//! switch on, this PC downloads the release archive, and the release's own
+//! switch on, this PC downloads the release Rubylight pins
+//! ([`butterpollo_core::neural::PINNED`]): its archive, and the release's own
 //! runtime component when the archive lacks the runtime, straight from that
 //! GitHub release ([`butterpollo_core::neural::asset`] says which), checks
 //! them against GitHub's digests and the release's SHA256SUMS.txt, keeps
 //! them in a cache and copies the files unmodified into the game's folder
-//! ([`folder`]). A launch checks them and applies a newer cached release; a
-//! daily check outside streams refreshes the cache.
+//! ([`folder`]). A launch checks them and finishes an update cut short;
+//! no other release is ever taken on its own.
 pub mod folder;
 #[cfg(test)]
 mod tests;
@@ -40,14 +41,10 @@ pub const KEY: &str = "neural-rendering";
 #[cfg_attr(test, allow(dead_code, reason = "tests answer for the probe"))]
 const PROBE_FLAG: &str = "--neural-probe";
 const PROBE_ANSWER: &str = "NEURAL-PROBE ";
-/// The user's acceptance of the notice and the update check's record.
+/// The user's acceptance of the notice and the pending removals.
 const SETTINGS_FILE: &str = "neural.json";
-const CHECK_INTERVAL: u64 = 24 * 3600;
-const RETRY_AFTER_FAILURE: u64 = 3600;
 /// A failed probe is asked again after this; a driver update needs no restart.
 const PROBE_RETRY: Duration = Duration::from_secs(300);
-/// Releases looked at for the whole package, newest first.
-const CANDIDATES: usize = 5;
 /// The record's list of removals still to do.
 const PENDING: &str = "pending_removals";
 /// How often a pending removal is tried again.
@@ -72,6 +69,9 @@ pub struct Neural {
     /// A test's server in place of GitHub.
     #[cfg(test)]
     pub origin: Mutex<Option<String>>,
+    /// A test's release in place of [`neural::PINNED`].
+    #[cfg(test)]
+    pub pin: Mutex<Option<neural::Pin<'static>>>,
 }
 
 #[derive(Default)]
@@ -79,20 +79,17 @@ struct State {
     /// The last probe's answer, when it came and the settings it holds for.
     probe: Option<(Instant, GpuSetting, Result<String, String>)>,
     jobs: BTreeMap<String, Job>,
-    checking: bool,
-    /// When the next daily check is due, from the record once read.
-    due_at: Option<u64>,
     /// When the pending removals are tried next.
     removal_at: Option<Instant>,
     /// The cached release this host start checked file by file.
     verified: Option<PathBuf>,
-    /// Cached releases an install is about to copy, and how many: a newer
+    /// Cached releases an install is about to copy, and how many: another
     /// release fetched meanwhile leaves them to the next fetch to clear.
     using: BTreeMap<PathBuf, usize>,
 }
 
 /// A cached release kept while an install copies it ([`fetch_using`]).
-/// The last one of a release a newer download replaced meanwhile takes it
+/// The last one of a release another download replaced meanwhile takes it
 /// out of the cache: no fetch hands it out again, and launches use the newest.
 struct Using {
     h: Shared,
@@ -394,7 +391,7 @@ fn as_system(answer: Response, system: bool, again: impl FnOnce() -> Response) -
     }
 }
 
-// ---- The user's acceptance and the update check's record ----
+// ---- The user's acceptance and the record ----
 
 /// The record, empty only when there is none yet: one that can't be read
 /// is an error, never taken for empty and written over (it holds the
@@ -514,20 +511,30 @@ fn trusted_root_with(
     Ok(())
 }
 
-/// Whether the cached `package` is `release` as GitHub lists it now: the
-/// same archives by name and digest, not only the same tag.
-fn serves(package: &Package, release: &Release) -> bool {
-    let runtime = match (&package.runtime, &release.runtime) {
+/// The release Rubylight installs: [`neural::PINNED`], or a test's.
+fn pinned(h: &Shared) -> neural::Pin<'static> {
+    #[cfg(test)]
+    if let Some(pin) = *h.neural.pin.lock().unwrap() {
+        return pin;
+    }
+    let _ = h;
+    neural::PINNED
+}
+
+/// Whether the cached `package` is the `pin`ned release: the same archives
+/// by name and SHA-256, not only the same tag.
+fn serves(package: &Package, pin: &neural::Pin) -> bool {
+    let runtime = match (&package.runtime, &pin.runtime) {
         // The package held the runtime itself.
         (None, _) => true,
         (Some(asset), Some(runtime)) => {
-            *asset == runtime.asset && package.runtime_digest.as_ref() == Some(&runtime.digest)
+            asset == runtime.asset && package.runtime_digest.as_deref() == Some(runtime.sha256)
         }
         (Some(_), None) => false,
     };
-    package.tag == release.tag
-        && package.asset == release.package.asset
-        && package.digest == release.package.digest
+    package.tag == pin.tag
+        && package.asset == pin.package.asset
+        && package.digest == pin.package.sha256
         && runtime
 }
 
@@ -551,16 +558,20 @@ fn verify_cache(h: &Shared, folder: &Path, package: &Package) -> Result<()> {
     Ok(())
 }
 
-/// The cached release for a launch, from a cache this host trusts. None when
-/// nothing is cached. Not rehashed: a launch's update copies each file
-/// checked against the release as it goes, and most launches copy nothing.
+/// The pinned release for a launch to finish an update cut short with,
+/// from a cache this host trusts. None when it is not cached. Not rehashed:
+/// an update copies each file checked against the release as it goes, and
+/// most launches copy nothing.
 fn launch_cache(h: &Shared) -> Result<Option<PathBuf>> {
     let root = cache_root(h);
     if !root.exists() {
         return Ok(None);
     }
     trusted_root(&root, butterpollo_windows::process::is_system())?;
-    Ok(cached(&root).map(|(folder, _)| folder))
+    let pin = pinned(h);
+    Ok(cached(&root)
+        .filter(|(_, package)| serves(package, &pin))
+        .map(|(folder, _)| folder))
 }
 
 /// Where GitHub's release list and the release files are: GitHub, or a
@@ -604,7 +615,7 @@ pub fn cached(root: &Path) -> Option<(PathBuf, Package)> {
         .map(|(_, folder, package)| (folder, package))
 }
 
-/// The newest release with the whole mod, in the cache: downloaded and
+/// The pinned release with the whole mod, in the cache: downloaded and
 /// checked unless it is there already. A download gives up when a stream
 /// starts ([`StreamStarted`]).
 pub async fn fetch(h: &Shared, progress: &(dyn Fn(u64, u64) + Sync)) -> Result<(PathBuf, Package)> {
@@ -636,12 +647,29 @@ async fn fetch_locked(
     let root = cache_root(h);
     ensure_root(&root)?;
     trusted_root(&root, butterpollo_windows::process::is_system())?;
+    let pin = pinned(h);
+    // Its files as checked when they came, or it goes and comes again.
+    if let Some(have) = cached(&root).filter(|(_, package)| serves(package, &pin)) {
+        let h = h.clone();
+        let checked = tokio::task::spawn_blocking(move || {
+            let (folder, package) = have;
+            verify_cache(&h, &folder, &package).map(|()| (folder, package))
+        })
+        .await?;
+        match checked {
+            Ok(have) => return Ok(have),
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the cached release is damaged; it is downloaded again")
+            }
+        }
+    }
     let (api_origin, files_origin) = origins(h);
     let api = http(h, Duration::from_secs(35))?;
-    let list: Value = api
+    let listed: Value = api
         .get(format!(
-            "{api_origin}/repos/{}/releases?per_page=30",
-            neural::REPOSITORY
+            "{api_origin}/repos/{}/releases/tags/{}",
+            neural::REPOSITORY,
+            pin.tag
         ))
         .header("Accept", "application/vnd.github+json")
         .send()
@@ -649,55 +677,15 @@ async fn fetch_locked(
         .error_for_status()?
         .json()
         .await?;
-    let mut have = cached(&root);
-    // Its files as checked when they came, or it goes and comes again.
-    let checked = |have: Option<(PathBuf, Package)>| {
-        let h = h.clone();
-        tokio::task::spawn_blocking(move || {
-            let (folder, package) = have?;
-            match verify_cache(&h, &folder, &package) {
-                Ok(()) => Some((folder, package)),
-                Err(error) => {
-                    tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the cached release is damaged; it is downloaded again");
-                    None
-                }
-            }
-        })
-    };
-    let mut chosen = None;
-    for mut release in neural::releases_from(&list, &files_origin)
-        .into_iter()
-        .take(CANDIDATES)
-    {
-        if have
-            .as_ref()
-            .is_some_and(|(_, package)| serves(package, &release))
-        {
-            have = checked(have.take()).await?;
-            if let Some(have) = have {
-                return Ok(have);
-            }
-        }
-        match whole(&api, &release).await? {
-            Some(neural::Runtime::Package) => {
-                release.runtime = None;
-                chosen = Some(release);
-                break;
-            }
-            Some(neural::Runtime::Component) => {
-                chosen = Some(release);
-                break;
-            }
-            None => {
-                tracing::info!(release = %release.tag, "Neural Rendering: the release lacks the neural runtime or checksums; looking at the one before")
-            }
-        }
+    let mut release = neural::pinned(&listed, &files_origin, &pin).map_err(anyhow::Error::msg)?;
+    match whole(&api, &release).await? {
+        Some(neural::Runtime::Package) => release.runtime = None,
+        Some(neural::Runtime::Component) => {}
+        None => bail!(
+            "release {} lacks the neural runtime or checksums; nothing was downloaded",
+            release.tag
+        ),
     }
-    let Some(release) = chosen else {
-        return checked(have).await?.context(
-            "no recent release of the mod has the whole package (its DLL, neural runtime and checksums)",
-        );
-    };
     let archives: Vec<&Download> = [Some(&release.package), release.runtime.as_ref()]
         .into_iter()
         .flatten()
@@ -1762,8 +1750,8 @@ fn try_pending(h: &Shared, also: &[Pending]) {
 }
 
 /// Before a launch: the mod must still be as placed and the game must not
-/// have gained anti-cheat; a newer cached release is applied. Fails the
-/// launch loudly otherwise. Blocks.
+/// have gained anti-cheat; an update cut short is finished. No other
+/// release is applied. Fails the launch loudly otherwise. Blocks.
 pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
     let Some(exe) = placed_exe(app) else {
         return Ok(());
@@ -1840,67 +1828,6 @@ fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
             bail!("unexpected helper answer")
         }
     }
-}
-
-// ---- The daily check ----
-
-/// Whether the maintenance loop should refresh the cache now: once a day
-/// while any app has the switch on, never during a stream.
-pub fn check_due(h: &Shared) -> bool {
-    if h.neural.lock().checking
-        || crate::updater::streaming(h)
-        || !h
-            .apps
-            .read()
-            .unwrap()
-            .iter()
-            .any(|app| app.extra.contains_key(KEY))
-    {
-        return false;
-    }
-    let mut state = h.neural.lock();
-    let due = *state
-        .due_at
-        .get_or_insert_with(|| due_at(&settings(h), now()));
-    now() >= due
-}
-
-/// When the check after the one `settings` records is due; at once when the
-/// clock went back past it.
-fn due_at(settings: &Value, now: u64) -> u64 {
-    let checked = settings["checked_at"].as_u64().unwrap_or(0);
-    if checked > now + 600 {
-        return 0;
-    }
-    let wait = if settings["check_failures"].as_u64().unwrap_or(0) > 0 {
-        RETRY_AFTER_FAILURE
-    } else {
-        CHECK_INTERVAL
-    };
-    checked + wait
-}
-
-/// Refresh the cache in the background; games get it at their next launch.
-pub fn check(h: &Shared) {
-    h.neural.lock().checking = true;
-    let h = h.clone();
-    tokio::spawn(async move {
-        let result = fetch(&h, &|_, _| {}).await;
-        let saved = update_settings(&h, |value| {
-            value["checked_at"] = json!(now());
-            value["check_failures"] = match &result {
-                Ok(_) => json!(0),
-                Err(_) => json!(value["check_failures"].as_u64().unwrap_or(0) + 1),
-            };
-        });
-        let mut state = h.neural.lock();
-        state.checking = false;
-        state.due_at = None;
-        drop(state);
-        for error in [result.err(), saved.err()].into_iter().flatten() {
-            tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the update check failed");
-        }
-    });
 }
 
 // ---- The console ----

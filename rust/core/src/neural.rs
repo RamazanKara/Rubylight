@@ -1,6 +1,6 @@
 //! Neural Rendering for an app: a game mod that the host fetches from its
 //! authors' GitHub releases on this PC, places beside the game's executable,
-//! keeps on the newest release and removes again. The mod is AMDNR by 3zwr1
+//! keeps on the release Rubylight pins ([`PINNED`]) and removes again. The mod is AMDNR by 3zwr1
 //! (<https://github.com/3zwr1/AMD-NR---OptiScaler>, GPL-3.0), an OptiScaler
 //! build that runs a neural rendering model on Radeon GPUs through a proxy
 //! DLL. Rubylight never hosts, bundles or changes its files.
@@ -16,6 +16,39 @@ use std::collections::BTreeMap;
 
 /// The mod's repository. Downloads come from its releases only.
 pub const REPOSITORY: &str = "3zwr1/AMD-NR---OptiScaler";
+
+/// The mod's release Rubylight installs, pinned as Nucleus Co-op's is: no
+/// other release is ever taken on its own. To move to another, change it
+/// here and only here: the tag, and each archive's name and SHA-256 from
+/// the release's SHA256SUMS.txt (GitHub's digest must say the same), then
+/// run the host's `neural::tests::real_release_into_a_fake_game`.
+pub const PINNED: Pin<'static> = Pin {
+    tag: "Alpha0.3.5.8R2",
+    package: PinnedFile {
+        asset: "AMDNR-v0.3.5.8R2.zip",
+        sha256: "a11143327ede14ff4d7fe50ea0ce9d148320aeec4cd163f11c8c9973c944a97d",
+    },
+    runtime: Some(PinnedFile {
+        asset: "AMDNR-lmxxf-0.3.5.8R2.zip",
+        sha256: "58ccdf75c1caace59826433c77a23a00c2c77dc9842868917bfc3be9a10f9607",
+    }),
+};
+
+/// A release as Rubylight pins it ([`PINNED`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pin<'a> {
+    pub tag: &'a str,
+    pub package: PinnedFile<'a>,
+    /// The release's runtime component, when the package lacks the runtime.
+    pub runtime: Option<PinnedFile<'a>>,
+}
+
+/// An archive of a pinned release: its name and SHA-256, lower-case hex.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PinnedFile<'a> {
+    pub asset: &'a str,
+    pub sha256: &'a str,
+}
 /// The largest archive the host downloads (the releases so far are 0.2 to 1.0 GB).
 pub const MAX_ARCHIVE: u64 = 2 << 30;
 /// The largest checksum list the host reads.
@@ -128,81 +161,104 @@ pub struct Release {
     pub sums: Option<Download>,
 }
 
-/// The releases in GitHub's list (`/repos/{REPOSITORY}/releases`) that offer
-/// the package, newest first. Drafts, pre-releases and releases whose package
-/// has no GitHub digest, an unexpected address or size are left out; so is a
-/// runtime component or checksum list that has one of those faults.
-pub fn releases(list: &Value) -> Vec<Release> {
-    releases_from(list, GITHUB)
-}
-
 /// Where release files are downloaded from.
 pub const GITHUB: &str = "https://github.com";
 
-/// [`releases`] with the files at `origin` instead of [`GITHUB`] (a test's
-/// own server).
-pub fn releases_from(list: &Value, origin: &str) -> Vec<Release> {
-    let mut found: Vec<(&str, Release)> = list
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|release| release["draft"] != true && release["prerelease"] != true)
-        .filter_map(|release| {
-            let tag = release["tag_name"].as_str()?;
-            if tag.is_empty()
-                || tag.len() > 64
-                || !tag
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
-                || tag.starts_with('.')
-            {
-                return None;
-            }
-            let assets = release["assets"].as_array()?;
-            let download = |name: &str, limit: u64| {
-                let asset = assets.iter().find(|asset| asset["name"] == name)?;
-                let url = format!("{origin}/{REPOSITORY}/releases/download/{tag}/{name}");
-                if asset["browser_download_url"] != url.as_str() {
-                    return None;
-                }
-                let digest = asset["digest"]
-                    .as_str()?
-                    .strip_prefix("sha256:")
-                    .filter(|d| d.len() == 64 && d.bytes().all(|b| b.is_ascii_hexdigit()))?;
-                let size = asset["size"]
-                    .as_u64()
-                    .filter(|size| *size > 0 && *size <= limit)?;
-                Some(Download {
-                    asset: name.into(),
-                    url,
-                    digest: digest.to_ascii_lowercase(),
-                    size,
-                })
-            };
-            let mut packages =
-                assets
-                    .iter()
-                    .filter_map(|asset| match self::asset(asset["name"].as_str()?)? {
-                        Asset::Package(version) => Some((asset["name"].as_str()?, version)),
-                        _ => None,
-                    });
-            let (name, version) = packages.next()?;
-            if packages.next().is_some() {
-                return None;
-            }
-            Some((
-                release["published_at"].as_str().unwrap_or(""),
-                Release {
-                    tag: tag.into(),
-                    package: download(name, MAX_ARCHIVE)?,
-                    runtime: download(&format!("AMDNR-lmxxf-{version}.zip"), MAX_ARCHIVE),
-                    sums: download(SUMS, MAX_SUMS),
-                },
-            ))
+/// The release `pin` names as GitHub lists it
+/// (`/repos/{REPOSITORY}/releases/tags/{tag}`), its files at `origin`
+/// ([`GITHUB`], or a test's own server): only with GitHub's digest of each
+/// pinned archive the same as the pin's. A runtime component the pin does
+/// not name is not taken.
+pub fn pinned(listed: &Value, origin: &str, pin: &Pin) -> Result<Release, String> {
+    let release = release(listed, origin)
+        .filter(|release| release.tag == pin.tag)
+        .ok_or_else(|| {
+            format!(
+                "GitHub does not list the mod's release {} with its package; nothing was downloaded",
+                pin.tag
+            )
+        })?;
+    let differs = |asset: &str| {
+        format!(
+            "GitHub lists {asset} of release {} with another SHA-256 than Rubylight pins; nothing was downloaded",
+            pin.tag
+        )
+    };
+    let same = |download: &Download, file: &PinnedFile| {
+        download.asset == file.asset && download.digest == file.sha256
+    };
+    if !same(&release.package, &pin.package) {
+        return Err(differs(pin.package.asset));
+    }
+    let runtime = match &pin.runtime {
+        None => None,
+        Some(file) => Some(
+            release
+                .runtime
+                .clone()
+                .filter(|runtime| same(runtime, file))
+                .ok_or_else(|| differs(file.asset))?,
+        ),
+    };
+    Ok(Release { runtime, ..release })
+}
+
+/// A release as GitHub lists it, when it offers the package. A draft, a
+/// pre-release and a release whose package has no GitHub digest, an
+/// unexpected address or size is not; a runtime component or checksum list
+/// that has one of those faults is left out.
+pub fn release(release: &Value, origin: &str) -> Option<Release> {
+    if release["draft"] == true || release["prerelease"] == true {
+        return None;
+    }
+    let tag = release["tag_name"].as_str()?;
+    if tag.is_empty()
+        || tag.len() > 64
+        || !tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+        || tag.starts_with('.')
+    {
+        return None;
+    }
+    let assets = release["assets"].as_array()?;
+    let download = |name: &str, limit: u64| {
+        let asset = assets.iter().find(|asset| asset["name"] == name)?;
+        let url = format!("{origin}/{REPOSITORY}/releases/download/{tag}/{name}");
+        if asset["browser_download_url"] != url.as_str() {
+            return None;
+        }
+        let digest = asset["digest"]
+            .as_str()?
+            .strip_prefix("sha256:")
+            .filter(|d| d.len() == 64 && d.bytes().all(|b| b.is_ascii_hexdigit()))?;
+        let size = asset["size"]
+            .as_u64()
+            .filter(|size| *size > 0 && *size <= limit)?;
+        Some(Download {
+            asset: name.into(),
+            url,
+            digest: digest.to_ascii_lowercase(),
+            size,
         })
-        .collect();
-    found.sort_by(|a, b| b.0.cmp(a.0));
-    found.into_iter().map(|(_, release)| release).collect()
+    };
+    let mut packages =
+        assets
+            .iter()
+            .filter_map(|asset| match self::asset(asset["name"].as_str()?)? {
+                Asset::Package(version) => Some((asset["name"].as_str()?, version)),
+                _ => None,
+            });
+    let (name, version) = packages.next()?;
+    if packages.next().is_some() {
+        return None;
+    }
+    Some(Release {
+        tag: tag.into(),
+        package: download(name, MAX_ARCHIVE)?,
+        runtime: download(&format!("AMDNR-lmxxf-{version}.zip"), MAX_ARCHIVE),
+        sums: download(SUMS, MAX_SUMS),
+    })
 }
 
 /// Where a release's neural runtime comes from.

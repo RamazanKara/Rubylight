@@ -120,8 +120,8 @@ pub enum Request {
         install: Option<PathBuf>,
         package: PathBuf,
     },
-    /// Before a launch: refuse anti-cheat, apply `package` when it is
-    /// another release, and check that the placed files are still as placed.
+    /// Before a launch: refuse anti-cheat, finish an update cut short with
+    /// `package`, and check that the placed files are still as placed.
     Prepare {
         exe: PathBuf,
         install: Option<PathBuf>,
@@ -1231,12 +1231,11 @@ fn prepare(
             folder.display()
         )));
     };
-    // Another release, or the rest of an update cut short.
-    if let Some(folder) = package {
+    // The rest of an update cut short; another release is never applied
+    // on its own.
+    if let Some(folder) = package.filter(|_| !manifest.previous.is_empty()) {
         let cached = Package::read(&folder).map_err(Failure::Error)?.with(folder);
-        if cached.package.tag != manifest.release || !manifest.previous.is_empty() {
-            return place(exe, &cached, writer, progress);
-        }
+        return place(exe, &cached, writer, progress);
     }
     if !manifest.previous.is_empty() {
         return Err(Failure::Error(format!(

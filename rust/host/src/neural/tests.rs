@@ -313,8 +313,11 @@ fn a_cached_file_that_changed_never_reaches_the_game() {
     assert_eq!(names(folder), before);
 }
 
+/// A launch never applies another release on its own; turning the switch
+/// on again does, and keeps the user's settings. A changed file fails the
+/// launch.
 #[test]
-fn a_launch_applies_a_newer_release_keeps_the_settings_and_fails_on_a_changed_file() {
+fn only_an_install_applies_another_release_and_a_launch_fails_on_a_changed_file() {
     let temp = tempdir();
     let old = release(temp.path(), "Alpha0.3.5.7", b"OptiScaler old");
     let exe = game(temp.path());
@@ -349,6 +352,19 @@ fn a_launch_applies_a_newer_release_keeps_the_settings_and_fails_on_a_changed_fi
     let new = release(&temp.path().join("new"), "Alpha0.3.5.8", b"OptiScaler new");
     assert_eq!(
         prepare(&exe, Some(&new)),
+        Response::Placed {
+            exe: exe.clone(),
+            release: "Alpha0.3.5.7".into(),
+            proxy: "dxgi.dll".into(),
+            updated: false,
+        }
+    );
+    assert_eq!(
+        std::fs::read(folder.join("dxgi.dll")).unwrap(),
+        b"OptiScaler old"
+    );
+    assert_eq!(
+        install(Some(&exe), None, &new),
         Response::Placed {
             exe: exe.clone(),
             release: "Alpha0.3.5.8".into(),
@@ -575,8 +591,9 @@ fn hold(path: &Path) -> std::fs::File {
 
 /// An update cut short (a file the game holds open) leaves each file it
 /// replaces in one of its two forms, both the host's: the game does not
-/// launch on half an update, the next launch finishes it, and turning the
-/// switch off takes every file, the mod's DLL included.
+/// launch on half an update, the next launch with the release cached
+/// finishes it, and turning the switch off takes every file, the mod's DLL
+/// included.
 #[test]
 fn an_update_cut_short_leaves_nothing_a_removal_misses() {
     let temp = tempdir();
@@ -603,7 +620,7 @@ fn an_update_cut_short_leaves_nothing_a_removal_misses() {
             Response::Placed { .. }
         ));
         let held = hold(&folder.join("OptiScaler/libxess.dll"));
-        let Response::Error { message } = prepare(&exe, Some(&new)) else {
+        let Response::Error { message } = install(Some(&exe), None, &new) else {
             panic!()
         };
         drop(held);
@@ -721,7 +738,7 @@ fn nothing_goes_through_a_link_in_the_games_folder() {
         panic!()
     };
     assert!(reason.contains("link"), "{reason}");
-    let Response::Refused { reason } = prepare(&exe, Some(&new)) else {
+    let Response::Refused { reason } = install(Some(&exe), None, &new) else {
         panic!()
     };
     assert!(reason.contains("link"), "{reason}");
@@ -1690,7 +1707,7 @@ async fn a_first_install_cut_short_is_taken_out_by_the_pending_removals() {
     let folder = exe.parent().unwrap();
     let before = names(folder);
     let cache = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
-    let _github = no_releases(h).await;
+    pin_to(h, &cache);
 
     enable(h, "game", Some(exe.clone())).unwrap();
     let job = ended(h, "game").await;
@@ -1801,21 +1818,6 @@ fn the_console_cannot_set_the_hosts_key() {
     let mut new = app(r"C:\x.exe");
     keep_key(None, &mut new);
     assert!(!new.extra.contains_key(KEY));
-}
-
-#[test]
-fn the_daily_check_waits_a_day_or_an_hour_after_a_failure() {
-    let now = 1_000_000;
-    assert_eq!(due_at(&json!({}), now), CHECK_INTERVAL);
-    assert_eq!(
-        due_at(&json!({"checked_at": now}), now),
-        now + CHECK_INTERVAL
-    );
-    assert_eq!(
-        due_at(&json!({"checked_at": now, "check_failures": 2}), now),
-        now + RETRY_AFTER_FAILURE
-    );
-    assert_eq!(due_at(&json!({"checked_at": now + 7200}), now), 0);
 }
 
 #[tokio::test]
@@ -1953,7 +1955,7 @@ fn a_damaged_record_is_never_written_over() {
 
 /// A cache is used only as this host keeps it: no link on the way to it,
 /// for SYSTEM nobody but administrators may change it, its files checked
-/// once per host start, and its archives the ones GitHub lists now.
+/// once per host start, and its archives the pinned ones.
 #[test]
 fn a_cache_is_used_only_as_this_host_keeps_it() {
     let f = crate::state::test_support::Fixture::new();
@@ -1981,6 +1983,9 @@ fn a_cache_is_used_only_as_this_host_keeps_it() {
     let folder = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
     let pak = folder.join("files/LmxxfNrRuntime.pak");
     std::fs::write(&pak, "tampered").unwrap();
+    // A release Rubylight does not pin is never applied.
+    assert_eq!(launch_cache(h).unwrap(), None);
+    pin_to(h, &folder);
     assert_eq!(launch_cache(h).unwrap(), Some(folder.clone()));
     assert_eq!(h.neural.lock().verified, None);
     let exe = game(temp.path());
@@ -2001,34 +2006,39 @@ fn a_cache_is_used_only_as_this_host_keeps_it() {
 
     // The same tag with other archives is another release.
     let mut package = Package::read(&cache_root(h).join("Alpha0.3.5.8")).unwrap();
-    package.digest = "1".repeat(64);
-    let mut listed = Release {
-        tag: "Alpha0.3.5.8".into(),
-        package: Download {
-            digest: "1".repeat(64),
-            ..file(package.asset.clone())
+    let (one, two, three) = ("1".repeat(64), "2".repeat(64), "3".repeat(64));
+    package.digest = one.clone();
+    let asset = package.asset.clone();
+    let mut pin = neural::Pin {
+        tag: "Alpha0.3.5.8",
+        package: neural::PinnedFile {
+            asset: &asset,
+            sha256: &one,
         },
-        runtime: Some(Download {
-            digest: "2".repeat(64),
-            ..file("AMDNR-lmxxf-0.3.5.8.zip".into())
+        runtime: Some(neural::PinnedFile {
+            asset: "AMDNR-lmxxf-0.3.5.8.zip",
+            sha256: &two,
         }),
-        sums: None,
     };
-    assert!(serves(&package, &listed));
+    assert!(serves(&package, &pin));
     package.runtime = Some("AMDNR-lmxxf-0.3.5.8.zip".into());
-    package.runtime_digest = Some("2".repeat(64));
-    assert!(serves(&package, &listed));
-    listed.runtime.as_mut().unwrap().digest = "3".repeat(64);
-    assert!(!serves(&package, &listed));
-    listed.runtime = None;
-    assert!(!serves(&package, &listed));
+    package.runtime_digest = Some(two.clone());
+    assert!(serves(&package, &pin));
+    pin.runtime.as_mut().unwrap().sha256 = &three;
+    assert!(!serves(&package, &pin));
+    pin.runtime = None;
+    assert!(!serves(&package, &pin));
     package.runtime = None;
-    listed.package.digest = "3".repeat(64);
-    assert!(!serves(&package, &listed));
+    assert!(serves(&package, &pin));
+    pin.tag = "Alpha0.3.5.8R2";
+    assert!(!serves(&package, &pin));
+    pin.tag = "Alpha0.3.5.8";
+    pin.package.sha256 = &three;
+    assert!(!serves(&package, &pin));
 }
 
-/// GitHub as [`fetch`] sees it, on this PC: the release list and each file,
-/// a part of one by range; every request logged in order.
+/// GitHub as [`fetch`] sees it, on this PC: the pinned release by its tag
+/// and each file, a part of one by range; every request logged in order.
 struct Server {
     base: String,
     log: Arc<Mutex<Vec<String>>>,
@@ -2079,7 +2089,7 @@ async fn serve(listener: tokio::net::TcpListener, list: Value, files: Files) -> 
     let repository = neural::REPOSITORY;
     let app = axum::Router::new()
         .route(
-            &format!("/api/repos/{repository}/releases"),
+            &format!("/api/repos/{repository}/releases/tags/{{tag}}"),
             get(list_route),
         )
         .route(
@@ -2104,12 +2114,36 @@ fn pin(h: &Shared, folder: &Path) -> Using {
     }
 }
 
-/// GitHub listing no release for [`fetch`]: it takes the cached one.
-async fn no_releases(h: &Shared) -> Server {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let server = serve(listener, json!([]), Arc::new(BTreeMap::new())).await;
-    *h.neural.origin.lock().unwrap() = Some(server.base.clone());
-    server
+/// The cached release `folder` as the one this host pins: [`fetch`] takes
+/// it without asking GitHub.
+fn pin_to(h: &Shared, folder: &Path) {
+    let package = Package::read(folder).unwrap();
+    let file = |asset: String, sha256: String| neural::PinnedFile {
+        asset: asset.leak(),
+        sha256: sha256.leak(),
+    };
+    *h.neural.pin.lock().unwrap() = Some(neural::Pin {
+        tag: package.tag.leak(),
+        package: file(package.asset, package.digest),
+        runtime: package
+            .runtime
+            .zip(package.runtime_digest)
+            .map(|(asset, sha256)| file(asset, sha256)),
+    });
+}
+
+/// `files` as the release this host pins, 0.3.5.8R2's names with their
+/// digests.
+fn pin_files(h: &Shared, files: &BTreeMap<String, Vec<u8>>) {
+    let file = |asset: &'static str| neural::PinnedFile {
+        asset,
+        sha256: sha(&files[asset]).leak(),
+    };
+    *h.neural.pin.lock().unwrap() = Some(neural::Pin {
+        tag: "Alpha0.3.5.8R2",
+        package: file("AMDNR-v0.3.5.8R2.zip"),
+        runtime: Some(file("AMDNR-lmxxf-0.3.5.8R2.zip")),
+    });
 }
 
 /// 0.3.5.8R2 as GitHub lists it: the package without the runtime, the
@@ -2147,6 +2181,7 @@ fn r2_files() -> BTreeMap<String, Vec<u8>> {
     files
 }
 
+/// The release `tag` with `files` as GitHub lists it by its tag.
 fn release_list(base: &str, tag: &str, files: &BTreeMap<String, Vec<u8>>) -> Value {
     let assets: Vec<Value> = files
         .iter()
@@ -2159,7 +2194,7 @@ fn release_list(base: &str, tag: &str, files: &BTreeMap<String, Vec<u8>>) -> Val
             })
         })
         .collect();
-    json!([{"tag_name": tag, "published_at": "2026-10-01T00:00:00Z", "assets": assets}])
+    json!({"tag_name": tag, "published_at": "2026-10-01T00:00:00Z", "assets": assets})
 }
 
 /// Only a test's own server gets a plain client: GitHub gets the updater's,
@@ -2179,11 +2214,12 @@ async fn github_gets_the_updaters_client() {
     assert!(error.is_builder(), "{error:#}");
 }
 
-/// The whole download against a server of its own: the list, the archives'
-/// file lists, the checksum list checked against GitHub's digests before
-/// any archive comes, the archives, then the cache. An older release in
-/// the cache goes only once no copy reads it; a lie in the checksum list
-/// or a file other than GitHub's digest says caches nothing.
+/// The whole download against a server of its own: the pinned release, the
+/// archives' file lists, the checksum list checked against GitHub's digests
+/// before any archive comes, the archives, then the cache. An older release
+/// in the cache goes only once no copy reads it; GitHub listing other
+/// digests than the pin's, a lie in the checksum list or a file other than
+/// GitHub's digest says caches nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_download_goes_list_checksums_archives_cache() {
     let f = crate::state::test_support::Fixture::new();
@@ -2199,6 +2235,7 @@ async fn a_download_goes_list_checksums_archives_cache() {
     )
     .await;
     *h.neural.origin.lock().unwrap() = Some(server.base.clone());
+    pin_files(h, &files);
     let stale = release(&cache_root(h), "Alpha0.3.5.6", b"OptiScaler proxy");
     let older = release(&cache_root(h), "Alpha0.3.5.7", b"OptiScaler proxy");
     // An install about to copy the older release: it outlasts the newer
@@ -2262,10 +2299,10 @@ async fn a_download_goes_list_checksums_archives_cache() {
         std::fs::read(folder.join("files/LmxxfNrRuntime.pak")).unwrap(),
         b"model"
     );
-    // The same release again: from the cache, after the list alone.
+    // The same release again: from the cache, without asking GitHub.
     server.log.lock().unwrap().clear();
     assert_eq!(fetch(h, &|_, _| {}).await.unwrap().1, package);
-    assert_eq!(*server.log.lock().unwrap(), ["list"]);
+    assert!(server.log.lock().unwrap().is_empty());
     // The same release damaged in the cache, held for an install and one of
     // its files open: it comes again, and the one there is never left half
     // deleted, whether or not it could be replaced meanwhile.
@@ -2311,7 +2348,18 @@ async fn a_download_goes_list_checksums_archives_cache() {
     let component = tampered.get_mut("AMDNR-lmxxf-0.3.5.8R2.zip").unwrap();
     let at = component.windows(5).position(|w| w == b"model").unwrap();
     component[at + 1] = b'a';
+    // A package other than the pinned one, as GitHub lists it.
+    let mut other = files.clone();
+    other.insert(
+        "AMDNR-v0.3.5.8R2.zip".into(),
+        files["AMDNR-v0.3.5.8R2.zip"]
+            .iter()
+            .rev()
+            .copied()
+            .collect(),
+    );
     for (served, listed, problem) in [
+        (other.clone(), other, "another SHA-256 than Rubylight pins"),
         (
             lying.clone(),
             lying,
@@ -2328,6 +2376,9 @@ async fn a_download_goes_list_checksums_archives_cache() {
         assert!(error.contains(problem), "{error}");
         assert!(cached(&cache_root(h)).is_none());
         let log = server.log.lock().unwrap().clone();
+        if problem.contains("pins") {
+            assert_eq!(log, ["list"]);
+        }
         if problem.contains("SHA256SUMS") {
             assert_eq!(log.last().unwrap(), "SHA256SUMS.txt", "{log:?}");
         }
@@ -2365,9 +2416,8 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     assert!(matches!(enable(h, "game", None), Err(Refusal::Streaming)));
     assert!(!h.neural.lock().jobs.contains_key("game"));
     h.sessions.lock().unwrap().active.clear();
-    // Once it ends, the switch goes on from the cache (GitHub lists no
-    // newer release here).
-    let _github = no_releases(h).await;
+    // Once it ends, the switch goes on from the cache, without GitHub.
+    pin_to(h, &cache);
     enable(h, "game", None).unwrap();
     let job = ended(h, "game").await;
     // The app names no program or install: the user chooses the game's.
@@ -2387,6 +2437,7 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let list = release_list(&base, "Alpha0.3.5.8R2", &files);
+    pin_files(h, &files);
     let server = serve(listener, list, Arc::new(files)).await;
     *h.neural.origin.lock().unwrap() = Some(server.base);
     enable(h, "game", None).unwrap();
@@ -2488,7 +2539,7 @@ async fn real_release_into_a_fake_game() {
         ));
         show(&format!("after installing {}", previous.tag));
         let held = hold(&runtime);
-        let response = prepare(&exe, Some(&folder));
+        let response = install(Some(&exe), None, &folder);
         drop(held);
         println!(
             "update to {} with the runtime held open: {response:?}",

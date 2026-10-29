@@ -278,12 +278,13 @@ fn webview_environment(
 /// loading screen ("Microsoft Edge can't read and write to its data
 /// directory").
 fn require_administrator(elevated: bool) -> Result<()> {
-    ensure!(
-        elevated,
-        "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)"
-    );
+    ensure!(elevated, "{NEEDS_ADMINISTRATOR}");
     Ok(())
 }
+
+/// What [`open`] refuses with when the signed-in user has no elevated
+/// token; the console says the same before the button is pressed.
+pub const NEEDS_ADMINISTRATOR: &str = "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)";
 
 /// The Nucleus Co-op [`open`] started: the only one the host closes. It is
 /// every NucleusCoop.exe in the job [`open`] made, so one that restarted

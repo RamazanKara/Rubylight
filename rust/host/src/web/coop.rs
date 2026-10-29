@@ -131,7 +131,7 @@ fn configured(h: &Shared) -> String {
 /// Why Open Nucleus Co-op on this PC is refused on an account Windows
 /// doesn't elevate: the text `butterpollo_windows::nucleus::session::open`
 /// refuses it with, so the console says it before the button is pressed.
-const OPEN_NEEDS_ELEVATION: &str = "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)";
+const OPEN_NEEDS_ELEVATION: &str = butterpollo_windows::nucleus::session::NEEDS_ADMINISTRATOR;
 
 /// A refused co-op action: its status and the host's text.
 fn refused(refusal: &Refusal) -> Response {

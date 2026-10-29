@@ -151,7 +151,7 @@ public class ControllerHandlerTest {
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.backAsGuide = true;
         ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs) {
-            @Override protected boolean hasInternalGamepad() { return true; }
+            @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, true}; }
         };
         ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
         context.assignedControllerNumber = true;
@@ -177,7 +177,7 @@ public class ControllerHandlerTest {
         // Injected by firmware (virtual device), or a built-in key device such as gpio-keys
         assertTrue(ControllerHandler.isHandheldSystemBack(KeyEvent.KEYCODE_BACK, 0, keyboard, true, false, true, false, true));
         assertTrue(ControllerHandler.isHandheldSystemBack(KeyEvent.KEYCODE_BACK, 0, keyboard, false, false, false, false, true));
-        // No built-in gamepad (a phone), an external device, a real keyboard, or a gamepad (handleButtonDown)
+        // No built-in gamepad with its own Select (a phone, a Shield Portable), an external device, a real keyboard, or a gamepad (handleButtonDown)
         assertFalse(ControllerHandler.isHandheldSystemBack(KeyEvent.KEYCODE_BACK, 0, keyboard, true, false, true, false, false));
         assertFalse(ControllerHandler.isHandheldSystemBack(KeyEvent.KEYCODE_BACK, 0, keyboard, false, true, false, false, true));
         assertFalse(ControllerHandler.isHandheldSystemBack(KeyEvent.KEYCODE_BACK, 0, keyboard, false, false, true, false, true));

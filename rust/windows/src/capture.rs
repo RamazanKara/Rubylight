@@ -119,6 +119,15 @@ pub fn display_present(name: &str) -> bool {
     name.starts_with(window::PREFIX)
         || displays().is_ok_and(|choices| select_display(&choices, name).is_ok_and(|d| d.is_some()))
 }
+/// Refuses a window target whose window closed or is minimised (no frames
+/// would come), or that shows on another display than the one named (or on
+/// none of that name), so a stream of it fails with the reason instead of
+/// freezing or using the wrong GPU and colour space.
+pub fn check_window(target: &WindowTarget) -> Result<()> {
+    window::check(target.handle())?;
+    let shown_on = window::display_of(target.handle())?;
+    window::on_display(target.handle(), &shown_on, &target.display)
+}
 /// The primary display's name, which capture opens when the stream's display
 /// did not come back.
 pub fn primary_display() -> Option<String> {

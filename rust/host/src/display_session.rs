@@ -2209,14 +2209,17 @@ pub fn prepare_stream(
     config: &Config,
 ) -> Result<StreamPreparation> {
     if let Some(target) = configured_window(config)? {
+        configured_window_open(&target)?;
         tracing::info!(target = %target, "streaming the configured window");
-        let first = target.clone();
+        let name = target.to_string();
+        // The window is checked every 100 ms: closed or minimised, the stream
+        // says so while its capture fails (stream.rs gives up after 30 s).
         return Ready::window(
             h,
             stream,
             config,
-            first,
-            Box::new(move || Ok(target.clone())),
+            name.clone(),
+            Box::new(move || configured_window_open(&target).map(|()| name.clone())),
             launch.warnings.clone(),
         );
     }
@@ -2242,9 +2245,18 @@ pub fn prepare_stream(
 /// clip (e2e.py --content). Like a co-op player's window, no display is
 /// prepared, changed or kept; a malformed target is refused, never streamed as
 /// a display, and a window that closes fails the capture loudly.
-fn configured_window(config: &Config) -> Result<Option<String>> {
+fn configured_window(
+    config: &Config,
+) -> Result<Option<butterpollo_windows::capture::WindowTarget>> {
     let output = config.get("output_name", "").trim();
-    Ok(butterpollo_windows::capture::WindowTarget::parse(output)?.map(|_| output.to_string()))
+    butterpollo_windows::capture::WindowTarget::parse(output)
+        .context("output_name is neither a display nor a window:<hwnd>@<display> target")
+}
+
+/// A closed or minimised configured window refuses the stream with the reason.
+fn configured_window_open(target: &butterpollo_windows::capture::WindowTarget) -> Result<()> {
+    butterpollo_windows::capture::check_window(target)
+        .with_context(|| format!("output_name names the window {target}, which cannot be streamed"))
 }
 
 /// Streams share the saved layout's restoration, like the arrangement and
@@ -2714,8 +2726,11 @@ pub(crate) mod tests {
     fn a_window_output_streams_that_window_and_a_display_name_does_not() {
         let window = Config::parse(r"output_name = window:0x2056c@\\.\DISPLAY1 ").unwrap();
         assert_eq!(
-            configured_window(&window).unwrap().as_deref(),
-            Some(r"window:0x2056c@\\.\DISPLAY1")
+            configured_window(&window).unwrap(),
+            Some(butterpollo_windows::capture::WindowTarget::new(
+                0x2056c,
+                r"\\.\DISPLAY1"
+            ))
         );
         for display in ["", r"output_name=\\.\DISPLAY1", "output_name=Dell U2723QE"] {
             assert_eq!(
@@ -2728,12 +2743,28 @@ pub(crate) mod tests {
         for broken in [
             "output_name=window:garbage",
             r"output_name=window:0@\\.\DISPLAY1",
+            "output_name=window:12@",
+            r"output_name=window:@\\.\DISPLAY1",
         ] {
+            let error = configured_window(&Config::parse(broken).unwrap()).unwrap_err();
             assert!(
-                configured_window(&Config::parse(broken).unwrap()).is_err(),
-                "{broken}"
+                format!("{error:#}").contains("output_name"),
+                "{broken}: {error:#}"
             );
         }
+    }
+
+    #[test]
+    fn a_closed_configured_window_refuses_the_stream_with_the_reason() {
+        // No window has this handle; a minimised one is refused the same way
+        // (capture::window's unavailable test).
+        let gone = butterpollo_windows::capture::WindowTarget::new(0x7fff_fff0, r"\\.\DISPLAY1");
+        let error = format!("{:#}", configured_window_open(&gone).unwrap_err());
+        assert!(
+            error.contains(r"output_name names the window window:2147483632@\\.\DISPLAY1"),
+            "{error}"
+        );
+        assert!(error.contains("closed"), "{error}");
     }
 
     #[test]

@@ -8,6 +8,9 @@
 use anyhow::{Context, Result, bail, ensure};
 use windows::Win32::{
     Foundation::HWND,
+    Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW, MonitorFromWindow,
+    },
     UI::WindowsAndMessaging::{IsIconic, IsWindow},
 };
 
@@ -109,6 +112,36 @@ pub(super) fn check(window: usize) -> Result<()> {
         Some(reason) => bail!("{reason} (window {window:#x})"),
         None => Ok(()),
     }
+}
+
+/// The display that shows most of the window, such as `\\.\DISPLAY1`.
+pub(super) fn display_of(window: usize) -> Result<String> {
+    let mut info = MONITORINFOEXW {
+        monitorInfo: MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFOEXW>() as u32,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // SAFETY: `info` is a live local whose size is set to the extended struct's;
+    // a stale handle only fails the call.
+    let found = unsafe {
+        let monitor = MonitorFromWindow(HWND(window as *mut _), MONITOR_DEFAULTTONEAREST);
+        GetMonitorInfoW(monitor, &mut info.monitorInfo).as_bool()
+    };
+    ensure!(found, "no display shows the window {window:#x}");
+    Ok(crate::text::from_wide(&info.szDevice))
+}
+
+/// Refuses a window shown on another display than the target names: the
+/// capture would use that display's GPU and colour space for it, and a name
+/// no display has would match none.
+pub(super) fn on_display(window: usize, shown_on: &str, named: &str) -> Result<()> {
+    ensure!(
+        shown_on.eq_ignore_ascii_case(named),
+        "the window {window:#x} is on {shown_on}, not on {named}; name the display it is on"
+    );
+    Ok(())
 }
 
 /// What to do with a captured frame of a window, whose size can change.
@@ -270,6 +303,55 @@ mod tests {
             format!("the game window closed (window {:#x})", normal.0 as usize)
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_window_on_another_display_than_named_is_refused() -> Result<()> {
+        assert!(on_display(5, r"\\.\DISPLAY1", r"\\.\display1").is_ok());
+        let error = on_display(5, r"\\.\DISPLAY1", r"\\.\DISPLAY2")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            r"the window 0x5 is on \\.\DISPLAY1, not on \\.\DISPLAY2; name the display it is on"
+        );
+        // A real (hidden) window: its own display passes, a name no display
+        // has is refused, never captured on the display it is on.
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP,
+        };
+        // SAFETY: The class and title are static NUL-terminated literals; no other pointers.
+        let window = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                windows::core::w!("STATIC"),
+                windows::core::w!("Rubylight capture test"),
+                WS_POPUP,
+                0,
+                0,
+                64,
+                64,
+                None,
+                None,
+                None,
+                None,
+            )
+        }?;
+        let handle = window.0 as usize;
+        let result = (|| -> Result<()> {
+            let shown_on = display_of(handle)?;
+            assert!(shown_on.starts_with(r"\\.\"), "{shown_on}");
+            crate::capture::check_window(&WindowTarget::new(handle as u64, &shown_on))?;
+            let error =
+                crate::capture::check_window(&WindowTarget::new(handle as u64, r"\\.\DISPLAY99"))
+                    .unwrap_err()
+                    .to_string();
+            assert!(error.contains(r"not on \\.\DISPLAY99"), "{error}");
+            Ok(())
+        })();
+        // SAFETY: The window was created on this thread above.
+        unsafe { DestroyWindow(window)? };
+        result
     }
 
     #[test]

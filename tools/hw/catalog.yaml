@@ -453,7 +453,7 @@ cases:
     title: Background stream of a one-player game without a hub handler, through Rubylight's own Nucleus Co-op handler
     command: '& {{repo}}\tools\hw\nucleus-generic.ps1 -Out {{out}} -Game D:\games\BFME1\lotrbfme.exe; exit $LASTEXITCODE'
     preconditions: [idle, gpu-lock]
-    pass: 'exit 0; session.log has "handler Rubylight-lotrbfme-*.js for lotrbfme.exe", "running after", "game process", "capture window:...: wgc" with a size and at least 5 % lit, "pad A held and released at XInput index", "stopped in", "compatibility settings as before" and "handler and entry removed"'
+    pass: 'exit 0; session.log has "handler Rubylight-lotrbfme-*.js for lotrbfme.exe", "running after", "game process", "capture window:...: wgc" with a size and at least 5 % lit, "pad A held and released at XInput index", "stopped in", "compatibility settings as before" and "handlers and game list as before"'
     output: '{{out}}\session.log'
     note: runs the host's ignored test nucleus::tests::a_background_stream_without_a_hub_handler_on_this_pc as SYSTEM through a one-shot scheduled task; Nucleus Co-op installed (console, Set up co-op) and not running, no host session. The app goes through the host's admission (path, launcher, anti-cheat, arguments, Unreal stub). The pad is checked at the session's XInput index, not inside the game. Covers the session, not a client; the stream itself is in the rc pass
 

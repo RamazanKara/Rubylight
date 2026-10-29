@@ -4063,15 +4063,31 @@ mod tests {
         assert!(lit(&hdr).is_err());
     }
 
+    /// Where Nucleus sets the DPI mode for the game at `game`: that exact
+    /// path, and the instances of its `executable` below Nucleus' `content`.
+    fn nucleus_sets(name: &str, game: &str, content: &Path, executable: &str) -> bool {
+        let plain = |path: &str| path.trim().replace('/', "\\").to_lowercase();
+        let name = plain(name);
+        let content = plain(&content.to_string_lossy());
+        name == plain(game)
+            || (name
+                .strip_prefix(content.trim_end_matches('\\'))
+                .is_some_and(|rest| rest.starts_with('\\'))
+                && file_name(&name).eq_ignore_ascii_case(executable))
+    }
+
     /// The compatibility settings the case changes back to `before`: each
-    /// value of a program named `executable` that is not as it was, with the
-    /// data it gets, None to remove it. Other programs' are never touched.
+    /// value Nucleus sets for the game at `game` ([`nucleus_sets`]) that is
+    /// not as it was, with the data it gets, None to remove it. Another
+    /// program's, even one of the same file name, is never touched.
     fn layer_changes(
         before: &BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
         after: &BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
+        game: &str,
+        content: &Path,
         executable: &str,
     ) -> Vec<(String, Option<butterpollo_windows::nucleus::layers::Value>)> {
-        let named = |name: &&String| file_name(name).eq_ignore_ascii_case(executable);
+        let named = |name: &&String| nucleus_sets(name, game, content, executable);
         let mut changes: Vec<_> = after
             .iter()
             .filter(|(name, _)| named(name))
@@ -4094,40 +4110,183 @@ mod tests {
             kind: 1,
             data: vec![byte, 0, 0, 0],
         };
+        let content = Path::new(r"C:\Nucleus\content");
         let before = BTreeMap::from([
             (r"D:\G\Game.exe".to_string(), text(1)),
             (r"D:\Gone\Game.exe".to_string(), text(2)),
             (r"C:\Other.exe".to_string(), text(3)),
+            (
+                r"C:\Nucleus\content\G\Instance1\Game.exe".to_string(),
+                text(4),
+            ),
         ]);
         let after = BTreeMap::from([
-            (r"D:\G\Game.exe".to_string(), text(9)),
+            (r"d:/g/game.EXE".to_string(), text(9)),
             (
                 r"C:\Nucleus\content\G\Instance0\GAME.exe".to_string(),
                 text(9),
             ),
+            (
+                r"C:\Nucleus\content\G\Instance0\Tool.exe".to_string(),
+                text(9),
+            ),
+            (r"C:\Nucleus\contents\Game.exe".to_string(), text(9)),
+            (r"E:\Mine\Game.exe".to_string(), text(9)),
             (r"C:\Other.exe".to_string(), text(9)),
         ]);
         assert_eq!(
-            layer_changes(&before, &after, "game.exe"),
+            layer_changes(&before, &after, r"D:\G\Game.exe", content, "game.exe"),
             [
                 (r"C:\Nucleus\content\G\Instance0\GAME.exe".to_string(), None),
+                (r"d:/g/game.EXE".to_string(), None),
+                (
+                    r"C:\Nucleus\content\G\Instance1\Game.exe".to_string(),
+                    Some(text(4))
+                ),
                 (r"D:\G\Game.exe".to_string(), Some(text(1))),
-                (r"D:\Gone\Game.exe".to_string(), Some(text(2))),
             ]
         );
-        assert!(layer_changes(&before, &before, "game.exe").is_empty());
+        assert!(layer_changes(&before, &before, r"D:\G\Game.exe", content, "game.exe").is_empty());
     }
 
-    /// What a hardware case leaves: the session, Rubylight's handlers and
-    /// list entries it wrote, and the game's compatibility settings, undone
-    /// once, also when the case fails.
+    /// Files a hardware case may change, as they were before it: the user's
+    /// game list, and each handler of Rubylight's (its marker) by name.
+    #[derive(Debug, Default)]
+    struct KeptFiles {
+        /// Each path's bytes; None when it was not there.
+        files: BTreeMap<PathBuf, Option<Vec<u8>>>,
+        handlers: PathBuf,
+    }
+    impl KeptFiles {
+        fn own_handlers(handlers: &Path) -> Result<Vec<PathBuf>> {
+            let mut own = Vec::new();
+            let entries = match std::fs::read_dir(handlers) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(own),
+                Err(error) => return Err(error).context(handlers.display().to_string()),
+            };
+            for entry in entries {
+                let path = entry?.path();
+                if path.is_file()
+                    && std::fs::read(&path).is_ok_and(|text| {
+                        butterpollo_core::nucleus::generic::owns(&String::from_utf8_lossy(&text))
+                    })
+                {
+                    own.push(path);
+                }
+            }
+            Ok(own)
+        }
+
+        fn take(handlers: &Path, list: &Path) -> Result<Self> {
+            let mut files = BTreeMap::new();
+            for path in Self::own_handlers(handlers)?
+                .into_iter()
+                .chain([list.to_path_buf()])
+            {
+                let bytes = match std::fs::read(&path) {
+                    Ok(bytes) => Some(bytes),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error).context(path.display().to_string()),
+                };
+                files.insert(path, bytes);
+            }
+            Ok(Self {
+                files,
+                handlers: handlers.into(),
+            })
+        }
+
+        /// Each file as it was, and a handler of ours the case wrote gone.
+        /// Returns what could not be put back.
+        fn put_back(&self) -> Vec<String> {
+            let mut failures = Vec::new();
+            match Self::own_handlers(&self.handlers) {
+                Ok(now) => {
+                    for path in now.iter().filter(|path| !self.files.contains_key(*path)) {
+                        match std::fs::remove_file(path) {
+                            Ok(()) => println!("cleanup: removed {}", path.display()),
+                            Err(error) => failures.push(format!("{}: {error}", path.display())),
+                        }
+                    }
+                }
+                Err(error) => failures.push(format!("{error:#}")),
+            }
+            for (path, bytes) in &self.files {
+                let now = std::fs::read(path).ok();
+                if now == *bytes {
+                    continue;
+                }
+                let done = match bytes {
+                    Some(bytes) => std::fs::write(path, bytes),
+                    None => std::fs::remove_file(path),
+                };
+                match done {
+                    Ok(()) => println!("cleanup: {} as before", path.display()),
+                    Err(error) => failures.push(format!("{}: {error}", path.display())),
+                }
+            }
+            failures
+        }
+    }
+
+    #[test]
+    fn a_hardware_case_puts_the_game_list_and_our_handlers_back_exactly() {
+        let root = std::env::temp_dir().join(format!("nucleus-case-{}", uuid::Uuid::new_v4()));
+        let handlers = root.join("handlers");
+        std::fs::create_dir_all(&handlers).unwrap();
+        let ours = |name: &str| {
+            format!(
+                "{}\nGame.GUID='Rubylight-{name}'\n",
+                butterpollo_core::nucleus::generic::MARKER
+            )
+        };
+        let (earlier, hub, list) = (
+            handlers.join("Rubylight-earlier.js"),
+            handlers.join("Hub.js"),
+            root.join("userprofile.json"),
+        );
+        std::fs::write(&earlier, ours("earlier")).unwrap();
+        std::fs::write(&hub, "Game.GUID='Hub'\n").unwrap();
+        std::fs::write(&list, r#"{"Games":[{"GameGuid":"Rubylight-earlier"}]}"#).unwrap();
+        let kept = KeptFiles::take(&handlers, &list).unwrap();
+        // The case's sweep takes the earlier one and its entry, and writes
+        // its own; the user's hub handler changes meanwhile.
+        std::fs::remove_file(&earlier).unwrap();
+        std::fs::write(handlers.join("Rubylight-case.js"), ours("case")).unwrap();
+        std::fs::write(&list, r#"{"Games":[{"GameGuid":"Rubylight-case"}]}"#).unwrap();
+        std::fs::write(&hub, "Game.GUID='Hub'\n// edited\n").unwrap();
+        assert!(kept.put_back().is_empty());
+        assert_eq!(std::fs::read_to_string(&earlier).unwrap(), ours("earlier"));
+        assert!(!handlers.join("Rubylight-case.js").exists());
+        assert_eq!(
+            std::fs::read_to_string(&list).unwrap(),
+            r#"{"Games":[{"GameGuid":"Rubylight-earlier"}]}"#
+        );
+        assert_eq!(
+            std::fs::read_to_string(&hub).unwrap(),
+            "Game.GUID='Hub'\n// edited\n"
+        );
+        // A list that was not there goes again.
+        std::fs::remove_file(&list).unwrap();
+        let kept = KeptFiles::take(&handlers, &list).unwrap();
+        std::fs::write(&list, "{}").unwrap();
+        assert!(kept.put_back().is_empty());
+        assert!(!list.exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// What a hardware case leaves: the session, the game list and
+    /// Rubylight's handlers ([`KeptFiles`]), and the game's compatibility
+    /// settings at its exact paths, put back as they were once, also when
+    /// the case fails.
     struct CaseCleanup {
         registry: Arc<Registry>,
-        folder: PathBuf,
-        /// Rubylight's handlers before the case.
-        own_before: BTreeSet<String>,
+        kept: KeptFiles,
         layers_before: BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
-        executable: Option<String>,
+        content: PathBuf,
+        /// The game's path and its handler's .exe, once admitted.
+        game: Option<(String, String)>,
         done: bool,
     }
     impl CaseCleanup {
@@ -4135,31 +4294,21 @@ mod tests {
             if std::mem::replace(&mut self.done, true) {
                 return Ok(());
             }
-            let mut failures = Vec::new();
             for listed in self.registry.sessions() {
                 self.registry.end(listed.session.id);
             }
-            let pc = OnPc;
-            match pc.catalog(&self.folder) {
-                Ok(catalog) => {
-                    for own in catalog
-                        .handlers
-                        .iter()
-                        .filter(|h| h.own && !self.own_before.contains(&h.guid))
-                    {
-                        match pc.remove_own(&self.folder, own) {
-                            Ok(()) => println!("cleanup: removed handler {}", own.file),
-                            Err(error) => failures.push(format!("{}: {error:#}", own.file)),
-                        }
-                    }
-                }
-                Err(error) => failures.push(format!("the catalog: {error:#}")),
-            }
-            if let Some(executable) = &self.executable {
+            let mut failures = self.kept.put_back();
+            if let Some((game, executable)) = &self.game {
                 let changed = (|| -> Result<usize> {
                     use butterpollo_windows::nucleus::layers::Layers;
                     let mut hive = butterpollo_windows::nucleus::layers::UserHive::signed_in()?;
-                    let changes = layer_changes(&self.layers_before, &hive.values()?, executable);
+                    let changes = layer_changes(
+                        &self.layers_before,
+                        &hive.values()?,
+                        game,
+                        &self.content,
+                        executable,
+                    );
                     for (name, value) in &changes {
                         match value {
                             Some(value) => hive.set(name, value)?,
@@ -4202,8 +4351,10 @@ mod tests {
     /// player's A press and release at the session's XInput index (where
     /// Nucleus' input hooks read the pad; whether the game reacts is not
     /// observable here); and the game's compatibility settings as before once
-    /// it stops. The handler, entry and settings are put back afterwards,
-    /// also on a failure. Run as SYSTEM, like the service, with Nucleus Co-op
+    /// it stops. The user's game list, Rubylight's handlers (an earlier one
+    /// the session's sweep took included) and the settings at the game's
+    /// paths are then exactly as before, also on a failure. Run as SYSTEM,
+    /// like the service, with Nucleus Co-op
     /// installed by the console and not running.
     #[test]
     #[ignore = "starts a game through Nucleus Co-op on this PC as SYSTEM"]
@@ -4233,18 +4384,17 @@ mod tests {
             anyhow::bail!("Nucleus Co-op runs (process {pid}): close it first");
         }
         let registry = Arc::new(Registry::new(Arc::new(OnPc)));
+        let list = butterpollo_windows::user_folder::roaming_app_data()
+            .map_err(|error| anyhow!("the user's AppData folder: {error}"))?
+            .join("Nucleus Coop")
+            .join("userprofile.json");
+        let before = pc.catalog(&folder)?;
         let mut cleanup = CaseCleanup {
             registry: registry.clone(),
-            folder: folder.clone(),
-            own_before: pc
-                .catalog(&folder)?
-                .handlers
-                .iter()
-                .filter(|h| h.own)
-                .map(|h| h.guid.clone())
-                .collect(),
+            kept: KeptFiles::take(&folder.join("handlers"), &list)?,
             layers_before: UserHive::signed_in()?.values()?,
-            executable: None,
+            content: folder.join("content"),
+            game: None,
             done: false,
         };
         let owner = client("hw-case", false);
@@ -4272,7 +4422,6 @@ mod tests {
             .find(|h| h.guid == guid)
             .with_context(|| format!("no handler {guid} in Nucleus Co-op's handlers"))?
             .clone();
-        cleanup.executable = Some(handler.executable.clone());
         ensure!(handler.own, "{} is not Rubylight's handler", handler.file);
         ensure!(
             folder.join("handlers").join(&handler.file).is_file(),
@@ -4284,6 +4433,7 @@ mod tests {
             .iter()
             .find(|g| g.guid == guid)
             .with_context(|| format!("{guid} is not in the user's game list"))?;
+        cleanup.game = Some((entry.exe_path.clone(), handler.executable.clone()));
         println!(
             "handler {} for {} at {}",
             handler.file, handler.executable, entry.exe_path
@@ -4404,6 +4554,8 @@ mod tests {
         let changes = layer_changes(
             &cleanup.layers_before,
             &UserHive::signed_in()?.values()?,
+            &entry.exe_path,
+            &cleanup.content,
             &handler.executable,
         );
         ensure!(
@@ -4416,12 +4568,25 @@ mod tests {
         }
         cleanup.run()?;
         let after = pc.catalog(&folder)?;
+        let own = |catalog: &Catalog| -> Vec<String> {
+            let mut own: Vec<String> = catalog
+                .handlers
+                .iter()
+                .filter(|h| h.own)
+                .map(|h| h.file.clone())
+                .collect();
+            own.sort();
+            own
+        };
         ensure!(
-            !after.handlers.iter().any(|h| h.guid == guid)
-                && !after.games.iter().any(|g| g.guid == guid),
-            "the handler or its entry stayed"
+            own(&after) == own(&before) && after.games == before.games,
+            "the handlers or game list are not as before: {:?} and {:?}, were {:?} and {:?}",
+            own(&after),
+            after.games,
+            own(&before),
+            before.games
         );
-        println!("handler and entry removed");
+        println!("handlers and game list as before");
         Ok(())
     }
 }

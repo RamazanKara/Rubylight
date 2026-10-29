@@ -5,6 +5,7 @@ import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.button.MaterialButton;
 import android.content.Context;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.preference.DialogPreference;
 import android.util.AttributeSet;
 import android.util.TypedValue;
@@ -47,6 +48,10 @@ public class SeekBarPreference extends DialogPreference
     private int currentValue;
     // Value shown in the open dialog; persisted only when the user confirms
     private int dialogValue;
+    // A fast drag crosses a value every frame, and some vendors play the tick hard enough that
+    // 60-144 a second buzzes: the slider ticks at most once per SLIDER_TICK_MS.
+    static final long SLIDER_TICK_MS = 30;
+    private long lastSliderTick = -SLIDER_TICK_MS;
 
     public SeekBarPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -159,6 +164,17 @@ public class SeekBarPreference extends DialogPreference
         showDialogValue(value);
     }
 
+    /** The slider dragged to a value at uptime {@code now}: shows it, ticking at most once per SLIDER_TICK_MS. */
+    void slideTo(View slider, int value, long now) {
+        // A tick per value the user sees change, not per slider position (a log scale has 1000).
+        if (value != dialogValue && now - lastSliderTick >= SLIDER_TICK_MS) {
+            lastSliderTick = now;
+            Haptics.perform(slider, Haptics.Kind.STEP);
+        }
+        dialogValue = value;
+        valueText.setText(formatValue(dialogValue));
+    }
+
     private Button smallButton(String label) {
         Button button = new MaterialButton(context, null, androidx.appcompat.R.attr.borderlessButtonStyle);
         button.setText(label);
@@ -209,11 +225,7 @@ public class SeekBarPreference extends DialogPreference
             @Override
             public void onProgressChanged(SeekBar seekBar, int position, boolean fromUser) {
                 if (fromUser) {
-                    int value = positionToValue(position);
-                    // A tick per value the user sees change, not per slider position (a log scale has 1000).
-                    if (value != dialogValue) Haptics.perform(seekBar, Haptics.Kind.STEP);
-                    dialogValue = value;
-                    valueText.setText(formatValue(dialogValue));
+                    slideTo(seekBar, positionToValue(position), SystemClock.uptimeMillis());
                 }
             }
 

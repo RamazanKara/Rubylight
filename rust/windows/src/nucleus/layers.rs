@@ -8,15 +8,19 @@
 //! Only the game's own path and Nucleus' instance links count, never another
 //! game's .exe of the same name. The values wait in a file beside Nucleus
 //! until then, so what a host that stopped mid-session left comes back when
-//! the service next sees the user sign in or starts a host, or before the
-//! next session.
+//! the service next sees the user sign in at the console or starts a host,
+//! or before the next session. A lock file beside it keeps a restore off a
+//! running session's values.
 use crate::text::to_wide;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{
     ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, ERROR_PATH_NOT_FOUND,
+    ERROR_SHARING_VIOLATION,
 };
 use windows::Win32::System::Registry::{
     HKEY, HKEY_USERS, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_VALUE_TYPE,
@@ -180,22 +184,95 @@ fn journal(folder: &Path, user: &str) -> PathBuf {
     folder.join(format!("Rubylight-layers-{user}.json"))
 }
 
-/// Write `snapshot` to `journal` whole: a temporary file, then renamed over
-/// it, so a crash never leaves half a file.
+/// Write `snapshot` to `journal` whole: a temporary file, on the disk before
+/// it is renamed over it, so a crash or power loss never leaves half a file.
 fn write_journal(journal: &Path, snapshot: &Snapshot) -> Result<()> {
     let text = serde_json::to_vec_pretty(snapshot)?;
     let temporary = journal.with_extension("json.tmp");
-    std::fs::write(&temporary, text).with_context(|| format!("writing {}", temporary.display()))?;
+    let mut file = std::fs::File::create(&temporary)
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    file.write_all(&text)
+        .and_then(|()| file.sync_all())
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    drop(file);
     std::fs::rename(&temporary, journal).with_context(|| format!("replacing {}", journal.display()))
 }
 
+/// Remove a file restored from; one already gone is fine.
+fn remove_journal(journal: &Path) -> Result<()> {
+    match std::fs::remove_file(journal) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("removing {}", journal.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// How long a session's start or check waits for a restore by the service
+/// or another check, each a few registry calls.
+const LOCK_WAIT: Duration = Duration::from_secs(5);
+
+/// A user's file in use, by a session from before Nucleus starts until its
+/// values are back, or by a restore: a restore never puts back a running
+/// session's values, and two never restore the same file. The lock file
+/// stays; an open handle is the lock, so a host that stopped holds none.
+struct Lock {
+    _file: std::fs::File,
+}
+
+impl Lock {
+    fn path(journal: &Path) -> PathBuf {
+        journal.with_extension("lock")
+    }
+
+    /// The lock, or None while a session or another restore holds it.
+    fn try_take(journal: &Path) -> Result<Option<Self>> {
+        use std::os::windows::fs::OpenOptionsExt;
+        let path = Self::path(journal);
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .share_mode(0)
+            .open(&path)
+        {
+            Ok(file) => Ok(Some(Self { _file: file })),
+            Err(error) if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION.0 as i32) => {
+                Ok(None)
+            }
+            Err(error) => Err(error).with_context(|| format!("opening {}", path.display())),
+        }
+    }
+
+    /// The lock, waiting up to `wait` for a restore to finish.
+    fn take(journal: &Path, wait: Duration) -> Result<Self> {
+        let until = Instant::now() + wait;
+        loop {
+            if let Some(lock) = Self::try_take(journal)? {
+                return Ok(lock);
+            }
+            anyhow::ensure!(
+                Instant::now() < until,
+                "{} stays in use: a Nucleus Co-op session or the Rubylight service is putting the game's compatibility settings back. Start the stream again once that session ends",
+                Self::path(journal).display()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
 /// A session's values, restored once when it is dropped or
-/// [`restore`](Guard::restore) is called.
+/// [`restore`](Guard::restore) is called. It holds its user's [`Lock`] until
+/// then.
 pub struct Guard {
     layers: Box<dyn Layers>,
     snapshot: Snapshot,
     journal: PathBuf,
     restored: bool,
+    /// Held until the guard drops; tests let go of it to stand in for a
+    /// host that stopped.
+    _lock: Option<Lock>,
 }
 
 impl Guard {
@@ -209,6 +286,7 @@ impl Guard {
         game: &str,
     ) -> Result<Self> {
         let journal = journal(folder, layers.user());
+        let lock = Lock::take(&journal, LOCK_WAIT)?;
         restore_left(layers.as_mut(), &journal)?;
         let snapshot = snapshot(layers.as_mut(), executable, game, &folder.join("content"))?;
         write_journal(&journal, &snapshot)?;
@@ -217,6 +295,7 @@ impl Guard {
             snapshot,
             journal,
             restored: false,
+            _lock: Some(lock),
         })
     }
 
@@ -233,9 +312,9 @@ impl Guard {
                     changed,
                     "Nucleus Co-op: the game's compatibility settings are back as they were"
                 );
-                if let Err(error) = std::fs::remove_file(&self.journal) {
+                if let Err(error) = remove_journal(&self.journal) {
                     tracing::warn!(
-                        %error,
+                        error = format!("{error:#}"),
                         file = %self.journal.display(),
                         "Nucleus Co-op: the restored compatibility settings' file was not removed"
                     );
@@ -258,7 +337,7 @@ impl Drop for Guard {
 
 /// Restore the values in `journal`, which a session the host never ended
 /// left, and remove it. A session must not start before: its own snapshot
-/// would keep Nucleus' values as the user's.
+/// would keep Nucleus' values as the user's. The caller holds the [`Lock`].
 fn restore_left(layers: &mut dyn Layers, journal: &Path) -> Result<()> {
     let text = match std::fs::read(journal) {
         Ok(text) => text,
@@ -272,6 +351,15 @@ fn restore_left(layers: &mut dyn Layers, journal: &Path) -> Result<()> {
             });
         }
     };
+    // Created but never written to the disk, as power loss can leave a
+    // rename the file system logged before the data: nothing to put back.
+    if text.iter().all(u8::is_ascii_whitespace) {
+        tracing::warn!(
+            file = %journal.display(),
+            "Nucleus Co-op: the compatibility settings' file of an earlier session is empty; removing it"
+        );
+        return remove_journal(journal);
+    }
     // Each error names the file: deleting it lets sessions start again, with
     // the settings it kept left as Nucleus set them.
     let left = serde_json::from_slice::<Snapshot>(&text).map_err(|error| {
@@ -291,49 +379,154 @@ fn restore_left(layers: &mut dyn Layers, journal: &Path) -> Result<()> {
         changed,
         "Nucleus Co-op: an earlier session's compatibility settings are back as they were"
     );
-    std::fs::remove_file(journal).with_context(|| format!("removing {}", journal.display()))
+    remove_journal(journal)
 }
 
 /// Restore what a session the host never ended left for the user of
 /// `layers` in the Nucleus Co-op at `folder`. Checked before a session
-/// closes the console's window, and when the service sees the user sign in.
+/// closes the console's window; it waits for a restore by the service.
 pub fn restore_left_in(layers: &mut dyn Layers, folder: &Path) -> Result<()> {
     let journal = journal(folder, layers.user());
+    let _lock = Lock::take(&journal, LOCK_WAIT)?;
     restore_left(layers, &journal)
 }
 
-/// For the service: restore what a session left for the user signed in at
-/// the console, in the Nucleus Co-op `configured` names (`nucleus_path`) or
-/// the host's own copy below `data`. Nothing without a signed-in user or
-/// Nucleus Co-op. Call it only while no host runs a session for them, as
-/// when one starts or the user just signed in.
-pub fn restore_signed_in(data: &Path, configured: &str) -> Result<()> {
-    let Some(folder) = super::install::installed(data, configured)? else {
-        return Ok(());
-    };
-    if crate::process::user_sid().is_none() {
-        return Ok(());
-    }
-    restore_left_in(&mut UserHive::signed_in()?, &folder)
+/// What [`restore_at_console`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AtConsole {
+    /// Put back, or nothing was left for the user at the console.
+    Done,
+    /// Their session runs and puts its values back itself.
+    Busy,
+    /// Nobody is signed in at the console (`why`); the files in `waiting`
+    /// wait for their users.
+    NoUser { why: String, waiting: Vec<PathBuf> },
 }
 
-/// The signed-in user's layers in their hive (`HKEY_USERS\<SID>`), which
-/// Nucleus Co-op, running as them, sees as its own.
+/// For the service, in session 0: restore what a session left for the user
+/// signed in at the console, in the Nucleus Co-op `configured` names
+/// (`nucleus_path`) or the host's own copy below `data`. A session of
+/// theirs that runs keeps its values.
+pub fn restore_at_console(data: &Path, configured: &str) -> Result<AtConsole> {
+    let Some(folder) = super::install::installed(data, configured)? else {
+        return Ok(AtConsole::Done);
+    };
+    restore_console_with(
+        &folder,
+        crate::process::console_session(),
+        crate::process::session_user_sid,
+        |sid| Box::new(UserHive::of(sid)),
+    )
+}
+
+/// [`restore_at_console`] in the Nucleus Co-op at `folder`, with `console`
+/// the console's session, `sid_of` the user signed in to a session and
+/// `hive` their layers.
+fn restore_console_with(
+    folder: &Path,
+    console: u32,
+    sid_of: impl FnOnce(u32) -> Result<String>,
+    hive: impl FnOnce(String) -> Box<dyn Layers>,
+) -> Result<AtConsole> {
+    // WTSGetActiveConsoleSessionId while the console is between sessions.
+    const NO_SESSION: u32 = u32::MAX;
+    let sid = if console == NO_SESSION {
+        Err(anyhow::anyhow!("no session is attached to the console"))
+    } else {
+        sid_of(console).with_context(|| format!("nobody is signed in to session {console}"))
+    };
+    let sid = match sid {
+        Ok(sid) => sid,
+        Err(why) => {
+            return Ok(AtConsole::NoUser {
+                why: format!("{why:#}"),
+                waiting: waiting(folder)?,
+            });
+        }
+    };
+    let mut layers = hive(sid);
+    let journal = journal(folder, layers.user());
+    if !journal.exists() {
+        return Ok(AtConsole::Done);
+    }
+    let Some(_lock) = Lock::try_take(&journal)? else {
+        return Ok(AtConsole::Busy);
+    };
+    restore_left(layers.as_mut(), &journal)?;
+    Ok(AtConsole::Done)
+}
+
+/// The files in Nucleus' `folder` that keep a user's values.
+fn waiting(folder: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in
+        std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?
+    {
+        let path = entry
+            .with_context(|| format!("listing {}", folder.display()))?
+            .path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if name.starts_with("Rubylight-layers-") && name.ends_with(".json") {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// A user's layers in their hive (`HKEY_USERS\<SID>`), which Nucleus Co-op,
+/// running as them, sees as its own.
 pub struct UserHive {
     sid: String,
     path: Vec<u16>,
 }
 
 impl UserHive {
+    /// The user the host, in their session, runs Nucleus Co-op as.
     pub fn signed_in() -> Result<Self> {
         let sid = crate::process::user_sid().context(
             "finding the signed-in user, whose compatibility settings Nucleus Co-op changes",
         )?;
-        let path = to_wide(&format!(r"{sid}\{KEY}"));
-        Ok(Self { sid, path })
+        Ok(Self::of(sid))
     }
 
-    /// The key opened with `access`; None when it is not there.
+    /// The user `sid`'s.
+    pub fn of(sid: String) -> Self {
+        let path = to_wide(&format!(r"{sid}\{KEY}"));
+        Self { sid, path }
+    }
+
+    /// Whether the user's hive is loaded, as it is while they are signed in.
+    /// Without it, their layers can't be read: none is not "no values".
+    fn loaded(&self) -> Result<()> {
+        let root = to_wide(&self.sid);
+        let mut key = HKEY::default();
+        // SAFETY: the SID is terminated and outlives the call; `key` is an
+        // out-pointer, closed by `Key` once opened.
+        let opened = unsafe {
+            RegOpenKeyExW(
+                HKEY_USERS,
+                PCWSTR(root.as_ptr()),
+                Some(0),
+                KEY_QUERY_VALUE,
+                &mut key,
+            )
+        };
+        if opened == ERROR_FILE_NOT_FOUND || opened == ERROR_PATH_NOT_FOUND {
+            anyhow::bail!(
+                r"HKEY_USERS\{} is not loaded: the user is not signed in, so their compatibility settings wait until they are",
+                self.sid
+            );
+        }
+        opened
+            .ok()
+            .with_context(|| format!(r"opening HKEY_USERS\{}", self.sid))?;
+        drop(Key(key));
+        Ok(())
+    }
+
+    /// The key opened with `access`; None when it is not there in the
+    /// user's loaded hive.
     fn open(&self, access: windows::Win32::System::Registry::REG_SAM_FLAGS) -> Result<Option<Key>> {
         let mut key = HKEY::default();
         // SAFETY: the path is terminated and outlives the call; `key` is an
@@ -348,6 +541,7 @@ impl UserHive {
             )
         };
         if opened == ERROR_FILE_NOT_FOUND || opened == ERROR_PATH_NOT_FOUND {
+            self.loaded()?;
             return Ok(None);
         }
         opened.ok().with_context(|| self.describe("opening"))?;
@@ -569,6 +763,12 @@ pub mod tests {
             .into_owned()
     }
 
+    /// The host stops mid-session: Windows closes its lock, nothing more.
+    fn host_stops(mut guard: Guard) {
+        drop(guard._lock.take());
+        std::mem::forget(guard);
+    }
+
     fn take(map: &Map, folder: &Path) -> Result<Guard> {
         Guard::take(Box::new(map.clone()), folder, "puzzle.EXE", GAME)
     }
@@ -740,7 +940,7 @@ pub mod tests {
         let guard = take(&map, folder.path()).unwrap();
         nucleus_runs(&map, &[GAME]);
         // The host stops before the session ends.
-        std::mem::forget(guard);
+        host_stops(guard);
         let journal = journal(folder.path(), "S-1-5-21-7");
         assert!(journal.is_file());
         // The next session, of another game, restores first, then keeps its own.
@@ -767,7 +967,7 @@ pub mod tests {
             .unwrap()
             .insert(GAME.into(), text("~ WIN8RTM"));
         let folder = tempfile::tempdir().unwrap();
-        std::mem::forget(take(&map, folder.path()).unwrap());
+        host_stops(take(&map, folder.path()).unwrap());
         nucleus_runs(&map, &[GAME]);
         // What the service runs as the user signs in, before any session.
         restore_left_in(&mut map.clone(), folder.path()).unwrap();
@@ -775,6 +975,187 @@ pub mod tests {
         assert!(!journal(folder.path(), "S-1-5-21-7").exists());
         // Nothing left: nothing to do.
         restore_left_in(&mut map.clone(), folder.path()).unwrap();
+    }
+
+    /// The console's session (1) and who is signed in to it, as Windows
+    /// tells the service in session 0.
+    fn at_console(map: &Map, folder: &Path, console: u32) -> Result<AtConsole> {
+        restore_console_with(
+            folder,
+            console,
+            |session| {
+                anyhow::ensure!(session == 1, "no token");
+                Ok("S-1-5-21-7".into())
+            },
+            |sid| {
+                assert_eq!(sid, "S-1-5-21-7");
+                Box::new(map.clone())
+            },
+        )
+    }
+
+    #[test]
+    fn the_service_puts_back_what_the_user_at_the_console_left() {
+        let map = Map::default();
+        map.values
+            .lock()
+            .unwrap()
+            .insert(GAME.into(), text("~ WIN8RTM"));
+        let folder = tempfile::tempdir().unwrap();
+        host_stops(take(&map, folder.path()).unwrap());
+        nucleus_runs(&map, &[GAME]);
+        let journal = journal(folder.path(), "S-1-5-21-7");
+        // Nobody at the console, or a session nobody signed in to: the file
+        // waits, and the service says so.
+        for console in [u32::MAX, 2] {
+            match at_console(&map, folder.path(), console).unwrap() {
+                AtConsole::NoUser { why, waiting } => {
+                    assert!(!why.is_empty());
+                    assert_eq!(waiting, std::slice::from_ref(&journal));
+                }
+                other => panic!("{other:?}"),
+            }
+            assert!(journal.is_file());
+            assert_eq!(map.values.lock().unwrap()[GAME], text("~ HIGHDPIAWARE"));
+        }
+        // The user signs in at the console.
+        assert_eq!(at_console(&map, folder.path(), 1).unwrap(), AtConsole::Done);
+        assert_eq!(map.values.lock().unwrap()[GAME], text("~ WIN8RTM"));
+        assert!(!journal.exists());
+        assert_eq!(at_console(&map, folder.path(), 1).unwrap(), AtConsole::Done);
+        assert_eq!(
+            at_console(&map, folder.path(), u32::MAX).unwrap(),
+            AtConsole::NoUser {
+                why: "no session is attached to the console".into(),
+                waiting: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn a_running_session_keeps_its_values_from_the_service_and_a_check_waits() {
+        let map = Map::default();
+        map.values
+            .lock()
+            .unwrap()
+            .insert(GAME.into(), text("~ WIN8RTM"));
+        let folder = tempfile::tempdir().unwrap();
+        let guard = take(&map, folder.path()).unwrap();
+        nucleus_runs(&map, &[GAME]);
+        let journal = journal(folder.path(), "S-1-5-21-7");
+        let kept = std::fs::read(&journal).unwrap();
+        // The user signs in again while the session runs.
+        assert_eq!(at_console(&map, folder.path(), 1).unwrap(), AtConsole::Busy);
+        assert_eq!(std::fs::read(&journal).unwrap(), kept);
+        assert_eq!(map.values.lock().unwrap()[GAME], text("~ HIGHDPIAWARE"));
+        drop(guard);
+        assert_eq!(map.values.lock().unwrap()[GAME], text("~ WIN8RTM"));
+        assert!(!journal.exists());
+
+        // A check before the next session waits for the service's restore.
+        host_stops(take(&map, folder.path()).unwrap());
+        nucleus_runs(&map, &[GAME]);
+        let held = Lock::try_take(&journal).unwrap().unwrap();
+        assert!(Lock::try_take(&journal).unwrap().is_none());
+        let started = Instant::now();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+        restore_left_in(&mut map.clone(), folder.path()).unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(250));
+        release.join().unwrap();
+        assert_eq!(map.values.lock().unwrap()[GAME], text("~ WIN8RTM"));
+        assert!(!journal.exists());
+
+        // One held past the wait is an error naming the lock.
+        let _held = Lock::try_take(&journal).unwrap().unwrap();
+        let error = Lock::take(&journal, Duration::from_millis(100))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            error.contains("Rubylight-layers-S-1-5-21-7.lock"),
+            "{error}"
+        );
+    }
+
+    /// Layers whose first change removes the file, as a restore elsewhere
+    /// would have.
+    struct Raced(Map, PathBuf);
+    impl Layers for Raced {
+        fn user(&self) -> &str {
+            self.0.user()
+        }
+        fn values(&mut self) -> Result<BTreeMap<String, Value>> {
+            self.0.values()
+        }
+        fn set(&mut self, name: &str, value: &Value) -> Result<()> {
+            let _ = std::fs::remove_file(&self.1);
+            self.0.set(name, value)
+        }
+        fn delete(&mut self, name: &str) -> Result<()> {
+            let _ = std::fs::remove_file(&self.1);
+            self.0.delete(name)
+        }
+    }
+
+    #[test]
+    fn a_file_removed_already_is_restored_all_the_same() {
+        let map = Map::default();
+        map.values
+            .lock()
+            .unwrap()
+            .insert(GAME.into(), text("~ WIN8RTM"));
+        let folder = tempfile::tempdir().unwrap();
+        host_stops(take(&map, folder.path()).unwrap());
+        nucleus_runs(&map, &[GAME]);
+        let journal = journal(folder.path(), "S-1-5-21-7");
+        restore_left_in(&mut Raced(map.clone(), journal.clone()), folder.path()).unwrap();
+        assert_eq!(map.values.lock().unwrap()[GAME], text("~ WIN8RTM"));
+        assert!(!journal.exists());
+    }
+
+    #[test]
+    fn an_empty_file_power_loss_left_is_nothing_to_put_back() {
+        let map = Map::default();
+        let folder = tempfile::tempdir().unwrap();
+        let journal = journal(folder.path(), "S-1-5-21-7");
+        std::fs::write(&journal, "").unwrap();
+        let guard = take(&map, folder.path()).unwrap();
+        let kept: Snapshot = serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
+        assert_eq!(kept.game.as_deref(), Some(GAME));
+        drop(guard);
+        std::fs::write(&journal, " \r\n").unwrap();
+        restore_left_in(&mut map.clone(), folder.path()).unwrap();
+        assert!(!journal.exists());
+    }
+
+    #[test]
+    fn a_hive_that_is_not_loaded_keeps_the_file() {
+        // No such user is signed in; after sign-out their hive is unloaded
+        // just the same.
+        let sid = "S-1-5-21-1-2-3-987654";
+        let mut hive = UserHive::of(sid.into());
+        let error = format!("{:#}", hive.values().unwrap_err());
+        assert!(error.contains("is not loaded"), "{error}");
+        assert!(hive.delete(GAME).is_err());
+        let folder = tempfile::tempdir().unwrap();
+        let journal = journal(folder.path(), sid);
+        let left = Snapshot {
+            user: sid.into(),
+            executable: "Puzzle.exe".into(),
+            game: Some(GAME.into()),
+            content: None,
+            values: BTreeMap::new(),
+        };
+        write_journal(&journal, &left).unwrap();
+        let error = format!(
+            "{:#}",
+            restore_left_in(&mut hive, folder.path()).unwrap_err()
+        );
+        assert!(error.contains("is not loaded"), "{error}");
+        assert!(journal.is_file());
     }
 
     #[test]

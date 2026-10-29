@@ -189,9 +189,10 @@ fn signs_in(reason: SessionChangeReason, session: u32, console: u32) -> bool {
 
 /// Put back the compatibility settings a Nucleus Co-op session left for the
 /// user at the console when its host stopped mid-session
-/// (`nucleus::layers`). Run only while no host can run a session for that
-/// user: before one starts, or as the user signs in.
+/// (`nucleus::layers`): before a host starts, and as the user signs in. A
+/// session of theirs that runs keeps its own.
 fn restore_nucleus_layers(config: &std::path::Path) {
+    use crate::nucleus::layers::AtConsole;
     // The host's settings file, for nucleus_path.
     let configured = match butterpollo_core::config::Config::load(&config.join("sunshine.conf")) {
         Ok(config) => config
@@ -203,11 +204,31 @@ fn restore_nucleus_layers(config: &std::path::Path) {
             return;
         }
     };
-    if let Err(error) = crate::nucleus::layers::restore_signed_in(
+    match crate::nucleus::layers::restore_at_console(
         &butterpollo_core::paths::data_root(),
         &configured,
     ) {
-        tracing::error!(error = %format!("{error:#}"), "Nucleus Co-op: the compatibility settings an earlier session changed were not put back");
+        Ok(AtConsole::Done) => {}
+        Ok(AtConsole::Busy) => tracing::info!(
+            "Nucleus Co-op: a session runs for the user at the console and puts its compatibility settings back itself"
+        ),
+        Ok(AtConsole::NoUser { why, waiting }) => {
+            if !waiting.is_empty() {
+                let files = waiting
+                    .iter()
+                    .map(|file| file.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                tracing::warn!(
+                    why,
+                    files,
+                    "Nucleus Co-op: compatibility settings an earlier session changed wait for their user to sign in at the console"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::error!(error = %format!("{error:#}"), "Nucleus Co-op: the compatibility settings an earlier session changed were not put back")
+        }
     }
 }
 
@@ -331,8 +352,8 @@ fn supervise() -> Result<()> {
             }
             retry_at = now + delay;
         }
-        // With no host, or one that can't run a session for a user who just
-        // signed in.
+        // Before a host starts, and as the user signs in while one runs: a
+        // session it runs holds its file's lock, and the restore skips it.
         if restore.swap(false, Ordering::AcqRel) {
             restore_nucleus_layers(&config);
         }

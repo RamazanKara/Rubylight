@@ -144,14 +144,19 @@ hub"; a background stream of it uses Rubylight's own handler
 
 Rubylight writes a Nucleus profile named **Rubylight** for each session and
 loads it. For that it sets a few of Nucleus Co-op's settings: pads by XInput
-index, game profiles on, no install-folder check at its start (it warns about
-a Documents folder in OneDrive), and no favourites-only or game-type filter on
-its list. A start that times out says what Nucleus Co-op shows instead: a
-message on the PC's screen (answer or fix it there), no profile Rubylight
-(open Nucleus Co-op and load the profile Rubylight once, then launch again),
-or no window at all, with the last error from its `crashlog.txt` if it wrote
-one. A Nucleus Co-op folder without its `Settings.ini` is incomplete: set it
-up again in the console.
+index and game profiles on, which stay, and, for the session only, no
+install-folder check at its start (it warns about a Documents folder in
+OneDrive), no reminder of the End key, and no favourites-only or game-type
+filter on its list. Your own values of those come back when the session ends,
+or after a host crash when the service starts it again; a value you or Nucleus
+Co-op changed meanwhile stays. Keys missing from `Settings.ini`, or the whole
+file, are filled in from Nucleus Co-op 2.4.2's own defaults; another Nucleus
+Co-op release set with `nucleus_path` ignores keys it doesn't read.
+
+A start that times out says what Nucleus Co-op shows instead: a message on the
+PC's screen (answer or fix it there), no profile Rubylight (open Nucleus Co-op
+and load the profile Rubylight once, then launch again), or no window at all,
+with the last error from its `crashlog.txt` if it wrote one.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs elevated as the signed-in user. A portable host refuses

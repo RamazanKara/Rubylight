@@ -154,9 +154,11 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
         )
         if claim_trace:
             encodes = claims(host_log)
-            # A static repeat is the host keeping a still source alive: no
-            # request was pending, or it would be a recovery repeat. Counted
-            # apart; a stall it fills shows in the delivery gaps.
+            # A static repeat is the host keeping a still source alive. Counted
+            # apart; a stall it fills shows in the delivery gaps. The host reads
+            # its pending requests for the choice before it takes them
+            # (stream.rs), so a request landing in between is logged
+            # static_repeat too and is missed here.
             result.update(host_claims=len(encodes) or None,
                           host_pictures_encoded_again=sum(not new and choice != 'static_repeat'
                                                           for *_, new, choice in encodes) if encodes else None,
@@ -222,7 +224,8 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
         # at once and let it take that frame's slot (10 of 16 requests); the
         # host's own claim trace shows it, the receiver's picture count does not.
         # Static repeats are left out: rc.4's check under 25-100 % CPU had one
-        # or two after the source sent nothing for 50 ms, with no request pending.
+        # or two after the source sent nothing for 50 ms (see above for the
+        # request that can land between the host's choice and its trace).
         if result['host_pictures_encoded_again']:
             failures.append('the host encoded an unchanged picture again for a keyframe request')
         if result['recovery_p95_ms'] > 3000 / fps:

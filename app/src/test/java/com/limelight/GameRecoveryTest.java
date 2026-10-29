@@ -657,8 +657,22 @@ public class GameRecoveryTest {
      * replacement activity, connects with the budget the stream had when it was left.
      */
     private Game leaveAndReturn(Game stream, long awayMs) throws InterruptedException {
-        stream.onPause();
         long leftAt = SystemClock.elapsedRealtime();
+        Intent retry = leaveAndComeBack(stream, awayMs);
+        StreamRecoveryPolicy before = ReflectionHelpers.getField(stream, "recoveryPolicy");
+        Game resumed = establishedGame();
+        long createdAt = SystemClock.elapsedRealtime();
+        StreamRecoveryPolicy budget = startStream(resumed, retry);
+        assertTrue(ReflectionHelpers.callInstanceMethod(resumed, "isResumeOnlyStream"));
+        assertEquals("the trip spent none of the failure budget", before.attempts(), budget.attempts());
+        assertEquals(before.attempts() == 0 ? 0 : before.startedAt() + (createdAt - leftAt), budget.startedAt());
+        resumed.onStreamConnected(SystemClock.elapsedRealtime());
+        return resumed;
+    }
+
+    /** Leaves {@code stream} for {@code awayMs} and returns; the resume's intent, which spent nothing. */
+    private static Intent leaveAndComeBack(Game stream, long awayMs) throws InterruptedException {
+        stream.onPause();
         stream.onStop();
         StreamRecoveryPolicy before = ReflectionHelpers.getField(stream, "recoveryPolicy");
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(awayMs));
@@ -672,14 +686,7 @@ public class GameRecoveryTest {
         assertEquals(before.startedAt(), after.startedAt());
         cleanupRecovery(stream);
         assertEquals(returnedAt, retry.getLongExtra("rubylight.tripResumeStarted", 0));
-        Game resumed = establishedGame();
-        long createdAt = SystemClock.elapsedRealtime();
-        StreamRecoveryPolicy budget = startStream(resumed, retry);
-        assertTrue(ReflectionHelpers.callInstanceMethod(resumed, "isResumeOnlyStream"));
-        assertEquals("the trip spent none of the failure budget", before.attempts(), budget.attempts());
-        assertEquals(before.attempts() == 0 ? 0 : before.startedAt() + (createdAt - leftAt), budget.startedAt());
-        resumed.onStreamConnected(SystemClock.elapsedRealtime());
-        return resumed;
+        return retry;
     }
 
     @Test public void userTripsWithinAMinuteEachResumeWithoutSpendingTheFailureBudget() throws Exception {
@@ -734,6 +741,66 @@ public class GameRecoveryTest {
             assertEquals(failedAt, retry.getLongExtra("RecoveryStarted", 0));
         } finally {
             cleanupRecovery(stream);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void neitherTimeAwayNorTheResumeCountsAsConnectedTimeAndTheCarryCountsOnce() throws Exception {
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(100));
+        // A blip at t=0 recovered by t=3 (attempt 1); 10 s connected, a minute away, 10 s connected.
+        long blip = SystemClock.elapsedRealtime();
+        Game stream = establishedGame();
+        stream.setIntent(new Intent().putExtra("RecoveryAttempts", 1).putExtra("RecoveryStarted", blip));
+        ReflectionHelpers.setField(stream, "recoveryPolicy", new StreamRecoveryPolicy(1, blip));
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(3));
+        stream.onStreamConnected(SystemClock.elapsedRealtime());
+        try {
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
+            long leftAt = SystemClock.elapsedRealtime();
+            stream = leaveAndReturn(stream, 60000);
+            long resumedAt = SystemClock.elapsedRealtime();
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
+            ReflectionHelpers.setField(stream, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { return false; }
+            });
+            stream.connectionTerminated(-1);
+            // 20 s connected in all, short of the 30 s that would earn a fresh budget: had the
+            // minute away, the resume's startup or the carried 10 s twice counted, it would be one.
+            Intent retry = awaitRecoveryLaunch(stream, 2);
+            assertEquals(2, retry.getIntExtra("RecoveryAttempts", 0));
+            // The blip's window, its start later by the time from leaving until the resume started.
+            assertEquals(blip + (resumedAt - leftAt), retry.getLongExtra("RecoveryStarted", 0));
+        } finally {
+            cleanupRecovery(stream);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aStartupFailureOfAResumeAfterATripWithNoFailureRetriesOnAFreshBudget() throws Exception {
+        Intent resume = leaveAndComeBack(establishedGame(), 10000);
+        // The replacement activity before connectionStarted, its budget read as onCreate does.
+        Game resumed = recoveryGame();
+        StreamRecoveryPolicy budget = startStream(resumed, resume);
+        assertEquals(0, budget.attempts());
+        ReflectionHelpers.setField(resumed, "connected", false);
+        ReflectionHelpers.setField(resumed, "connecting", true);
+        RecoveryBridge.connectivityTests = 0;
+        try {
+            long failedAt = SystemClock.elapsedRealtime();
+            resumed.stageFailed("Control stream establishment", MoonBridge.ML_PORT_FLAG_UDP_47999, 110);
+            // Still a recovery attempt with no attempt spent: it retries instead of an error.
+            assertNotNull(ReflectionHelpers.getField(resumed, "pendingRecovery"));
+            assertNull(ReflectionHelpers.getField(resumed, "streamMenu"));
+            assertEquals(0, RecoveryBridge.connectivityTests);
+            Intent retry = awaitRecoveryLaunch(resumed, 1);
+            assertEquals(1, retry.getIntExtra("RecoveryAttempts", 0));
+            assertEquals(failedAt, retry.getLongExtra("RecoveryStarted", 0));
+            assertFalse(retry.hasExtra("rubylight.tripBudget"));
+            assertFalse(retry.hasExtra("rubylight.tripResumeStarted"));
+        } finally {
+            cleanupRecovery(resumed);
         }
     }
 

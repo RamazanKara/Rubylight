@@ -74,6 +74,50 @@ public class HostCursorShapesTest {
         }
     }
 
+    // A HIDE or DEFAULT message: header only, id 0.
+    private static byte[] plain(CursorShapeMessage.Kind kind) {
+        byte[] message = new byte[CursorShapeMessage.HEADER_BYTES];
+        message[0] = 1;
+        message[1] = (byte) kind.ordinal();
+        return message;
+    }
+
+    private static void decoded(HostCursorShapes shapes) throws InterruptedException {
+        CountDownLatch decoded = new CountDownLatch(1);
+        ((Handler) ReflectionHelpers.getField(shapes, "decoder")).post(decoded::countDown);
+        assertTrue(decoded.await(5, TimeUnit.SECONDS));
+        ShadowLooper.idleMainLooper();
+    }
+
+    @Test public void aHideWaitsForAShowThatCancelsIt() throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        LocalCursorView cursor = new LocalCursorView(context);
+        TrackpadPointer pointer = new TrackpadPointer(null, new View(context), cursor, false, null, null);
+        HostCursorShapes shapes = new HostCursorShapes(context.getResources(), cursor, pointer, () -> fail("rejected"));
+        try {
+            // Hidden and shown again within the delay: never hidden, so no flicker.
+            shapes.accept(plain(CursorShapeMessage.Kind.HIDE));
+            decoded(shapes);
+            ShadowLooper.idleMainLooper(HostCursorShapes.HIDE_DELAY_MS - 50, TimeUnit.MILLISECONDS);
+            assertFalse((boolean) ReflectionHelpers.getField(pointer, "hostCursorHidden"));
+            shapes.accept(plain(CursorShapeMessage.Kind.DEFAULT));
+            decoded(shapes);
+            ShadowLooper.idleMainLooper(HostCursorShapes.HIDE_DELAY_MS, TimeUnit.MILLISECONDS);
+            assertFalse((boolean) ReflectionHelpers.getField(pointer, "hostCursorHidden"));
+
+            // A hide that stands takes effect once the delay is out, and a second does not put it off.
+            shapes.accept(plain(CursorShapeMessage.Kind.HIDE));
+            decoded(shapes);
+            ShadowLooper.idleMainLooper(HostCursorShapes.HIDE_DELAY_MS - 50, TimeUnit.MILLISECONDS);
+            shapes.accept(plain(CursorShapeMessage.Kind.HIDE));
+            decoded(shapes);
+            ShadowLooper.idleMainLooper(50, TimeUnit.MILLISECONDS);
+            assertTrue((boolean) ReflectionHelpers.getField(pointer, "hostCursorHidden"));
+        } finally {
+            shapes.close();
+        }
+    }
+
     @Test public void onlyANewCursorSizeLaysTheViewOutAgain() {
         Context context = RuntimeEnvironment.getApplication();
         LocalCursorView cursor = new LocalCursorView(context);

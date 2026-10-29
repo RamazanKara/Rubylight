@@ -3,6 +3,8 @@
 #include "pyrowave_protocol.h"
 #include "control_negotiation.h"
 #include "hdr_format.h"
+#include "fec_report.h"
+#include "rubylight_protocol.h"
 #include "android_microphone.h"
 #include "android_rtsp_receive.h"
 
@@ -1152,6 +1154,18 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
                                              i ? "," : "", controlMessages[i]);
                 }
                 Limelog("Host control messages: %s\n", list);
+            }
+        }
+
+        // Foundation Sunshine's client FEC control (V+'s VideoFecControlSupported), off PyroWave,
+        // which keeps its own FEC. A host that takes Rubylight's 0x5539 reports keeps those.
+        {
+            uint32_t fecVersion = 0;
+            RlFecSummariesEnabled = IS_SUNSHINE() && pyroWaveFormat == 0 &&
+                parseSdpAttributeToUInt(response.payload, "x-ss-video[0].fecControlVersion", &fecVersion) &&
+                fecVersion == 1 && !hostSupportsControlMessage(RP_FEC_REPORT_MESSAGE_TYPE);
+            if (RlFecSummariesEnabled) {
+                Limelog("Host FEC control: asking for %d\n", AndroidVideoFecPercentage);
             }
         }
 

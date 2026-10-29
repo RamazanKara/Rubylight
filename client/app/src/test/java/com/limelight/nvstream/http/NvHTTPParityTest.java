@@ -716,6 +716,16 @@ public class NvHTTPParityTest {
         }
     }
 
+    // Foundation Sunshine takes V+'s x-ml-video.fecPercentage: -2 its own, -1 automatic, 0-100.
+    @Test
+    public void theFecChoiceIsVPlusFecPercentageForFoundation() {
+        assertEquals(-2, FecChoice.HOST.summaryPercentage());
+        assertEquals(-1, FecChoice.AUTO.summaryPercentage());
+        assertEquals(0, FecChoice.fixed(0).summaryPercentage());
+        assertEquals(20, FecChoice.fixed(20).summaryPercentage());
+        assertEquals(100, FecChoice.fixed(255).summaryPercentage());
+    }
+
     // 80 % of the measured link, never above the setting and never below 2 Mbit/s unless the
     // setting itself is lower.
     @Test

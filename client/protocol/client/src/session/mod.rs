@@ -1007,6 +1007,7 @@ fn start(
     listener.stage_starting(Stage::ControlStreamStart);
     let options = SessionOptions {
         reference_frame_invalidation: outcome.reference_frame_invalidation_enabled(),
+        fec_summaries: outcome.fec_summaries,
     };
     let (client, control) =
         driver::connect(driver_config, caps, &stream.remote_input_aes_key, options).map_err(

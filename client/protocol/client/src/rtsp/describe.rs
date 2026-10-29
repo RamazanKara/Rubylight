@@ -7,7 +7,7 @@ use super::message::strtol;
 use super::RtspError;
 use crate::sdp::*;
 use rubylight_protocol::audio_ext::{self, Layout};
-use rubylight_protocol::{hdr, pen};
+use rubylight_protocol::{fec_report, hdr, pen};
 
 /// The PyroWave bitstream revision this client decodes; a future revision falls back to the
 /// ordinary codecs.
@@ -47,6 +47,9 @@ pub struct DescribeInfo {
     /// The host reads pen barrel roll (`a=x-ss-general.penBarrelRoll:1`). Other Sunshine-family
     /// hosts may send the same attribute: send the input only with `Feature::PenBarrelRoll` too.
     pub pen_barrel_roll: bool,
+    /// Foundation Sunshine's client FEC control (`a=x-ss-video[0].fecControlVersion:1`): the
+    /// host takes `x-ml-video.fecPercentage` and 0x5510 summaries (`fec_report::FecSummary`).
+    pub fec_control: bool,
 }
 
 /// moonlight-common-c's parseSdpAttributeToUInt: the first occurrence of `name` anywhere,
@@ -215,6 +218,8 @@ impl DescribeInfo {
             pen_barrel_roll: attribute(sdp, pen::DESCRIBE_ATTRIBUTE)
                 .and_then(|value| value.parse::<u8>().ok())
                 .is_some_and(|version| version >= 1),
+            fec_control: sdp_attribute_u32(sdp, fec_report::FEC_CONTROL_DESCRIBE_ATTRIBUTE)
+                == Some(fec_report::FEC_CONTROL_VERSION),
         }
     }
 

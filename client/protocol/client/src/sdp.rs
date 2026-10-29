@@ -8,6 +8,8 @@
 
 use std::net::IpAddr;
 
+use rubylight_protocol::fec_report::{self, FecChoice};
+
 pub const VIDEO_FORMAT_H264: u32 = 0x0001;
 pub const VIDEO_FORMAT_H264_HIGH8_444: u32 = 0x0004;
 pub const VIDEO_FORMAT_H265: u32 = 0x0100;
@@ -180,6 +182,9 @@ pub struct StreamConfig {
     /// The HDR format to ask a Rubylight 3.0 host for (one `rubylight_protocol::hdr` bit), 0 for
     /// stock HDR. The ANNOUNCE carries it only under [`SdpParams::hdr_format`]'s rules.
     pub hdr_format: u8,
+    /// The video FEC to ask a Foundation Sunshine host for in the ANNOUNCE
+    /// ([`SdpParams::video_fec_percentage`]); Rubylight hosts take it at launch instead.
+    pub video_fec: FecChoice,
 }
 
 impl Default for StreamConfig {
@@ -213,6 +218,7 @@ impl Default for StreamConfig {
             pyrowave_records_supported: false,
             pyrowave_row_order: false,
             hdr_format: 0,
+            video_fec: FecChoice::Host,
         }
     }
 }
@@ -258,6 +264,10 @@ pub struct SdpParams<'a> {
     pub audio_codec: u8,
     /// The host's `DescribeInfo::audio_codecs`.
     pub audio_codecs_offered: u8,
+    /// `x-ml-video.fecPercentage` ([`FecChoice::summary_percentage`]), with
+    /// `x-ml-video.fecSummaryVersion:1`, for a host whose FEC control the handshake turned on
+    /// (`RtspOutcome::fec_summaries`); `None` sends neither.
+    pub video_fec_percentage: Option<i32>,
 }
 
 /// `asked` when it is exactly one bit of `offered`.
@@ -373,6 +383,11 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         packet_size -= ENC_VIDEO_HEADER_SIZE;
     }
     a.add("x-nv-video[0].packetSize", packet_size);
+    // Foundation Sunshine's client FEC control, where V+'s SdpGenerator.c puts it.
+    if let Some(percentage) = p.video_fec_percentage {
+        a.add(fec_report::FEC_PERCENTAGE_ATTRIBUTE, percentage);
+        a.add(fec_report::FEC_SUMMARY_VERSION_ATTRIBUTE, "1");
+    }
     a.add("x-nv-video[0].rateControlMode", "4");
     a.add("x-nv-video[0].timeoutLengthMs", "7000");
     a.add("x-nv-video[0].framesWithInvalidRefThreshold", "0");

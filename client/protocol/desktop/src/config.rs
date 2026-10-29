@@ -413,8 +413,9 @@ impl From<HostDisplay> for nightjar_core::http::HostDisplay {
     }
 }
 
-/// The video FEC this client asks for (`rlFecPercentage`): the PC's own, automatic from this
-/// device's loss reports, or a fixed share. Other PCs keep their own.
+/// The video FEC this client asks for (`rlFecPercentage` from Rubylight, `x-ml-video.fecPercentage`
+/// from Foundation Sunshine, at most 100 %): the PC's own, automatic from this device's loss
+/// reports, or a fixed share. Other PCs keep their own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ErrorCorrection {
     #[default]

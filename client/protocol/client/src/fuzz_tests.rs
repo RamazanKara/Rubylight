@@ -129,7 +129,7 @@ proptest! {
         if !sunshine {
             caps.app_version = [7, 1, 431, 0];
         }
-        let mut session = ControlSession::new(caps, &KEY, SessionOptions { reference_frame_invalidation });
+        let mut session = ControlSession::new(caps, &KEY, SessionOptions { reference_frame_invalidation, ..Default::default() });
         let t0 = Instant::now();
         session.start(t0);
         for (seq, (kind, payload)) in messages.iter().enumerate() {

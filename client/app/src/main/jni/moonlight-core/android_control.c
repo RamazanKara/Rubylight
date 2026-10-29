@@ -1,8 +1,8 @@
 #include <jni.h>
 
 // Keep the pinned core intact while sharing its encryption, sequence and ENet mutex.
-static void flushFecReport(void);
-#define RL_LOSS_STATS_TICK flushFecReport
+static void lossStatsTick(void);
+#define RL_LOSS_STATS_TICK lossStatsTick
 #include "moonlight-common-c/src/ControlStream.c"
 #undef RL_LOSS_STATS_TICK
 
@@ -197,6 +197,85 @@ static void flushFecReport(void) {
                               CTRL_CHANNEL_GENERIC, 0, false)) {
         Limelog("FEC report: send failed: %d\n", (int)LastSocketError());
     }
+}
+
+// Foundation Sunshine's FEC summary (0x5510, protocol/core/src/fec_report.rs FecSummary), ported
+// from Moonlight V+'s ControlStream.c: each finished block counts once, and every second the
+// data shards and the missing ones go out as three big-endian u32s with a sequence number that
+// moves on also for a second without data, which sends nothing.
+#define FEC_SUMMARY_MESSAGE_TYPE 0x5510
+#define FEC_SUMMARY_MAX_DATA 1000000U
+
+bool RlFecSummariesEnabled;
+int AndroidVideoFecPercentage = -2;
+static pthread_mutex_t fecSummaryMutex = PTHREAD_MUTEX_INITIALIZER;
+static uint32_t fecSummaryData;
+static uint32_t fecSummaryMissing;
+static uint32_t fecSummaryLastFrame;
+static uint8_t fecSummaryLastBlock;
+static bool fecSummaryHasBlock;
+static uint32_t fecSummarySequence;
+static uint64_t fecSummaryLastMs;
+static bool fecSummaryTicked;
+
+void resetFecSummaries(void) {
+    pthread_mutex_lock(&fecSummaryMutex);
+    RlFecSummariesEnabled = false;
+    fecSummaryData = fecSummaryMissing = 0;
+    fecSummaryHasBlock = false;
+    fecSummarySequence = 0;
+    fecSummaryTicked = false;
+    pthread_mutex_unlock(&fecSummaryMutex);
+}
+
+void rlFecSummaryBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received) {
+    if (!RlFecSummariesEnabled || !data || received > data) return;
+    pthread_mutex_lock(&fecSummaryMutex);
+    if ((!fecSummaryHasBlock || frame != fecSummaryLastFrame || block != fecSummaryLastBlock) &&
+            data <= FEC_SUMMARY_MAX_DATA - fecSummaryData) {
+        fecSummaryData += data;
+        fecSummaryMissing += data - received;
+        fecSummaryLastFrame = frame;
+        fecSummaryLastBlock = block;
+        fecSummaryHasBlock = true;
+    }
+    pthread_mutex_unlock(&fecSummaryMutex);
+}
+
+static void flushFecSummary(void) {
+    if (!RlFecSummariesEnabled) return;
+    uint64_t now = PltGetMillis();
+    uint32_t words[3];
+    pthread_mutex_lock(&fecSummaryMutex);
+    if (fecSummaryTicked && now - fecSummaryLastMs < 1000) {
+        pthread_mutex_unlock(&fecSummaryMutex);
+        return;
+    }
+    fecSummaryTicked = true;
+    fecSummaryLastMs = now;
+    words[0] = ++fecSummarySequence;
+    words[1] = fecSummaryData;
+    words[2] = fecSummaryMissing;
+    fecSummaryData = fecSummaryMissing = 0;
+    pthread_mutex_unlock(&fecSummaryMutex);
+    if (!words[1] || !encryptedControlStream || stopping || peer == NULL) return;
+    uint8_t summary[12];
+    for (int i = 0; i < 3; i++) {
+        summary[i * 4] = (uint8_t)(words[i] >> 24);
+        summary[i * 4 + 1] = (uint8_t)(words[i] >> 16);
+        summary[i * 4 + 2] = (uint8_t)(words[i] >> 8);
+        summary[i * 4 + 3] = (uint8_t)words[i];
+    }
+    // Unreliable, as V+ sends it: a lost summary is replaced a second later.
+    if (!sendMessageAndForget(FEC_SUMMARY_MESSAGE_TYPE, (short)sizeof(summary), summary,
+                              CTRL_CHANNEL_GENERIC, 0, false)) {
+        Limelog("FEC summary: send failed: %d\n", (int)LastSocketError());
+    }
+}
+
+static void lossStatsTick(void) {
+    flushFecSummary();
+    flushFecReport();
 }
 
 // Display HDR luminance (protocol/core/src/control.rs, DisplayCaps): sent at stream start and

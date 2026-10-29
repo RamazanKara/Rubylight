@@ -15,6 +15,11 @@ use sdl3_sys::everything::*;
 use super::scanline::Follow;
 use super::scanline::{busy, decide, Beam, CalibrationError, Evidence, RestartCheck, Sample, Verdict};
 
+/// The share of the display's rate a stream that ran the check at a busy one (`busy`, 70%) has to
+/// slow below before the display is measured again: a rate that hovers about 70% does not restart
+/// the check on every second.
+const SLOWER: f64 = 0.6;
+
 /// What the timing CSV records for one present: the beam when the present was issued and the
 /// verdict (`race_reason`: "on", the reason, or empty while it is being checked).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -250,18 +255,34 @@ impl RaceProbe {
             self.forget();
             return true;
         }
+        // A check that passed saw the display follow presents: no rate changes that.
         let display_hz = self.beam().map_or(0.0, |beam| beam.refresh_hz);
-        if display_hz <= 0.0 || self.check.passed() || self.check.failed() { return false; }
+        if display_hz <= 0.0 || self.check.passed() { return false; }
         let content_hz = self.rate.content_hz(around.content_hz);
-        if busy(self.check_hz, display_hz) && !busy(content_hz, display_hz) {
-            // Presents at a busy rate never let a display idle, VRR or not: what the check saw
-            // then would read as a fixed refresh at the slower rate.
+        if busy(self.check_hz, display_hz) && content_hz < display_hz * SLOWER {
+            // Presents at a busy rate never let a display idle, VRR or not, and the ones it tested
+            // can miss behind a deep queue: what the check saw then, starved or failed, would read
+            // as a fixed refresh at the slower rate.
             eprintln!("nightjar: {}: the stream slowed to {content_hz:.0} presents a second, measuring the display again", self.topic);
             self.forget();
             return true;
         }
         if self.checking() { self.check_hz = self.check_hz.max(content_hz); }
         false
+    }
+
+    /// One present after its call returned: the window's move (`follow`), the window and the rate,
+    /// the helper's results, the present itself while the check takes it (`test`), and the
+    /// verdict. Returns whether the display has to be calibrated again.
+    #[cfg(any(windows, test))]
+    fn fold(&mut self, around: Surroundings, follow: Follow, test: impl FnOnce(&mut Self)) -> bool {
+        let moved = self.apply_follow(follow);
+        let again = self.apply_surroundings(around);
+        #[cfg(windows)]
+        self.collect_outcomes();
+        if self.checking() { test(self); }
+        self.decide(around);
+        moved || again
     }
 
     /// Folds what the calibration thread found and the check so far into the verdict.
@@ -297,6 +318,7 @@ impl RaceProbe {
             check: self.check,
             content_hz: self.rate.content_hz(around.content_hz),
             display_hz,
+            check_hz: self.check_hz,
         });
         self.log_change();
     }
@@ -432,7 +454,7 @@ mod win {
         }
 
         /// Takes what the helper found out of its queue into the check.
-        fn collect_outcomes(&mut self) {
+        pub(super) fn collect_outcomes(&mut self) {
             let Some(helper) = &self.helper else { return };
             while let Ok(outcome) = helper.outcomes.try_recv() {
                 // A result for the monitor the window has left says nothing about this one.
@@ -453,45 +475,45 @@ mod win {
         /// then folds the verdict. `before` is `before()`'s reading.
         pub fn after(&mut self, window: HWND, before: Option<Sample>, around: Surroundings) {
             self.presents += 1;
+            let mut follow = Follow::Same;
             if self.presents % FOLLOW_EVERY == 0 {
-                let follow = self.scan.as_mut().map_or(Follow::Same, Scanline::follow_window);
+                follow = self.scan.as_mut().map_or(Follow::Same, Scanline::follow_window);
                 if follow == Follow::Lost { self.scan = None; }
-                if self.apply_follow(follow) { self.calibrate_in_background(window); }
             }
-            if self.apply_surroundings(around) { self.calibrate_in_background(window); }
-            self.collect_outcomes();
-            if let (Some(Ok(beam)), Some(before), Some(scan)) = (self.beam, before, &self.scan) {
-                if self.checking() {
-                    let idle = before.vblank && before.line >= beam.idle_from;
-                    let (mut sent, mut gone) = (false, false);
-                    if let (true, Some(helper)) = (idle, &self.helper) {
-                        let job = Job {
-                            before,
-                            returned_ns: scan.clock().elapsed().as_nanos() as u64,
-                            beam,
-                            longest_idle_ns: self.longest_idle_ns,
-                            generation: self.generation,
-                        };
-                        match helper.jobs.try_send(job) {
-                            Ok(()) => sent = true,
-                            // Still watching the last present: this one is not tested.
-                            Err(TrySendError::Full(_)) => {}
-                            Err(TrySendError::Disconnected(_)) => gone = true,
-                        }
-                    }
-                    if gone {
-                        eprintln!("nightjar: {}: the restart check's thread stopped, its scan line cannot be read", self.topic);
-                        self.helper = None;
-                        self.scanline_ok = false;
-                    }
-                    if idle {
-                        // The longest the display idled bounds its own refresh period; this reading counts for the next presents.
-                        self.longest_idle_ns = self.longest_idle_ns.max((f64::from(before.line) * 1e6 / beam.lines_per_ms) as u64);
-                    }
-                    if !sent { self.check.push(Restart::NotTested); }
+            if self.fold(around, follow, |probe| probe.test_present(before)) { self.calibrate_in_background(window); }
+        }
+
+        /// Hands a present the check takes to the helper when the display idled, or counts it
+        /// untested.
+        fn test_present(&mut self, before: Option<Sample>) {
+            let (Some(Ok(beam)), Some(before), Some(scan)) = (self.beam, before, &self.scan) else { return };
+            let idle = before.vblank && before.line >= beam.idle_from;
+            let (mut sent, mut gone) = (false, false);
+            if let (true, Some(helper)) = (idle, &self.helper) {
+                let job = Job {
+                    before,
+                    returned_ns: scan.clock().elapsed().as_nanos() as u64,
+                    beam,
+                    longest_idle_ns: self.longest_idle_ns,
+                    generation: self.generation,
+                };
+                match helper.jobs.try_send(job) {
+                    Ok(()) => sent = true,
+                    // Still watching the last present: this one is not tested.
+                    Err(TrySendError::Full(_)) => {}
+                    Err(TrySendError::Disconnected(_)) => gone = true,
                 }
             }
-            self.decide(around);
+            if gone {
+                eprintln!("nightjar: {}: the restart check's thread stopped, its scan line cannot be read", self.topic);
+                self.helper = None;
+                self.scanline_ok = false;
+            }
+            if idle {
+                // The longest the display idled bounds its own refresh period; this reading counts for the next presents.
+                self.longest_idle_ns = self.longest_idle_ns.max((f64::from(before.line) * 1e6 / beam.lines_per_ms) as u64);
+            }
+            if !sent { self.check.push(Restart::NotTested); }
         }
     }
 }
@@ -566,7 +588,7 @@ impl RaceProbe {
 
 #[cfg(test)]
 mod tests {
-    use super::super::scanline::{Restart, CHECK_FRAMES, FIXED_FRAMES};
+    use super::super::scanline::{Restart, CHECK_FRAMES, CHECK_MISSES, FIXED_FRAMES};
     use super::*;
 
     fn beam() -> Beam {
@@ -657,17 +679,19 @@ mod tests {
         assert!(probe.beam().is_none());
     }
 
-    /// Presents `n` pictures the way `after` does on Windows, each starting no scan. Returns
-    /// whether the display was to be measured again.
-    fn present(probe: &mut RaceProbe, around: Surroundings, n: u32) -> bool {
+    /// Presents `n` pictures through `fold`, as `after` does on Windows, each with `result` when
+    /// the check takes it (a calibrated display, as `test_present`). Returns whether the display
+    /// was to be calibrated again.
+    fn present_with(probe: &mut RaceProbe, around: Surroundings, n: u32, result: Restart) -> bool {
         let mut again = false;
         for _ in 0..n {
-            again |= probe.apply_surroundings(around);
-            if probe.beam().is_some() && probe.checking() { probe.check.push(Restart::NotTested); }
-            probe.decide(around);
+            again |= probe.fold(around, Follow::Same, |probe| if probe.beam().is_some() { probe.check.push(result) });
         }
         again
     }
+
+    /// Presents that start no scan.
+    fn present(probe: &mut RaceProbe, around: Surroundings, n: u32) -> bool { present_with(probe, around, n, Restart::NotTested) }
 
     #[test]
     fn what_a_composed_window_saw_does_not_decide_the_display_once_it_is_fullscreen() {
@@ -682,12 +706,12 @@ mod tests {
         assert_eq!(probe.line(), "off (not fullscreen)");
         // What the check had from those presents before: starved under a 60 fps stream.
         for _ in 0..CHECK_FRAMES { probe.check.push(Restart::NotTested); }
-        assert!(probe.apply_surroundings(around()), "F11: the display is measured again");
-        probe.decide(around());
+        let mut presented = false;
+        assert!(probe.fold(around(), Follow::Same, |_| presented = true), "F11: the display is measured again");
+        assert!(presented, "this present is the check's");
         assert_eq!(*probe.verdict(), Verdict::Checking, "not no VRR");
         assert_eq!(probe.check, RestartCheck::default());
         assert!(probe.beam().is_none(), "the composed calibration is dropped");
-        assert!(probe.checking());
     }
 
     #[test]
@@ -739,5 +763,43 @@ mod tests {
         *probe.calibration.lock().unwrap() = Some((1, Ok(Beam { vblank_fraction: 0.01, ..beam() })));
         assert!(!present(&mut probe, around(), FIXED_FRAMES + 1));
         assert!(probe.fixed_refresh(), "{}", probe.line());
+    }
+
+    #[test]
+    fn a_check_that_failed_at_a_busy_rate_is_measured_again_when_the_rate_falls() {
+        // At 200 fps behind a deep queue the tested presents missed: the check failed, and at that
+        // rate it says only that no restart was seen.
+        let fast = Surroundings { content_hz: 200.0, ..around() };
+        let mut probe = RaceProbe::new(true, "display check");
+        probe.apply_surroundings(fast);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(Beam { vblank_fraction: 0.12, ..beam() })));
+        assert!(!present_with(&mut probe, fast, CHECK_MISSES + 1, Restart::Missed));
+        assert!(probe.check.failed());
+        assert_eq!(probe.line(), "off (no VRR scan restart)");
+        // A menu the host repeats at 20 fps: measured again, not no VRR.
+        assert!(present(&mut probe, Surroundings { content_hz: 20.0, ..around() }, 1));
+        assert!(!probe.fixed_refresh(), "{}", probe.line());
+        assert_eq!(*probe.verdict(), Verdict::Checking);
+        // A check that failed at a slow rate stays failed.
+        let mut slow = RaceProbe::new(true, "display check");
+        slow.apply_surroundings(around());
+        *slow.calibration.lock().unwrap() = Some((0, Ok(beam())));
+        assert!(!present_with(&mut slow, around(), CHECK_MISSES + 1, Restart::Missed));
+        assert!(!present(&mut slow, Surroundings { content_hz: 20.0, ..around() }, 1));
+        assert!(slow.check.failed());
+    }
+
+    #[test]
+    fn a_rate_that_hovers_about_seventy_percent_does_not_restart_the_check() {
+        let fast = Surroundings { content_hz: 200.0, ..around() };
+        let mut probe = RaceProbe::new(true, "display check");
+        probe.apply_surroundings(fast);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(Beam { vblank_fraction: 0.12, ..beam() })));
+        assert!(!present(&mut probe, fast, CHECK_FRAMES + 1));
+        assert_eq!(probe.line(), "off (no idle at this frame rate)");
+        // 243.9 Hz: 70% is 170.7, 60% is 146.3.
+        assert!(!present(&mut probe, Surroundings { content_hz: 160.0, ..around() }, 10), "just under 70%");
+        assert_eq!(probe.line(), "off (no idle at this frame rate)");
+        assert!(present(&mut probe, Surroundings { content_hz: 140.0, ..around() }, 1), "under 60%");
     }
 }

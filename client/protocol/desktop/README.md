@@ -209,8 +209,8 @@ Why this combination:
   calibration must show little blanking, and 60 presents must start no scan, or the restart check
   must fail or starve. A faster stream leaves a VRR display no idle time either, so a fixed
   display still tears there. Only presents to a fullscreen window that has kept the focus count:
-  going fullscreen, getting the focus back, or the stream slowing below that rate after a check at
-  a faster one measures the display again. `NIGHTJAR_VRR_CHECK=0` turns the check off.
+  going fullscreen, getting the focus back, or the stream slowing below 60% of the display's rate
+  after a check (starved or failed) at 70% or more measures the display again. `NIGHTJAR_VRR_CHECK=0` turns the check off.
   `NIGHTJAR_VRR_SYNC=present1|scan` is a measurement switch for VRR presents: `present1` uses
   sync interval 1, and `scan` waits out a scan under way (it reads the scan line with the check
   off too). Neither made the default ([measured](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one)).

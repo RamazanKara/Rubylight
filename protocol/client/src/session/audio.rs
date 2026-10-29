@@ -100,6 +100,7 @@ impl AudioShared {
 /// (packet n is due n packets after the first), relative to the earliest arrival of the last
 /// few seconds, which follows the drift between the host's clock and this one. A host that
 /// sends its 5 ms packets in pairs every 10 ms shows as 5 ms; a Wi-Fi stall as its length.
+/// A window is logged only when a packet in it came 8 ms or more late.
 pub struct ArrivalJitter {
     packet_us: u64,
     start_us: u64,
@@ -116,8 +117,10 @@ impl ArrivalJitter {
     const BUCKETS: usize = 64;
     const WINDOW_US: u64 = 10_000_000;
     const DRIFT_SECONDS: u64 = 4;
-    /// A gap this long (a pause, a roam) starts the stream's schedule again.
+    /// A gap this long (a pause, a roam) starts the stream's schedule, and the window, again.
     const RESTART_US: u64 = 1_000_000;
+    /// The lateness a window must reach to be logged: what two 4 ms bursts would not hold.
+    const LOG_FROM_MS: usize = 8;
 
     pub fn new(packet_ms: u32) -> Self {
         Self {
@@ -138,9 +141,8 @@ impl ArrivalJitter {
             self.start_us = now_us;
             self.packets = 0;
             self.minima.clear();
-            if self.window_us == 0 {
-                self.window_us = now_us;
-            }
+            self.window_us = now_us;
+            self.histogram = [0; Self::BUCKETS];
         }
         let due = self.start_us + self.packets * self.packet_us;
         self.packets += 1;
@@ -175,9 +177,12 @@ impl ArrivalJitter {
             return None;
         }
         self.window_us = now_us;
-        let line = self.summary();
+        let late = self.histogram[Self::LOG_FROM_MS..]
+            .iter()
+            .any(|&count| count > 0);
+        let line = late.then(|| self.summary());
         self.histogram = [0; Self::BUCKETS];
-        Some(line)
+        line
     }
 
     /// Percentiles of the window's lateness, and how many packets came later than each
@@ -395,6 +400,26 @@ mod tests {
         }
         // A lost packet keeps its place and is not an arrival.
         assert_eq!(jitter.packet(1_000_000 + 1002 * 10_000, true), None);
+        // A clean window, pairs only, is not logged (after the lost packet's pair, lost too).
+        assert_eq!(jitter.packet(1_000_000 + 1002 * 10_000, true), None);
+        let mut lines2 = Vec::new();
+        for pair in 1003..2004u64 {
+            for _ in 0..2 {
+                lines2.extend(jitter.packet(1_000_000 + pair * 10_000, false));
+            }
+        }
+        assert!(lines2.is_empty());
+        // A 2 s pause starts the window again: its line covers only the packets after it.
+        let base = 1_000_000 + 2003 * 10_000 + 2_000_000;
+        let mut lines3 = Vec::new();
+        for pair in 0..1002u64 {
+            let sent = if (10..13).contains(&pair) { 13 } else { pair };
+            for _ in 0..2 {
+                lines3.extend(jitter.packet(base + sent * 10_000, false));
+            }
+        }
+        assert_eq!(lines3.len(), 1);
+        assert!(lines3[0].starts_with("Audio arrival over 10 s: 2001 packets"));
         assert_eq!(
             lines,
             [

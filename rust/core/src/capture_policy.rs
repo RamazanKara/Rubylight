@@ -266,9 +266,84 @@ pub fn publication_deadline(
     let deadline = next - 250_000;
     (deadline > now).then_some(deadline)
 }
+/// The focus window's bounds `window` in the pixels of the captured display
+/// `display`, both [left, top, right, bottom] in desktop coordinates: `None`
+/// when the window does not cover any of the display.
+pub fn focus_on_display(window: [i32; 4], display: [i32; 4]) -> Option<[i32; 4]> {
+    let left = window[0].max(display[0]);
+    let top = window[1].max(display[1]);
+    let right = window[2].min(display[2]);
+    let bottom = window[3].min(display[3]);
+    (left < right && top < bottom).then(|| {
+        [
+            left - display[0],
+            top - display[1],
+            right - display[0],
+            bottom - display[1],
+        ]
+    })
+}
+/// Whether a composition with the dirty rectangles `dirty` changed the focus
+/// window `focus` ([left, top, right, bottom] in the display's pixels), for
+/// `Freshness::observe_focus`. `None` without a focus window on the display
+/// or without dirty rectangles: the composition cannot tell, and counts as
+/// it did before the distinction.
+pub fn focus_changed(dirty: &[[i32; 4]], focus: Option<[i32; 4]>) -> Option<bool> {
+    let focus = focus?;
+    (!dirty.is_empty()).then(|| {
+        dirty.iter().any(|rect| {
+            rect[0].max(focus[0]) < rect[2].min(focus[2])
+                && rect[1].max(focus[1]) < rect[3].min(focus[3])
+        })
+    })
+}
+/// The focus label of compositions published as one picture (a capture
+/// drops older ones for the newest): a change of the focus window in any of
+/// them is a change of the picture.
+pub fn merge_focus(earlier: Option<bool>, later: Option<bool>) -> Option<bool> {
+    match (earlier, later) {
+        (Some(true), _) | (_, Some(true)) => Some(true),
+        (Some(false), _) | (_, Some(false)) => Some(false),
+        _ => None,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compositions_tell_a_focus_change_only_by_dirty_rectangles_inside_it() {
+        // A game window at (100, 50)-(1380, 770) on the second display of a
+        // desktop whose first display is 2560 wide.
+        let display = [2560, 0, 2560 + 1920, 1080];
+        let game = focus_on_display([2660, 50, 3940, 770], display);
+        assert_eq!(game, Some([100, 50, 1380, 770]));
+        // A window half off the display is clipped to it; one on another
+        // display is no focus window here.
+        assert_eq!(
+            focus_on_display([4000, 900, 5000, 1300], display),
+            Some([1440, 900, 1920, 1080])
+        );
+        assert_eq!(focus_on_display([0, 0, 2560, 1440], display), None);
+        // Another window animating beside the game.
+        assert_eq!(focus_changed(&[[1500, 0, 1900, 400]], game), Some(false));
+        // A rectangle touching the game's edge does not overlap it.
+        assert_eq!(focus_changed(&[[1380, 0, 1900, 400]], game), Some(false));
+        // Any rectangle inside the game changes it.
+        assert_eq!(
+            focus_changed(&[[1500, 0, 1900, 400], [600, 300, 700, 400]], game),
+            Some(true)
+        );
+        // No dirty rectangles (a forced repaint, or Windows before 11 24H2)
+        // or no focus window on the display cannot tell.
+        assert_eq!(focus_changed(&[], game), None);
+        assert_eq!(focus_changed(&[[1500, 0, 1900, 400]], None), None);
+        // A dropped composition's focus change survives into the published one.
+        assert_eq!(merge_focus(Some(true), Some(false)), Some(true));
+        assert_eq!(merge_focus(Some(false), Some(true)), Some(true));
+        assert_eq!(merge_focus(None, Some(false)), Some(false));
+        assert_eq!(merge_focus(Some(false), None), Some(false));
+        assert_eq!(merge_focus(None, None), None);
+    }
     #[test]
     fn static_capture_sleeps_longer_only_without_a_pending_gpu_handoff() {
         let poll = Duration::from_micros(500);

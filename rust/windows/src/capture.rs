@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use windows::{
     Graphics::{
         Capture::{
-            Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem,
-            GraphicsCaptureSession,
+            Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureDirtyRegionMode,
+            GraphicsCaptureItem, GraphicsCaptureSession,
         },
         DirectX::{Direct3D11::IDirect3DDevice, DirectXPixelFormat},
     },
@@ -995,6 +995,9 @@ pub struct GpuImage {
     /// A shared texture read in place rather than copied (a WGC helper's or
     /// the display driver's); it goes back with the last clone of this image.
     lease: Option<std::sync::Arc<bridge::Lease>>,
+    /// Whether the picture changed the foreground window, from WGC's dirty
+    /// regions: `None` when the capture cannot tell (`Freshness::observe_focus`).
+    pub focus: Option<bool>,
 }
 /// A shown pointer Desktop Duplication supplied beside a picture.
 pub struct PointerShape<'a> {
@@ -1112,6 +1115,7 @@ impl GpuImage {
                 texture: std::sync::Arc::new(texture.unwrap()),
                 ready: None,
                 lease: None,
+                focus: None,
             })
         }
     }
@@ -1273,6 +1277,7 @@ impl GpuPool {
                 texture,
                 ready,
                 lease: None,
+                focus: None,
             }))
         }
     }
@@ -1417,6 +1422,9 @@ pub struct Wgc {
     follow_resize: bool,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     closed_token: Option<i64>,
+    /// Whether the compositions since the last published picture changed
+    /// the foreground window (the frame pool's closures borrow `self`).
+    focus: std::sync::Mutex<focus::Focus>,
 }
 /// Handles kept as numbers so the capture can move threads.
 #[derive(Clone, Copy, Debug)]
@@ -1553,6 +1561,14 @@ fn open_session(
         // for some sessions; the capture itself still works.
         tracing::warn!(%error, "WGC border could not be removed; Windows draws a yellow border around the captured display or window");
     }
+    // Frames keep their whole picture and only report what changed, which
+    // tells another window's updates from the focus window's (`focus`).
+    // ReportOnly is the default; set where it exists, as a guard.
+    if !window
+        && let Err(error) = session.SetDirtyRegionMode(GraphicsCaptureDirtyRegionMode::ReportOnly)
+    {
+        tracing::debug!(%error, "WGC dirty region mode unavailable");
+    }
     // Leaving this property untouched is not equivalent to zero:
     // Windows build 26200 reports a 16 ms default, which can deliver
     // only 50-57 updates/sec when quantized to compositor ticks.
@@ -1675,6 +1691,13 @@ impl Wgc {
                 follow_resize: true,
                 closed,
                 closed_token,
+                focus: std::sync::Mutex::new(focus::Focus::new(match source {
+                    Source::Monitor(_) => {
+                        let r = d.DesktopCoordinates;
+                        Some([r.left, r.top, r.right, r.bottom])
+                    }
+                    Source::Window(_) => None,
+                })),
             };
             // Own the pool/session before starting so failure closes them
             // just like normal capture teardown.
@@ -1718,6 +1741,8 @@ impl Wgc {
             let texture: ID3D11Texture2D = unsafe { access.GetInterface()? };
             read_texture(&self.gpu, &texture, &mut self.staging)
         })();
+        // A CPU image carries no focus label.
+        self.take_focus();
         frame.Close()?;
         result.map(Some)
     }
@@ -1774,6 +1799,7 @@ impl Wgc {
             if let Some(image) = image.as_mut() {
                 image.captured = captured;
                 image.wgc_stamp = stamp;
+                image.focus = self.take_focus();
             }
             Ok(image)
         })();
@@ -1791,10 +1817,19 @@ impl Wgc {
             } else {
                 1
             },
-            || self.try_frame(),
+            || {
+                let frame = self.try_frame()?;
+                if let Some(frame) = &frame {
+                    self.focus.lock().unwrap().observe(frame);
+                }
+                Ok(frame)
+            },
             |frame| self.check_size(frame),
             |frame| frame.Close().map_err(Into::into),
         )?;
+        if newest.is_none() {
+            self.focus.lock().unwrap().refresh(Instant::now());
+        }
         match (self.source, newest) {
             (Source::Window(_), Some(frame)) => self.window_frame(frame),
             (_, newest) => Ok(newest),
@@ -1881,6 +1916,11 @@ impl Wgc {
         );
         self.size = size;
         Ok(())
+    }
+    /// Whether the compositions since the last call changed the foreground
+    /// window (`Freshness::observe_focus`).
+    fn take_focus(&self) -> Option<bool> {
+        self.focus.lock().unwrap().take()
     }
     fn try_frame(&self) -> Result<Option<Direct3D11CaptureFrame>> {
         // Reset before checking the pool: a notification racing the check stays
@@ -1981,6 +2021,7 @@ impl Drop for Wgc {
 }
 mod bridge;
 pub use bridge::run_worker as run_wgc_worker;
+mod focus;
 mod idd_push;
 mod window;
 pub use window::WindowTarget;

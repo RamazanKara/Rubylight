@@ -78,6 +78,10 @@ enum Reply {
         slot: usize,
         sequence: u64,
         qpc: i64,
+        /// Whether the compositions since the previous frame changed the
+        /// foreground window; absent when WGC cannot tell.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focus: Option<bool>,
     },
     Error {
         message: String,
@@ -323,13 +327,19 @@ fn validate_texture(
     Ok(())
 }
 
+/// A frame the helper announced: its slot, sequence, capture time, WGC
+/// stamp and focus label.
+type Announced = (usize, u64, Instant, Option<Instant>, Option<bool>);
 pub struct Session {
     pipe: Pipe,
     pub(super) gpu: Device,
     textures: Vec<Texture>,
     owned: GpuPool,
     slots: Slots,
-    pending: VecDeque<(usize, u64, Instant, Option<Instant>)>,
+    pending: VecDeque<Announced>,
+    /// The focus label of the frames taken from `pending` since the last
+    /// published image: a dropped frame's focus change is the next one's.
+    focus: Option<bool>,
     published: u64,
     held: Option<(GpuImage, Instant)>,
     grid: Option<Arc<Mutex<ClaimGrid>>>,
@@ -515,6 +525,7 @@ impl Session {
             owned,
             slots: Slots::default(),
             pending: VecDeque::with_capacity(SLOTS),
+            focus: None,
             published: 0,
             held: None,
             grid: None,
@@ -575,11 +586,13 @@ impl Session {
                     slot,
                     sequence,
                     qpc,
+                    focus,
                 }) => {
                     self.slots.publish(slot, sequence)?;
                     self.last_reply = now;
                     let (captured, stamp) = qpc_timestamps(qpc);
-                    self.pending.push_back((slot, sequence, captured, stamp));
+                    self.pending
+                        .push_back((slot, sequence, captured, stamp, focus));
                 }
                 Some(Reply::Alive) => self.last_reply = now,
                 Some(Reply::ComputeFallback { message }) => {
@@ -607,7 +620,7 @@ impl Session {
                 // the last update of a desktop that has since become static.
                 break;
             }
-            let (slot, sequence, captured, stamp) = self.pending[index];
+            let (slot, sequence, captured, stamp, focus) = self.pending[index];
             let texture = &self.textures[slot];
             if !acquire(&texture.mutex, 1)? {
                 continue;
@@ -622,6 +635,7 @@ impl Session {
                 Ok(None)
             };
             self.pending.remove(index);
+            self.focus = butterpollo_core::capture_policy::merge_focus(self.focus, focus);
             // A lent texture goes back when its image is dropped.
             if !matches!(&copied, Ok(Some(image)) if image.lease.is_some()) {
                 // Handoff orders the context after its compute copy. Releasing the
@@ -675,7 +689,10 @@ impl Session {
             .is_some_and(|(_, deadline)| *deadline <= now)
         {
             self.last_publish = now;
-            return Ok(self.held.take().map(|(image, _)| image));
+            return Ok(self.held.take().map(|(mut image, _)| {
+                image.focus = self.focus.take();
+                image
+            }));
         }
         Ok(None)
     }
@@ -716,6 +733,7 @@ impl Session {
                 },
                 notify: Some((self.freed.clone(), self.frame.clone())),
             })),
+            focus: None,
         })
     }
 }
@@ -1018,6 +1036,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
                     slot,
                     sequence,
                     qpc,
+                    focus: capture.take_focus(),
                 })?;
                 // SAFETY: `wake` is an event handle this process owns until `worker` returns.
                 unsafe {
@@ -1111,14 +1130,32 @@ mod tests {
             slot: 1,
             sequence: 15,
             qpc: 1234,
+            focus: Some(false),
         })?;
         assert!(matches!(
             client.receive::<Reply>()?,
             Some(Reply::Frame {
                 slot: 1,
                 sequence: 15,
-                qpc: 1234
+                qpc: 1234,
+                focus: Some(false)
             })
+        ));
+        // A frame WGC cannot label reads as before the label existed.
+        let unlabelled = serde_json::to_string(&Reply::Frame {
+            slot: 2,
+            sequence: 16,
+            qpc: 1235,
+            focus: None,
+        })
+        .unwrap();
+        assert_eq!(
+            unlabelled,
+            r#"{"type":"Frame","slot":2,"sequence":16,"qpc":1235}"#
+        );
+        assert!(matches!(
+            serde_json::from_str(&unlabelled).unwrap(),
+            Reply::Frame { focus: None, .. }
         ));
         assert!(client.send(&"x".repeat(crate::ipc::MESSAGE_LIMIT)).is_err());
         assert!(server.receive::<Request>()?.is_none());

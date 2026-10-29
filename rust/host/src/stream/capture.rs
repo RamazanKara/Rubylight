@@ -259,6 +259,16 @@ impl<T> Latest<T> {
             .all(|consumer| consumer.released.load(Ordering::Acquire) == state.generation)
     }
     pub(super) fn publish_captured(&self, image: Arc<T>, captured: Instant) -> Result<()> {
+        self.publish_focus(image, captured, None)
+    }
+    /// Publish a capture and whether it changed the focus window, `None`
+    /// when the capture cannot tell (`Freshness::observe_focus`).
+    pub(super) fn publish_focus(
+        &self,
+        image: Arc<T>,
+        captured: Instant,
+        focus: Option<bool>,
+    ) -> Result<()> {
         let now = Instant::now();
         let nanos =
             |duration: std::time::Duration| duration.as_nanos().min(u128::from(u64::MAX)) as u64;
@@ -269,9 +279,10 @@ impl<T> Latest<T> {
         }
         state.recovery.captured = true;
         let picture = state.cadence.picture_start();
-        state.cadence.observe(
+        state.cadence.observe_focus(
             nanos(captured.saturating_duration_since(self.origin)),
             nanos(now.saturating_duration_since(captured)),
+            focus,
         );
         self.captures.fetch_add(1, Ordering::Relaxed);
         if state.cadence.picture_start() != picture {
@@ -336,9 +347,10 @@ impl<T> Latest<T> {
             .picture_interval()
             .map(std::time::Duration::from_nanos)
     }
-    /// When the source's latest picture was first captured, and the picture
-    /// interval nearly all recent pictures arrived within.
-    pub(super) fn picture(&self) -> (Option<Instant>, Option<std::time::Duration>) {
+    /// When the source's latest picture was first captured, the picture
+    /// interval nearly all recent pictures arrived within, and whether the
+    /// latest capture only extends the focus window's picture.
+    pub(super) fn picture(&self) -> (Option<Instant>, Option<std::time::Duration>, bool) {
         let state = self.state.lock().unwrap();
         (
             state
@@ -349,6 +361,7 @@ impl<T> Latest<T> {
                 .cadence
                 .late_picture_interval()
                 .map(std::time::Duration::from_nanos),
+            state.cadence.extends_picture(),
         )
     }
     /// The source's mean frame interval: its rate, which a source alternating

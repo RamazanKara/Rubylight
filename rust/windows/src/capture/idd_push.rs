@@ -1412,6 +1412,7 @@ fn in_place(
         texture: Arc::new(texture.clone()),
         ready: Some(ready),
         lease: Some(Arc::new(lease)),
+        focus: None,
     })
 }
 

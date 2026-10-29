@@ -1,0 +1,3 @@
+# VRR pacing
+- **Another window's animation no longer makes a focused VRR game repeat and skip frames.** A 60 Hz game streamed at 60 fps on a 240 Hz VRR desktop repeated and skipped frames while another window on the captured display animated: Windows Graphics Capture delivered a picture every refresh, and each counted as a new one. On Windows 11 24H2 and newer the host now reads which part of the screen each capture changed: while the foreground window animates, another window's update joins its latest picture instead of starting a new one. A game alone on the display is paced as before.
+<!-- Hardware A/B pending: display capture, 60 Hz clip in the foreground, another window animating on the same display, ABBA with repeats/skips and latency. -->

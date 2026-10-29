@@ -991,6 +991,30 @@ fn another_window_still_streams_at_the_stream_rate_once_the_game_is_still() {
     assert_eq!(game_frames_shown(steady, &frames), (0, 0, 0));
 }
 #[test]
+fn a_game_alone_on_the_display_is_claimed_as_without_focus_labels() {
+    // Holding a later composition of a claimed frame by its timing measured
+    // no better (rust/PERFORMANCE.md, October 26). The labels hold only
+    // another window's updates: a game's own compositions, its duplicates
+    // included, are claimed exactly as without them.
+    for seed in 0..4 {
+        let (compositions, _) = mixed_desktop(25., 1e9, seed * 10);
+        let detect = |i: usize| 0.08 + 0.12 * noise(i, seed + 99);
+        let labelled = simulate_focus(
+            1000. / 60.,
+            &focus_labels(&compositions, true, false),
+            detect,
+            vrr_desktop,
+        );
+        let unlabelled = simulate_focus(
+            1000. / 60.,
+            &focus_labels(&compositions, false, false),
+            detect,
+            vrr_desktop,
+        );
+        assert_eq!(labelled, unlabelled, "seed {seed}");
+    }
+}
+#[test]
 fn a_fresh_capture_can_replace_the_frame_before_the_prediction_fallback() {
     for fps in [59.94, 90., 120., 144., 240.] {
         let start = Instant::now();

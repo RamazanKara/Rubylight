@@ -4519,6 +4519,191 @@ mod tests {
         }
     }
 
+    /// Nucleus' `Settings.ini` as a user's that stalled a background stream
+    /// at Nucleus' start (#59): its folder check on, favourites only, and
+    /// only games for a single keyboard listed.
+    fn cold_settings(text: &str) -> String {
+        butterpollo_core::nucleus::profile::ini_set(
+            text,
+            &[
+                ("Dev", "DisablePathCheck", "False"),
+                ("Dev", "ShowFavoriteOnly", "True"),
+                ("Misc", "GameSortingOpt", "Sort_2,Show_Type2"),
+            ],
+        )
+    }
+
+    /// What a session must have left in Nucleus' `Settings.ini`.
+    fn settings_forced(text: &str) -> Result<()> {
+        use butterpollo_core::nucleus::profile::ini_value;
+        for (section, key, value) in [
+            ("Dev", "UseXinputIndex", "True"),
+            ("Misc", "DisableGameProfiles", "False"),
+            ("Dev", "DisablePathCheck", "True"),
+            ("Dev", "ShowFavoriteOnly", "False"),
+        ] {
+            let found = ini_value(text, section, key);
+            ensure!(
+                found.as_deref() == Some(value),
+                "Settings.ini has {key}={found:?}, not {value}"
+            );
+        }
+        let sorting = ini_value(text, "Misc", "GameSortingOpt").unwrap_or_default();
+        ensure!(
+            !sorting.contains("Show_Type"),
+            "Settings.ini still filters Nucleus' list: GameSortingOpt={sorting}"
+        );
+        Ok(())
+    }
+
+    /// How long after "Nucleus Co-op started" the session logged
+    /// "profile Rubylight clicked", from the log lines and when each came.
+    fn click_delay(lines: &[(Instant, String)]) -> Result<Duration> {
+        let started = lines
+            .iter()
+            .find(|(_, line)| line.contains("Nucleus Co-op started"))
+            .map(|(at, _)| *at)
+            .context("no \"Nucleus Co-op started\" in the log")?;
+        let clicked = lines
+            .iter()
+            .find(|(at, line)| *at >= started && line.contains("profile Rubylight clicked"))
+            .map(|(at, _)| *at)
+            .context("no \"profile Rubylight clicked\" after \"Nucleus Co-op started\"")?;
+        Ok(clicked - started)
+    }
+
+    #[test]
+    fn the_cold_case_seeds_the_bad_settings_and_checks_the_forced_ones() {
+        let shipped = "[Misc]\r\nGameSortingOpt=\r\nDisableGameProfiles=False\r\n[Dev]\r\nShowFavoriteOnly=False\r\nDisablePathCheck=False\r\nUseXinputIndex=False\r\n";
+        let cold = cold_settings(shipped);
+        assert!(cold.contains("ShowFavoriteOnly=True"), "{cold}");
+        assert!(cold.contains("GameSortingOpt=Sort_2,Show_Type2"), "{cold}");
+        assert!(cold.contains("DisablePathCheck=False"), "{cold}");
+        assert!(settings_forced(&cold).is_err());
+        // What a session writes passes.
+        let forced = butterpollo_core::nucleus::profile::settings_ini(&cold);
+        settings_forced(&forced).unwrap();
+        // Each forced value is checked.
+        let filtered = forced.replace("GameSortingOpt=Sort_2", "GameSortingOpt=Show_Type1");
+        let error = settings_forced(&filtered).unwrap_err().to_string();
+        assert!(error.contains("GameSortingOpt=Show_Type1"), "{error}");
+        let favourites = forced.replace("ShowFavoriteOnly=False", "ShowFavoriteOnly=True");
+        let error = settings_forced(&favourites).unwrap_err().to_string();
+        assert!(error.contains("ShowFavoriteOnly"), "{error}");
+    }
+
+    #[test]
+    fn the_click_is_timed_from_nucleus_start() {
+        let t0 = Instant::now();
+        let line = |s: u64, text: &str| (t0 + Duration::from_secs(s), text.to_string());
+        let lines = [
+            line(0, "INFO profile written"),
+            line(1, "INFO Nucleus Co-op started pid=4"),
+            line(
+                5,
+                "WARN Nucleus Co-op shows \"Warning: x\" on the PC's screen",
+            ),
+            line(9, "INFO Nucleus Co-op profile Rubylight clicked"),
+        ];
+        assert_eq!(click_delay(&lines).unwrap(), Duration::from_secs(8));
+        assert!(click_delay(&lines[..3]).is_err());
+        assert!(click_delay(&lines[2..]).is_err());
+    }
+
+    /// The host's log during a hardware case: printed, and each line kept
+    /// with when it came.
+    #[derive(Clone, Default)]
+    struct CaseLog(Arc<std::sync::Mutex<Vec<(Instant, String)>>>);
+    impl std::io::Write for CaseLog {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let text = String::from_utf8_lossy(buf);
+            print!("{text}");
+            let mut lines = self.0.lock().unwrap();
+            lines.extend(text.lines().map(|line| (Instant::now(), line.to_string())));
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl CaseLog {
+        fn install() -> Result<CaseLog> {
+            let log = CaseLog::default();
+            let writer = log.clone();
+            let subscriber = tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_writer(move || writer.clone())
+                .finish();
+            tracing::subscriber::set_global_default(subscriber)
+                .context("a log was set up before the case")?;
+            Ok(log)
+        }
+    }
+
+    /// A file's bytes, None when it is not there.
+    fn read_if_there(path: &Path) -> Result<Option<Vec<u8>>> {
+        match std::fs::read(path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error).with_context(|| path.display().to_string()),
+        }
+    }
+
+    /// Fails while Nucleus Co-op or the game started since `since` shows a
+    /// message box, naming it.
+    fn no_message_box(
+        desktop: &mut butterpollo_windows::nucleus::desktop::Win32,
+        since: u64,
+        executable: &str,
+    ) -> Result<()> {
+        use butterpollo_windows::nucleus::instances::Desktop;
+        let processes: BTreeSet<u32> = butterpollo_windows::process::processes()?
+            .into_iter()
+            .filter(|p| {
+                p.started >= since
+                    && (p.name.eq_ignore_ascii_case("NucleusCoop.exe")
+                        || p.name.eq_ignore_ascii_case(executable))
+            })
+            .map(|p| p.pid)
+            .collect();
+        let shown = desktop.message_boxes(&processes)?;
+        match shown.first() {
+            Some(shown) => anyhow::bail!(
+                "Nucleus Co-op shows \"{}\" on the PC's screen",
+                shown.summary()
+            ),
+            None => Ok(()),
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_not_there_reads_as_none() {
+        let dir = std::env::temp_dir().join(format!("nucleus-read-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("crashlog.txt");
+        assert_eq!(read_if_there(&path).unwrap(), None);
+        std::fs::write(&path, "x").unwrap();
+        assert_eq!(read_if_there(&path).unwrap(), Some(b"x".to_vec()));
+        // A folder in its place is an error, not a missing file.
+        assert!(read_if_there(&dir).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Nucleus' `Settings.ini` as it was before a case, put back when the
+    /// case ends, also on a failure.
+    struct KeptSettings {
+        path: PathBuf,
+        before: Vec<u8>,
+    }
+    impl Drop for KeptSettings {
+        fn drop(&mut self) {
+            match std::fs::write(&self.path, &self.before) {
+                Ok(()) => println!("Settings.ini as before"),
+                Err(error) => eprintln!("Settings.ini not put back: {error}"),
+            }
+        }
+    }
+
     /// A background stream of a one-player game without a hub handler on
     /// this PC, through the host's own admission (tools/hw/catalog.yaml,
     /// nucleus-generic-background): the app's .exe `RUBYLIGHT_NUCLEUS_GAME`
@@ -4535,11 +4720,20 @@ mod tests {
     /// the session's sweep took included) and the settings at the game's
     /// paths are then exactly as before, also on a failure. Run as SYSTEM,
     /// like the service, with Nucleus Co-op
-    /// installed by the console and not running.
+    /// installed by the console and not running. No message box of Nucleus
+    /// or the game shows at any point, and Nucleus' crashlog.txt is
+    /// unchanged. With `RUBYLIGHT_NUCLEUS_COLD=1`
+    /// (nucleus-generic-background-cold), Nucleus' Settings.ini first gets
+    /// the values that stalled #59 ([`cold_settings`]) and is put back
+    /// afterwards, also on a failure; the profile must be clicked within
+    /// 15 s of Nucleus' start, Nucleus must set the game's DPI mode, and
+    /// Settings.ini must hold the forced values after the session.
     #[test]
     #[ignore = "starts a game through Nucleus Co-op on this PC as SYSTEM"]
     fn a_background_stream_without_a_hub_handler_on_this_pc() -> Result<()> {
         use butterpollo_windows::nucleus::layers::{Layers, UserHive};
+        let log = CaseLog::install()?;
+        let cold = std::env::var("RUBYLIGHT_NUCLEUS_COLD").is_ok_and(|v| v == "1");
         let game = std::env::var("RUBYLIGHT_NUCLEUS_GAME").ok();
         let steam_app = std::env::var("RUBYLIGHT_NUCLEUS_STEAM_APP")
             .ok()
@@ -4563,6 +4757,31 @@ mod tests {
         if let Some(pid) = pc.running()? {
             anyhow::bail!("Nucleus Co-op runs (process {pid}): close it first");
         }
+        let crashlog = folder.join("crashlog.txt");
+        let crashes_before = read_if_there(&crashlog)?;
+        let settings = folder.join("Settings.ini");
+        // Declared before the cleanup, so it is put back after the session ended.
+        let _kept_settings = if cold {
+            let before =
+                std::fs::read(&settings).with_context(|| settings.display().to_string())?;
+            let text = String::from_utf8(before.clone()).context("Settings.ini is not UTF-8")?;
+            let kept = KeptSettings {
+                path: settings.clone(),
+                before,
+            };
+            let (bom, body) = match text.strip_prefix('\u{feff}') {
+                Some(body) => ("\u{feff}", body),
+                None => ("", text.as_str()),
+            };
+            std::fs::write(&settings, format!("{bom}{}", cold_settings(body)))
+                .with_context(|| settings.display().to_string())?;
+            println!(
+                "Settings.ini seeded: DisablePathCheck=False, ShowFavoriteOnly=True, GameSortingOpt=Sort_2,Show_Type2"
+            );
+            Some(kept)
+        } else {
+            None
+        };
         let registry = Arc::new(Registry::new(Arc::new(OnPc)));
         let list = butterpollo_windows::user_folder::roaming_app_data()
             .map_err(|error| anyhow!("the user's AppData folder: {error}"))?
@@ -4618,12 +4837,14 @@ mod tests {
             "handler {} for {} at {}",
             handler.file, handler.executable, entry.exe_path
         );
+        let mut desktop = butterpollo_windows::nucleus::desktop::Win32::default();
         let started = Instant::now();
         loop {
             match instance.session(|s| s.phase.clone()) {
                 Phase::Running => break,
                 Phase::Ended(why) => anyhow::bail!("{why}"),
                 Phase::Starting => {
+                    no_message_box(&mut desktop, since, &handler.executable)?;
                     ensure!(
                         started.elapsed() < Duration::from_secs(180),
                         "not running after {:?}",
@@ -4634,6 +4855,25 @@ mod tests {
             }
         }
         println!("running after {:?}", started.elapsed());
+        let delay = click_delay(&log.0.lock().unwrap())?;
+        println!("profile clicked {delay:?} after Nucleus Co-op started");
+        ensure!(
+            !cold || delay <= Duration::from_secs(15),
+            "the profile was clicked {delay:?} after Nucleus Co-op started, not within 15 s"
+        );
+        let set = layer_changes(
+            &cleanup.layers_before,
+            &UserHive::signed_in()?.values()?,
+            &entry.exe_path,
+            &cleanup.content,
+            &handler.executable,
+        );
+        println!("compatibility settings Nucleus set: {}", set.len());
+        ensure!(
+            !cold || !set.is_empty(),
+            "Nucleus Co-op set no DPI mode for {}",
+            handler.executable
+        );
         let game_processes: Vec<u32> = butterpollo_windows::process::processes()?
             .into_iter()
             .filter(|p| p.started >= since && p.name.eq_ignore_ascii_case(&handler.executable))
@@ -4714,7 +4954,11 @@ mod tests {
             }
         }
         println!("pad A held and released at XInput index {index}");
-        std::thread::sleep(hold);
+        let holding = Instant::now();
+        while holding.elapsed() < hold {
+            no_message_box(&mut desktop, since, &handler.executable)?;
+            std::thread::sleep(Duration::from_millis(250));
+        }
         let phase = instance.session(|s| s.phase.clone());
         ensure!(phase == Phase::Running, "after {hold:?}: {phase:?}");
         let stopping = Instant::now();
@@ -4743,6 +4987,18 @@ mod tests {
             "the compatibility settings changed: {changes:?}"
         );
         println!("compatibility settings as before");
+        ensure!(
+            read_if_there(&crashlog)? == crashes_before,
+            "Nucleus Co-op wrote to {}",
+            crashlog.display()
+        );
+        println!("crashlog.txt unchanged");
+        if cold {
+            let text = std::fs::read_to_string(&settings)
+                .with_context(|| settings.display().to_string())?;
+            settings_forced(&text)?;
+            println!("Settings.ini has the forced values");
+        }
         for warning in warnings.snapshot() {
             println!("warning {}: {}", warning.code, warning.message);
         }

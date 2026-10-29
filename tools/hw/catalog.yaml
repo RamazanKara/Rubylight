@@ -472,6 +472,16 @@ cases:
     output: '{{out}}\session.log'
     note: the link steam://rungameid/2155180 goes through the host's Steam lookup (libraryfolders.vdf, the app's launch option) before the same checks as nucleus-generic-background
 
+  - id: nucleus-generic-background-cold
+    device: desktop
+    title: Background stream through Rubylight's own Nucleus Co-op handler from the Settings.ini that stalled #59
+    command: '& {{repo}}\tools\hw\nucleus-generic.ps1 -Out {{out}} -Game D:\games\BFME1\lotrbfme.exe -Cold; exit $LASTEXITCODE'
+    preconditions: [idle, gpu-lock]
+    pass: 'exit 0; session.log has "Settings.ini seeded", "Nucleus Co-op started", "profile Rubylight clicked" and "profile clicked" at 15 s or less after the start, "running after", "compatibility settings Nucleus set" above 0, then "compatibility settings as before", "crashlog.txt unchanged", "Settings.ini has the forced values" and "Settings.ini as before"; no "Nucleus Co-op shows" line'
+    output: '{{out}}\session.log'
+    note: as nucleus-generic-background, with Nucleus' Settings.ini first set to DisablePathCheck=False, ShowFavoriteOnly=True and GameSortingOpt=Sort_2,Show_Type2 and put back afterwards, also on a failure. The test checks for message boxes (#32770) of Nucleus and the game every 100 ms while it starts and every 250 ms while it holds. A Documents folder in OneDrive (the box DisablePathCheck skips) can't be faked safely on this PC; the core unit test settings_ini_lets_nucleus_start_and_list_the_game_without_a_message_box covers the setting
+    status: pending
+
   - id: child-session-cleanup-this-pc
     device: desktop
     title: The upgraded host restores what the removed child-session setup changed on this PC

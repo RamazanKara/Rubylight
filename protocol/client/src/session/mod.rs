@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 pub use audio::AUDIO_QUEUE_BOUND;
 pub use net::{is_nat64_with, is_private};
-pub use roam::{NetworkHint, RoamingConfig};
+pub use roam::{NetworkChange, NetworkHint, RoamingConfig};
 pub use video::DECODE_UNIT_QUEUE_BOUND;
 
 use crate::audio::{AudioConfig, AudioEncryption, AudioReceiver, AudioStats};
@@ -439,6 +439,8 @@ struct Microphone {
 struct Parts {
     shared: Arc<Shared>,
     remote: Option<SocketAddr>,
+    /// The local address toward the host when the session started.
+    local: Option<SocketAddr>,
     outcome: Option<RtspOutcome>,
     audio_socket: Option<UdpSocket>,
     audio_pinger: Option<net::Pinger>,
@@ -539,6 +541,7 @@ impl Session {
         let mut parts = Parts {
             shared: Arc::new(Shared::new(listener.clone(), config.network_priority)),
             remote: None,
+            local: None,
             outcome: None,
             audio_socket: None,
             audio_pinger: None,
@@ -679,12 +682,19 @@ impl Session {
     /// local address toward the host changed; with the same address nothing moves, and a host
     /// that went silent starts its own attempt. On a metered network without
     /// [`RoamingConfig::metered`] roaming holds off and the network grace period decides.
-    /// Returns whether a roam started: false without roaming on both sides.
-    pub fn network_changed(&self, hint: NetworkHint) -> bool {
-        self.parts
-            .roamer
-            .as_ref()
-            .is_some_and(|roamer| roamer.network_changed(hint))
+    /// Returns whether a roam started, else whether the stream's connection carries on: without
+    /// roaming on both sides it does while the route toward the host leaves from the address
+    /// the session started on, or there is no route yet.
+    pub fn network_changed(&self, hint: NetworkHint) -> NetworkChange {
+        if let Some(roamer) = &self.parts.roamer {
+            return roamer.network_changed(hint);
+        }
+        match (self.parts.remote, self.parts.local) {
+            (Some(remote), Some(local)) => {
+                NetworkChange::standing(local, net::local_address_toward(remote))
+            }
+            _ => NetworkChange::CarriesOn,
+        }
     }
 
     /// Simulates a roam (nightjar-cli's `--roam-at`): moves the control and media sockets to
@@ -868,6 +878,7 @@ fn start(
     let local = net::local_address_toward(net::with_port(remote, rtsp_port))
         .map_err(|e| fail(Stage::NameResolution, io_code(&e), e.to_string()))?;
     parts.remote = Some(remote);
+    parts.local = Some(local);
     listener.stage_complete(Stage::NameResolution);
     decide_location(config.location, remote.ip(), &mut config.stream);
 

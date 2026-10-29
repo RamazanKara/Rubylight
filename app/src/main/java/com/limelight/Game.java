@@ -4404,6 +4404,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return queueAutomaticRecovery(retry, packedOff, false, immediate);
     }
 
+    /**
+     * Whether a lost connection would reconnect on its own now: what tryAutomaticRecovery
+     * checks, and an attempt left in the budget. Spends nothing.
+     */
+    private boolean recoversAutomatically() {
+        if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog || !connected || !foreground ||
+                isFinishing() || isDestroyed() || recoveryHandoffInProgress || pendingRecovery != null ||
+                app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
+        int resumeId = recoveryAppId != 0 ? recoveryAppId :
+                app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
+        return resumeId != 0 && recoveryPolicy.allowsAttempt(SystemClock.elapsedRealtime(), connectedAt);
+    }
+
     private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting) {
         return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, false);
     }
@@ -7355,25 +7368,32 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         runOnUiThread(() -> {
             if (!connected || displayedFailureDialog || isFinishing() || isDestroyed()) return;
             // A frozen picture is never silent: say what happened, even with warnings off.
+            // It promises a reconnect only when one will follow (the connection's timeout, or a
+            // return it cannot carry on over, recovers it).
             streamNetworkLost = true;
-            notificationOverlayView.setText(getString(R.string.stream_network_lost));
+            notificationOverlayView.setText(getString(recoversAutomatically() &&
+                    prefConfig.networkGraceSeconds * 1000 <= NetworkReturnRecovery.PEER_TIMEOUT_MS ?
+                    R.string.stream_network_lost_reconnecting : R.string.stream_network_lost));
             requestedNotificationOverlayVisibility = View.VISIBLE;
             if (!isHidingOverlays) notificationOverlayView.setVisibility(View.VISIBLE);
         });
     }
 
     @Override
-    public void streamNetworkReturned(final boolean roamed) {
+    public void streamNetworkReturned(final int change, final boolean metered) {
         runOnUiThread(() -> {
             if (!streamNetworkLost) return;
             streamNetworkLost = false;
             requestedNotificationOverlayVisibility = View.GONE;
             if (!isHidingOverlays) notificationOverlayView.setVisibility(View.GONE);
+            // Roamed, or carrying on (the same address back, or no route yet): the stream goes on,
+            // and its own timeout decides if it cannot.
             if (!connected || displayedFailureDialog || isFinishing() || isDestroyed() || prefConfig == null ||
-                    !NetworkReturnRecovery.reconnectsAtOnce(roamed, prefConfig.autoReconnect,
-                            prefConfig.networkGraceSeconds)) return;
+                    !NetworkReturnRecovery.reconnectsAtOnce(change == MoonBridge.NETWORK_CANNOT_CONTINUE, metered,
+                            prefConfig.roamingMetered, prefConfig.autoReconnect,
+                            prefConfig.networkGraceSeconds * 1000)) return;
             // The connection cannot carry on over this network and would only time out first.
-            LimeLog.info("The network is back without roaming: reconnecting now");
+            LimeLog.info("The network is back on another address the stream did not roam to: reconnecting now");
             if (!tryAutomaticRecovery(false, true)) {
                 LimeLog.warning("The network is back, but no automatic reconnection is possible now");
             }

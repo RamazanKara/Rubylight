@@ -46,6 +46,12 @@ impl StreamRecoveryPolicy {
         Some(delay)
     }
 
+    /// Whether [`StreamRecoveryPolicy::next_delay`] would allow an attempt now, spending none.
+    pub fn allows_attempt(&self, now_ms: u64, connected_at_ms: Option<u64>) -> bool {
+        let mut probe = *self;
+        probe.next_delay(now_ms, connected_at_ms).is_some()
+    }
+
     pub fn reset_after_stable_connection(&mut self, now_ms: u64, connected_at_ms: Option<u64>) {
         // Briefly starting a stream must not give a flapping connection an unlimited budget.
         if connected_at_ms.is_some_and(|at| now_ms.saturating_sub(at) >= STABLE_MS) {
@@ -95,12 +101,28 @@ pub const ROUTE_RETRY_MS: u64 = 500;
 /// One route check's connect timeout: below [`ROUTE_RETRY_MS`], so checks keep their pace.
 pub const ROUTE_PROBE_TIMEOUT_MS: u64 = 400;
 
-/// A network is back after the stream's was lost. True: reconnect now, since the connection
-/// cannot carry on over it (the PC times it out after 10 s of silence). Not when the stream
-/// roamed onto it, with automatic reconnection off, or with a network drop tolerance (it holds
+/// The connection's own timeout without a network drop tolerance (the engine's
+/// `CONTROL_PEER_TIMEOUT`): a tolerance up to it changes nothing.
+pub const PEER_TIMEOUT_MS: u32 = 10_000;
+
+/// A network is back after the stream's was lost. True: reconnect now, since the engine said
+/// the connection cannot carry on over it (`cannot_continue`: the route toward the PC leaves
+/// from another address and the stream did not roam there) and would only time out. Never when
+/// it roamed or carries on (the same address back, or no route yet: its own timeout decides),
+/// with automatic reconnection off, on a `metered` network without "Continue on mobile data"
+/// (`mobile_allowed`), or with a network drop tolerance above [`PEER_TIMEOUT_MS`] (it holds
 /// the connection, and decides).
-pub fn reconnects_at_once(roamed: bool, auto_reconnect: bool, network_grace_ms: u32) -> bool {
-    !roamed && auto_reconnect && network_grace_ms == 0
+pub fn reconnects_at_once(
+    cannot_continue: bool,
+    metered: bool,
+    mobile_allowed: bool,
+    auto_reconnect: bool,
+    network_grace_ms: u32,
+) -> bool {
+    cannot_continue
+        && (!metered || mobile_allowed)
+        && auto_reconnect
+        && network_grace_ms <= PEER_TIMEOUT_MS
 }
 
 /// The wait for a route to the PC before a recovery attempt. A Wi-Fi network is often back
@@ -167,12 +189,21 @@ impl Backoff {
 
     pub fn next_delay(&mut self, now_ms: u64) -> Option<u64> {
         let delay = *DELAYS_MS.get(self.attempts as usize)?;
+        let delay = if self.now { 0 } else { delay };
         self.started_at_ms.get_or_insert(now_ms);
         if delay >= self.remaining(now_ms) {
             return None;
         }
+        self.now = false;
         self.attempts += 1;
-        Some(if std::mem::take(&mut self.now) { 0 } else { delay })
+        Some(delay)
+    }
+
+    /// Whether [`Backoff::next_delay`] at `now_ms` would allow an attempt, spending none.
+    pub fn allows_attempt(&self, now_ms: u64) -> bool {
+        DELAYS_MS
+            .get(self.attempts as usize)
+            .is_some_and(|delay| *delay < self.remaining(now_ms))
     }
 
     /// The next attempt starts at once: the network came back without the stream roaming.
@@ -230,6 +261,10 @@ impl Subject for TracedPolicy {
                 policy.reset_after_stable_connection(a.int(0)?, a.optional_ms(1)?);
                 Ok(Value::Null)
             }
+            "allows_attempt" => {
+                let a = Args::new(args, 2)?;
+                Ok(policy.allows_attempt(a.int(0)?, a.optional_ms(1)?).into())
+            }
             "attempts" => Args::new(args, 0).map(|_| policy.attempts().into()),
             "started_at" => Args::new(args, 0).map(|_| policy.started_at_ms().into()),
             _ => Err(format!("unknown method {method}")),
@@ -259,6 +294,7 @@ impl Subject for Backoff {
                 Ok(trace::optional_ms(delay))
             }
             "attempts" => Args::new(args, 0).map(|_| self.attempts().into()),
+            "allows_attempt" => Args::new(args, 1).and_then(|a| Ok(self.allows_attempt(a.int(0)?).into())),
             "retry_now" => {
                 Args::new(args, 0)?;
                 self.retry_now();
@@ -283,9 +319,8 @@ struct TracedRouteWait(Option<RouteWait>);
 impl Subject for TracedRouteWait {
     fn call(&mut self, method: &str, args: &Value) -> Result<Value, String> {
         if method == "reconnects_at_once" {
-            // Java takes the drop tolerance in seconds, the desktop in ms: only 0 (off) matters.
-            let a = Args::new(args, 3)?;
-            return Ok(reconnects_at_once(a.flag(0)?, a.flag(1)?, a.int(2)?).into());
+            let a = Args::new(args, 5)?;
+            return Ok(reconnects_at_once(a.flag(0)?, a.flag(1)?, a.flag(2)?, a.flag(3)?, a.int(4)?).into());
         }
         let wait = self.0.as_mut().ok_or("no instance (new is null)")?;
         match method {

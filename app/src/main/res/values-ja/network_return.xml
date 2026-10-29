@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_network_lost">ネットワークが切断されました。復帰したらすぐに再接続します…</string>
+    <string name="stream_network_lost">ネットワークが切断されました。</string>
+    <string name="stream_network_lost_reconnecting">ネットワークが切断されました。復帰したらすぐに再接続します…</string>
 </resources>

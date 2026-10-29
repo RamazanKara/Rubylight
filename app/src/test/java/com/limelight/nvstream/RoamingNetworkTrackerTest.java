@@ -7,6 +7,8 @@ import java.util.List;
 
 import org.junit.Test;
 
+import com.limelight.nvstream.jni.MoonBridge;
+
 /** Client roaming: which default-network callbacks reach the engine as a network change. */
 public class RoamingNetworkTrackerTest {
     // Stand-ins for android.net.Network: the tracker only compares them.
@@ -17,7 +19,10 @@ public class RoamingNetworkTrackerTest {
     private final List<Boolean> reports = new ArrayList<>();
 
     private RoamingNetworkTracker tracker(Object streamNetwork) {
-        return new RoamingNetworkTracker(streamNetwork, reports::add);
+        return new RoamingNetworkTracker(streamNetwork, metered -> {
+            reports.add(metered);
+            return MoonBridge.NETWORK_CARRIES_ON;
+        });
     }
 
     @Test public void theStreamsOwnNetworkAndItsCapabilityUpdatesAreNoChange() {
@@ -57,20 +62,23 @@ public class RoamingNetworkTrackerTest {
         assertEquals(java.util.Arrays.asList(true), reports);
     }
 
-    /** Records the loss and return reports, answering networkChanged with {@code roams}. */
+    /** Records the loss and return reports, answering networkChanged with {@code answer}. */
     private static final class Events implements RoamingNetworkTracker.Reporter {
         final List<String> seen = new ArrayList<>();
-        boolean roams;
+        int answer = MoonBridge.NETWORK_CARRIES_ON;
 
-        @Override public boolean networkChanged(boolean metered) {
+        @Override public int networkChanged(boolean metered) {
             seen.add(metered ? "changed metered" : "changed");
-            return roams;
+            return answer;
         }
         @Override public void streamNetworkLost() { seen.add("lost"); }
-        @Override public void streamNetworkReturned(boolean roamed) { seen.add(roamed ? "returned roamed" : "returned"); }
+        @Override public void streamNetworkReturned(int change, boolean metered) {
+            seen.add("returned " + change + (metered ? " metered" : ""));
+        }
     }
 
-    // The sweep's Wi-Fi blip: network 108 lost, network 109 back (a new object) and not roamed onto.
+    // The sweep's Wi-Fi blip: network 108 lost, network 109 back (a new object), the engine's
+    // answer passed on as it is: here the connection carries on (same address, or no route yet).
     @Test public void aLostNetworkComingBackIsAReturnWithTheEnginesAnswer() {
         Events events = new Events();
         RoamingNetworkTracker tracker = new RoamingNetworkTracker(WIFI, events);
@@ -79,13 +87,14 @@ public class RoamingNetworkTrackerTest {
         tracker.capabilities(OTHER_WIFI, true);
         // Validation later updates the same network's capabilities: no second return.
         tracker.capabilities(OTHER_WIFI, true);
-        assertEquals(java.util.Arrays.asList("lost", "changed", "returned"), events.seen);
+        assertEquals(java.util.Arrays.asList("lost", "changed", "returned " + MoonBridge.NETWORK_CARRIES_ON), events.seen);
 
         events.seen.clear();
-        events.roams = true;
+        events.answer = MoonBridge.NETWORK_CANNOT_CONTINUE;
         tracker.lost(OTHER_WIFI);
         tracker.capabilities(CELLULAR, false);
-        assertEquals(java.util.Arrays.asList("lost", "changed metered", "returned roamed"), events.seen);
+        assertEquals(java.util.Arrays.asList("lost", "changed metered",
+                "returned " + MoonBridge.NETWORK_CANNOT_CONTINUE + " metered"), events.seen);
     }
 
     @Test public void aNewNetworkWhileTheStreamsOwnStaysIsNoReturn() {

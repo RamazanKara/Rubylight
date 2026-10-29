@@ -6,9 +6,9 @@
     <string name="refresh_diag_battery_saver">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: chế độ tiết kiệm pin giới hạn nó.</string>
     <string name="refresh_diag_thermal">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu: thiết bị đang nóng và giới hạn ở 60 Hz.</string>
     <string name="refresh_diag_unexplained">Màn hình giữ ở %2$s Hz thay vì %1$s Hz đã yêu cầu. Android không nêu lý do (chế độ: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">Tần số quét thay đổi cần Android 16, nên màn hình chỉ theo tốc độ của trò chơi khi có thể chuyển mà không tối màn hình.</string>
-    <string name="stream_vrr_no_arr">Màn hình này không có tần số quét thích ứng, nên chỉ theo tốc độ của trò chơi khi có thể chuyển mà không tối màn hình.</string>
-    <string name="stream_vrr_arr_half_rate">Màn hình chỉ hiển thị %1$d trên %2$d FPS nhận được: Android đang giữ nó ở một nửa tốc độ luồng.</string>
+    <string name="stream_vrr_old_android">Tần số quét biến thiên cần Android 16, nên màn hình chạy ở tần số cao nhất. Với PC chạy Rubylight, màn hình theo tốc độ của trò chơi khi có thể chuyển mà không tối màn hình.</string>
+    <string name="stream_vrr_no_arr">Màn hình này không có tần số quét thích ứng, nên chạy ở tần số cao nhất. Với PC chạy Rubylight, màn hình theo tốc độ của trò chơi khi có thể chuyển mà không tối màn hình.</string>
+    <string name="stream_vrr_arr_half_rate">Màn hình chỉ hiển thị %1$d trên %2$d FPS: Android đang giữ nó ở một nửa tốc độ luồng.</string>
     <string name="stream_hdr_mode_unsupported">Chế độ màn hình này không hiển thị được HDR, nên luồng ở SDR.</string>
     <string name="stream_hdr_not_negotiated">Đã yêu cầu HDR nhưng PC không gửi video HDR, nên luồng ở SDR.</string>
     <string name="stream_hdr_host_sdr">Đã yêu cầu HDR nhưng PC báo SDR. Hãy bật HDR trong Windows cho màn hình đang phát.</string>

@@ -6,9 +6,9 @@
     <string name="refresh_diag_battery_saver">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：省電模式限制了它。</string>
     <string name="refresh_diag_thermal">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：裝置過熱，已限制為 60 Hz。</string>
     <string name="refresh_diag_unexplained">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz。Android 沒有提供原因（模式：%3$s Hz）。</string>
-    <string name="stream_vrr_old_android">可變更新率需要 Android 16，因此螢幕僅在能無黑畫面切換時跟隨遊戲的影格率。</string>
-    <string name="stream_vrr_no_arr">此螢幕沒有自適應更新率，因此僅在能無黑畫面切換時跟隨遊戲的影格率。</string>
-    <string name="stream_vrr_arr_half_rate">螢幕只顯示了收到的 %2$d FPS 中的 %1$d FPS：Android 將其限制在串流速率的一半。</string>
+    <string name="stream_vrr_old_android">可變更新率需要 Android 16，因此螢幕以最高更新率運作。連接 Rubylight 電腦時，螢幕會在能無黑畫面切換時跟隨遊戲的影格率。</string>
+    <string name="stream_vrr_no_arr">此螢幕沒有自適應更新率，因此以最高更新率運作。連接 Rubylight 電腦時，螢幕會在能無黑畫面切換時跟隨遊戲的影格率。</string>
+    <string name="stream_vrr_arr_half_rate">螢幕只顯示了 %2$d FPS 中的 %1$d FPS：Android 將其限制在串流速率的一半。</string>
     <string name="stream_hdr_mode_unsupported">此螢幕模式無法顯示 HDR，因此串流為 SDR。</string>
     <string name="stream_hdr_not_negotiated">已要求 HDR，但電腦沒有傳送 HDR 影像，因此串流為 SDR。</string>
     <string name="stream_hdr_host_sdr">已要求 HDR，但電腦回報為 SDR。請在 Windows 中為串流的顯示器開啟 HDR。</string>

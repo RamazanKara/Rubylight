@@ -734,13 +734,36 @@ fn nothing_goes_through_a_link_in_the_games_folder() {
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
     assert_eq!(names(folder), before);
 
+    // The game's folder itself a link (moved and linked back with `mklink
+    // /J`): the user's helper follows it once and works where it leads, so
+    // the switch goes on and off; a SYSTEM host follows none.
     let linked = temp.path().join("library/common/Linked");
     junction(&linked, folder);
-    let Response::Refused { reason } = install(Some(&linked.join("Game.exe")), None, &old) else {
-        panic!()
+    let through = linked.join("Game.exe");
+    let Response::Refused { reason } = handle(
+        Request::Install {
+            exe: Some(through.clone()),
+            install: None,
+            package: old.clone(),
+        },
+        Writer::System,
+        &|_, _| {},
+    ) else {
+        panic!("a SYSTEM host wrote through a link")
     };
-    std::fs::remove_dir(&linked).unwrap();
     assert!(reason.contains("link"), "{reason}");
+    assert_eq!(names(folder), before);
+    let Response::Placed { exe: placed, .. } = install(Some(&through), None, &old) else {
+        panic!("the moved game's folder was refused")
+    };
+    assert_eq!(names(placed.parent().unwrap()), names(folder));
+    assert_ne!(names(folder), before);
+    assert!(matches!(
+        prepare(&through, Some(&new)),
+        Response::Placed { .. }
+    ));
+    assert_eq!(remove(&through), Response::Removed { kept: vec![] });
+    std::fs::remove_dir(&linked).unwrap();
     assert_eq!(names(folder), before);
 }
 

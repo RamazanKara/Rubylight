@@ -178,6 +178,7 @@ pub fn handle(request: Request, writer: Writer, progress: &dyn Fn(u64, u64)) -> 
             install,
             package,
         } => find_exe(exe, install.as_deref()).and_then(|exe| {
+            let exe = followed(exe, writer);
             let package = Package::read(&package)
                 .map_err(Failure::Error)?
                 .with(package);
@@ -188,8 +189,14 @@ pub fn handle(request: Request, writer: Writer, progress: &dyn Fn(u64, u64)) -> 
             exe,
             install,
             package,
-        } => prepare(&exe, install.as_deref(), package, writer, progress),
-        Request::Remove { exe } => remove(folder_of(&exe), writer),
+        } => prepare(
+            &followed(exe, writer),
+            install.as_deref(),
+            package,
+            writer,
+            progress,
+        ),
+        Request::Remove { exe } => remove(folder_of(&followed(exe, writer)), writer),
     };
     result.unwrap_or_else(|failure| match failure {
         Failure::ChooseExe(reason) => Response::ChooseExe { reason },
@@ -265,6 +272,35 @@ impl Package {
 
 fn folder_of(exe: &Path) -> &Path {
     exe.parent().unwrap_or(exe)
+}
+
+/// `exe` in its game's folder as it really is, for the user's own writes:
+/// a folder that is itself a link (a game moved elsewhere and linked back
+/// with `mklink /J`) is followed once, and the whole request works there.
+/// The user may write wherever it leads; links below it are still refused
+/// ([`guard`]). A SYSTEM host follows none.
+fn followed(exe: PathBuf, writer: Writer) -> PathBuf {
+    let (Some(folder), Some(name)) = (exe.parent(), exe.file_name()) else {
+        return exe;
+    };
+    let linked =
+        std::fs::symlink_metadata(folder).is_ok_and(|meta| meta.file_attributes() & LINK != 0);
+    if writer != Writer::User || !linked {
+        return exe;
+    }
+    let Ok(real) = std::fs::canonicalize(folder) else {
+        // Where it leads is not there now: the link is refused as one.
+        return exe;
+    };
+    // `\\?\C:\...` as `C:\...`, `\\?\UNC\server\...` as `\\server\...`.
+    let real = match real.to_str() {
+        Some(text) => match text.strip_prefix(r"\\?\UNC\") {
+            Some(share) => PathBuf::from(format!(r"\\{share}")),
+            None => PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text)),
+        },
+        None => real,
+    };
+    real.join(name)
 }
 
 /// The chosen .exe, or the game's .exe in its install: the one Unreal Engine

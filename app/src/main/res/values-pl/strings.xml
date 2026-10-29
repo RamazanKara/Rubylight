@@ -270,7 +270,7 @@
     <string name="title_virtual_display">Wirtualny ekran hosta</string>
     <string name="summary_virtual_display">Poproś komputer o ekran dopasowany do strumienia. Wył.: decydują ustawienia ekranu komputera.</string>
     <string name="title_vrr">Adaptacyjne odświeżanie (ARR / VRR)</string>
-    <string name="summary_vrr">Na ekranach z Androidem 16 i adaptacyjnym odświeżaniem Android dopasowuje częstotliwość odświeżania do strumienia; inne ekrany działają z najwyższą częstotliwością. Hosty obsługujące VRR też są proszone o jego użycie, zależnie od ich ustawień. Gdy ta opcja jest włączona, tempo klatek i niższa częstotliwość odświeżania nie mają zastosowania.</string>
+    <string name="summary_vrr">Na ekranach z Androidem 16 i adaptacyjnym odświeżaniem Android dopasowuje częstotliwość odświeżania do strumienia; inne ekrany zaczynają od najwyższej częstotliwości i podążają za częstotliwością gry tam, gdzie mogą ją zmienić bez wygaszenia. Hosty obsługujące VRR też są proszone o jego użycie, zależnie od ich ustawień. Gdy ta opcja jest włączona, tempo klatek i niższa częstotliwość odświeżania nie mają zastosowania.</string>
     <string name="title_host_frame_times">Pokazuj klatki w rytmie komputera</string>
     <string name="summary_host_frame_times">Przytrzymuje każdą klatkę kilka milisekund, aby pojawiła się wtedy, gdy gra ją narysowała, a nie gdy dostarczyła ją sieć. Wygładza wahania, zwłaszcza przy adaptacyjnym odświeżaniu. Zastępuje tempo klatek. Nie działa z PyroWave.</string>
     <string name="title_content_rate_frame_rate">Dopasuj ekran do liczby klatek gry</string>

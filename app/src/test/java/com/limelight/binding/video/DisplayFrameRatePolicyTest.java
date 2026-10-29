@@ -40,11 +40,107 @@ public class DisplayFrameRatePolicyTest {
         // Below API 30 there is no frame rate vote.
         assertFalse(DisplayFrameRatePolicy.followsContentRate(29, true, true, false, false, false));
         assertFalse(DisplayFrameRatePolicy.followsContentRate(21, true, true, false, false, false));
-        // ARR keeps vote 0, VRR keeps the panel maximum, a TextureView does not vote.
+        // ARR keeps the stream rate vote, a TextureView does not vote.
         assertFalse(DisplayFrameRatePolicy.followsContentRate(36, true, true, true, false, false));
         assertFalse(DisplayFrameRatePolicy.followsContentRate(36, true, true, true, true, false));
-        assertFalse(DisplayFrameRatePolicy.followsContentRate(31, true, true, false, true, false));
         assertFalse(DisplayFrameRatePolicy.followsContentRate(31, true, true, false, false, true));
+    }
+
+    @Test
+    public void vrrWithoutArrFollowsTheContentRateWithoutTheSetting() {
+        // Android before 16 (ANDROID_TOO_OLD) and a panel without ARR (PANEL_WITHOUT_ARR):
+        // the panel maximum alone judders, so the game's rate is followed, setting or not.
+        for (int sdk : new int[] {30, 31, 33, 35, 36}) {
+            boolean arr = DisplayFrameRatePolicy.useAdaptiveRefreshRate(sdk, true, false);
+            assertFalse(arr);
+            assertTrue(DisplayFrameRatePolicy.followsContentRate(sdk, false, true, arr, true, false));
+            assertTrue(DisplayFrameRatePolicy.followsContentRate(sdk, true, true, arr, true, false));
+        }
+        // Still only with a host's frame times, a seamless vote and a SurfaceView.
+        assertFalse(DisplayFrameRatePolicy.followsContentRate(33, false, false, false, true, false));
+        assertFalse(DisplayFrameRatePolicy.followsContentRate(29, false, true, false, true, false));
+        assertFalse(DisplayFrameRatePolicy.followsContentRate(33, false, true, false, true, true));
+        // Under ARR it stays off.
+        assertTrue(DisplayFrameRatePolicy.useAdaptiveRefreshRate(36, true, true));
+        assertFalse(DisplayFrameRatePolicy.followsContentRate(36, false, true, true, true, false));
+    }
+
+    @Test
+    public void theRendererTracksTheContentRateForVrrOrTheSettingWithLowerRefresh() {
+        assertTrue(DisplayFrameRatePolicy.tracksContentRate(true, true, false, false));
+        assertFalse(DisplayFrameRatePolicy.tracksContentRate(true, false, false, false));
+        assertFalse(DisplayFrameRatePolicy.tracksContentRate(false, true, false, false));
+        // VRR turns lower refresh off and stands in for both.
+        assertTrue(DisplayFrameRatePolicy.tracksContentRate(false, false, true, false));
+        assertTrue(DisplayFrameRatePolicy.tracksContentRate(true, false, true, false));
+        // A TextureView does not vote.
+        assertFalse(DisplayFrameRatePolicy.tracksContentRate(true, true, false, true));
+        assertFalse(DisplayFrameRatePolicy.tracksContentRate(false, false, true, true));
+    }
+
+    @Test
+    public void aVrrContentVoteIsTheGamesRateUpToThePanelMaximum() {
+        // VRR's base vote is the panel maximum; lower refresh is off, the vote still comes down.
+        assertTrue(DisplayFrameRatePolicy.contentVoteMayLower(true, false));
+        assertFalse(DisplayFrameRatePolicy.contentVoteMayLower(false, false));
+        assertTrue(DisplayFrameRatePolicy.contentVoteMayLower(false, true));
+        // Retroid: one 120 Hz panel, a 120 fps stream, a game at 60.
+        boolean lower = DisplayFrameRatePolicy.contentVoteMayLower(true, false);
+        assertEquals(60f, DisplayFrameRatePolicy.contentVote(60f, 120f, lower, 120f), 0f);
+        assertEquals(90f, DisplayFrameRatePolicy.contentVote(90f, 120f, lower, 120f), 0f);
+        // Never above the panel maximum.
+        assertEquals(120f, DisplayFrameRatePolicy.contentVote(144f, 120f, lower, 120f), 0f);
+    }
+
+    @Test
+    public void arrVotesTheStreamRateNeverZeroNorAboveThePanel() {
+        assertEquals(120f, DisplayFrameRatePolicy.arrVote(120f, 120f), 0f);
+        assertEquals(90f, DisplayFrameRatePolicy.arrVote(90f, 120f), 0f);
+        assertEquals(59.94f, DisplayFrameRatePolicy.arrVote(59.94f, 120f), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.arrVote(144f, 120f), 0f);
+        // No stream rate yet: the panel maximum, which VRR streams at.
+        assertEquals(120f, DisplayFrameRatePolicy.arrVote(0f, 120f), 0f);
+        // An unknown panel maximum does not cap.
+        assertEquals(144f, DisplayFrameRatePolicy.arrVote(144f, 0f), 0f);
+    }
+
+    @Test
+    public void arrHalfRateIsFlaggedAfterThreeSecondsAndClearsAtOnce() {
+        DisplayFrameRatePolicy.ArrHalfRateCheck check = new DisplayFrameRatePolicy.ArrHalfRateCheck();
+        // 120 fps received, 60 shown: Android's 60 Hz cap for games.
+        assertFalse(check.update(0, 120f, 60f));
+        assertFalse(check.update(1_000, 119f, 61f));
+        assertFalse(check.update(2_999, 120f, 59f));
+        assertTrue(check.update(3_000, 120f, 60f));
+        assertTrue(check.flagged());
+        assertTrue(check.update(4_000, 120f, 60f));
+        // The screen shows the received frames again: cleared on the first sample.
+        assertFalse(check.update(5_000, 120f, 118f));
+        assertFalse(check.flagged());
+        // A broken run starts over.
+        assertFalse(check.update(6_000, 120f, 60f));
+        assertFalse(check.update(7_000, 120f, 100f));
+        assertFalse(check.update(8_000, 120f, 60f));
+        assertFalse(check.update(10_999, 120f, 60f));
+        assertTrue(check.update(11_000, 120f, 60f));
+        check.reset();
+        assertFalse(check.flagged());
+        assertFalse(check.update(12_000, 120f, 60f));
+    }
+
+    @Test
+    public void onlyAboutHalfCountsAsHalf() {
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f));
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(144f, 72f));
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 50f));
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 70f));
+        // Full rate, a few drops, or a third are not half.
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 120f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 100f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 40f));
+        // Too few frames to judge, and no shown count (-1).
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(30f, 15f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, -1f));
     }
 
     @Test

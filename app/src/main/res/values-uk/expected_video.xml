@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">Екран залишається на %2$s Гц замість запитаних %1$s Гц: її обмежує режим енергозбереження.</string>
     <string name="refresh_diag_thermal">Екран залишається на %2$s Гц замість запитаних %1$s Гц: пристрій гарячий і обмежує її до 60 Гц.</string>
     <string name="refresh_diag_unexplained">Екран залишається на %2$s Гц замість запитаних %1$s Гц. Android не називає причину (режими: %3$s Гц).</string>
-    <string name="stream_vrr_old_android">Змінна частота потребує Android 16, тому екран працює на максимальній частоті.</string>
-    <string name="stream_vrr_no_arr">Цей екран не має адаптивної частоти оновлення, тому працює на максимальній частоті.</string>
+    <string name="stream_vrr_old_android">Змінній частоті потрібен Android 16, тому екран стежить за частотою гри, лише якщо може перемкнутися без затемнення.</string>
+    <string name="stream_vrr_no_arr">Цей екран не має адаптивної частоти оновлення, тому стежить за частотою гри, лише якщо може перемкнутися без затемнення.</string>
+    <string name="stream_vrr_arr_half_rate">Екран показує лише %1$d з %2$d отриманих FPS: Android обмежує його половиною частоти потоку.</string>
     <string name="stream_hdr_mode_unsupported">Цей режим екрана не може показувати HDR, тому потік іде в SDR.</string>
     <string name="stream_hdr_not_negotiated">HDR запитано, але ПК не надіслав HDR-відео, тому потік іде в SDR.</string>
     <string name="stream_hdr_host_sdr">HDR запитано, але ПК повідомляє SDR. Увімкніть HDR у Windows для екрана, що транслюється.</string>

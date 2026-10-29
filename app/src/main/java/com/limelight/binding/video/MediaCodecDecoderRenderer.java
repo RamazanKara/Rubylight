@@ -1022,6 +1022,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return hostFrameClock.contentRateMilliHz();
     }
 
+    /** The overlay's received, rendered and compositor-confirmed FPS (-1 when unreported) now. */
+    public float[] getFrameRates() {
+        return frameLatencyStats.getFrameRates(System.nanoTime());
+    }
+
     public com.limelight.nvstream.DecodeTiming takeDecodeTiming(int fps) {
         return frameLatencyStats.takeDecodeTiming(System.nanoTime(), fps);
     }

@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor: pil tasarrufu sınırlıyor.</string>
     <string name="refresh_diag_thermal">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor: cihaz sıcak ve hızı 60 Hz ile sınırlıyor.</string>
     <string name="refresh_diag_unexplained">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor. Android bir neden belirtmiyor (modlar: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">Değişken yenileme hızı Android 16 gerektirir, bu yüzden ekran en yüksek hızda çalışır.</string>
-    <string name="stream_vrr_no_arr">Bu ekranda uyarlanabilir yenileme hızı yok, bu yüzden en yüksek hızda çalışır.</string>
+    <string name="stream_vrr_old_android">Değişken yenileme Android 16 gerektirir, bu yüzden ekran oyunun hızını yalnızca kararmadan geçebildiği yerde izler.</string>
+    <string name="stream_vrr_no_arr">Bu ekranda uyarlanabilir yenileme hızı yok, bu yüzden oyunun hızını yalnızca kararmadan geçebildiği yerde izler.</string>
+    <string name="stream_vrr_arr_half_rate">Ekran alınan %2$d FPS’nin yalnızca %1$d kadarını gösteriyor: Android onu akış hızının yarısında tutuyor.</string>
     <string name="stream_hdr_mode_unsupported">Bu ekran modu HDR gösteremez, bu yüzden yayın SDR.</string>
     <string name="stream_hdr_not_negotiated">HDR istendi ancak PC HDR video göndermedi, bu yüzden yayın SDR.</string>
     <string name="stream_hdr_host_sdr">HDR istendi ancak PC SDR bildiriyor. Windows’ta yayınlanan ekran için HDR’yi açın.</string>

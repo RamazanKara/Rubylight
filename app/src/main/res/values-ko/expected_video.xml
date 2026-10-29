@@ -6,8 +6,9 @@
     <string name="refresh_diag_battery_saver">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.절전 모드가 제한합니다.</string>
     <string name="refresh_diag_thermal">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.기기가 뜨거워 60 Hz로 제한됩니다.</string>
     <string name="refresh_diag_unexplained">화면이 요청한 %1$s Hz가 아닌 %2$s Hz로 유지됩니다.Android가 이유를 알려주지 않습니다(모드: %3$s Hz).</string>
-    <string name="stream_vrr_old_android">가변 주사율에는 Android 16이 필요하므로 화면은 최고 주사율로 동작합니다.</string>
-    <string name="stream_vrr_no_arr">이 화면은 적응형 주사율을 지원하지 않아 최고 주사율로 동작합니다.</string>
+    <string name="stream_vrr_old_android">가변 주사율에는 Android 16이 필요하므로, 화면이 꺼지지 않고 전환할 수 있을 때만 게임의 주사율을 따릅니다.</string>
+    <string name="stream_vrr_no_arr">이 화면은 적응형 주사율을 지원하지 않아, 화면이 꺼지지 않고 전환할 수 있을 때만 게임의 주사율을 따릅니다.</string>
+    <string name="stream_vrr_arr_half_rate">화면에 받은 %2$d FPS 중 %1$d FPS만 표시됩니다. Android가 스트림 속도의 절반으로 제한하고 있습니다.</string>
     <string name="stream_hdr_mode_unsupported">이 화면 모드는 HDR을 표시할 수 없어 스트림은 SDR입니다.</string>
     <string name="stream_hdr_not_negotiated">HDR을 요청했지만 PC가 HDR 영상을 보내지 않아 스트림은 SDR입니다.</string>
     <string name="stream_hdr_host_sdr">HDR을 요청했지만 PC가 SDR로 보고합니다. Windows에서 스트리밍하는 디스플레이의 HDR을 켜세요.</string>

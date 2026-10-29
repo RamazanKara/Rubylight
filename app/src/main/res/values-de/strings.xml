@@ -270,7 +270,7 @@
     <string name="title_virtual_display">Virtuelles Host-Display</string>
     <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden.</string>
     <string name="title_vrr">Adaptive Bildwiederholrate (ARR / VRR)</string>
-    <string name="summary_vrr">Auf Displays mit adaptiver Bildwiederholrate ab Android 16 passt Android die Bildwiederholrate an den Stream an; andere Displays laufen mit ihrer höchsten Rate. Hosts mit VRR-Unterstützung werden gebeten, VRR ebenfalls zu nutzen, je nach ihren Einstellungen. Solange dies an ist, gelten Frame-Pacing und niedrigere Display-Bildrate nicht.</string>
+    <string name="summary_vrr">Auf Displays mit adaptiver Bildwiederholrate ab Android 16 passt Android die Bildwiederholrate an den Stream an; andere Displays starten mit ihrer höchsten Rate und folgen der Rate des Spiels, wo sie ohne Schwarzbild wechseln können. Hosts mit VRR-Unterstützung werden gebeten, VRR ebenfalls zu nutzen, je nach ihren Einstellungen. Solange dies an ist, gelten Frame-Pacing und niedrigere Display-Bildrate nicht.</string>
     <string name="title_host_frame_times">Bilder im Takt des PCs zeigen</string>
     <string name="summary_host_frame_times">Hält jedes Bild einige Millisekunden zurück, damit es erscheint, wann das Spiel es gezeichnet hat, statt wann das Netzwerk es geliefert hat. Gleicht Schwankungen aus, besonders mit adaptiver Bildwiederholrate. Ersetzt das Frame-Pacing. Nicht mit PyroWave.</string>
     <string name="title_content_rate_frame_rate">Bildwiederholrate an die Spielrate anpassen</string>

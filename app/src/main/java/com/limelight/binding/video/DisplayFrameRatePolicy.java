@@ -13,13 +13,16 @@ public final class DisplayFrameRatePolicy {
         NOT_REQUESTED,
         /** Android's automatic policy decides the refresh rate. */
         IN_USE,
-        /** VRR was asked for on Android before 16, which has no adaptive refresh API: the maximum rate is voted. */
+        /**
+         * VRR was asked for on Android before 16, which has no adaptive refresh API: the maximum
+         * rate is voted, then the game's rate once it holds one (seamless switches only).
+         */
         ANDROID_TOO_OLD,
-        /** Android 16 or newer, but this screen does not report ARR support: the maximum rate is voted. */
+        /** Android 16 or newer, but this screen does not report ARR support: as above. */
         PANEL_WITHOUT_ARR
     }
 
-    /** Why the stream does or does not run on ARR, so the overlay can name the reason for the maximum-rate fallback. */
+    /** Why the stream does or does not run on ARR, so the overlay can name the reason for the fallback. */
     public static ArrState arrState(int sdk, boolean vrr, boolean arrSupported) {
         if (!vrr) return ArrState.NOT_REQUESTED;
         if (useAdaptiveRefreshRate(sdk, true, arrSupported)) return ArrState.IN_USE;
@@ -27,15 +30,36 @@ public final class DisplayFrameRatePolicy {
     }
 
     /**
+     * Whether the renderer tracks the content rate, before the stream knows whether ARR serves
+     * VRR. A SurfaceView only. VRR stands in for the setting: without ARR it is the only way the
+     * panel can come down to the game's rate. Otherwise it needs the setting and "Allow lower
+     * refresh rate", which the settings screen greys it without.
+     */
+    public static boolean tracksContentRate(boolean enabled, boolean reduceRefreshRate, boolean vrr,
+            boolean textureView) {
+        return !textureView && (vrr || (enabled && reduceRefreshRate));
+    }
+
+    /**
      * Whether the surface's frame rate vote follows the content rate the host's frame times
-     * show. It needs the setting, a host that announced clock sync (Rubylight; any other host
-     * sends no usable frame times) and a surface that can vote seamlessly: API 30 or newer, a
-     * SurfaceView, and neither ARR (which infers the cadence itself, vote 0) nor VRR's maximum
-     * rate vote.
+     * show. It needs the setting or VRR, a host that announced clock sync (Rubylight; any other
+     * host sends no usable frame times) and a surface that can vote seamlessly: API 30 or newer,
+     * a SurfaceView, and not ARR, whose stream rate vote leaves the cadence to Android. VRR
+     * without ARR (Android before 16, a panel without ARR) follows the content rate in place of
+     * the panel maximum, so a fixed or multi-rate panel judders less.
      */
     public static boolean followsContentRate(int sdk, boolean enabled, boolean hostAnnouncesClockSync,
             boolean arr, boolean vrr, boolean textureView) {
-        return enabled && hostAnnouncesClockSync && sdk >= Build.VERSION_CODES.R && !arr && !vrr && !textureView;
+        return (enabled || vrr) && hostAnnouncesClockSync && sdk >= Build.VERSION_CODES.R && !arr && !textureView;
+    }
+
+    /**
+     * Whether a content vote may go under the base vote. VRR's base vote is the panel maximum,
+     * so with VRR the vote is the game's rate; otherwise only "Allow lower refresh rate" or a
+     * pacing mode that reduces the rate lets it go lower.
+     */
+    public static boolean contentVoteMayLower(boolean vrr, boolean mayReduceRefreshRate) {
+        return vrr || mayReduceRefreshRate;
     }
 
     /**
@@ -47,6 +71,59 @@ public final class DisplayFrameRatePolicy {
     public static float contentVote(float contentHz, float baseHz, boolean mayReduce, float panelMaxHz) {
         float vote = mayReduce ? contentHz : Math.max(contentHz, baseHz);
         return panelMaxHz > 0 ? Math.min(vote, panelMaxHz) : vote;
+    }
+
+    /**
+     * The vote under ARR: the stream rate, never above the panel maximum. An explicit rate,
+     * not 0: Android 15 and newer hold games (Nightjar declares one) at 60 Hz unless they ask
+     * for a frame rate, and a 0 vote clears the request.
+     */
+    public static float arrVote(float streamHz, float panelMaxHz) {
+        if (streamHz <= 0) return panelMaxHz;
+        return panelMaxHz > 0 ? Math.min(streamHz, panelMaxHz) : streamHz;
+    }
+
+    /**
+     * Under ARR, whether the screen shows about half the frames received: the sign of Android
+     * holding the stream at half its rate (a 60 Hz cap on a 120 fps stream). Fed once a second;
+     * it flags after 3 s in a row and clears on the first sample that is not half.
+     */
+    public static final class ArrHalfRateCheck {
+        public static final long HOLD_MS = 3000;
+        /** Below this the counts are too coarse to call half. */
+        public static final float MIN_RECEIVED_FPS = 40;
+        public static final float LOW = 0.4f;
+        public static final float HIGH = 0.6f;
+
+        private long halfSinceMs = -1;
+        private boolean flagged;
+
+        public static boolean isHalf(float receivedFps, float shownFps) {
+            return receivedFps >= MIN_RECEIVED_FPS && shownFps >= 0 &&
+                    shownFps >= receivedFps * LOW && shownFps <= receivedFps * HIGH;
+        }
+
+        /** Takes one sample; returns whether the check is flagged now. */
+        public boolean update(long nowMs, float receivedFps, float shownFps) {
+            if (!isHalf(receivedFps, shownFps)) {
+                halfSinceMs = -1;
+                flagged = false;
+                return false;
+            }
+            if (halfSinceMs < 0) halfSinceMs = nowMs;
+            flagged = nowMs - halfSinceMs >= HOLD_MS;
+            return flagged;
+        }
+
+        public boolean flagged() {
+            return flagged;
+        }
+
+        /** A new surface, stream or stop: start over. */
+        public void reset() {
+            halfSinceMs = -1;
+            flagged = false;
+        }
     }
 
     /**

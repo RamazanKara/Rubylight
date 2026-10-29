@@ -270,7 +270,7 @@
     <string name="title_virtual_display">Tela virtual do host</string>
     <string name="summary_virtual_display">Pede ao PC uma tela que corresponda à transmissão. Desativado: as configurações de tela do próprio PC decidem.</string>
     <string name="title_vrr">Atualização adaptável (ARR / VRR)</string>
-    <string name="summary_vrr">Em telas com Android 16 e atualização adaptável, o Android ajusta a taxa de atualização à transmissão; outras telas funcionam na taxa mais alta. Hosts compatíveis com VRR também são solicitados a usá-lo, conforme as configurações deles. Enquanto isto estiver ativado, o ritmo de quadros e a taxa de atualização menor não se aplicam.</string>
+    <string name="summary_vrr">Em telas com Android 16 e atualização adaptável, o Android ajusta a taxa de atualização à transmissão; outras telas começam na taxa mais alta e seguem a do jogo onde conseguem mudar sem escurecer. Hosts compatíveis com VRR também são solicitados a usá-lo, conforme as configurações deles. Enquanto isto estiver ativado, o ritmo de quadros e a taxa de atualização menor não se aplicam.</string>
     <string name="title_host_frame_times">Mostrar quadros no ritmo do PC</string>
     <string name="summary_host_frame_times">Segura cada quadro por alguns milissegundos para que apareça quando o jogo o desenhou, e não quando a rede o entregou. Suaviza variações, principalmente com taxa adaptativa. Substitui o ritmo de quadros. Não é usado com PyroWave.</string>
     <string name="title_content_rate_frame_rate">Ajustar a tela à taxa do jogo</string>

@@ -1660,6 +1660,7 @@ impl Streaming {
         } else {
             0
         };
+        crate::sdl::alt_f4_to_host(true);
         if facts.host_timing {
             let _ = session.send(ClientMessage::HostTimingRequest(HostTimingRequest { enabled: true }));
         }
@@ -3815,6 +3816,7 @@ impl Streaming {
         self.text_field.stop(window);
         self.set_capture(window, false);
         self.cursor.clear();
+        crate::sdl::alt_f4_to_host(false);
         for controller in 0..16 {
             if self.audio_status.0[usize::from(controller)] != 0 {
                 let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller, flags: 0 });

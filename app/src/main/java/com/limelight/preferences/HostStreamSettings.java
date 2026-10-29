@@ -773,7 +773,9 @@ public class HostStreamSettings extends NightjarActivity {
             // A profile serves every PC, so it leaves host displays alone; a game has no display mode of its own.
             boolean displayModes = pc && gate(HostCapabilities.Feature.HOST_DISPLAY_MODES).isVisible();
             boolean virtualDisplay = activity.mode != Mode.PROFILE && gate(HostCapabilities.Feature.VIRTUAL_DISPLAY).isVisible();
-            if (displayModes || virtualDisplay) {
+            // Sent with or without the virtual display switch: the host makes one of its own by default.
+            boolean displayScale = activity.mode != Mode.PROFILE && gate(HostCapabilities.Feature.DISPLAY_SCALE).isVisible();
+            if (displayModes || virtualDisplay || displayScale) {
                 PreferenceCategory display = category(screen, R.string.pc_settings_display);
                 if (displayModes) {
                     // Saved separately, so the display choice also applies when profile edits are discarded.
@@ -782,9 +784,9 @@ public class HostStreamSettings extends NightjarActivity {
                 if (virtualDisplay) {
                     row(display, "virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
                     row(display, "scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
-                    if (gate(HostCapabilities.Feature.DISPLAY_SCALE).isVisible()) {
-                        row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
-                    }
+                }
+                if (displayScale) {
+                    row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
                 }
             }
             Preference footer = new Preference(activity);

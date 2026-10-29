@@ -260,9 +260,11 @@ impl LaunchRequest {
                 "&virtualDisplay=1&scaleFactor={}",
                 self.virtual_display_scale
             ));
-            if self.virtual_display_dpi != 0 && caps.has(Feature::DisplayScale) {
-                q.push_str(&format!("&rlDisplayScale={}", self.virtual_display_dpi));
-            }
+        }
+        // Also without virtualDisplay=1: the host makes a virtual display of its own by default
+        // and ignores the scale for a stream on a physical one.
+        if !input_only && self.virtual_display_dpi != 0 && caps.has(Feature::DisplayScale) {
+            q.push_str(&format!("&rlDisplayScale={}", self.virtual_display_dpi));
         }
         if let Some(value) = host_display.wire_value() {
             q.push_str(&format!("&hostDisplay={value}"));
@@ -408,13 +410,19 @@ mod tests {
     }
 
     #[test]
-    fn the_display_scale_goes_only_with_a_virtual_display_and_only_when_chosen() {
+    fn the_display_scale_goes_when_chosen_with_or_without_the_virtual_display_switch() {
         let query = |virtual_display, dpi| {
             LaunchRequest { virtual_display, virtual_display_dpi: dpi, ..request() }.query(&rubylight(), false)
         };
         assert!(!query(true, 0).contains("rlDisplayScale"), "0 keeps the PC's own scale");
         assert!(query(true, 200).contains("&scaleFactor=100&rlDisplayScale=200"), "the render resolution stays 100 %");
-        assert!(!query(false, 200).contains("rlDisplayScale"), "no virtual display, nothing to scale");
+        // The host makes a virtual display of its own by default (per_client), so the switch
+        // being off does not mean a physical display; the host ignores the scale on one.
+        let off = query(false, 200);
+        assert!(off.contains("&rlDisplayScale=200&") && !off.contains("virtualDisplay"), "{off}");
+        // An input-only launch has no display.
+        let input_only = LaunchRequest { role: AppRole::InputOnly, virtual_display_dpi: 200, ..request() }.query(&rubylight(), false);
+        assert!(!input_only.contains("rlDisplayScale"), "{input_only}");
     }
 
     #[test]

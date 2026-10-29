@@ -1426,10 +1426,12 @@ public class NvHTTP {
             (role == NvApp.Role.REMOTE_MONITOR ? "&remote_monitor=1" :
                     inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ? "&input_only=1" : "") +
             "&mode=" + context.negotiatedWidth + "x" + context.negotiatedHeight + "x" + launchRate +
-            (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() +
-                    (context.streamConfig.getVirtualDisplayDpi() == 0 ||
-                            !context.hostCaps.has(HostCapabilities.Feature.DISPLAY_SCALE) ? "" :
-                            "&rlDisplayScale=" + context.streamConfig.getVirtualDisplayDpi()) : "") +
+            (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
+            // Also without virtualDisplay=1: the host makes a virtual display of its own by default
+            // and ignores the scale for a stream on a physical one.
+            (inputOnly || context.streamConfig.getVirtualDisplayDpi() == 0 ||
+                    !context.hostCaps.has(HostCapabilities.Feature.DISPLAY_SCALE) ? "" :
+                    "&rlDisplayScale=" + context.streamConfig.getVirtualDisplayDpi()) +
             (hostDisplay.wireValue == null ? "" :
                     "&" + HostDisplayChoice.LAUNCH_PARAMETER + "=" + hostDisplay.wireValue) +
             vrr +

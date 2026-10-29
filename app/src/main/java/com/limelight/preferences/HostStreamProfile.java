@@ -77,13 +77,6 @@ public final class HostStreamProfile {
         return value;
     }
 
-    static int requireDisplayScale(int percent) {
-        if (!PreferenceConfiguration.isVirtualDisplayDpi(percent)) {
-            throw new IllegalArgumentException("Display scale Windows does not offer");
-        }
-        return percent;
-    }
-
     static int parseRefreshRate(String text) {
         try {
             return requireRange(new BigDecimal(text.trim().replace(',', '.'))
@@ -299,7 +292,9 @@ public final class HostStreamProfile {
                     profile.renderScale = requireRange(Integer.parseInt(field), 50, 200);
                     break;
                 case "dpi":
-                    profile.displayScale = requireDisplayScale(Integer.parseInt(field));
+                    // A scale Windows does not offer reads as the PC's own, as on the desktop,
+                    // instead of dropping the PC's other values with it.
+                    profile.displayScale = PreferenceConfiguration.virtualDisplayDpi(field);
                     break;
                 case "codec":
                     profile.codec = PreferenceConfiguration.FormatOption.valueOf(field);

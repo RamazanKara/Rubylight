@@ -263,9 +263,14 @@ public class HostStreamProfileTest {
         config.virtualDisplayDpi = 150;
         HostStreamProfile.deserialize("v2;hdr=true").applyTo(config);
         assertEquals(150, config.virtualDisplayDpi);
-        // A scale Windows does not offer would fail the launch.
-        assertThrows(IllegalArgumentException.class, () -> HostStreamProfile.deserialize("v2;dpi=130"));
-        assertThrows(IllegalArgumentException.class, () -> HostStreamProfile.deserialize("v2;dpi=600"));
+        // A scale Windows does not offer would fail the launch: it reads as the PC's own, and
+        // the PC's other values stay.
+        for (String unknown : new String[] {"130", "275", "600", "junk"}) {
+            HostStreamProfile kept = HostStreamProfile.deserialize("v2;bitrate=20000;dpi=" + unknown + ";hdr=true");
+            assertEquals(unknown, Integer.valueOf(0), kept.displayScale);
+            assertEquals(unknown, Integer.valueOf(20000), kept.bitrate);
+            assertEquals(unknown, Boolean.TRUE, kept.hdr);
+        }
     }
 
     @Test

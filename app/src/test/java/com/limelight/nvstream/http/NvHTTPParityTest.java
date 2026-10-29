@@ -755,7 +755,9 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void displayScaleGoesOnlyWithAVirtualDisplayAndOnlyWhenChosen() throws Exception {
+    public void displayScaleGoesWhenChosenWithOrWithoutTheVirtualDisplaySwitch() throws Exception {
+        // The host makes a virtual display of its own by default (per_client), so "Host virtual
+        // display" off does not mean a physical display; the host ignores the scale on one.
         for (boolean virtualDisplay : new boolean[] {false, true}) {
             for (int dpi : new int[] {0, 200}) {
                 ConnectionContext context = context("rubylight-serverinfo.xml");
@@ -763,11 +765,13 @@ public class NvHTTPParityTest {
                 context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
                         .setVirtualDisplay(virtualDisplay, 100).setVirtualDisplayDpi(dpi).build();
                 String query = NvHTTP.getLaunchQuery(context, 42, false);
-                String expected = virtualDisplay && dpi != 0 ? "200" : null;
+                String expected = dpi != 0 ? "200" : null;
                 assertEquals(virtualDisplay + "/" + dpi, expected, query(context, false).queryParameter("rlDisplayScale"));
                 if (expected != null) {
                     // The same order as the shared Rust LaunchRequest; the render resolution stays 100 %.
-                    assertTrue(query, query.contains("&virtualDisplay=1&scaleFactor=100&rlDisplayScale=200&"));
+                    assertTrue(query, query.contains(virtualDisplay ?
+                            "&virtualDisplay=1&scaleFactor=100&rlDisplayScale=200&" : "&rlDisplayScale=200&"));
+                    assertEquals(query, virtualDisplay, query.contains("virtualDisplay"));
                 }
             }
         }

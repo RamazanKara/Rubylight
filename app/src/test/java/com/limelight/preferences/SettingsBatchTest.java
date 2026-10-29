@@ -365,7 +365,9 @@ public class SettingsBatchTest {
             android.preference.ListPreference dpi = (android.preference.ListPreference)
                     section(controller, "display").findPreference("list_virtual_display_dpi");
             assertEquals("PC display scaling", dpi.getTitle().toString());
-            assertEquals("checkbox_virtual_display", dpi.getDependency());
+            // Sent with or without "Host virtual display": the host makes one of its own by default.
+            assertNull(dpi.getDependency());
+            assertTrue(dpi.isEnabled());
             assertEquals("0", dpi.getValue());
             assertEquals("PC’s own", dpi.getEntries()[0].toString());
             assertEquals("200%", dpi.getEntries()[5].toString());

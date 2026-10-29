@@ -1320,17 +1320,31 @@ fn look_up(folder: &Path, file: &Path) -> std::io::Result<Found> {
         },
         Err(error) => Err(error),
     });
-    let above = match folder.parent() {
-        Some(above) if !folder.as_os_str().is_empty() => above.to_path_buf(),
-        _ => volume(file),
-    };
     match found {
         Err(error) if linked(&error) => Ok(Found::Link),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound && above.is_dir() => {
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound && on_its_drive(folder, file) =>
+        {
             Ok(Found::Gone)
         }
         found => found,
     }
+}
+
+/// Whether the drive the app's `folder` was on is still there: some folder above it, below the
+/// drive's root, exists. An uninstall can take several levels with it (the app's folder is often
+/// `Game\Binaries\Win64`); a drive that is not mounted, or another drive under its letter, has
+/// only its root.
+fn on_its_drive(folder: &Path, file: &Path) -> bool {
+    let root = volume(file);
+    if folder.as_os_str().is_empty() {
+        return root.is_dir();
+    }
+    folder
+        .ancestors()
+        .skip(1)
+        .take_while(|above| above.starts_with(&root) && *above != root)
+        .any(Path::is_dir)
 }
 
 /// Put back the changes `scope` selects: an original goes back only while its key still holds
@@ -1863,6 +1877,19 @@ mod tests {
             .with_file_name("Deleted")
             .join("OptiScaler.ini");
         journal.changes[0].folder = game.resolved.with_file_name("Deleted");
+        journal.save(&game.journal).unwrap();
+        let report = restore(&game.journal, Scope::All).unwrap();
+        assert_eq!(report.skipped.len(), 1, "{report:?}");
+        assert!(Journal::load(&game.journal).unwrap().changes.is_empty());
+        // And an exe folder deleted with the game around it (`Missing\Game\Binaries\Win64`).
+        let win64 = game
+            .resolved
+            .with_file_name("Missing")
+            .join("Game")
+            .join("Binaries")
+            .join("Win64");
+        journal.changes[0].path = win64.join("OptiScaler.ini");
+        journal.changes[0].folder = win64;
         journal.save(&game.journal).unwrap();
         let report = restore(&game.journal, Scope::All).unwrap();
         assert_eq!(report.skipped.len(), 1, "{report:?}");

@@ -710,7 +710,7 @@ fn refuse_anti_cheat(setup: &Setup) -> Result<(), Missing> {
 /// anti-cheat by name or in the game's folder, a game that needs
 /// administrator rights on an account without them. None for a Steam link,
 /// whose game is checked at launch.
-fn own_status(pc: &dyn Pc, app: &App) -> Result<Option<Run>, Missing> {
+fn own_status(pc: &dyn Pc, app: &App) -> Result<Option<Run>, NoRun> {
     if !starts_exe(app) {
         return Ok(None);
     }
@@ -720,48 +720,83 @@ fn own_status(pc: &dyn Pc, app: &App) -> Result<Option<Run>, Missing> {
     if !Path::new(exe).is_absolute() {
         return Err(Missing::NoExecutable {
             app: app.name.clone(),
-        });
+        }
+        .into());
     }
     let setup = prepared(Setup::new(exe, &app.name, None))?;
     if !Path::new(&setup.exe_path).is_file() {
         return Err(Missing::Refused {
             reason: not_on_this_pc(exe),
-        });
+        }
+        .into());
     }
     refuse_anti_cheat(&setup)?;
-    run_of(pc, &setup, false)
-        .map(Some)
-        .map_err(|reason| Missing::Refused { reason })
+    run_of(pc, &setup, false).map(Some).map_err(|not| NoRun {
+        lasting: matches!(not, NotRun::Refused(_)),
+        missing: Missing::Refused { reason: not.into() },
+    })
+}
+
+/// Why [`own_status`] has no run, and whether that stands until the .exe
+/// changes: not when Rubylight could not tell ([`NotRun::Unknown`]), which
+/// the console asks again at its next refresh.
+struct NoRun {
+    missing: Missing,
+    lasting: bool,
+}
+impl From<Missing> for NoRun {
+    fn from(missing: Missing) -> Self {
+        Self {
+            missing,
+            lasting: true,
+        }
+    }
+}
+
+/// Why [`run_of`] has no run.
+#[derive(Debug, PartialEq)]
+enum NotRun {
+    /// The game or the account rules it out.
+    Refused(String),
+    /// Rubylight could not tell (no signed-in user yet, a read that failed).
+    Unknown(String),
+}
+impl From<NotRun> for String {
+    fn from(not: NotRun) -> Self {
+        match not {
+            NotRun::Refused(reason) | NotRun::Unknown(reason) => reason,
+        }
+    }
 }
 
 /// How a session of Rubylight's own handler for `setup` runs Nucleus Co-op
 /// ([`elevation::choose`]), or why it is refused. `folder` also walks the
 /// game's folder as the user, as Nucleus does at launch.
-fn run_of(pc: &dyn Pc, setup: &Setup, folder: bool) -> Result<Run, String> {
+fn run_of(pc: &dyn Pc, setup: &Setup, folder: bool) -> Result<Run, NotRun> {
     let needs_admin = handler::parse(&setup.file(), &setup.handler())
         .map(|own| handler::needs_admin(&own))
         .map_err(|error| {
-            format!(
+            NotRun::Refused(format!(
                 "Rubylight's handler for {} did not parse: {error}",
                 setup.name
-            )
+            ))
         })?;
     let unknown = |error: anyhow::Error| {
-        format!(
+        NotRun::Unknown(format!(
             "Rubylight could not tell whether {} needs administrator rights: {error:#}",
             file_name(&setup.exe_path)
-        )
+        ))
     };
     let elevates = pc.elevates().map_err(unknown)?;
     let script = Script::Own { needs_admin };
     let need = pc.game_need(&setup.exe_path, false).map_err(unknown)?;
-    let run = elevation::choose(script, need, elevates)?;
+    let run = elevation::choose(script, need, elevates).map_err(NotRun::Refused)?;
     if run == Run::Elevated || !folder {
         return Ok(run);
     }
     // Only when it would run as the user: the walk is as long as the folder.
     let need = elevation::most([need, pc.game_need(&setup.exe_path, true).map_err(unknown)?]);
-    elevation::choose(script, need, elevates)
+    elevation::choose(script, need, elevates).map_err(NotRun::Refused)
 }
 
 fn not_on_this_pc(exe: &str) -> String {
@@ -1384,14 +1419,15 @@ impl Registry {
     }
 
     /// [`own_status`] for the console, read again once [`OWN_STATUS_TTL`]
-    /// passed or the .exe changed. The path is checked before anything opens
-    /// it, and nothing else waits while the answer is worked out.
+    /// passed or the .exe changed; one Rubylight could not tell is read
+    /// again at once. The path is checked before anything opens it, and
+    /// nothing else waits while the answer is worked out.
     fn own_status(&self, app: &App) -> Result<Option<Run>, Missing> {
         let Some(exe) = executable(app)
             .filter(|_| starts_exe(app))
             .filter(|exe| Path::new(exe).is_absolute())
         else {
-            return own_status(self.pc().as_ref(), app);
+            return own_status(self.pc().as_ref(), app).map_err(|no| no.missing);
         };
         refuse_path(exe)?;
         let modified = std::fs::metadata(exe)
@@ -1410,19 +1446,26 @@ impl Registry {
             return status.status.clone();
         }
         let status = own_status(self.pc().as_ref(), app);
+        let lasting = status.as_ref().err().is_none_or(|no| no.lasting);
+        let status = status.map_err(|no| no.missing);
         let mut statuses = self
             .own_statuses
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         statuses.retain(|_, status| status.at.elapsed() < OWN_STATUS_TTL);
-        statuses.insert(
-            exe.to_string(),
-            OwnStatus {
-                at: Instant::now(),
-                modified,
-                status: status.clone(),
-            },
-        );
+        if lasting {
+            statuses.insert(
+                exe.to_string(),
+                OwnStatus {
+                    at: Instant::now(),
+                    modified,
+                    status: status.clone(),
+                },
+            );
+        } else {
+            // Asked again at the next refresh, not a minute later.
+            statuses.remove(exe);
+        }
         status
     }
 
@@ -1569,7 +1612,7 @@ impl Registry {
                 // A hub handler always runs elevated; ours as the user unless
                 // it or the game needs administrator rights.
                 let run = match own {
-                    Some(setup) => run_of(pc.as_ref(), setup, true),
+                    Some(setup) => run_of(pc.as_ref(), setup, true).map_err(String::from),
                     None => pc
                         .elevates()
                         .map_err(|error| format!("{error:#}"))
@@ -2252,6 +2295,8 @@ pub(crate) mod fake {
         pub user_copies: Mutex<Vec<Option<PathBuf>>>,
         /// The Nucleus folder each user's copy was made from.
         pub copied_from: Mutex<Vec<PathBuf>>,
+        /// Why reading a game's needs fails.
+        pub need_error: Mutex<Option<String>>,
     }
     impl Pc {
         pub(crate) fn unavailable() -> Self {
@@ -2317,6 +2362,7 @@ pub(crate) mod fake {
                 own_in: Mutex::new(Vec::new()),
                 user_copies: Mutex::new(Vec::new()),
                 copied_from: Mutex::new(Vec::new()),
+                need_error: Mutex::new(None),
             }
         }
         /// The session started last.
@@ -2413,6 +2459,9 @@ pub(crate) mod fake {
             Ok(*self.elevates.lock().unwrap())
         }
         fn game_need(&self, exe: &str, folder: bool) -> Result<Need> {
+            if let Some(error) = self.need_error.lock().unwrap().clone() {
+                anyhow::bail!(error);
+            }
             let need = |needs: &Mutex<BTreeMap<String, Need>>| {
                 needs
                     .lock()
@@ -3006,6 +3055,45 @@ mod tests {
         let shared = [app("Shared", r"\\nas\games\Ice\Ice.exe")];
         let _ = registry.games(&shared, &Config::default());
         assert_eq!(registry.own_statuses.lock().unwrap().len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_console_asks_again_when_it_could_not_tell() {
+        let (registry, pc, _) = setup();
+        let dir = std::env::temp_dir().join(format!("nucleus-own-{}", uuid::Uuid::new_v4()));
+        let exe = dir.join("Ice").join("Ice.exe");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, b"").unwrap();
+        let apps = [app("Ice", &format!("\"{}\"", exe.display()))];
+        let status = || registry.games(&apps, &Config::default()).unwrap().unwrap()[0].clone();
+        // No signed-in user yet: said, and asked again at the next refresh.
+        *pc.need_error.lock().unwrap() = Some("nobody is signed in".into());
+        let GameStatus::Missing(Missing::Refused { reason }) = status() else {
+            panic!("{:?}", status());
+        };
+        assert_eq!(
+            reason,
+            "Rubylight could not tell whether Ice.exe needs administrator rights: nobody is signed in"
+        );
+        *pc.need_error.lock().unwrap() = None;
+        assert!(matches!(status(), GameStatus::Own { run: Run::User, .. }));
+        // A refusal stands until the .exe changes or the minute passes.
+        for kept in registry.own_statuses.lock().unwrap().values_mut() {
+            kept.at = Instant::now() - OWN_STATUS_TTL;
+        }
+        *pc.elevates.lock().unwrap() = false;
+        pc.needs.lock().unwrap().insert(
+            exe.to_string_lossy().into_owned(),
+            Need::Administrator(Why::Manifest),
+        );
+        let refused = status();
+        assert!(
+            matches!(refused, GameStatus::Missing(Missing::Refused { .. })),
+            "{refused:?}"
+        );
+        pc.needs.lock().unwrap().clear();
+        assert_eq!(status(), refused);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

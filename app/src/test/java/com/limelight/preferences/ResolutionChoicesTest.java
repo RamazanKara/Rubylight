@@ -4,6 +4,7 @@ import android.app.Application;
 import android.content.SharedPreferences;
 import android.graphics.Insets;
 import android.graphics.Rect;
+import android.os.Looper;
 import android.preference.ListPreference;
 import android.preference.PreferenceManager;
 import android.view.Display;
@@ -27,6 +28,7 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
@@ -132,5 +134,33 @@ public class ResolutionChoicesTest {
                 ClassParameter.from(int.class, 2000), ClassParameter.from(float.class, 120f));
         ShadowDisplayManager.setSupportedModes(display.getDisplayId(), cover, inner);
         assertEquals("1600x720", PreferenceConfiguration.nativeResolution(RuntimeEnvironment.getApplication()));
+    }
+
+    @Test
+    public void theDecoderProbeRunsOffTheMainThread() throws Exception {
+        // Reading the decoders' sizes is a blocking call to the media service: on the main thread it
+        // stalled the settings screen into an ANR on a MediaTek Android 15 device.
+        List<Thread> probed = new CopyOnWriteArrayList<>();
+        StreamSettings.SettingsFragment.DecoderWidthProbe previous = StreamSettings.SettingsFragment.decoderWidthProbe;
+        StreamSettings.SettingsFragment.decoderWidthProbe = context -> {
+            probed.add(Thread.currentThread());
+            return 1280;
+        };
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings.SettingsFragment fragment = SettingsStructureTest.open(controller.get(), "video");
+            assertNotNull(fragment.decoderProbe);
+            fragment.decoderProbe.join(5000);
+            assertFalse(fragment.decoderProbe.isAlive());
+            // The result is applied on the main thread once the probe is done.
+            shadowOf(Looper.getMainLooper()).idle();
+            assertFalse(probed.isEmpty());
+            for (Thread thread : probed) {
+                assertNotSame(Looper.getMainLooper().getThread(), thread);
+            }
+            ListPreference resolution = (ListPreference) fragment.findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING);
+            assertEquals(Arrays.asList("1600x720", "1520x720", "1280x720", "854x480", "640x360"), values(resolution));
+        } finally {
+            StreamSettings.SettingsFragment.decoderWidthProbe = previous;
+        }
     }
 }

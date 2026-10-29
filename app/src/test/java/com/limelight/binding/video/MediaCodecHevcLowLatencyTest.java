@@ -48,10 +48,12 @@ public class MediaCodecHevcLowLatencyTest {
     public void setUp() {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", false);
+        MediaCodecHelper.forgetCodecList();
     }
 
     @After
     public void tearDown() {
+        MediaCodecHelper.forgetCodecList();
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", false);
     }
 

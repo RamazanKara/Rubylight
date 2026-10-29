@@ -559,16 +559,22 @@ fn refuse_switch(
     s.rate_changes.lock().unwrap().switched(from, Some(reason));
 }
 
-pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
-    let mut config = h.config.read().unwrap().clone();
-    let mut peak_chosen = device_layer(&mut config, &launch.client)?;
-    let app = h
-        .apps
+/// The app `launch` streams as its device streams it: the device's block in the app's
+/// `device-overrides` laid over the app's own settings (app × device, then app).
+pub(crate) fn launch_app(h: &Shared, launch: &Launch) -> Option<butterpollo_core::state::App> {
+    h.apps
         .read()
         .unwrap()
         .iter()
         .find(|app| app.id() == launch.app_id || app.aliases.contains(&launch.app_id))
-        .cloned();
+        .map(|app| butterpollo_core::device_overrides::for_device(app, &launch.client.uuid))
+}
+
+/// The stream's settings: host, then device, then app, then the app's block for the device.
+pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
+    let mut config = h.config.read().unwrap().clone();
+    let mut peak_chosen = device_layer(&mut config, &launch.client)?;
+    let app = launch_app(h, launch);
     if let Some(app) = &app {
         for (source, target) in [
             ("gamepad", "gamepad"),
@@ -5853,6 +5859,52 @@ mod tests {
         assert_eq!(
             f.host.apps.read().unwrap()[0].extra["config-overrides"]["port"],
             51000
+        );
+    }
+    #[test]
+    fn an_apps_block_for_the_device_wins_over_the_app_the_device_and_the_host() {
+        use crate::state::test_support::Fixture;
+        use serde_json::json;
+        let f = Fixture::new();
+        *f.host.config.write().unwrap() =
+            Config::parse("max_bitrate=10000\nframe_limiter_fps_limit=0").unwrap();
+        let mut client = f.client(u32::MAX);
+        client.extra.insert(
+            "config_overrides".into(),
+            json!({"max_bitrate":20000,"stream_preset":"lowest_latency"}),
+        );
+        let launch = f.launch(client, Role::Stream);
+        let device = launch.client.uuid.clone();
+        let set = |overrides: serde_json::Value| {
+            let mut apps = f.host.apps.write().unwrap();
+            apps[0].extra.insert(
+                "config-overrides".into(),
+                json!({"max_bitrate":30000,"frame_limiter_fps_limit":60}),
+            );
+            apps[0].extra.insert("device-overrides".into(), overrides);
+        };
+        // Another device's block, or one for a device that is gone, changes nothing.
+        set(json!({"another-device": {"config-overrides": {"max_bitrate": 50000}}}));
+        let app = effective_config(&f.host, &launch).unwrap();
+        assert_eq!(app.integer("max_bitrate", 0), 30000);
+        assert_eq!(app.get("frame_limiter_fps_limit", ""), "60");
+        assert_eq!(app.get("amd_max_frame_size", ""), "1");
+        // The device's block wins key by key: an empty value keeps the app's.
+        set(json!({
+            device.as_str(): {"config-overrides": {
+                "max_bitrate": 40000, "frame_limiter_fps_limit": "", "stream_preset": "reference"
+            }},
+            "another-device": {"config-overrides": {"max_bitrate": 50000}},
+        }));
+        let both = effective_config(&f.host, &launch).unwrap();
+        assert_eq!(both.integer("max_bitrate", 0), 40000);
+        assert_eq!(both.get("frame_limiter_fps_limit", ""), "60");
+        assert_eq!(both.get("amd_max_frame_size", ""), "0");
+        // The saved app keeps its block.
+        assert!(
+            f.host.apps.read().unwrap()[0]
+                .extra
+                .contains_key("device-overrides")
         );
     }
     #[test]

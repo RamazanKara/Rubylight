@@ -4,6 +4,7 @@ mod controller_sessions;
 mod couch_menu;
 mod display_session;
 mod extensions;
+mod game_files;
 mod launcher_watch;
 mod library;
 mod logging;
@@ -382,6 +383,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "the Radeon worker could not start; settings from an interrupted session stay in the journal"
         );
     }
+    // Keys in games' settings files a crashed run left changed go back before any stream.
+    game_files::start(&h);
     // The service's keys: SYSTEM and Administrators only, also after a
     // profile was copied in or restored from a backup.
     let credentials = h.directory.join("credentials");
@@ -510,6 +513,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     while tasks.join_next().await.is_some() {}
     h.stop_app(state::AppStop::Shutdown);
     h.session_shutdown();
+    // The session reset above put back the keys of every device it ended; this takes the rest.
+    h.game_files.release_all(&h.directory);
     // Whatever a session changed goes back before the host exits; the restore thread has had the
     // work since the session reset above. The wait is blocking, so it leaves the async executor.
     // 30 s is shorter than the worker's 150 s limit on one driver call: a restore still stuck

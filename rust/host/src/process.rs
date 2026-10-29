@@ -1337,6 +1337,8 @@ fn launch_with_environment(
     let baseline = lossless
         .as_ref()
         .map(|_| butterpollo_windows::process::processes().unwrap_or_default());
+    // The game reads its own settings files as it starts: the stream's keys go in first.
+    crate::game_files::launching(h, &app, args);
     let mut running = RunningApp::with_environment(&app, environment)?;
     running.background = background;
     running.terminate_on_pause = terminate_on_pause;

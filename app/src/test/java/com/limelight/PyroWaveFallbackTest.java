@@ -35,6 +35,10 @@ public class PyroWaveFallbackTest {
         assertEquals(PyroWaveFallback.Notice.DEVICE,
                 PyroWaveFallback.notice(R.string.pyrowave_missing_swapchain, false));
         assertEquals(PyroWaveFallback.Notice.DEVICE, PyroWaveFallback.notice(R.string.pyrowave_needs_64_bit, false));
+        assertEquals(PyroWaveFallback.Notice.PC_WITHOUT_HDR,
+                PyroWaveFallback.notice(MediaCodecDecoderRenderer.PYROWAVE_NO_HDR_ON_PC, false));
+        assertEquals(PyroWaveFallback.Notice.FULL_CHROMA,
+                PyroWaveFallback.notice(MediaCodecDecoderRenderer.PYROWAVE_FULL_CHROMA, false));
         // No known reason: no notice that would guess one.
         assertEquals(PyroWaveFallback.Notice.NONE, PyroWaveFallback.notice(0, false));
     }

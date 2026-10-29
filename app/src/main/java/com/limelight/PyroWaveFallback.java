@@ -15,16 +15,20 @@ final class PyroWaveFallback {
         return pyroWaveChosen && activeFormat != 0 && (activeFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
     }
 
-    enum Notice { NONE, DEVICE, PC }
+    enum Notice { NONE, DEVICE, PC, PC_WITHOUT_HDR, FULL_CHROMA }
 
     /**
      * Which notice a fallback gets. dropReason: the renderer's getPyroWaveDropReason().
      * hdrLossSaid: PyroWave HDR failed on this device and HDR streams in another codec, which the
-     * connection has said already. The PC is blamed only when its codecs lack PyroWave.
+     * connection has said already. The PC is blamed only when its codecs lack PyroWave (HDR).
      */
     static Notice notice(int dropReason, boolean hdrLossSaid) {
-        if (dropReason == MediaCodecDecoderRenderer.PYROWAVE_NOT_OFFERED) return Notice.PC;
-        return dropReason == 0 || hdrLossSaid ? Notice.NONE : Notice.DEVICE;
+        switch (dropReason) {
+            case MediaCodecDecoderRenderer.PYROWAVE_NOT_OFFERED: return Notice.PC;
+            case MediaCodecDecoderRenderer.PYROWAVE_NO_HDR_ON_PC: return Notice.PC_WITHOUT_HDR;
+            case MediaCodecDecoderRenderer.PYROWAVE_FULL_CHROMA: return Notice.FULL_CHROMA;
+            default: return dropReason <= 0 || hdrLossSaid ? Notice.NONE : Notice.DEVICE;
+        }
     }
 
     /** The codec of {@code format} as the settings name it. */

@@ -1,5 +1,7 @@
 package com.limelight.binding.video;
 
+import android.content.SharedPreferences;
+
 /**
  * Whether a decoder failure is a decoder crash. The count behind the "video decoder crashed"
  * dialog disables features and resets settings, so it must not grow when the failure is only the
@@ -29,5 +31,23 @@ public final class CrashAccounting {
         if (streamEnding) return Verdict.STREAM_ENDING;
         if (androidTv && displayOff) return Verdict.DISPLAY_LOST;
         return Verdict.COUNT;
+    }
+
+    /**
+     * Counts a decoder the renderer gave up on, in the "DecoderTombstone" preferences. The stream
+     * ended with its own dialog (-107), so the count is marked as told: the list shows no "Video
+     * decoder crashed" after it and the settings reset of every third one (part of that dialog)
+     * does not run. The count still makes the next stream run without reference frame invalidation.
+     * Returns the new count.
+     */
+    public static int recordGiveUp(SharedPreferences tombstone, String hostUuid) {
+        int count = tombstone.getInt("CrashCount", 0) + 1;
+        // commit: the app may be gone right after this
+        tombstone.edit()
+                .putInt("CrashCount", count)
+                .putInt("LastNotifiedCrashCount", count)
+                .putString("CrashHostUuid", hostUuid)
+                .commit();
+        return count;
     }
 }

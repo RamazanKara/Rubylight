@@ -872,6 +872,7 @@ public class NvConnection {
                 }
             }
             renderer.setStreamFrameRateMilliHz(NvHTTP.getStreamFrameRateMilliHz(context));
+            renderer.setHostCodecModeSupport(context.serverCodecModeSupport);
             if (context.streamConfig.isPacked444()) {
                 renderer.setHostPacked444Modes(hostPackedModesBeforeLaunch(appContext, details));
             }

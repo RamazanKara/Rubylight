@@ -64,6 +64,66 @@ pub fn pacing(settings: &crate::config::Settings, tearing_supported: bool) -> (P
     (mode, vrr)
 }
 
+/// The pacing once the display check (`race_probe`) has a verdict: a VRR stream on a display that
+/// scans at its own rate whatever is presented tears on nearly every present (99% of them on a
+/// 120 Hz laptop panel), so it waits for the refresh instead. Anything else keeps its mode: still
+/// checking, VRR seen, or a reason that says nothing about the refresh (a window, no scan line, no
+/// restart seen under composition, a stream at the display's own rate).
+pub fn after_display_check(mode: PacingMode, verdict: &super::scanline::Verdict) -> PacingMode {
+    match mode {
+        PacingMode::Immediate | PacingMode::HostTimes if verdict.fixed_refresh() => PacingMode::Vsync,
+        mode => mode,
+    }
+}
+
+/// How a VRR stream presents while the display may still be scanning the last picture
+/// (`NIGHTJAR_VRR_SYNC`, a measurement switch). A tearing present then shows the new picture from
+/// the beam down: 6-20% of the presents of a 60 fps stream on a 240 Hz VRR panel did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VrrSync {
+    /// Present on arrival, with tearing.
+    #[default]
+    Off,
+    /// Sync interval 1: the flip is immediate on an idle display and waits out a scan under way.
+    Present1,
+    /// Wait out a scan under way on this thread (the beam from the scan line, at most one scan),
+    /// then present with tearing.
+    Scan,
+}
+
+impl VrrSync {
+    /// `NIGHTJAR_VRR_SYNC`'s value; anything else is said on stderr and leaves it off.
+    pub fn parse(text: Option<&str>) -> Self {
+        match text.map(str::trim) {
+            None | Some("" | "off" | "0") => Self::Off,
+            Some("present1") => Self::Present1,
+            Some("scan") => Self::Scan,
+            Some(other) => {
+                eprintln!("nightjar: NIGHTJAR_VRR_SYNC={other:?} is not present1, scan or off, so it is off");
+                Self::Off
+            }
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Present1 => "present1",
+            Self::Scan => "scan",
+        }
+    }
+}
+
+/// The swap chain's sync interval for a pacing mode: 1 waits for the refresh, 0 presents at once
+/// with tearing. Racing slices needs tearing whatever `sync` says.
+pub fn sync_interval(mode: PacingMode, sync: VrrSync) -> i32 {
+    match (mode, sync) {
+        (PacingMode::Vsync, _) => 1,
+        (PacingMode::Immediate | PacingMode::HostTimes, VrrSync::Present1) => 1,
+        _ => 0,
+    }
+}
+
 /// A picture with its present time.
 pub struct Pending {
     pub decoded: Decoded,
@@ -1074,6 +1134,45 @@ pub(crate) mod tests {
         };
         assert_eq!(pacing(&settings, true), (expected, true));
         assert!(settings.present_at_host_times);
+    }
+
+    #[test]
+    fn only_a_display_that_scans_at_its_own_rate_turns_a_vrr_stream_to_v_sync() {
+        use super::super::scanline::{Beam, RaceCapability, Reason, Verdict};
+        let capability = RaceCapability { tearing: true, vrr: false, flip_inferred: false, scanline: true };
+        let off = |reason| Verdict::Off(reason, capability);
+        let fixed = off(Reason::NoVrr);
+        assert_eq!(after_display_check(PacingMode::Immediate, &fixed), PacingMode::Vsync, "the laptop's 120 Hz panel");
+        assert_eq!(after_display_check(PacingMode::HostTimes, &fixed), PacingMode::Vsync);
+        assert_eq!(after_display_check(PacingMode::Vsync, &fixed), PacingMode::Vsync);
+        // Still checking, VRR seen, and every reason that says nothing about the refresh keep the mode.
+        let beam = Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0,
+            vblank_fraction: 0.7, scans: 50, idle_from: 2040, longest_idle_ns: 0 };
+        let mut kept = vec![Verdict::Checking, Verdict::On(beam, RaceCapability { vrr: true, flip_inferred: true, ..capability })];
+        kept.extend([Reason::NoTearing, Reason::NoScanline, Reason::NoScan, Reason::NoRestart, Reason::Windowed, Reason::NoIdle, Reason::RowsDiffer].map(off));
+        for verdict in &kept {
+            for mode in [PacingMode::Immediate, PacingMode::HostTimes, PacingMode::BeamRace, PacingMode::Vsync] {
+                assert_eq!(after_display_check(mode, verdict), mode, "{verdict:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_vrr_sync_switch_sets_the_sync_interval_of_tearing_modes_only() {
+        assert_eq!(VrrSync::parse(None), VrrSync::Off);
+        assert_eq!(VrrSync::parse(Some("off")), VrrSync::Off);
+        assert_eq!(VrrSync::parse(Some(" present1 ")), VrrSync::Present1);
+        assert_eq!(VrrSync::parse(Some("scan")), VrrSync::Scan);
+        assert_eq!(VrrSync::parse(Some("vsync")), VrrSync::Off, "an unknown value is said and left off");
+        assert_eq!(VrrSync::default(), VrrSync::Off, "presents on arrival unless measured otherwise");
+        for sync in [VrrSync::Off, VrrSync::Present1, VrrSync::Scan] {
+            assert_eq!(sync_interval(PacingMode::Vsync, sync), 1);
+            assert_eq!(sync_interval(PacingMode::BeamRace, sync), 0, "slices need tearing");
+        }
+        assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Off), 0);
+        assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Present1), 1);
+        assert_eq!(sync_interval(PacingMode::HostTimes, VrrSync::Present1), 1);
+        assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Scan), 0, "waits on this thread, then tears");
     }
 
     #[test]

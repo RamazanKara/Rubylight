@@ -96,6 +96,8 @@ if case.exists():
     import shutil; shutil.rmtree(case)
 # The keyframe-request stream is judged on the host's per-claim trace.
 env, display, sink = prepare(args, case, args.port, rust_log='info,pacing=trace' if at_rate else 'info')
+# A near-silent sink fails the tone check for a reason the result must show.
+audio_sink = dict(audio_sink=sink, warnings=[sink['warning']] if sink['warning'] else [])
 profile = case / 'config'
 host_exe = args.package / 'butterpollo.exe'
 audio_probe = args.client.parent / 'audio_probe.exe'
@@ -192,7 +194,7 @@ finally:
 # A watchdog report can land after the receiver gave up on a frozen stream.
 hang = hang or guard.check()
 if hang:
-    result = dict(hang_result(name, args.codec, args.mode, args.vrr, hang), machine_load=stream_load, quiet_wait=quiet_wait)
+    result = dict(hang_result(name, args.codec, args.mode, args.vrr, hang), machine_load=stream_load, quiet_wait=quiet_wait, **audio_sink)
     (case / 'result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
     sys.exit(EXIT_GPU_HANG)
@@ -208,7 +210,7 @@ result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.rec
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),
                   claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
-result = dict(case=name, **result, machine_load=stream_load, quiet_wait=quiet_wait)
+result = dict(case=name, **result, machine_load=stream_load, quiet_wait=quiet_wait, **audio_sink)
 if args.launch_fps:
     result['launch_fps'] = args.launch_fps
 if args.record:

@@ -799,6 +799,38 @@ class ReceiverPath(unittest.TestCase):
                              os.pathsep.join([str(msys), str(system)]))
 
 
+class SinkVolume(unittest.TestCase):
+    """rc.4's tone checks ran into Steam Streaming Speakers at 2 % volume: the result says so, the check never changes it."""
+
+    def setUp(self):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        sys.modules.setdefault('requests', __import__('types').ModuleType('requests'))
+        import e2e_host
+        self.host = e2e_host
+
+    def test_a_quiet_or_muted_sink_is_a_warning(self):
+        warning = self.host.sink_warning
+        self.assertIn('at 2 % volume', warning('Steam Streaming Speakers', .02, False))
+        self.assertIn('muted', warning('Steam Streaming Speakers', 1.0, True))
+        self.assertIn('could not read', warning('Steam Streaming Speakers', None, None, 'Element not found'))
+        self.assertIsNone(warning('Steam Streaming Speakers', .1, False))
+        self.assertIsNone(warning('Steam Streaming Speakers', 1.0, False))
+
+    def test_the_result_carries_the_warning(self):
+        tools = pathlib.Path(__file__).resolve().parent
+        self.assertEqual((tools / 'e2e.py').read_text().count('**audio_sink)'), 2)
+        self.assertIn("audio_sink=sink, warnings=", (tools / 'soak.py').read_text())
+
+    def test_the_volume_is_only_read(self):
+        source = (pathlib.Path(__file__).resolve().parent / 'e2e_host.py').read_text()
+        self.assertNotRegex(source, r'SetMasterVolume|SetMute|SetChannelVolume')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows audio endpoints')
+    def test_an_unknown_endpoint_is_an_error_not_a_volume(self):
+        with self.assertRaises(OSError):
+            self.host.endpoint_volume('{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}')
+
+
 class MachineLoad(unittest.TestCase):
     """check.ps1 and soak.ps1 wait for a quiet CPU: rc.4's check failed twice under other lanes' builds."""
 

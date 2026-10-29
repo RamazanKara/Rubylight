@@ -179,7 +179,7 @@ function Invoke-StreamCase([string] $Case, [string[]] $Stream, [string] $Run) {
                 $load = $result.machine_load
                 Write-Warning ("stream $Case failed: " + ($result.failures -join '; ') + $(if ($load) {
                     " (beside $($load.cpu_percent) % CPU" + $(if ($load.busy_tools) { ', ' + ($load.busy_tools -join ', ') }) + ')'
-                }))
+                }) + $(if ($result.warnings) { '. ' + ($result.warnings -join '; ') }))
             }
             Write-Warning "stream $Case failed; preserving its logs and retrying once. Check shared CPU/GPU load and tone.log; a second failure stops the check."
             $failed = Join-Path $Run "e2e-$Case-failed"

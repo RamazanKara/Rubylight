@@ -794,6 +794,61 @@ fn a_link_that_leads_nowhere_is_unreachable() {
     std::fs::remove_dir(&linked).unwrap();
 }
 
+/// A game folder moved and linked back: the program is found where the link
+/// leads, as the install places it, and a removal recorded through the link
+/// (an update that failed) leaves the mod its app still has on.
+#[test]
+fn a_linked_games_stale_removal_leaves_the_mod_its_app_has_on() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = names(folder);
+    let linked = temp.path().join("library/common/Linked");
+    junction(&linked, folder);
+    let through = linked.join("Game.exe");
+    let found = handle(
+        Request::Find {
+            exe: Some(through.clone()),
+            install: Some(linked.clone()),
+        },
+        Writer::User,
+        &|_, _| {},
+    );
+    let Response::Found { exe: real } = found else {
+        panic!("{found:?}")
+    };
+    assert_eq!(super::folder::real(folder).unwrap(), real.parent().unwrap());
+    // The install takes the program found, in the linked install.
+    let Response::Placed { exe: placed, .. } = install(Some(&real), Some(&linked), &cache) else {
+        panic!("the program found was refused")
+    };
+    assert_eq!(placed, real);
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(switched_on("Game", "game", &placed));
+        true
+    })
+    .unwrap();
+    // A record from before, through the link.
+    record_pending(
+        h,
+        &[Pending {
+            name: "Game".into(),
+            exe: through.clone(),
+            uuid: Some("game".into()),
+        }],
+    )
+    .unwrap();
+    remove_pending(h);
+    assert_ne!(names(folder), before, "the mod its app has on was removed");
+    assert!(pending(h).is_empty());
+    assert_eq!(remove(&placed), Response::Removed { kept: vec![] });
+    std::fs::remove_dir(&linked).unwrap();
+    assert_eq!(names(folder), before);
+}
+
 /// Everyone denied adding to `folder` until dropped, as Program Files is to users.
 struct Unwritable<'a>(&'a Path);
 impl<'a> Unwritable<'a> {

@@ -1654,7 +1654,9 @@ fn try_pending(h: &Shared, also: &[Pending]) {
             removals.push(removal.clone());
         }
     }
-    // The mod an app has on stays: such a record is stale.
+    // The mod an app has on stays: such a record is stale. The same folder
+    // also when one path goes through a link (a game folder moved and linked
+    // back) and the other doesn't.
     let wanted: Vec<PathBuf> = h
         .apps
         .read()
@@ -1662,9 +1664,13 @@ fn try_pending(h: &Shared, also: &[Pending]) {
         .iter()
         .filter_map(placed_exe)
         .collect();
+    let real = |exe: &Path| folder::real(exe.parent().unwrap_or(exe));
     let mut done = Vec::new();
     for removal in &removals {
-        if wanted.contains(&removal.exe) {
+        let stale = wanted.iter().any(|exe| {
+            *exe == removal.exe || real(exe).is_some_and(|at| Some(at) == real(&removal.exe))
+        });
+        if stale {
             done.push(removal.exe.clone());
             continue;
         }

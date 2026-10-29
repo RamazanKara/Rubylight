@@ -170,8 +170,12 @@ pub enum Response {
 
 pub fn handle(request: Request, writer: Writer, progress: &dyn Fn(u64, u64)) -> Response {
     let result = match request {
+        // As the install places it: where a linked game folder leads, so the
+        // removal recorded first names the folder the mod goes to.
         Request::Find { exe, install } => {
-            find_exe(exe, install.as_deref()).map(|exe| Response::Found { exe })
+            find_exe(exe, install.as_deref()).map(|exe| Response::Found {
+                exe: followed(exe, writer),
+            })
         }
         Request::Install {
             exe,
@@ -288,19 +292,25 @@ fn followed(exe: PathBuf, writer: Writer) -> PathBuf {
     if writer != Writer::User || !linked {
         return exe;
     }
-    let Ok(real) = std::fs::canonicalize(folder) else {
+    match real(folder) {
+        Some(real) => real.join(name),
         // Where it leads is not there now: the link is refused as one.
-        return exe;
-    };
+        None => exe,
+    }
+}
+
+/// `path` with every link on the way followed; None where it leads is not
+/// there now.
+pub(super) fn real(path: &Path) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(path).ok()?;
     // `\\?\C:\...` as `C:\...`, `\\?\UNC\server\...` as `\\server\...`.
-    let real = match real.to_str() {
+    Some(match real.to_str() {
         Some(text) => match text.strip_prefix(r"\\?\UNC\") {
             Some(share) => PathBuf::from(format!(r"\\{share}")),
             None => PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text)),
         },
         None => real,
-    };
-    real.join(name)
+    })
 }
 
 /// The chosen .exe, or the game's .exe in its install: the one Unreal Engine
@@ -316,7 +326,11 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
                 "{} is {what}, not the game: choose the game's own program",
                 exe.display()
             )))
-        } else if let Some(install) = install.filter(|install| !inside(&exe, install)) {
+        } else if let Some(install) = install.filter(|install| {
+            // A program found in a linked game folder is where the link
+            // leads ([`Request::Find`]).
+            !inside(&exe, install) && real(install).is_none_or(|real| !inside(&exe, &real))
+        }) {
             Err(Failure::ChooseExe(format!(
                 "{} is not in the game's folder {}: choose the game's own program",
                 exe.display(),

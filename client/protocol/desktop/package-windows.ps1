@@ -79,6 +79,12 @@ try {
 } finally { Pop-Location }
 $exe = Join-Path $TargetDirectory 'release\nightjar.exe'
 
+# build.rs embeds packaging/icons/nightjar.ico; Explorer, the taskbar and the window all take it from here.
+if (-not ('NightjarPackage.Shell' -as [type])) {
+    Add-Type -Namespace NightjarPackage -Name Shell -MemberDefinition '[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint icons);'
+}
+if ([NightjarPackage.Shell]::ExtractIconEx($exe, -1, $null, $null, 0) -lt 1) { throw "$exe has no icon resource" }
+
 # What a DLL or exe imports, by name.
 function Get-Imports([string]$path) {
     & "$msys\objdump.exe" -p $path | ForEach-Object {

@@ -4,7 +4,7 @@
 //! [`Event`]; the UI thread owns the list.
 
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -251,6 +251,11 @@ pub enum Event {
         addresses: Vec<IpAddr>,
         port: u16,
     },
+    /// This device's WAN address from STUN, the remote address of a PC found on the LAN.
+    Remote {
+        id: u64,
+        result: std::io::Result<Option<Ipv4Addr>>,
+    },
     Paired {
         id: u64,
         request: u64,
@@ -318,6 +323,8 @@ pub struct Hosts {
     pairing_generation: u64,
     /// Hosts whose live library changed since the last `take_library_saves`.
     library_saves: Vec<u64>,
+    /// STUN for the remote address of PCs found on the LAN; off in tests, which stay offline.
+    stun: bool,
     _mdns: Option<mdns_sd::ServiceDaemon>,
 }
 
@@ -541,6 +548,7 @@ impl Hosts {
     pub fn new(records: Vec<HostRecord>, waker: Waker) -> Self {
         let mut hosts = Self::without_discovery(records, waker);
         hosts._mdns = hosts.start_discovery();
+        hosts.stun = true;
         hosts
     }
 
@@ -556,6 +564,7 @@ impl Hosts {
             pairing: None,
             pairing_generation: 0,
             library_saves: Vec::new(),
+            stun: false,
             _mdns: None,
         };
         for record in records {
@@ -686,8 +695,29 @@ impl Hosts {
             manual: true,
             ..Default::default()
         });
+        // A PC added by its LAN address gets this network's WAN address too (Moonlight V+ PC).
+        if address.parse::<Ipv4Addr>().is_ok_and(|a| a.is_private()) {
+            self.find_remote_address(id);
+        }
         self.poll_one(id);
         id
+    }
+
+    /// Asks STUN for this device's WAN address, which reaches a PC on its LAN from outside it
+    /// once the router forwards the PC's ports (`LiFindExternalAddressIP4`, as Moonlight V+ PC
+    /// does for a PC found by mDNS or added by a private IPv4 address).
+    fn find_remote_address(&self, id: u64) {
+        if !self.stun {
+            return;
+        }
+        self.spawn("stun", move || {
+            let result = nightjar_core::stun::find_external_ipv4(
+                nightjar_core::stun::MOONLIGHT_STUN_SERVER,
+                nightjar_core::stun::MOONLIGHT_STUN_PORT,
+                nightjar_core::stun::STUN_TIMEOUT,
+            );
+            Some(Event::Remote { id, result })
+        });
     }
 
     /// Names a PC on this device only. The PC's own name (or nothing) brings its name back.
@@ -743,10 +773,8 @@ impl Hosts {
         let record = host.record.clone();
         let likely_online = host.reach == Reach::Online;
         self.spawn("serverinfo", move || {
-            let mut addresses = vec![record.address.clone()];
-            addresses.extend(record.other_addresses.iter().cloned());
             let mut last_error = String::from(en("No address"));
-            for address in addresses {
+            for address in poll_addresses(&record) {
                 let result = client_for(&identity, &record, &address)
                     .and_then(|c| c.server_info(likely_online).map_err(|e| describe(&e)));
                 match result {
@@ -1157,6 +1185,11 @@ impl Hosts {
                     addresses,
                     port,
                 } => self.apply_discovery(name, addresses, port),
+                Event::Remote { id, result } => match result {
+                    Ok(Some(address)) => changed |= self.apply_remote_address(id, address),
+                    Ok(None) => eprintln!("nightjar: STUN: no answer, the PC has no remote address yet"),
+                    Err(e) => eprintln!("nightjar: STUN failed: {e}"),
+                },
                 Event::Paired { id, request, result } => {
                     if request != self.pairing_generation {
                         continue;
@@ -1343,6 +1376,9 @@ impl Hosts {
                         kept.other_addresses.push(a);
                     }
                 }
+                if kept.remote_address.is_none() {
+                    kept.remote_address = dropped.remote_address;
+                }
                 let keep_id = self.list[keep].id;
                 self.list.remove(drop);
                 changed = true;
@@ -1391,6 +1427,13 @@ impl Hosts {
                     host.record.mac = info.mac_address.clone();
                     changed = true;
                 }
+                // The PC's own ExternalIP replaces a STUN answer (Moonlight V+ PC's NvComputer).
+                if let Some(external) = info.external_ip.as_deref().and_then(public_ipv4) {
+                    if host.record.remote_address.as_deref() != Some(external.as_str()) {
+                        host.record.remote_address = Some(external);
+                        changed = true;
+                    }
+                }
                 // The host forgot this client: drop the pin so the user can pair again.
                 if !info.paired && host.record.server_certificate.is_some() {
                     host.record.server_certificate = None;
@@ -1435,8 +1478,45 @@ impl Hosts {
             http_port: if port == 0 { DEFAULT_HTTP_PORT } else { port },
             ..Default::default()
         });
+        if first.is_ipv4() {
+            self.find_remote_address(id);
+        }
         self.poll_one(id);
     }
+
+    /// Takes a STUN answer as the PC's remote address. The PC's own ExternalIP, once it has
+    /// answered with one, stays.
+    fn apply_remote_address(&mut self, id: u64, address: Ipv4Addr) -> bool {
+        let Some(host) = self.get_mut(id) else { return false };
+        if host.info.as_ref().and_then(|i| i.external_ip.as_deref()).and_then(public_ipv4).is_some() {
+            return false;
+        }
+        let address = address.to_string();
+        if host.record.remote_address.as_deref() == Some(address.as_str()) {
+            return false;
+        }
+        host.record.remote_address = Some(address);
+        crate::logfile::add_secrets(&host.record);
+        true
+    }
+}
+
+/// The addresses a poll tries in turn: the last that answered, the others, then the remote one.
+fn poll_addresses(record: &HostRecord) -> Vec<String> {
+    let mut addresses = vec![record.address.clone()];
+    addresses.extend(record.other_addresses.iter().cloned());
+    if let Some(remote) = record.remote_address.clone().filter(|a| !addresses.contains(a)) {
+        addresses.push(remote);
+    }
+    addresses
+}
+
+/// `text` as an IPv4 address that a PC outside this network can be reached at.
+fn public_ipv4(text: &str) -> Option<String> {
+    let address: Ipv4Addr = text.trim().parse().ok()?;
+    let local = address.is_private() || address.is_loopback() || address.is_link_local() || address.is_unspecified()
+        || address.is_broadcast() || address.is_multicast() || address.is_documentation();
+    (!local).then(|| address.to_string())
 }
 
 fn completed_action(control: AppControl, error: &nightjar_core::http::Error) -> bool {
@@ -1568,6 +1648,44 @@ pub(crate) mod tests {
         assert_eq!(gated(&fresh), [false; 3], "offered by capability, never by an old read");
     }
 
+    // A PC's remote address: its own ExternalIP, else this device's STUN answer, tried last.
+    #[test]
+    fn the_remote_address_is_the_pcs_external_ip_else_stun() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        send(&mut hosts, Event::Remote { id, result: Ok(Some(Ipv4Addr::new(93, 184, 216, 34))) });
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("93.184.216.34"));
+        let record = &hosts.list[0].record;
+        assert_eq!(poll_addresses(record), ["192.0.2.1", "93.184.216.34"], "after the LAN address");
+
+        let external = |ip: &str| {
+            let mut info = native_info();
+            info.external_ip = Some(ip.into());
+            info
+        };
+        info_lands(&mut hosts, id, external("10.0.0.5"));
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("93.184.216.34"), "a private ExternalIP is no remote address");
+        info_lands(&mut hosts, id, external("151.101.1.1"));
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("151.101.1.1"), "the PC's own replaces STUN's");
+        send(&mut hosts, Event::Remote { id, result: Ok(Some(Ipv4Addr::new(93, 184, 216, 34))) });
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("151.101.1.1"), "and stays over a later STUN answer");
+        send(&mut hosts, Event::Remote { id, result: Err(std::io::Error::other("unreachable")) });
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("151.101.1.1"));
+    }
+
+    // A poll lists each address once; only a public IPv4 ExternalIP becomes the remote address.
+    #[test]
+    fn the_remote_address_is_listed_once_and_only_public() {
+        let mut record = paired_record("uid");
+        record.other_addresses = vec!["fe80::1".into()];
+        record.remote_address = Some("fe80::1".into());
+        assert_eq!(poll_addresses(&record), ["192.0.2.1", "fe80::1"], "listed once");
+        assert_eq!(public_ipv4(" 151.101.1.1 "), Some("151.101.1.1".into()));
+        for local in ["192.168.1.2", "10.1.1.1", "172.16.0.1", "127.0.0.1", "169.254.1.1", "0.0.0.0", "198.51.100.1", "x"] {
+            assert_eq!(public_ipv4(local), None, "{local}");
+        }
+    }
+
     fn paired_record(unique_id: &str) -> HostRecord {
         HostRecord {
             pace: None,
@@ -1578,6 +1696,7 @@ pub(crate) mod tests {
             http_port: 0,
             https_port: 0,
             other_addresses: Vec::new(),
+            remote_address: None,
             server_certificate: Some("pem".into()),
             mac: None,
             wake_macs: Vec::new(),

@@ -912,10 +912,26 @@ fn extract(archives: &[PathBuf], root: &Path, release: &Release) -> Result<(Path
     };
     butterpollo_core::state::write_json(&staging.join(PACKAGE), &package)?;
     let folder = root.join(&release.tag);
-    if folder.exists() {
-        std::fs::remove_dir_all(&folder)?;
+    // The same release there before (damaged, or changed on GitHub) goes
+    // aside whole, never half deleted under an install about to copy it;
+    // the cache's clearing takes it out after.
+    let aside = root.join(format!("{}.replaced.partial", release.tag));
+    if aside.exists() {
+        std::fs::remove_dir_all(&aside)?;
     }
-    std::fs::rename(&staging, &folder)?;
+    let replacing = folder.exists();
+    if replacing {
+        std::fs::rename(&folder, &aside)
+            .with_context(|| format!("cannot replace {}", folder.display()))?;
+    }
+    if let Err(error) = std::fs::rename(&staging, &folder) {
+        let back = if !replacing || std::fs::rename(&aside, &folder).is_ok() {
+            ""
+        } else {
+            ", and the release before it stays aside"
+        };
+        return Err(error).with_context(|| format!("cannot place {}{back}", folder.display()));
+    }
     Ok((folder, package))
 }
 

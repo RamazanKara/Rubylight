@@ -2049,6 +2049,26 @@ async fn a_download_goes_list_checksums_archives_cache() {
     server.log.lock().unwrap().clear();
     assert_eq!(fetch(h, &|_, _| {}).await.unwrap().1, package);
     assert_eq!(*server.log.lock().unwrap(), ["list"]);
+    // The same release damaged in the cache, held for an install and one of
+    // its files open: it comes again, and the one there is never left half
+    // deleted, whether or not it could be replaced meanwhile.
+    let whole = names(&folder);
+    let ini = folder.join("files/OptiScaler.ini");
+    std::fs::write(&ini, "changed").unwrap();
+    h.neural.lock().verified = None;
+    let using = pin(h, &folder);
+    let held = hold(&folder.join("files/LmxxfNrRuntime.pak"));
+    let again = fetch(h, &|_, _| {}).await.map(|(folder, _)| folder);
+    drop(held);
+    assert_eq!(names(&folder), whole, "{again:?}");
+    if again.is_err() {
+        // Once nothing holds it, it is replaced.
+        fetch(h, &|_, _| {}).await.unwrap();
+    }
+    drop(using);
+    assert_eq!(names(&folder), whole);
+    assert_eq!(std::fs::read(&ini).unwrap(), b"[Upscalers]\n");
+    assert_eq!(cached(&cache_root(h)).unwrap().0, folder);
     std::fs::remove_dir_all(cache_root(h)).unwrap();
 
     // A stream starts while the switch's own download runs: it stops.

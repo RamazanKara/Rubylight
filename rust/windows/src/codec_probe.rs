@@ -18,6 +18,9 @@ use std::{
 
 const PIPE_PREFIX: &str = r"\\.\pipe\Butterpollo.CodecProbe.";
 const TIMEOUT: Duration = Duration::from_secs(15);
+/// A packed probe takes about 0.4 s per mode; an AMF call over 2 s has hung.
+/// PyroWave's Vulkan probe takes about 2 s when healthy and is not judged.
+const HANG: Duration = Duration::from_secs(2);
 const FLAGS: u32 = 0x0780_0000;
 const STATUS_DLL_INIT_FAILED: u32 = 0xC000_0142;
 
@@ -34,6 +37,35 @@ impl std::fmt::Display for SessionNotReady {
 }
 impl std::error::Error for SessionNotReady {}
 
+/// The probe did not answer within its time limit, as when other work keeps
+/// the CPU busy. Probing again once the host is idle can succeed.
+#[derive(Debug)]
+pub struct TimedOut;
+impl std::fmt::Display for TimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("optional codec probe timed out")
+    }
+}
+impl std::error::Error for TimedOut {}
+
+/// The caller stopped the probe, as when a stream wants the encoder. The
+/// worker is dropped, which ends its job and the child with it.
+#[derive(Debug)]
+pub struct Interrupted;
+impl std::fmt::Display for Interrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("optional codec probe stopped for a stream")
+    }
+}
+impl std::error::Error for Interrupted {}
+
+impl SessionNotReady {
+    /// For a fake probe in tests.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
 fn early_exit(code: u32) -> anyhow::Error {
     let message = format!("optional codec probe exited before replying (0x{code:08x})");
     if code == STATUS_DLL_INIT_FAILED {
@@ -42,11 +74,38 @@ fn early_exit(code: u32) -> anyhow::Error {
         anyhow::anyhow!(message)
     }
 }
-fn check_worker(exit_code: Option<u32>, now: Instant, deadline: Instant) -> Result<()> {
+/// `requested` is when the worker got a packed request, None for PyroWave
+/// or before the request. A worker still running [`HANG`] after it when a
+/// stream stops it may hold an AMF call that hung, and the stream opens the
+/// encoder at once: that is warned about.
+fn hang_watch(packed: Option<&Negotiated>) -> Option<Instant> {
+    packed.map(|_| Instant::now())
+}
+fn check_worker(
+    exit_code: Option<u32>,
+    now: Instant,
+    deadline: Instant,
+    stopped: bool,
+    requested: Option<Instant>,
+) -> Result<()> {
+    if stopped {
+        if let Some(elapsed) = requested
+            .map(|at| now.saturating_duration_since(at))
+            .filter(|elapsed| *elapsed >= HANG)
+        {
+            tracing::warn!(
+                elapsed_ms = elapsed.as_millis() as u64,
+                "optional codec probe still ran when a stream stopped it; the encoder may have hung"
+            );
+        }
+        return Err(Interrupted.into());
+    }
     if let Some(code) = exit_code {
         return Err(early_exit(code));
     }
-    ensure!(now < deadline, "optional codec probe timed out");
+    if now >= deadline {
+        return Err(TimedOut.into());
+    }
     Ok(())
 }
 
@@ -70,11 +129,14 @@ enum Reply {
     Error { message: String },
 }
 
-pub fn pyrowave(config: &Config) -> Result<u32> {
-    run(config, None)
+/// Probe PyroWave in a child process. `stop` is checked while it runs:
+/// true ends the child with [`Interrupted`].
+pub fn pyrowave(config: &Config, stop: &dyn Fn() -> bool) -> Result<u32> {
+    run(config, None, stop)
 }
 
-pub fn packed(config: &Config, stream: &Negotiated) -> Result<()> {
+/// Probe one packed 4:4:4 mode in a child process, stopped as `pyrowave` is.
+pub fn packed(config: &Config, stream: &Negotiated, stop: &dyn Fn() -> bool) -> Result<()> {
     stream.validate()?;
     ensure!(
         butterpollo_core::packed444::supported(stream.chroma_packing),
@@ -85,13 +147,17 @@ pub fn packed(config: &Config, stream: &Negotiated) -> Result<()> {
         stream.ten_bit(),
     ));
     ensure!(
-        run(config, Some(stream))? == flag,
+        run(config, Some(stream), stop)? == flag,
         "packed hardware encoder produced no complete probe sequence"
     );
     Ok(())
 }
 
-fn run(config: &Config, packed: Option<&Negotiated>) -> Result<u32> {
+fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) -> Result<u32> {
+    // A stream that started while the caller waited gets the encoder alone.
+    if stop() {
+        return Err(Interrupted.into());
+    }
     // The pipe admits only the signed-in user, so it fails before sign-in.
     let (pipe, name) =
         Pipe::server(PIPE_PREFIX).map_err(|error| SessionNotReady(format!("{error:#}")))?;
@@ -111,13 +177,19 @@ fn run(config: &Config, packed: Option<&Negotiated>) -> Result<u32> {
     )
     .map_err(|error| SessionNotReady(format!("start optional codec probe: {error:#}")))?;
     let deadline = Instant::now() + TIMEOUT;
-    let check = || -> Result<()> {
-        check_worker(worker.exit_code()?, Instant::now(), deadline)?;
+    let check = |requested: Option<Instant>| -> Result<()> {
+        check_worker(
+            worker.exit_code()?,
+            Instant::now(),
+            deadline,
+            stop(),
+            requested,
+        )?;
         std::thread::sleep(Duration::from_millis(5));
         Ok(())
     };
     while !pipe.connected(worker.pid)? {
-        check()?;
+        check(None)?;
     }
     pipe.send(&Request {
         output: config.get("output_name", "").into(),
@@ -135,11 +207,12 @@ fn run(config: &Config, packed: Option<&Negotiated>) -> Result<u32> {
             BTreeMap::new()
         },
     })?;
+    let requested = hang_watch(packed);
     let reply = loop {
         if let Some(reply) = pipe.receive::<Reply>()? {
             break reply;
         }
-        check()?;
+        check(requested)?;
     };
     pipe.send(&())?;
     ensure!(
@@ -349,18 +422,98 @@ mod tests {
     fn optional_codec_worker_exit_and_stall_end_the_probe_with_an_error() {
         let start = Instant::now();
         let deadline = start + TIMEOUT;
-        assert!(check_worker(None, start, deadline).is_ok());
+        assert!(check_worker(None, start, deadline, false, None).is_ok());
         for code in [0, 1, 0xc0000005] {
-            let error = check_worker(Some(code), start, deadline).unwrap_err();
+            let error = check_worker(Some(code), start, deadline, false, None).unwrap_err();
             assert!(error.to_string().contains("exited before replying"));
             assert!(!error.is::<SessionNotReady>());
         }
         for now in [deadline, deadline + Duration::from_secs(1)] {
+            let error = check_worker(None, now, deadline, false, Some(start)).unwrap_err();
+            assert_eq!(error.to_string(), "optional codec probe timed out");
+            // A stall under load is probed again once the host is idle.
+            assert!(error.is::<TimedOut>());
+            assert!(!error.is::<SessionNotReady>());
+        }
+    }
+    /// A stream that starts while a re-probe runs ends the probe at its next
+    /// check instead of sharing the encoder for up to 15 s.
+    #[test]
+    fn a_stopped_probe_ends_at_once_before_any_other_verdict() {
+        let start = Instant::now();
+        let deadline = start + TIMEOUT;
+        for (exit_code, now) in [(None, start), (Some(1), start), (None, deadline)] {
+            let error = check_worker(exit_code, now, deadline, true, None).unwrap_err();
+            assert!(error.is::<Interrupted>());
             assert_eq!(
-                check_worker(None, now, deadline).unwrap_err().to_string(),
-                "optional codec probe timed out"
+                error.to_string(),
+                "optional codec probe stopped for a stream"
             );
         }
+    }
+    /// A stream that started while the caller waited for the probe's turn
+    /// starts no worker at all.
+    #[test]
+    fn a_probe_stopped_before_it_starts_starts_no_worker() {
+        let error = pyrowave(&Config::default(), &|| true).unwrap_err();
+        assert!(error.is::<Interrupted>());
+    }
+    fn warnings(check: impl FnOnce()) -> String {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("probe.log");
+        let file = std::fs::File::create(&path).unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(move || file.try_clone().unwrap())
+            .finish();
+        tracing::subscriber::with_default(subscriber, check);
+        std::fs::read_to_string(path).unwrap()
+    }
+    /// A worker a stream stops more than 2 s after its request, as when an
+    /// AMF call hangs, is a possible encoder hang: the stream opens the
+    /// encoder at once, so the log must say so.
+    #[test]
+    fn a_probe_stopped_past_its_normal_time_warns_of_an_encoder_hang() {
+        let start = Instant::now();
+        let deadline = start + TIMEOUT;
+        for now in [start, start + Duration::from_millis(1999)] {
+            let log = warnings(|| {
+                let error = check_worker(None, now, deadline, true, Some(start)).unwrap_err();
+                assert!(error.is::<Interrupted>());
+            });
+            assert!(log.is_empty(), "{log}");
+        }
+        let log = warnings(|| {
+            let error = check_worker(None, start + HANG, deadline, true, None).unwrap_err();
+            assert!(error.is::<Interrupted>());
+        });
+        assert!(log.is_empty(), "no request, no encoder call: {log}");
+        let log = warnings(|| {
+            let now = start + Duration::from_millis(2500);
+            let error = check_worker(None, now, deadline, true, Some(start)).unwrap_err();
+            assert!(error.is::<Interrupted>());
+        });
+        assert!(log.contains("WARN"), "{log}");
+        assert!(log.contains("the encoder may have hung"), "{log}");
+        assert!(log.contains("elapsed_ms=2500"), "{log}");
+    }
+    /// PyroWave's healthy probe takes about 2 s, so a stream that stops a
+    /// slow one is no sign of a hung encoder; a packed request is judged.
+    #[test]
+    fn only_a_packed_probe_is_judged_for_an_encoder_hang() {
+        assert!(hang_watch(Some(&Negotiated::default())).is_some());
+        let requested = hang_watch(None);
+        assert!(requested.is_none());
+        let start = Instant::now();
+        let log = warnings(|| {
+            let now = start + Duration::from_millis(2500);
+            let error = check_worker(None, now, start + TIMEOUT, true, requested).unwrap_err();
+            assert!(error.is::<Interrupted>());
+        });
+        assert!(log.is_empty(), "{log}");
     }
     #[test]
     fn only_a_session_desktop_failure_is_worth_probing_again() {

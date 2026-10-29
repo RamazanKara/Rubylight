@@ -863,7 +863,7 @@ Client decode, hardware HEVC through D3D11VA on the same 780M (FFmpeg `-hwaccel 
 
 - The latency increase is not small next to the 7.06 ms end-to-end median the 780M measured over the LAN (6-minute 1080p60 HEVC, [plan](../docs/rubylight-3.0-plan.md), B9 row), and the rule is no added latency without a clear win.
 - The gain exists only when the link and the bitrate target are generous; at 2 Mbit/s it is a loss. A preset cannot know the link.
-- The advertisement is host-wide: `experimental_packed_444` is probed at startup (`rust/host/src/state.rs`) and the client has to request the packing, so a per-stream preset value cannot switch it on by itself. Making it a preset value would need a startup-level change, which is a separate piece of work.
+- The advertisement is host-wide: `experimental_packed_444` is probed at startup and again when it is saved, once no stream runs (`rust/host/src/state.rs`), and the client has to request the packing, so a per-stream preset value cannot switch it on by itself. Making it a preset value would need a startup-level change, which is a separate piece of work.
 - Not measured: the Nightjar reconstruction shader on a phone, picture age end to end with a real client, AV1, and real desktop capture. The scenes are synthetic (sub-pixel text on flat backgrounds), which is close to the best case for the chroma ceiling.
 
 **10-bit and the layered packing.** The same scenes with `--ten-bit` (packing 0 = 4:2:0, 1 = packed version 1, 2 = layered version 2), targets 5, 20 and 50 Mbit/s, 54 runs, scored against the 10-bit reference. Means over the three scenes, settled RGB PSNR, scroll RGB PSNR and encode time:

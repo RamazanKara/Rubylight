@@ -432,6 +432,7 @@ dependencies = [
  "uuid",
  "x509-parser",
  "zeroize",
+ "zip",
 ]
 
 [[package]]

@@ -490,13 +490,13 @@ fn wide(bytes: &[u8]) -> Option<bool> {
 }
 
 fn units16(bytes: &[u8], big_endian: bool) -> Result<Vec<u16>> {
-    if bytes.len() % 2 != 0 {
+    let (pairs, rest) = bytes.as_chunks::<2>();
+    if !rest.is_empty() {
         bail!("the file is not whole UTF-16 text");
     }
-    Ok(bytes
-        .chunks_exact(2)
-        .map(|pair| {
-            let pair = [pair[0], pair[1]];
+    Ok(pairs
+        .iter()
+        .map(|&pair| {
             if big_endian {
                 u16::from_be_bytes(pair)
             } else {

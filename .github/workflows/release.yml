@@ -116,7 +116,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends cmake ninja-build pkg-config libclang-dev \
-            nasm libdav1d-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
+            nasm libdav1d-dev libffmpeg-nvenc-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
             wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
             libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev \

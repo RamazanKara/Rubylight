@@ -181,6 +181,31 @@ fn mode_pixels(w: i32, h: i32, pixel_density: f32) -> (u32, u32) {
     (pixels(w), pixels(h))
 }
 
+/// The refresh rate exclusive fullscreen asks the display for. With VRR the display's top rate
+/// (`modes`: the refresh rates of its fullscreen modes), whatever the desktop runs at: the mode
+/// closest to it at the stream's size is that size's fastest, the panel follows the frames up to
+/// it, and a mode at the stream's rate would cap the range (a 60 fps stream would put a 240 Hz
+/// panel at 60 Hz). Without VRR the stream's rate, so each frame gets whole refreshes.
+fn fullscreen_refresh_hz(vrr: bool, modes: &[f32], stream_fps: i32) -> f32 {
+    let top = modes.iter().copied().fold(0.0, f32::max);
+    if vrr && top > 0.0 { top } else { stream_fps as f32 }
+}
+
+/// The refresh rates of a display's fullscreen modes, empty when SDL has none.
+fn mode_refresh_rates(id: SDL_DisplayID) -> Vec<f32> {
+    let mut count = 0;
+    // SAFETY: SDL allocates the list of mode pointers, which is read here and then freed.
+    unsafe {
+        let modes = SDL_GetFullscreenDisplayModes(id, &mut count);
+        if modes.is_null() {
+            return Vec::new();
+        }
+        let rates = (0..count.max(0) as usize).filter_map(|i| (*modes.add(i)).as_ref().map(|mode| mode.refresh_rate)).collect();
+        SDL_free(modes.cast());
+        rates
+    }
+}
+
 /// What the display reported, for the log: the stream's "native" resolution comes from it.
 fn log_display(window: *mut SDL_Window, display: Display) {
     // SAFETY: a live window; the mode pointer is owned by SDL.
@@ -1473,7 +1498,7 @@ impl App {
                         id,
                         facts.width,
                         facts.height,
-                        facts.fps as f32,
+                        fullscreen_refresh_hz(connecting.vrr(), &mode_refresh_rates(id), facts.fps),
                         true,
                         &mut mode,
                     ) {
@@ -2294,6 +2319,15 @@ mod tests {
 
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn exclusive_fullscreen_keeps_a_vrr_panels_top_refresh() {
+        // A 240 Hz panel whose desktop runs at 120 Hz.
+        let modes = [240.0, 165.0, 144.0, 120.0, 60.0, 120.0, 60.0];
+        assert_eq!(fullscreen_refresh_hz(true, &modes, 60), 240.0, "a 60 fps stream gets the 240 Hz mode, not the desktop's 120");
+        assert_eq!(fullscreen_refresh_hz(false, &modes, 60), 60.0, "without VRR a mode at the stream's rate");
+        assert_eq!(fullscreen_refresh_hz(true, &[], 120), 120.0, "no modes known");
+    }
 
     #[test]
     fn native_resolution_is_the_display_in_pixels_at_any_scaling() {

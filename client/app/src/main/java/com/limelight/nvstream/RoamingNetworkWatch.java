@@ -11,11 +11,12 @@ import com.limelight.LimeLog;
 import com.limelight.nvstream.jni.MoonBridge;
 
 /**
- * While a stream runs, follows the default network. With client roaming (Experimental) on a
- * Rust-engine stream it tells the engine about each default-network change and whether the new
- * network is metered, so it can move the stream (docs/protocol/client-roaming.md); the engine
- * never moves onto a network not reported here. On every stream it tells the listener when the
- * stream's network is lost and when one returns, so a stream that cannot roam reconnects at once.
+ * While a stream runs, follows the default network. It tells the engine about each
+ * default-network change and whether the new network is metered: with client roaming
+ * (Experimental) on both sides the engine can move the stream (docs/protocol/client-roaming.md),
+ * and never moves onto a network not reported here; otherwise it only answers whether the
+ * connection carries on. It tells the listener when the stream's network is lost and when one
+ * returns, so a stream whose connection cannot carry on reconnects at once.
  * The callbacks run on ConnectivityManager's thread, never the stream's.
  */
 @TargetApi(Build.VERSION_CODES.N)
@@ -24,16 +25,20 @@ final class RoamingNetworkWatch {
     private final RoamingNetworkTracker tracker;
     private final ConnectivityManager.NetworkCallback callback;
 
-    private RoamingNetworkWatch(ConnectivityManager connMgr, Network streamNetwork, boolean roam,
+    private RoamingNetworkWatch(ConnectivityManager connMgr, Network streamNetwork,
                                 NvConnectionListener listener) {
         this.connMgr = connMgr;
         tracker = new RoamingNetworkTracker(streamNetwork, new RoamingNetworkTracker.Reporter() {
             @Override
-            public boolean networkChanged(boolean metered) {
-                boolean roaming = roam && MoonBridge.networkChanged(metered);
+            public int networkChanged(boolean metered) {
+                // Without roaming on both sides the engine only tells whether the connection
+                // carries on; the C engine cannot tell, and carries on.
+                int change = MoonBridge.networkChanged(metered);
                 LimeLog.info("Roaming: the default network changed (" + (metered ? "metered" : "not metered") +
-                        "), " + (roaming ? "roaming" : roam ? "not roaming" : "not roaming (off for this stream)"));
-                return roaming;
+                        "), " + (change == MoonBridge.NETWORK_ROAMED ? "roaming" :
+                        change == MoonBridge.NETWORK_CANNOT_CONTINUE ? "not roaming, the connection cannot carry on" :
+                        "not roaming, the connection carries on"));
+                return change;
             }
 
             @Override
@@ -43,8 +48,8 @@ final class RoamingNetworkWatch {
             }
 
             @Override
-            public void streamNetworkReturned(boolean roamed) {
-                listener.streamNetworkReturned(roamed);
+            public void streamNetworkReturned(int change, boolean metered) {
+                listener.streamNetworkReturned(change, metered);
             }
         });
         callback = new ConnectivityManager.NetworkCallback() {
@@ -82,10 +87,9 @@ final class RoamingNetworkWatch {
 
     /**
      * Starts reporting network changes, or returns null (with a warning) where it cannot: then
-     * the stream does not roam onto another network. roam: report changes to the engine.
+     * the stream does not roam onto another network.
      */
-    static RoamingNetworkWatch start(Context context, Network streamNetwork, boolean roam,
-                                     NvConnectionListener listener) {
+    static RoamingNetworkWatch start(Context context, Network streamNetwork, NvConnectionListener listener) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             LimeLog.warning("Roaming: needs Android 7 to follow network changes; not roaming");
             return null;
@@ -95,7 +99,7 @@ final class RoamingNetworkWatch {
             LimeLog.warning("Roaming: no ConnectivityManager; not roaming");
             return null;
         }
-        RoamingNetworkWatch watch = new RoamingNetworkWatch(connMgr, streamNetwork, roam, listener);
+        RoamingNetworkWatch watch = new RoamingNetworkWatch(connMgr, streamNetwork, listener);
         try {
             connMgr.registerDefaultNetworkCallback(watch.callback);
         } catch (RuntimeException e) {

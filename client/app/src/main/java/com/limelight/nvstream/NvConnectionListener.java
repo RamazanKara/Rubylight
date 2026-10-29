@@ -18,10 +18,11 @@ public interface NvConnectionListener {
     default void streamNetworkLost() {}
 
     /**
-     * A network is back after the stream's was lost; roamed: the stream moves onto it. Otherwise
-     * the connection cannot carry on and only times out. On ConnectivityManager's thread.
+     * A network is back after the stream's was lost. change: MoonBridge.NETWORK_ROAMED (the
+     * stream moves onto it), NETWORK_CARRIES_ON or NETWORK_CANNOT_CONTINUE (the connection
+     * would only time out); metered: the new network's. On ConnectivityManager's thread.
      */
-    default void streamNetworkReturned(boolean roamed) {}
+    default void streamNetworkReturned(int change, boolean metered) {}
 
     default void launchConfirmationRequired(LaunchConfirmation confirmation) { confirmation.cancel(); }
     default void launchConfirmationFinished() {}

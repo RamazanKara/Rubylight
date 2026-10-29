@@ -25,6 +25,11 @@ final class StreamRecoveryPolicy {
         return DELAYS_MS[attempts++];
     }
 
+    /** Whether nextDelay would allow an attempt now, spending none. */
+    boolean allowsAttempt(long now, long connectedAt) {
+        return new StreamRecoveryPolicy(attempts, startedAt).nextDelay(now, connectedAt) >= 0;
+    }
+
     void resetAfterStableConnection(long now, long connectedAt) {
         // Briefly starting a stream must not give a flapping connection an unlimited budget.
         if (connectedAt >= 0 && now - connectedAt >= STABLE_MS) {

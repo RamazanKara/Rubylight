@@ -1321,10 +1321,10 @@ public class NvConnection {
                                     videoDecoderRenderer.packedHdrDropReason());
                         }
                         nativeConnected = true;
-                        // Every stream follows its network (a lost one that returns reconnects at
-                        // once); only roaming on a Rust-engine stream reports changes to the engine.
-                        roamingWatch = RoamingNetworkWatch.start(appContext, streamNetwork,
-                                prefs.clientRoaming && MoonBridge.isRustStream(), context.connListener);
+                        // Every stream follows its network (a lost one that returns where the
+                        // connection cannot carry on reconnects at once); the engine roams only
+                        // with client roaming on both sides.
+                        roamingWatch = RoamingNetworkWatch.start(appContext, streamNetwork, context.connListener);
                         startInputPolling(prefs.unbatchedInput);
                         startMicrophone();
                         started = true;

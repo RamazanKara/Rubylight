@@ -3,8 +3,8 @@
 
 use nightjar_core::session::{self, Stage};
 pub use nightjar_policy::recovery::{
-    reconnects_at_once, transient_termination, Backoff, RouteWait, ROUTE_PROBE_TIMEOUT_MS,
-    ROUTE_RETRY_MS,
+    reconnects_at_once, transient_termination, Backoff, RouteWait, PEER_TIMEOUT_MS,
+    ROUTE_PROBE_TIMEOUT_MS, ROUTE_RETRY_MS,
 };
 
 pub fn now_ms() -> u64 {

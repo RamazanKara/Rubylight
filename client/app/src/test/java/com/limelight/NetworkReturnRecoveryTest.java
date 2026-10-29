@@ -8,14 +8,18 @@ import org.junit.Test;
 
 /** Recovering after the stream's network dropped: when to reconnect, and the wait for a route. */
 public class NetworkReturnRecoveryTest {
-    @Test public void aNetworkBackWithoutRoamingReconnectsAtOnce() {
-        assertTrue(NetworkReturnRecovery.reconnectsAtOnce(false, true, 0));
-        // Roamed onto it: the stream carries on.
-        assertFalse(NetworkReturnRecovery.reconnectsAtOnce(true, true, 0));
+    @Test public void onlyANetworkBackTheConnectionCannotCarryOnOverReconnectsAtOnce() {
+        assertTrue(NetworkReturnRecovery.reconnectsAtOnce(true, false, false, true, 0));
+        // Roamed, or the same address back (not roamed) or no route yet: the connection carries on.
+        assertFalse(NetworkReturnRecovery.reconnectsAtOnce(false, false, false, true, 0));
         // Automatic reconnection off: the user decides when the connection times out.
-        assertFalse(NetworkReturnRecovery.reconnectsAtOnce(false, false, 0));
-        // A network drop tolerance holds the connection and decides.
-        assertFalse(NetworkReturnRecovery.reconnectsAtOnce(false, true, 20));
+        assertFalse(NetworkReturnRecovery.reconnectsAtOnce(true, false, false, false, 0));
+        // Mobile data only with "Continue on mobile data".
+        assertFalse(NetworkReturnRecovery.reconnectsAtOnce(true, true, false, true, 0));
+        assertTrue(NetworkReturnRecovery.reconnectsAtOnce(true, true, true, true, 0));
+        // A network drop tolerance above the connection's own timeout holds it and decides.
+        assertTrue(NetworkReturnRecovery.reconnectsAtOnce(true, false, false, true, NetworkReturnRecovery.PEER_TIMEOUT_MS));
+        assertFalse(NetworkReturnRecovery.reconnectsAtOnce(true, false, false, true, 20000));
     }
 
     /**

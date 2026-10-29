@@ -561,12 +561,20 @@ public class MoonBridge {
         return rustStream;
     }
 
+    /** networkChanged: the stream's connection goes on (same address, or no route yet). */
+    public static final int NETWORK_CARRIES_ON = 0;
+    /** networkChanged: a roam started, the stream moves onto the new network. */
+    public static final int NETWORK_ROAMED = 1;
+    /** networkChanged: the route toward the PC left the stream's address; it cannot carry on. */
+    public static final int NETWORK_CANNOT_CONTINUE = 2;
+
     /**
      * The default network changed while a stream runs; metered is the new network's
-     * !NET_CAPABILITY_NOT_METERED. Returns whether a roam started; false on the C engine.
+     * !NET_CAPABILITY_NOT_METERED. Returns what it means for the stream (NETWORK_*). The C
+     * engine cannot tell: it carries on, and its own timeout decides.
      */
-    public static boolean networkChanged(boolean metered) {
-        return rustStream && RustBridge.networkChanged(metered);
+    public static int networkChanged(boolean metered) {
+        return rustStream ? RustBridge.networkChanged(metered) : NETWORK_CARRIES_ON;
     }
 
     public static void requestPacked444(boolean requested) {

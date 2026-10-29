@@ -84,6 +84,30 @@ pub struct NetworkHint {
     pub metered: bool,
 }
 
+/// What a network change means for the stream ([`super::Session::network_changed`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkChange {
+    /// A roam started: the stream moves onto the new network.
+    Roamed,
+    /// The stream's connection goes on: the route toward the host still leaves from its
+    /// address, or there is no route yet (the route poll, or the connection's own timeout,
+    /// decides once there is).
+    CarriesOn,
+    /// The route toward the host now leaves from another address and the stream does not
+    /// move there: its connection cannot carry on.
+    CannotContinue,
+}
+
+impl NetworkChange {
+    /// Without roaming: the stream's sockets on `local`, the route toward the host now.
+    pub(super) fn standing(local: SocketAddr, route: io::Result<SocketAddr>) -> Self {
+        match route {
+            Ok(route) if !stays_on(local, route) => Self::CannotContinue,
+            _ => Self::CarriesOn,
+        }
+    }
+}
+
 /// One media stream's socket: its pings and its receive thread move together.
 pub(super) struct MediaPath {
     pub qos: Qos,
@@ -247,7 +271,7 @@ impl Roamer {
     }
 
     /// [`super::Session::network_changed`].
-    pub fn network_changed(&self, hint: NetworkHint) -> bool {
+    pub fn network_changed(&self, hint: NetworkHint) -> NetworkChange {
         let mut state = lock(&self.state);
         if hint.metered && !self.config.metered {
             if !state.held {
@@ -259,7 +283,7 @@ impl Roamer {
             state.held = true;
             state.armed_until = None;
             self.control.hold_roaming(true);
-            return false;
+            return NetworkChange::standing(state.local, net::local_address_toward(self.remote));
         }
         if state.held {
             state.held = false;
@@ -270,7 +294,12 @@ impl Roamer {
             Ok(route) => {
                 state.route = route;
                 if !stays_on(state.local, route) {
-                    return self.roam(&mut state, route);
+                    // A move that fails leaves the sockets where the route no longer goes.
+                    return if self.roam(&mut state, route) {
+                        NetworkChange::Roamed
+                    } else {
+                        NetworkChange::CannotContinue
+                    };
                 }
                 // The route toward the host still leaves where the sockets are: nothing
                 // moved, and a host that went silent starts its own attempt.
@@ -284,7 +313,7 @@ impl Roamer {
                 .shared
                 .log(&format!("Roaming: no route toward the host yet: {e}")),
         }
-        false
+        NetworkChange::CarriesOn
     }
 
     /// Moves the control stream and the media to `local` and starts the roam. A move that
@@ -567,5 +596,18 @@ mod tests {
         let mut state = State::new(local);
         assert!(!state.route_moves(v6("::2"), false, now));
         assert!(state.route_moves(v6("2001:db8::1"), false, now));
+    }
+
+    // A Wi-Fi blip that the stream does not roam across: a network back on the same address
+    // (DHCP gave it again) or with no route yet keeps the connection; only another address
+    // strands it.
+    #[test]
+    fn without_a_roam_the_connection_carries_on_unless_the_address_changed() {
+        let at = |n: u8, port: u16| SocketAddr::from(([192, 168, 1, n], port));
+        let standing = NetworkChange::standing;
+        assert_eq!(standing(at(20, 0), Ok(at(20, 51000))), NetworkChange::CarriesOn);
+        let no_route = io::Error::from(io::ErrorKind::NetworkUnreachable);
+        assert_eq!(standing(at(20, 0), Err(no_route)), NetworkChange::CarriesOn);
+        assert_eq!(standing(at(20, 0), Ok(at(21, 0))), NetworkChange::CannotContinue);
     }
 }

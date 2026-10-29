@@ -9,6 +9,19 @@
     {"call": "next_delay", "args": [1000], "expect": 0},
     {"call": "attempts", "args": [], "expect": 1},
     {"call": "next_delay", "args": [1500], "expect": 2000},
-    {"call": "attempts", "args": [], "expect": 2}
+    {"call": "attempts", "args": [], "expect": 2},
+    {"new": []},
+    {"call": "begin", "args": [0], "expect": null},
+    {"call": "next_delay", "args": [0], "expect": 1000},
+    {"call": "next_delay", "args": [0], "expect": 2000},
+    {"call": "next_delay", "args": [0], "expect": 4000},
+    {"call": "next_delay", "args": [0], "expect": 8000},
+    {"call": "allows_attempt", "args": [40000], "expect": true},
+    {"call": "allows_attempt", "args": [55000], "expect": false},
+    {"call": "next_delay", "args": [55000], "expect": -1},
+    {"call": "retry_now", "args": [], "expect": null},
+    {"call": "next_delay", "args": [55000], "expect": 0},
+    {"call": "attempts", "args": [], "expect": 5},
+    {"call": "allows_attempt", "args": [55000], "expect": false}
   ]
 }

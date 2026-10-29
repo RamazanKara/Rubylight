@@ -667,6 +667,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Right trigger", "Rechter Trigger"),
     ("The stream ended unexpectedly (error {}).", "Der Stream wurde unerwartet beendet (Fehler {})."),
     ("Reconnecting · attempt {} of 5", "Verbindung wird wiederhergestellt · Versuch {} von 5"),
+    ("Network lost.", "Netzwerk verloren."),
     ("Network lost. Reconnecting as soon as it is back…", "Netzwerk verloren. Die Verbindung wird wiederhergestellt, sobald es zurück ist…"),
     ("Finding the PC", "PC wird gesucht"),
     ("Negotiating the stream", "Stream wird ausgehandelt"),

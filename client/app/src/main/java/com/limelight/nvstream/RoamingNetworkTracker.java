@@ -10,22 +10,25 @@ package com.limelight.nvstream;
  * reported are not: each report starts a roaming attempt in the engine.
  *
  * <p>Losing the stream's network, and a network coming back after that, are reported too: a
- * return the stream does not roam onto lets the stream reconnect at once instead of waiting
- * for its connection to time out.
+ * return the stream's connection cannot carry on over lets the stream reconnect at once
+ * instead of waiting for its connection to time out.
  */
 final class RoamingNetworkTracker {
     interface Reporter {
         /**
          * MoonBridge.networkChanged: metered is the new network's !NET_CAPABILITY_NOT_METERED.
-         * Returns whether the stream roams onto it.
+         * Returns what it means for the stream (MoonBridge.NETWORK_*).
          */
-        boolean networkChanged(boolean metered);
+        int networkChanged(boolean metered);
 
         /** The stream's network went away; the stream cannot reach the PC until one returns. */
         default void streamNetworkLost() {}
 
-        /** A default network after the stream's was lost; roamed is networkChanged's answer. */
-        default void streamNetworkReturned(boolean roamed) {}
+        /**
+         * A default network after the stream's was lost: change is networkChanged's answer,
+         * metered the new network's.
+         */
+        default void streamNetworkReturned(int change, boolean metered) {}
     }
 
     private final Reporter reporter;
@@ -56,9 +59,9 @@ final class RoamingNetworkTracker {
         current = network;
         lost = false;
         // Under the lock, so stop() returning means no report is still on its way.
-        boolean roamed = reporter.networkChanged(!notMetered);
+        int change = reporter.networkChanged(!notMetered);
         if (returned) {
-            reporter.streamNetworkReturned(roamed);
+            reporter.streamNetworkReturned(change, !notMetered);
         }
     }
 

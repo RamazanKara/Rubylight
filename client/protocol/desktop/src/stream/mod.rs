@@ -50,7 +50,7 @@ use nightjar_core::control::{ClientMessage, ControlEvent};
 use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, NativeCapabilities, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
-use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
+use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkChange, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
 use nightjar_policy::health::TrialOffer;
 use nightjar_policy::overlay::{HardwareAnswer, HardwarePoll};
 use nightjar_policy::stats::Stats;
@@ -926,9 +926,14 @@ fn roaming_config(settings: &Settings, watching: bool) -> RoamingConfig {
     }
 }
 
+/// Over the frozen picture while the stream's network is gone; the second when a reconnect follows.
+const NETWORK_LOST: &str = en("Network lost.");
+const NETWORK_LOST_RECONNECTING: &str = en("Network lost. Reconnecting as soon as it is back…");
+
 /// The stream's network watcher toward the PC, feeding the stream through `Notice`s, or None
-/// with why on stderr. It runs for every stream: a lost route that comes back without roaming
-/// reconnects at once; with client roaming its changes are also the session's hints.
+/// with why on stderr. It runs for every stream: a lost route that comes back where the
+/// connection cannot carry on reconnects at once; with client roaming its changes are also the
+/// session's hints.
 fn roam_watch(settings: &Settings, address: &str, shared: &Arc<Shared>) -> Option<crate::network::RoamWatch> {
     let unwatched = if !settings.client_roaming || settings.roaming_metered { "" } else { " and roaming is off" };
     let Some(remote) = (address, 47989).to_socket_addrs().ok().and_then(|mut found| found.next()) else {
@@ -948,8 +953,9 @@ fn roam_watch(settings: &Settings, address: &str, shared: &Arc<Shared>) -> Optio
         .ok()
 }
 
-/// Keeps the watcher for the stream. It feeds the session's roaming only when the host roams
-/// and client roaming is on, and tells a lost network's return on every stream.
+/// Keeps the watcher for the stream. The session roams on its changes only when the host roams
+/// and client roaming is on, and tells on every stream whether a lost network's return lets the
+/// connection carry on.
 fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>) {
     *lock(&shared.roam_watch) = watch;
 }
@@ -983,6 +989,34 @@ fn rejoin(mut plan: LaunchPlan, role: AppRole) -> Option<LaunchPlan> {
 /// minimized or hidden one (`away`) waits for the user, as the Android app does in the background.
 fn reconnects_automatically(auto_reconnect: bool, away: bool, role: AppRole) -> bool {
     auto_reconnect && !away && role == AppRole::Stream
+}
+
+/// The plan that reconnects a dropped stream of `role` that `plan` started, on its own, or None
+/// when it waits for the user ([`reconnects_automatically`]) or there is nothing to rejoin. Its
+/// budget renews after `connected_ms` of a stable stream; `retry_now`: the first attempt starts
+/// without its delay (it still spends one).
+fn automatic_rejoin(plan: &LaunchPlan, role: AppRole, auto_reconnect: bool, away: bool, connected_ms: u64, retry_now: bool) -> Option<LaunchPlan> {
+    if !reconnects_automatically(auto_reconnect, away, role) { return None; }
+    let mut plan = rejoin(plan.clone(), role)?;
+    let recovery = plan.recovery.get_or_insert_with(Default::default);
+    recovery.reset_after(connected_ms);
+    if retry_now { recovery.retry_now(); }
+    Some(plan)
+}
+
+/// The lost-network notice: it promises a reconnect only when one will follow (`on_its_own`: a
+/// dropped stream reconnects by itself, so the connection's timeout or a return it cannot carry
+/// on over recovers it), not where a network drop tolerance holds the connection instead.
+fn lost_notice(settings: &Settings, on_its_own: bool) -> &'static str {
+    if on_its_own && settings.network_grace_ms <= recovery::PEER_TIMEOUT_MS { NETWORK_LOST_RECONNECTING } else { NETWORK_LOST }
+}
+
+/// A network is back after the route was gone: whether the stream ends now to reconnect at once.
+/// Only when the session says its connection cannot carry on (another address, not roamed): it
+/// would only time out. Roamed, or the same address back, or no route yet, the stream goes on.
+fn reconnects_on_return(change: NetworkChange, metered: bool, settings: &Settings, on_its_own: bool) -> bool {
+    on_its_own && recovery::reconnects_at_once(change == NetworkChange::CannotContinue, metered,
+        settings.roaming_metered, settings.auto_reconnect, settings.network_grace_ms)
 }
 
 /// Whether a refused launch of `plan` is the PC's prompt to close the running app, which the
@@ -1290,7 +1324,7 @@ pub enum Exit {
     Terminated(i32),
     /// The host ended it or the connection failed; Some carries the message.
     Ended(Option<String>),
-    /// A lost network came back without the stream roaming onto it: reconnect at once.
+    /// A lost network came back where the connection cannot carry on: reconnect at once.
     NetworkReturned,
 }
 
@@ -1810,44 +1844,55 @@ impl Streaming {
     }
 
     /// The route toward the PC went away: a frozen picture is never silent. The notice stays
-    /// until a network returns.
-    fn network_lost(&mut self) {
+    /// until a network returns; `away`: the window is minimized or hidden.
+    fn network_lost(&mut self, away: bool) {
         eprintln!("nightjar: the stream's network was lost");
         self.network_lost = true;
-        self.show_toast(tr("Network lost. Reconnecting as soon as it is back…"));
+        self.show_toast(tr(lost_notice(&self.settings, self.reconnects_on_its_own(away))));
     }
 
-    /// A network is back after the route was gone; `roamed`: the stream moved onto it. Otherwise
-    /// the connection cannot carry on and would only time out, so the stream reconnects now.
-    fn network_returned(&mut self, roamed: bool) {
+    /// A network is back after the route was gone; `change`: what it means for the session
+    /// ([`reconnects_on_return`]).
+    fn network_returned(&mut self, change: NetworkChange, metered: bool, away: bool) {
         if !std::mem::take(&mut self.network_lost) { return; }
-        if self.toast.as_ref().is_some_and(|(text, _)| text == tr("Network lost. Reconnecting as soon as it is back…")) {
+        if self.toast.as_ref().is_some_and(|(text, _)| *text == tr(NETWORK_LOST) || *text == tr(NETWORK_LOST_RECONNECTING)) {
             self.toast = None;
             self.needs_redraw = true;
         }
-        if self.exit.is_some() || !recovery::reconnects_at_once(roamed, self.settings.auto_reconnect, self.settings.network_grace_ms) {
+        if change != NetworkChange::CannotContinue || self.exit.is_some() { return; }
+        if !reconnects_on_return(change, metered, &self.settings, self.reconnects_on_its_own(away)) {
+            eprintln!("nightjar: the network is back on another address the stream did not roam to; \
+                its connection times out");
             return;
         }
-        eprintln!("nightjar: the network is back without roaming: reconnecting now");
+        eprintln!("nightjar: the network is back on another address the stream did not roam to: reconnecting now");
         self.retry_now = true;
         self.exit = Some(Exit::NetworkReturned);
+    }
+
+    /// Whether a dropped stream would reconnect on its own now: [`automatic_rejoin`] has a plan
+    /// with an attempt left in its budget. Spends nothing.
+    fn reconnects_on_its_own(&self, away: bool) -> bool {
+        automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false)
+            .and_then(|plan| plan.recovery)
+            .is_some_and(|budget| budget.allows_attempt(recovery::now_ms()))
+    }
+
+    fn connected_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
     }
 
     /// The plan that starts the stream again; `automatic` after a drop, `away` while the window is
     /// minimized or hidden.
     pub fn reconnect_plan(&self, automatic: bool, away: bool) -> Option<LaunchPlan> {
-        if automatic && !reconnects_automatically(self.settings.auto_reconnect, away, self.facts.role) {
-            return None;
-        }
-        let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
-        plan.microphone_muted = self.microphone_muted;
-        if automatic {
-            let recovery = plan.recovery.get_or_insert_with(Default::default);
-            recovery.reset_after(self.started.elapsed().as_millis() as u64);
-            if self.retry_now { recovery.retry_now(); }
+        let mut plan = if automatic {
+            automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), self.retry_now)?
         } else {
+            let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
             plan.recovery = None;
-        }
+            plan
+        };
+        plan.microphone_muted = self.microphone_muted;
         Some(plan)
     }
 
@@ -2068,7 +2113,8 @@ impl Streaming {
 
     /// Handles queued notices from the session threads. Control events that need the
     /// controllers are applied to `pads`.
-    pub fn drain_notices(&mut self, pads: &mut Gamepads) {
+    /// `away`: the window is minimized or hidden.
+    pub fn drain_notices(&mut self, pads: &mut Gamepads, away: bool) {
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
         for notice in notices {
             match notice {
@@ -2128,11 +2174,12 @@ impl Streaming {
                     }
                 }
                 Notice::NetworkChanged(hint, after_loss) => {
-                    // A session without roaming (off, or a host that does not roam) answers false.
-                    let roamed = self.session.network_changed(hint);
-                    if after_loss { self.network_returned(roamed); }
+                    // A session without roaming (off, or a host that does not roam) never roams,
+                    // but still says whether its connection carries on.
+                    let change = self.session.network_changed(hint);
+                    if after_loss { self.network_returned(change, hint.metered, away); }
                 }
-                Notice::NetworkLost => self.network_lost(),
+                Notice::NetworkLost => self.network_lost(away),
                 Notice::AdaptiveBitrate(result) => {
                     self.bitrate_busy = false;
                     match result {
@@ -4380,6 +4427,66 @@ mod replace_tests {
             recovery: None,
             confirm_replace: false,
         }
+    }
+
+    // The review's regression: roamed is false, but the same address came back (DHCP gave it
+    // again) or there is no route yet. The connection resumes in place, so the stream goes on;
+    // only a return it cannot carry on over reconnects, with the desktop's default settings too.
+    #[test]
+    fn only_a_network_back_the_connection_cannot_carry_on_over_reconnects_at_once() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.network_grace_ms, 3000, "below the connection's own timeout: no tolerance");
+        assert!(!reconnects_on_return(NetworkChange::CarriesOn, false, &defaults, true));
+        assert!(!reconnects_on_return(NetworkChange::Roamed, false, &defaults, true));
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, true));
+        // Not when it would not reconnect on its own (minimized, not a game stream, budget used).
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, false));
+        // Mobile data only with "Continue on mobile data".
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, true, &defaults, true));
+        let mobile = Settings { roaming_metered: true, ..Settings::default() };
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, true, &mobile, true));
+        // A tolerance above the timeout holds the connection and decides; so does the user.
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &tolerant, true));
+        let manual = Settings { auto_reconnect: false, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &manual, true));
+        // The exit it takes reconnects.
+        assert!(Exit::NetworkReturned.retryable());
+    }
+
+    #[test]
+    fn the_lost_network_notice_promises_a_reconnect_only_when_one_follows() {
+        let defaults = Settings::default();
+        assert_eq!(lost_notice(&defaults, true), NETWORK_LOST_RECONNECTING);
+        assert_eq!(lost_notice(&defaults, false), NETWORK_LOST);
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert_eq!(lost_notice(&tolerant, true), NETWORK_LOST);
+    }
+
+    #[test]
+    fn a_network_return_rejoins_without_the_first_delay_and_only_on_its_own() {
+        let mut plan = launch_plan();
+        plan.app.control = nightjar_core::http::AppControl::None;
+        let now = recovery::now_ms();
+        let mut rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true).expect("a plan");
+        assert!(rejoined.resume);
+        let budget = rejoined.recovery.as_mut().expect("a budget");
+        assert!(budget.allows_attempt(now));
+        assert_eq!(budget.next_delay(now), Some(0), "no delay, but it spends an attempt");
+        assert_eq!(budget.attempts(), 1);
+        // Without retry_now the usual first delay.
+        let mut usual = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, false).unwrap().recovery.unwrap();
+        assert_eq!(usual.next_delay(now), Some(1000));
+        // Minimized, off, or a stream that is not a game: the user decides.
+        assert!(automatic_rejoin(&plan, AppRole::Stream, true, true, 0, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::Stream, false, false, 0, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::RemoteMonitor, true, false, 0, true).is_none());
+        // A used-up budget allows no attempt, so the notice promises none.
+        let mut spent = recovery::Backoff::default();
+        while spent.next_delay(now).is_some() {}
+        plan.recovery = Some(spent);
+        let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true).unwrap();
+        assert!(!rejoined.recovery.unwrap().allows_attempt(now));
     }
 
     #[test]

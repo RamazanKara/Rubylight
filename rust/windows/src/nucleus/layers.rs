@@ -9,18 +9,18 @@
 //! game's .exe of the same name. The values wait in a file beside Nucleus
 //! until then, so what a host that stopped mid-session left comes back when
 //! the service next sees the user sign in at the console or starts a host,
-//! or before the next session. A lock file beside it keeps a restore off a
-//! running session's values.
+//! or before the next session. A lock only SYSTEM and administrators open
+//! keeps a restore off a running session's values.
+use crate::child_session::lock::NamedLock;
 use crate::text::to_wide;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use windows::Win32::Foundation::{
     ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, ERROR_PATH_NOT_FOUND,
-    ERROR_SHARING_VIOLATION,
 };
 use windows::Win32::System::Registry::{
     HKEY, HKEY_USERS, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_VALUE_TYPE,
@@ -214,50 +214,94 @@ const LOCK_WAIT: Duration = Duration::from_secs(5);
 
 /// A user's file in use, by a session from before Nucleus starts until its
 /// values are back, or by a restore: a restore never puts back a running
-/// session's values, and two never restore the same file. The lock file
-/// stays; an open handle is the lock, so a host that stopped holds none.
+/// session's values, and two never restore the same file. A `Global\` named
+/// mutex ([`NamedLock`]) only SYSTEM and administrators open, so no other
+/// account can hold it; a host that stopped leaves it abandoned, which the
+/// next one takes. Windows ties a mutex to the thread that took it, and a
+/// session may end on another thread: a thread of the lock's own holds it.
 struct Lock {
-    _file: std::fs::File,
+    release: Option<std::sync::mpsc::Sender<()>>,
+    holder: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Lock {
-    fn path(journal: &Path) -> PathBuf {
-        journal.with_extension("lock")
+    /// The mutex's name for `journal`: one per file, the same in every
+    /// process (FNV-1a of its path, case aside).
+    fn name(journal: &Path) -> String {
+        let hash = journal
+            .to_string_lossy()
+            .to_lowercase()
+            .bytes()
+            .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            });
+        format!(r"Global\Rubylight.NucleusLayers.{hash:016x}")
     }
 
     /// The lock, or None while a session or another restore holds it.
     fn try_take(journal: &Path) -> Result<Option<Self>> {
-        use std::os::windows::fs::OpenOptionsExt;
-        let path = Self::path(journal);
-        match std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .share_mode(0)
-            .open(&path)
-        {
-            Ok(file) => Ok(Some(Self { _file: file })),
-            Err(error) if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION.0 as i32) => {
-                Ok(None)
-            }
-            Err(error) => Err(error).with_context(|| format!("opening {}", path.display())),
-        }
+        Self::acquire(journal, Duration::ZERO)
     }
 
     /// The lock, waiting up to `wait` for a restore to finish.
     fn take(journal: &Path, wait: Duration) -> Result<Self> {
-        let until = Instant::now() + wait;
-        loop {
-            if let Some(lock) = Self::try_take(journal)? {
-                return Ok(lock);
-            }
-            anyhow::ensure!(
-                Instant::now() < until,
+        Self::acquire(journal, wait)?.with_context(|| {
+            format!(
                 "{} stays in use: a Nucleus Co-op session or the Rubylight service is putting the game's compatibility settings back. Start the stream again once that session ends",
-                Self::path(journal).display()
-            );
-            std::thread::sleep(Duration::from_millis(50));
+                journal.display()
+            )
+        })
+    }
+
+    fn acquire(journal: &Path, wait: Duration) -> Result<Option<Self>> {
+        let name = Self::name(journal);
+        let (taken, was_taken) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::Builder::new()
+            .name("nucleus-layers-lock".into())
+            .spawn(move || match NamedLock::acquire(&name, wait) {
+                Ok(Some(lock)) => {
+                    let _ = taken.send(Ok(true));
+                    // Until the lock is dropped.
+                    let _ = released.recv();
+                    drop(lock);
+                }
+                Ok(None) => {
+                    let _ = taken.send(Ok(false));
+                }
+                Err(error) => {
+                    let _ = taken.send(Err(error));
+                }
+            })
+            .context("starting the compatibility settings' lock thread")?;
+        let outcome = was_taken
+            .recv()
+            .context("the compatibility settings' lock thread ended")?;
+        match outcome {
+            Ok(true) => Ok(Some(Self {
+                release: Some(release),
+                holder: Some(holder),
+            })),
+            outcome => {
+                let _ = holder.join();
+                outcome.map(|_| None).with_context(|| {
+                    format!(
+                        "taking the lock on {}, which keeps a session's compatibility settings",
+                        journal.display()
+                    )
+                })
+            }
+        }
+    }
+}
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        // The holder lets go once its channel closes; released before this
+        // returns, so the next taker never waits on a lock nobody holds.
+        drop(self.release.take());
+        if let Some(holder) = self.holder.take() {
+            let _ = holder.join();
         }
     }
 }
@@ -696,6 +740,7 @@ fn read_values(key: &Key) -> Result<BTreeMap<String, Value>> {
 pub mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+    use std::time::Instant;
 
     /// Layers in a map, shared with the test; `broken` fails every call.
     #[derive(Clone, Default)]
@@ -1075,9 +1120,55 @@ pub mod tests {
             .unwrap()
             .to_string();
         assert!(
-            error.contains("Rubylight-layers-S-1-5-21-7.lock"),
+            error.contains("Rubylight-layers-S-1-5-21-7.json"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn the_lock_is_a_mutex_no_other_account_holds_and_a_stopped_host_lets_go() {
+        let map = Map::default();
+        let folder = tempfile::tempdir().unwrap();
+        let journal = journal(folder.path(), "S-1-5-21-7");
+        // One per file, the same in every process: a SYSTEM-and-administrators
+        // mutex (NamedLock), never a file another account could open.
+        let name = Lock::name(&journal);
+        assert!(
+            name.starts_with(r"Global\Rubylight.NucleusLayers."),
+            "{name}"
+        );
+        let upper = PathBuf::from(journal.to_string_lossy().to_uppercase());
+        assert_eq!(Lock::name(&upper), name);
+        assert_ne!(Lock::name(&journal.with_extension("other")), name);
+        let guard = take(&map, folder.path()).unwrap();
+        let other = name.clone();
+        let held = std::thread::spawn(move || {
+            NamedLock::acquire(&other, Duration::ZERO)
+                .unwrap()
+                .is_none()
+        });
+        assert!(held.join().unwrap());
+        drop(guard);
+        let mut files: Vec<_> = std::fs::read_dir(folder.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        files.sort();
+        assert!(files.is_empty(), "{files:?}");
+        // A session that ends on another thread lets go there.
+        let lock = Lock::try_take(&journal).unwrap().unwrap();
+        std::thread::spawn(move || drop(lock)).join().unwrap();
+        // A host that stopped holding it leaves it abandoned: taken.
+        let other = name.clone();
+        std::thread::spawn(move || {
+            std::mem::forget(NamedLock::acquire(&other, Duration::ZERO).unwrap().unwrap());
+        })
+        .join()
+        .unwrap();
+        let lock = Lock::try_take(&journal).unwrap();
+        assert!(lock.is_some());
+        drop(lock);
+        drop(take(&map, folder.path()).unwrap());
     }
 
     /// Layers whose first change removes the file, as a restore elsewhere

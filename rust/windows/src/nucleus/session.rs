@@ -1461,15 +1461,7 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         files.sort();
-        // The lock file stays; nothing holds it.
-        assert_eq!(
-            files,
-            [
-                "Rubylight-layers-S-1-5-21-7.lock",
-                "Settings.ini",
-                "game profiles"
-            ]
-        );
+        assert_eq!(files, ["Settings.ini", "game profiles"]);
     }
 
     #[test]

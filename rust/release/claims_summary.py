@@ -22,10 +22,11 @@ def quantiles(values):
 found = claims(open(sys.argv[1], encoding='utf-8', errors='replace').read())
 if not found:
     sys.exit('no pacing claim trace in this log; run the host with RUST_LOG=info,pacing=trace')
-fresh = [(claim - presented) / 1000 for claim, presented, new in found if new]
-again = [(claim - presented) / 1000 for claim, presented, new in found if not new]
+fresh = [(claim - presented) / 1000 for claim, presented, new, _ in found if new]
+again = [(claim - presented) / 1000 for claim, presented, new, _ in found if not new]
+static = sum(choice == 'static_repeat' for *_, choice in found)
 gaps = [(b[0] - a[0]) / 1000 for a, b in zip(found, found[1:])]
-print(f'claims={len(found)} new_pictures={len(fresh)} unchanged_again={len(again)}')
+print(f'claims={len(found)} new_pictures={len(fresh)} unchanged_again={len(again)} of_them_static_repeats={static}')
 print('new picture, presented to claim:', quantiles(fresh))
 print('unchanged again, presented to claim:', quantiles(again))
 print('claim to claim:', quantiles(gaps))

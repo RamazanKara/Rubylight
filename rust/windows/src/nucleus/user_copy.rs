@@ -114,10 +114,9 @@ fn ensure_with(
         )
     })?;
     ensure!(
-        listing
-            .files
-            .iter()
-            .any(|(name, _)| name.as_os_str() == pinned::EXECUTABLE),
+        listing.files.iter().any(|(name, _)| name
+            .to_str()
+            .is_some_and(|name| name.eq_ignore_ascii_case(pinned::EXECUTABLE))),
         "{} holds no {}",
         source.display(),
         pinned::EXECUTABLE
@@ -858,6 +857,10 @@ mod tests {
             "{error}"
         );
         assert!(!pinned::user_root(data.path()).exists());
+        // Its name in another case is the same file to Windows.
+        std::fs::write(host.path().join("nucleuscoop.EXE"), b"MZ nucleus").unwrap();
+        let copy = ensure_with(data.path(), host.path(), SID, None, &TEST).unwrap();
+        assert!(copy.join("nucleuscoop.EXE").is_file());
 
         let host = host_folder();
         let error =

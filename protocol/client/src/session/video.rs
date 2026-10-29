@@ -13,7 +13,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::net::{self, NextSocket, PingHandle, Pinger, REBIND_WAIT, UDP_RECV_POLL_TIMEOUT};
-use super::trace::PacketTrace;
+use super::trace::{PacketTrace, Stream};
 use super::{error, now_us, DecodeStatus, Shared, VideoDecoder};
 use crate::control::driver::ControlHandle;
 use crate::control::FrameFecStatus;
@@ -441,9 +441,12 @@ fn receive_thread(
     let mut signals = Vec::new();
     let mut waiting = Duration::ZERO;
     let mut first_data: Option<Instant> = None;
-    let mut trace = PacketTrace::from_env("video", true);
+    let encrypted = lock(&shared.receiver).config().encryption_key.is_some();
+    let mut trace = PacketTrace::from_env(Stream::Video { encrypted });
     while !stop.load(Ordering::Acquire) {
-        let before = if trace.is_some() { now_us() } else { 0 };
+        if let Some(trace) = trace.as_mut() {
+            trace.waiting();
+        }
         let length = match net::receive(&socket, &mut buffer) {
             Ok(Some(length)) => length,
             Ok(None) => {
@@ -493,7 +496,7 @@ fn receive_thread(
         }
         let now = now_us();
         if let Some(trace) = trace.as_mut() {
-            trace.push(before, now, &buffer[..length]);
+            trace.push(now, &buffer[..length]);
         }
         {
             let mut receiver = lock(&shared.receiver);
@@ -523,7 +526,8 @@ fn receive_thread(
         route(&control, &mut signals);
     }
     if let Some(trace) = trace {
-        trace.finish(|line| session.log(line));
+        let session = session.clone();
+        trace.finish(move |line| session.log(line));
     }
     direct.map(|d| d.decoder)
 }

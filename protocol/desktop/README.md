@@ -262,9 +262,9 @@ record (`BUTTERPOLLO_TIMING_RECORD`). It is off unless the variable is set, and 
 does the file work.
 
 `NIGHTJAR_PACKET_TRACE=<prefix>` keeps every video and audio datagram's receive time, the time
-the receive thread waited for it, its length and RTP sequence and timestamp in memory, and writes
-`<prefix>-video.csv`, `<prefix>-audio.csv` and `<prefix>-canary.csv` (a 1 ms sleeper's late
-wakes) when the stream ends: it tells a network that hands packets over in bursts from a receive
+the receive thread waited for it, its length and RTP sequence and timestamp (0 for encrypted
+video) in memory, and a writer thread writes `<prefix>-video.csv`, `<prefix>-audio.csv` and
+`<prefix>-canary.csv` (a 1 ms sleeper's late wakes) when the stream ends: it tells a network that hands packets over in bursts from a receive
 thread that woke late (`nightjar-core`'s `session/trace.rs`). Off unless the variable is set.
 
 ## What works

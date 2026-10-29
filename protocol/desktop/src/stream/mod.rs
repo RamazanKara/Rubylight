@@ -24,6 +24,8 @@ mod upscale;
 pub mod enhance;
 #[cfg(windows)]
 mod amf_scaler;
+#[cfg(windows)]
+pub(crate) mod direct;
 mod phase;
 mod text_field;
 mod clipboard_sync;
@@ -3025,6 +3027,18 @@ impl Streaming {
         else { "Bilinear (no upscale needed)".into() }
     }
 
+    /// Draws the picture itself into the back buffer (`direct`), or returns false for SDL to draw
+    /// the video texture.
+    #[cfg(windows)]
+    fn draw_direct(&mut self, renderer: *mut SDL_Renderer, dst: &SDL_FRect) -> bool {
+        self.texture.draw_direct(renderer, dst)
+    }
+
+    #[cfg(not(windows))]
+    fn draw_direct(&mut self, _renderer: *mut SDL_Renderer, _dst: &SDL_FRect) -> bool {
+        false
+    }
+
     /// Draws the texture and the overlay and presents. `probe` reads the beam around the present.
     fn render_flip(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), probe: bool) -> Flipped {
         // SAFETY: drawing on a live renderer.
@@ -3041,6 +3055,8 @@ impl Streaming {
                 let use_upscaler = self.settings.upscaling.is_shader() && !self.upscale_failed
                     && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input
                     && output.0 <= 16384 && output.1 <= 16384;
+                // The upscalers and AI enhancement read the video texture.
+                if self.settings.upscaling == config::Upscaling::Ai || use_upscaler { self.texture.materialize(); }
                 if self.settings.upscaling == config::Upscaling::Ai {
                     self.upscaler = None;
                     if let Some(enhanced) = self.enhanced(renderer, output) { texture = enhanced; }
@@ -3057,7 +3073,10 @@ impl Streaming {
                         }
                     }
                 } else { self.upscaler = None; }
-                SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+                if !(texture == self.texture.texture && self.draw_direct(renderer, &dst)) {
+                    if texture == self.texture.texture { self.texture.materialize(); }
+                    SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+                }
             } else if !self.texture.draw(renderer, &dst) {
                 self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));
             }

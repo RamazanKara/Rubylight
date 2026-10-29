@@ -65,38 +65,39 @@ static void stallsAreConcealedAndTheirPacketsSkipped(void) {
     assert(atomic_load(&output.lateFrames) == 7 * 864);
     assert(atomic_load(&output.queue.underruns) == 1);
 
-    // The stalled packets come at once: the first one, after a gap, is written; of the rest, the oldest
-    // whose time was concealed are skipped and the newest refill the reserve, so the ring plays again
-    // without waiting in silence for live packets. A packet at its own pace is never skipped.
+    // The stalled packets come at once: the drained reserve's and the concealed time's, 33 packets in the
+    // network queue. Of those whose time was concealed the oldest are skipped, the first one too, though it
+    // came after the gap: the packets behind it are a burst. The newest refill the reserve, and only a
+    // packet's rest waits beyond it. Counting the ring alone kept the whole network queue on top of the
+    // reserve (about 75 ms here, the late bound's 36 + 40), which the late bound then dropped a packet at a time.
     uint64_t now = 5000000000ull;
-    assert(!audioSkipLate(&output, now, 240));
-    assert(audioQueueWrite(&output.queue, input, 240) == 240);
-    int skipped = 0, kept = 1;
-    for (int i = 0; i < 7 * 864 / 240; i++) {
-        now += 200000;
-        if (audioSkipLate(&output, now, 240)) {
-            assert(kept == 1);
-            skipped++;
-        } else {
-            assert(audioQueueWrite(&output.queue, input, 240) == 240);
-            kept++;
-        }
-    }
-    assert(skipped == 19 && kept == 7);
-    assert(atomic_load(&output.skippedFrames) == (uint32_t)skipped * 240);
-    assert(atomic_load(&output.lateFrames) == (uint32_t)(7 * 864 - (skipped + kept - 1) * 240));
-    atomic_store(&output.lateFrames, 960);
-    now += 5000000;
-    assert(!audioSkipLate(&output, now, 240));
-
-    // Refilling: the ring is not empty, so the decoder is left to the stalled packets; silence until primed.
+    int packets = (1728 + 7 * 864 + 239) / 240, skipped = 0, kept = 0;
+    uint32_t refilled = 0;
     int calls = concealCalls;
     output.concealCount = 0;
-    audioFill(&output, pcm, 864);
-    assert(concealCalls == calls && allEqual(pcm, 864 * 2, 0));
+    for (int i = 0; i < packets; i++) {
+        if (audioSkipLate(&output, now, 240, (uint32_t)(packets - 1 - i) * 240)) {
+            assert(kept == 0);
+            skipped++;
+        } else {
+            refilled += audioQueueWrite(&output.queue, input, 240);
+            if (++kept == 1) {
+                // Refilling: the ring is not empty, so the decoder is left to the stalled packets; silence until primed.
+                audioFill(&output, pcm, 864);
+                assert(concealCalls == calls && allEqual(pcm, 864 * 2, 0));
+            }
+        }
+        now += 200000;
+    }
+    assert(skipped == 25 && kept == 8 && refilled == 1728);
+    assert(atomic_load(&output.skippedFrames) == (uint32_t)skipped * 240);
+    assert(atomic_load(&output.skippedFrames) <= atomic_load(&output.concealedFrames));
+    // A packet at its own pace is never skipped, even with time still late and the ring full.
+    assert(atomic_load(&output.lateFrames) >= 240);
+    now += 5000000;
+    assert(!audioSkipLate(&output, now, 240, 0));
 
     // Primed again: the ring plays, faded in from silence over 5 ms, and late frames left are dropped.
-    assert(audioQueueWrite(&output.queue, input, 48) == 48);
     audioFill(&output, pcm, 864);
     assert(pcm[0] == 0 && pcm[2 * 120] == 1000 && pcm[2 * 240] == 2000 && pcm[2 * 863] == 2000);
     assert(!output.concealing && atomic_load(&output.lateFrames) == 0);

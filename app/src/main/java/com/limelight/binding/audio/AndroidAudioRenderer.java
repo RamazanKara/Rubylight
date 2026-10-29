@@ -78,7 +78,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private static native int nativeAudioBuffer(long handle, int frames);
     private static native int nativeAudioReserve(long handle, int frames);
     private static native int nativeAudioQueued(long handle);
-    private static native boolean nativeAudioSkipLate(long handle, int frames);
+    private static native boolean nativeAudioSkipLate(long handle, int frames, int pendingFrames);
     private static native void nativeCloseAudio(long handle);
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
@@ -345,8 +345,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
         // Only queue up to 40 ms of audio beyond the output's reserve. The output's own level counts: after a
         // network stall drained it, the burst that follows refills it instead of being dropped.
         // A stall's packets whose time Opus already concealed: playing them would keep latency up by the stall.
-        if (nativeAudio != 0 && channels > 0 && skipLateNativeAudio(length / channels)) return;
+        // The packets waiting behind this one refill the reserve, so only the excess over it is skipped.
         int pendingMs = pendingAudioMs();
+        if (nativeAudio != 0 && channels > 0 &&
+                skipLateNativeAudio(length / channels, (int)((long)Math.max(0, pendingMs) * sampleRate / 1000))) return;
         int queuedFrames = outputQueuedFrames();
         if (!AudioBufferPolicy.dropLate(pendingMs, queuedFrames, reserveFrames, sampleRate)) {
             if (nativeAudio != 0 && bufferPolicy.needsFallback() &&
@@ -411,9 +413,12 @@ public class AndroidAudioRenderer implements AudioRenderer {
         largestReserveFrames = Math.max(largestReserveFrames, reserveFrames);
     }
 
-    /** Whether this packet's time already went to Opus concealment during a stall (aaudio_output.c). */
-    boolean skipLateNativeAudio(int frames) {
-        return nativeAudioSkipLate(nativeAudio, frames);
+    /**
+     * Whether this packet's time already went to Opus concealment during a stall and the pendingFrames
+     * waiting behind it still fill the reserve without it (aaudio_output.c).
+     */
+    boolean skipLateNativeAudio(int frames, int pendingFrames) {
+        return nativeAudioSkipLate(nativeAudio, frames, pendingFrames);
     }
 
     /** Frames the output holds that are not played yet: the AAudio ring, or the track past its playback head. */

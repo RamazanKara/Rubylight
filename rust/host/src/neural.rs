@@ -92,17 +92,30 @@ struct State {
 }
 
 /// A cached release kept while an install copies it ([`fetch_using`]).
+/// The last one of a release a newer download replaced meanwhile takes it
+/// out of the cache: no fetch hands it out again, and launches use the newest.
 struct Using {
     h: Shared,
     folder: PathBuf,
 }
 impl Drop for Using {
     fn drop(&mut self) {
-        let mut state = self.h.neural.lock();
-        if let Some(count) = state.using.get_mut(&self.folder) {
+        let last = {
+            let mut state = self.h.neural.lock();
+            let Some(count) = state.using.get_mut(&self.folder) else {
+                return;
+            };
             *count -= 1;
-            if *count == 0 {
-                state.using.remove(&self.folder);
+            *count == 0 && state.using.remove(&self.folder).is_some()
+        };
+        if last && cached(&cache_root(&self.h)).is_some_and(|(newest, _)| newest != self.folder) {
+            match std::fs::remove_dir_all(&self.folder) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                // The next download's clearing tries again.
+                Err(error) => {
+                    tracing::warn!(folder = %self.folder.display(), %error, "Neural Rendering: an older release could not be taken out of the cache")
+                }
             }
         }
     }

@@ -1874,6 +1874,19 @@ async fn serve(listener: tokio::net::TcpListener, list: Value, files: Files) -> 
     Server { base, log }
 }
 
+/// The cached release `folder` held as [`fetch_using`] holds it for an install.
+fn pin(h: &Shared, folder: &Path) -> Using {
+    *h.neural
+        .lock()
+        .using
+        .entry(folder.to_path_buf())
+        .or_default() += 1;
+    Using {
+        h: h.clone(),
+        folder: folder.to_path_buf(),
+    }
+}
+
 /// GitHub listing no release for [`fetch`]: it takes the cached one.
 async fn no_releases(h: &Shared) -> Server {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1973,11 +1986,7 @@ async fn a_download_goes_list_checksums_archives_cache() {
     let older = release(&cache_root(h), "Alpha0.3.5.7", b"OptiScaler proxy");
     // An install about to copy the older release: it outlasts the newer
     // one's download.
-    *h.neural.lock().using.entry(older.clone()).or_default() += 1;
-    let using = Using {
-        h: h.clone(),
-        folder: older.clone(),
-    };
+    let using = pin(h, &older);
 
     // A copy from the older release holds the cache: it stays until then.
     let (held, done) = (mpsc::channel(), mpsc::channel::<()>());
@@ -2018,7 +2027,14 @@ async fn a_download_goes_list_checksums_archives_cache() {
     assert_eq!(folder, cache_root(h).join(tag));
     assert!(!stale.exists());
     assert!(older.exists(), "an install was about to copy it");
+    // It goes with the last install that held it; the newest stays.
+    let again = pin(h, &older);
     drop(using);
+    assert!(older.exists(), "another install still copies it");
+    drop(again);
+    assert!(!older.exists());
+    drop(pin(h, &folder));
+    assert!(folder.exists());
     assert!(h.neural.lock().using.is_empty());
     assert_eq!(package.digest, sha(&files["AMDNR-v0.3.5.8R2.zip"]));
     assert_eq!(

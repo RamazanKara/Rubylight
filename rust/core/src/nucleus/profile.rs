@@ -347,7 +347,10 @@ mod tests {
         assert_eq!(ini_value(ini, "Dev", "Missing"), None);
         assert_eq!(ini_value(ini, "Audio", "Missing"), None);
         assert_eq!(
-            ini_set(ini, &[("Dev", "ShowFavoriteOnly", "False"), ("Audio", "On", "1")]),
+            ini_set(
+                ini,
+                &[("Dev", "ShowFavoriteOnly", "False"), ("Audio", "On", "1")]
+            ),
             "[misc]\r\n GameSortingOpt = Sort_1 \r\n[Dev]\r\nShowFavoriteOnly=False\r\n[Audio]\r\nOn=1\r\n"
         );
     }
@@ -374,7 +377,11 @@ mod tests {
         );
         let fixed = settings_ini(&seeded);
         let value = |key: &str| {
-            let section = if key == "GameSortingOpt" { "Misc" } else { "Dev" };
+            let section = if key == "GameSortingOpt" {
+                "Misc"
+            } else {
+                "Dev"
+            };
             ini_value(&fixed, section, key).unwrap()
         };
         assert_eq!(value("DisablePathCheck"), "True");

@@ -95,6 +95,36 @@ the PC's cursor.
 - **Some games pause anyway** when their window is not in front, despite the
   focus hooks. Those need a hub handler made for them.
 
+### Without administrator rights
+
+A background stream with Rubylight's own handler runs Nucleus Co-op as the
+signed-in user, without administrator rights, unless the game needs them.
+That holds on an administrator account too. It runs from the user's own copy
+of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>\2.4.2`,
+which the host unpacks from the downloaded, checked release and keeps up to
+date with the handlers of the elevated copy. Only SYSTEM and Administrators
+can change the folders above it; the user can change only what is inside
+their own.
+
+A game needs administrator rights when:
+
+- its manifest asks for them (`requireAdministrator`),
+- its compatibility settings run it as administrator,
+- Windows treats it as an installer (by its name, such as `setup.exe`), or
+- the signed-in user can't change the files in its folder (Nucleus Co-op
+  clears their attributes before it starts the game). The launch checks
+  this; the Play together panel doesn't.
+
+Such a game runs elevated, as before. So do hub handlers and co-op, always.
+The Play together panel says which way a background stream of the game runs.
+
+On a standard account, or with Windows' Administrator protection on, a game
+that needs none of that now streams in the background. A game that needs
+administrator rights is still refused there, and the Play together panel
+says so before you launch. Hub handlers, co-op and **Open Nucleus Co-op on
+this PC** still need an account Windows elevates, and say so when they
+start.
+
 A `background_mode` line that an earlier build wrote (`auto`,
 `child_session` or `virtual_display`) becomes `nucleus`, and the host log
 says so once. A value that is no mode at all refuses background launches and
@@ -147,12 +177,15 @@ loads it. When a start times out with "open Nucleus Co-op and load the profile
 Rubylight once", do that on the PC and launch again.
 
 The host must run as the Windows service (the installer's default), because
-Nucleus Co-op runs elevated as the signed-in user. A portable host refuses
-these launches and says why. The Windows account signed in on the PC must be
-an administrator that Windows gives an elevated token: for a standard account,
-or with Windows' Administrator protection on (which elevates only into a
-separate account after a Windows Hello prompt), launches and **Open Nucleus
-Co-op on this PC** are refused and say so.
+Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A
+portable host refuses these launches and says why. Everything that runs
+elevated needs an administrator account that Windows gives an elevated token:
+for a standard account, or with Windows' Administrator protection on (which
+elevates only into a separate account after a Windows Hello prompt), co-op,
+hub handlers, games that need administrator rights and **Open Nucleus Co-op
+on this PC** are refused and say so. A background stream that needs no
+administrator rights runs there anyway
+([Without administrator rights](#without-administrator-rights)).
 
 ## Playing co-op
 

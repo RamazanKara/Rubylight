@@ -5005,7 +5005,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(false, false);
         qualityAutoBitrate = false;
         healthOriginalBitrate = healthTrialBitrate = 0;
-        rateChanges.startAutomatic(currentBitrate == 0 ? prefConfig.bitrate : currentBitrate, SystemClock.uptimeMillis());
+        rateChanges.startAutomatic(currentBitrate == 0 ? prefConfig.bitrate : currentBitrate,
+                StreamRateChanges.clientLimitKbps(prefConfig.layers == null ? null : prefConfig.layers.network,
+                        prefConfig.mobileBitrateLimit),
+                SystemClock.uptimeMillis());
         bitrateHandler.postDelayed(updateRateChangeBitrate, 1000);
     }
 

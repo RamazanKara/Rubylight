@@ -84,7 +84,7 @@ final class RustBridge {
                                       int audioPassthrough, int hdrFormat);
     static native void stopConnection();
     static native void interruptConnection();
-    static native boolean networkChanged(boolean metered);
+    static native int networkChanged(boolean metered);
     static native void sendMouseMove(short deltaX, short deltaY);
     static native void sendMousePosition(short x, short y, short referenceWidth, short referenceHeight);
     static native void sendMouseMoveAsMousePosition(short deltaX, short deltaY, short referenceWidth, short referenceHeight);

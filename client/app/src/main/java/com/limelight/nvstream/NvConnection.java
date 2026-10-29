@@ -93,7 +93,7 @@ public class NvConnection {
     private volatile boolean stopRequested;
     private boolean nativeStarted;
     private volatile boolean nativeConnected;
-    // Client roaming's network callback while a Rust-engine stream runs; guarded by MoonBridge.class.
+    // The stream's network callback (client roaming, network loss and return); guarded by MoonBridge.class.
     private RoamingNetworkWatch roamingWatch;
     // Why packed full chroma left HDR out before the launch (startApp), or null.
     private String packedHdrDropAtLaunch;
@@ -1289,8 +1289,7 @@ public class NvConnection {
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
                                 context.streamConfig.getAudioConfiguration().channelCount));
                         // Before the start, so a change during the handshake is still reported.
-                        Network streamNetwork =prefs.rustEngine && prefs.clientRoaming ?
-                                RoamingNetworkWatch.defaultNetwork(appContext) : null;
+                        Network streamNetwork = RoamingNetworkWatch.defaultNetwork(appContext);
                         int ret = MoonBridge.startConnection(context.serverAddress.address,
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,
@@ -1322,9 +1321,10 @@ public class NvConnection {
                                     videoDecoderRenderer.packedHdrDropReason());
                         }
                         nativeConnected = true;
-                        if (prefs.clientRoaming && MoonBridge.isRustStream()) {
-                            roamingWatch = RoamingNetworkWatch.start(appContext, streamNetwork);
-                        }
+                        // Every stream follows its network (a lost one that returns where the
+                        // connection cannot carry on reconnects at once); the engine roams only
+                        // with client roaming on both sides.
+                        roamingWatch = RoamingNetworkWatch.start(appContext, streamNetwork, context.connListener);
                         startInputPolling(prefs.unbatchedInput);
                         startMicrophone();
                         started = true;

@@ -81,8 +81,11 @@ pub enum Notice {
     AdaptiveBitrate(Result<(u32, u32), String>),
     /// A step of the stream doctor's bitrate trial came back.
     HealthTrial(super::doctor::TrialOutcome),
-    /// Client roaming: the network watcher saw this device change networks.
-    NetworkChanged(nightjar_core::session::NetworkHint),
+    /// The network watcher saw this device change networks; true when it came back after the
+    /// route toward the PC was gone (`NetworkLost`).
+    NetworkChanged(nightjar_core::session::NetworkHint, bool),
+    /// The network watcher lost the route toward the PC.
+    NetworkLost,
     /// The host's hardware readings for the overlay, answering poll `generation`.
     HardwareMetrics { generation: u32, result: Result<nightjar_core::http::HardwareMetrics, nightjar_core::http::HostApiError> },
 }

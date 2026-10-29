@@ -4,6 +4,9 @@
   "java": "com.limelight.StreamRecoveryPolicy",
   "new": [5, 1000],
   "calls": [
+    {"call": "allows_attempt", "args": [70000, -1], "expect": false},
+    {"call": "allows_attempt", "args": [70000, 40000], "expect": true},
+    {"call": "attempts", "args": [], "expect": 5},
     {"call": "next_delay", "args": [70000, 40000], "expect": 1000},
     {"call": "attempts", "args": [], "expect": 1},
     {"call": "started_at", "args": [], "expect": 70000}

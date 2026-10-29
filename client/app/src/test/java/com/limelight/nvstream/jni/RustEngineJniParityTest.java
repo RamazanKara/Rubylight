@@ -300,6 +300,22 @@ public class RustEngineJniParityTest {
                 staleListEntries.isEmpty());
     }
 
+    @Test public void networkChangedAnswersWithMoonBridgesNetworkCodes() throws IOException {
+        // A swap would pass every type check: a stream that roamed would reconnect, or one that
+        // cannot carry on would wait for its timeout. The constants are compile-time, so reading
+        // them does not load the C library.
+        Map<String, Integer> codes = new TreeMap<>();
+        Matcher arm = Pattern.compile("NetworkChange::(\\w+)\\s*=>\\s*(\\d+)").matcher(read("lib.rs"));
+        while (arm.find()) {
+            assertNull("mapped twice: " + arm.group(1), codes.put(arm.group(1), Integer.parseInt(arm.group(2))));
+        }
+        Map<String, Integer> expected = new TreeMap<>();
+        expected.put("CarriesOn", MoonBridge.NETWORK_CARRIES_ON);
+        expected.put("Roamed", MoonBridge.NETWORK_ROAMED);
+        expected.put("CannotContinue", MoonBridge.NETWORK_CANNOT_CONTINUE);
+        assertEquals(expected, codes);
+    }
+
     @Test public void theParserSeesTheTypesInAnExport() {
         Map<String, Export> exports = parseExports(
                 "pub extern \"system\" fn Java_x_RustBridge_demo(\n    mut env: JNIEnv,\n    _: JClass,\n"

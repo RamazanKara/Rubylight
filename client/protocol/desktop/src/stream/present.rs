@@ -56,23 +56,66 @@ pub fn pacing(settings: &crate::config::Settings, tearing_supported: bool) -> (P
         } else {
             PacingMode::Immediate
         }
-    } else if settings.vsync {
-        PacingMode::Vsync
     } else {
-        PacingMode::Immediate
+        without_vrr(settings)
     };
     (mode, vrr)
 }
 
+/// The pacing without VRR: V-Sync, or immediate when the settings turn V-Sync off.
+pub fn without_vrr(settings: &crate::config::Settings) -> PacingMode {
+    if settings.vsync { PacingMode::Vsync } else { PacingMode::Immediate }
+}
+
 /// The pacing once the display check (`race_probe`) has a verdict: a VRR stream on a display that
 /// scans at its own rate whatever is presented tears on nearly every present (99% of them on a
-/// 120 Hz laptop panel), so it waits for the refresh instead. Anything else keeps its mode: still
-/// checking, VRR seen, or a reason that says nothing about the refresh (a window, no scan line, no
-/// restart seen under composition, a stream at the display's own rate).
-pub fn after_display_check(mode: PacingMode, verdict: &super::scanline::Verdict) -> PacingMode {
+/// 120 Hz laptop panel), so it takes the pacing it would have without VRR (`fallback`, from
+/// `without_vrr`): V-Sync, or immediate when the settings turn V-Sync off. Anything else keeps its
+/// mode: still checking, VRR seen, or a reason that says nothing about the refresh (a window, no
+/// scan line, no restart seen under composition, a stream at the display's own rate).
+pub fn after_display_check(mode: PacingMode, verdict: &super::scanline::Verdict, fallback: PacingMode) -> PacingMode {
     match mode {
-        PacingMode::Immediate | PacingMode::HostTimes if verdict.fixed_refresh() => PacingMode::Vsync,
+        PacingMode::Immediate | PacingMode::HostTimes if verdict.fixed_refresh() => fallback,
         mode => mode,
+    }
+}
+
+/// What a VRR stream's pacing does with the display check's verdict and `NIGHTJAR_VRR_SYNC`, a
+/// step on each present (`Streaming::sync_vrr`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VrrPacing {
+    /// The display check's verdict turns a fixed refresh display to `fallback`.
+    pub check: bool,
+    pub fallback: PacingMode,
+    /// The check changed the pacing.
+    pub fell_back: bool,
+    pub sync: VrrSync,
+    /// The sync interval the renderer was last given.
+    pub interval: i32,
+}
+
+impl VrrPacing {
+    /// `mode`: the pacing the stream starts with, whose sync interval the renderer has.
+    pub fn new(check: bool, fallback: PacingMode, sync: VrrSync, mode: PacingMode) -> Self {
+        Self { check, fallback, fell_back: false, sync, interval: i32::from(mode == PacingMode::Vsync) }
+    }
+
+    /// Folds the display check's verdict (`verdict`, None before the probe runs) into `mode`, and
+    /// returns the sync interval to give the renderer when it is not the last one given. It is
+    /// given once: a renderer that refuses it refuses it every frame.
+    pub fn step(&mut self, mode: &mut PacingMode, verdict: Option<&super::scanline::Verdict>) -> Option<i32> {
+        if let (true, Some(verdict)) = (self.check, verdict) {
+            let after = after_display_check(*mode, verdict, self.fallback);
+            if after != *mode {
+                *mode = after;
+                self.fell_back = true;
+            }
+        }
+        let interval = sync_interval(*mode, self.sync);
+        (interval != self.interval).then(|| {
+            self.interval = interval;
+            interval
+        })
     }
 }
 
@@ -1142,9 +1185,14 @@ pub(crate) mod tests {
         let capability = RaceCapability { tearing: true, vrr: false, flip_inferred: false, scanline: true };
         let off = |reason| Verdict::Off(reason, capability);
         let fixed = off(Reason::NoVrr);
-        assert_eq!(after_display_check(PacingMode::Immediate, &fixed), PacingMode::Vsync, "the laptop's 120 Hz panel");
-        assert_eq!(after_display_check(PacingMode::HostTimes, &fixed), PacingMode::Vsync);
-        assert_eq!(after_display_check(PacingMode::Vsync, &fixed), PacingMode::Vsync);
+        let vsync = PacingMode::Vsync;
+        assert_eq!(after_display_check(PacingMode::Immediate, &fixed, vsync), PacingMode::Vsync, "the laptop's 120 Hz panel");
+        assert_eq!(after_display_check(PacingMode::HostTimes, &fixed, vsync), PacingMode::Vsync);
+        assert_eq!(after_display_check(PacingMode::Vsync, &fixed, vsync), PacingMode::Vsync);
+        // V-Sync turned off in the settings: what the stream would have without VRR.
+        let immediate = PacingMode::Immediate;
+        assert_eq!(after_display_check(PacingMode::Immediate, &fixed, immediate), PacingMode::Immediate);
+        assert_eq!(after_display_check(PacingMode::HostTimes, &fixed, immediate), PacingMode::Immediate);
         // Still checking, VRR seen, and every reason that says nothing about the refresh keep the mode.
         let beam = Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0,
             vblank_fraction: 0.7, scans: 50, idle_from: 2040, longest_idle_ns: 0 };
@@ -1152,7 +1200,7 @@ pub(crate) mod tests {
         kept.extend([Reason::NoTearing, Reason::NoScanline, Reason::NoScan, Reason::NoRestart, Reason::Windowed, Reason::NoIdle, Reason::RowsDiffer].map(off));
         for verdict in &kept {
             for mode in [PacingMode::Immediate, PacingMode::HostTimes, PacingMode::BeamRace, PacingMode::Vsync] {
-                assert_eq!(after_display_check(mode, verdict), mode, "{verdict:?}");
+                assert_eq!(after_display_check(mode, verdict, PacingMode::Vsync), mode, "{verdict:?}");
             }
         }
     }
@@ -1173,6 +1221,40 @@ pub(crate) mod tests {
         assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Present1), 1);
         assert_eq!(sync_interval(PacingMode::HostTimes, VrrSync::Present1), 1);
         assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Scan), 0, "waits on this thread, then tears");
+    }
+
+    #[test]
+    fn a_vrr_streams_pacing_follows_the_display_check_once_and_sets_the_interval_once() {
+        use super::super::scanline::{RaceCapability, Reason, Verdict};
+        let capability = RaceCapability { tearing: true, vrr: false, flip_inferred: false, scanline: true };
+        let fixed = Verdict::Off(Reason::NoVrr, capability);
+        let settings = crate::config::Settings::default();
+        let (start, _) = pacing(&settings, true);
+        assert_eq!(start, PacingMode::Immediate);
+        let mut vrr = VrrPacing::new(true, without_vrr(&settings), VrrSync::Off, start);
+        let mut mode = start;
+        assert_eq!(vrr.step(&mut mode, None), None, "no probe yet: the renderer keeps interval 0");
+        assert_eq!(vrr.step(&mut mode, Some(&Verdict::Checking)), None);
+        assert_eq!(vrr.step(&mut mode, Some(&fixed)), Some(1), "V-Sync waits for the refresh");
+        assert_eq!((mode, vrr.fell_back), (PacingMode::Vsync, true));
+        assert_eq!(vrr.step(&mut mode, Some(&fixed)), None, "given once");
+        // V-Sync off in the settings: immediate stays, with nothing for the renderer.
+        let no_vsync = crate::config::Settings { vsync: false, present_at_host_times: true, ..Default::default() };
+        let (start, _) = pacing(&no_vsync, true);
+        assert_eq!(start, PacingMode::HostTimes);
+        let mut vrr = VrrPacing::new(true, without_vrr(&no_vsync), VrrSync::Off, start);
+        let mut mode = start;
+        assert_eq!(vrr.step(&mut mode, Some(&fixed)), None);
+        assert_eq!((mode, vrr.fell_back), (PacingMode::Immediate, true));
+        // NIGHTJAR_VRR_CHECK=0: the verdict is not applied; present1 still sets interval 1.
+        let mut vrr = VrrPacing::new(false, PacingMode::Vsync, VrrSync::Present1, PacingMode::Immediate);
+        let mut mode = PacingMode::Immediate;
+        assert_eq!(vrr.step(&mut mode, Some(&fixed)), Some(1));
+        assert_eq!((mode, vrr.fell_back), (PacingMode::Immediate, false));
+        // A stream that starts on V-Sync has interval 1 already.
+        let mut vrr = VrrPacing::new(false, PacingMode::Vsync, VrrSync::Off, PacingMode::Vsync);
+        let mut mode = PacingMode::Vsync;
+        assert_eq!(vrr.step(&mut mode, None), None);
     }
 
     #[test]

@@ -19,6 +19,7 @@ pub mod overlay;
 mod recovery;
 mod quality;
 mod rate_change;
+pub mod menu_extras;
 mod touch;
 mod upscale;
 mod phase;

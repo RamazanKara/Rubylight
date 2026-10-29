@@ -12,7 +12,13 @@ public final class StreamHealth {
     /** Stall starts are kept longer than samples so a rhythm of several minutes can show. */
     public static final long STALL_HISTORY_MS = 20 * 60_000;
     private static final int MAX_STALLS = 64;
-    public enum Finding { NETWORK, DECODER, HOST, PRESENTATION, HEAT, PERIODIC }
+    public enum Finding { NETWORK, DECODER, HOST, PRESENTATION, HEAT, PERIODIC, BURSTS }
+    /**
+     * BURSTS needs late frames in at least this many samples and in a third of them: a launch or a
+     * switch to fullscreen holds frames back for a few seconds once, a Wi-Fi that bunches packets
+     * does it all the time.
+     */
+    public static final int BURST_MIN_VOTES = 5;
 
     public static final class Sample {
         public final long atMs;
@@ -22,10 +28,20 @@ public final class StreamHealth {
         public final int thermal;
         /** True when hostP95Ms runs to the last packet sent, as the host's timing reports measure it. */
         public final boolean hostIncludesSend;
+        /** Frames of this tick that arrived late against the host's clock (LateFrames), -1 when unknown. */
+        public final int lateFrames;
         public Sample(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs,
                       float decodeMs, float hostP95Ms, float displayP95Ms,
                       float receivedFps, float releasedFps, float shownFps, int thermal,
                       boolean hostIncludesSend) {
+            this(atMs, fresh, fps, lossPercent, jitterMs, decodeMs, hostP95Ms, displayP95Ms, receivedFps,
+                    releasedFps, shownFps, thermal, hostIncludesSend, -1);
+        }
+        public Sample(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs,
+                      float decodeMs, float hostP95Ms, float displayP95Ms,
+                      float receivedFps, float releasedFps, float shownFps, int thermal,
+                      boolean hostIncludesSend, int lateFrames) {
+            this.lateFrames = lateFrames;
             this.atMs = atMs;
             this.fresh = fresh;
             this.budgetMs = fps > 0 ? 1000f / fps : Float.NaN;
@@ -52,10 +68,13 @@ public final class StreamHealth {
         public final long stallPeriodMs;
         /** True when worstHostP95Ms comes from a sample whose host time includes the send. */
         public final boolean hostIncludesSend;
+        /** Counted samples with late frames, the evidence of BURSTS. */
+        public final int lateSamples;
         private Report(List<Finding> findings, int samples, boolean recent, float loss,
                        float decode, float host, float display, int stalls, long stallPeriodMs,
-                       boolean hostIncludesSend) {
+                       boolean hostIncludesSend, int lateSamples) {
             this.findings = Collections.unmodifiableList(findings);
+            this.lateSamples = lateSamples;
             this.samples = samples;
             this.recent = recent;
             this.stalls = stalls;
@@ -136,16 +155,18 @@ public final class StreamHealth {
                 votes[Finding.PRESENTATION.ordinal()]++;
             }
             if (s.thermal >= 2) votes[Finding.HEAT.ordinal()]++;
+            if (s.lateFrames > 0) votes[Finding.BURSTS.ordinal()]++;
         }
+        int bursts = Math.max(BURST_MIN_VOTES, (valid + 2) / 3);
         List<Finding> findings = new ArrayList<>();
         if (valid >= 3) for (Finding finding : Finding.values()) {
-            if (votes[finding.ordinal()] >= 2) findings.add(finding);
+            if (votes[finding.ordinal()] >= (finding == Finding.BURSTS ? bursts : 2)) findings.add(finding);
         }
         // A rhythm spans minutes, so it stands on its own rather than on the last 30 seconds.
         if (stallPeriodMs > 0) findings.add(Finding.PERIODIC);
         boolean recent = !samples.isEmpty() && samples.getLast().fresh && nowMs - samples.getLast().atMs <= 2500;
         return new Report(findings, valid, recent, loss, decode, host, display, stallCount, stallPeriodMs,
-                hostIncludesSend);
+                hostIncludesSend, votes[Finding.BURSTS.ordinal()]);
     }
 
     private static boolean valid(float value) { return Float.isFinite(value) && value >= 0; }

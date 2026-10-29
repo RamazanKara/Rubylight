@@ -2618,6 +2618,7 @@ impl Streaming {
                 }
             }
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
+            self.doctor.arrived(decoded.rtp, decoded.receive_us, self.facts.fps.max(0) as u32);
             self.pacer.accept(decoded);
         }
         self.observe_slices(slices);

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="help_profiles_title">Perfis e configurações por jogo</string>
-    <string name="help_profiles_body">Perfis são conjuntos de valores de transmissão com nome, como “Casa 4K120” ou “Hotel”. Crie-os em Configurações, Vídeo, Perfis e escolha o perfil em uso, ou deixe a rede escolher um quando a transmissão começar: dados móveis, Wi-Fi de casa ou outro Wi-Fi. Os valores próprios de um jogo (Configurações de transmissão deste jogo, no menu dele na biblioteca) têm prioridade sobre os do PC, os do PC sobre o perfil e o perfil sobre as configurações principais. Taxa de bits em dados móveis limita a taxa de bits em dados móveis.</string>
+    <string name="help_profiles_body">Perfis são conjuntos de valores de transmissão com nome, como “Casa 4K120” ou “Hotel”. Crie-os em Configurações, Perfis e escolha o perfil em uso, ou deixe a rede escolher um quando a transmissão começar: dados móveis, Wi-Fi de casa ou outro Wi-Fi. Os valores próprios de um jogo (Configurações de transmissão deste jogo, no menu dele na biblioteca) têm prioridade sobre os do PC, os do PC sobre o perfil e o perfil sobre as configurações principais. Taxa de bits em dados móveis limita a taxa de bits em dados móveis.</string>
     <string name="help_profiles_link">Guia de perfis</string>
 </resources>

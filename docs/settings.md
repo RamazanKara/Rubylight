@@ -24,7 +24,6 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 
 | Setting / preference key | Tier | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- | --- |
-| Profiles<br>`stream_profiles` | Main | No stored default | Action | Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings). |
 | Stream resolution<br>`list_resolution` | Main | This screen's native resolution; follows the screen used for each stream | 360p (640 × 360 pixels); 480p (854 × 480 pixels); 720p (1280 × 720 pixels); 1080p (1920 × 1080 pixels); 1440p (2560 × 1440 pixels); 4K (3840 × 2160 pixels) | Choose Custom to enter a fixed width and height (64–16384 pixels each) for every stream without a resolution override. Named profiles, PC and game overrides retain their priority. Custom dimensions stay fixed when the screen changes. Raise for detail; lower for less network and decoding load. The picker also includes screen and standard sizes; larger fixed presets stay listed while chosen. Changing resolution preserves an explicitly chosen bitrate. |
 | Video frame rate<br>`list_fps` | Main | Screen maximum (rounded, 1–1000 FPS) | 30 FPS; 60 FPS; 90 FPS; 120 FPS | Raise for smoother motion on a fast screen. Open the list and choose Show all frame rates to include rates the screen may not support (possible stutter; compare rendered FPS in the overlay), or Show supported frame rates only to go back. Stored as `checkbox_unlock_fps`. The screen's own refresh rate is added as Screen refresh rate. Changing resolution or FPS preserves an explicitly chosen bitrate. |
 | Video bitrate<br>`seekbar_bitrate_kbps` | Main | Calculated for the native resolution and screen maximum FPS; follows changes until bitrate is chosen explicitly | 0.5 Mbps–2000 Mbps; step 0.5 Mbps; buttons 1 Mbps; presets 10 Mbps, 20 Mbps, 40 Mbps, 80 Mbps, 150 Mbps, 280 Mbps | Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments. |
@@ -286,6 +285,10 @@ Both presets stream at this screen's own resolution and keep the selected codec,
 
 Native also turns these back on: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Keep only the newest frame, Instant mouse and pen input, Prioritize stream traffic.
 
+## Profiles
+
+Profiles (`stream_profiles`), under the presets on the Settings overview: Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings).
+
 <!-- END GENERATED SETTINGS -->
 
 ## Per-PC stream profiles
@@ -313,7 +316,7 @@ Profiles saved by builds up to test.10 copied every main setting. They now keep 
 
 ## Named profiles and game settings
 
-A named profile is a set of stream values with a name, such as *Home 4K120*, *Hotel* or *Mobile data*. Open **Settings → Video → Profiles** to manage them. They are created in [StreamProfilesActivity.java](../app/src/main/java/com/limelight/preferences/StreamProfilesActivity.java), stored by [StreamProfiles.java](../app/src/main/java/com/limelight/preferences/StreamProfiles.java) and combined by [StreamLayers.java](../app/src/main/java/com/limelight/preferences/StreamLayers.java).
+A named profile is a set of stream values with a name, such as *Home 4K120*, *Hotel* or *Mobile data*. Open **Settings → Profiles** (under the presets) to manage them. They are created in [StreamProfilesActivity.java](../app/src/main/java/com/limelight/preferences/StreamProfilesActivity.java), stored by [StreamProfiles.java](../app/src/main/java/com/limelight/preferences/StreamProfiles.java) and combined by [StreamLayers.java](../app/src/main/java/com/limelight/preferences/StreamLayers.java).
 
 ### Which value a stream uses
 

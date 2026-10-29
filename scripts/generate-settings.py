@@ -181,7 +181,10 @@ def generate():
 
     preferences = ET.parse(RES / "xml/preferences.xml").getroot()
     nodes = {node.get(ANDROID + "key"): node for category in preferences for node in category}
-    if set(nodes) != set(ADVICE):
+    # The overview's rows beside the sections: Presets (its own table below) and Profiles under it.
+    overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
+    profiles = next(node for node in overview if node.get(ANDROID + "key") == "stream_profiles")
+    if set(nodes) | {"stream_profiles"} != set(ADVICE):
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes)}")
     categories = {category.get(ANDROID + "key"): category for category in preferences}
     tiers = ET.parse(RES / "values/settings_tiers.xml").getroot()
@@ -192,9 +195,8 @@ def generate():
         if len(keys) > 8 or set(keys) - set(nodes):
             raise ValueError(f"Review the main rows of {section}: at most 8, all in preferences.xml")
     # Sections: the overview rows (preferences_root.xml) and the groups each one shows (StreamSettings.SECTIONS).
-    overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
     section_titles = {node.get(ANDROID + "key"): resolve(node.get(ANDROID + "title"))
-                      for node in overview if not node.tag.endswith("PresetPreference")}
+                      for node in overview if not node.tag.endswith("PresetPreference") and node is not profiles}
     settings_java = (JAVA / "preferences/StreamSettings.java").read_text(encoding="utf-8")
     sections = {}
     for name, members in re.findall(r'SECTIONS\.put\("(\w+)", new String\[\] \{([^}]*)\}\);', settings_java):
@@ -340,7 +342,10 @@ def generate():
               "| Allow lower refresh rate | Off | On |",
               "| Decoder performance hints | On | Off |",
               f"| {resolve('@string/title_gpu_max_clocks')} | Unchanged | Off |",
-              "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", ""]
+              "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", "",
+              "## Profiles", "",
+              f"{resolve(profiles.get(ANDROID + 'title'))} (`stream_profiles`), under the presets on the Settings overview: "
+              + ADVICE["stream_profiles"], ""]
     return "\n".join(lines)
 
 

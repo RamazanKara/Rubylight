@@ -934,6 +934,18 @@ fn location_override() -> Location {
     }
 }
 
+/// The location and video packet size for a route to the PC: `Auto` over a VPN
+/// ([`crate::network::route`]) streams as remote with 1024 byte packets, whatever the PC's
+/// address, as Android does for a VPN network and Moonlight V+ PC for its `RI_VPN`: a tunnel's
+/// smaller MTU (WireGuard's 1420) would fragment every 1392 byte packet. Otherwise 1392, and the
+/// engine decides `Auto` from the address.
+fn location_for_route(location: Location, vpn: bool) -> (Location, i32) {
+    match location {
+        Location::Auto if vpn => (Location::Remote, 1024),
+        location => (location, 1392),
+    }
+}
+
 /// The engine's session flags for this role and these settings. A Remote Monitor session is
 /// view-only: the engine starts no input stream and does not wiggle the host's mouse.
 /// `watching` says the network watcher runs and feeds `Session::network_changed`.
@@ -1184,7 +1196,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     }
     // The interface the system sends this host's traffic over decides, not the internet
     // connection; the connection is the fallback when that lookup tells nothing.
-    let toward = crate::network::toward(&plan.record.address);
+    let route = crate::network::route(&plan.record.address);
+    let toward = route.toward;
     let network = plan.network.toward(toward);
     let family = plan.info.capabilities.family();
     let client_wireless = tells_host_wireless(settings.tell_host_wireless, family, network.wireless());
@@ -1220,6 +1233,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         BeamRace::Off => {}
     }
     let race_ask = race_request(beam, early_decode(settings.early_decode), height);
+    let (location, packet_size) = location_for_route(location_override(), route.vpn);
+    if route.vpn && location == Location::Remote {
+        eprintln!("nightjar: the route to the PC is a VPN: streaming as remote with {packet_size} byte packets");
+    }
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -1227,7 +1244,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         height: height as i32,
         fps: fps as i32,
         bitrate_kbps: bitrate as i32,
-        packet_size: 1392,
+        packet_size,
         audio,
         supported_video_formats: offer.formats,
         experimental_packed_444: settings.experimental_packed_444,
@@ -1269,7 +1286,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let passthrough = stream.audio_passthrough;
     let session = Session::start(
         &host,
-        session_config(settings, role, stream, location_override(), watch.is_some() && settings.client_roaming),
+        session_config(settings, role, stream, location, watch.is_some() && settings.client_roaming),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
         Arc::new(pipeline::Events::new(shared)),
@@ -4613,6 +4630,15 @@ mod replace_tests {
         // The exit it takes reconnects, once the stream had video.
         assert!(Exit::NetworkReturned.retryable(true));
         assert!(!Exit::NetworkReturned.retryable(false));
+    }
+
+    #[test]
+    fn a_vpn_route_streams_as_remote_with_small_packets() {
+        assert_eq!(location_for_route(Location::Auto, true), (Location::Remote, 1024));
+        assert_eq!(location_for_route(Location::Auto, false), (Location::Auto, 1392));
+        // NIGHTJAR_STREAM_LOCATION decides over the route.
+        assert_eq!(location_for_route(Location::Local, true), (Location::Local, 1392));
+        assert_eq!(location_for_route(Location::Remote, false), (Location::Remote, 1392));
     }
 
     // A blocked media port: the stream never shows a picture and its error shows at once, not after

@@ -1071,6 +1071,61 @@ public class GameRecoveryTest {
         }
     }
 
+    // The sweep's Wi-Fi blip: the stream's network is lost (the overlay says so at once), then a
+    // network returns that the stream does not roam onto. The recovery starts with no delay instead
+    // of after the connection's timeout, once the PC answers, and resumes the captured game.
+    @Test public void aNetworkBackWithoutRoamingReconnectsAtOnce() throws Exception {
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
+        Game game = establishedGame();
+        android.widget.TextView overlay = new android.widget.TextView(game);
+        ReflectionHelpers.setField(game, "notificationOverlayView", overlay);
+        try (java.net.ServerSocket pc = new java.net.ServerSocket(0, 4, java.net.InetAddress.getLoopbackAddress())) {
+            game.setIntent(new Intent().putExtra(Game.EXTRA_HOST, "127.0.0.1").putExtra(Game.EXTRA_PORT, pc.getLocalPort()));
+            game.streamNetworkLost();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(game.getString(R.string.stream_network_lost), overlay.getText().toString());
+            assertEquals(android.view.View.VISIBLE, overlay.getVisibility());
+            // A poor-connection update meanwhile does not replace the notice.
+            game.connectionStatusUpdate(MoonBridge.CONN_STATUS_OKAY);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.VISIBLE, overlay.getVisibility());
+
+            game.streamNetworkReturned(false);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.GONE, overlay.getVisibility());
+            // No time passes: the attempt does not wait for a backoff delay.
+            Intent retry = awaitStartedActivity(game);
+            assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
+            assertEquals("captured-game", retry.getStringExtra(Game.EXTRA_APP_UUID));
+            assertEquals(1, retry.getIntExtra("RecoveryAttempts", 0));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void aNetworkBackThatTheStreamRoamsOntoKeepsTheStream() throws Exception {
+        Game game = establishedGame();
+        android.widget.TextView overlay = new android.widget.TextView(game);
+        ReflectionHelpers.setField(game, "notificationOverlayView", overlay);
+        try {
+            game.streamNetworkLost();
+            game.streamNetworkReturned(true);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.GONE, overlay.getVisibility());
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            assertFalse(ReflectionHelpers.<Boolean>getField(game, "displayedFailureDialog"));
+            // With a network drop tolerance set, the tolerance decides: no reconnect either.
+            PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+            config.networkGraceSeconds = 20;
+            game.streamNetworkLost();
+            game.streamNetworkReturned(false);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
     private static Intent awaitRecoveryLaunch(Game game, int delaySeconds) throws InterruptedException {
         join(ReflectionHelpers.getField(game, "connectionStopThread"));
         org.robolectric.shadows.ShadowLooper.idleMainLooper(delaySeconds, java.util.concurrent.TimeUnit.SECONDS);

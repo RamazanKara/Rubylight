@@ -57,6 +57,46 @@ public class RoamingNetworkTrackerTest {
         assertEquals(java.util.Arrays.asList(true), reports);
     }
 
+    /** Records the loss and return reports, answering networkChanged with {@code roams}. */
+    private static final class Events implements RoamingNetworkTracker.Reporter {
+        final List<String> seen = new ArrayList<>();
+        boolean roams;
+
+        @Override public boolean networkChanged(boolean metered) {
+            seen.add(metered ? "changed metered" : "changed");
+            return roams;
+        }
+        @Override public void streamNetworkLost() { seen.add("lost"); }
+        @Override public void streamNetworkReturned(boolean roamed) { seen.add(roamed ? "returned roamed" : "returned"); }
+    }
+
+    // The sweep's Wi-Fi blip: network 108 lost, network 109 back (a new object) and not roamed onto.
+    @Test public void aLostNetworkComingBackIsAReturnWithTheEnginesAnswer() {
+        Events events = new Events();
+        RoamingNetworkTracker tracker = new RoamingNetworkTracker(WIFI, events);
+        tracker.lost(WIFI);
+        tracker.lost(WIFI);
+        tracker.capabilities(OTHER_WIFI, true);
+        // Validation later updates the same network's capabilities: no second return.
+        tracker.capabilities(OTHER_WIFI, true);
+        assertEquals(java.util.Arrays.asList("lost", "changed", "returned"), events.seen);
+
+        events.seen.clear();
+        events.roams = true;
+        tracker.lost(OTHER_WIFI);
+        tracker.capabilities(CELLULAR, false);
+        assertEquals(java.util.Arrays.asList("lost", "changed metered", "returned roamed"), events.seen);
+    }
+
+    @Test public void aNewNetworkWhileTheStreamsOwnStaysIsNoReturn() {
+        Events events = new Events();
+        RoamingNetworkTracker tracker = new RoamingNetworkTracker(WIFI, events);
+        tracker.capabilities(OTHER_WIFI, true);
+        // Losing a network that is not the stream's is no loss either.
+        tracker.lost(WIFI);
+        assertEquals(java.util.Arrays.asList("changed"), events.seen);
+    }
+
     @Test public void nothingIsReportedAfterTheStreamEnds() {
         RoamingNetworkTracker tracker = tracker(WIFI);
         tracker.stop();
@@ -64,5 +104,12 @@ public class RoamingNetworkTrackerTest {
         tracker.lost(WIFI);
         tracker.capabilities(WIFI, true);
         assertEquals(new ArrayList<Boolean>(), reports);
+
+        Events events = new Events();
+        RoamingNetworkTracker ended = new RoamingNetworkTracker(WIFI, events);
+        ended.stop();
+        ended.lost(WIFI);
+        ended.capabilities(OTHER_WIFI, true);
+        assertEquals(new ArrayList<String>(), events.seen);
     }
 }

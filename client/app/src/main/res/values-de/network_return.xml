@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_network_lost">Netzwerk verloren. Die Verbindung wird wiederhergestellt, sobald es zurück ist…</string>
+</resources>

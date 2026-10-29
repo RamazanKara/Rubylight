@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_network_lost">網路已中斷。網路恢復後將立即重新連線…</string>
+</resources>

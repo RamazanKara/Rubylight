@@ -3625,7 +3625,12 @@ impl Media {
                     // on the control thread; one atomic load while unused.
                     s.audio_haptics.push(samples, client_channels);
                 }
-            } else if s.media_wait_start(start).elapsed() > crate::network::ping_timeout(&config) {
+            } else if audio_sink::ping_timed_out(
+                &s,
+                &h.stop,
+                start,
+                crate::network::ping_timeout(&config),
+            ) {
                 anyhow::bail!("client audio ping timed out");
             }
             let now = Instant::now();

@@ -3,6 +3,7 @@
 //! sends it to the client's audio port, WebRTC hands it to the media thread's Opus track.
 
 use super::qos::Tagged;
+use crate::state::Session;
 use crate::webrtc::media::{AudioPacket, AudioSender, Submit};
 use anyhow::Result;
 use butterpollo_core::{audio::HostLoss, packet::AudioPacketizer};
@@ -10,7 +11,10 @@ use butterpollo_windows::{audio::Loopback, net::ReplySocket};
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -33,6 +37,20 @@ pub(super) trait AudioSink {
     ) -> Result<usize> {
         anyhow::bail!("this transport carries only Opus audio")
     }
+}
+
+/// Whether a sink that is not ready means the client's audio pings timed out: no ping within
+/// `timeout` of the stream's `start` or its last roam. A session that is ending (it stopped, or
+/// the host is stopping) forgets its peers right after it stops, so a pass that started before
+/// the stop finds no peer: that is the quit, not a timeout.
+pub(super) fn ping_timed_out(
+    session: &Session,
+    host_stop: &AtomicBool,
+    start: Instant,
+    timeout: Duration,
+) -> bool {
+    let stopping = session.stopping() || host_stop.load(Ordering::Acquire);
+    !stopping && session.media_wait_start(start).elapsed() > timeout
 }
 
 /// Where the audio thread is in its stream, in 48 kHz samples. It counts what the thread encoded
@@ -456,6 +474,31 @@ mod tests {
         // A hole the size of one sample at 48 kHz rounds down, never up past the audio.
         clock.lost(Duration::from_nanos(20_000));
         assert_eq!(clock.packet(240), 2640);
+    }
+
+    #[test]
+    fn a_session_that_is_ending_has_no_audio_ping_timeout() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+        let session = Session::new(launch, butterpollo_core::rtsp::Negotiated::default());
+        let host_stop = AtomicBool::new(false);
+        let timeout = Duration::from_secs(10);
+        let long_ago = Instant::now() - Duration::from_secs(70);
+        // A running session whose client went quiet fails loudly, after the window only.
+        assert!(ping_timed_out(&session, &host_stop, long_ago, timeout));
+        assert!(!ping_timed_out(
+            &session,
+            &host_stop,
+            Instant::now(),
+            timeout
+        ));
+        // The host stopping all streams forgets their peers too: no warning.
+        host_stop.store(true, Ordering::Release);
+        assert!(!ping_timed_out(&session, &host_stop, long_ago, timeout));
+        host_stop.store(false, Ordering::Release);
+        // The quit stops the session and then forgets its peers: no warning.
+        session.stop();
+        assert!(!ping_timed_out(&session, &host_stop, long_ago, timeout));
     }
 
     fn audio(count: usize) -> Vec<Vec<f32>> {

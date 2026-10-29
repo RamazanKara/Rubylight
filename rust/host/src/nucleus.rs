@@ -1415,7 +1415,7 @@ impl Registry {
                 let mut why = String::new();
                 for own in stale {
                     if let Err(error) = pc.remove_own(&folder, own) {
-                        tracing::error!(file = own.file, error = %format!("{error:#}"), "Nucleus Co-op: Rubylight's replaced or unused handler was not removed");
+                        tracing::error!(file = own.file, error = %format!("{error:#}"), "Nucleus Co-op: Rubylight's replaced or unused handler was not fully removed");
                         kept.push(own.file.as_str());
                         why = format!("{error:#}");
                     }
@@ -1424,12 +1424,14 @@ impl Registry {
                     [] => {}
                     [file] => request.warnings.set(
                         HANDLER_NOT_REMOVED,
-                        format!("Rubylight's Nucleus Co-op handler {file} was not removed: {why}"),
+                        format!(
+                            "Rubylight's Nucleus Co-op handler {file} was not fully removed: {why}"
+                        ),
                     ),
                     files => request.warnings.set(
                         HANDLER_NOT_REMOVED,
                         format!(
-                            "Rubylight's Nucleus Co-op handlers {} were not removed: {why}",
+                            "Rubylight's Nucleus Co-op handlers {} were not fully removed: {why}",
                             files.join(", ")
                         ),
                     ),
@@ -2076,6 +2078,7 @@ pub(crate) mod fake {
                         guid: GUID.into(),
                         exe_path: EXE.into(),
                     }],
+                    everyone: Some(Vec::new()),
                 }),
                 free: Mutex::new(4),
                 start_error: Mutex::new(None),
@@ -3397,7 +3400,7 @@ mod tests {
         assert_eq!(
             shown[0].message,
             format!(
-                "Rubylight's Nucleus Co-op handlers {}, {} were not removed: access denied",
+                "Rubylight's Nucleus Co-op handlers {}, {} were not fully removed: access denied",
                 ours.file(),
                 unused.file()
             )

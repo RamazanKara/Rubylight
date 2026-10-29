@@ -326,6 +326,11 @@ fn same_path(a: &str, b: &str) -> bool {
 pub struct Catalog {
     pub handlers: Vec<Handler>,
     pub games: Vec<Game>,
+    /// The games in every account's list on this PC. The handlers folder is
+    /// the Nucleus Co-op folder's, which every account shares, and each
+    /// account's list is its own: a handler of ours another account's game
+    /// uses is not unused. None when a list could not be read.
+    pub everyone: Option<Vec<Game>>,
 }
 impl Catalog {
     /// A hub or user handler: Rubylight's own are for background streams
@@ -419,13 +424,23 @@ impl Catalog {
             .collect()
     }
 
-    /// Rubylight's own handlers, but `current`'s, that no game in the list
-    /// uses: left by a removal or a write that failed halfway. They go.
+    /// Rubylight's own handlers, but `current`'s, that no game in any
+    /// account's list uses: left by a removal or a write that failed
+    /// halfway. They go. None while an account's list is unknown.
     pub fn unused(&self, current: Option<&str>) -> Vec<&Handler> {
+        let Some(everyone) = &self.everyone else {
+            return Vec::new();
+        };
         self.handlers
             .iter()
             .filter(|own| own.own && Some(own.guid.as_str()) != current)
-            .filter(|own| !self.games.iter().any(|game| game.guid == own.guid))
+            .filter(|own| {
+                !self
+                    .games
+                    .iter()
+                    .chain(everyone)
+                    .any(|game| game.guid == own.guid)
+            })
             .collect()
     }
 
@@ -606,6 +621,7 @@ Game.SupportsKeyboard = true; // { not a block
                     exe_path: "C:\\Old\\Old.exe".into(),
                 },
             ],
+            everyone: Some(Vec::new()),
         }
     }
 
@@ -680,8 +696,10 @@ Game.SupportsKeyboard = true; // { not a block
         };
         assert_eq!(names(c.superseded(None)), ["Rubylight-shooter"]);
         // Except the one a session starts with now (Portal's hl2.exe beside
-        // Half-Life 2's handler).
+        // Half-Life 2's handler): it goes at another game's session and is
+        // written again at its own, never removed under it.
         assert!(c.superseded(Some("Rubylight-shooter")).is_empty());
+        assert!(c.stale(Some("Rubylight-shooter")).is_empty());
         // Another of ours for the same .exe is no hub handler.
         c.handlers.retain(|h| h.guid != "Shooter");
         own.guid = "Rubylight-shooter-2".into();
@@ -727,6 +745,34 @@ Game.SupportsKeyboard = true; // { not a block
         );
         // A hub or user handler is never ours to remove.
         assert!(c.stale(None).iter().all(|h| h.own));
+    }
+
+    #[test]
+    fn ours_another_account_uses_is_not_unused() {
+        let mut c = catalog();
+        for guid in ["Rubylight-mine", "Rubylight-theirs"] {
+            c.handlers.push(
+                parse(
+                    &format!("{guid}.js"),
+                    &format!(
+                        "// Rubylight one-player handler v1\nGame.GUID='{guid}'\nGame.ExecutableName='{guid}.exe'"
+                    ),
+                )
+                .unwrap(),
+            );
+        }
+        // The handlers are the Nucleus folder's; the other account's list
+        // is in their own profile.
+        c.everyone = Some(vec![Game {
+            guid: "Rubylight-theirs".into(),
+            exe_path: "C:\\Theirs\\Theirs.exe".into(),
+        }]);
+        let unused: Vec<&str> = c.unused(None).iter().map(|h| h.guid.as_str()).collect();
+        assert_eq!(unused, ["Rubylight-mine"]);
+        // An account's list that could not be read could use any of them.
+        c.everyone = None;
+        assert!(c.unused(None).is_empty());
+        assert!(c.stale(None).is_empty());
     }
 
     #[test]

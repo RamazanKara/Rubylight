@@ -12,6 +12,8 @@ mod autostream;
 mod cli;
 mod clipboard;
 mod config;
+#[cfg(windows)]
+mod crash_dump;
 mod console;
 mod coop_page;
 mod folders_page;
@@ -44,6 +46,8 @@ mod usb_winusb;
 // build.rs uses the parser; here only its tests do.
 #[cfg_attr(not(test), allow(dead_code))]
 mod version_name;
+mod update_check;
+mod window_place;
 mod wol;
 
 /// The release version: the `versionName` of the Android app, embedded by build.rs.
@@ -147,6 +151,8 @@ struct App {
     /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
     /// decoder and the renderer stay the same while Nightjar runs.
     color_probed: Option<(Hardware, (u32, String))>,
+    /// This launch's update check (Windows); command-line and test streams make none.
+    updates: update_check::Updates,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -266,6 +272,11 @@ fn main() {
     // After the package check, which must not write to the user's log.
     logpipe::start();
     let _log = logpipe::Guard;
+    #[cfg(windows)]
+    match logfile::logs_dir() {
+        Ok(dir) => crash_dump::install(&dir),
+        Err(e) => eprintln!("nightjar: crash dumps off: no logs folder: {e}"),
+    }
     let error_box = cli::shows_error_box(launch.as_ref());
     if let Err(e) = run(launch) {
         eprintln!("nightjar: {e}");
@@ -338,6 +349,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
             return Err(format!("No window: {}", sdl::error()));
         }
         SDL_SetWindowMinimumSize(window, 720, 480);
+        window_place::apply(window, store.window_placement().as_ref());
         let renderer =
             sdl::create_renderer(window, gpu);
         if renderer.is_null() {
@@ -423,6 +435,10 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let mut pads = Gamepads::default();
     pads.mappings = mappings;
     pads.configure(&settings);
+    let updates = update_check::Updates::start(
+        settings.check_updates && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
+        waker.clone(),
+    );
     let mut app = App {
         window,
         renderer,
@@ -452,6 +468,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         stick_held: [false; 4],
         running: true,
         autostream: autostream::Autostream::from_env(),
+        updates,
         cli,
         color_probed: None,
     };
@@ -501,6 +518,9 @@ impl App {
             c.cancel();
         }
         let _ = self.store.save_hosts(&self.hosts.records());
+        if let Some(placement) = window_place::current(self.window, self.store.window_placement().as_ref()) {
+            if let Err(e) = self.store.save_window_placement(&placement) { eprintln!("nightjar: window place not saved: {e}"); }
+        }
         self.pads.close_all();
         self.gui.destroy();
         // SAFETY: tearing down what run() created.
@@ -851,7 +871,9 @@ impl App {
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
         let pads = &self.pads;
+        let updates = &mut self.updates;
         let output = self.gui.run(self.window, self.renderer, |ui| {
+            updates.show(ui.ctx());
             commands = launcher.ui(
                 ui,
                 View {
@@ -1904,6 +1926,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         let mut muted = s.microphone_muted;
                         if ui.checkbox(&mut muted, tr("Mute microphone")).changed() { s.mute_microphone(muted, pads); }
                     }
+                    if s.controller_mouse_offered(pads) {
+                        let mut mouse = pads.mouse_active();
+                        if ui.checkbox(&mut mouse, tr("Controller mouse")).changed() { s.toggle_controller_mouse(pads); }
+                    }
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
                         if ui.button(tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
                         if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
@@ -1930,17 +1956,13 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 s.enable_adaptive_bitrate(enabled);
                             }
                         }
-                        if controls.http_bitrate {
-                            ui.horizontal(|ui| {
-                                ui.add_enabled_ui(!s.adaptive_bitrate && !s.bitrate_busy, |ui| theme::step_value(ui, &mut s.bitrate_kbps, 1..=2_000_000, 1000.0, |d| d.speed(100).suffix(" kbps")));
-                                if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
-                                    s.set_bitrate();
-                                }
-                            });
+                        if controls.http_bitrate && stream::menu_extras::bitrate_slider(ui, &mut s.bitrate_kbps, !s.adaptive_bitrate && !s.bitrate_busy) {
+                            s.set_bitrate();
                         }
                     }
                     if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
-                        let mut apply = false;
+                        let busy = rates.menu_busy();
+                        let mut apply = stream::menu_extras::bitrate_slider(ui, &mut rates.menu_kbps, !busy);
                         egui::CollapsingHeader::new(tr("Change bitrate / frame rate")).id_salt("rate-change").show(ui, |ui| {
                             let busy = rates.menu_busy();
                             ui.add_enabled_ui(!busy, |ui| {
@@ -1948,7 +1970,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
                                     theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
                                 });
-                                apply = ui.button(tr("Apply bitrate and frame rate")).clicked();
+                                apply |= ui.button(tr("Apply bitrate and frame rate")).clicked();
                             });
                             if busy { ui.label(tr("Waiting for the PC…")); }
                         });

@@ -8,6 +8,8 @@ use crate::gamepad::Report;
 #[derive(Default)]
 pub struct Mouse {
     pub active: bool,
+    /// Switched on from the stream menu, which works when holding Start is off in the settings.
+    from_menu: bool,
     start: Option<Instant>,
     last_tick: Option<Instant>,
     buttons: u32,
@@ -30,6 +32,14 @@ impl Mouse {
         self.last_tick = None;
     }
 
+    /// The stream menu's switch: flips the mouse whether or not holding Start does.
+    pub fn toggle(&mut self, queue: &mut InputQueue) -> bool {
+        self.release(queue);
+        self.active = !self.active;
+        self.from_menu = self.active;
+        self.active
+    }
+
     pub fn update(&mut self, report: Report, enabled: bool, precision: bool, now: Instant, queue: &mut InputQueue) -> Option<bool> {
         let mut changed = None;
         if enabled {
@@ -38,9 +48,10 @@ impl Mouse {
             } else if self.start.take().is_some_and(|at| now.duration_since(at) >= Duration::from_millis(750)) {
                 self.release(queue);
                 self.active = !self.active;
+                self.from_menu = false;
                 changed = Some(self.active);
             }
-        } else if self.active {
+        } else if self.active && !self.from_menu {
             self.release(queue);
             self.active = false;
             changed = Some(false);
@@ -188,6 +199,26 @@ mod tests {
         assert!(mouse.start.is_none());
         assert!(mouse.active);
         assert_eq!(mouse.update(Report::default(), false, true, now, &mut queue), Some(false));
+    }
+
+    /// The stream menu's switch holds when holding Start is off in the settings (as in V+ PC);
+    /// switching the setting off still ends a mouse that holding Start started.
+    #[test]
+    fn the_menu_switch_works_without_the_start_hold_setting() {
+        let mut mouse = Mouse::default();
+        let mut queue = InputQueue::new(&nightjar_core::control::HostCapabilities::default());
+        let now = Instant::now();
+        assert!(mouse.toggle(&mut queue));
+        assert_eq!(mouse.update(Report { buttons: button::A, ..Default::default() }, false, false, now, &mut queue), None);
+        assert!(mouse.active, "a button press with the setting off keeps the menu's mouse");
+        assert_eq!(mouse.buttons, button::A, "and A clicks");
+        assert!(!mouse.toggle(&mut queue));
+        assert_eq!(mouse.buttons, 0, "switching off lets go of the buttons");
+
+        let held = Report { buttons: button::PLAY, ..Default::default() };
+        mouse.update(held, true, false, now, &mut queue);
+        assert_eq!(mouse.update(Report::default(), true, false, now + Duration::from_millis(750), &mut queue), Some(true));
+        assert_eq!(mouse.update(Report::default(), false, false, now, &mut queue), Some(false));
     }
 
     #[test]

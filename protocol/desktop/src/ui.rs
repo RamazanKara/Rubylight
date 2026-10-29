@@ -2441,6 +2441,13 @@ impl Launcher {
             });
             ui.add_enabled_ui(s.controllers, |ui| {
                 setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "Use the controller's Back / Select button to open the menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+                setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Controller quit combo", "Hold these buttons to leave the stream. Pick another if a game or your controller needs the default.", |ui, s| {
+                    egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(s.gamepad_quit_combo.label()).show_ui(ui, |ui| {
+                        for combo in crate::config::GamepadQuitCombo::ALL {
+                            ui.selectable_value(&mut s.gamepad_quit_combo, combo, combo.label());
+                        }
+                    }).response
+                });
                 setting_row(ui, s, &mut rows, &["controller_mouse"], "Controller mouse mode", "Hold Start for 750 ms, then release. A/B click and the D-pad scrolls.", |ui, s| toggle(ui, &mut s.controller_mouse));
                 if s.controller_mouse {
                     setting_row(ui, s, &mut rows, &["analog_scrolling"], "Stick for scrolling", "The other stick moves the pointer. Off lets both sticks move it.", |ui, s| {
@@ -2606,6 +2613,11 @@ impl Launcher {
                         })
                         .response
                 });
+                if cfg!(windows) && rows.shows(&["check_updates"]) {
+                    row(ui, "Check for updates", "Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded or installed.", |ui| {
+                        toggle(ui, &mut s.check_updates)
+                    });
+                }
                 if rows.shows(&["ui_zoom"]) {
                     row(ui, "UI zoom", "Makes everything bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", |ui| {
                         egui::ComboBox::from_id_salt("ui-zoom")

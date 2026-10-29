@@ -71,6 +71,35 @@ pub enum AnalogScrolling {
     Left,
 }
 
+/// The controller chord that leaves the stream (V+ PC's gamepad quit combo, ported as is). The
+/// alternatives are for controllers or games where Start+Select+LB+RB is taken.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GamepadQuitCombo {
+    #[default]
+    StartSelectLbRb,
+    SelectLbRbY,
+    StartLbRbA,
+    StartLbRbB,
+    LbRbXY,
+    LbRbAB,
+}
+
+impl GamepadQuitCombo {
+    pub const ALL: [Self; 6] = [Self::StartSelectLbRb, Self::SelectLbRbY, Self::StartLbRbA, Self::StartLbRbB, Self::LbRbXY, Self::LbRbAB];
+
+    /// Button names, the same in every language.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::StartSelectLbRb => "Start+Select+LB+RB",
+            Self::SelectLbRbY => "Select+LB+RB+Y",
+            Self::StartLbRbA => "Start+LB+RB+A",
+            Self::StartLbRbB => "Start+LB+RB+B",
+            Self::LbRbXY => "LB+RB+X+Y",
+            Self::LbRbAB => "LB+RB+A+B",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecoderPreference {
     Auto,
@@ -190,6 +219,7 @@ pub struct Settings {
     pub controller_motion: bool,
     pub controller_audio: bool,
     pub back_opens_menu: bool,
+    pub gamepad_quit_combo: GamepadQuitCombo,
     pub controller_mouse: bool,
     pub analog_scrolling: AnalogScrolling,
     pub mouse_fixed_step: bool,
@@ -289,6 +319,8 @@ pub struct Settings {
     pub high_contrast: bool,
     pub reduce_motion: ReduceMotion,
     pub language: Language,
+    /// Windows: look for a newer stable release once per launch (update_check.rs).
+    pub check_updates: bool,
 }
 
 /// The launcher's sizes in percent, smallest first (the same steps as Nightjar Android).
@@ -502,6 +534,7 @@ impl Default for Settings {
             controller_motion: true,
             controller_audio: false,
             back_opens_menu: false,
+            gamepad_quit_combo: GamepadQuitCombo::StartSelectLbRb,
             controller_mouse: true,
             analog_scrolling: AnalogScrolling::Right,
             mouse_fixed_step: false,
@@ -542,6 +575,7 @@ impl Default for Settings {
             high_contrast: false,
             reduce_motion: ReduceMotion::System,
             language: Language::System,
+            check_updates: true,
         }
     }
 }
@@ -949,6 +983,14 @@ impl Store {
             eprintln!("nightjar: ignoring {}: {e}", path.display());
             crate::shortcuts::Shortcuts::default()
         })
+    }
+
+    pub fn window_placement(&self) -> Option<crate::window_place::Placement> {
+        read_json(&self.dir.join("window.json"))
+    }
+
+    pub fn save_window_placement(&self, placement: &crate::window_place::Placement) -> std::io::Result<()> {
+        write_json(&self.dir.join("window.json"), placement)
     }
 
     pub fn save_shortcuts(&self, shortcuts: &crate::shortcuts::Shortcuts) -> std::io::Result<()> {

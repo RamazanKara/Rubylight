@@ -1,0 +1,7 @@
+• Preview of Nightjar 4.0 for Rubylight 3.0.
+• Leaving the stream for Files or Home no longer ends it.
+• A video decoder that can't recover ends the stream with the reason instead of freezing.
+• TCL and other MediaTek TVs: fewer audio drops after Wi-Fi stalls.
+• PyroWave says when another codec streams, and why.
+• A used pairing QR code says to show a new one.
+• Desktop: installers for Windows and Linux, more resolutions.

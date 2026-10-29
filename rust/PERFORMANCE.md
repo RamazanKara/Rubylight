@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| False slow-pace latches from #59's rc.4 logs: a decoder asking twice for a keyframe, a host adapter refusing packets (lifted after 10 s), holding frames for a full socket (not kept), the keyframe cap scale (inert here); latches, stalls, picture age, presentation gaps (ABBA) | [October 29, false slow-pace latches and a stalled adapter](#october-29-false-slow-pace-latches-and-a-stalled-adapter-rc4-field-logs) |
 | The console's Stream page against the browser page: glass-to-glass split at the frame's arrival, page part against the network and host part | [October 28, the console's Stream page against the browser page](#october-28-the-consoles-stream-page-against-the-browser-page-d4) |
 | Scene cuts AMF encodes past the full-FEC bound, encoded again as keyframes: lost cuts, freezes, keyframe requests, end-to-end picture age, encode time (ABBA) | [October 28, oversize scene cuts encoded again as keyframes](#october-28-oversize-scene-cuts-encoded-again-as-keyframes) |
 | LTR recovery on H.264 and HEVC with header rewrites: repair against keyframe bytes per gap (1 to 130) and codec, scrolling and static, decodes, the size estimate's choices, rewrite cost in a 60 s stream (ABBA) | [October 28, LTR recovery with header rewrites](#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default) |
@@ -55,6 +56,51 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 29: false slow-pace latches and a stalled adapter (rc.4 field logs)
+
+#59's rc.4 logs showed three ways a clean wired stream fell to the Wi-Fi pace (twice the bitrate) for the rest of the session and for 24 hours: Moonlight's decoder asking twice for a keyframe with no loss reported, the host's own adapter refusing packets (`10035`, WSAEWOULDBLOCK) while a game started, and an AV1 recovery keyframe of 1.91 MB against a 1.17 MB cap. The fixes kept are: a client that announces FEC status (featureFlags 0x01) no longer latches on a repeated request (commit 1); a latch made only by frames lost on send lifts after 10 clean seconds and 120 frames and is never saved (commit 2); and keyframes over 1.1 times the automatic cap lower the cap AMF gets, which holds every frame, back to the full cap for good when a lower cap does not make the next keyframe smaller (K, commit 6). The candidate W, a full socket holding a large frame up to its own wire time instead of dropping it (commit 4), measured worse in P5 below and was reverted. `bottleneck.py` gained `--idr-probe N:MS` (the receiver asks N times per keyframe, MS apart) and `--send-outage EVERY_MS:LENGTH_MS[:stall]` (the test host refuses video sends; `stall` fills the socket like a stalled adapter). Fixture: the RX 7900 XT host, the loopback receiver with D3D11VA, 45 s per run, one binary per arm (`pkg-c` the base 545d678c1, `pkg-h` commits 1-3, `pkg-w` 1-4, `pkg-i` 1-5, `pkg-k` 1-6), C,R,R,C on AV1 3840x2160x100 at 219.5 Mbps (a 20 s calibration run held 100.0 fps) and C,R on HEVC 2560x1440x120 at 150 Mbps. The receiver is not a paired device, so no arm saves a loss record: the record rules are checked by `keyframe_loss` and `state::loss_memory` tests (`send_loss_alone_is_not_remembered`, `an_older_sustained_record_is_not_read`, `a_client_report_confirms_a_send_latch_for_memory`).
+
+**P1, the decoder asks twice** (`--idr-probe 2:100`, C `pkg-c`, R `pkg-i`). Host present-to-send is the mean of the second to fourth 5 s `stream timings` windows.
+
+| Arm | Latch | Requests not counted | Stalls | Picture age p50 / p99, ms | Host present-to-send, ms | Encode mean, ms |
+| --- | --- | ---: | ---: | --- | ---: | ---: |
+| AV1 C, run 1 | at 2.8 s, rest of stream | 0 | 0 | 14.93 / 21.76 | 7.62 | 5.31 |
+| AV1 R, run 1 | none | 1 | 0 | 15.14 / 22.33 | 7.12 | 5.36 |
+| AV1 R, run 2 | none | 1 | 0 | 15.49 / 22.12 | 7.33 | 5.39 |
+| AV1 C, run 2 | at 2.7 s, rest of stream | 0 | 0 | 14.86 / 21.60 | 7.13 | 5.32 |
+| HEVC C | at 2.8 s, rest of stream | 0 | 0 | 11.78 / 13.78 | 3.48 | 3.18 |
+| HEVC R | none | 1 | 0 | 11.71 / 13.91 | 3.42 | 3.19 |
+
+R never latched. AV1 picture age p50 was 0.42 ms higher on R's mean, over the 0.3 ms bound we set; p99 was 0.55 ms higher (bound 1 ms), and HEVC was within both. The gap is not on the host: present-to-send was 0.15 ms lower on R, the receiver's per-frame host processing (0.4-0.5 ms), transfer (0.30-0.33 ms) and decode (3.6-3.7 ms) medians matched, and P2's first 20 s, where both arms ran the same policy, had R 0.56 ms higher too. We read it as the receiver's present phase between runs, not the change. A check pair without fault injection, 60 s each, the base against the branch tip (commits 1-3, 5 and K, without W): picture age p50 14.30 against 14.29 ms, p99 20.71 against 20.86 ms, receiver host processing p50 0.5 ms on both, present-to-send 7.05 against 6.95 ms, encode mean 5.20 against 5.19 ms. Kept.
+
+**P2, the host's socket refuses video** (`--send-outage 20000:30`: 30 ms of refused sends at 20 and 40 s, C `pkg-c`, R `pkg-i`).
+
+| Arm | Latches (s) | Lifted (s) | Stalls | Whole | Picture age p50 / p99, ms |
+| --- | --- | --- | ---: | ---: | --- |
+| C, run 1 | 20.0 | none | 2 | 99.98% | 15.93 / 41.81 |
+| R, run 1 | 20.0 (send), 40.0 (rest of stream) | 30.0 | 2 | 100.29% | 16.47 / 83.22 |
+| R, run 2 | 19.9 (send), 39.9 (rest of stream) | 30.0 | 2 | 100.25% | 15.82 / 36.47 |
+| C, run 2 | 20.0 | none | 2 | 100.02% | 15.25 / 21.97 |
+
+R lifted the send latch 10 s after the first outage and held the pace for the session after the second, as designed. R run 1's p99 was already 86 ms in its first 20 s, before the arms differ. Kept.
+
+**P3, the October 14 slow port** (AV1 2560x1440x60 at 40 Mbps through a 100 Mbps shaper with a 64 KiB queue, software decode, no `--rfi`). Neither arm lost video or latched: C 100.07% whole, 0 stalls, picture age 13.37 / 22.17 ms; R 100.00%, 0 stalls, 9.58 / 22.43 ms. This fixture no longer reproduces October 14's latch, so it shows no regression but does not prove the slow port still latches through FEC status alone; `a_client_that_reports_its_losses_still_latches_on_an_incomplete_keyframe` covers that rule. Kept.
+
+**P4, the keyframe cap scale** (`--cut-ms 2000`, C `pkg-i`, R `pkg-k`). No keyframe in C came out over 1.1 times its cap target (AMF's own count, `keyframes_over_cap`, was 0 too), so the overshoot does not reproduce on this card. K stayed inert: `keyframe_cap_scale` was exactly 1 in all 24 windows of R's three runs. Encode mean 5.488 and 5.541 ms (C) against 5.515 and 5.546 ms (R); ordinary picture age p50 11.61 and 11.60 against 11.71 and 11.72 ms, p99 49.56 and 48.77 against 47.87 and 48.20 ms; HEVC 3.185 ms encode on both, ordinary 11.69 / 13.61 against 11.64 / 13.74 ms. Kept on its unit model (`a_proportional_overshoot_lands_within_the_cap_in_two_keyframes`, `a_large_overshoot_floors_the_scale_and_the_cap_at_two_frames`, `a_cap_the_driver_ignores_for_keyframes_returns_the_scale_to_one_for_good`, `each_keyframe_cap_relax_step_reaches_the_driver`, `the_clamped_last_relax_step_back_to_the_target_reaches_the_driver`; a driver that ignores the lower cap is logged once); what it does for the RDNA4 overshoot in #59 is not measured here.
+
+**P5, a stalled adapter** (`--cut-ms 2000 --send-outage 3000:20:stall`: the socket stays full for 20 ms every 3 s, C `pkg-h`, R `pkg-w` with W). Presentation gaps are the receiver's times between presented frames; "frozen" sums each gap's excess over 10 ms.
+
+| Arm | Lost on send | Send-loss recoveries | Stalls | Picture age p50 / p99, ms | Ordinary p50, ms | Longest gap, ms | Frozen, ms |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |
+| AV1 C, run 1 | 22 | 22 | 11 | 11.74 / 51.70 | 11.72 | 36.0 | 1,863 |
+| AV1 R, run 1 | 0 | 0 | 0 | 11.91 / 64.97 | 11.88 | 45.6 | 2,258 |
+| AV1 R, run 2 | 0 | 0 | 0 | 12.48 / 59.68 | 12.46 | 46.2 | 2,113 |
+| AV1 C, run 2 | 22 | 22 | 11 | 11.95 / 52.05 | 11.93 | 35.8 | 2,032 |
+| HEVC C | 2 | 2 | 1 | 12.29 / 17.45 | 12.28 | 25.2 | 174 |
+| HEVC R | 0 | 0 | 0 | 12.11 / 14.86 | 12.10 | 25.0 | 131 |
+
+W delivered every frame and took no latch, but the AV1 frames it held waited out the stall, and the frames behind them with them: p99 rose by 10 ms and the longest gaps by about 10 ms. Losing the frame and sending a recovery frame at once froze the picture for less (the no-stall P4 runs had longest gaps of 36-41 ms). HEVC was slightly better with W; the keep rule needs both. Not kept (reverted).
 
 ## October 28: the console's Stream page against the browser page (D4)
 
@@ -863,7 +909,7 @@ Client decode, hardware HEVC through D3D11VA on the same 780M (FFmpeg `-hwaccel 
 
 - The latency increase is not small next to the 7.06 ms end-to-end median the 780M measured over the LAN (6-minute 1080p60 HEVC, [plan](../docs/rubylight-3.0-plan.md), B9 row), and the rule is no added latency without a clear win.
 - The gain exists only when the link and the bitrate target are generous; at 2 Mbit/s it is a loss. A preset cannot know the link.
-- The advertisement is host-wide: `experimental_packed_444` is probed at startup (`rust/host/src/state.rs`) and the client has to request the packing, so a per-stream preset value cannot switch it on by itself. Making it a preset value would need a startup-level change, which is a separate piece of work.
+- The advertisement is host-wide: `experimental_packed_444` is probed at startup and again when it is saved, once no stream runs (`rust/host/src/state.rs`), and the client has to request the packing, so a per-stream preset value cannot switch it on by itself. Making it a preset value would need a startup-level change, which is a separate piece of work.
 - Not measured: the Nightjar reconstruction shader on a phone, picture age end to end with a real client, AV1, and real desktop capture. The scenes are synthetic (sub-pixel text on flat backgrounds), which is close to the best case for the chroma ceiling.
 
 **10-bit and the layered packing.** The same scenes with `--ten-bit` (packing 0 = 4:2:0, 1 = packed version 1, 2 = layered version 2), targets 5, 20 and 50 Mbit/s, 54 runs, scored against the 10-bit reference. Means over the three scenes, settled RGB PSNR, scroll RGB PSNR and encode time:

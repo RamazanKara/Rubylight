@@ -4,8 +4,9 @@
 //! It is never a folder an elevated Nucleus runs from, and never shares one
 //! with the host's copy: `<data>\nucleus-user\<SID>\<key>`, outside
 //! `C:\Users` (Nucleus refuses to run from there) and removed with the
-//! host's data. It is copied from the host's Nucleus folder (its own install
-//! or `nucleus_path`), program files only, and `<key>` changes with them.
+//! host's data. It is copied from the host's Nucleus folder (the release it
+//! installs, where alone Rubylight's own handler runs), program files only,
+//! and `<key>` changes with them.
 //! SYSTEM makes `nucleus-user` (only SYSTEM and Administrators may open
 //! it), `<SID>` (its user may list it, nothing more) and `<key>` (its user
 //! may add to it and change what is in it, never its permissions, nor
@@ -19,8 +20,9 @@
 //! program by the path Windows opened it at, and both held so neither can
 //! be swapped for a link until it runs.
 //! Everything else below `<SID>` is done as that user: writing the copy,
-//! checking it, emptying an older one, the handlers, the profile and
-//! settings. What the user can change there runs with their rights only.
+//! checking it, emptying an older one, the handlers, its game list, the
+//! profile and settings. What the user can change there runs with their
+//! rights only.
 use super::{files, install};
 use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::nucleus::generic::Setup;
@@ -84,7 +86,7 @@ pub fn sid(token: &OwnedHandle) -> Result<String> {
 }
 
 /// Runs `work` as the user of `token` (None: as the host, in tests).
-pub(super) fn as_user<T>(token: Option<&OwnedHandle>, work: impl FnOnce() -> T) -> Result<T> {
+pub fn as_user<T>(token: Option<&OwnedHandle>, work: impl FnOnce() -> T) -> Result<T> {
     let _user =
         crate::user_folder::Impersonation::begin(token).context("acting as the signed-in user")?;
     Ok(work())
@@ -179,7 +181,7 @@ fn seed_settings(copy: &Path) -> Result<()> {
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
         Err(error) => return Err(error).with_context(|| format!("creating {}", path.display())),
     };
-    let written = file.write_all(profile::default_settings_ini().as_bytes());
+    let written = file.write_all(&profile::default_settings_ini());
     if let Err(error) = written {
         drop(file);
         // Not left part-written: Nucleus refuses to start on a missing key.
@@ -732,32 +734,41 @@ fn remove_entry(path: &Path) -> Result<()> {
 }
 
 /// Write Rubylight's handler for `setup` into the host's Nucleus at
-/// `folder` and add its game to the user's list in `appdata`
-/// ([`files::write_own`]), then give the user's copy at `copy` the host's
-/// handlers, as the user of `token`. Both Nucleus copies read that one
-/// list, and each drops a game whose handler it lacks; the host's sweep
-/// removes the handler with its game ([`files::remove_own`]), and the next
-/// mirror the copy's.
+/// `folder` with its game in that one's list ([`files::write_own`]), then
+/// give the user's copy at `copy` the host's handlers and add the game to
+/// the copy's own list ([`files::list`], the one its Nucleus reads), as the
+/// user of `token`. A copy's list Rubylight could not add to refuses the
+/// launch before anything is written. The host's sweep removes the
+/// handler with its game ([`files::remove_own`], then [`remove_game`]),
+/// and the next mirror the copy's handler.
 pub fn write_own(
     folder: &Path,
     copy: &Path,
-    appdata: &Path,
     setup: &Setup,
     token: Option<&OwnedHandle>,
 ) -> Result<Handler> {
-    let handler = files::write_own(folder, appdata, setup)?;
+    as_user(token, || files::check_list(copy, Some(setup), &[]))??;
+    let handler = files::write_own(folder, setup)?;
     let handlers = mirror_handlers(folder, copy, token)?;
     tracing::debug!(handlers, copy = %copy.display(), "Nucleus Co-op: the user's own copy has the host's handlers");
+    as_user(token, || files::add_game(&files::list(copy), setup))??;
     Ok(handler)
 }
 
+/// Remove the game `guid` of a handler of Rubylight's the host's sweep
+/// removed from the list of the user's copy at `copy`, as the user of
+/// `token`.
+pub fn remove_game(copy: &Path, guid: &str, token: Option<&OwnedHandle>) -> Result<()> {
+    as_user(token, || files::remove_game(&files::list(copy), guid))?
+}
+
 /// Make the handlers of the user's copy at `copy` those of the host's copy
-/// at `folder`: the game list in the user's AppData is the one both use,
-/// and Nucleus drops from it every game whose handler it doesn't have. The
-/// host's are read as the host from its own folder and written as the user
-/// of `token`; a handler only the copy had goes (Rubylight's own once the
-/// host's sweep removed it), so the host's copy never sees one the user's
-/// has. Returns how many there are.
+/// at `folder`: Nucleus drops from its list every game whose handler it
+/// doesn't have, and a hub handler added in the host's Nucleus works in the
+/// copy too. The host's are read as the host from its own folder and
+/// written as the user of `token`; a handler only the copy had goes
+/// (Rubylight's own once the host's sweep removed it), so the copy runs only
+/// handlers the host's has. Returns how many there are.
 fn mirror_handlers(folder: &Path, copy: &Path, token: Option<&OwnedHandle>) -> Result<usize> {
     let source = folder.join("handlers");
     let mut handlers = Vec::new();
@@ -863,6 +874,8 @@ mod tests {
             (r"webview\cache\data_0", b"cache"),
             ("debug-log.txt", b"log"),
             ("Rubylight-layers-S-1-5-21-1-2-3-1001.json", b"{}"),
+            // Settings.ini as the host wrote it, left by a crash.
+            ("Settings.rubylight.tmp", HOST_SETTINGS.as_bytes()),
         ] {
             let path = folder.path().join(name);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -923,7 +936,11 @@ mod tests {
         );
         // What Nucleus and the host wrote as they ran is not copied; the
         // folders it is in are there, empty.
-        for name in ["debug-log.txt", "Rubylight-layers-S-1-5-21-1-2-3-1001.json"] {
+        for name in [
+            "debug-log.txt",
+            "Rubylight-layers-S-1-5-21-1-2-3-1001.json",
+            "Settings.rubylight.tmp",
+        ] {
             assert!(!copy.join(name).exists(), "{name}");
         }
         for name in [
@@ -940,7 +957,7 @@ mod tests {
         // Nucleus' own settings, with every key it ships and ours, and none
         // of the host's user's.
         let settings = std::fs::read_to_string(copy.join("Settings.ini")).unwrap();
-        assert_eq!(settings, profile::default_settings_ini());
+        assert_eq!(settings.as_bytes(), profile::default_settings_ini());
         for line in profile::DEFAULT_SETTINGS.lines() {
             let key = line.split('=').next().unwrap();
             assert!(settings.contains(key), "{key}");
@@ -985,7 +1002,7 @@ mod tests {
         std::fs::remove_file(copy.join("Settings.ini")).unwrap();
         ensure_with(data.path(), source, SID, None, &TEST).unwrap();
         assert_eq!(
-            std::fs::read_to_string(copy.join("Settings.ini")).unwrap(),
+            std::fs::read(copy.join("Settings.ini")).unwrap(),
             profile::default_settings_ini()
         );
     }
@@ -1692,26 +1709,52 @@ mod tests {
     fn ours_is_in_the_hosts_nucleus_and_leaves_the_copy_after_the_hosts_sweep() {
         let host = tempfile::tempdir().unwrap();
         let copy = tempfile::tempdir().unwrap();
-        let appdata = tempfile::tempdir().unwrap();
         let puzzle = Setup::new(r"D:\Puzzle\Puzzle.exe", "Puzzle", None);
         let ice = Setup::new(r"D:\Ice\Ice.exe", "Ice", None);
-        let first = write_own(host.path(), copy.path(), appdata.path(), &puzzle, None).unwrap();
-        // The host's Nucleus has it too, so it keeps the game in the list
-        // both read.
-        let hosts = files::catalog(host.path(), Some(appdata.path())).unwrap();
+        let first = write_own(host.path(), copy.path(), &puzzle, None).unwrap();
+        // The host's Nucleus has it too, so its sweep knows the game.
+        let hosts = files::catalog(host.path(), true, None).unwrap();
         assert!(hosts.handlers.iter().any(|h| h.own && h.guid == first.guid));
         assert!(hosts.games.iter().any(|game| game.guid == first.guid));
         // Another game's launch leaves the first game's in the copy.
-        write_own(host.path(), copy.path(), appdata.path(), &ice, None).unwrap();
+        write_own(host.path(), copy.path(), &ice, None).unwrap();
         let theirs = copy.path().join("handlers");
         let mut both = [puzzle.file(), ice.file()];
         both.sort();
         assert_eq!(names(&theirs), both);
         // The host's sweep removes it and its game; the next launch, the
         // copy's.
-        files::remove_own(host.path(), appdata.path(), &first).unwrap();
-        write_own(host.path(), copy.path(), appdata.path(), &ice, None).unwrap();
+        files::remove_own(host.path(), &first).unwrap();
+        remove_game(copy.path(), &first.guid, None).unwrap();
+        write_own(host.path(), copy.path(), &ice, None).unwrap();
         assert_eq!(names(&theirs), [ice.file()]);
+        let copys = files::catalog(copy.path(), true, None).unwrap();
+        assert!(copys.games.iter().all(|game| game.guid != first.guid));
+    }
+
+    #[test]
+    fn the_copys_nucleus_lists_our_game_from_its_own_list() {
+        let host = tempfile::tempdir().unwrap();
+        let copy = tempfile::tempdir().unwrap();
+        // A game whose .exe is there, as Nucleus 2.4.2 lists only those.
+        let game = tempfile::tempdir().unwrap();
+        let exe = game.path().join("Ice.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let ice = Setup::new(exe.to_str().unwrap(), "Ice", None);
+        let own = write_own(host.path(), copy.path(), &ice, None).unwrap();
+        // The copy's Nucleus reads its own content\userprofile.json, never
+        // the host's or %APPDATA%'s: the game is there with its handler.
+        assert_eq!(
+            files::listed_by_nucleus(copy.path()).unwrap(),
+            [own.guid.clone()]
+        );
+        assert!(files::list(copy.path()).is_file());
+        // A list the copy's Nucleus wrote in a way Rubylight can't edit
+        // refuses the launch before anything is written.
+        let other = Setup::new(r"D:\Puzzle\Puzzle.exe", "Puzzle", None);
+        std::fs::write(files::list(copy.path()), b"[not a list").unwrap();
+        assert!(write_own(host.path(), copy.path(), &other, None).is_err());
+        assert!(!host.path().join("handlers").join(other.file()).exists());
     }
 
     #[test]

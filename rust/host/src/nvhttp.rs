@@ -648,7 +648,8 @@ fn serverinfo_response(
             ("SleepAllowed", u8::from(client.allows_sleep()).to_string()),
         ]);
     }
-    // DESCRIBE's `packed444Modes` mask, from the startup probe, so a client
+    // DESCRIBE's `packed444Modes` mask, from the startup probe and the probe
+    // after a save of the full chroma settings, so a client
     // can leave out a packed mode before /launch instead of after it.
     if config.boolean("experimental_packed_444", false) {
         fields.push((

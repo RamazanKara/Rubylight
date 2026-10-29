@@ -120,7 +120,9 @@ public class DecoderFailureTest {
 
     @Test
     public void stoppingDuringABackOffWakesTheWaitingThreadsAtOnce() throws Exception {
-        DecoderRecoveryBackoff backoff = new DecoderRecoveryBackoff(new long[] {0, 250, 250, 250, 250});
+        // The second wait is far longer than any stop may take, so the test holds on a slow runner:
+        // with 250 ms, a busy CI machine saw the third recovery begin before it looked.
+        DecoderRecoveryBackoff backoff = new DecoderRecoveryBackoff(new long[] {0, 60_000, 60_000, 60_000, 60_000});
         ReflectionHelpers.setField(renderer, "recoveryBackoff", backoff);
         ReflectionHelpers.callInstanceMethod(renderer, "startRendererThread");
         Thread rendererThread = ReflectionHelpers.getField(renderer, "rendererThread");
@@ -129,26 +131,35 @@ public class DecoderFailureTest {
                 ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer");
             }
         });
+        // A failed assertion must not leave a thread that keeps the test JVM from exiting.
+        input.setDaemon(true);
         input.start();
+        long tookMs;
+        try {
+            // The second recovery in a row without a frame has begun its wait.
+            long deadline = System.nanoTime() + 30_000_000_000L;
+            while (backoff.recoveriesWithoutFrame() < 2 && System.nanoTime() < deadline) Thread.sleep(1);
+            assertEquals(2, backoff.recoveriesWithoutFrame());
 
-        // The second recovery in a row without a frame has just begun its 250 ms wait.
-        long deadline = System.nanoTime() + 5_000_000_000L;
-        while (backoff.recoveriesWithoutFrame() < 2 && System.nanoTime() < deadline) Thread.sleep(1);
-        assertEquals(2, backoff.recoveriesWithoutFrame());
-
-        // The stream ends from another thread, as the UI's stop does: the renderer thread is
-        // interrupted and the input thread woken, instead of either sleeping the wait out.
-        long stopNs = System.nanoTime();
-        Thread stopper = new Thread(renderer::prepareForStop);
-        stopper.start();
-        stopper.join(5000);
-        input.join(5000);
-        rendererThread.join(5000);
-        long tookMs = (System.nanoTime() - stopNs) / 1_000_000;
+            // The stream ends from another thread, as the UI's stop does: the renderer thread is
+            // interrupted and the input thread woken, instead of either sleeping the wait out.
+            long stopNs = System.nanoTime();
+            Thread stopper = new Thread(renderer::prepareForStop);
+            stopper.start();
+            stopper.join(5000);
+            input.join(5000);
+            rendererThread.join(5000);
+            tookMs = (System.nanoTime() - stopNs) / 1_000_000;
+        } finally {
+            // Wakes both threads if an assertion above failed before the stop.
+            renderer.prepareForStop();
+            input.join(5000);
+        }
 
         assertFalse("Input thread still running", input.isAlive());
         assertFalse("Renderer thread still running", rendererThread.isAlive());
-        assertTrue("Stopping took " + tookMs + " ms", tookMs < 200);
+        // Woken at once: well under the 60 s wait either thread was in.
+        assertTrue("Stopping took " + tookMs + " ms", tookMs < 2000);
         assertEquals(Collections.emptyList(), uncaught);
         // A stop is not a decoder failure: no -107 and no reason.
         assertEquals(Collections.emptyList(), terminated);

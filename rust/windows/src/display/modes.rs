@@ -201,6 +201,14 @@ pub(super) fn offered_rates(modes: &[(u32, u32, u32)], width: u32, height: u32) 
     rates.dedup();
     rates
 }
+/// Whether the refreshes (whole hertz) a display lists at a size include
+/// `rate` (millihertz): Windows truncates or rounds a rational rate such as
+/// 59.94 Hz to a whole one.
+pub(super) fn lists_rate(offered_hz: &[u32], rate: u32) -> bool {
+    offered_hz
+        .iter()
+        .any(|hz| hz.saturating_mul(1000).abs_diff(rate) < 1000)
+}
 /// The refresh (millihertz) to retry a refused mode's resolution at: the fastest offered
 /// rate below the refused one, else the slowest offered. None when the resolution is not
 /// offered at all.
@@ -335,6 +343,16 @@ mod tests {
         ];
         assert_eq!(offered_rates(&modes, 3840, 2160), [60, 1000, 2000]);
         assert!(offered_rates(&modes, 1920, 1080).is_empty());
+    }
+    #[test]
+    fn a_rate_is_listed_only_at_its_whole_hertz_value() {
+        let rates = [59, 120];
+        assert!(lists_rate(&rates, 120_000));
+        assert!(lists_rate(&rates, 59_940));
+        // The shared display before the driver published the VRR stream's rate.
+        assert!(!lists_rate(&rates, 1_000_000));
+        assert!(!lists_rate(&rates, 121_000));
+        assert!(!lists_rate(&[], 120_000));
     }
     #[test]
     fn a_refused_rate_falls_back_to_the_fastest_slower_one() {

@@ -196,6 +196,10 @@ impl Streams {
                         idr: false,
                         after_invalidation: false,
                         frame_cap_bytes: start.cap,
+                        // Only keyframes report these, and none is streamed.
+                        cap_target_bytes: None,
+                        reencoded: false,
+                        fec_limited: false,
                         payload_bytes,
                         peer: start.peer,
                         claimed: start.claimed,

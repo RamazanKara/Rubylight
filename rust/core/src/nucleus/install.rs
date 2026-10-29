@@ -115,9 +115,15 @@ const SEEDED: [&str; 2] = [
     r"utils\FlawlessWidescreen\x86\settings.xml",
 ];
 
+/// The ends of the host's temporary files, which it writes whole and then
+/// renames over a file of Nucleus' (`Settings.rubylight.tmp` holds a user's
+/// `Settings.ini`; `userprofile.json.rubylight` a game list).
+const TEMPORARY: [&str; 2] = [".rubylight.tmp", ".rubylight"];
+
 /// What the file or `folder` at `relative` (below a Nucleus Co-op folder,
 /// `\`-separated) is to a user's own copy. The host's own files beside
-/// Nucleus (`Rubylight-*`, its compatibility settings' journal) are state.
+/// Nucleus (`Rubylight-*`, its compatibility settings' journal) and its
+/// temporary files ([`TEMPORARY`]), wherever they are, are state.
 pub fn part(relative: &str, folder: bool) -> Part {
     let named = |list: &[&str]| list.iter().any(|name| name.eq_ignore_ascii_case(relative));
     if folder {
@@ -131,7 +137,9 @@ pub fn part(relative: &str, folder: bool) -> Part {
         && relative
             .get(..generic::PREFIX.len())
             .is_some_and(|start| start.eq_ignore_ascii_case(generic::PREFIX));
-    if ours || named(&STATE_FILES) {
+    let lower = relative.to_ascii_lowercase();
+    let temporary = TEMPORARY.iter().any(|end| lower.ends_with(end));
+    if ours || temporary || named(&STATE_FILES) {
         Part::State
     } else if named(&SEEDED) {
         Part::Seeded
@@ -258,6 +266,11 @@ mod tests {
             // The host's compatibility settings' journal.
             ("Rubylight-layers-S-1-5-21-1-2-3-1001.json", false),
             ("rubylight-layers-S-1-5-21-1-2-3-1001.json.tmp", false),
+            // The host's Settings.ini or game list, left half-way by a crash.
+            ("Settings.rubylight.tmp", false),
+            ("SETTINGS.RUBYLIGHT.TMP", false),
+            (r"content\userprofile.json.rubylight", false),
+            (r"utils\settings.rubylight.tmp", false),
         ] {
             assert_eq!(part(path, folder), Part::State, "{path}");
         }

@@ -28,8 +28,8 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "4.0.0-alpha.1"
-        versionCode = 358
+        versionName "4.0.0-alpha.2"
+        versionCode = 359
 
         resValue "string", "app_name", brandName
         buildConfigField "String", "BRAND_NAME", "\"${brandName}\""
@@ -110,6 +110,9 @@ android {
             maxParallelForks = 2
             // Robolectric keeps every locale's resource table in memory.
             maxHeapSize = '1g'
+            // The suite takes about 5 minutes; a test that hangs fails the task here instead of
+            // running into CI's 60-minute job limit.
+            timeout = java.time.Duration.ofMinutes(20)
         }
     }
 

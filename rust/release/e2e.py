@@ -47,6 +47,7 @@ import requests
 from e2e_result import evaluate, host_frames
 from e2e_host import installed_idle, prepare, receiver_environment
 from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
+from machine_load import load_since, snapshot
 from timing_report import case_report, wait_for_footer
 
 parser = argparse.ArgumentParser()
@@ -71,7 +72,10 @@ parser.add_argument('--port', type=int, default=48523, help="the host's HTTP por
 parser.add_argument('--skip-first', type=float, default=0, metavar='SECONDS', help='warm-up left out of the --record timing table')
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
+parser.add_argument('--quiet-wait', type=pathlib.Path, metavar='JSON',
+                    help="machine_load.py's verdict before this stream (check.ps1), recorded as quiet_wait")
 args = parser.parse_args()
+quiet_wait = json.loads(args.quiet_wait.read_text()) if args.quiet_wait else None
 RECOVERY_INTERVAL_MS = 500
 MOTION_SCRIPT_EXTRA = 30  # seconds the strip runs beyond the stream when a script is set
 at_rate = bool(args.recovery) or args.motion_at_rate
@@ -92,6 +96,8 @@ if case.exists():
     import shutil; shutil.rmtree(case)
 # The keyframe-request stream is judged on the host's per-claim trace.
 env, display, sink = prepare(args, case, args.port, rust_log='info,pacing=trace' if at_rate else 'info')
+# A near-silent sink fails the tone check for a reason the result must show.
+audio_sink = dict(audio_sink=sink, warnings=[sink['warning']] if sink['warning'] else [])
 profile = case / 'config'
 host_exe = args.package / 'butterpollo.exe'
 audio_probe = args.client.parent / 'audio_probe.exe'
@@ -118,6 +124,7 @@ def watch():
     evidence = guard.check()
     if evidence: raise Hang(evidence)
 hang = None
+stream_load = None
 try:
     host_env = dict(env, BUTTERPOLLO_TIMING_RECORD=str(case / 'record')) if args.record else env
     if args.record:
@@ -155,6 +162,9 @@ try:
         client_env.update(BUTTERPOLLO_TEST_IDR_PROBE=str(args.recovery),
                           BUTTERPOLLO_TEST_IDR_PROBE_INTERVAL_MS=str(RECOVERY_INTERVAL_MS))
     (case / 'receiver').mkdir()
+    # Other work on the machine starves the fixtures: a timing failure under
+    # load is told apart by the CPU the stream ran beside (its own included).
+    load_start = snapshot()
     receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'], 'client.log', env=client_env)
     deadline = time.monotonic() + int(args.seconds) + 120
     while receiver.poll() is None:
@@ -162,6 +172,7 @@ try:
         if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
         time.sleep(.25)
     rc = receiver.returncode
+    stream_load = load_since(load_start)
     if args.motion_script:
         motion.wait(timeout=MOTION_SCRIPT_EXTRA + 30)
     if args.record:
@@ -183,7 +194,7 @@ finally:
 # A watchdog report can land after the receiver gave up on a frozen stream.
 hang = hang or guard.check()
 if hang:
-    result = hang_result(name, args.codec, args.mode, args.vrr, hang)
+    result = dict(hang_result(name, args.codec, args.mode, args.vrr, hang), machine_load=stream_load, quiet_wait=quiet_wait, **audio_sink)
     (case / 'result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
     sys.exit(EXIT_GPU_HANG)
@@ -199,7 +210,7 @@ result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.rec
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),
                   claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
-result = dict(case=name, **result)
+result = dict(case=name, **result, machine_load=stream_load, quiet_wait=quiet_wait, **audio_sink)
 if args.launch_fps:
     result['launch_fps'] = args.launch_fps
 if args.record:

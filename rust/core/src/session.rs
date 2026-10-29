@@ -328,6 +328,42 @@ mod tests {
         assert!(session.keyframe_loss_active());
     }
     #[test]
+    fn fec_status_clients_do_not_latch_on_requests_even_after_a_roam() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        for features in [1, 0] {
+            let s = Session::new(
+                launch("fec-status", Role::Stream),
+                Negotiated {
+                    moonlight_features: features,
+                    ..Default::default()
+                },
+            );
+            s.configure_keyframe_loss(true);
+            // Asked, sent keyframe 41, asked again right after it.
+            let ask_twice = |s: &Session, first: u32| {
+                for frame in first..first + 40 {
+                    s.keyframe_loss_bps(FAST, SAFE, frame, frame == first);
+                }
+                s.keyframe_loss.lock().unwrap().settle();
+                s.request_recovery_keyframe();
+                s.keyframe_loss_bps(FAST, SAFE, first + 40, true);
+                s.keyframe_loss_bps(FAST, SAFE, first + 41, false);
+                s.request_recovery_keyframe();
+            };
+            ask_twice(&s, 1);
+            assert_eq!(s.keyframe_loss_active(), features == 0, "{features}");
+            s.new_network_path();
+            assert!(!s.keyframe_loss_active());
+            ask_twice(&s, 100);
+            assert_eq!(
+                s.keyframe_loss_active(),
+                features == 0,
+                "after a roam, {features}"
+            );
+        }
+    }
+    #[test]
     fn a_roam_drops_the_clients_hints_about_the_old_path() {
         let session = Session::new(
             launch("hints", Role::Stream),
@@ -2198,6 +2234,28 @@ mod tests {
         }
     }
     #[test]
+    fn host_only_loss_on_a_remembered_route_names_the_host_s_adapter() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = Session::new(launch("onn", Role::Stream), Negotiated::default());
+        s.configure_remembered_keyframe_loss(true, true);
+        for frame in 1..=20 {
+            assert_eq!(s.keyframe_loss_bps(FAST, SAFE, frame, frame == 20), SAFE);
+        }
+        // The socket refuses keyframe 20: held for the stream, never saved,
+        // and the warning points at the host, not the network path.
+        s.keyframe_abandoned(20);
+        assert!(s.keyframe_loss_active());
+        assert!(s.keyframe_loss_sustained_at().is_none());
+        let message = s.info()["warnings"][0]["message"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(message.contains("host's network adapter"), "{message}");
+        assert!(message.contains("rest of the stream"), "{message}");
+        assert!(!message.contains("network path"), "{message}");
+    }
+    #[test]
     fn a_lost_keyframe_paces_the_rest_of_the_stream_like_wifi() {
         const FAST: u64 = 800_000_000;
         const SAFE: u64 = 62_000_000;
@@ -2432,6 +2490,15 @@ mod tests {
             Some("three recent video frames were lost on send within two seconds")
         );
         assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 44, false), SAFE);
+        // Only the host saw it: for now, and nothing for the next session.
+        assert!(s.keyframe_loss_sustained_at().is_none());
+        assert_eq!(s.info()["frames_lost_on_send"], 3);
+        assert!(
+            s.info()["warnings"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("The host's network adapter refused video packets")
+        );
         // Two such frames are not enough, and the client reporting them is the
         // same loss, not more of it.
         let s = steady_stream("lost-on-send-twice");
@@ -2976,6 +3043,11 @@ pub struct Stats {
     /// Keyframes the host started itself after it failed to send a frame
     /// that FEC can repair; not counted in `idr_requests`.
     pub send_loss_recoveries: AtomicU64,
+    /// Video frames the host could not send whole (a socket refused more
+    /// than FEC repairs).
+    pub frames_lost_on_send: AtomicU64,
+    /// Keyframes too large for full FEC within Moonlight's four blocks.
+    pub keyframes_past_fec: AtomicU64,
     /// Streamed video frames whose encoder output passed the byte cap their
     /// block plan relied on (`video_slice_delivery`); each turned it off.
     pub slice_delivery_overflows: AtomicU64,
@@ -3255,7 +3327,9 @@ impl<P, A> Session<P, A> {
         self.adaptive_bitrate.lock().unwrap().new_path();
         {
             let mut loss = self.keyframe_loss.lock().unwrap();
+            let reports_losses = loss.reports_losses();
             *loss = crate::keyframe_loss::KeyframeLoss::new(loss.enabled());
+            loss.set_reports_losses(reports_losses);
         }
         self.launch.warnings.clear("network_keyframe_loss");
     }
@@ -4009,11 +4083,15 @@ impl<P, A> Session<P, A> {
     /// disabled adaptation and PyroWave retain their own policies.
     pub fn configure_remembered_keyframe_loss(&self, enabled: bool, remembered: bool) {
         let remembered = remembered && enabled && self.config.codec != 3;
-        *self.keyframe_loss.lock().unwrap() = if remembered {
+        let mut loss = if remembered {
             crate::keyframe_loss::KeyframeLoss::remembered("remembered from the previous session")
         } else {
             crate::keyframe_loss::KeyframeLoss::new(enabled)
         };
+        loss.set_reports_losses(
+            self.config.moonlight_features & crate::rtsp::FEC_STATUS_FEATURE != 0,
+        );
+        *self.keyframe_loss.lock().unwrap() = loss;
         if remembered {
             tracing::info!(stream_id = %self.launch.id, "pacing video like Wi-Fi from the first frame: remembered from the previous session");
             self.launch.warnings.set("network_keyframe_loss", "This device lost video frames in a previous stream at this address. Video starts at the Wi-Fi pacing rate to limit packet bursts without reducing the encoder bitrate. This memory expires after 24 hours and the host periodically tests the fast rate. Reset it in Devices after changing the network.");
@@ -4027,15 +4105,18 @@ impl<P, A> Session<P, A> {
         ignored: Option<String>,
     ) {
         if let Some(why) = ignored {
-            tracing::info!(stream_id = %self.launch.id, why, "video loss evidence not counted: the host caused it");
+            tracing::info!(stream_id = %self.launch.id, why, "video loss evidence not counted");
         }
         if let Some(crate::keyframe_loss::Latched {
             reason,
             detail,
             kind,
             confirmed,
+            from,
+            host_only,
         }) = latched
         {
+            use crate::keyframe_loss::LatchKind;
             if self.link_sent.live() {
                 let mut link = self.link_rate.lock().unwrap();
                 link.drain(&self.link_sent);
@@ -4047,15 +4128,26 @@ impl<P, A> Session<P, A> {
                     !confirmed,
                 );
             }
-            if confirmed {
+            if confirmed && matches!(from, Some(LatchKind::Send | LatchKind::Sustained)) {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the client reported video loss after the host's send loss; pacing video like a Wi-Fi route for the rest of the stream");
+            } else if confirmed {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "more video loss after the start-up keyframe; pacing video like a Wi-Fi route for the rest of the stream");
-            } else if kind == crate::keyframe_loss::LatchKind::Startup {
+            } else if kind == LatchKind::Send {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the host's socket refused video packets; pacing video like a Wi-Fi route until it has been clean for 10 s");
+            } else if kind == LatchKind::Startup {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "the stream's first keyframe was lost; pacing video like a Wi-Fi route until it has been clean for 10 s");
+            } else if host_only {
+                // After a lift, or on a remembered route: held, never saved.
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the host's socket refused video packets in a stream that already slowed down; pacing video like a Wi-Fi route for the rest of the stream");
             } else {
                 tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
             }
-            if kind == crate::keyframe_loss::LatchKind::Startup {
+            if kind == LatchKind::Startup {
                 self.launch.warnings.set("network_keyframe_loss", format!("The first video frame was lost on the way to this device ({reason}), so video is paced like Wi-Fi for now. This limits packet bursts without reducing the encoder bitrate. The host returns to the normal rate after 10 seconds without further loss."));
+            } else if kind == LatchKind::Send {
+                self.launch.warnings.set("network_keyframe_loss", format!("The host's network adapter refused video packets ({reason}), so video is paced like Wi-Fi for now. This limits packet bursts without reducing the encoder bitrate. The host returns to the normal rate after 10 seconds without further loss."));
+            } else if host_only {
+                self.launch.warnings.set("network_keyframe_loss", format!("The host's network adapter refused video packets ({reason}), so video is paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. The device reported no loss; check the host's network adapter and its driver if this continues."));
             } else {
                 self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
             }
@@ -4070,6 +4162,9 @@ impl<P, A> Session<P, A> {
     /// toward slower pacing under its own reason, and the client's report of
     /// the same frame is not counted again.
     pub fn keyframe_abandoned(&self, wire_frame: u32) {
+        self.stats
+            .frames_lost_on_send
+            .fetch_add(1, Ordering::Relaxed);
         let period = self.stream_mode().period();
         let (latched, ignored) = {
             let mut loss = self.keyframe_loss.lock().unwrap();
@@ -4133,7 +4228,7 @@ impl<P, A> Session<P, A> {
                 .on_keyframe_sent(wire_frame, now);
         }
         if let Some(why) = lifted {
-            tracing::info!(stream_id = %self.launch.id, why, "returning to the route's pacing rate: the start-up loss did not recur");
+            tracing::info!(stream_id = %self.launch.id, why, "returning to the route's pacing rate: the loss did not recur");
             self.launch.warnings.clear("network_keyframe_loss");
             if self.link_sent.live() {
                 let mut link = self.link_rate.lock().unwrap();
@@ -4262,7 +4357,7 @@ impl<P, A> Session<P, A> {
             .lock()
             .unwrap()
             .window(Instant::now());
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"link_rate":self.link_rate_snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"pipeline_rates":self.console_pipeline_rates(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"link_rate":self.link_rate_snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"frames_lost_on_send":self.stats.frames_lost_on_send.load(Ordering::Relaxed),"keyframes_past_fec":self.stats.keyframes_past_fec.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"pipeline_rates":self.console_pipeline_rates(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

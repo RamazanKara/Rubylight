@@ -14,6 +14,8 @@ fn frame(index: u8) -> Encoded {
         idr: index == 1,
         after_invalidation: index == 3,
         frame_cap_bytes: None,
+        reencoded: false,
+        frame_cap_target: None,
         latency: None,
         presentation: None,
     }
@@ -130,6 +132,8 @@ fn sender_handoff_benchmark() -> Result<()> {
                 idr: index == 0,
                 after_invalidation: false,
                 frame_cap_bytes: None,
+                reencoded: false,
+                frame_cap_target: None,
                 latency: None,
                 presentation: None,
             };
@@ -1353,6 +1357,8 @@ fn unit(unit: butterpollo_windows::encoder::Unit, shards: usize, fill: u8) -> En
         idr: false,
         after_invalidation: false,
         frame_cap_bytes: Some(100 * 1008),
+        reencoded: false,
+        frame_cap_target: None,
         latency: None,
         presentation: None,
     }

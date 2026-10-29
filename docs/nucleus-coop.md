@@ -30,10 +30,18 @@ streaming the PC's monitors.
 
 A background stream needs no handler from the hub. A game you added at that
 exact path with a hub handler always uses it, and co-op still needs one.
-Otherwise the host writes its own one-player handler into Nucleus Co-op's
-`handlers` folder (`Rubylight-<game>-<hash>.js`) and adds the game to your
-Nucleus Co-op game list, as Nucleus' own "add game" would. It does that only
+Otherwise, in the Nucleus Co-op the host installs, the host writes its own
+one-player handler into Nucleus Co-op's `handlers` folder
+(`Rubylight-<game>-<hash>.js`) and adds the game to Nucleus Co-op's game list (`content\userprofile.json` in its folder, the only
+one 2.4.2 reads), as Nucleus' own "add game" would. It does that only
 while Nucleus Co-op isn't running, and never over a file it did not write.
+Earlier Rubylight versions added the game to
+`%APPDATA%\Nucleus Coop\userprofile.json` instead, which Nucleus Co-op never
+reads, so it showed no game and the stream hung at its start (#59); the host
+removes those entries, and only those, from that file. With `nucleus_path`
+set, another Nucleus Co-op release may read another list, so such a game is
+refused with the reason (add its handler from the hub, or clear
+`nucleus_path`), and the games you added in either list count.
 
 Installing a hub handler for the same .exe doesn't remove the host's handler
 right away: the next Nucleus Co-op session of another game removes it and its
@@ -179,8 +187,28 @@ hub"; a background stream of it uses Rubylight's own handler
 ([Games without a handler](#games-without-a-handler)).
 
 Rubylight writes a Nucleus profile named **Rubylight** for each session and
-loads it. When a start times out with "open Nucleus Co-op and load the profile
-Rubylight once", do that on the PC and launch again.
+loads it. For that it sets a few of Nucleus Co-op's settings: pads by XInput
+index and game profiles on, which stay, and, for the session only, no
+install-folder check at its start (it warns about a Documents folder in
+OneDrive), no reminder of the End key, and no favourites-only or game-type
+filter on its list. Your own values of those come back when the session ends,
+or after a host crash when the service starts it again; a value you or Nucleus
+Co-op changed meanwhile stays, and a `Settings.ini` deleted meanwhile has
+nothing to put back. While a session starts or runs, the service leaves its
+values alone. Keys missing from `Settings.ini`, or the whole file, are filled
+in from Nucleus Co-op 2.4.2's own defaults; another Nucleus Co-op release set
+with `nucleus_path` ignores keys it doesn't read. A
+`Settings.ini` saved as UTF-16 (Unicode) text is never edited: the launch
+says to save it as ANSI or delete it.
+
+A start that times out says what Nucleus Co-op shows instead: a message on the
+PC's screen, from Nucleus Co-op or from Windows on its behalf, before or after
+the click on the profile (answer or fix it there; a box Windows showed for
+another program before the launch doesn't count), that it doesn't list the
+game (naming the game list it reads, in the Nucleus Co-op the host installs),
+no profile Rubylight (open Nucleus Co-op and load the profile Rubylight once,
+then launch again), or no window at all, with the last error from its
+`crashlog.txt` if it wrote one.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A

@@ -2190,6 +2190,8 @@ impl Media {
                                 crate::video_send::recovery::report(&s, &c, crate::video_send::recovery::RecoveryFrame {
                                     frame: wire_frame, idr: false, after_invalidation: false,
                                     payload_bytes, cap_bytes: frame.frame_cap_bytes,
+                                    cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded,
+                                    fec_limited: streamed.fec_limited() || packetizer.fec_limited(payload_bytes),
                                     wire_bytes: frame_bytes.saturating_add((sent.packets * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
                                     pace_bps: bps, elapsed: finished.saturating_duration_since(started), lost: unrecoverable,
                                 });
@@ -2384,6 +2386,7 @@ impl Media {
                             crate::video_send::recovery::report(&s, &c, crate::video_send::recovery::RecoveryFrame {
                                 frame: wire_frame, idr: frame.idr, after_invalidation: frame.after_invalidation,
                                 payload_bytes: frame.bytes.len(), cap_bytes: frame.frame_cap_bytes,
+                                cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded, fec_limited,
                                 wire_bytes: frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
                                 pace_bps: bps, elapsed: sent.saturating_duration_since(frame_started), lost: lost.unrecoverable(),
                             });
@@ -2540,6 +2543,9 @@ impl Media {
                                             send_loss_recoveries=s.stats.send_loss_recoveries.load(Ordering::Relaxed),
                                             // Inter frames past the full-FEC bound, sent as keyframes instead.
                                             reencoded_cuts=encoder.as_ref().map_or(0, |encoder| encoder.reencoded_cuts()),
+                                            keyframes_over_cap=encoder.as_ref().map_or(0, |encoder| encoder.keyframes_over_cap()),
+                                            keyframe_cap_scale=encoder.as_ref().map_or(1., |encoder| encoder.keyframe_cap_scale()),
+                                            keyframes_past_fec=s.stats.keyframes_past_fec.load(Ordering::Relaxed),
                                             fec_reports=timing["fec_reports"].as_u64().unwrap_or(0),
                                             fec_invalid_reports=timing["fec_invalid_reports"].as_u64().unwrap_or(0),
                                             fec_duplicate_reports=timing["fec_duplicate_reports"].as_u64().unwrap_or(0),
@@ -3066,7 +3072,7 @@ impl Media {
                                     fec_whole_due = now + Duration::from_secs(1);
                                 }
                                 let cap = butterpollo_core::network_pacing::fec_whole_frame_cap(cap, fec_whole.1, bitrate, period);
-                                let _ = active.set_frame_cap(cap);
+                                let _ = active.set_frame_cap(cap, butterpollo_core::network_pacing::two_frames(bitrate, period));
                                 // AMF does not hold a scene cut's inter frame to the cap: one
                                 // past this bound is encoded again as a keyframe.
                                 active.set_cut_limit(

@@ -1,5 +1,5 @@
 """Isolated release fixture setup, shared by e2e and the soak runner."""
-import hashlib, json, os, pathlib, shutil, subprocess
+import hashlib, json, os, pathlib, shutil, subprocess, sys
 import xml.etree.ElementTree as ET
 import requests
 from e2e_result import active_clients, display_refresh
@@ -28,6 +28,61 @@ def installed_idle():
     assert info.findtext('RustHostApplicationActive') in (None, '0'), 'the installed host runs an app'
 
 
+# Below this the tone the host captures from the sink is near silent.
+QUIET_SINK = .1
+
+
+def endpoint_volume(device_id):
+    """The playback endpoint's master volume (0-1) and mute, read only:
+    nothing here sets a volume or any other device setting."""
+    import ctypes
+    from ctypes import HRESULT, POINTER, WINFUNCTYPE, byref, c_float, c_int, c_void_p, c_wchar_p
+
+    class GUID(ctypes.Structure):
+        _fields_ = [('data1', ctypes.c_uint32), ('data2', ctypes.c_uint16), ('data3', ctypes.c_uint16), ('data4', ctypes.c_ubyte * 8)]
+
+    ole = ctypes.OleDLL('ole32')
+    def guid(text):
+        value = GUID(); ole.IIDFromString(c_wchar_p('{' + text + '}'), byref(value)); return value
+    def call(obj, slot, *types):
+        return WINFUNCTYPE(HRESULT, c_void_p, *types)(ctypes.cast(obj, POINTER(POINTER(c_void_p)))[0][slot])
+    def release(obj):
+        if obj: WINFUNCTYPE(ctypes.c_ulong, c_void_p)(ctypes.cast(obj, POINTER(POINTER(c_void_p)))[0][2])(obj)
+    try:
+        ole.CoInitializeEx(None, 0)
+        initialised = True
+    except OSError:  # COM already initialised in another mode on this thread
+        initialised = False
+    enumerator, device, volume = c_void_p(), c_void_p(), c_void_p()
+    try:
+        ole.CoCreateInstance(byref(guid('BCDE0395-E52F-467C-8E3D-C4579291692E')), None, 1,
+                             byref(guid('A95664D2-9614-4F35-A746-DE8DB63617E6')), byref(enumerator))
+        call(enumerator, 5, c_wchar_p, POINTER(c_void_p))(enumerator, device_id, byref(device))  # GetDevice
+        call(device, 3, POINTER(GUID), ctypes.c_uint32, c_void_p, POINTER(c_void_p))(
+            device, byref(guid('5CDF2C82-841E-4546-9722-0CF74078229A')), 0x17, None, byref(volume))  # Activate
+        level, muted = c_float(), c_int()
+        call(volume, 9, POINTER(c_float))(volume, byref(level))  # GetMasterVolumeLevelScalar
+        call(volume, 15, POINTER(c_int))(volume, byref(muted))  # GetMute
+        return round(level.value, 3), bool(muted.value)
+    finally:
+        for obj in (volume, device, enumerator):
+            release(obj)
+        if initialised:
+            ole.CoUninitialize()
+
+
+def sink_warning(name, volume, muted, error=None):
+    """A loud line for a sink the tone check would hear as silence. The
+    volume is the user's to set: the check only reports it."""
+    if error:
+        return f'could not read the volume of {name}: {error}'
+    if muted:
+        return f'{name} is muted: the audio tone check hears silence. Unmute it in Windows sound settings.'
+    if volume < QUIET_SINK:
+        return f'{name} is at {round(volume * 100)} % volume: the audio tone check may hear silence. Raise it in Windows sound settings.'
+    return None
+
+
 def prepare(args, case, port=48523, rust_log='info'):
     profile = case / 'config'; (profile / 'logs').mkdir(parents=True)
     env = os.environ.copy(); env.update(PATH=str(args.package) + ';' + env['PATH'], RUST_LOG=os.environ.get('BUTTERPOLLO_E2E_RUST_LOG', rust_log), NO_PROXY='*')
@@ -45,6 +100,14 @@ def prepare(args, case, port=48523, rust_log='info'):
     endpoints = json.loads(subprocess.check_output([str(audio_probe), '--list'], env=env, text=True))
     sink = next((e for e in endpoints if e['virtual_sink']), None)
     assert sink, 'Steam Streaming Speakers is required for the isolated audio test'
+    try:
+        volume, muted = endpoint_volume(sink['id'])
+        error = None
+    except OSError as failure:
+        volume, muted, error = None, None, str(failure)
+    sink = dict(sink, volume=volume, muted=muted, warning=sink_warning(sink['name'], volume, muted, error))
+    if sink['warning']:
+        print(f"WARNING: {sink['warning']}", file=sys.stderr)
     defaults = [
         f'port = {port}', 'encoder = amf', 'capture = wgc', f"output_name = {monitor['device_id']}",
         f'minimum_fps_target = {fps}', 'virtual_display_mode = disabled', 'dd_configuration_option = disabled',

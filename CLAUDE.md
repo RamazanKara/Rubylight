@@ -53,4 +53,5 @@ This PC is the dev box, the release test host and the user's gaming PC (RX 7900 
 - Exit code 3 from `e2e.py` or `check.ps1` means an AMD encoder hang: stop and investigate, never retry.
 - Restart only with the host idle, nothing in flight and the work able to resume unattended; batch it last. Never upgrade Windows.
 - Run streams and soaks in the background; read `result.json` and the 5 s `stream timings` lines in the host log, not full logs.
+- Start desktop Nightjar test builds only from fixed folders (`tools\nightjar-test-client.ps1 -From <zip|exe> [-Slot a|b]`: `C:\tests\nightjar\a|b` here, `C:\tests\dn-nj` on the laptop). Windows' firewall asks once per program path, and only the user answers it.
 - Clients: the user runs phone tests (read the host log after). The laptop "lap" (`ramaz@192.168.4.12`, use PowerShell ssh) runs `smoke.ps1`; the NUC (`ssh nuc`) stands in for phones while the user is away.

@@ -84,6 +84,7 @@ fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreatio
             idr: requested,
             after_invalidation: false,
             frame_cap_bytes: Some(100_000),
+            frame_cap_target: Some(100_000),
             skipped: 0,
             cut_limit: None,
             reencoded: false,
@@ -131,6 +132,7 @@ fn a_frame_counts_as_unreturned_from_its_acceptance_not_from_its_conversion() {
         idr: true,
         after_invalidation: false,
         frame_cap_bytes: None,
+        frame_cap_target: None,
         skipped: 0,
         cut_limit: None,
         reencoded: false,
@@ -201,6 +203,7 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         idr,
         after_invalidation: plan.after_invalidation,
         frame_cap_bytes: encoder.frame_cap(),
+        frame_cap_target: encoder.frame_cap_target,
         skipped: plan.skipped,
         cut_limit: None,
         reencoded: false,
@@ -286,7 +289,7 @@ fn native_runtime_frame_caps_survive_bitrate_changes_and_follow_submissions() ->
                 false,
             );
             assert_eq!(
-                encoder.set_frame_cap(cap),
+                encoder.set_frame_cap(cap, 0),
                 Some(cap),
                 "codec {codec}: runtime cap rejected at pace {pace}"
             );
@@ -2034,6 +2037,30 @@ fn only_an_inter_frame_past_the_full_fec_bound_is_encoded_again_once() {
     // A later submission already references the frame, or one is being
     // prepared against the references as they are: it stays.
     assert!(!reencodes_cut(false, 2_400_000, limit, false));
+}
+
+#[test]
+fn a_keyframe_is_over_its_cap_past_one_tenth_more() {
+    // #59 rc.4 run 1: a 1,908,217 B recovery keyframe against a 1,166,893 B cap.
+    assert!(over_cap_target(1_908_217, Some(1_166_893)));
+    assert!(over_cap_target(1_100_001, Some(1_000_000)));
+    assert!(!over_cap_target(1_100_000, Some(1_000_000)));
+    assert!(!over_cap_target(400_000, Some(1_000_000)));
+    // No target, or the driver's unrestricted one: nothing to be over.
+    assert!(!over_cap_target(1_908_217, None));
+    assert!(!over_cap_target(1_908_217, Some(0)));
+}
+
+#[test]
+fn only_an_automatic_cap_is_a_keyframe_target() {
+    assert_eq!(frame_cap_target(true, 1_166_893), Some(1_166_893));
+    assert_eq!(frame_cap_target(true, 0), None);
+    // An explicit amd_max_frame_size, or driver default: nothing to be over.
+    assert_eq!(frame_cap_target(false, 1_166_893), None);
+    assert!(!over_cap_target(
+        1_908_217,
+        frame_cap_target(false, 1_166_893)
+    ));
 }
 
 #[test]

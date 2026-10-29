@@ -149,8 +149,10 @@ Compress-Archive -Path "$stage\*" -DestinationPath $zip -CompressionLevel Optima
 # Start the unpacked zip with only Windows' own folders on PATH (so a DLL it forgot cannot come
 # from MSYS2) and an empty config folder. The exe has no command line, so it opens its window;
 # a missing DLL or entry point ends the process at once with 0xC0000135 or 0xC0000139, anything
-# still running after a few seconds started.
-$unpacked = Join-Path ([IO.Path]::GetTempPath()) "nightjar-smoke-$([guid]::NewGuid().ToString('N'))"
+# still running after a few seconds started. The folder keeps one name: Windows' firewall asks
+# about each program path that opens a socket, so a new folder per run would ask every time.
+$unpacked = Join-Path ([IO.Path]::GetTempPath()) 'nightjar-smoke'
+if (Test-Path $unpacked) { Remove-Item -Recurse -Force $unpacked }
 Expand-Archive -Path $zip -DestinationPath $unpacked
 $savedPath = $env:PATH
 $env:PATH = "$env:WINDIR\System32;$env:WINDIR"

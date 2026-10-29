@@ -287,6 +287,20 @@ pub struct Host {
     /// The macroblocks per second the H.264, HEVC and AV1 encoders take (AMF throughput caps), 0 until probed.
     pub encoder_mb_rates: [std::sync::atomic::AtomicU64; 3],
     pub packed_modes: std::sync::atomic::AtomicU8,
+    /// A save narrowing `packed_modes` and a probe publishing them, one at a
+    /// time: a probe's result is narrowed to the settings saved by then.
+    packed_publish: Mutex<()>,
+    /// The packed 4:4:4 modes a save newly allowed, or a probe a stream
+    /// stopped left, which wait to be probed.
+    packed_probe_pending: std::sync::atomic::AtomicU8,
+    /// Packed 4:4:4 modes whose codec the startup probe did not find, warned
+    /// about once each.
+    packed_codec_missing: std::sync::atomic::AtomicU8,
+    /// A thread waits to probe them again, or probes them.
+    packed_reprobing: std::sync::atomic::AtomicBool,
+    /// One optional child probe at a time: packed 4:4:4 at startup or after
+    /// a save, and PyroWave probed again.
+    optional_probe: Mutex<()>,
     /// The encoder focus check per codec and bit depth, indexed by
     /// [`butterpollo_core::encoder_focus::support_index`].
     focus_support: Mutex<[butterpollo_core::encoder_focus::Support; 5]>,
@@ -634,6 +648,11 @@ impl Host {
             codecs: std::sync::atomic::AtomicU32::new(0),
             encoder_mb_rates: Default::default(),
             packed_modes: std::sync::atomic::AtomicU8::new(0),
+            packed_publish: Mutex::new(()),
+            packed_probe_pending: std::sync::atomic::AtomicU8::new(0),
+            packed_codec_missing: std::sync::atomic::AtomicU8::new(0),
+            packed_reprobing: std::sync::atomic::AtomicBool::new(false),
+            optional_probe: Mutex::new(()),
             focus_support: Mutex::new(std::array::from_fn(|_| {
                 butterpollo_core::encoder_focus::Support::NotProbed
             })),
@@ -724,7 +743,7 @@ impl Host {
                 });
                 retrying = true;
                 let Some((flags, error, retry_pyrowave)) =
-                    result.unwrap_or_else(|error| Some((0, Some(format!("{error:#}")), false)))
+                    result.unwrap_or_else(|error| Some((0, Some(format!("{error:#}")), None)))
                 else {
                     // A stream is starting: leave the encoder to it and probe
                     // again once it has ended, without judging this attempt.
@@ -749,9 +768,18 @@ impl Host {
                     tracing::info!(codec_flags = flags, "encoder capability probe completed");
                 }
                 h.metadata.lock().unwrap().take();
+                // A stream stopped the pass's packed probe: probe those modes
+                // once it has ended, not every codec again.
+                if h.packed_probe_pending.load(Ordering::Acquire) != 0 {
+                    h.start_packed_probe(butterpollo_windows::codec_probe::packed);
+                }
                 if !again {
-                    if retry_pyrowave {
-                        h.retry_pyrowave_probe(&config);
+                    if let Some(delay) = retry_pyrowave {
+                        h.retry_pyrowave_probe(
+                            &config,
+                            delay,
+                            butterpollo_windows::codec_probe::pyrowave,
+                        );
                     }
                     return;
                 }
@@ -803,12 +831,14 @@ impl Host {
     }
     /// One pass over every codec. A retry (`yield_to_streams`) stops before
     /// opening another encoder once a launch or stream appears, returning
-    /// None: a probe must not compete with a stream for the encoder.
+    /// None: a probe must not compete with a stream for the encoder. Once the
+    /// standard codecs are probed, it completes instead and leaves the
+    /// optional probes for after the stream.
     fn probe_codecs_once(
         &self,
         config: &Config,
         yield_to_streams: bool,
-    ) -> Result<Option<(u32, Option<String>, bool)>> {
+    ) -> Result<Option<ProbePass>> {
         let _com = butterpollo_windows::capture::ComGuard::new()?;
         let busy = || yield_to_streams && !self.sessions.lock().unwrap().idle();
         // Until this pass publishes its result, keep advertising what the
@@ -930,65 +960,40 @@ impl Host {
         // probe. A driver/overlay failure in that child cannot kill them.
         self.codecs
             .store(flags | pyrowave, std::sync::atomic::Ordering::Release);
-        let mut retry_pyrowave = false;
-        let mut packed_modes = 0;
-        if config.boolean("experimental_packed_444", false) {
-            for (codec, ten_bit) in [(1, false), (1, true), (2, false), (2, true)] {
-                if busy() {
-                    return Ok(None);
+        // The standard codecs are probed: a stream that starts from here on
+        // leaves the optional probes for after it, and the pass completes.
+        {
+            let _probe = self.optional_probe.lock().unwrap();
+            let all = butterpollo_core::packed444::ALL_MODES;
+            let live = || packed_modes_allowed(&self.config.read().unwrap());
+            match probe_packed_modes(
+                config,
+                flags,
+                all,
+                &busy,
+                &live,
+                butterpollo_windows::codec_probe::packed,
+            ) {
+                Some(packed_modes) => self.publish_packed_modes(packed_modes, all),
+                None => {
+                    self.packed_probe_pending
+                        .fetch_or(all, std::sync::atomic::Ordering::AcqRel);
+                    self.publish_packed_modes(0, 0)
                 }
-                let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
-                if mode == 1 || (ten_bit && mode == 2) {
-                    continue;
-                }
-                let negotiated = butterpollo_core::rtsp::Negotiated {
-                    width: 640,
-                    height: 480,
-                    fps: 30,
-                    bitrate_kbps: 2000,
-                    codec,
-                    sdr_10bit: ten_bit,
-                    chroma_packing: butterpollo_core::packed444::VERSION,
-                    ..Default::default()
-                };
-                let probing = std::time::Instant::now();
-                match butterpollo_windows::codec_probe::packed(config, &negotiated) {
-                    Ok(()) => packed_modes |= butterpollo_core::packed444::mode_bit(codec, ten_bit),
-                    // Packed 4:4:4 is opt-in: a mode the user turned on but
-                    // clients are not offered must show in the log.
-                    Err(error) => tracing::warn!(
-                        error = %format!("{error:#}"),
-                        mode = packed_mode_names(butterpollo_core::packed444::mode_bit(codec, ten_bit)),
-                        elapsed_ms = probing.elapsed().as_millis() as u64,
-                        "packed 4:4:4 probe failed; clients are not offered this mode"
-                    ),
-                }
-            }
-            tracing::info!(
-                modes = packed_mode_names(packed_modes),
-                "packed 4:4:4 modes offered to clients"
-            );
+            };
         }
-        self.packed_modes
-            .store(packed_modes, std::sync::atomic::Ordering::Release);
         self.startup_codecs.send_replace(true);
-        if busy() {
-            return Ok(None);
-        }
+        let mut retry_pyrowave = None;
         if config.boolean("pyrowave", true) && !self.stop.load(std::sync::atomic::Ordering::Acquire)
         {
-            match butterpollo_windows::codec_probe::pyrowave(config) {
-                Ok(optional) => flags |= optional,
-                Err(error) => {
-                    retry_pyrowave =
-                        error.is::<butterpollo_windows::codec_probe::SessionNotReady>();
-                    if flags & STANDARD_CODECS != 0 {
-                        tracing::warn!(error = %format!("{error:#}"), retry = retry_pyrowave, "optional PyroWave probe failed; standard codecs remain available");
-                    } else {
-                        tracing::debug!(error = %format!("{error:#}"), "optional PyroWave probe failed");
-                    }
-                }
-            }
+            let result = if busy() {
+                Err(butterpollo_windows::codec_probe::Interrupted.into())
+            } else {
+                butterpollo_windows::codec_probe::pyrowave(config, &busy)
+            };
+            let (optional, retry) = pyrowave_pass(result, pyrowave, flags & STANDARD_CODECS != 0);
+            flags |= optional;
+            retry_pyrowave = retry;
         }
         Ok(Some((flags, first_error, retry_pyrowave)))
     }
@@ -1041,6 +1046,178 @@ impl Host {
             std::thread::sleep(Duration::from_millis(250));
         }
     }
+    /// A save changed the settings from `before`. The packed 4:4:4 modes they
+    /// no longer allow are withdrawn at once, and modes they newly allow are
+    /// probed once no stream runs or starts. Until then the startup probe was
+    /// the only one, so turning full chroma on took a host restart.
+    pub fn packed_settings_saved(self: &Arc<Self>, before: &Config) {
+        self.packed_settings_saved_with(before, butterpollo_windows::codec_probe::packed);
+    }
+    pub(crate) fn packed_settings_saved_with(
+        self: &Arc<Self>,
+        before: &Config,
+        probe: PackedProbe,
+    ) {
+        use std::sync::atomic::Ordering;
+        // The settings alone, not the codecs probed so far: a save during the
+        // startup probe must still ask for a probe.
+        let was = packed_modes_allowed(before);
+        let now = packed_modes_allowed(&self.config.read().unwrap());
+        if was == now {
+            return;
+        }
+        let offered = {
+            let _publish = self.packed_publish.lock().unwrap();
+            self.packed_modes.fetch_and(now, Ordering::AcqRel) & now
+        };
+        // Only the modes the save newly allows are probed: the others keep
+        // what their last probe found. During the startup probe the codecs
+        // are not known yet, and the probe after it checks them. With no
+        // standard codec found yet, the codec retry's next pass probes them.
+        let mut new = now & !was;
+        let codecs = self.codecs.load(Ordering::Acquire);
+        if !self.probing_codecs.load(Ordering::Acquire) {
+            if codecs & STANDARD_CODECS == 0 {
+                new = 0;
+            }
+            let offerable = packed_modes_offerable(&self.config.read().unwrap(), codecs);
+            self.warn_packed_codec_missing(new & !offerable);
+            new &= offerable;
+        }
+        if new == 0 {
+            tracing::info!(
+                modes = packed_mode_names(offered),
+                "packed 4:4:4 modes offered to clients"
+            );
+            return;
+        }
+        self.packed_probe_pending.fetch_or(new, Ordering::AcqRel);
+        self.start_packed_probe(probe);
+    }
+    /// Probe the pending packed 4:4:4 modes on a thread once no stream runs,
+    /// unless one already waits or probes.
+    fn start_packed_probe(self: &Arc<Self>, probe: PackedProbe) {
+        use std::sync::atomic::Ordering;
+        if self.packed_reprobing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let h = self.clone();
+        std::thread::spawn(move || {
+            loop {
+                while h.packed_probe_pending.load(Ordering::Acquire) != 0 {
+                    if !h.wait_until_idle("packed 4:4:4") {
+                        h.packed_reprobing.store(false, Ordering::Release);
+                        return;
+                    }
+                    h.reprobe_packed_modes(probe);
+                }
+                h.packed_reprobing.store(false, Ordering::Release);
+                // A save between the last check and the store found this
+                // thread still running and left its modes to it.
+                if h.packed_probe_pending.load(Ordering::Acquire) == 0
+                    || h.packed_reprobing.swap(true, Ordering::AcqRel)
+                {
+                    return;
+                }
+            }
+        });
+    }
+    /// Warn once about each packed 4:4:4 mode in `modes`, which the settings
+    /// allow but whose codec the startup probe did not find.
+    fn warn_packed_codec_missing(&self, modes: u8) {
+        use std::sync::atomic::Ordering;
+        let new = modes & !self.packed_codec_missing.fetch_or(modes, Ordering::AcqRel);
+        for (codec, ten_bit) in PACKED_MODES {
+            let bit = butterpollo_core::packed444::mode_bit(codec, ten_bit);
+            if new & bit != 0 {
+                let codec = if codec == 1 { "HEVC" } else { "AV1" };
+                tracing::warn!(
+                    mode = packed_mode_names(bit),
+                    "packed 4:4:4 mode not offered: {codec} not found by the startup probe; restart the host"
+                );
+            }
+        }
+    }
+    /// Wait until a user is signed in, the startup probe has finished and no
+    /// stream has run or started for `PROBE_IDLE`: a client that reconnects
+    /// at once finds the encoder free. False when the host is stopping.
+    fn wait_until_idle(&self, probe: &str) -> bool {
+        use std::sync::atomic::Ordering;
+        let mut idle_since = None;
+        let mut waiting = false;
+        loop {
+            if self.stop.load(Ordering::Acquire) {
+                return false;
+            }
+            if !self.probing_codecs.load(Ordering::Acquire) && self.probe_session_ready() {
+                if idle_since.get_or_insert_with(Instant::now).elapsed() >= PROBE_IDLE {
+                    return true;
+                }
+            } else {
+                idle_since = None;
+                if !std::mem::replace(&mut waiting, true) {
+                    tracing::info!(probe, "optional codec probe waits until no stream runs");
+                }
+            }
+            std::thread::sleep(PROBE_POLL);
+        }
+    }
+    /// Probe the pending packed 4:4:4 modes the saved settings still allow
+    /// and publish them. A stream that starts ends the probe and leaves its
+    /// modes pending for after.
+    fn reprobe_packed_modes(&self, probe: PackedProbe) -> bool {
+        use std::sync::atomic::Ordering;
+        let _probe = self.optional_probe.lock().unwrap();
+        let pending = self.packed_probe_pending.swap(0, Ordering::AcqRel);
+        let mut config = self.config.read().unwrap().clone();
+        config.values.remove("amd_ltr_frames");
+        let busy = || !self.sessions.lock().unwrap().idle();
+        let live = || packed_modes_allowed(&self.config.read().unwrap());
+        let codecs = self.codecs.load(Ordering::Acquire);
+        let offerable = packed_modes_offerable(&config, codecs);
+        // With no standard codec found, the codec retry's next pass probes
+        // the packed modes as well: nothing is missing yet.
+        if codecs & STANDARD_CODECS != 0 {
+            self.warn_packed_codec_missing(pending & packed_modes_allowed(&config) & !offerable);
+        }
+        let modes = pending & offerable;
+        if modes == 0 {
+            return true;
+        }
+        match probe_packed_modes(&config, codecs, modes, &busy, &live, probe) {
+            Some(found) => {
+                self.publish_packed_modes(found, modes);
+                true
+            }
+            None => {
+                self.packed_probe_pending.fetch_or(modes, Ordering::AcqRel);
+                tracing::info!(
+                    "packed 4:4:4 probe stopped for a stream; it runs again once no stream runs"
+                );
+                false
+            }
+        }
+    }
+    /// Offer what a probe of the `probed` modes found, beside the modes it
+    /// did not probe, narrowed to the modes the settings saved by now allow:
+    /// a save during the probe that turned a mode off withdrew it, and one
+    /// that turned a mode on asked for another probe. Packed modes of a codec
+    /// clients are not offered stay off.
+    fn publish_packed_modes(&self, found: u8, probed: u8) -> u8 {
+        use std::sync::atomic::Ordering;
+        let _publish = self.packed_publish.lock().unwrap();
+        let config = self.config.read().unwrap();
+        let offered = (self.packed_modes.load(Ordering::Acquire) & !probed | found & probed)
+            & packed_modes_offerable(&config, self.codecs.load(Ordering::Acquire));
+        self.packed_modes.store(offered, Ordering::Release);
+        if config.boolean("experimental_packed_444", false) {
+            tracing::info!(
+                modes = packed_mode_names(offered),
+                "packed 4:4:4 modes offered to clients"
+            );
+        }
+        offered
+    }
     /// A user is signed in, and no stream runs or is being launched: a
     /// launch asks for a probe, which must wait until its stream has ended.
     fn probe_session_ready(&self) -> bool {
@@ -1048,58 +1225,68 @@ impl Host {
             && !butterpollo_windows::process::user_signed_in())
             && self.sessions.lock().unwrap().idle()
     }
-    /// Wait `delay`, then until a user is signed in and no stream runs or starts.
-    /// False when the host is stopping.
+    /// Wait `delay`, then until a user is signed in and no stream has run or
+    /// started for `PROBE_IDLE`. False when the host is stopping.
     fn wait_for_session(&self, delay: Duration) -> bool {
         use std::sync::atomic::Ordering;
-        let mut until = Instant::now() + delay;
-        loop {
-            while Instant::now() < until {
-                if self.stop.load(Ordering::Acquire) {
-                    return false;
-                }
-                std::thread::sleep(Duration::from_millis(250));
+        let until = Instant::now() + delay;
+        while Instant::now() < until {
+            if self.stop.load(Ordering::Acquire) {
+                return false;
             }
-            // Wait for a sign-in, and leave the GPU to a running stream.
-            if !self.probe_session_ready() {
-                until = Instant::now() + Duration::from_secs(5);
-                continue;
-            }
-            return true;
+            std::thread::sleep(PROBE_POLL);
         }
+        // Wait for a sign-in, and leave the GPU to a running stream.
+        self.wait_until_idle("PyroWave")
     }
     /// Probe PyroWave again when the first probe ran before the signed-in
-    /// user's session was ready, as when the host starts with Windows.
-    /// PyroWave otherwise stayed unavailable until the host restarted.
-    fn retry_pyrowave_probe(&self, config: &Config) {
+    /// user's session was ready, as when the host starts with Windows, or
+    /// timed out, as under a busy CPU. PyroWave otherwise stayed unavailable
+    /// until the host restarted. The first try waits `delay`; a timeout is
+    /// not tried again, and a stream that starts stops the probe until it has
+    /// ended, which counts as no attempt. Returns the attempts made.
+    fn retry_pyrowave_probe(&self, config: &Config, delay: Duration, probe: PyroWaveProbe) -> u32 {
         use butterpollo_windows::codec_probe;
         use std::sync::atomic::Ordering;
-        let mut delay = Duration::from_secs(5);
-        for attempts in 1..=6 {
+        let mut delay = delay;
+        let mut attempts = 0;
+        while attempts < 6 {
             if !self.wait_for_session(delay) {
-                return;
+                return attempts;
             }
-            match codec_probe::pyrowave(config) {
+            let result = {
+                let _probe = self.optional_probe.lock().unwrap();
+                probe(config, &|| !self.sessions.lock().unwrap().idle())
+            };
+            if matches!(&result, Err(error) if error.is::<codec_probe::Interrupted>()) {
+                tracing::debug!(
+                    "optional PyroWave probe stopped for a stream; it runs again once no stream runs"
+                );
+                continue;
+            }
+            attempts += 1;
+            match result {
                 Ok(optional) => {
                     let flags = self.codecs.fetch_or(optional, Ordering::AcqRel) | optional;
                     self.metadata.lock().unwrap().take();
                     tracing::info!(
                         codec_flags = flags,
                         attempts,
-                        "optional PyroWave probe completed once the session was ready"
+                        "optional PyroWave probe completed when probed again"
                     );
-                    return;
+                    return attempts;
                 }
                 Err(error) if error.is::<codec_probe::SessionNotReady>() && attempts < 6 => {
-                    tracing::debug!(error = %format!("{error:#}"), attempts, "optional PyroWave probe is still waiting for the session");
+                    tracing::debug!(error = %format!("{error:#}"), attempts, "optional PyroWave probe waits for the session");
                 }
                 Err(error) => {
                     tracing::warn!(error = %format!("{error:#}"), attempts, "optional PyroWave probe failed again; standard codecs remain available");
-                    return;
+                    return attempts;
                 }
             }
             delay = (delay * 2).min(Duration::from_secs(60));
         }
+        attempts
     }
     pub fn save_credentials(&self, credentials: &Credentials) -> Result<()> {
         let mut paired = self.paired.write().unwrap();
@@ -1318,6 +1505,148 @@ fn focus_summary(support: &[butterpollo_core::encoder_focus::Support; 5]) -> Str
         .collect::<Vec<_>>()
         .join(" ")
 }
+/// A finished probe pass: the codec flags, the first encoder error, and
+/// when to probe PyroWave again if its probe is worth repeating.
+type ProbePass = (u32, Option<String>, Option<Duration>);
+/// How long the host must have had no stream before an optional probe
+/// starts, so a client that reconnects at once finds the encoder free.
+const PROBE_IDLE: Duration = if cfg!(test) {
+    Duration::from_millis(300)
+} else {
+    Duration::from_secs(5)
+};
+const PROBE_POLL: Duration = Duration::from_millis(if cfg!(test) { 25 } else { 250 });
+/// When the startup PyroWave probe is worth trying again, and after how
+/// long: it ran before the user's session was ready, or it timed out, as
+/// under a busy CPU, which a game that keeps running would busy again soon
+/// after. A crashing driver or overlay stays a failure.
+fn pyrowave_retry_delay(error: &anyhow::Error) -> Option<Duration> {
+    use butterpollo_windows::codec_probe::{SessionNotReady, TimedOut};
+    if error.is::<SessionNotReady>() {
+        Some(Duration::from_secs(5))
+    } else if error.is::<TimedOut>() {
+        Some(Duration::from_secs(60))
+    } else {
+        None
+    }
+}
+/// The PyroWave flags a codec pass advertises, and when to probe PyroWave
+/// again. A stream that stopped the probe keeps `previous`, what the last
+/// probe found, and the probe runs again once the stream has ended: the
+/// pass still completes, and its standard codecs are not probed again.
+fn pyrowave_pass(result: Result<u32>, previous: u32, standard: bool) -> (u32, Option<Duration>) {
+    match result {
+        Ok(optional) => (optional, None),
+        Err(error) if error.is::<butterpollo_windows::codec_probe::Interrupted>() => {
+            tracing::debug!(
+                "optional PyroWave probe stopped for a stream; it runs again once no stream runs"
+            );
+            (previous, Some(Duration::from_secs(5)))
+        }
+        Err(error) => {
+            let retry = pyrowave_retry_delay(&error);
+            if standard {
+                tracing::warn!(error = %format!("{error:#}"), retry_in_s = retry.map(|delay| delay.as_secs()), "optional PyroWave probe failed; standard codecs remain available");
+            } else {
+                tracing::debug!(error = %format!("{error:#}"), "optional PyroWave probe failed");
+            }
+            (0, retry)
+        }
+    }
+}
+/// Checks PyroWave on the encoder: `codec_probe::pyrowave`, or a fake in
+/// tests. The closure says a stream wants the encoder.
+pub(crate) type PyroWaveProbe = fn(&Config, &dyn Fn() -> bool) -> Result<u32>;
+/// Checks one packed 4:4:4 mode on the encoder: `codec_probe::packed`, or a
+/// fake in tests. The closure says a stream wants the encoder.
+pub(crate) type PackedProbe =
+    fn(&Config, &butterpollo_core::rtsp::Negotiated, &dyn Fn() -> bool) -> Result<()>;
+const PACKED_MODES: [(u8, bool); 4] = [(1, false), (1, true), (2, false), (2, true)];
+/// The packed 4:4:4 modes the settings let clients be offered: none while
+/// full chroma is off, and none for a codec or 10-bit mode turned off.
+fn packed_modes_allowed(config: &Config) -> u8 {
+    if !config.boolean("experimental_packed_444", false) {
+        return 0;
+    }
+    PACKED_MODES
+        .into_iter()
+        .filter(|&(codec, ten_bit)| {
+            let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
+            !(mode == 1 || (ten_bit && mode == 2))
+        })
+        .fold(0, |modes, (codec, ten_bit)| {
+            modes | butterpollo_core::packed444::mode_bit(codec, ten_bit)
+        })
+}
+/// `packed_modes_allowed`, less the modes of a codec the startup probe did
+/// not find in `codecs` (`ServerCodecModeSupport`): turning HEVC or AV1 on
+/// takes a restart, and a packed mode of a codec clients are not offered
+/// is never chosen.
+fn packed_modes_offerable(config: &Config, codecs: u32) -> u8 {
+    PACKED_MODES
+        .into_iter()
+        .filter(|&(codec, _)| codecs & if codec == 1 { 0x100 } else { 0x10000 } != 0)
+        .fold(0, |modes, (codec, ten_bit)| {
+            modes | butterpollo_core::packed444::mode_bit(codec, ten_bit)
+        })
+        & packed_modes_allowed(config)
+}
+/// Probe each packed 4:4:4 mode in `modes` the settings and `codecs` allow,
+/// warning about each that fails. None once `busy` says a stream wants the
+/// encoder, which also stops a probe that runs. A mode the settings saved by
+/// now (`live`) no longer allow is skipped, or stopped while it is probed.
+fn probe_packed_modes(
+    config: &Config,
+    codecs: u32,
+    modes: u8,
+    busy: &dyn Fn() -> bool,
+    live: &dyn Fn() -> u8,
+    probe: PackedProbe,
+) -> Option<u8> {
+    let allowed = modes & packed_modes_offerable(config, codecs);
+    let mut packed_modes = 0;
+    for (codec, ten_bit) in PACKED_MODES {
+        let bit = butterpollo_core::packed444::mode_bit(codec, ten_bit);
+        if allowed & bit == 0 || live() & bit == 0 {
+            continue;
+        }
+        if busy() {
+            return None;
+        }
+        let negotiated = butterpollo_core::rtsp::Negotiated {
+            width: 640,
+            height: 480,
+            fps: 30,
+            bitrate_kbps: 2000,
+            codec,
+            sdr_10bit: ten_bit,
+            chroma_packing: butterpollo_core::packed444::VERSION,
+            ..Default::default()
+        };
+        let probing = std::time::Instant::now();
+        match probe(config, &negotiated, &|| busy() || live() & bit == 0) {
+            Ok(()) => packed_modes |= bit,
+            Err(error) if error.is::<butterpollo_windows::codec_probe::Interrupted>() => {
+                if live() & bit != 0 {
+                    return None;
+                }
+                tracing::info!(
+                    mode = packed_mode_names(bit),
+                    "packed 4:4:4 probe stopped: the mode was turned off"
+                );
+            }
+            // Packed 4:4:4 is opt-in: a mode the user turned on but clients
+            // are not offered must show in the log.
+            Err(error) => tracing::warn!(
+                error = %format!("{error:#}"),
+                mode = packed_mode_names(bit),
+                elapsed_ms = probing.elapsed().as_millis() as u64,
+                "packed 4:4:4 probe failed; clients are not offered this mode"
+            ),
+        }
+    }
+    Some(packed_modes)
+}
 /// Names of the packed 4:4:4 modes in a `packed444Modes` mask.
 fn packed_mode_names(modes: u8) -> String {
     let names: Vec<_> = [
@@ -1393,6 +1722,464 @@ mod tests {
             focus_summary(&support),
             "h264=verified(+10.0) hevc=unsupported(the focus check failed: frame 3 was not encoded) hevc10=not_probed av1=verified(+50.0) av1_10=not_probed"
         );
+    }
+    #[test]
+    fn a_timed_out_or_early_pyrowave_probe_is_probed_again() {
+        use butterpollo_windows::codec_probe::{SessionNotReady, TimedOut};
+        use std::time::Duration;
+        // A probe that stalled under a busy CPU left PyroWave unoffered
+        // until the host restarted. The load that stalled it, such as a
+        // game, is given a minute to pass.
+        assert_eq!(
+            super::pyrowave_retry_delay(&TimedOut.into()),
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(
+            super::pyrowave_retry_delay(&SessionNotReady::new("no user").into()),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(
+            super::pyrowave_retry_delay(&anyhow::anyhow!(
+                "optional codec probe exited before replying (0xc0000005)"
+            )),
+            None
+        );
+    }
+
+    /// PyroWave probed again after the startup probe: a timeout is tried once
+    /// more only, a session not ready yet until it is, and a stream that
+    /// starts stops the probe until it has ended.
+    mod pyrowave_retry {
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::config::Config;
+        use butterpollo_windows::codec_probe::{Interrupted, SessionNotReady, TimedOut};
+        use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+        use std::time::{Duration, Instant};
+
+        const PYROWAVE: u32 = 0x0080_0000;
+
+        fn until(what: &str, mut done: impl FnMut() -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        #[test]
+        fn a_timeout_is_probed_again_exactly_once() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            fn probe(_: &Config, _: &dyn Fn() -> bool) -> anyhow::Result<u32> {
+                CALLS.fetch_add(1, Ordering::AcqRel);
+                Err(TimedOut.into())
+            }
+            let f = Fixture::new();
+            let config = f.host.config.read().unwrap().clone();
+            assert_eq!(
+                f.host.retry_pyrowave_probe(&config, Duration::ZERO, probe),
+                1
+            );
+            assert_eq!(CALLS.load(Ordering::Acquire), 1);
+            assert_eq!(f.host.codecs.load(Ordering::Acquire) & PYROWAVE, 0);
+        }
+
+        #[test]
+        fn a_session_not_ready_is_probed_until_it_is() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            fn probe(_: &Config, _: &dyn Fn() -> bool) -> anyhow::Result<u32> {
+                if CALLS.fetch_add(1, Ordering::AcqRel) < 2 {
+                    return Err(SessionNotReady::new("nobody is signed in").into());
+                }
+                Ok(PYROWAVE)
+            }
+            let f = Fixture::new();
+            let config = f.host.config.read().unwrap().clone();
+            assert_eq!(
+                f.host.retry_pyrowave_probe(&config, Duration::ZERO, probe),
+                3
+            );
+            assert_ne!(f.host.codecs.load(Ordering::Acquire) & PYROWAVE, 0);
+        }
+
+        #[test]
+        fn a_stream_that_starts_stops_the_probe_until_it_ends() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            static PROBING: AtomicBool = AtomicBool::new(false);
+            fn probe(_: &Config, stop: &dyn Fn() -> bool) -> anyhow::Result<u32> {
+                if CALLS.fetch_add(1, Ordering::AcqRel) > 0 {
+                    return Ok(PYROWAVE);
+                }
+                PROBING.store(true, Ordering::Release);
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !stop() {
+                    anyhow::ensure!(
+                        Instant::now() < deadline,
+                        "the stream did not stop the probe"
+                    );
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(Interrupted.into())
+            }
+            let f = Fixture::new();
+            let config = f.host.config.read().unwrap().clone();
+            let host = f.host.clone();
+            let retry = std::thread::spawn(move || {
+                host.retry_pyrowave_probe(&config, Duration::ZERO, probe)
+            });
+            until("the probe started", || PROBING.load(Ordering::Acquire));
+            f.host
+                .sessions
+                .lock()
+                .unwrap()
+                .teardown
+                .insert("stream".into(), Instant::now());
+            until("the stream stopped the probe", || {
+                f.host.optional_probe.try_lock().is_ok()
+            });
+            std::thread::sleep(Duration::from_millis(400));
+            assert_eq!(
+                CALLS.load(Ordering::Acquire),
+                1,
+                "no probe while the stream runs"
+            );
+            f.host.sessions.lock().unwrap().teardown.clear();
+            // The stopped probe was no attempt.
+            assert_eq!(retry.join().unwrap(), 1);
+            assert_eq!(CALLS.load(Ordering::Acquire), 2);
+            assert_ne!(f.host.codecs.load(Ordering::Acquire) & PYROWAVE, 0);
+        }
+
+        /// Streams that stop the probe use up none of its six attempts: one
+        /// more stream no longer leaves PyroWave off until a restart.
+        #[test]
+        fn streams_that_stop_the_probe_use_up_no_attempt() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            fn probe(_: &Config, _: &dyn Fn() -> bool) -> anyhow::Result<u32> {
+                if CALLS.fetch_add(1, Ordering::AcqRel) < 7 {
+                    return Err(Interrupted.into());
+                }
+                Ok(PYROWAVE)
+            }
+            let f = Fixture::new();
+            let config = f.host.config.read().unwrap().clone();
+            assert_eq!(
+                f.host.retry_pyrowave_probe(&config, Duration::ZERO, probe),
+                1
+            );
+            assert_eq!(CALLS.load(Ordering::Acquire), 8);
+            assert_ne!(f.host.codecs.load(Ordering::Acquire) & PYROWAVE, 0);
+        }
+
+        /// A stream that stops a codec pass's PyroWave probe, or starts
+        /// before it, completes the pass with the PyroWave modes found before
+        /// and a probe after the stream: the "No video encoder" retry ends
+        /// and the standard codecs are not probed again.
+        #[test]
+        fn a_stream_that_stops_the_pass_probe_keeps_its_modes_and_probes_after() {
+            let (flags, retry) =
+                crate::state::pyrowave_pass(Err(Interrupted.into()), PYROWAVE, true);
+            assert_eq!((flags, retry), (PYROWAVE, Some(Duration::from_secs(5))));
+            let (flags, retry) = crate::state::pyrowave_pass(Ok(PYROWAVE), 0, true);
+            assert_eq!((flags, retry), (PYROWAVE, None));
+            let (flags, retry) = crate::state::pyrowave_pass(Err(TimedOut.into()), PYROWAVE, true);
+            assert_eq!((flags, retry), (0, Some(Duration::from_secs(60))));
+            let failed =
+                crate::state::pyrowave_pass(Err(anyhow::anyhow!("no DLL")), PYROWAVE, true);
+            assert_eq!(failed, (0, None));
+        }
+    }
+
+    /// Packed 4:4:4 probed again after a save, with saves and streams that
+    /// land while the probe runs.
+    mod packed_reprobe {
+        use crate::state::test_support::Fixture;
+        use butterpollo_core::{config::Config, packed444::mode_bit, rtsp::Negotiated};
+        use butterpollo_windows::codec_probe::Interrupted;
+        use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+        use std::time::{Duration, Instant};
+
+        /// H.264, HEVC and AV1 found by the startup probe.
+        const CODECS: u32 = 0x1 | 0x100 | 0x200 | 0x10000 | 0x20000;
+
+        fn until(what: &str, mut done: impl FnMut() -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        fn save(f: &Fixture, key: &str, value: &str, probe: crate::state::PackedProbe) {
+            let before = f.host.config.read().unwrap().clone();
+            f.host
+                .config
+                .write()
+                .unwrap()
+                .values
+                .insert(key.into(), value.into());
+            f.host.packed_settings_saved_with(&before, probe);
+        }
+        fn offered(f: &Fixture) -> u8 {
+            f.host.packed_modes.load(Ordering::Acquire)
+        }
+
+        #[test]
+        fn a_stream_that_starts_stops_the_probe_and_it_runs_again_after() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            static PROBING: AtomicBool = AtomicBool::new(false);
+            fn probe(_: &Config, _: &Negotiated, stop: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                if CALLS.fetch_add(1, Ordering::AcqRel) > 0 {
+                    return Ok(());
+                }
+                PROBING.store(true, Ordering::Release);
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !stop() {
+                    anyhow::ensure!(
+                        Instant::now() < deadline,
+                        "the stream did not stop the probe"
+                    );
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(Interrupted.into())
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(CODECS, Ordering::Release);
+            save(&f, "experimental_packed_444", "true", probe);
+            until("the probe started", || PROBING.load(Ordering::Acquire));
+            f.host
+                .sessions
+                .lock()
+                .unwrap()
+                .teardown
+                .insert("stream".into(), Instant::now());
+            until("the probe stopped", || {
+                f.host.packed_probe_pending.load(Ordering::Acquire)
+                    == butterpollo_core::packed444::ALL_MODES
+            });
+            std::thread::sleep(Duration::from_millis(400));
+            assert_eq!(
+                CALLS.load(Ordering::Acquire),
+                1,
+                "no probe while the stream runs"
+            );
+            assert_eq!(offered(&f), 0);
+            f.host.sessions.lock().unwrap().teardown.clear();
+            until("the modes are probed after the stream", || {
+                offered(&f) == butterpollo_core::packed444::ALL_MODES
+            });
+        }
+
+        /// A save that turns a mode off while the probe runs narrows what it
+        /// finds instead of throwing it away; one that turns a mode on gets a
+        /// probe of its own.
+        #[test]
+        fn saves_during_the_probe_narrow_its_result_or_probe_again() {
+            static PROBING: AtomicBool = AtomicBool::new(false);
+            static RELEASE: AtomicBool = AtomicBool::new(false);
+            fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                if !PROBING.swap(true, Ordering::AcqRel) {
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    while !RELEASE.load(Ordering::Acquire) {
+                        anyhow::ensure!(Instant::now() < deadline, "never released");
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
+                Ok(())
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(CODECS, Ordering::Release);
+            f.host
+                .config
+                .write()
+                .unwrap()
+                .values
+                .insert("hevc_mode".into(), "1".into());
+            save(&f, "experimental_packed_444", "true", probe);
+            until("the probe started", || PROBING.load(Ordering::Acquire));
+            // AV1 SDR only: the running probe skips 10-bit AV1.
+            save(&f, "av1_mode", "2", probe);
+            save(&f, "hevc_mode", "0", probe);
+            RELEASE.store(true, Ordering::Release);
+            let expected = mode_bit(1, false) | mode_bit(1, true) | mode_bit(2, false);
+            until("the narrowed and follow-up results are offered", || {
+                offered(&f) == expected
+            });
+            until("the follow-up probe finished", || {
+                !f.host.packed_reprobing.load(Ordering::Acquire)
+            });
+            assert_eq!(offered(&f), expected);
+        }
+
+        /// Turning HEVC on while the host runs offers no packed HEVC: clients
+        /// see HEVC in ServerCodecModeSupport only after a restart.
+        #[test]
+        fn packed_modes_of_a_codec_not_offered_stay_off() {
+            static AV1_PROBED: AtomicBool = AtomicBool::new(false);
+            fn probe(_: &Config, stream: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                if stream.codec == 2 {
+                    AV1_PROBED.store(true, Ordering::Release);
+                }
+                Ok(())
+            }
+            let f = Fixture::new();
+            // The startup probe found no AV1.
+            f.host.codecs.store(0x1 | 0x100 | 0x200, Ordering::Release);
+            save(&f, "experimental_packed_444", "true", probe);
+            until("the HEVC modes are probed", || {
+                offered(&f) == mode_bit(1, false) | mode_bit(1, true)
+            });
+            until("the probe finished", || {
+                !f.host.packed_reprobing.load(Ordering::Acquire)
+            });
+            assert!(!AV1_PROBED.load(Ordering::Acquire));
+        }
+
+        fn logged(path: &std::path::Path, run: impl FnOnce()) -> String {
+            let subscriber = tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::WARN)
+                .without_time()
+                .with_ansi(false)
+                .with_target(false)
+                .with_writer(std::sync::Mutex::new(std::fs::File::create(path).unwrap()))
+                .finish();
+            tracing::subscriber::with_default(subscriber, run);
+            std::fs::read_to_string(path).unwrap()
+        }
+
+        /// A save that allows only modes of a codec the startup probe did not
+        /// find probes nothing, keeps what is offered and says once why.
+        #[test]
+        fn a_save_that_allows_only_modes_of_a_missing_codec_probes_nothing() {
+            fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                panic!("nothing to probe")
+            }
+            let f = Fixture::new();
+            // HEVC was off at startup: only AV1 was found and offered.
+            f.host
+                .codecs
+                .store(0x1 | 0x10000 | 0x20000, Ordering::Release);
+            let av1 = mode_bit(2, false) | mode_bit(2, true);
+            {
+                let mut config = f.host.config.write().unwrap();
+                config
+                    .values
+                    .insert("experimental_packed_444".into(), "true".into());
+                config.values.insert("hevc_mode".into(), "1".into());
+            }
+            f.host.packed_modes.store(av1, Ordering::Release);
+            let path = f.host.directory.join("missing.log");
+            let log = logged(&path, || {
+                save(&f, "hevc_mode", "0", probe);
+                save(&f, "hevc_mode", "1", probe);
+                save(&f, "hevc_mode", "0", probe);
+            });
+            assert!(!f.host.packed_reprobing.load(Ordering::Acquire));
+            assert_eq!(offered(&f), av1);
+            for mode in ["HEVC 8-bit", "HEVC 10-bit"] {
+                assert_eq!(log.matches(&format!("mode=\"{mode}\"")).count(), 1, "{log}");
+            }
+            assert!(
+                log.contains("HEVC not found by the startup probe; restart the host"),
+                "{log}"
+            );
+        }
+
+        /// While the startup probe found no standard codec and retries, a
+        /// save leaves the packed modes to the next pass: no probe, and no
+        /// restart warning that would use up the one a missing codec gets.
+        #[test]
+        fn a_save_before_any_codec_is_found_leaves_the_modes_to_the_next_pass() {
+            fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                panic!("the next codec pass probes them")
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(0, Ordering::Release);
+            let path = f.host.directory.join("no-codec.log");
+            let log = logged(&path, || save(&f, "experimental_packed_444", "true", probe));
+            assert!(log.is_empty(), "{log}");
+            assert!(!f.host.packed_reprobing.load(Ordering::Acquire));
+            assert_eq!(f.host.packed_probe_pending.load(Ordering::Acquire), 0);
+            assert_eq!(offered(&f), 0);
+            // The next pass finds AV1 but not HEVC: the warning is still due.
+            f.host
+                .codecs
+                .store(0x1 | 0x10000 | 0x20000, Ordering::Release);
+            f.host
+                .packed_modes
+                .store(mode_bit(2, false) | mode_bit(2, true), Ordering::Release);
+            save(&f, "hevc_mode", "1", probe);
+            let path = f.host.directory.join("hevc-missing.log");
+            let log = logged(&path, || save(&f, "hevc_mode", "0", probe));
+            assert!(
+                log.contains("HEVC not found by the startup probe; restart the host"),
+                "{log}"
+            );
+        }
+
+        /// A save that newly allows a mode probes only it: a mode already
+        /// offered is neither probed again nor withdrawn by a failed probe.
+        #[test]
+        fn a_save_probes_only_the_modes_it_newly_allows() {
+            static AV1_PROBED: AtomicBool = AtomicBool::new(false);
+            fn probe(_: &Config, stream: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                if stream.codec == 2 {
+                    AV1_PROBED.store(true, Ordering::Release);
+                    anyhow::bail!("timed out under a game");
+                }
+                Ok(())
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(CODECS, Ordering::Release);
+            {
+                let mut config = f.host.config.write().unwrap();
+                config
+                    .values
+                    .insert("experimental_packed_444".into(), "true".into());
+                config.values.insert("hevc_mode".into(), "2".into());
+            }
+            let offered_before = mode_bit(1, false) | mode_bit(2, false) | mode_bit(2, true);
+            f.host.packed_modes.store(offered_before, Ordering::Release);
+            save(&f, "hevc_mode", "0", probe);
+            until("HEVC 10-bit is probed", || {
+                offered(&f) == butterpollo_core::packed444::ALL_MODES
+            });
+            until("the probe finished", || {
+                !f.host.packed_reprobing.load(Ordering::Acquire)
+            });
+            assert!(!AV1_PROBED.load(Ordering::Acquire));
+            assert_eq!(offered(&f), butterpollo_core::packed444::ALL_MODES);
+        }
+
+        /// Turning full chroma off while its probe runs stops the probe at
+        /// once and probes nothing after.
+        #[test]
+        fn turning_full_chroma_off_stops_its_running_probe() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            static PROBING: AtomicBool = AtomicBool::new(false);
+            static STOPPED: AtomicBool = AtomicBool::new(false);
+            fn probe(_: &Config, _: &Negotiated, stop: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                CALLS.fetch_add(1, Ordering::AcqRel);
+                PROBING.store(true, Ordering::Release);
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !stop() {
+                    anyhow::ensure!(Instant::now() < deadline, "the save did not stop the probe");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                STOPPED.store(true, Ordering::Release);
+                Err(Interrupted.into())
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(CODECS, Ordering::Release);
+            save(&f, "experimental_packed_444", "true", probe);
+            until("the probe started", || PROBING.load(Ordering::Acquire));
+            save(&f, "experimental_packed_444", "false", probe);
+            until("the probe finished", || {
+                !f.host.packed_reprobing.load(Ordering::Acquire)
+            });
+            assert!(STOPPED.load(Ordering::Acquire));
+            assert_eq!(CALLS.load(Ordering::Acquire), 1);
+            assert_eq!(f.host.packed_probe_pending.load(Ordering::Acquire), 0);
+            assert_eq!(offered(&f), 0);
+        }
     }
     #[test]
     fn packed_modes_are_logged_by_name() {

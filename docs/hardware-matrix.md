@@ -8,7 +8,7 @@ What we have run Rubylight 3.0 on, and what the code supports beyond that. Every
 | **Supported** | The code path is there and offered on that hardware, covered by unit or fake-driver tests, and we have not run it there yet. Other AMD generations are Supported until someone runs them. |
 | **Unsupported** | Not offered in 3.0, or the hardware cannot do it. |
 
-Rows marked "rc.4 pass" are part of the 3.0.0-rc.4 hardware pass that is running now; their cells change to Tested as its results come in.
+Rows marked "rc.4 pass" were in the 3.0.0-rc.4 hardware pass; the ones still open run again on 3.0.0-rc.5, and their cells change to Tested as results come in.
 
 Our hardware: an RX 7900 XT (RDNA 3) with a Ryzen 7 5800X3D on Windows 11 25H2, build 26200 (the Radeon probes name 26200.9550); a Radeon 780M laptop (RDNA 3 iGPU), mostly as a client; a Retroid Pocket 6 phone; an Intel NUC on Debian as the Linux test client; and a TCL C6K TV (MediaTek MT9689, Android 14) as a client. Everything else is Supported at best. Evidence is in [PERFORMANCE.md](../rust/PERFORMANCE.md), the [release notes](../rust/RELEASE_NOTES.md) and the [3.0 plan](rubylight-3.0-plan.md). A 3.0 build in the "Build and date" column means the run was on the 3.0 line. An older build means the code path was not re-run on 3.0.
 

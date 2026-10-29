@@ -940,6 +940,8 @@ impl Encoder {
                 idr: true,
                 after_invalidation: false,
                 frame_cap_bytes: None,
+                reencoded: false,
+                frame_cap_target: None,
                 latency: Some(begin.elapsed()),
                 presentation: Some(image.captured),
             }])

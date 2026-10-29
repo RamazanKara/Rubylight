@@ -708,32 +708,46 @@ impl SendLossRecovery {
 /// refused as by a full socket. Loopback never loses packets, so this is how
 /// a host A/B exercises recovery from a host-side Wi-Fi dropout. With `:air`
 /// the datagrams are lost after the socket instead, as on a client's Wi-Fi:
-/// the host counts them sent and only the client notices.
+/// the host counts them sent and only the client notices. With `:stall` there
+/// is no schedule: a large frame meets a network adapter that stops draining
+/// (see [`AdapterStall`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SendOutage {
     every: Duration,
     length: Duration,
     air: bool,
+    stall: bool,
 }
 impl SendOutage {
     pub fn parse(value: &str) -> Option<Self> {
         let mut fields = value.trim().split(':').map(str::trim);
         let every = Duration::from_millis(fields.next()?.parse().ok()?);
         let length = Duration::from_millis(fields.next()?.parse().ok()?);
-        let air = match fields.next() {
-            None => false,
-            Some("air") => true,
+        let (air, stall) = match fields.next() {
+            None => (false, false),
+            Some("air") => (true, false),
+            Some("stall") => (false, true),
             Some(_) => return None,
         };
         (fields.next().is_none() && length > Duration::ZERO && every > length).then_some(Self {
             every,
             length,
             air,
+            stall,
         })
     }
     /// Lost in the air: the host sent it and does not know it was lost.
     pub fn in_air(&self) -> bool {
         self.air
+    }
+    /// The adapter stall a large frame starts, for `:stall`.
+    pub fn stall(&self) -> Option<AdapterStall> {
+        self.stall.then_some(AdapterStall {
+            every: self.every,
+            length: self.length,
+            started: None,
+            left: 0,
+        })
     }
     pub fn from_env() -> Option<Self> {
         let outage = Self::parse(&std::env::var("BUTTERPOLLO_TEST_SEND_OUTAGE").ok()?);
@@ -742,16 +756,65 @@ impl SendOutage {
                 every_ms = outage.every.as_millis(),
                 length_ms = outage.length.as_millis(),
                 air = outage.air,
+                stall = outage.stall,
                 "BUTTERPOLLO_TEST_SEND_OUTAGE drops video datagrams on a schedule; unset it outside tests"
             );
         }
         outage
     }
+    /// Whether the schedule refuses datagrams now; never for `:stall`.
     pub fn active(&self, started: Instant, now: Instant) -> bool {
         let elapsed = now.saturating_duration_since(started);
-        elapsed >= self.every
+        !self.stall
+            && elapsed >= self.every
             && Duration::from_nanos((elapsed.as_nanos() % self.every.as_nanos()) as u64)
                 < self.length
+    }
+}
+/// The video socket's send buffer (`SO_SNDBUF`, `butterpollo_windows::net`).
+pub const VIDEO_SOCKET_BUFFER: usize = 1 << 20;
+/// Test-only adapter stall, from `BUTTERPOLLO_TEST_SEND_OUTAGE=every:length:stall`:
+/// the #59 field event, a large frame meeting a network adapter that stopped
+/// draining while a game started. At most once every `every`, a frame with more
+/// than [`VIDEO_SOCKET_BUFFER`] on the wire starts a `length` stall. The socket
+/// buffer takes the first [`VIDEO_SOCKET_BUFFER`] bytes sent in it; after that
+/// the socket is full until the stall ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdapterStall {
+    every: Duration,
+    length: Duration,
+    started: Option<Instant>,
+    /// Bytes handed to the socket since the stall started.
+    left: usize,
+}
+impl AdapterStall {
+    /// A frame with `wire_bytes` on the wire so far is being sent: it starts
+    /// a stall when it overflows the socket buffer and none started within
+    /// `every`. Returns whether it did.
+    pub fn frame(&mut self, wire_bytes: usize, now: Instant) -> bool {
+        if wire_bytes <= VIDEO_SOCKET_BUFFER
+            || self
+                .started
+                .is_some_and(|at| now.saturating_duration_since(at) < self.every)
+        {
+            return false;
+        }
+        self.started = Some(now);
+        self.left = 0;
+        true
+    }
+    /// A batch of `bytes` about to be sent at `now`: `None` when the socket
+    /// takes it, or the stall's end while the socket is full.
+    pub fn full_until(&mut self, bytes: usize, now: Instant) -> Option<Instant> {
+        let end = self.started? + self.length;
+        if now >= end {
+            return None;
+        }
+        if self.left + bytes <= VIDEO_SOCKET_BUFFER {
+            self.left += bytes;
+            return None;
+        }
+        Some(end)
     }
 }
 /// Test-only random loss on the host's video socket, from

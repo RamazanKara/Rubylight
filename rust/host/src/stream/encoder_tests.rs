@@ -18,6 +18,8 @@ fn frame(idr: bool) -> Encoded {
         idr,
         after_invalidation: false,
         frame_cap_bytes: None,
+        reencoded: false,
+        frame_cap_target: None,
         latency: None,
         presentation: None,
     }

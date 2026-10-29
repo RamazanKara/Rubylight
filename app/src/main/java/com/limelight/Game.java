@@ -7277,6 +7277,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // A link test before the launch may have started the stream lower than the setting.
                 currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
                 warnIfBelowPyroWaveFloor(currentBitrate);
+                notePyroWaveFallback();
                 startStreamBitrate();
                 startAdaptiveQuality();
                 updatePipAutoEnter();
@@ -7433,6 +7434,25 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void hostNotice(HostNotices.Notice notice, int text) {
         messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), notice, getString(text));
+    }
+
+    // PyroWave was chosen and the stream runs another codec: say once for the PC why, and which.
+    private void notePyroWaveFallback() {
+        if (decoderRenderer == null) return;
+        boolean chosen = prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE;
+        int format = decoderRenderer.getActiveVideoFormat();
+        String pc = getIntent().getStringExtra(EXTRA_PC_UUID);
+        if (!PyroWaveFallback.fellBack(chosen, format)) {
+            if (chosen && format != 0) HostNotices.reset(this, pc, HostNotices.Notice.PYROWAVE_FALLBACK);
+            return;
+        }
+        String codec = PyroWaveFallback.codecName(format);
+        int reason = decoderRenderer.getPyroWaveUnavailableReason();
+        LimeLog.warning("PyroWave was chosen, but the stream uses " + codec + ": " +
+                (reason != 0 ? getString(reason) : "the PC did not offer it"));
+        messages.notice(pc, HostNotices.Notice.PYROWAVE_FALLBACK, reason != 0 ?
+                getString(R.string.stream_pyrowave_device_unavailable, codec, getString(reason)) :
+                getString(R.string.host_pyrowave_unavailable, codec));
     }
 
     @Override

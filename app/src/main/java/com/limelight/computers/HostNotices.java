@@ -26,6 +26,8 @@ public final class HostNotices {
         PYROWAVE_HDR_LIMIT,
         // A codec forced in settings that this device cannot decode.
         CODEC_UNAVAILABLE,
+        // PyroWave chosen, and the stream runs another codec (this device or the PC lacks it).
+        PYROWAVE_FALLBACK,
         // GeForce Experience too old for 4K.
         HOST_4K_UNAVAILABLE,
         // Multi-touch the host does not take, so touch drives the mouse.

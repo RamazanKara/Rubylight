@@ -39,6 +39,7 @@
     <string name="host_details_features_unknown">Hãy kết nối với PC này một lần để xem PC hỗ trợ những gì.</string>
     <string name="host_details_features_none">Không có tính năng bổ sung nào được báo cáo</string>
     <string name="host_pyrowave_unavailable">PC này không stream được PyroWave nên sẽ dùng %1$s.</string>
+    <string name="stream_pyrowave_device_unavailable">Thiết bị này không chạy được PyroWave nên luồng sẽ dùng %1$s.\n%2$s</string>
     <string name="connection_test_intro_delay">Kiểm tra độ trễ đến PC của bạn.</string>
     <string name="host_feature_cursor_shape">Hình dạng con trỏ</string>
 </resources>

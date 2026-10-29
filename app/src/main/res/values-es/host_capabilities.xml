@@ -39,6 +39,7 @@
     <string name="host_details_features_unknown">Conéctate una vez a este PC para ver qué admite.</string>
     <string name="host_details_features_none">No se ha indicado ninguna función adicional</string>
     <string name="host_pyrowave_unavailable">Este PC no puede transmitir con PyroWave, así que usa %1$s.</string>
+    <string name="stream_pyrowave_device_unavailable">Este dispositivo no puede usar PyroWave, así que la transmisión usa %1$s.\n%2$s</string>
     <string name="connection_test_intro_delay">Prueba el retraso hasta tu PC.</string>
     <string name="host_feature_cursor_shape">Formas del cursor</string>
 </resources>

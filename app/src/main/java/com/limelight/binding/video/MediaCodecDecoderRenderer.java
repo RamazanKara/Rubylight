@@ -200,6 +200,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile boolean decoderFailedWithVulkan;
     // The configured codec's name; a released codec can no longer say it
     private volatile String activeDecoderName;
+    // Why PyroWave chosen in the settings cannot run on this device (a string), or 0
+    private int pyroWaveUnavailableReason;
     // The input buffer size a frame that did not fit asked for; every later configure keeps it.
     private int requiredInputBufferSize = 0;
 
@@ -1574,8 +1576,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     public boolean isPyroWaveSupported() {
-        return prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE &&
-                !prefs.useTextureView && PyroWaveDecoderRenderer.isAvailable(context);
+        if (prefs.videoFormat != PreferenceConfiguration.FormatOption.FORCE_PYROWAVE || prefs.useTextureView) {
+            return false;
+        }
+        int reason = PyroWaveDecoderRenderer.unavailableReason(context);
+        if (reason != 0 && pyroWaveUnavailableReason == 0) {
+            LimeLog.warning("PyroWave was chosen, but this device cannot run it: " + context.getString(reason));
+        }
+        pyroWaveUnavailableReason = reason;
+        return reason == 0;
+    }
+
+    /** Why PyroWave chosen in the settings cannot run on this device, or 0 when it can. */
+    public int getPyroWaveUnavailableReason() {
+        return pyroWaveUnavailableReason;
     }
 
     public int getSupportedVideoFormats(boolean hdr) {

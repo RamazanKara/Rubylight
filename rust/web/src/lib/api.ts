@@ -623,10 +623,20 @@ export interface CoopSession {
 /**
  * One app's co-op on the host: `unknown` before Nucleus Co-op is set up (or while its handlers don't load),
  * `ready` with a handler and the added game, `launcher` for an app a launcher's link starts (no handler can
- * match it), `taken` when another app already lists under its co-op entry's name, otherwise why not, in the
- * host's words (`reason`).
+ * match it), `taken` when another app already lists under its co-op entry's name, `anti_cheat` for a game that
+ * ships anti-cheat (Rubylight never hooks it), `refused` for one Rubylight's own handler never starts (a game on
+ * a network share, Windows' own program, a missing .exe), otherwise why not, in the host's words (`reason`).
  */
-export type CoopGameStatus = 'unknown' | 'ready' | 'no_handler' | 'not_added' | 'no_executable' | 'launcher' | 'taken';
+export type CoopGameStatus =
+  | 'unknown'
+  | 'ready'
+  | 'no_handler'
+  | 'not_added'
+  | 'no_executable'
+  | 'launcher'
+  | 'taken'
+  | 'anti_cheat'
+  | 'refused';
 export interface CoopGame {
   /** The app's uuid. */
   app: string;

@@ -14,7 +14,7 @@ use windows_service::{
     define_windows_service,
     service::{
         ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
-        ServiceType,
+        ServiceType, SessionChangeReason,
     },
     service_control_handler::{self, ServiceControlHandlerResult},
     service_dispatcher,
@@ -175,18 +175,84 @@ fn repair_display_driver(install: &std::path::Path, stop: Arc<AtomicBool>) {
         }
     });
 }
+/// Whether a change of `session` may be the user signing in at the console
+/// (session `console`), when what a Nucleus Co-op session left is put back
+/// ([`restore_nucleus_layers`]). Another user signing in remotely leaves the
+/// console's session as it is.
+fn signs_in(reason: SessionChangeReason, session: u32, console: u32) -> bool {
+    session == console
+        && matches!(
+            reason,
+            SessionChangeReason::SessionLogon | SessionChangeReason::ConsoleConnect
+        )
+}
+
+/// Put back the compatibility settings a Nucleus Co-op session left for the
+/// user at the console when its host stopped mid-session
+/// (`nucleus::layers`): before a host starts, and as the user signs in. A
+/// session of theirs that runs keeps its own.
+fn restore_nucleus_layers(config: &std::path::Path) {
+    use crate::nucleus::layers::AtConsole;
+    // The host's settings file, for nucleus_path.
+    let configured = match butterpollo_core::config::Config::load(&config.join("sunshine.conf")) {
+        Ok(config) => config
+            .nucleus_path()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        Err(error) => {
+            tracing::error!(error = %format!("{error:#}"), "Nucleus Co-op: the settings did not load, so the compatibility settings an earlier session changed were not put back");
+            return;
+        }
+    };
+    match crate::nucleus::layers::restore_at_console(
+        &butterpollo_core::paths::data_root(),
+        &configured,
+    ) {
+        Ok(AtConsole::Done) => {}
+        Ok(AtConsole::Busy) => tracing::info!(
+            "Nucleus Co-op: a session runs for the user at the console and puts its compatibility settings back itself"
+        ),
+        Ok(AtConsole::NoUser { why, waiting }) => {
+            if !waiting.is_empty() {
+                let files = waiting
+                    .iter()
+                    .map(|file| file.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                tracing::warn!(
+                    why,
+                    files,
+                    "Nucleus Co-op: compatibility settings an earlier session changed wait for their user to sign in at the console"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::error!(error = %format!("{error:#}"), "Nucleus Co-op: the compatibility settings an earlier session changed were not put back")
+        }
+    }
+}
+
 fn supervise() -> Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     let event_stop = stop.clone();
     let wake = Arc::new(crate::timing::Signal::new()?);
     let event_wake = wake.clone();
+    // Due at the start, after a host stops, and as the user signs in.
+    let restore = Arc::new(AtomicBool::new(true));
+    let event_restore = restore.clone();
     let reporter = service_control_handler::register(NAME, move |control| match control {
         ServiceControl::Stop | ServiceControl::Shutdown => {
             event_stop.store(true, Ordering::Release);
             let _ = event_wake.set();
             ServiceControlHandlerResult::NoError
         }
-        ServiceControl::SessionChange(_) => {
+        ServiceControl::SessionChange(change) => {
+            // SAFETY: WTSGetActiveConsoleSessionId takes no arguments and has no preconditions.
+            let console =
+                unsafe { windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId() };
+            if signs_in(change.reason, change.notification.session_id, console) {
+                event_restore.store(true, Ordering::Release);
+            }
             let _ = event_wake.set();
             ServiceControlHandlerResult::NoError
         }
@@ -253,6 +319,7 @@ fn supervise() -> Result<()> {
         if current != session {
             if let Some(process) = child.take() {
                 shutdown_child(process);
+                restore.store(true, Ordering::Release);
             }
             session = current;
             restart = RestartPolicy::default();
@@ -262,6 +329,7 @@ fn supervise() -> Result<()> {
             && let Some(code) = process.exit_code()?
         {
             child = None;
+            restore.store(true, Ordering::Release);
             let now = Instant::now();
             let Some(delay) = restart.exited(code, now) else {
                 stop.store(true, Ordering::Release);
@@ -283,6 +351,11 @@ fn supervise() -> Result<()> {
                 );
             }
             retry_at = now + delay;
+        }
+        // Before a host starts, and as the user signs in while one runs: a
+        // session it runs holds its file's lock, and the restore skips it.
+        if restore.swap(false, Ordering::AcqRel) {
+            restore_nucleus_layers(&config);
         }
         // A stop can arrive while a host shuts down above; a new host would
         // only delay it.
@@ -340,6 +413,22 @@ fn supervise() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_sign_in_at_the_console_puts_back_what_nucleus_left() {
+        assert!(signs_in(SessionChangeReason::SessionLogon, 1, 1));
+        assert!(signs_in(SessionChangeReason::ConsoleConnect, 2, 2));
+        // Someone signing in over Remote Desktop.
+        assert!(!signs_in(SessionChangeReason::SessionLogon, 3, 1));
+        for reason in [
+            SessionChangeReason::SessionLock,
+            SessionChangeReason::SessionUnlock,
+            SessionChangeReason::SessionLogoff,
+            SessionChangeReason::RemoteConnect,
+            SessionChangeReason::ConsoleDisconnect,
+        ] {
+            assert!(!signs_in(reason, 1, 1), "{reason:?}");
+        }
+    }
     #[test]
     fn a_driver_removed_while_the_service_runs_is_repaired_after_a_minute() {
         let mut watch = DriverWatch::default();

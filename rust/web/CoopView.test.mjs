@@ -57,6 +57,12 @@ const fixtures = {
   added: status({}, { status: 'not_added', handler: null, players: null }),
   ready: status(),
   launcher: status({ install: install({ state: 'missing' }) }, { name: 'Counter-Strike 2', status: 'launcher', handler: null, players: null }),
+  antiCheat: status({}, {
+    status: 'anti_cheat',
+    reason: 'Shooter.exe uses Easy Anti-Cheat, and Rubylight never hooks a game with anti-cheat',
+    handler: null,
+    players: null,
+  }),
   taken: status({}, {
     status: 'taken',
     reason: 'Another app already lists as "Portal 2 (Co-op)", so the library can\'t show this one: rename one of them',
@@ -76,6 +82,7 @@ const expected = {
   added: 'handler',
   ready: 'ready',
   launcher: 'launcher',
+  antiCheat: 'anti_cheat',
   taken: 'taken',
 };
 const html = (value, app = 'portal') => render(PlayTogether, { props: { uuid: app, draft: new AppDraft({ name: 'Portal 2', uuid: app }), initial: value } }).body;
@@ -118,7 +125,7 @@ test('a refused download is loud, gives the host’s reason and can be tried aga
 
 test('no handler: what is missing, the button that opens Nucleus Co-op on the PC, and the steps from a phone', () => {
   const view = playTogether(fixtures.handler, 'portal');
-  assert.equal(view.text, 'Nucleus Co-op needs a handler for Portal 2.');
+  assert.equal(view.text, 'Portal 2 streams in the background without a handler. To play it together, Nucleus Co-op needs one.');
   assert.match(view.steps, /search its handler hub for Portal 2/);
   const out = html(fixtures.handler);
   assert.match(out, /Open Nucleus Co-op on this PC/);
@@ -175,6 +182,31 @@ test('a second app of the same name is not shown as ready: the library lists onl
   const out = html(fixtures.taken);
   assert.match(out, /Co-op isn’t in the library/);
   assert.doesNotMatch(out, /Up to 2 players|Show “Portal 2 \(Co-op\)” in the library/);
+});
+
+test('a game with anti-cheat says so in the host’s words, with nothing to open or download', () => {
+  const view = playTogether(fixtures.antiCheat, 'portal');
+  assert.equal(view.reason, 'Shooter.exe uses Easy Anti-Cheat, and Rubylight never hooks a game with anti-cheat.');
+  const out = html(fixtures.antiCheat);
+  assert.match(out, /No co-op or background streams for this game/);
+  assert.match(out, /Easy Anti-Cheat/);
+  assert.doesNotMatch(out, /Set up co-op|Open Nucleus Co-op|in the library/);
+  // An older reason-less answer still says why.
+  assert.match(playTogether(status({}, { status: 'anti_cheat' }), 'portal').reason, /never hooks a game with anti-cheat\.$/);
+});
+
+test('a game Rubylight never starts says why in the host’s words', () => {
+  // A program in the Windows folder showed as streaming in the background, then was refused.
+  const refused = status({}, {
+    status: 'refused',
+    reason: 'C:\\Windows\\notepad.exe is part of Windows, not a game',
+    handler: null,
+    players: null,
+  });
+  assert.equal(playTogether(refused, 'portal').reason, 'C:\\Windows\\notepad.exe is part of Windows, not a game.');
+  const out = html(refused);
+  assert.match(out, /No co-op or background streams for this game/);
+  assert.doesNotMatch(out, /streams in the background without a handler/);
 });
 
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {

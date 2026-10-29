@@ -8,8 +8,10 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  * the game not added in Nucleus Co-op yet) and `ready`. Around them: `hidden` (the app starts nothing,
  * or the host is older), `unavailable` (this PC can't run co-op: setting it up would download for
  * nothing), `launcher` (a launcher's link starts the app, so no handler can match it), `installing`
- * and `failed` (the download), `broken` (the handlers didn't load) and `taken` (another app of the same
- * name already lists the co-op entry, so the library shows this one's nowhere).
+ * and `failed` (the download), `broken` (the handlers didn't load), `taken` (another app of the same
+ * name already lists the co-op entry, so the library shows this one's nowhere), `anti_cheat` (the game
+ * ships anti-cheat, so neither co-op nor background streams hook it) and `refused` (Rubylight's own handler
+ * never starts it: a game on a network share, Windows' own program, a missing .exe), shown alike.
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -22,6 +24,7 @@ export type PlayTogetherView =
   | { kind: 'checking' }
   | { kind: 'handler'; added: boolean; text: string; steps: string }
   | { kind: 'taken'; reason: string }
+  | { kind: 'anti_cheat'; reason: string }
   | { kind: 'ready'; players: string; entry: string; start: string };
 
 /** Megabytes as the release page counts them, kept on one line. */
@@ -96,11 +99,21 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
     }
     case 'taken':
       return { kind: 'taken', reason: sentence(game.reason ?? `Another app already lists as “${game.entry}”: rename one of them`) };
+    case 'anti_cheat':
+      return {
+        kind: 'anti_cheat',
+        reason: sentence(game.reason ?? `${name} uses anti-cheat, and Rubylight never hooks a game with anti-cheat`),
+      };
+    case 'refused':
+      return {
+        kind: 'anti_cheat',
+        reason: sentence(game.reason ?? `Rubylight can’t start ${name} in the background`),
+      };
     case 'no_handler':
       return {
         kind: 'handler',
         added: false,
-        text: `Nucleus Co-op needs a handler for ${name}.`,
+        text: `${name} streams in the background without a handler. To play it together, Nucleus Co-op needs one.`,
         steps: `Nucleus Co-op opens on the PC’s screen. There, search its handler hub for ${name}, download the handler, then add the game. This panel moves on by itself.`,
       };
     case 'not_added':

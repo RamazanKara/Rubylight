@@ -88,8 +88,8 @@
         <li>{downloadText(status)} Its size and SHA-256 are checked; a download that doesn’t match is deleted and refused.</li>
         <li>Co-op needs Rubylight running as its Windows service, which starts Nucleus Co-op as the signed-in user.</li>
         <li>
-          Each game needs a handler from Nucleus Co-op’s handler hub. Set co-op up, and see what a game still needs, on its
-          page under <a href="/library" use:link>Games</a>.
+          Co-op needs a handler from Nucleus Co-op’s handler hub for each game; a background stream of one player works
+          without one. Set co-op up, and see what a game still needs, on its page under <a href="/library" use:link>Games</a>.
         </li>
         <li>Each player hears only their own game on Windows build 20348 or newer; older builds say so on the stream.</li>
       </ul>

@@ -22,8 +22,78 @@ that background streams run through Nucleus Co-op. Only the device that
 started it can return to it; nobody else can join a background stream.
 
 A background launch that Nucleus Co-op cannot run is refused with the reason,
-for example "Notepad can't stream in the background: No Nucleus Co-op handler
-for notepad.exe". It never falls back to streaming the PC's monitors.
+for example "Store Game can't stream in the background: Nucleus Co-op starts
+games by their .exe, and Store Game does not name one". It never falls back to
+streaming the PC's monitors.
+
+### Games without a handler
+
+A background stream needs no handler from the hub. A game you added at that
+exact path with a hub handler always uses it, and co-op still needs one.
+Otherwise the host writes its own one-player handler into Nucleus Co-op's
+`handlers` folder (`Rubylight-<game>-<hash>.js`) and adds the game to your
+Nucleus Co-op game list, as Nucleus' own "add game" would. It does that only
+while Nucleus Co-op isn't running, and never over a file it did not write.
+
+Installing a hub handler for the same .exe doesn't remove the host's handler
+right away: the next Nucleus Co-op session of another game removes it and its
+entry, so Nucleus Co-op lets you add the game with the hub's handler. That
+session also removes a handler the host wrote for you that no game in your
+list uses. The `handlers` folder is shared by every Windows account and each
+account's list is its own, so a handler written for another account, or by
+an earlier version, stays. The host only ever removes its own files and
+entries. One it
+can't remove shows as a warning on the stream and is tried again next time;
+an entry whose handler is gone does no harm, as Nucleus Co-op leaves it out
+when it loads the list. Another game with an .exe of the same name (Portal's
+and Half-Life 2's `hl2.exe`) still streams with the host's handler, written
+again for each of its sessions.
+
+The game runs from its own folder: nothing is copied, linked or written there,
+and Nucleus Co-op needs no extra tools for it. Its window keeps running and
+reading the pad without focus, and it never sees the PC's keyboard or moves
+the PC's cursor.
+
+- **The app names the game's .exe, or is a Steam link.** For
+  `steam://rungameid/<id>` the host starts the .exe Steam would, with that
+  launch option's arguments (Portal is `hl2.exe -game portal`), found from
+  the game's install folder and Steam's launch option for Windows, and starts
+  Nucleus Co-op with the game's Steam app id (`SteamAppId`, `SteamGameId`), so
+  the game runs without restarting through Steam. Steam must know the game:
+  one that is not installed, or that Steam's app cache does not list yet, is
+  refused with the reason (start it once in Steam). Other launchers' links
+  are refused: set the app's command to the game's .exe. The game gets the
+  arguments the app's command passes it. A game's .exe in a Steam library
+  (`steamapps\common\<folder>`) counts as that Steam game: it gets its app id
+  and Valve Anti-Cheat check the same way. Steam libraries on a network share
+  are skipped. A Steam app's folder in a library Steam doesn't list is
+  refused, and a folder of a listed library that no Steam app installs to
+  too. Where several apps share a folder (Half-Life 2 and its episodes), the
+  one whose launch option matches the .exe and its arguments counts.
+- **The game, not its launcher.** A launcher (`steam.exe -applaunch`, the Epic
+  Games Launcher, Playnite, `Fallout4Launcher.exe`, `PlayGTAV.exe` and the
+  like) is refused. The small .exe at an Unreal game's root starts the one
+  `<Project>\Binaries\Win64\*-Win64-Shipping.exe` instead.
+- **On this PC's own drives, and no part of Windows.** A game on a network
+  share, or a program in the Windows folder, is refused before the host opens
+  it. Your user folders are fine.
+- **No anti-cheat.** A game that ships anti-cheat, such as Easy Anti-Cheat,
+  BattlEye or Riot Vanguard, or that Steam lists with Valve Anti-Cheat, is
+  refused before anything is written: Nucleus Co-op's hooks would look like
+  cheating. Well-known ones without anti-cheat files in their folder
+  (Counter-Strike 2, Dota 2, Overwatch and others) are known by name, and a
+  game Battle.net installed (its `.build.info`) has Blizzard's anti-cheat.
+  The host looks only in the game's own folder, never in a folder many games
+  share: for an Unreal Engine 3 game (`<Game>\Binaries\Win32`) that is
+  `<Game>`.
+- **The Play together panel says why** before you launch: for an app that
+  names its .exe it checks the path, launchers, and anti-cheat by name and in
+  the game's folder. A Steam game's Valve Anti-Cheat flag, for a link or an
+  .exe in a Steam library, is checked when it launches, and the launch says
+  why.
+- **Controllers only**, as for every background stream.
+- **Some games pause anyway** when their window is not in front, despite the
+  focus hooks. Those need a hub handler made for them.
 
 A `background_mode` line that an earlier build wrote (`auto`,
 `child_session` or `virtual_display`) becomes `nucleus`, and the host log
@@ -67,9 +137,10 @@ something), the stream is refused until you answer it at the PC. Only
 Nucleus Co-op itself is closed: what it started (a browser, a game) is left
 alone. A Nucleus
 Co-op you started yourself is never closed: Open and launches are refused
-while it runs. A game without a handler is refused
+while it runs. Co-op in a game without a handler is refused
 with "No Nucleus Co-op handler for <exe>: add one in Nucleus Co-op's handler
-hub".
+hub"; a background stream of it uses Rubylight's own handler
+([Games without a handler](#games-without-a-handler)).
 
 Rubylight writes a Nucleus profile named **Rubylight** for each session and
 loads it. When a start times out with "open Nucleus Co-op and load the profile
@@ -137,6 +208,18 @@ the Nucleus Co-op panel under **Help**.
   player needs Windows build 20348 or later. On older builds the host says so.
 - One Nucleus Co-op session at a time: a second one is refused while Nucleus
   Co-op is busy with another game.
+- **Compatibility settings come back.** As it starts each instance, Nucleus
+  Co-op sets the game's .exe to its DPI mode in your Windows compatibility
+  settings (Properties › Compatibility), replacing what you set there. The
+  host keeps those settings from before the session and puts them back
+  when it ends, also after a crash or a failed start. It only touches the
+  game's own .exe and Nucleus' instance links, and only where Nucleus' DPI
+  mode is still set: a setting you change meanwhile, or another game's .exe
+  of the same name, stays as you left it. Should the host stop mid-session,
+  the settings come back when you next sign in at the PC, when the service
+  starts the host again, or before the next session. Until then they wait in
+  `Rubylight-layers-<SID>.json` in Nucleus Co-op's folder. If that file
+  can't be read, the launch says so and names it: delete it to stream again.
 
 ## Status
 

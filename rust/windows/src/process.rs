@@ -377,9 +377,19 @@ fn restrict(folder: &Path, sddl: &str) -> Result<()> {
 /// AlreadyExists when anything has its name, which is left as it is. Making
 /// Administrators the owner takes administrator rights.
 pub fn create_folder_administrators_readable(path: &Path) -> std::io::Result<()> {
+    create_folder(path, USERS_READ)
+}
+/// Create the folder `path` as [`create_folder_administrators_readable`]
+/// does, with [`ADMINISTRATORS_ONLY`]'s owner and permissions: nobody else
+/// can open it, not even between its creation and its permissions.
+pub fn create_folder_administrators_only(path: &Path) -> std::io::Result<()> {
+    create_folder(path, ADMINISTRATORS_ONLY)
+}
+/// Create the folder `path` with `sddl`'s owner and permissions from the start.
+fn create_folder(path: &Path, sddl: &str) -> std::io::Result<()> {
     use windows::Win32::Storage::FileSystem::CreateDirectoryW;
     let name = wide(path.as_os_str()).map_err(std::io::Error::other)?;
-    with_attributes(USERS_READ, |attributes| {
+    with_attributes(sddl, |attributes| {
         // SAFETY: `name` is NUL-terminated and `attributes` points at a live descriptor, both
         // outliving the call.
         unsafe { CreateDirectoryW(PCWSTR(name.as_ptr()), Some(attributes)) }.map_err(io_error)
@@ -2013,6 +2023,18 @@ pub fn command_target(command: &str) -> &str {
         None => command.split(char::is_whitespace).next().unwrap_or(""),
     }
 }
+/// What a command line passes its program: everything after
+/// [`command_target`], trimmed.
+pub fn command_arguments(command: &str) -> &str {
+    let command = command.trim_start();
+    let rest = match command.strip_prefix('"') {
+        Some(rest) => rest.split_once('"').map_or("", |(_, rest)| rest),
+        None => command
+            .split_once(char::is_whitespace)
+            .map_or("", |(_, rest)| rest),
+    };
+    rest.trim()
+}
 /// Whether Windows must open the target through its association: a URL
 /// (`steam://`, `ms-settings:`) or a file that is not a program. cmd.exe
 /// cannot start a URL, so Steam Big Picture and store links failed.
@@ -2451,6 +2473,46 @@ mod tests {
                 assert!(!path.exists());
             }
         }
+    }
+    #[test]
+    fn a_folder_for_administrators_alone_is_made_with_its_permissions() {
+        use super::*;
+        use std::io::ErrorKind;
+        // List or read data, all, read.
+        const READ: u32 = 0x1 | 0x1000_0000 | 0x8000_0000;
+        let temporary = tempfile::tempdir().unwrap();
+        let folder = temporary.path().join("nucleus-locks");
+        let elevated = elevated().unwrap();
+        match create_folder_administrators_only(&folder) {
+            Ok(()) => {
+                assert!(elevated);
+                // Nobody but SYSTEM and Administrators can even open it, from
+                // its creation on: the temporary folder lets Users read.
+                let open = open_unfollowed(&folder, true).unwrap();
+                assert_eq!(open_file_owner(&open).unwrap(), "S-1-5-32-544");
+                let mut readers = open_file_allowed(&open, READ).unwrap();
+                readers.sort();
+                readers.dedup();
+                assert_eq!(readers, ["S-1-5-18", "S-1-5-32-544"]);
+                assert_eq!(
+                    open_file_writers(&open).unwrap(),
+                    ["S-1-5-18", "S-1-5-32-544"]
+                );
+            }
+            // Only an elevated process can make Administrators the owner; nothing is made.
+            Err(error) => {
+                assert!(!elevated, "{error}");
+                assert!(!folder.exists());
+                std::fs::create_dir(&folder).unwrap();
+            }
+        }
+        // Anything with the name is left as it is.
+        assert_eq!(
+            create_folder_administrators_only(&folder)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::AlreadyExists
+        );
     }
     #[test]
     fn a_piped_child_reads_stdin_and_answers_on_stdout_and_stderr_inside_the_job() {
@@ -3042,6 +3104,16 @@ mod tests {
             assert_eq!(shell_command(unchanged), unchanged);
         }
         assert_eq!(command_target("\"C:\\a b\\c.exe\" x"), "C:\\a b\\c.exe");
+    }
+    #[test]
+    fn a_commands_arguments_are_what_follows_its_program() {
+        assert_eq!(
+            command_arguments(r#" "C:\a b\c.exe" -game "x y" "#),
+            r#"-game "x y""#
+        );
+        assert_eq!(command_arguments(r"C:\Ice\Ice.exe  -windowed"), "-windowed");
+        assert_eq!(command_arguments(r"C:\Ice\Ice.exe"), "");
+        assert_eq!(command_arguments(r#""C:\a b\c.exe""#), "");
     }
     #[test]
     fn supervisor_event_is_wait_only_and_outlives_the_source_handle() -> Result<()> {

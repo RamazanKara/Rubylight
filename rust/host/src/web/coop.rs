@@ -172,7 +172,9 @@ fn status(h: &Shared) -> Value {
             let uuid = app.extra.get("uuid")?.as_str()?;
             let (status, reason, handler, players) = match status {
                 // Started through a launcher: no handler can match it.
-                _ if !crate::nucleus::starts_exe(app) => ("launcher", None, None, None),
+                _ if !crate::nucleus::starts_exe(app) || crate::nucleus::starts_launcher(app) => {
+                    ("launcher", None, None, None)
+                }
                 None => ("unknown", None, None, None),
                 Some(GameStatus::Ready { handler, players }) => {
                     ("ready", None, Some(handler), Some(players))
@@ -182,6 +184,8 @@ fn status(h: &Shared) -> Value {
                         Missing::NoExecutable { .. } => "no_executable",
                         Missing::NoHandler { .. } => "no_handler",
                         Missing::NotAdded { .. } => "not_added",
+                        Missing::AntiCheat { .. } => "anti_cheat",
+                        Missing::Refused { .. } => "refused",
                     };
                     (status, Some(missing.to_string()), None, None)
                 }
@@ -757,6 +761,11 @@ mod tests {
                 "cmd /c start \"\" steam://rungameid/730",
                 "cs2",
             ),
+            app(
+                "Portal",
+                r#""C:\Program Files (x86)\Steam\steam.exe" -applaunch 400"#,
+                "portal1",
+            ),
         ];
         let body = value(
             request(&f, "GET", "/api/coop", Value::Null).await,
@@ -768,11 +777,14 @@ mod tests {
             json!([
                 {"app": "portal", "name": "Portal 2", "status": "ready", "reason": null,
                  "handler": "Portal 2", "players": 2, "entry": "Portal 2 (Co-op)"},
-                {"app": "puzzle", "name": "Puzzle", "status": "no_handler",
-                 "reason": "No Nucleus Co-op handler for Puzzle.exe: add one in Nucleus Co-op's handler hub",
+                // Without a handler, as a background launch would answer.
+                {"app": "puzzle", "name": "Puzzle", "status": "refused",
+                 "reason": r"C:\Games\Puzzle.exe is not on this PC: set the app's command to the game's .exe",
                  "handler": null, "players": null, "entry": "Puzzle (Co-op)"},
                 {"app": "cs2", "name": "Counter-Strike 2", "status": "launcher", "reason": null,
                  "handler": null, "players": null, "entry": "Counter-Strike 2 (Co-op)"},
+                {"app": "portal1", "name": "Portal", "status": "launcher", "reason": null,
+                 "handler": null, "players": null, "entry": "Portal (Co-op)"},
             ])
         );
         assert_eq!(body["catalog_error"], Value::Null);

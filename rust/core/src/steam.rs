@@ -144,6 +144,21 @@ impl Lexer<'_> {
 /// Read the `common` names and types from Steam's binary app cache
 /// (`appcache/appinfo.vdf`, format 28 or 29) for the apps in `wanted`.
 pub fn appinfo(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u32, (String, String)> {
+    appinfo_entries(data, wanted)
+        .into_iter()
+        .map(|(app, info)| {
+            let common = |key: &str| {
+                info.at(&["common", key])
+                    .and_then(Vdf::text)
+                    .unwrap_or("")
+                    .to_owned()
+            };
+            (app, (common("name"), common("type")))
+        })
+        .collect()
+}
+/// The app cache's `appinfo` object of each app in `wanted`.
+fn appinfo_entries(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u32, Vdf> {
     let mut found = BTreeMap::new();
     let u32_at = |at: usize| -> Option<u32> {
         Some(u32::from_le_bytes(data.get(at..at + 4)?.try_into().ok()?))
@@ -188,15 +203,13 @@ pub fn appinfo(data: &[u8], wanted: &BTreeSet<u32>) -> BTreeMap<u32, (String, St
         }
         if wanted.contains(&app) {
             let mut cursor = at + 68;
-            if let Some(root) = binary_object(data, &mut cursor, entry_end, keys.as_deref()) {
-                let info = root.get("appinfo").unwrap_or(&root);
-                let common = |key: &str| {
-                    info.at(&["common", key])
-                        .and_then(Vdf::text)
-                        .unwrap_or("")
-                        .to_owned()
-                };
-                found.insert(app, (common("name"), common("type")));
+            if let Some(mut root) = binary_object(data, &mut cursor, entry_end, keys.as_deref()) {
+                if let Vdf::Object(entries) = &mut root
+                    && let Some(at) = entries.iter().position(|(key, _)| key == "appinfo")
+                {
+                    root = entries.swap_remove(at).1;
+                }
+                found.insert(app, root);
             }
         }
         at = entry_end;
@@ -297,67 +310,14 @@ pub fn steamapps(root: &Path) -> Option<PathBuf> {
 /// Every installed app in the libraries of `roots` (Steam installations),
 /// with play history, names and types from the app cache, and artwork.
 pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
-    let mut libraries: Vec<PathBuf> = vec![];
-    let add = |path: PathBuf, libraries: &mut Vec<PathBuf>| {
-        if !libraries.iter().any(|known| same_path(known, &path)) {
-            libraries.push(path);
-        }
-    };
-    for root in roots {
-        let Some(apps) = steamapps(root) else {
-            continue;
-        };
-        add(apps.clone(), &mut libraries);
-        let folders = std::fs::read_to_string(apps.join("libraryfolders.vdf"))
-            .map(|text| Vdf::parse(&text))
-            .unwrap_or(Vdf::Object(vec![]));
-        let folders = folders.get("libraryfolders").unwrap_or(&folders);
-        for (_, folder) in folders.entries() {
-            // Old files give the path as the value itself.
-            let path = folder.get("path").or(Some(folder)).and_then(Vdf::text);
-            if let Some(path) = path.filter(|p| !p.is_empty())
-                && let Some(library) = steamapps(Path::new(path))
-            {
-                add(library, &mut libraries);
-            }
-        }
-    }
+    let libraries = libraries(roots);
     let mut games: BTreeMap<u32, Game> = BTreeMap::new();
     for steamapps in &libraries {
-        let Ok(entries) = std::fs::read_dir(steamapps) else {
-            continue;
-        };
-        let mut manifests: Vec<_> = entries
-            .filter_map(|entry| entry.ok().map(|e| e.path()))
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|name| {
-                        let name = name.to_ascii_lowercase();
-                        name.starts_with("appmanifest_") && name.ends_with(".acf")
-                    })
-            })
-            .collect();
-        manifests.sort();
-        for manifest in manifests {
-            let Ok(text) = std::fs::read_to_string(&manifest) else {
+        for manifest in manifests(steamapps) {
+            let Some((appid, state, install_dir)) = installed(steamapps, &manifest) else {
                 continue;
             };
-            let document = Vdf::parse(&text);
-            let Some(state) = document.get("AppState") else {
-                continue;
-            };
-            let Some(appid) = state
-                .get("appid")
-                .and_then(Vdf::number)
-                .and_then(|id| u32::try_from(id).ok())
-                .filter(|id| *id > 0)
-            else {
-                continue;
-            };
-            let folder = state.get("installdir").and_then(Vdf::text).unwrap_or("");
-            let install_dir = steamapps.join("common").join(folder);
-            if folder.is_empty() || !install_dir.is_dir() || games.contains_key(&appid) {
+            if games.contains_key(&appid) {
                 continue;
             }
             games.insert(
@@ -403,6 +363,419 @@ pub fn discover(roots: &[PathBuf]) -> Vec<Game> {
         game.icon_path = icon;
     }
     games.into_values().filter(|g| !g.name.is_empty()).collect()
+}
+/// Whether `path` is on one of this PC's drives. The host runs as SYSTEM:
+/// opening a network share would hand it the PC's account, so a library on
+/// a share is skipped before anything opens it.
+fn on_this_pc(path: &Path) -> bool {
+    crate::nucleus::generic::on_this_pc(&path.to_string_lossy()).is_some()
+}
+
+/// The `steamapps` folders of every library of `roots` on this PC's drives.
+fn libraries(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut libraries: Vec<PathBuf> = vec![];
+    let add = |path: PathBuf, libraries: &mut Vec<PathBuf>| {
+        if !libraries.iter().any(|known| same_path(known, &path)) {
+            libraries.push(path);
+        }
+    };
+    for root in roots.iter().filter(|root| on_this_pc(root)) {
+        let Some(apps) = steamapps(root) else {
+            continue;
+        };
+        add(apps.clone(), &mut libraries);
+        let folders = std::fs::read_to_string(apps.join("libraryfolders.vdf"))
+            .map(|text| Vdf::parse(&text))
+            .unwrap_or(Vdf::Object(vec![]));
+        let folders = folders.get("libraryfolders").unwrap_or(&folders);
+        for (_, folder) in folders.entries() {
+            // Old files give the path as the value itself.
+            let path = folder.get("path").or(Some(folder)).and_then(Vdf::text);
+            if let Some(path) = path.filter(|p| !p.is_empty() && on_this_pc(Path::new(p)))
+                && let Some(library) = steamapps(Path::new(path))
+            {
+                add(library, &mut libraries);
+            }
+        }
+    }
+    libraries
+}
+/// The `appmanifest_*.acf` files of a `steamapps` folder, in name order.
+fn manifests(steamapps: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(steamapps) else {
+        return vec![];
+    };
+    let mut manifests: Vec<_> = entries
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|name| {
+                    let name = name.to_ascii_lowercase();
+                    name.starts_with("appmanifest_") && name.ends_with(".acf")
+                })
+        })
+        .collect();
+    manifests.sort();
+    manifests
+}
+/// A manifest's app, its `AppState` and its install folder, when the folder
+/// is there.
+fn installed(steamapps: &Path, manifest: &Path) -> Option<(u32, Vdf, PathBuf)> {
+    let text = std::fs::read_to_string(manifest).ok()?;
+    let state = Vdf::parse(&text).get("AppState")?.clone();
+    let appid = state
+        .get("appid")
+        .and_then(Vdf::number)
+        .and_then(|id| u32::try_from(id).ok())
+        .filter(|id| *id > 0)?;
+    let folder = state.get("installdir").and_then(Vdf::text).unwrap_or("");
+    let install_dir = steamapps.join("common").join(folder);
+    (!folder.is_empty() && install_dir.is_dir()).then_some((appid, state, install_dir))
+}
+
+/// How Steam starts an installed game on Windows ([`game_executable`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Launch {
+    pub exe: PathBuf,
+    pub install_dir: PathBuf,
+    /// The launch option's `arguments`, which Steam passes the .exe.
+    pub arguments: String,
+    /// Whether the store lists Valve Anti-Cheat for it (`common/category`
+    /// `category_8`).
+    pub vac: bool,
+}
+
+/// The .exe Steam starts for `appid` on Windows and the game's install
+/// folder: the app cache's first launch option for Windows that is no
+/// beta's and starts an .exe below the folder, a 64-bit one first.
+pub fn game_executable(appid: u32, roots: &[PathBuf]) -> Result<Launch, String> {
+    let install_dir = libraries(roots)
+        .iter()
+        .find_map(|steamapps| {
+            let manifest = steamapps.join(format!("appmanifest_{appid}.acf"));
+            installed(steamapps, &manifest).map(|(_, _, folder)| folder)
+        })
+        .ok_or_else(|| format!("Steam app {appid} is not installed"))?;
+    let info = cached_app(appid, roots)?;
+    let (relative, arguments) = launch_executable(&info)
+        .ok_or_else(|| format!("Steam app {appid} has no launch option that starts an .exe"))?;
+    let parts: Vec<&str> = relative
+        .split(['\\', '/'])
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    if parts.iter().any(|part| *part == ".." || part.contains(':')) {
+        return Err(format!(
+            "Steam app {appid} starts {relative}, outside its folder"
+        ));
+    }
+    let exe = parts
+        .iter()
+        .fold(install_dir.clone(), |path, part| path.join(part));
+    if !exe.is_file() {
+        return Err(format!(
+            "{} is missing: verify the game's files in Steam",
+            exe.display()
+        ));
+    }
+    Ok(Launch {
+        exe,
+        install_dir,
+        arguments,
+        vac: vac(&info),
+    })
+}
+
+/// The Steam app an .exe in a Steam library belongs to ([`library_app`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LibraryApp {
+    pub appid: u32,
+    pub install_dir: PathBuf,
+    /// As [`Launch::vac`].
+    pub vac: bool,
+}
+
+/// The Steam app whose install folder holds `exe`, an .exe started directly
+/// with `arguments`: for `<library>\steamapps\common\<installdir>\...`, an
+/// app of that library's `appmanifest_<id>.acf` files with the same
+/// `installdir` (in any case), with its Valve Anti-Cheat flag from the app
+/// cache, as a link to the app gives it ([`game_executable`]).
+///
+/// None only for an .exe in no `steamapps\common`, or in one that no Steam
+/// installation of `roots` lists and whose manifests name no app there: a
+/// plain folder. An app's files in a library no installation lists are
+/// refused, as Steam's flag for them can't be trusted, and so is a folder
+/// of a listed library that no manifest names, or an app the cache does
+/// not list. Several apps in one folder (Half-Life 2 and its episodes)
+/// narrow to [`one_of`] them. Nothing is opened for a path off this PC's
+/// drives.
+pub fn library_app(
+    exe: &Path,
+    arguments: &str,
+    roots: &[PathBuf],
+) -> Result<Option<LibraryApp>, String> {
+    let Some((steamapps, folder, relative)) = library_folder(exe) else {
+        return Ok(None);
+    };
+    let named: Vec<(u32, PathBuf)> = manifests(&steamapps)
+        .iter()
+        .filter_map(|manifest| {
+            let (appid, state, install_dir) = installed(&steamapps, manifest)?;
+            state
+                .get("installdir")
+                .and_then(Vdf::text)
+                .is_some_and(|name| {
+                    name.trim_end_matches(['\\', '/'])
+                        .eq_ignore_ascii_case(&folder)
+                })
+                .then_some((appid, install_dir))
+        })
+        .collect();
+    let listed = libraries(roots)
+        .iter()
+        .any(|library| same_library(library, &steamapps));
+    match (named.first(), listed) {
+        (None, false) => return Ok(None),
+        (None, true) => {
+            return Err(format!(
+                "{} is in Steam's library {}, but no Steam app there installs to {folder}: verify the game's files in Steam",
+                exe.display(),
+                steamapps.display()
+            ));
+        }
+        (Some((appid, _)), false) => {
+            return Err(format!(
+                "{} is Steam app {appid}'s, but no Steam installation on this PC lists its library {}: start Steam once while signed in, or start the game from its Steam link",
+                exe.display(),
+                steamapps.display()
+            ));
+        }
+        (Some(_), true) => {}
+    }
+    let wanted: BTreeSet<u32> = named.iter().map(|(appid, _)| *appid).collect();
+    let infos = cached_apps(&wanted, roots);
+    if let Some(appid) = wanted.iter().find(|appid| !infos.contains_key(appid)) {
+        return Err(not_cached(*appid));
+    }
+    let candidates: Vec<(u32, &Vdf)> = named
+        .iter()
+        .map(|(appid, _)| (*appid, &infos[appid]))
+        .collect();
+    let (appid, vac) = one_of(&candidates, &relative, arguments).ok_or_else(|| {
+        let ids: Vec<String> = wanted.iter().map(u32::to_string).collect();
+        format!(
+            "Steam apps {} install to {folder}, and none of them starts {relative}: start the game from its Steam link",
+            ids.join(", ")
+        )
+    })?;
+    // Every candidate installs to the folder.
+    let install_dir = named[0].1.clone();
+    Ok(Some(LibraryApp {
+        appid,
+        install_dir,
+        vac,
+    }))
+}
+
+/// The app an .exe at `relative` in their shared install folder, started
+/// with `arguments`, belongs to among `candidates`, and whether Valve
+/// Anti-Cheat comes with it. One app is its own. Of several, those whose
+/// launch option starts the .exe; then those whose option's arguments the
+/// .exe's include, the most of them (Half-Life 2: Episode One is `hl2.exe
+/// -game episodic`); then games before tools and demos. The lowest app id
+/// stands for those left. Valve Anti-Cheat comes with it when any app that
+/// starts the .exe has it: the arguments only choose the app id, and the
+/// .exe may still load the anti-cheat app's game. None when several share
+/// the folder and none starts the .exe.
+fn one_of(candidates: &[(u32, &Vdf)], relative: &str, arguments: &str) -> Option<(u32, bool)> {
+    if let [(appid, info)] = candidates {
+        return Some((*appid, vac(info)));
+    }
+    // `-game "cstrike"` is `-game cstrike`.
+    let tokens = |arguments: &str| -> Vec<String> {
+        arguments
+            .split_whitespace()
+            .map(|token| token.trim_matches('"').to_ascii_lowercase())
+            .filter(|token| !token.is_empty())
+            .collect()
+    };
+    let given = tokens(arguments);
+    // Each app that starts the .exe, with the most of its options' arguments
+    // the .exe has, when all of one option's are.
+    let starting: Vec<(u32, &Vdf, Option<usize>)> = candidates
+        .iter()
+        .filter_map(|(appid, info)| {
+            let options: Vec<String> = launch_options(info)
+                .into_iter()
+                .filter(|(exe, _)| {
+                    exe.replace('/', "\\")
+                        .trim_start_matches(".\\")
+                        .trim_start_matches('\\')
+                        .eq_ignore_ascii_case(relative)
+                })
+                .map(|(_, arguments)| arguments)
+                .collect();
+            let matched = options
+                .iter()
+                .filter_map(|option| {
+                    let tokens = tokens(option);
+                    tokens
+                        .iter()
+                        .all(|token| given.contains(token))
+                        .then_some(tokens.len())
+                })
+                .max();
+            (!options.is_empty()).then_some((*appid, *info, matched))
+        })
+        .collect();
+    let best = starting.iter().filter_map(|(_, _, matched)| *matched).max();
+    let mut left: Vec<(u32, &Vdf)> = starting
+        .iter()
+        .filter(|(_, _, matched)| best.is_none() || *matched == best)
+        .map(|(appid, info, _)| (*appid, *info))
+        .collect();
+    let game = |info: &Vdf| {
+        info.at(&["common", "type"])
+            .and_then(Vdf::text)
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("game"))
+    };
+    if left.iter().any(|(_, info)| game(info)) {
+        left.retain(|(_, info)| game(info));
+    }
+    let appid = left.iter().map(|(appid, _)| *appid).min()?;
+    Some((appid, starting.iter().any(|(_, info, _)| vac(info))))
+}
+
+/// The executables and arguments of an app's launch options for Windows
+/// that are no beta's.
+fn launch_options(info: &Vdf) -> Vec<(String, String)> {
+    let Some(options) = info.at(&["config", "launch"]) else {
+        return vec![];
+    };
+    options
+        .entries()
+        .iter()
+        .filter_map(|(_, option)| {
+            let config = |key: &str| {
+                option
+                    .at(&["config", key])
+                    .and_then(Vdf::text)
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+            };
+            let windows = config("oslist").is_empty() || config("oslist").contains("windows");
+            let executable = option.get("executable").and_then(Vdf::text)?.trim();
+            let arguments = option.get("arguments").and_then(Vdf::text).unwrap_or("");
+            (windows && config("betakey").is_empty())
+                .then(|| (executable.to_string(), arguments.trim().to_string()))
+        })
+        .collect()
+}
+
+/// Whether two `steamapps` folders on this PC's drives are one, also when
+/// spelled differently (a junction, a short name, another case).
+fn same_library(a: &Path, b: &Path) -> bool {
+    same_path(a, b)
+        || (on_this_pc(a)
+            && on_this_pc(b)
+            && matches!(
+                (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+                (Ok(a), Ok(b)) if a == b
+            ))
+}
+
+/// For an .exe below `<library>\steamapps\common\<folder>`, on this PC's
+/// drives: that `steamapps` folder, `<folder>`, and the .exe's path below
+/// it.
+fn library_folder(exe: &Path) -> Option<(PathBuf, String, String)> {
+    let local = crate::nucleus::generic::on_this_pc(&exe.to_string_lossy())?;
+    let parts: Vec<&str> = local.split('\\').collect();
+    let is = |at: usize, name: &str| parts.get(at).is_some_and(|p| p.eq_ignore_ascii_case(name));
+    // The last `steamapps\common` with a folder and something in it below.
+    let at = (1..parts.len().saturating_sub(3))
+        .rev()
+        .find(|&at| is(at, "steamapps") && is(at + 1, "common") && !parts[at + 2].is_empty())?;
+    if parts[at + 2] == "." || parts[at + 2] == ".." || parts[at + 3..].contains(&"..") {
+        return None;
+    }
+    Some((
+        PathBuf::from(parts[..=at].join("\\")),
+        parts[at + 2].to_string(),
+        parts[at + 3..]
+            .iter()
+            .filter(|part| !part.is_empty() && **part != ".")
+            .copied()
+            .collect::<Vec<_>>()
+            .join("\\"),
+    ))
+}
+
+/// `appid`'s entry in the app cache of the first of `roots` that has one.
+fn cached_app(appid: u32, roots: &[PathBuf]) -> Result<Vdf, String> {
+    cached_apps(&BTreeSet::from([appid]), roots)
+        .remove(&appid)
+        .ok_or_else(|| not_cached(appid))
+}
+
+/// The entries of `wanted` in the app cache of the first of `roots` that
+/// has one.
+fn cached_apps(wanted: &BTreeSet<u32>, roots: &[PathBuf]) -> BTreeMap<u32, Vdf> {
+    roots
+        .iter()
+        .filter(|root| on_this_pc(root))
+        .find_map(|root| std::fs::read(root.join("appcache").join("appinfo.vdf")).ok())
+        .map(|data| appinfo_entries(&data, wanted))
+        .unwrap_or_default()
+}
+
+fn not_cached(appid: u32) -> String {
+    format!("Steam's app cache does not list app {appid}: start it once in Steam")
+}
+
+/// Whether the store lists Valve Anti-Cheat for an app (`common/category`
+/// `category_8`).
+fn vac(info: &Vdf) -> bool {
+    info.at(&["common", "category", "category_8"])
+        .and_then(Vdf::text)
+        .is_some_and(|flag| flag.trim() == "1")
+}
+
+/// The executable of the launch option (`config/launch`) Steam starts on
+/// Windows, relative to the install folder, and its arguments.
+fn launch_executable(info: &Vdf) -> Option<(String, String)> {
+    let options = info.at(&["config", "launch"])?.entries();
+    options
+        .iter()
+        .filter_map(|(_, option)| {
+            let executable = option.get("executable").and_then(Vdf::text)?.trim();
+            let config = |key: &str| {
+                option
+                    .at(&["config", key])
+                    .and_then(Vdf::text)
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+            };
+            let windows = config("oslist").is_empty() || config("oslist").contains("windows");
+            let kind = option
+                .get("type")
+                .and_then(Vdf::text)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            (windows
+                && config("betakey").is_empty()
+                && executable.to_ascii_lowercase().ends_with(".exe")
+                && matches!(kind.as_str(), "" | "default" | "none"))
+            .then(|| {
+                let arguments = option.get("arguments").and_then(Vdf::text).unwrap_or("");
+                (
+                    config("osarch") == "32",
+                    (executable.to_string(), arguments.trim().to_string()),
+                )
+            })
+        })
+        // 64-bit first, then Steam's order.
+        .min_by_key(|(only_32, _)| *only_32)
+        .map(|(_, launch)| launch)
 }
 fn same_path(a: &Path, b: &Path) -> bool {
     a.to_string_lossy()
@@ -1214,6 +1587,483 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[&70], ("Half-Life".into(), "Game".into()));
         assert!(appinfo(&data[..40], &BTreeSet::from([70])).is_empty());
+    }
+    /// Binary VDF in format 28: an object with its children, a text.
+    fn object(key: &str, children: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = vec![0x00];
+        out.extend(key.as_bytes());
+        out.push(0);
+        children.iter().for_each(|child| out.extend(child));
+        out.push(0x08);
+        out
+    }
+    fn text(key: &str, value: &str) -> Vec<u8> {
+        let mut out = vec![0x01];
+        for part in [key, value] {
+            out.extend(part.as_bytes());
+            out.push(0);
+        }
+        out
+    }
+    fn option(key: &str, executable: &str, kind: &str, config: &[(&str, &str)]) -> Vec<u8> {
+        let config: Vec<_> = config.iter().map(|(k, v)| text(k, v)).collect();
+        object(
+            key,
+            &[
+                text("executable", executable),
+                text("type", kind),
+                object("config", &config),
+            ],
+        )
+    }
+    /// A Steam folder with Black Flag (242050) installed and its launch
+    /// options in the app cache, Steam's order first.
+    fn steam_with_launch_options(options: &[Vec<u8>]) -> tempfile::TempDir {
+        steam_with_appinfo(options, &[])
+    }
+    /// The same with `common` holding `common`.
+    fn steam_with_appinfo(options: &[Vec<u8>], common: &[Vec<u8>]) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let apps = root.path().join("steamapps");
+        let game = apps.join("common").join("Black Flag");
+        std::fs::create_dir_all(game.join("bin")).unwrap();
+        std::fs::write(game.join("bin").join("AC4BFSP.exe"), b"").unwrap();
+        std::fs::write(
+            apps.join("appmanifest_242050.acf"),
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"242050\"\n\t\"installdir\"\t\t\"Black Flag\"\n}\n",
+        )
+        .unwrap();
+        let mut kv = object(
+            "appinfo",
+            &[
+                object("common", common),
+                object("config", &[object("launch", options)]),
+            ],
+        );
+        kv.extend([0x08, 0x08]);
+        let mut data = 0x0756_4428u32.to_le_bytes().to_vec();
+        data.extend(1u32.to_le_bytes());
+        data.extend(binary_entry(242050, &kv));
+        data.extend(0u32.to_le_bytes());
+        std::fs::create_dir_all(root.path().join("appcache")).unwrap();
+        std::fs::write(root.path().join("appcache").join("appinfo.vdf"), data).unwrap();
+        root
+    }
+    #[test]
+    fn a_steam_game_starts_the_exe_of_its_windows_launch_option() {
+        let steam = steam_with_launch_options(&[
+            option("0", "AC4BFSP.app", "default", &[("oslist", "macos")]),
+            option("1", "bin32\\AC4BFSP.exe", "default", &[("osarch", "32")]),
+            option("2", "Launcher.exe", "option1", &[]),
+            option(
+                "3",
+                "beta\\AC4BFSP.exe",
+                "default",
+                &[("betakey", "public_test")],
+            ),
+            option(
+                "4",
+                "bin/AC4BFSP.exe",
+                "default",
+                &[("oslist", "windows"), ("osarch", "64")],
+            ),
+        ]);
+        let roots = [steam.path().to_path_buf()];
+        let game = steam
+            .path()
+            .join("steamapps")
+            .join("common")
+            .join("Black Flag");
+        assert_eq!(
+            game_executable(242050, &roots).unwrap(),
+            Launch {
+                exe: game.join("bin").join("AC4BFSP.exe"),
+                install_dir: game.clone(),
+                arguments: String::new(),
+                vac: false,
+            }
+        );
+        assert_eq!(
+            game_executable(7, &roots).unwrap_err(),
+            "Steam app 7 is not installed"
+        );
+    }
+    #[test]
+    fn a_steam_launch_options_arguments_come_with_its_exe() {
+        // Portal starts hl2.exe -game portal: without them it is Half-Life 2.
+        let mut launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let end = launch.len() - 1;
+        launch.splice(end..end, text("arguments", " -game portal "));
+        let steam = steam_with_launch_options(&[launch]);
+        let found = game_executable(242050, &[steam.path().to_path_buf()]).unwrap();
+        assert_eq!(found.arguments, "-game portal");
+    }
+    #[test]
+    fn a_steam_game_with_valve_anti_cheat_says_so() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let vac = steam_with_appinfo(
+            std::slice::from_ref(&launch),
+            &[object(
+                "category",
+                &[text("category_2", "1"), text("category_8", "1")],
+            )],
+        );
+        assert!(
+            game_executable(242050, &[vac.path().to_path_buf()])
+                .unwrap()
+                .vac
+        );
+        let other =
+            steam_with_appinfo(&[launch], &[object("category", &[text("category_2", "1")])]);
+        assert!(
+            !game_executable(242050, &[other.path().to_path_buf()])
+                .unwrap()
+                .vac
+        );
+    }
+    #[test]
+    fn an_exe_started_directly_in_a_steam_library_is_its_apps() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let steam = steam_with_appinfo(
+            std::slice::from_ref(&launch),
+            &[object("category", &[text("category_8", "1")])],
+        );
+        let roots = [steam.path().to_path_buf()];
+        let common = steam.path().join("steamapps").join("common");
+        // The folder in another case than the manifest's.
+        let exe = common.join("BLACK FLAG").join("bin").join("AC4BFSP.exe");
+        assert_eq!(
+            library_app(&exe, "", &roots).unwrap(),
+            Some(LibraryApp {
+                appid: 242050,
+                install_dir: common.join("Black Flag"),
+                vac: true,
+            })
+        );
+        let other = steam_with_appinfo(&[launch], &[]);
+        let exe = other
+            .path()
+            .join(r"steamapps\common\Black Flag\AC4BFSP.exe");
+        let others = [other.path().to_path_buf()];
+        let found = library_app(&exe, "", &others).unwrap();
+        assert!(!found.unwrap().vac);
+        // Like a link: a game the app cache does not list is refused.
+        std::fs::remove_file(other.path().join(r"appcache\appinfo.vdf")).unwrap();
+        assert_eq!(
+            library_app(&exe, "", &others).unwrap_err(),
+            "Steam's app cache does not list app 242050: start it once in Steam"
+        );
+        // An .exe right in `common`, or none in a library: no Steam app.
+        for exe in [
+            common.join("Black Flag.exe"),
+            steam.path().join("Black Flag").join("AC4BFSP.exe"),
+        ] {
+            assert_eq!(
+                library_app(&exe, "", &roots).unwrap(),
+                None,
+                "{}",
+                exe.display()
+            );
+        }
+        // A folder in a listed library that no manifest names is refused.
+        std::fs::create_dir_all(common.join("Mod")).unwrap();
+        let error = library_app(&common.join(r"Mod\Mod.exe"), "", &roots).unwrap_err();
+        assert!(
+            error.ends_with(
+                "but no Steam app there installs to Mod: verify the game's files in Steam"
+            ),
+            "{error}"
+        );
+    }
+    #[test]
+    fn a_steam_apps_files_in_a_library_no_steam_lists_are_refused() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let steam =
+            steam_with_appinfo(&[launch], &[object("category", &[text("category_8", "1")])]);
+        let exe = steam
+            .path()
+            .join(r"steamapps\common\Black Flag\bin\AC4BFSP.exe");
+        // Its manifest names the folder, but no Steam is found: the Valve
+        // Anti-Cheat flag can't be read, so it never streams as a plain .exe.
+        let error = library_app(&exe, "", &[]).unwrap_err();
+        assert!(
+            error.contains(
+                "is Steam app 242050's, but no Steam installation on this PC lists its library"
+            ),
+            "{error}"
+        );
+        // Nor beside a Steam installation that doesn't list it.
+        let installed = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(installed.path().join("steamapps")).unwrap();
+        assert!(library_app(&exe, "", &[installed.path().to_path_buf()]).is_err());
+        // A `steamapps` no installation lists and no manifest names the
+        // folder of is a plain folder.
+        let plain = tempfile::tempdir().unwrap();
+        let game = plain.path().join(r"steamapps\common\Puzzle");
+        std::fs::create_dir_all(&game).unwrap();
+        assert_eq!(
+            library_app(&game.join("Puzzle.exe"), "", &[]).unwrap(),
+            None
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn a_library_spelled_another_way_is_the_one_steam_lists() {
+        let launch = option("0", r"bin\AC4BFSP.exe", "default", &[]);
+        let steam = steam_with_launch_options(&[launch]);
+        let links = tempfile::tempdir().unwrap();
+        let link = links.path().join("Link");
+        let made = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(steam.path())
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let exe = link.join(r"steamapps\common\Black Flag\bin\AC4BFSP.exe");
+        let found = library_app(&exe, "", &[steam.path().to_path_buf()]).unwrap();
+        assert_eq!(found.unwrap().appid, 242050);
+        std::fs::remove_dir(&link).unwrap();
+    }
+    /// A Steam folder with apps that all install to `Half-Life 2`, each with
+    /// its type, launch options (executable, arguments) and VAC flag.
+    /// An app: its id, type, launch options (executable, arguments) and
+    /// whether Steam lists Valve Anti-Cheat for it.
+    type TestApp<'a> = (u32, &'a str, &'a [(&'a str, &'a str)], bool);
+    fn half_life_2(apps: &[TestApp]) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let steamapps = root.path().join("steamapps");
+        std::fs::create_dir_all(steamapps.join(r"common\Half-Life 2")).unwrap();
+        let mut data = 0x0756_4428u32.to_le_bytes().to_vec();
+        data.extend(1u32.to_le_bytes());
+        for (appid, kind, options, vac) in apps {
+            std::fs::write(
+                steamapps.join(format!("appmanifest_{appid}.acf")),
+                format!("\"AppState\" {{ \"appid\" \"{appid}\" \"installdir\" \"Half-Life 2\" }}"),
+            )
+            .unwrap();
+            let mut common = vec![text("type", kind)];
+            if *vac {
+                common.push(object("category", &[text("category_8", "1")]));
+            }
+            let options: Vec<Vec<u8>> = options
+                .iter()
+                .enumerate()
+                .map(|(at, (exe, arguments))| {
+                    object(
+                        &at.to_string(),
+                        &[
+                            text("executable", exe),
+                            text("arguments", arguments),
+                            text("type", "default"),
+                        ],
+                    )
+                })
+                .collect();
+            let mut kv = object(
+                "appinfo",
+                &[
+                    object("common", &common),
+                    object("config", &[object("launch", &options)]),
+                ],
+            );
+            kv.extend([0x08, 0x08]);
+            data.extend(binary_entry(*appid, &kv));
+        }
+        data.extend(0u32.to_le_bytes());
+        std::fs::create_dir_all(root.path().join("appcache")).unwrap();
+        std::fs::write(root.path().join(r"appcache\appinfo.vdf"), data).unwrap();
+        root
+    }
+    #[test]
+    fn half_life_2_and_its_episodes_in_one_folder_are_told_apart() {
+        let steam = half_life_2(&[
+            (220, "Game", &[("hl2.exe", "")], false),
+            (340, "Game", &[("hl2.exe", "-game lostcoast")], false),
+            (380, "Game", &[("hl2.exe", "-game episodic")], false),
+            (420, "Game", &[("hl2.exe", "-game ep2")], false),
+            (218, "Tool", &[("hl2.exe", "")], false),
+        ]);
+        let roots = [steam.path().to_path_buf()];
+        let exe = steam.path().join(r"steamapps\common\Half-Life 2\hl2.exe");
+        let app = |arguments: &str| library_app(&exe, arguments, &roots).unwrap().unwrap();
+        assert_eq!(app("").appid, 220);
+        assert_eq!(app("-novid").appid, 220);
+        assert_eq!(app("-game episodic -novid").appid, 380);
+        assert_eq!(app("-GAME ep2").appid, 420);
+        // Apps that can't be told apart: the lowest stands for them, with
+        // Valve Anti-Cheat when any has it.
+        let steam = half_life_2(&[
+            (220, "Game", &[("hl2.exe", "")], false),
+            (221, "Game", &[(r".\hl2.exe", "")], true),
+        ]);
+        let exe = steam.path().join(r"steamapps\common\Half-Life 2\hl2.exe");
+        let found = library_app(&exe, "", &[steam.path().to_path_buf()])
+            .unwrap()
+            .unwrap();
+        assert_eq!((found.appid, found.vac), (220, true));
+        // Several apps there and none starts the .exe: refused.
+        let other = steam.path().join(r"steamapps\common\Half-Life 2\other.exe");
+        assert_eq!(
+            library_app(&other, "", &[steam.path().to_path_buf()]).unwrap_err(),
+            "Steam apps 220, 221 install to Half-Life 2, and none of them starts other.exe: start the game from its Steam link"
+        );
+    }
+    #[test]
+    fn valve_anti_cheat_of_any_app_starting_the_exe_is_never_narrowed_away() {
+        // The .exe loads Counter-Strike's game with `-game cstrike`, whichever
+        // app id stands for it.
+        let steam = half_life_2(&[
+            (70, "Game", &[("hl.exe", "")], false),
+            (10, "Game", &[("hl.exe", "-game cstrike")], true),
+            (90, "Game", &[("other.exe", "")], true),
+        ]);
+        let roots = [steam.path().to_path_buf()];
+        let exe = steam.path().join(r"steamapps\common\Half-Life 2\hl.exe");
+        let app = |arguments: &str| {
+            let found = library_app(&exe, arguments, &roots).unwrap().unwrap();
+            (found.appid, found.vac)
+        };
+        // Quoted, the argument still names the anti-cheat app.
+        assert_eq!(app(r#"-game "cstrike""#), (10, true));
+        // The argument match drops it, and its anti-cheat stays.
+        assert_eq!(app("-novid"), (70, true));
+        // The type filter drops it, and its anti-cheat stays.
+        let steam = half_life_2(&[
+            (70, "Game", &[("hl.exe", "")], false),
+            (80, "Tool", &[("hl.exe", "")], true),
+        ]);
+        let found = library_app(&exe_in(&steam, "hl.exe"), "", &[steam.path().to_path_buf()])
+            .unwrap()
+            .unwrap();
+        assert_eq!((found.appid, found.vac), (70, true));
+        // An app that starts another .exe in the folder says nothing about
+        // this one.
+        let steam = half_life_2(&[
+            (70, "Game", &[("hl.exe", "")], false),
+            (90, "Game", &[("other.exe", "")], true),
+        ]);
+        let found = library_app(&exe_in(&steam, "hl.exe"), "", &[steam.path().to_path_buf()])
+            .unwrap()
+            .unwrap();
+        assert_eq!((found.appid, found.vac), (70, false));
+    }
+    fn exe_in(steam: &tempfile::TempDir, name: &str) -> PathBuf {
+        steam
+            .path()
+            .join(r"steamapps\common\Half-Life 2")
+            .join(name)
+    }
+    #[test]
+    fn a_library_folder_is_read_from_the_exes_path_on_this_pc_only() {
+        let found = |exe: &str| library_folder(Path::new(exe));
+        assert_eq!(
+            found(r"\\?\D:\SteamLibrary\SteamApps\Common\Game\bin\g.exe"),
+            Some((
+                PathBuf::from(r"D:\SteamLibrary\SteamApps"),
+                "Game".into(),
+                r"bin\g.exe".into()
+            ))
+        );
+        assert_eq!(
+            found("D:/Steam/steamapps/common/Game/g.exe"),
+            Some((
+                PathBuf::from(r"D:\Steam\steamapps"),
+                "Game".into(),
+                "g.exe".into()
+            ))
+        );
+        for exe in [
+            r"\\nas\games\steamapps\common\Game\g.exe",
+            r"\\?\UNC\nas\games\steamapps\common\Game\g.exe",
+            r"\\?\GLOBALROOT\Device\Mup\nas\steamapps\common\Game\g.exe",
+            r"\\.\pipe\steamapps\common\Game\g.exe",
+            r"D:\Steam\steamapps\common\Game.exe",
+            r"D:\Steam\steamapps\common\Game\..\..\..\Other\g.exe",
+            r"D:\Games\Game\g.exe",
+        ] {
+            assert_eq!(found(exe), None, "{exe}");
+        }
+    }
+    #[test]
+    fn a_library_on_a_network_share_is_never_opened() {
+        let steam = tempfile::tempdir().unwrap();
+        let apps = steam.path().join("steamapps");
+        std::fs::create_dir_all(&apps).unwrap();
+        // A library only a share path reaches, and one on a drive.
+        let reached = tempfile::tempdir().unwrap();
+        let reached_apps = reached.path().join("steamapps");
+        std::fs::create_dir_all(reached_apps.join("common").join("Portal 2")).unwrap();
+        std::fs::write(
+            reached_apps.join("appmanifest_620.acf"),
+            "\"AppState\" { \"appid\" \"620\" \"name\" \"Portal 2\" \"installdir\" \"Portal 2\" }",
+        )
+        .unwrap();
+        let local = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(local.path().join("steamapps")).unwrap();
+        let globalroot = format!(r"\\?\GLOBALROOT\GLOBAL??\{}", reached.path().display());
+        // NT's namespace, which Windows resolves as well.
+        let nt = format!(r"\??\{}", reached.path().display());
+        if cfg!(windows) {
+            // The paths reach the library: skipping them is what keeps it out.
+            assert!(steamapps(Path::new(&globalroot)).is_some());
+            assert!(steamapps(Path::new(&nt)).is_some());
+        }
+        let listed = [
+            r"\\nas\games".to_string(),
+            r"\\?\UNC\nas\games".into(),
+            r"\\.\UNC\nas\games".into(),
+            r"\??\UNC\nas\games".into(),
+            globalroot,
+            nt,
+            local.path().display().to_string(),
+        ];
+        let folders: String = listed
+            .iter()
+            .enumerate()
+            .map(|(at, path)| {
+                format!(
+                    "\"{at}\" {{ \"path\" \"{}\" }}\n",
+                    path.replace('\\', "\\\\")
+                )
+            })
+            .collect();
+        std::fs::write(
+            apps.join("libraryfolders.vdf"),
+            format!("\"libraryfolders\" {{\n{folders}}}"),
+        )
+        .unwrap();
+        let roots = [steam.path().to_path_buf()];
+        assert_eq!(libraries(&roots), [apps, local.path().join("steamapps")]);
+        assert_eq!(
+            game_executable(620, &roots).unwrap_err(),
+            "Steam app 620 is not installed"
+        );
+        assert!(discover(&roots).is_empty());
+        // A Steam folder on a share is no root either.
+        assert!(libraries(&[PathBuf::from(r"\\nas\Steam")]).is_empty());
+    }
+    #[test]
+    fn a_steam_launch_option_outside_its_folder_or_missing_is_refused() {
+        let steam = steam_with_launch_options(&[option("0", "..\\Other\\Other.exe", "", &[])]);
+        let roots = [steam.path().to_path_buf()];
+        let error = game_executable(242050, &roots).unwrap_err();
+        assert!(error.contains("outside its folder"), "{error}");
+        let steam = steam_with_launch_options(&[option("0", "Gone.exe", "", &[])]);
+        let error = game_executable(242050, &[steam.path().to_path_buf()]).unwrap_err();
+        assert!(error.contains("Gone.exe is missing"), "{error}");
+        let steam = steam_with_launch_options(&[option("0", "run.sh", "", &[])]);
+        let error = game_executable(242050, &[steam.path().to_path_buf()]).unwrap_err();
+        assert!(
+            error.contains("no launch option that starts an .exe"),
+            "{error}"
+        );
+        // Names and types still read from the same cache.
+        let data = std::fs::read(steam.path().join("appcache").join("appinfo.vdf")).unwrap();
+        assert_eq!(
+            appinfo(&data, &BTreeSet::from([242050]))[&242050],
+            (String::new(), String::new())
+        );
     }
     fn game(appid: u32, name: &str, last_played: u64) -> Game {
         Game {

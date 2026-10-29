@@ -2286,24 +2286,54 @@ async fn background_launches_run_in_nucleus_and_only_their_owner_returns() -> Re
     h.finish().await
 }
 
+/// A one-player game without a hub handler streams in the background with
+/// Rubylight's own handler, written once at the launch: the stream is a
+/// Nucleus player's like any other, with nothing added on its way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_background_launch_without_a_hub_handler_runs_with_ours() -> Result<()> {
+    let (h, pc, _) = coop_harness().await?;
+    let mut ice = h.h.apps.read().unwrap().last().unwrap().clone();
+    ice.name = "Ice".into();
+    ice.cmd = r"C:\NoSuchGames\Ice\Ice.exe".into();
+    ice.extra.insert("background-stream".into(), true.into());
+    let id = ice.id();
+    h.h.apps.write().unwrap().push(ice);
+    let started = launch_app(&h, 0, id).await?;
+    assert!(started.contains("status_code=\"200\""), "{started}");
+    let launch = pending_of(&h, 0).unwrap();
+    let seat = launch.nucleus.unwrap();
+    let own = pc.own.lock().unwrap().clone();
+    assert_eq!(own.len(), 1);
+    let listed = h.h.nucleus.sessions();
+    assert_eq!(listed[0].session.game, own[0].guid());
+    assert_eq!((listed[0].session.slots.len(), listed[0].app_id), (1, id));
+    assert_eq!(h.fixture.apps_prepared.load(Ordering::Acquire), 0);
+    let config = crate::stream::effective_config(&h.h, &launch)?;
+    assert!(crate::nucleus::player(&config));
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
+    drop(canceled);
+    h.h.nucleus.leave(seat, &launch.id);
+    drop(launch);
+    h.finish().await
+}
+
 /// A background launch Nucleus Co-op can't run is refused with the reason
 /// and streams nothing: no display, no app, nothing pending. An app's own
 /// `background-stream` asks for one as the device's setting does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_background_launch_nucleus_cannot_run_streams_nothing() -> Result<()> {
     let (h, pc, _) = coop_harness().await?;
-    let mut notepad = h.h.apps.read().unwrap().last().unwrap().clone();
-    notepad.name = "Notepad".into();
-    notepad.cmd = r"C:\Windows\notepad.exe".into();
-    notepad
-        .extra
-        .insert("background-stream".into(), true.into());
-    let id = notepad.id();
-    h.h.apps.write().unwrap().push(notepad);
+    // A launcher's link names no game for Nucleus Co-op to start.
+    let mut store = h.h.apps.read().unwrap().last().unwrap().clone();
+    store.name = "Store Game".into();
+    store.cmd = "com.epicgames.launcher://apps/x?action=launch".into();
+    store.extra.insert("background-stream".into(), true.into());
+    let id = store.id();
+    h.h.apps.write().unwrap().push(store);
     let missing = launch_app(&h, 0, id).await?;
     assert!(missing.contains("status_code=\"404\""), "{missing}");
     assert!(
-        missing.contains("No Nucleus Co-op handler for notepad.exe"),
+        missing.contains("Store Game does not name one"),
         "{missing}"
     );
     assert!(missing.contains("stream in the background"), "{missing}");

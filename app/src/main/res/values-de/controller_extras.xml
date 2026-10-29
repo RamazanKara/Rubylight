@@ -5,6 +5,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Mausbewegung in festen Schritten</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">Halte im Controller-Mausmodus X gedrückt, während du den Stick bewegst, damit sich der Zeiger jeweils um eine feste Pixelzahl bewegt. Y verdoppelt den Schritt von 1 bis 128 Pixel und beginnt dann wieder bei 1.</string>
     <string name="stream_mouse_step">Mausschritt: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">Systemtasten senden</string>
+    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, die Windows-Taste und Ähnliches gehen an den PC, solange die Eingabe erfasst ist, ebenso die Zurück-Taste, die viele Android-Tastaturen anstelle von Esc haben. Alt+Tab und die Windows-Taste gibt Android nur ab Android 16 QPR2 (Dezember 2025) und auf vielen Samsung-Geräten ab; sonst behält Android sie. Home, Ein/Aus und Lautstärke bleiben immer bei Android. Das Stream-Menü öffnest du mit Strg+Alt+Umschalt+M oder der Zurück-Geste oder -Taste von Android. Gilt ab dem nächsten Stream.</string>
     <string name="title_checkbox_back_as_meta">Tastatur-Zurück sendet Windows-Taste</string>
     <string name="summary_checkbox_back_as_meta">Die Zurück-Taste einer echten Tastatur sendet die Windows-Taste (Befehlstaste auf einem Mac). Das Stream-Menü öffnest du dann mit Strg+Alt+Umschalt+M, der Zurück-Geste oder -Taste von Android oder der Controller-Tastenkombination.</string>
     <string name="title_checkbox_right_alt_as_meta">Rechte Alt-Taste als Befehlstaste</string>

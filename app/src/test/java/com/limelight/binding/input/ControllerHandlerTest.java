@@ -83,6 +83,50 @@ public class ControllerHandlerTest {
         }
     }
 
+    // #49: a handheld's Back (the default context, like a built-in pad, leaves Back to Android) sends
+    // Guide only with Back button as Guide on, and releases it on the way up.
+    @Test
+    public void backAsGuideSendsGuideOnlyWhenEnabled() {
+        ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs);
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        try {
+            assertFalse("Back stays Android's when off", handler.handleButtonDown(new KeyEvent(1000, 1000,
+                    KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0, 0, 0, 0)));
+            assertTrue(connection.buttons.isEmpty());
+
+            prefs.backAsGuide = true;
+            assertTrue(handler.handleButtonDown(new KeyEvent(2000, 2000, KeyEvent.ACTION_DOWN,
+                    KeyEvent.KEYCODE_BACK, 0, 0, 0, 0)));
+            assertEquals(ControllerPacket.SPECIAL_BUTTON_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertTrue(handler.handleButtonUp(new KeyEvent(2000, 2100, KeyEvent.ACTION_UP,
+                    KeyEvent.KEYCODE_BACK, 0, 0, 0, 0)));
+            assertEquals(0, (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertEquals(0, activity.menuCount);
+            assertFalse(activity.isFinishing());
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void onlyAnInjectedBackOnAHandheldCountsAsItsSystemButton() {
+        int keyboard = android.view.InputDevice.SOURCE_KEYBOARD;
+        assertTrue(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_BACK, 0, keyboard, true, false, true));
+        // No built-in gamepad (a phone), or a real device (gamepads go through handleButtonDown).
+        assertFalse(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_BACK, 0, keyboard, true, false, false));
+        assertFalse(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_BACK, 0, keyboard, false, false, true));
+        assertFalse(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_BACK, 0, keyboard, true, true, true));
+        // Android's navigation bar and gesture, Esc's fallback Back and a mouse's right click leave the stream as before.
+        assertFalse(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_BACK, KeyEvent.FLAG_VIRTUAL_HARD_KEY, keyboard, true, false, true));
+        assertFalse(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_BACK, KeyEvent.FLAG_FALLBACK, keyboard, true, false, true));
+        assertFalse(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_BACK, 0, android.view.InputDevice.SOURCE_MOUSE, true, false, true));
+        assertFalse(ControllerHandler.isInjectedHandheldBack(KeyEvent.KEYCODE_ESCAPE, 0, keyboard, true, false, true));
+    }
+
     @Test
     public void mergedMappedButtonsStayDownUntilTheLastPhysicalKeyReleases() {
         for (int firstReleased : new int[] {304, 305}) {

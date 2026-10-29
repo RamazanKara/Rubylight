@@ -249,6 +249,11 @@
             android:title="@string/title_checkbox_back_opens_menu"
             android:dialogMessage="@string/summary_checkbox_back_opens_menu"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_back_as_guide"
+            android:title="@string/title_checkbox_back_as_guide"
+            android:dialogMessage="@string/summary_checkbox_back_as_guide"
+            android:defaultValue="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_deadzone"
             android:defaultValue="7"
@@ -500,6 +505,11 @@
         <Preference android:key="keyboard_shortcuts_editor"
             android:title="@string/keyboard_shortcuts_title"
             android:summary="@string/keyboard_shortcuts_summary" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_capture_system_keys"
+            android:title="@string/title_checkbox_capture_system_keys"
+            android:dialogMessage="@string/summary_checkbox_capture_system_keys"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_back_as_meta"
             android:title="@string/title_checkbox_back_as_meta"

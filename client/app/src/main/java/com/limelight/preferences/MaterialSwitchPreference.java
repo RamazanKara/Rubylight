@@ -7,9 +7,12 @@ import android.view.View;
 import android.widget.ImageButton;
 
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.limelight.ui.Haptics;
 import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
+
+import java.lang.ref.WeakReference;
 
 /**
  * A settings switch: the title, the switch showing its state, and android:summary only when a
@@ -20,6 +23,8 @@ public class MaterialSwitchPreference extends SwitchPreference {
     // Material's disabled content opacity, as in color/text_on_surface.xml
     private static final float DISABLED_ALPHA = 0.38f;
     private CharSequence explanation;
+    // The row on screen, for a tap's touch feedback; held weakly since the list recycles its rows.
+    private WeakReference<View> row = new WeakReference<>(null);
 
     public MaterialSwitchPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -47,9 +52,19 @@ public class MaterialSwitchPreference extends SwitchPreference {
         notifyChanged();
     }
 
+    /** A tap flips the switch; the row answers with the on or off feedback once the change is accepted. */
+    @Override
+    protected void onClick() {
+        boolean before = isChecked();
+        super.onClick();
+        View view = row.get();
+        if (view != null && isChecked() != before) Haptics.toggle(view, isChecked());
+    }
+
     @Override
     protected void onBindView(View view) {
         super.onBindView(view);
+        row = new WeakReference<>(view);
         MaterialSwitch toggle = view.findViewById(R.id.preference_switch);
         toggle.setChecked(isChecked());
         Runnable showExplanation = explanation == null ? null : () -> UiHelper.showDialog(getContext(),

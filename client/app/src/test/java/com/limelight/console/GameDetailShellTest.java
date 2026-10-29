@@ -112,7 +112,10 @@ public class GameDetailShellTest {
         ActivityController<Detail> controller = detail();
         try {
             Detail page = controller.get();
-            page.findViewById(R.id.shell_settings).performClick();
+            View tab = page.findViewById(R.id.shell_settings);
+            tab.performClick();
+            assertEquals("a tab answers the tap (nightjar#44)", android.view.HapticFeedbackConstants.VIRTUAL_KEY,
+                    shadowOf(tab).lastHapticFeedbackPerformed());
             Intent settings = shadowOf(page).getNextStartedActivity();
             assertEquals(StreamSettings.class.getName(), settings.getComponent().getClassName());
             assertTrue(settings.getBooleanExtra(com.limelight.ui.ShellBar.EXTRA_FROM_SHELL, false));
@@ -127,7 +130,9 @@ public class GameDetailShellTest {
         ActivityController<PcViewLifecycleTest.Library> pcs = null;
         try {
             Detail page = controller.get();
-            page.findViewById(R.id.shell_pcs).performClick();
+            View tab = page.findViewById(R.id.shell_pcs);
+            tab.performClick();
+            assertEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(tab).lastHapticFeedbackPerformed());
             Intent opened = shadowOf(page).getNextStartedActivity();
             assertEquals(com.limelight.PcView.class.getName(), opened.getComponent().getClassName());
             assertFalse("the page stays underneath", page.isFinishing());

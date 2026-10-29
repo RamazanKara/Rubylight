@@ -39,7 +39,7 @@ fn main() {
             "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n"
         })
         .allowlist_type("AV.*|RcOverride|UINT")
-        .allowlist_function("avcodec_.*|av_packet_.*|av_frame_.*|av_hwdevice_.*|av_hwframe_map|av_pix_fmt_desc_get|av_get_pix_fmt_name|av_strerror|av_buffer_unref|av_buffer_pool_.*|av_dict_set|av_dict_free")
+        .allowlist_function("avcodec_.*|av_packet_.*|av_frame_.*|av_hwdevice_.*|av_hwframe_map|av_hwframe_transfer_data|av_pix_fmt_desc_get|av_get_pix_fmt_name|av_strerror|av_buffer_unref|av_buffer_pool_.*|av_dict_set|av_dict_free")
         .allowlist_var("AV_.*|FF_THREAD_SLICE")
         .allowlist_recursively(false)
         .blocklist_type("ID3D.*")

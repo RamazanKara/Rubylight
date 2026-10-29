@@ -71,8 +71,11 @@ fn decode(
     codec: media::Codec,
     data: &[u8],
 ) -> Result<media::FrameInfo, String> {
-    let mut decoder =
-        media::VideoDecoder::open(codec, hardware, 1, hardware != media::Hardware::None)?;
+    // The stream's decoder order; the error names each backend that did not open.
+    let mut decoder = match hardware {
+        media::Hardware::None => media::VideoDecoder::open(codec, hardware, 1, false)?,
+        hardware => media::VideoDecoder::open_first(codec, hardware, true, |_, _| {})?,
+    };
     let status = decoder.send(data, 0);
     if status < 0 {
         return Err(format!("the decoder rejected the fixture ({status})"));

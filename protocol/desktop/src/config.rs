@@ -592,6 +592,10 @@ pub struct HostRecord {
     pub http_port: u16,
     pub https_port: u16,
     pub other_addresses: Vec<String>,
+    /// The WAN address that reaches the PC from outside its network, tried after the others
+    /// (Moonlight's remote address): the PC's own `ExternalIP`, else this device's STUN answer
+    /// when the PC was found on the LAN.
+    pub remote_address: Option<String>,
     /// The certificate pinned at pairing (PEM); None while unpaired.
     pub server_certificate: Option<String>,
     pub mac: Option<String>,

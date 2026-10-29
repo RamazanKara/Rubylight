@@ -404,27 +404,38 @@ public class ComputerManagerService extends Service {
     }
 
     private void populateExternalAddress(ComputerDetails details) {
+        boolean activeNetworkIsVpn = NetHelper.isActiveNetworkVpn(this);
+        if (activeNetworkIsVpn && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            // STUN must use an underlying LAN, not the VPN's public endpoint. Only the STUN socket
+            // goes there (as Moonlight V+ does): binding the process would move a running stream's
+            // sockets off the VPN for the length of the query.
+            Network lan = stunNetwork((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE));
+            if (lan == null) {
+                LimeLog.info("STUN: no non-VPN network to ask on");
+                return;
+            }
+            try {
+                String stunResolvedAddress = StunClient.query("stun.moonlight-stream.org", 3478, 3000,
+                        lan::getAllByName, lan::bindSocket);
+                if (stunResolvedAddress != null) {
+                    details.remoteAddress = new ComputerDetails.AddressTuple(stunResolvedAddress, details.guessExternalPort());
+                } else {
+                    LimeLog.info("STUN: no answer on the non-VPN network");
+                }
+            } catch (IOException e) {
+                LimeLog.warning("STUN on the non-VPN network failed: " + e);
+            }
+            return;
+        }
+
+        // Without a VPN the default network is the LAN. Android 5.0 has no
+        // Network.bindSocket(DatagramSocket): there the process is bound for the query.
         boolean boundToNetwork = false;
-        ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         defaultNetworkLock.lock();
         try {
-            boolean activeNetworkIsVpn = NetHelper.isActiveNetworkVpn(this);
             if (activeNetworkIsVpn) {
-                // STUN must use an underlying LAN, not the VPN's public endpoint.
-                for (Network net : connMgr.getAllNetworks()) {
-                    NetworkCapabilities netCaps = connMgr.getNetworkCapabilities(net);
-                    if (netCaps != null && !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
-                            !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            boundToNetwork = connMgr.bindProcessToNetwork(net);
-                        } else {
-                            boundToNetwork = ConnectivityManager.setProcessDefaultNetwork(net);
-                        }
-                        if (boundToNetwork) {
-                            break;
-                        }
-                    }
-                }
+                Network lan = stunNetwork((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE));
+                boundToNetwork = lan != null && ConnectivityManager.setProcessDefaultNetwork(lan);
             }
 
             if (!activeNetworkIsVpn || boundToNetwork) {
@@ -436,16 +447,24 @@ public class ComputerManagerService extends Service {
         } finally {
             try {
                 if (boundToNetwork) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        connMgr.bindProcessToNetwork(null);
-                    } else {
-                        ConnectivityManager.setProcessDefaultNetwork(null);
-                    }
+                    ConnectivityManager.setProcessDefaultNetwork(null);
                 }
             } finally {
                 defaultNetworkLock.unlock();
             }
         }
+    }
+
+    /** The first network that is neither a VPN nor cellular, for STUN behind a VPN. */
+    private static Network stunNetwork(ConnectivityManager connMgr) {
+        for (Network net : connMgr.getAllNetworks()) {
+            NetworkCapabilities netCaps = connMgr.getNetworkCapabilities(net);
+            if (netCaps != null && !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                    !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                return net;
+            }
+        }
+        return null;
     }
 
     private MdnsDiscoveryListener createDiscoveryListener() {

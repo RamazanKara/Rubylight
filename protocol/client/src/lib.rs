@@ -14,6 +14,7 @@ pub mod roaming;
 pub mod rtsp;
 pub mod sdp;
 pub mod session;
+pub mod stun;
 pub mod timing_record;
 pub mod usb;
 pub mod video;

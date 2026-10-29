@@ -380,7 +380,7 @@ fn raise(display: &mut impl SharedDisplay, rate: u32) -> Option<u32> {
         return Some(previous.2);
     }
     display.set_mode((previous.0, previous.1, rate));
-    if offer_listed(display, false) && display.apply("stream request") {
+    if offer_listed(display, None) && display.apply("stream request") {
         return Some(rate);
     }
     display.set_mode(previous);
@@ -389,37 +389,39 @@ fn raise(display: &mut impl SharedDisplay, rate: u32) -> Option<u32> {
 }
 /// Give the display another size at its refresh in place, for a stream that
 /// turned between portrait and landscape: whether Windows shows that size,
-/// at that refresh or a slower one it lists ([`fallback_rate`]). The driver
-/// lists a size's refreshes at once, so any of them means the list arrived.
-/// Otherwise the display goes back to its previous mode.
+/// at that refresh or a slower one it lists ([`fallback_rate`]). Windows can
+/// list the size already (the driver's standard sizes, or an earlier turn) at
+/// other refreshes, so the turn waits for its refresh or for the list Windows
+/// shows at that size to change: the driver lists a size's refreshes at once.
+/// Either way it is set then, and a slower listed refresh serves it. When
+/// Windows does not show the size, the display goes back to its previous mode.
 fn reshape(display: &mut impl SharedDisplay, width: u32, height: u32) -> bool {
     let (_, previous) = display.modes();
     display.set_mode((width, height, previous.2));
-    if offer_listed(display, true) {
-        display.apply("stream turned");
-        if display.applied_size() == Some((width, height)) {
-            return true;
-        }
+    let before = display.listed_rates();
+    offer_listed(display, Some(&before));
+    display.apply("stream turned");
+    if display.applied_size() == Some((width, height)) {
+        return true;
     }
     display.set_mode(previous);
     display.apply("stream turn refused");
     false
 }
 /// Have the driver offer the display's mode on the live display, and wait
-/// until Windows lists it, at its refresh or with `any_rate` at its size: the
-/// driver publishes the new list after it answers (16 ms later in the S1a
-/// run), and Windows refuses a mode it does not list yet
-/// (DISP_CHANGE_BADMODE). A mode already listed costs one look. A driver that
-/// refused is not waited for. False, with why, when Windows does not list it.
-fn offer_listed(display: &impl SharedDisplay, any_rate: bool) -> bool {
+/// until Windows lists it at its refresh, or for a turn until the refreshes
+/// Windows lists at its size differ from `turn_from`: the driver publishes
+/// the new list after it answers (16 ms later in the S1a run), and Windows
+/// refuses a mode it does not list yet (DISP_CHANGE_BADMODE). A mode already
+/// listed costs one look. A driver that refused is not waited for. False,
+/// with why, when Windows does not list it.
+fn offer_listed(display: &impl SharedDisplay, turn_from: Option<&[u32]>) -> bool {
     let (_, mode) = display.modes();
+    let turn = turn_from.is_some();
     let listed = || {
         let rates = display.listed_rates();
-        if any_rate {
-            !rates.is_empty()
-        } else {
-            lists_rate(&rates, mode.2)
-        }
+        lists_rate(&rates, mode.2)
+            || turn_from.is_some_and(|before| !rates.is_empty() && rates != before)
     };
     if !display.offer_mode() {
         return listed();
@@ -430,7 +432,7 @@ fn offer_listed(display: &impl SharedDisplay, any_rate: bool) -> bool {
         Some(polls) => {
             tracing::info!(
                 mode = %format_timing(mode),
-                any_rate,
+                turn,
                 polls,
                 waited_ms = started.elapsed().as_millis() as u64,
                 "Windows listed the mode the display driver offers"
@@ -439,12 +441,17 @@ fn offer_listed(display: &impl SharedDisplay, any_rate: bool) -> bool {
         }
         None => {
             let listed_hz = display.listed_rates();
+            let message = if turn {
+                "Windows does not list the mode the display driver was asked to offer; the turn takes a refresh Windows lists at that size"
+            } else {
+                "Windows does not list the mode the display driver was asked to offer; the display keeps its mode"
+            };
             tracing::warn!(
                 mode = %format_timing(mode),
-                any_rate,
+                turn,
                 waited_ms = started.elapsed().as_millis() as u64,
                 ?listed_hz,
-                "Windows does not list the mode the display driver was asked to offer; the display keeps its mode"
+                "{message}"
             );
             false
         }
@@ -1512,6 +1519,41 @@ mod tests {
         assert!(super::reshape(&mut display, 3840, 2160));
         assert_eq!(display.looks.get(), 1);
         assert_eq!(display.shown.get(), landscape);
+    }
+
+    #[test]
+    fn a_turn_to_a_size_windows_lists_at_other_rates_waits_for_its_own() {
+        // A portrait VRR stream turns to 1920x1080, which the driver lists at
+        // 60 and 120 Hz from the start: those are not the turn's list.
+        let portrait = (1080, 1920, 1_000_000);
+        let landscape = (1920, 1080, 1_000_000);
+        let standard = |display: &Fake| {
+            display
+                .listed
+                .borrow_mut()
+                .extend([(1920, 1080, 60_000), (1920, 1080, 120_000)]);
+        };
+        let mut display = Fake::new(portrait);
+        standard(&display);
+        display.lists_after = Some(3);
+        assert!(super::reshape(&mut display, 1920, 1080));
+        assert_eq!(display.looks.get(), 3);
+        assert_eq!(display.shown.get(), landscape);
+        // Where Windows lists the size only up to 480 Hz, the new list is
+        // the turn's too, and the turn takes 480 Hz (issue #40).
+        let mut display = Fake::new(portrait);
+        standard(&display);
+        display.lists_after = Some(3);
+        display.fastest = 480_000;
+        assert!(super::reshape(&mut display, 1920, 1080));
+        assert_eq!(display.looks.get(), 3);
+        assert_eq!(display.shown.get(), (1920, 1080, 480_000));
+        // A list that never changes: after the wait the turn takes 120 Hz.
+        let mut display = Fake::new(portrait);
+        standard(&display);
+        display.lists_after = None;
+        assert!(super::reshape(&mut display, 1920, 1080));
+        assert_eq!(display.shown.get(), (1920, 1080, 120_000));
     }
 
     #[test]

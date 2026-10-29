@@ -2,7 +2,10 @@
 //! session clock: it outlives each stream, so a stream's own start cannot be its time base.
 
 use nightjar_core::session::{self, Stage};
-pub use nightjar_policy::recovery::{transient_termination, Backoff};
+pub use nightjar_policy::recovery::{
+    reconnects_at_once, transient_termination, Backoff, RouteWait, ROUTE_PROBE_TIMEOUT_MS,
+    ROUTE_RETRY_MS,
+};
 
 pub fn now_ms() -> u64 {
     session::now_us() / 1000

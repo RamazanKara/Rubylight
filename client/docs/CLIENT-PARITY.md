@@ -12,7 +12,7 @@ Status words:
 - **Missing**: not in this client yet.
 - **N/A**: does not apply to this client.
 
-Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTek, Android 14), a Windows laptop with a Radeon 780M, and a NUC that runs the engine's command-line client on Linux. The Linux desktop client is built and tested by CI; it has not streamed on our hardware. "rc.4 *step*" marks a cell that the Rubylight 3.0.0-rc.4 hardware pass is running now.
+Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTek, Android 14), a Windows laptop with a Radeon 780M, and a NUC that runs the engine's command-line client on Linux. The Linux desktop client is built and tested by CI; it has not streamed on our hardware. "rc.4 *step*" marks a cell from the Rubylight 3.0.0-rc.4 hardware pass that is still open; it runs again on 3.0.0-rc.5.
 
 ## Library and PCs
 

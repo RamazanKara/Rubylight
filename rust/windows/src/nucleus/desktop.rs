@@ -1,7 +1,7 @@
 //! The PC's real desktop for a Nucleus session: processes, top-level
 //! windows, monitors, moving windows without activating them, and the click
 //! that loads the host's profile in Nucleus Co-op's window.
-use super::instances::Desktop;
+use super::instances::{Desktop, MessageBox};
 use anyhow::{Result, bail, ensure};
 use butterpollo_core::nucleus::window::{Rect, Window};
 use butterpollo_core::steam::Process;
@@ -117,6 +117,17 @@ fn text_of(window: HWND) -> Option<String> {
     };
     (sent.0 != 0).then(|| String::from_utf16_lossy(&buffer[..copied.min(buffer.len())]))
 }
+
+/// A window's class name.
+fn class_of(window: HWND) -> Option<String> {
+    let mut buffer = [0u16; 256];
+    // SAFETY: the buffer outlives the call, which writes at most its length.
+    let copied = unsafe { GetClassNameW(window, &mut buffer) };
+    (copied > 0).then(|| String::from_utf16_lossy(&buffer[..copied as usize]))
+}
+
+/// The class of a dialog, which a message box is.
+const DIALOG_CLASS: &str = "#32770";
 
 /// The visible descendants of `parent`.
 fn children(parent: HWND) -> Vec<HWND> {
@@ -290,6 +301,31 @@ impl Desktop for Win32 {
         }
         Ok(())
     }
+    fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
+        if processes.is_empty() {
+            return Ok(Vec::new());
+        }
+        crate::input::follow_input_desktop();
+        let mut found = Vec::new();
+        for window in top_level(Some(processes))? {
+            let dialog = hwnd(window.id);
+            if !window.visible || class_of(dialog).as_deref() != Some(DIALOG_CLASS) {
+                continue;
+            }
+            // The text is a Static control; its icon is another, without text.
+            let text: Vec<String> = children(dialog)
+                .into_iter()
+                .filter(|&child| class_of(child).is_some_and(|c| c.eq_ignore_ascii_case("Static")))
+                .filter_map(text_of)
+                .filter(|text| !text.trim().is_empty())
+                .collect();
+            found.push(MessageBox {
+                caption: text_of(dialog).unwrap_or_default(),
+                text: text.join(" "),
+            });
+        }
+        Ok(found)
+    }
 }
 
 #[cfg(test)]
@@ -325,6 +361,13 @@ mod tests {
                 .label(&BTreeSet::from([std::process::id()]), "Rubylight")
                 .unwrap(),
             None
+        );
+        // Nor a message box.
+        assert_eq!(
+            desktop
+                .message_boxes(&BTreeSet::from([std::process::id()]))
+                .unwrap(),
+            []
         );
     }
 }

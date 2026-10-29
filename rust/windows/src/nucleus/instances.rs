@@ -27,6 +27,34 @@ pub trait Desktop: Send {
     fn label(&mut self, processes: &BTreeSet<u32>, text: &str) -> Result<Option<u64>>;
     /// Click it as the mouse would; refused while another window covers it.
     fn click(&mut self, label: u64) -> Result<()>;
+    /// The visible message boxes (`#32770` dialogs) of `processes`.
+    fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>>;
+}
+
+/// A message box on the desktop: its caption and its text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageBox {
+    pub caption: String,
+    pub text: String,
+}
+
+impl MessageBox {
+    /// What it says on one line, as a failure quotes it: `caption: text`,
+    /// spaces collapsed and cut to a few sentences.
+    pub fn summary(&self) -> String {
+        const LIMIT: usize = 300;
+        let plain = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        let (caption, text) = (plain(&self.caption), plain(&self.text));
+        let line = match (caption.is_empty(), text.is_empty()) {
+            (false, false) => format!("{caption}: {text}"),
+            (true, _) => text,
+            (false, true) => caption,
+        };
+        match line.char_indices().nth(LIMIT) {
+            Some((at, _)) => format!("{}...", line[..at].trim_end()),
+            None => line,
+        }
+    }
 }
 
 /// Passes in a row a window may leave its place before the keeper leaves it
@@ -361,6 +389,8 @@ pub(crate) mod tests {
         pub labels: Vec<(u32, String, u64)>,
         pub clicks: Vec<u64>,
         pub covered: bool,
+        /// Message boxes and the process showing each.
+        pub boxes: Vec<(u32, MessageBox)>,
         /// Placing a window moves it there, as a cooperative game does.
         pub obey: bool,
     }
@@ -406,6 +436,35 @@ pub(crate) mod tests {
             self.clicks.push(label);
             Ok(())
         }
+        fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
+            Ok(self
+                .boxes
+                .iter()
+                .filter(|(pid, _)| processes.contains(pid))
+                .map(|(_, shown)| shown.clone())
+                .collect())
+        }
+    }
+
+    #[test]
+    fn a_message_box_is_quoted_on_one_short_line() {
+        let shown = |caption: &str, text: &str| MessageBox {
+            caption: caption.into(),
+            text: text.into(),
+        };
+        assert_eq!(
+            shown(
+                "OneDrive must be disabled",
+                "Your Documents folder\r\n  is in OneDrive."
+            )
+            .summary(),
+            "OneDrive must be disabled: Your Documents folder is in OneDrive."
+        );
+        assert_eq!(shown("", "Text only").summary(), "Text only");
+        assert_eq!(shown("Caption only", " ").summary(), "Caption only");
+        let long = shown("Error", &"é".repeat(400)).summary();
+        assert_eq!(long.chars().count(), 303);
+        assert!(long.ends_with("é..."), "{long}");
     }
 
     pub(crate) fn fake(processes: Vec<Process>, windows: Vec<Window>) -> Fake {

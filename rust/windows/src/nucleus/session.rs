@@ -5,7 +5,7 @@
 //! show; nothing falls back to another mode.
 use super::desktop::Win32;
 use super::files;
-use super::instances::{Desktop, Keeper};
+use super::instances::{Desktop, Keeper, MessageBox};
 use super::layers::{self, Guard, Layers};
 use super::pads::{self, Dropped, Pads, XInput};
 use crate::input::PadReport;
@@ -18,7 +18,7 @@ use butterpollo_core::nucleus::install::EXECUTABLE;
 use butterpollo_core::nucleus::profile::{Player, TITLE};
 use butterpollo_core::nucleus::window;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -240,6 +240,67 @@ impl Nucleus for Started {
     }
 }
 
+/// Nucleus' `crashlog.txt` in its working folder, where it appends each
+/// exception it catches (`[time] exception`, then its stack) and goes on,
+/// as it was when the session launched it.
+struct Crashlog {
+    path: PathBuf,
+    /// Its length at the launch: what follows is this session's.
+    from: u64,
+}
+
+impl Crashlog {
+    /// The longest line quoted.
+    const LIMIT: usize = 300;
+
+    fn at_launch(folder: &Path) -> Crashlog {
+        let path = folder.join("crashlog.txt");
+        let from = match std::fs::metadata(&path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(error = %error, path = %path.display(), "Nucleus Co-op's crashlog not read");
+                }
+                0
+            }
+        };
+        Crashlog { path, from }
+    }
+
+    /// The newest exception written since the launch: its first line.
+    fn newest(&self) -> Option<String> {
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(error = %error, path = %self.path.display(), "Nucleus Co-op's crashlog not read");
+                }
+                return None;
+            }
+        };
+        // A shorter file was started again since.
+        let from = usize::try_from(self.from)
+            .ok()
+            .filter(|&from| from <= bytes.len())
+            .unwrap_or(0);
+        let text = String::from_utf8_lossy(&bytes[from..]);
+        let lines: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        let line = lines
+            .iter()
+            .rev()
+            .find(|line| line.starts_with('['))
+            .or(lines.last())?;
+        Some(match line.char_indices().nth(Self::LIMIT) {
+            Some((at, _)) => format!("{}...", &line[..at]),
+            None => line.to_string(),
+        })
+    }
+}
+
 /// What the session thread and the host share.
 struct Shared {
     session: Mutex<coop::Session>,
@@ -260,6 +321,16 @@ struct Runner {
     clicked: bool,
     /// Why the last click on the profile was refused.
     unclicked: Option<String>,
+    /// While the profile is not shown: Nucleus' message boxes at the last
+    /// look, every one logged so far, whether it showed any window, and why
+    /// the last look failed.
+    showing: Vec<MessageBox>,
+    logged: Vec<MessageBox>,
+    shown: bool,
+    unseen: Option<String>,
+    /// Nucleus' crashlog.txt as it was at the launch. None for a runner
+    /// tested alone.
+    crashlog: Option<Crashlog>,
     /// Clicked, instances found, windows found.
     progress: (bool, usize, usize),
     windows: Vec<Option<u64>>,
@@ -374,7 +445,10 @@ impl Runner {
     fn click(&mut self, job: &BTreeSet<u32>) -> Option<End> {
         let label = match self.desktop.label(job, TITLE) {
             Ok(Some(label)) => label,
-            Ok(None) => return None,
+            Ok(None) => {
+                self.look(job);
+                return None;
+            }
             Err(error) => return Some(End::Failed(format!("{error:#}"))),
         };
         match self.desktop.click(label) {
@@ -394,6 +468,65 @@ impl Runner {
         None
     }
 
+    /// What Nucleus shows instead of the profile: a message box it shows
+    /// before its window (its folder check, a missing runtime) waits for an
+    /// answer no one gives during a background stream (#59).
+    fn look(&mut self, job: &BTreeSet<u32>) {
+        let looked = (|| -> Result<bool> {
+            self.showing = self.desktop.message_boxes(job)?;
+            let shown = self
+                .desktop
+                .windows()?
+                .iter()
+                .any(|w| w.visible && job.contains(&w.pid));
+            Ok(shown)
+        })();
+        match looked {
+            Ok(shown) => {
+                self.shown |= shown;
+                self.unseen = None;
+            }
+            Err(error) => {
+                let why = format!("{error:#}");
+                if self.unseen.as_ref() != Some(&why) {
+                    tracing::warn!(why, "Nucleus Co-op's windows not listed");
+                }
+                self.unseen = Some(why);
+            }
+        }
+        for shown in &self.showing {
+            if !self.logged.contains(shown) {
+                tracing::warn!(
+                    "Nucleus Co-op shows \"{}\" on the PC's screen",
+                    shown.summary()
+                );
+                self.logged.push(shown.clone());
+            }
+        }
+    }
+
+    /// Why Nucleus did not show the profile.
+    fn unshown(&self) -> String {
+        if let Some(shown) = self.showing.first() {
+            return format!(
+                "Nucleus Co-op shows \"{}\" on the PC's screen",
+                shown.summary()
+            );
+        }
+        let why = if self.shown {
+            format!(
+                "Nucleus Co-op shows no profile {TITLE} for {}; open Nucleus Co-op and load the profile {TITLE} once",
+                self.title
+            )
+        } else {
+            "Nucleus Co-op showed no window".to_string()
+        };
+        match self.crashlog.as_ref().and_then(Crashlog::newest) {
+            Some(line) => format!("{why}. Its crashlog.txt says: {line}"),
+            None => why,
+        }
+    }
+
     fn failure(&self, why: String) -> End {
         if self.shared.session.lock().unwrap().phase == Phase::Running {
             End::Crashed(why)
@@ -407,6 +540,7 @@ impl Runner {
         let hint = format!("open Nucleus Co-op and load the profile {TITLE} once");
         match (&self.unclicked, clicked, roots) {
             (Some(why), false, 0) => format!("Nucleus Co-op did not start {}: {why}", self.title),
+            (None, false, 0) => self.unshown(),
             (_, _, 0) => format!("Nucleus Co-op did not start {}; {hint}", self.title),
             _ if roots < self.players => format!(
                 "Nucleus Co-op started {roots} of {} instances of {}; {hint}",
@@ -601,6 +735,7 @@ pub fn start(
         start.exe_path,
     )
     .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
+    let crashlog = Crashlog::at_launch(start.folder);
     let nucleus = launcher.launch(
         start.folder,
         &start.handler.guid,
@@ -627,6 +762,11 @@ pub fn start(
         players: start.players,
         clicked: false,
         unclicked: None,
+        showing: Vec::new(),
+        logged: Vec::new(),
+        shown: false,
+        unseen: None,
+        crashlog: Some(crashlog),
         progress: (false, 0, 0),
         windows: vec![None; start.players],
         deadline: Instant::now() + START_TIMEOUT,
@@ -829,6 +969,9 @@ mod tests {
         fn click(&mut self, label: u64) -> Result<()> {
             self.0.lock().unwrap().click(label)
         }
+        fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
+            self.0.lock().unwrap().message_boxes(processes)
+        }
     }
 
     const NUCLEUS: u32 = 10;
@@ -950,6 +1093,11 @@ mod tests {
             players,
             clicked: false,
             unclicked: None,
+            showing: Vec::new(),
+            logged: Vec::new(),
+            shown: false,
+            unseen: None,
+            crashlog: None,
             progress: (false, 0, 0),
             windows: vec![None; players],
             deadline: t0 + START_TIMEOUT,
@@ -1033,14 +1181,117 @@ mod tests {
         let mut runner = runner(1, &screen, &probe, t0);
         assert_eq!(runner.step(t0 + START_TIMEOUT / 2), None);
         let end = runner.step(t0 + START_TIMEOUT).unwrap();
-        assert_eq!(
-            end,
-            End::Failed(format!("Nucleus Co-op did not start Game; {HINT}"))
-        );
+        assert_eq!(end, End::Failed("Nucleus Co-op showed no window".into()));
         let shared = runner.shared.clone();
         runner.finish(end.clone());
         assert_eq!(shared.session.lock().unwrap().phase, Phase::Ended(end));
         assert_eq!(*probe.stopped.lock().unwrap(), Some(BTreeMap::new()));
+    }
+
+    #[test]
+    fn a_message_box_nucleus_shows_instead_of_the_profile_is_named() {
+        // Nucleus' check of a Documents folder in OneDrive waits for an
+        // answer before its window opens; nobody gives it during a
+        // background stream (#59).
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        let shown = MessageBox {
+            caption: "OneDrive must be disabled".into(),
+            text: "Your Documents folder\r\nis in OneDrive.".into(),
+        };
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .boxes
+            .push((NUCLEUS, shown.clone()));
+        // Another program's box is not Nucleus'.
+        screen.0.lock().unwrap().boxes.push((
+            99,
+            MessageBox {
+                caption: "Other".into(),
+                text: String::new(),
+            },
+        ));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [shown]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op shows \"OneDrive must be disabled: Your Documents folder is in OneDrive.\" on the PC's screen".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_window_without_the_profile_is_named_with_the_sessions_crash() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        let folder = tempfile::tempdir().unwrap();
+        let log = folder.path().join("crashlog.txt");
+        std::fs::write(&log, "[01.10.2026 10:00:00] System.Exception: earlier\n").unwrap();
+        runner.crashlog = Some(Crashlog::at_launch(folder.path()));
+        let mut later = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        std::io::Write::write_all(
+            &mut later,
+            b"[29.10.2026 12:00:00] System.NullReferenceException: no game\n   at ChangeGame()\n",
+        )
+        .unwrap();
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .windows
+            .push(window(5, NUCLEUS, ON_SCREEN));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(format!(
+                "Nucleus Co-op shows no profile Rubylight for Game; {HINT}. Its crashlog.txt says: [29.10.2026 12:00:00] System.NullReferenceException: no game"
+            )))
+        );
+    }
+
+    #[test]
+    fn only_crashes_written_after_the_launch_are_quoted() {
+        let folder = tempfile::tempdir().unwrap();
+        let log = folder.path().join("crashlog.txt");
+        // No file at the launch or after it.
+        let none = Crashlog::at_launch(folder.path());
+        assert_eq!(none.from, 0);
+        assert_eq!(none.newest(), None);
+        std::fs::write(&log, "[1] System.Exception: before\n   at Old()\n").unwrap();
+        let crashlog = Crashlog::at_launch(folder.path());
+        assert_eq!(crashlog.newest(), None);
+        let append = |text: &str| {
+            let mut file = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+            std::io::Write::write_all(&mut file, text.as_bytes()).unwrap();
+        };
+        append(
+            "[2] System.Exception: first\n   at A()\n[3] System.Exception: second\n   at B()\n\n",
+        );
+        assert_eq!(
+            crashlog.newest().as_deref(),
+            Some("[3] System.Exception: second")
+        );
+        // A file started again since is read whole.
+        std::fs::write(&log, "[4] new\n").unwrap();
+        assert_eq!(crashlog.newest().as_deref(), Some("[4] new"));
+        // A long line is cut.
+        append(&format!("[5] {}\n", "x".repeat(400)));
+        let cut = Crashlog::at_launch(folder.path());
+        append(&format!("[6] {}\n", "y".repeat(400)));
+        let line = cut.newest().unwrap();
+        assert!(
+            line.starts_with("[6] yyy") && line.ends_with("..."),
+            "{line}"
+        );
+        assert_eq!(line.chars().count(), Crashlog::LIMIT + 3);
+        // None written since the launch: nothing is quoted.
+        assert_eq!(Crashlog::at_launch(folder.path()).newest(), None);
     }
 
     #[test]

@@ -67,8 +67,15 @@ def player_command(ffplay, clip, width, height, left, top):
 
 
 def player_environment(base=None):
-    """No vsync: SDL's present waited for the 240 Hz monitor and ffplay fell 4 % behind the clip."""
-    return dict(os.environ if base is None else base, SDL_RENDER_VSYNC='0')
+    """SDL's Direct3D 11 renderer presenting on the monitor's vblank (both can be overridden).
+    On the 240 Hz host a 30 s HEVC arm had 9-22 long intervals of 1620 with it (48-90 % CPU
+    from other lanes) against 25-34 with SDL's default renderer, with or without vsync
+    (87-99 %), at about half the player CPU; the default renderer with vsync also fell up to
+    4 % behind the clip."""
+    environment = dict(os.environ if base is None else base)
+    environment.setdefault('SDL_RENDER_DRIVER', 'direct3d11')
+    environment.setdefault('SDL_RENDER_VSYNC', '1')
+    return environment
 
 
 def player_stats(text):

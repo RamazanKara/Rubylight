@@ -37,7 +37,8 @@ hitch:90:100), instead of twice the stream rate or the stream rate; the cadence 
 content: ffplay shows it in a borderless window of the stream's size behind the user's windows, the host
 captures only that window, and the clip plays from its first picture when the receiver starts. The mode
 defaults to the clip's. unique_fps, motion_coverage and picture age need the strip and are listed in
-not_applicable; the tone check stays (audio_probe is independent of the picture); result.json's content
+not_applicable, as are the frame-gap limits (the player adds jitter: content runs compare A/B arms,
+the gap numbers stay in the result); the tone check stays (audio_probe is independent of the picture); result.json's content
 has the player's CPU and the share of real time it kept, under 99 % failing the case. Needs a host that
 takes window targets in output_name (after 3.0.0-rc.5).
 --content-at X,Y: the clip window's corner (default 0,0); --ffplay: the player (default ffplay on PATH).

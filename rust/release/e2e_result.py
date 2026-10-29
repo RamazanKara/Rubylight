@@ -108,8 +108,10 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
     strip (e2e.py --content). A game picture carries no strip or barcode, so
     unique_fps, motion_coverage and picture age cannot be measured: they are
     listed in not_applicable instead of failing as missing or passing unseen,
-    and PyroWave, which requires picture age, is refused. A player that fell
-    behind the clip fails the case."""
+    and PyroWave, which requires picture age, is refused. The frame-gap limits
+    are not applicable either (frame_gap_limits): the clip's player adds
+    jitter of its own, so content runs compare A/B arms, the gap numbers stay
+    in the result. A player that fell behind the clip fails the case."""
     def find(pattern, cast=float):
         match = re.search(pattern, client, re.MULTILINE)
         return cast(match.group(1)) if match else None
@@ -174,7 +176,10 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
     failures = []
     not_applicable = []
     if content is not None:
-        not_applicable = ['unique_fps', 'motion_coverage', 'picture_age']
+        # The player's own presents add delivery jitter the strip has not: 30 s HEVC arms
+        # alternating with the strip had 18-22 long intervals and p99 25.0-25.4 ms against the
+        # strip's 0 and 18.1-20.9 ms. The gaps are reported for A/B comparisons, not judged.
+        not_applicable = ['unique_fps', 'motion_coverage', 'picture_age', 'frame_gap_limits']
         for key in ('unique_fps', 'motion_coverage'):
             result.pop(key)
         result['content'] = content
@@ -213,7 +218,7 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
             failures.append('steady frame rate is outside 97-103% of the requested rate')
         # A requested keyframe is several frames' worth of data and encode
         # time; one late frame per request is the keyframe's own cost.
-        if (result['long_intervals'] > result['steady_frames'] * .01 + recovery
+        if content is None and (result['long_intervals'] > result['steady_frames'] * .01 + recovery
                 or (not recovery and result['interval_p99_ms'] > 1500 / fps)
                 or result['interval_max_ms'] > 3000 / fps):
             failures.append('frame delivery has excessive gaps')

@@ -834,7 +834,9 @@ class DemoContent(unittest.TestCase):
         self.assertEqual(command[command.index('-loop') + 1], '0')
         self.assertNotIn('-framedrop', command)
         self.assertEqual(command[-2:], ['-i', r'D:\clip.y4m'])
-        self.assertEqual(self.content.player_environment({'PATH': 'x'}), {'PATH': 'x', 'SDL_RENDER_VSYNC': '0'})
+        self.assertEqual(self.content.player_environment({'PATH': 'x'}),
+                         {'PATH': 'x', 'SDL_RENDER_DRIVER': 'direct3d11', 'SDL_RENDER_VSYNC': '1'})
+        self.assertEqual(self.content.player_environment({'SDL_RENDER_VSYNC': '0'})['SDL_RENDER_VSYNC'], '0')
 
     def test_the_players_status_line_is_read(self):
         log = 'Input #0, yuv4mpegpipe\n   0.05 M-V:  0.000 fd=   0 aq=    0KB vq=    0KB sq=    0B \r  19.95 fd=   2 aq=    0KB vq=15187KB \r'
@@ -865,7 +867,14 @@ class DemoContent(unittest.TestCase):
         kept = dict(passed=True, realtime=1.0)
         result = self.evaluate(client, 0, 'hevc', '1920x1080x60', content=kept)
         self.assertTrue(result['passed'], result['failures'])
-        self.assertEqual(result['not_applicable'], ['unique_fps', 'motion_coverage', 'picture_age'])
+        self.assertEqual(result['not_applicable'], ['unique_fps', 'motion_coverage', 'picture_age', 'frame_gap_limits'])
+        # The player's jitter: gaps the strip would fail on are reported, not judged.
+        jittery = client.replace('intervals_over_1_5_period=0', 'intervals_over_1_5_period=31').replace('p99_ms=18.000', 'p99_ms=25.600')
+        gaps = self.evaluate(jittery, 0, 'hevc', '1920x1080x60', content=kept)
+        self.assertTrue(gaps['passed'], gaps['failures'])
+        self.assertEqual((gaps['long_intervals'], gaps['interval_p99_ms']), (31, 25.6))
+        self.assertFalse(self.evaluate(jittery.replace('VISUAL', 'X') + 'VISUAL frames=1621 unique=1621 repeats=0 skipped_render_frames=0 unique_fps=60.000 coverage=1.000000\n',
+                                       0, 'hevc', '1920x1080x60')['passed'])
         self.assertNotIn('unique_fps', result)
         self.assertEqual(result['content'], kept)
         # Without a clip the same receiver output lacks the strip's measurements.

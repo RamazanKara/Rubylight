@@ -2,8 +2,8 @@
 //! heartbeats.
 
 use super::modes::{
-    ModeOutcome, Timing, current_timing, fallback_rate, format_timing, mode_outcome, offered_rates,
-    supported_modes,
+    ModeOutcome, Timing, current_timing, fallback_rate, format_timing, lists_rate, mode_outcome,
+    offered_rates, supported_modes,
 };
 use super::rubylight_vdd::{self, Control};
 use super::topology::{Route, activate_target, is_rubylight_monitor, is_virtual_monitor};
@@ -12,6 +12,8 @@ use butterpollo_core::virtual_output::{DisplayProvider, Mode};
 
 /// How long a create retries while a previous host's display with the same identity departs.
 const CREATE_RETRY: Duration = Duration::from_secs(10);
+/// How long Windows has to list a mode the driver was asked to offer on a live display.
+const MODE_LIST_WAIT: Duration = Duration::from_secs(2);
 /// The Windows build number from the registry, or None when it cannot be read
 /// (callers then treat the build as capable; see `butterpollo_core::os_gate`).
 pub fn windows_build() -> Option<u32> {
@@ -222,6 +224,8 @@ pub struct VirtualDisplay {
     /// rotation and size changes made in place, so a second stream that asks
     /// for the first one's launch size still joins ([`join`]).
     created: (u32, u32, u32),
+    /// The modes the driver lists for the live display ([`SharedDisplay::offered`]).
+    offered: Vec<Timing>,
     /// Windows showed `mode`'s resolution after it was last set, at that or a
     /// slower refresh it accepted.
     size_applied: std::sync::atomic::AtomicBool,
@@ -264,10 +268,17 @@ pub(super) trait SharedDisplay {
     fn modes(&self) -> (Timing, Timing);
     /// The mode the host sets on it from now on.
     fn set_mode(&mut self, mode: Timing);
-    /// Have the driver offer that mode.
-    fn offer_mode(&self);
+    /// Have the driver offer that mode; false, logged, when the driver refused.
+    fn offer_mode(&self) -> bool;
+    /// The modes the driver lists for it: the one it was created with, and
+    /// those it offered since (its list is a union).
+    fn offered(&mut self) -> &mut Vec<Timing>;
+    /// The refreshes (whole hertz) Windows lists now at that mode's size.
+    fn listed_rates(&self) -> Vec<u32>;
     /// Set that mode in Windows; whether Windows shows it.
     fn apply(&self, stage: &str) -> bool;
+    /// That mode's size, when Windows showed it after it was last set.
+    fn applied_size(&self) -> Option<(u32, u32)>;
     /// Its monitor, switched back on when Windows left it off.
     fn switch_on(&mut self) -> Result<Monitor>;
 }
@@ -278,12 +289,26 @@ impl SharedDisplay for VirtualDisplay {
     fn set_mode(&mut self, mode: Timing) {
         self.mode = mode;
     }
-    fn offer_mode(&self) {
-        self.driver
-            .offer_mode(self.id, Mode::new(self.mode.0, self.mode.1, self.mode.2));
+    fn offer_mode(&self) -> bool {
+        match self.driver.update_modes(self.id, self.mode) {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(output = %self.name, error = %format!("{error:#}"), mode = %format_timing(self.mode), "the display driver did not offer the mode");
+                false
+            }
+        }
+    }
+    fn offered(&mut self) -> &mut Vec<Timing> {
+        &mut self.offered
+    }
+    fn listed_rates(&self) -> Vec<u32> {
+        offered_rates(&supported_modes(&self.name), self.mode.0, self.mode.1)
     }
     fn apply(&self, stage: &str) -> bool {
         self.apply_mode(stage)
+    }
+    fn applied_size(&self) -> Option<(u32, u32)> {
+        VirtualDisplay::applied_size(self)
     }
     fn switch_on(&mut self) -> Result<Monitor> {
         let monitor = self.current_monitor()?;
@@ -355,20 +380,98 @@ pub(super) fn raise_lease(
 /// Raise the refresh in place to at least `rate`: the refresh (millihertz)
 /// the display has now, or None when Windows refused it. A refusal puts the
 /// previous mode back, since Windows can refuse the rate yet leave another
-/// rate or size behind for the streams already on it.
+/// rate or size behind for the streams already on it. A rate Windows does not
+/// list yet is not set: it would refuse it as a bad mode.
 fn raise(display: &mut impl SharedDisplay, rate: u32) -> Option<u32> {
     let (_, previous) = display.modes();
     if rate <= previous.2 {
         return Some(previous.2);
     }
     display.set_mode((previous.0, previous.1, rate));
-    display.offer_mode();
-    if display.apply("stream request") {
+    if offer_listed(display, None) && display.apply("stream request") {
         return Some(rate);
     }
     display.set_mode(previous);
     display.apply("stream raise refused");
     None
+}
+/// Give the display another size at its refresh in place, for a stream that
+/// turned between portrait and landscape: whether Windows shows that size,
+/// at that refresh or a slower one it lists ([`fallback_rate`]). Windows can
+/// list the size already (the driver's standard sizes, or an earlier turn) at
+/// other refreshes, so the turn waits for its refresh or for the list Windows
+/// shows at that size to change: the driver lists a size's refreshes at once.
+/// Either way it is set then, and a slower listed refresh serves it. When
+/// Windows does not show the size, the display goes back to its previous mode.
+fn reshape(display: &mut impl SharedDisplay, width: u32, height: u32) -> bool {
+    let (_, previous) = display.modes();
+    display.set_mode((width, height, previous.2));
+    let before = display.listed_rates();
+    offer_listed(display, Some(&before));
+    display.apply("stream turned");
+    if display.applied_size() == Some((width, height)) {
+        return true;
+    }
+    display.set_mode(previous);
+    display.apply("stream turn refused");
+    false
+}
+/// Have the driver offer the display's mode on the live display, and wait
+/// until Windows lists it at its refresh, or for a turn until the refreshes
+/// Windows lists at its size differ from `turn_from`: the driver publishes
+/// the new list after it answers (16 ms later in the S1a run), and Windows
+/// refuses a mode it does not list yet (DISP_CHANGE_BADMODE). A mode already
+/// listed costs one look. A driver that refused, or that offered the mode
+/// before ([`SharedDisplay::offered`]), is not waited for: Windows' list does
+/// not change then, and a turn back to a size Windows filters that refresh at
+/// would stall every time. False, with why, when Windows does not list it.
+fn offer_listed(display: &mut impl SharedDisplay, turn_from: Option<&[u32]>) -> bool {
+    let (_, mode) = display.modes();
+    let repeated = display.offered().contains(&mode);
+    let accepted = display.offer_mode();
+    if accepted && !repeated {
+        display.offered().push(mode);
+    }
+    let display = &*display;
+    let turn = turn_from.is_some();
+    let listed = || {
+        let rates = display.listed_rates();
+        lists_rate(&rates, mode.2)
+            || turn_from.is_some_and(|before| !rates.is_empty() && rates != before)
+    };
+    if !accepted || repeated {
+        return listed();
+    }
+    let started = Instant::now();
+    match wait_listed(listed, MODE_LIST_WAIT) {
+        Some(1) => true,
+        Some(polls) => {
+            tracing::info!(
+                mode = %format_timing(mode),
+                turn,
+                polls,
+                waited_ms = started.elapsed().as_millis() as u64,
+                "Windows listed the mode the display driver offers"
+            );
+            true
+        }
+        None => {
+            let listed_hz = display.listed_rates();
+            let message = if turn {
+                "Windows does not list the mode the display driver was asked to offer; the turn takes a refresh Windows lists at that size"
+            } else {
+                "Windows does not list the mode the display driver was asked to offer; the display keeps its mode"
+            };
+            tracing::warn!(
+                mode = %format_timing(mode),
+                turn,
+                waited_ms = started.elapsed().as_millis() as u64,
+                ?listed_hz,
+                "{message}"
+            );
+            false
+        }
+    }
 }
 /// A stream joins a shared virtual display that was created at the size it
 /// asks for, or that shows that size now: a turn or a size the user picked in
@@ -424,6 +527,24 @@ fn retry_busy<T>(mut attempt: impl FnMut() -> Result<T>, timeout: Duration) -> R
             }
             result => return result,
         }
+    }
+}
+/// Poll until `listed` holds, a few milliseconds apart: how many polls that
+/// took, or None once `timeout` passed. A mode already listed costs one poll.
+fn wait_listed(mut listed: impl FnMut() -> bool, timeout: Duration) -> Option<u32> {
+    let deadline = Instant::now() + timeout;
+    let mut polls = 0;
+    loop {
+        polls += 1;
+        if listed() {
+            return Some(polls);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(
+            Duration::from_millis(5).min(deadline.saturating_duration_since(Instant::now())),
+        );
     }
 }
 fn wait_for_monitor(
@@ -623,6 +744,7 @@ impl VirtualDisplay {
             last_renew: Instant::now(),
             mode: (width, height, fps),
             created: (width, height, fps),
+            offered: vec![(width, height, fps)],
             size_applied: std::sync::atomic::AtomicBool::new(false),
             options,
             generation: 0,
@@ -939,21 +1061,11 @@ impl VirtualDisplay {
         applied
     }
     /// Give the display another size at its refresh in place, for a stream
-    /// that turned between portrait and landscape. False when Windows did not
-    /// show that size; the display goes back to its previous mode then.
+    /// that turned between portrait and landscape ([`reshape`]). False when
+    /// Windows did not show that size; the display goes back to its previous
+    /// mode then.
     pub(super) fn reshape(&mut self, width: u32, height: u32) -> bool {
-        let previous = self.mode;
-        self.mode.0 = width;
-        self.mode.1 = height;
-        self.driver
-            .offer_mode(self.id, Mode::new(width, height, self.mode.2));
-        self.apply_mode("stream turned");
-        if self.applied_size() == Some((width, height)) {
-            return true;
-        }
-        self.mode = previous;
-        self.apply_mode("stream turn refused");
-        false
+        reshape(self, width, height)
     }
     /// Make a resolution the user chose in Windows the one later layouts,
     /// resumes and recoveries put back. Windows shows it, so the driver offers
@@ -1063,6 +1175,8 @@ impl VirtualDisplay {
             self.mode,
             self.options.peak_nits,
         ))?;
+        // A new display: its driver list starts again from the mode it is created with.
+        self.offered = vec![self.mode];
         self.startup_protection = Some(protection);
         self.resolve(&response)?;
         // Retain a resolved recovery even if protection needs a retry, so
@@ -1094,6 +1208,21 @@ mod tests {
         on: bool,
         /// Refused refreshes, after which Windows shows 60 Hz.
         refuses: Vec<u32>,
+        /// The modes Windows lists, and so can set.
+        listed: std::cell::RefCell<Vec<Timing>>,
+        /// Offered modes Windows does not list yet.
+        pending: std::cell::RefCell<Vec<Timing>>,
+        /// The look at the display's modes after an offer in which Windows
+        /// lists the offered modes; None never does.
+        lists_after: Option<u32>,
+        /// Looks at the display's modes since the last offer.
+        looks: std::cell::Cell<u32>,
+        /// The fastest refresh Windows lists an offered mode at, as on a PC
+        /// that lists 4K only up to 240 Hz.
+        fastest: u32,
+        /// The driver refuses to offer a mode.
+        driver_refuses: bool,
+        offered: Vec<Timing>,
         log: std::cell::RefCell<Vec<String>>,
     }
     impl Fake {
@@ -1104,8 +1233,24 @@ mod tests {
                 shown: mode.into(),
                 on: true,
                 refuses: Vec::new(),
+                listed: vec![mode].into(),
+                pending: Default::default(),
+                lists_after: Some(1),
+                looks: 0.into(),
+                fastest: u32::MAX,
+                driver_refuses: false,
+                offered: vec![mode],
                 log: Default::default(),
             }
+        }
+        /// The refreshes (whole hertz) Windows lists at the mode's size.
+        fn rates(&self) -> Vec<u32> {
+            self.listed
+                .borrow()
+                .iter()
+                .filter(|listed| (listed.0, listed.1) == (self.mode.0, self.mode.1))
+                .map(|listed| listed.2 / 1000)
+                .collect()
         }
     }
     impl SharedDisplay for Fake {
@@ -1115,17 +1260,54 @@ mod tests {
         fn set_mode(&mut self, mode: Timing) {
             self.mode = mode;
         }
-        fn offer_mode(&self) {
+        fn offer_mode(&self) -> bool {
             self.log.borrow_mut().push(format!("offer {}", self.mode.2));
+            if self.driver_refuses {
+                return false;
+            }
+            self.pending.borrow_mut().push(self.mode);
+            self.looks.set(0);
+            true
+        }
+        fn offered(&mut self) -> &mut Vec<Timing> {
+            &mut self.offered
+        }
+        fn listed_rates(&self) -> Vec<u32> {
+            self.looks.set(self.looks.get() + 1);
+            if self
+                .lists_after
+                .is_some_and(|after| self.looks.get() >= after)
+            {
+                let offered: Vec<_> = self.pending.borrow_mut().drain(..).collect();
+                self.listed.borrow_mut().extend(
+                    offered
+                        .into_iter()
+                        .map(|(width, height, rate)| (width, height, rate.min(self.fastest))),
+                );
+            }
+            self.rates()
         }
         fn apply(&self, stage: &str) -> bool {
             self.log.borrow_mut().push(stage.into());
-            if !self.on || self.refuses.contains(&self.mode.2) {
-                self.shown.set((self.mode.0, self.mode.1, 60_000));
+            let (width, height, rate) = self.mode;
+            if !self.on || self.refuses.contains(&rate) {
+                self.shown.set((width, height, 60_000));
                 return false;
             }
-            self.shown.set(self.mode);
-            true
+            if self.listed.borrow().contains(&self.mode) {
+                self.shown.set(self.mode);
+                return true;
+            }
+            // A rate Windows does not list is a bad mode: apply_mode keeps
+            // the size at a slower listed rate, else Windows keeps its mode.
+            if let Some(fallback) = super::fallback_rate(&self.rates(), rate) {
+                self.shown.set((width, height, fallback));
+            }
+            false
+        }
+        fn applied_size(&self) -> Option<(u32, u32)> {
+            let shown = self.shown.get();
+            ((shown.0, shown.1) == (self.mode.0, self.mode.1)).then_some((shown.0, shown.1))
         }
         fn switch_on(&mut self) -> anyhow::Result<crate::display::Monitor> {
             self.on = true;
@@ -1282,6 +1464,181 @@ mod tests {
             ["on", "offer 1000000", "stream request"]
         );
         assert_eq!(display.shown.get(), (1920, 1080, 1_000_000));
+    }
+
+    #[test]
+    fn a_joining_stream_raises_a_shared_display_once_windows_lists_the_rate() {
+        // S1a order B: the Retroid at 120 Hz first, then the VRR laptop at
+        // 1000 Hz. The driver published the 1000 Hz list 16 ms after the host
+        // set it, and Windows refused it as a bad mode.
+        let fixed = (1920, 1080, 120_000);
+        let vrr = (1920, 1080, 1_000_000);
+        let mut displays = super::Leases::new();
+        let first = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
+        {
+            let mut display = first.lock().unwrap();
+            display.lists_after = Some(4);
+            display.log.borrow_mut().clear();
+        }
+        let second = stream(&mut displays, vrr, None).unwrap();
+        let display = second.lock().unwrap();
+        // Set only in the fourth look, once Windows listed it.
+        assert_eq!(display.looks.get(), 4);
+        assert_eq!(
+            *display.log.borrow(),
+            ["on", "offer 1000000", "stream request"]
+        );
+        assert_eq!(display.shown.get(), vrr);
+    }
+
+    #[test]
+    fn a_mode_the_driver_refused_to_offer_is_not_waited_for() {
+        let fixed = (1920, 1080, 120_000);
+        let mut displays = super::Leases::new();
+        let first = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
+        {
+            let mut display = first.lock().unwrap();
+            display.driver_refuses = true;
+            display.log.borrow_mut().clear();
+        }
+        let started = Instant::now();
+        assert_eq!(super::raise_lease(&first, 1_000_000), None);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        {
+            let display = first.lock().unwrap();
+            assert_eq!(display.looks.get(), 1);
+            assert_eq!(
+                *display.log.borrow(),
+                ["offer 1000000", "stream raise refused"]
+            );
+            assert_eq!(display.shown.get(), fixed);
+        }
+        // Windows lists it already: the raise needs no new list.
+        first
+            .lock()
+            .unwrap()
+            .listed
+            .borrow_mut()
+            .push((1920, 1080, 240_000));
+        assert_eq!(super::raise_lease(&first, 240_000), Some(240_000));
+        assert_eq!(first.lock().unwrap().shown.get(), (1920, 1080, 240_000));
+    }
+
+    #[test]
+    fn a_turned_stream_keeps_its_size_at_a_slower_rate_windows_lists() {
+        // A VRR stream at 4K and 1000 Hz turns to portrait on a PC that lists
+        // 4K only up to 240 Hz. Windows lists the turned size in the third
+        // look; the turn applies there at 240 Hz (issue #40).
+        let landscape = (3840, 2160, 1_000_000);
+        let mut display = Fake::new(landscape);
+        display.fastest = 240_000;
+        display.lists_after = Some(3);
+        assert!(super::reshape(&mut display, 2160, 3840));
+        assert_eq!(display.looks.get(), 3);
+        assert_eq!(*display.log.borrow(), ["offer 1000000", "stream turned"]);
+        assert_eq!(display.shown.get(), (2160, 3840, 240_000));
+        assert_eq!(display.mode, (2160, 3840, 1_000_000));
+        // Turned back: the landscape size is listed, so one look serves it.
+        display.log.borrow_mut().clear();
+        assert!(super::reshape(&mut display, 3840, 2160));
+        assert_eq!(display.looks.get(), 1);
+        assert_eq!(display.shown.get(), landscape);
+    }
+
+    #[test]
+    fn a_turn_to_a_size_windows_lists_at_other_rates_waits_for_its_own() {
+        // A portrait VRR stream turns to 1920x1080, which the driver lists at
+        // 60 and 120 Hz from the start: those are not the turn's list.
+        let portrait = (1080, 1920, 1_000_000);
+        let landscape = (1920, 1080, 1_000_000);
+        let standard = |display: &Fake| {
+            display
+                .listed
+                .borrow_mut()
+                .extend([(1920, 1080, 60_000), (1920, 1080, 120_000)]);
+        };
+        let mut display = Fake::new(portrait);
+        standard(&display);
+        display.lists_after = Some(3);
+        assert!(super::reshape(&mut display, 1920, 1080));
+        assert_eq!(display.looks.get(), 3);
+        assert_eq!(display.shown.get(), landscape);
+        // Where Windows lists the size only up to 480 Hz, the new list is
+        // the turn's too, and the turn takes 480 Hz (issue #40).
+        let mut display = Fake::new(portrait);
+        standard(&display);
+        display.lists_after = Some(3);
+        display.fastest = 480_000;
+        assert!(super::reshape(&mut display, 1920, 1080));
+        assert_eq!(display.looks.get(), 3);
+        assert_eq!(display.shown.get(), (1920, 1080, 480_000));
+        // A list that never changes: after the wait the turn takes 120 Hz.
+        let mut display = Fake::new(portrait);
+        standard(&display);
+        display.lists_after = None;
+        assert!(super::reshape(&mut display, 1920, 1080));
+        assert_eq!(display.shown.get(), (1920, 1080, 120_000));
+        // Turned back and again: the driver offered both modes already, so
+        // neither turn waits, and the fallback serves the filtered one.
+        for (width, height, shown) in [(1080, 1920, portrait), (1920, 1080, (1920, 1080, 120_000))]
+        {
+            let started = Instant::now();
+            assert!(super::reshape(&mut display, width, height));
+            assert!(started.elapsed() < Duration::from_secs(1));
+            assert_eq!(display.looks.get(), 1);
+            assert_eq!(display.shown.get(), shown);
+        }
+        assert_eq!(display.offered, [portrait, landscape]);
+    }
+
+    #[test]
+    fn a_rate_windows_never_lists_is_not_set_and_the_stream_is_refused_with_why() {
+        let fixed = (1920, 1080, 120_000);
+        let mut displays = super::Leases::new();
+        let first = stream(&mut displays, fixed, Some(Fake::new(fixed))).unwrap();
+        {
+            let mut display = first.lock().unwrap();
+            display.lists_after = None;
+            display.log.borrow_mut().clear();
+        }
+        let error = stream(&mut displays, (1920, 1080, 1_000_000), None)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "shared virtual display already uses a different mode: it runs at 120.000 Hz, and Windows refused the 1000.000 Hz this stream asks for"
+        );
+        let display = first.lock().unwrap();
+        // The unlisted rate was never set; the stream on it keeps its mode.
+        assert!(display.looks.get() > 1);
+        assert_eq!(
+            *display.log.borrow(),
+            ["on", "offer 1000000", "stream raise refused"]
+        );
+        assert_eq!(display.mode, fixed);
+        assert_eq!(display.shown.get(), fixed);
+    }
+
+    #[test]
+    fn waiting_for_a_listed_mode_costs_one_look_when_it_is_listed_and_stops_in_time() {
+        assert_eq!(super::wait_listed(|| true, MODE_LIST_WAIT), Some(1));
+        let mut looks = 0;
+        let polls = super::wait_listed(
+            || {
+                looks += 1;
+                looks == 3
+            },
+            MODE_LIST_WAIT,
+        );
+        assert_eq!(polls, Some(3));
+        let started = Instant::now();
+        assert_eq!(
+            super::wait_listed(|| false, Duration::from_millis(30)),
+            None
+        );
+        let waited = started.elapsed();
+        assert!(waited >= Duration::from_millis(30), "{waited:?}");
+        assert!(waited < Duration::from_secs(1), "{waited:?}");
     }
 
     #[test]

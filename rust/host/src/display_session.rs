@@ -2208,6 +2208,18 @@ pub fn prepare_stream(
     stream: &Negotiated,
     config: &Config,
 ) -> Result<StreamPreparation> {
+    if let Some(target) = configured_window(config)? {
+        tracing::info!(target = %target, "streaming the configured window");
+        let first = target.clone();
+        return Ready::window(
+            h,
+            stream,
+            config,
+            first,
+            Box::new(move || Ok(target.clone())),
+            launch.warnings.clone(),
+        );
+    }
     let prepare = |physical_only: bool| {
         butterpollo_windows::input::on_input_desktop(|| {
             Ready::prepare(Prepared::create(h, launch, stream, config, physical_only)?)
@@ -2223,6 +2235,16 @@ pub fn prepare_stream(
         }
         result => result,
     }
+}
+
+/// One window streamed instead of a display: `output_name` set to
+/// `window:<hwnd>@<display>`, as the release harness does for its looped game
+/// clip (e2e.py --content). Like a co-op player's window, no display is
+/// prepared, changed or kept; a malformed target is refused, never streamed as
+/// a display, and a window that closes fails the capture loudly.
+fn configured_window(config: &Config) -> Result<Option<String>> {
+    let output = config.get("output_name", "").trim();
+    Ok(butterpollo_windows::capture::WindowTarget::parse(output)?.map(|_| output.to_string()))
 }
 
 /// Streams share the saved layout's restoration, like the arrangement and
@@ -2686,6 +2708,32 @@ pub(crate) mod tests {
         assert_eq!(stream_profile(true, None, false, calibration), None);
         assert_eq!(looked.get(), 2);
         assert_eq!(stream_profile(true, None, true, || None), None);
+    }
+
+    #[test]
+    fn a_window_output_streams_that_window_and_a_display_name_does_not() {
+        let window = Config::parse(r"output_name = window:0x2056c@\\.\DISPLAY1 ").unwrap();
+        assert_eq!(
+            configured_window(&window).unwrap().as_deref(),
+            Some(r"window:0x2056c@\\.\DISPLAY1")
+        );
+        for display in ["", r"output_name=\\.\DISPLAY1", "output_name=Dell U2723QE"] {
+            assert_eq!(
+                configured_window(&Config::parse(display).unwrap()).unwrap(),
+                None,
+                "{display}"
+            );
+        }
+        // A malformed target is refused instead of being streamed as a display.
+        for broken in [
+            "output_name=window:garbage",
+            r"output_name=window:0@\\.\DISPLAY1",
+        ] {
+            assert!(
+                configured_window(&Config::parse(broken).unwrap()).is_err(),
+                "{broken}"
+            );
+        }
     }
 
     #[test]

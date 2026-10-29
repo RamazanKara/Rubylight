@@ -799,6 +799,85 @@ class ReceiverPath(unittest.TestCase):
                              os.pathsep.join([str(msys), str(system)]))
 
 
+@unittest.skipUnless(sys.platform == 'win32', 'the clip player drives Windows windows')
+class DemoContent(unittest.TestCase):
+    """e2e.py --content: a looped game clip in one captured window instead of the motion strip."""
+
+    def setUp(self):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import demo_content, e2e_result
+        self.content, self.evaluate = demo_content, e2e_result.evaluate
+
+    def test_the_clip_header_gives_size_rate_and_length(self):
+        header = self.content.y4m_header(b'YUV4MPEG2 W1920 H1080 F60:1 Ip A1:1 C420jpeg XYSCSS=420JPEG\nFRAME\n')
+        self.assertEqual(header, dict(width=1920, height=1080, fps=60.0, chroma='420jpeg'))
+        # Xiph's Twitch GTAV.y4m: a 45-byte header and 3602 pictures.
+        self.assertAlmostEqual(self.content.clip_seconds(header, 11203682457), 3602 / 60)
+        self.assertEqual(self.content.y4m_header(b'YUV4MPEG2 W1280 H720 F30000:1001\n')['chroma'], '420jpeg')
+        for broken in (b'RIFF....', b'YUV4MPEG2 W1920 F60:1\n'):
+            with self.assertRaises(ValueError):
+                self.content.y4m_header(broken)
+
+    def test_a_clip_that_does_not_fit_the_stream_is_refused(self):
+        clip = dict(width=1920, height=1080, fps=60.0, chroma='420jpeg')
+        self.assertIsNone(self.content.check_clip(clip, 1920, 1080, 60))
+        self.assertIn('1920x1080, the stream 2560x1440', self.content.check_clip(clip, 2560, 1440, 60))
+        self.assertIn('below the stream', self.content.check_clip(clip, 1920, 1080, 120))
+        self.assertIn('not 4:2:0', self.content.check_clip(dict(clip, chroma='444'), 1920, 1080, 60))
+
+    def test_the_player_shows_every_picture_in_a_borderless_window_of_the_stream_size(self):
+        command = self.content.player_command('ffplay', r'D:\clip.y4m', 1920, 1080, 0, 0)
+        for flag in ('-noborder', '-an'):
+            self.assertIn(flag, command)
+        self.assertEqual(command[command.index('-x') + 1:command.index('-x') + 4], ['1920', '-y', '1080'])
+        self.assertEqual(command[command.index('-sync') + 1], 'video')
+        self.assertEqual(command[command.index('-loop') + 1], '0')
+        self.assertNotIn('-framedrop', command)
+        self.assertEqual(command[-2:], ['-i', r'D:\clip.y4m'])
+        self.assertEqual(self.content.player_environment({'PATH': 'x'}), {'PATH': 'x', 'SDL_RENDER_VSYNC': '0'})
+
+    def test_the_players_status_line_is_read(self):
+        log = 'Input #0, yuv4mpegpipe\n   0.05 M-V:  0.000 fd=   0 aq=    0KB vq=    0KB sq=    0B \r  19.95 fd=   2 aq=    0KB vq=15187KB \r'
+        self.assertEqual(self.content.player_stats(log), dict(played_seconds=19.95, dropped=2))
+        self.assertIsNone(self.content.player_stats('Input #0, yuv4mpegpipe\n'))
+
+    def test_a_player_behind_the_clip_fails_and_a_looped_one_is_not_measured(self):
+        verdict = self.content.content_verdict
+        self.assertTrue(verdict(dict(played_seconds=30.05, dropped=0), 30.0, 30.0, 60.03, .05)['passed'])
+        late = verdict(dict(played_seconds=28.9, dropped=0), 30.0, 30.0, 60.03, .05)
+        self.assertFalse(late['passed'])
+        self.assertAlmostEqual(late['realtime'], .9617, places=3)
+        looped = verdict(dict(played_seconds=10.0, dropped=0), 30.0, 70.0, 60.03)
+        self.assertTrue(looped['passed'])
+        self.assertIsNone(looped['realtime'])
+        self.assertFalse(verdict(None, 30.0, 30.0, 60.03)['passed'])
+
+    def test_strip_measurements_are_not_applicable_with_a_clip(self):
+        client = '\n'.join(line for line in (
+            'RESULT frames=1800 decoded_frames=1800 audio_packets=6000 failures=0',
+            'AUDIO_SIGNAL samples=2880000 peak=0.050000 rms=0.035000',
+            'AUDIO_TONE blocks=11000 min_rms=0.034000 max_rms=0.036000 continuous=1',
+            'STEADY warmup_seconds=3.000 seconds=27.000 frames=1621 fps=60.000 intervals_over_1_5_period=0',
+            'STEADY_HOST samples=1621 mean_ms=1.500 p50_ms=1.500 p95_ms=1.700 p99_ms=2.000 max_ms=2.500',
+            'ARRIVAL_INTERVAL samples=1621 mean_ms=16.667 p50_ms=16.667 p95_ms=17.000 p99_ms=18.000 max_ms=20.000',
+            'PERFORMANCE seconds=30.000 received_fps=60.00 decoded_fps=60.00 host_mean_ms=1.500 decoder_mean_ms=4.000',
+            'INTEROPERABILITY PASS')) + '\n'
+        kept = dict(passed=True, realtime=1.0)
+        result = self.evaluate(client, 0, 'hevc', '1920x1080x60', content=kept)
+        self.assertTrue(result['passed'], result['failures'])
+        self.assertEqual(result['not_applicable'], ['unique_fps', 'motion_coverage', 'picture_age'])
+        self.assertNotIn('unique_fps', result)
+        self.assertEqual(result['content'], kept)
+        # Without a clip the same receiver output lacks the strip's measurements.
+        self.assertIn('missing measurements: unique_fps, motion_coverage', self.evaluate(client, 0, 'hevc', '1920x1080x60')['failures'])
+        behind = self.evaluate(client, 0, 'hevc', '1920x1080x60', content=dict(passed=False, realtime=.95))
+        self.assertFalse(behind['passed'])
+        self.assertIn("the clip's player did not keep up", behind['failures'][0])
+        # The rest still judges the stream: a slow one fails with a clip too.
+        self.assertFalse(self.evaluate(client.replace('fps=60.000', 'fps=50.000'), 0, 'hevc', '1920x1080x60', content=kept)['passed'])
+        self.assertFalse(self.evaluate(client, 0, 'pyrowave', '1920x1080x60', content=kept)['passed'])
+
+
 class SinkVolume(unittest.TestCase):
     """rc.4's tone checks ran into Steam Streaming Speakers at 2 % volume: the result says so, the check never changes it."""
 

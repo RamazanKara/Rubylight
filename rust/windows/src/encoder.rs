@@ -26,6 +26,11 @@ pub struct Encoded {
     /// Driver-read AMF frame limit at submission. None means unavailable or
     /// unsupported; Some(0) means the driver's unrestricted/default setting.
     pub frame_cap_bytes: Option<u64>,
+    /// AMF encoded this keyframe again in place of an oversize scene cut.
+    pub reencoded: bool,
+    /// The pace-based budget the host asked AMF to hold this frame to (the
+    /// last `set_frame_cap`), against which a keyframe's size is judged.
+    pub frame_cap_target: Option<u64>,
     /// Submission through completed codec output, including asynchronous work.
     pub latency: Option<std::time::Duration>,
     pub presentation: Option<std::time::Instant>,
@@ -99,6 +104,12 @@ impl Encoder {
     pub fn reencoded_cuts(&self) -> u64 {
         match self {
             Self::Amf(encoder) => encoder.reencoded_cuts(),
+            _ => 0,
+        }
+    }
+    pub fn keyframes_over_cap(&self) -> u64 {
+        match self {
+            Self::Amf(encoder) => encoder.keyframes_over_cap(),
             _ => 0,
         }
     }

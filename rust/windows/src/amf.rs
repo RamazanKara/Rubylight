@@ -208,6 +208,8 @@ struct Submitted {
     idr: bool,
     after_invalidation: bool,
     frame_cap_bytes: Option<u64>,
+    frame_cap_target: Option<u64>,
+    reencoded: bool,
     /// Frames since the IDR the client never decoded (`ltr::Plan::skipped`).
     skipped: u64,
 }
@@ -219,6 +221,8 @@ struct Submission {
     idr: bool,
     after_invalidation: bool,
     frame_cap_bytes: Option<u64>,
+    /// The last [`Encoder::set_frame_cap`] request when it was submitted.
+    frame_cap_target: Option<u64>,
     skipped: u64,
     /// The largest inter frame sent as AMF made it ([`reencodes_cut`]).
     cut_limit: Option<u64>,
@@ -272,6 +276,10 @@ fn output_is_idr(picture_type: Option<i64>, requested_idr: bool) -> bool {
 fn reencodes_cut(keyframe: bool, bytes: u64, limit: Option<u64>, alone: bool) -> bool {
     !keyframe && alone && limit.is_some_and(|limit| bytes > limit)
 }
+/// A keyframe AMF made more than 1.1 times the cap the host asked for.
+fn over_cap_target(bytes: u64, target: Option<u64>) -> bool {
+    target.is_some_and(|target| target > 0 && bytes * 10 > target * 11)
+}
 pub struct Encoder {
     pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     component: *mut AMFComponent,
@@ -297,6 +305,9 @@ pub struct Encoder {
     /// is encoded again as a keyframe.
     cut_limit: Option<u64>,
     reencoded_cuts: u64,
+    /// The last [`Encoder::set_frame_cap`] request, the target submissions carry.
+    frame_cap_target: Option<u64>,
+    keyframes_over_cap: u64,
     reencode_failures: u64,
     /// An input is prepared and not yet accepted: no re-encode may change the
     /// references its plan names.
@@ -649,6 +660,8 @@ impl Encoder {
                 frame_cap: rate_control::FrameCap::new(automatic_frame_cap),
                 cut_limit: None,
                 reencoded_cuts: 0,
+                frame_cap_target: None,
+                keyframes_over_cap: 0,
                 reencode_failures: 0,
                 preparing: false,
                 references: Default::default(),
@@ -1795,6 +1808,8 @@ impl Encoder {
                     idr: s.idr,
                     after_invalidation: s.after_invalidation,
                     frame_cap_bytes: s.frame_cap_bytes,
+                    frame_cap_target: s.frame_cap_target,
+                    reencoded: s.reencoded,
                     skipped: s.skipped,
                 }
             });
@@ -1810,6 +1825,8 @@ impl Encoder {
                 .map(|s| (s.accepted, s.accepted.duration_since(s.started)));
             let requested_idr = submission.as_ref().is_some_and(|s| s.idr);
             let frame_cap_bytes = submission.as_ref().and_then(|s| s.frame_cap_bytes);
+            let frame_cap_target = submission.as_ref().and_then(|s| s.frame_cap_target);
+            let reencoded = submission.as_ref().is_some_and(|s| s.reencoded);
             let after_invalidation = submission.is_some_and(|s| s.after_invalidation);
             let skipped = submission.map_or(0, |s| s.skipped);
             let v = &*(*buffer).pVtbl;
@@ -1876,8 +1893,11 @@ impl Encoder {
             };
             self.frame_bytes += sent.len();
             if last {
-                self.references
-                    .encoded(idr, std::mem::take(&mut self.frame_bytes));
+                let frame_bytes = std::mem::take(&mut self.frame_bytes);
+                if idr && over_cap_target(frame_bytes as u64, frame_cap_target) {
+                    self.keyframes_over_cap += 1;
+                }
+                self.references.encoded(idr, frame_bytes);
             }
             let bytes: &[u8] = &sent;
             if self.slice_blocks > 0 {
@@ -1940,6 +1960,8 @@ impl Encoder {
                     idr: whole && pushed.meta.idr,
                     after_invalidation: whole && after_invalidation,
                     frame_cap_bytes,
+                    reencoded: whole && reencoded,
+                    frame_cap_target,
                     latency,
                     presentation,
                 });
@@ -1971,6 +1993,8 @@ impl Encoder {
                 idr,
                 after_invalidation,
                 frame_cap_bytes,
+                reencoded,
+                frame_cap_target,
                 latency,
                 presentation,
             });
@@ -2167,6 +2191,7 @@ impl Encoder {
     /// including driver default (zero), is preserved. Optional property failures
     /// warn without interrupting the stream; return only the observed limit.
     pub fn set_frame_cap(&mut self, bytes: u64) -> Option<u64> {
+        self.frame_cap_target = (bytes > 0).then_some(bytes);
         let component = self.component;
         self.frame_cap
             .update(self.codec, bytes, &self.warnings, |name, bits| {
@@ -2192,6 +2217,10 @@ impl Encoder {
     }
     pub fn reencoded_cuts(&self) -> u64 {
         self.reencoded_cuts
+    }
+    /// Keyframes AMF made more than 1.1 times the cap the host asked for.
+    pub fn keyframes_over_cap(&self) -> u64 {
+        self.keyframes_over_cap
     }
     fn set_bitrate(&mut self, bitrate: u32) -> Result<()> {
         let changed = bitrate != self.rate_control.requested();
@@ -2343,6 +2372,7 @@ impl Encoder {
                 idr: true,
                 after_invalidation: false,
                 frame_cap_bytes: cut.frame_cap_bytes,
+                frame_cap_target: cut.frame_cap_target,
                 skipped: plan.skipped,
                 cut_limit: cut.cut_limit,
                 reencoded: true,
@@ -2485,6 +2515,7 @@ impl Encoder {
                 idr,
                 after_invalidation: plan.after_invalidation,
                 frame_cap_bytes: self.frame_cap.effective(),
+                frame_cap_target: self.frame_cap_target,
                 skipped: plan.skipped,
                 cut_limit: self.cut_limit,
                 reencoded: false,

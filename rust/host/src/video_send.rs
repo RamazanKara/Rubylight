@@ -50,6 +50,12 @@ struct Prepared {
     idr: bool,
     after_invalidation: bool,
     frame_cap_bytes: Option<u64>,
+    /// The cap the host asked the encoder for (AMF only).
+    cap_target_bytes: Option<u64>,
+    /// AMF encoded this keyframe again in place of an oversize scene cut.
+    reencoded: bool,
+    /// Too large for full FEC within Moonlight's four blocks.
+    fec_limited: bool,
     payload_bytes: usize,
     peer: SocketAddr,
     claimed: Instant,
@@ -366,6 +372,7 @@ impl Sender {
                 shared.enqueue(Prepared {
                     blocks, counts, layout, packetizer: wire, wire_frame, idr: frame.idr,
                     after_invalidation: frame.after_invalidation, frame_cap_bytes: frame.frame_cap_bytes,
+                    cap_target_bytes: frame.frame_cap_target, reencoded: frame.reencoded, fec_limited,
                     payload_bytes: frame.bytes.len(), peer, claimed, polled, last_polled: polled,
                     early_blocks: 0, packetized,
                     prepared: Instant::now(), latency: micros(encode), processing,

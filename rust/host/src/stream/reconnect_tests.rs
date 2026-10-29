@@ -337,6 +337,8 @@ impl Fixture {
                         idr,
                         after_invalidation: false,
                         frame_cap_bytes: None,
+                        reencoded: false,
+                        frame_cap_target: None,
                         latency: Some(Duration::from_millis(2)),
                         presentation: Some(started),
                     }],

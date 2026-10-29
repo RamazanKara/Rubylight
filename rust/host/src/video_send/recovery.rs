@@ -128,6 +128,12 @@ pub(crate) struct RecoveryFrame {
     pub after_invalidation: bool,
     pub payload_bytes: usize,
     pub cap_bytes: Option<u64>,
+    /// The cap the host asked the encoder for (AMF only).
+    pub cap_target_bytes: Option<u64>,
+    /// AMF encoded this keyframe again in place of an oversize scene cut.
+    pub reencoded: bool,
+    /// Too large for full FEC within Moonlight's four blocks.
+    pub fec_limited: bool,
     pub wire_bytes: u64,
     pub pace_bps: u64,
     pub elapsed: Duration,
@@ -137,6 +143,12 @@ pub(crate) struct RecoveryFrame {
 pub(crate) fn report(session: &Session, config: &Config, frame: RecoveryFrame) {
     if !frame.idr && !frame.after_invalidation {
         return;
+    }
+    if frame.idr && frame.fec_limited {
+        session
+            .stats
+            .keyframes_past_fec
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     let pacing_reason = session.keyframe_loss_reason().unwrap_or_else(|| {
         if config.integer("pacing_max_bitrate_kbps", 0) > 0 {
@@ -157,6 +169,9 @@ pub(crate) fn report(session: &Session, config: &Config, frame: RecoveryFrame) {
         recovery_kind = if frame.idr { "keyframe" } else { "reference invalidation" },
         payload_bytes = frame.payload_bytes,
         cap_bytes = frame.cap_bytes,
+        cap_target_bytes = frame.cap_target_bytes,
+        reencoded = frame.reencoded,
+        fec_limited = frame.fec_limited,
         pacing_bps = frame.pace_bps,
         wire_bytes = frame.wire_bytes,
         ideal_wire_ms = frame.wire_bytes as f64 * 8000. / frame.pace_bps.max(1) as f64,
@@ -174,6 +189,44 @@ mod tests {
     use super::*;
     use butterpollo_core::session::Role;
     use std::time::Instant;
+
+    /// #59: a keyframe's line says whether AMF re-encoded it, the cap the host
+    /// asked for and whether it lost FEC; keyframes past FEC are counted.
+    #[test]
+    fn recovery_keyframes_count_the_ones_past_fec() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let session = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_core::rtsp::Negotiated::default(),
+        );
+        let config = Config::default();
+        let frame = |idr: bool, fec_limited: bool| RecoveryFrame {
+            frame: 1001,
+            idr,
+            after_invalidation: !idr,
+            payload_bytes: 1_908_217,
+            cap_bytes: Some(1_166_893),
+            cap_target_bytes: Some(1_166_893),
+            reencoded: true,
+            fec_limited,
+            wire_bytes: 1_960_000,
+            pace_bps: 800_000_000,
+            elapsed: Duration::from_millis(20),
+            lost: false,
+        };
+        let past_fec = || {
+            session
+                .stats
+                .keyframes_past_fec
+                .load(std::sync::atomic::Ordering::Relaxed)
+        };
+        report(&session, &config, frame(true, true));
+        assert_eq!(past_fec(), 1);
+        report(&session, &config, frame(true, false));
+        report(&session, &config, frame(false, true));
+        assert_eq!(past_fec(), 1);
+        assert_eq!(session.info()["keyframes_past_fec"], 1);
+    }
 
     /// A roam routes the first picture sent to the new address, even when a picture
     /// queued before it went to the old one after the roam.

@@ -4419,7 +4419,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
      * checks, and an attempt left in the budget. Spends nothing.
      */
     private boolean recoversAutomatically() {
+        MediaCodecDecoderRenderer videoRenderer = decoderRenderer;
         if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog || !connected || !foreground ||
+                videoRenderer == null || !videoRenderer.hasReceivedVideo() ||
                 isFinishing() || isDestroyed() || recoveryHandoffInProgress || pendingRecovery != null ||
                 app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
         int resumeId = recoveryAppId != 0 ? recoveryAppId :
@@ -7219,7 +7221,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
-        final boolean transientFailure = StreamRecoveryPolicy.transientTermination(errorCode);
+        // A stream that never had video does not reconnect: its error (and the port test) shows at once.
+        final MediaCodecDecoderRenderer videoRenderer = decoderRenderer;
+        final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode,
+                videoRenderer != null && videoRenderer.hasReceivedVideo());
         // A renderer failure on this device says nothing about the network
         final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
                 errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER || errorCode == MoonBridge.CLIENT_ERROR_DECODER ||

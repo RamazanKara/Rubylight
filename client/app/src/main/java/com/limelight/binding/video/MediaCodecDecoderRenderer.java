@@ -503,6 +503,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return text.toString();
     }
 
+    /** Whether this connection's video started: a frame reached the decoder. */
+    public boolean hasReceivedVideo() {
+        return lastVideoFrameTimeMs != 0;
+    }
+
     public boolean hasRecentVideoFrames(long nowMs) {
         return lastVideoFrameTimeMs != 0 && nowMs - lastVideoFrameTimeMs < 2000;
     }

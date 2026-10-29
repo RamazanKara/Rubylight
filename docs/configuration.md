@@ -626,7 +626,7 @@ Disconnect keeps them for the suspended session.
 
 **How the restore works**
 
-Before the file is written, the original value of each key and the value written are recorded in `game-files-journal.json` in the config folder. A restore puts the original back only while the key still holds the host's value. A value you changed in the meantime (in the game's own menu, for example) is yours and stays. Restores run on a thread of their own, so a slow file never holds up a session. A restore that fails stays in the journal and is retried: every 5 seconds while nobody is signed in to Windows, otherwise after 30 seconds and then less often, and again at the next start. A game folder deleted since takes its entries with it. When another device's stream changed the same key and its restore is still pending, that restore runs before the new stream writes.
+Before the file is written, the original value of each key and the value written are recorded in `game-files-journal.json` in the config folder. A restore puts the original back only while the key still holds the host's value. A value you changed in the meantime (in the game's own menu, for example) is yours and stays. Restores run on a thread of their own, so a slow file never holds up a session. A restore that fails stays in the journal and is retried: within 5 seconds of a sign-in when nobody is signed in to Windows, otherwise after 30 seconds and then less often, and again at the next start. A game folder deleted since takes its entries with it. When another device's stream changed the same key and its restore is still pending, that restore runs before the new stream writes.
 
 **Which files the host writes**
 

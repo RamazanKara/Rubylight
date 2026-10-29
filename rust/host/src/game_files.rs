@@ -250,6 +250,25 @@ fn nobody_signed_in() -> bool {
     process::is_system() && !process::user_signed_in()
 }
 
+/// What the restore thread does once it wakes.
+#[derive(Debug, PartialEq, Eq)]
+enum Next {
+    /// The host is gone.
+    Stop,
+    Restore,
+    /// A retry is due at the sign-in screen, where it would only fail again (and log and save
+    /// the journal again): it looks for a sign-in again after [`SIGN_IN_POLL`].
+    AwaitSignIn,
+}
+
+fn next(woke: Result<(), RecvTimeoutError>, nobody_signed_in: impl FnOnce() -> bool) -> Next {
+    match woke {
+        Err(RecvTimeoutError::Disconnected) => Next::Stop,
+        Err(RecvTimeoutError::Timeout) if nobody_signed_in() => Next::AwaitSignIn,
+        _ => Next::Restore,
+    }
+}
+
 /// The restore thread: a restore for every request (those that queue up meanwhile run as
 /// one), and again later while one fails. It ends with the host.
 fn restorer(host: &Weak<Host>, receiver: &Receiver<()>) {
@@ -259,8 +278,13 @@ fn restorer(host: &Weak<Host>, receiver: &Receiver<()>) {
             Some((at, _)) => receiver.recv_timeout(at.saturating_duration_since(Instant::now())),
             None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
-        if woke == Err(RecvTimeoutError::Disconnected) {
-            return;
+        match next(woke, nobody_signed_in) {
+            Next::Stop => return,
+            Next::AwaitSignIn => {
+                retry = Some((Instant::now() + SIGN_IN_POLL, SIGN_IN_POLL));
+                continue;
+            }
+            Next::Restore => {}
         }
         while receiver.try_recv().is_ok() {}
         let Some(h) = host.upgrade() else {
@@ -516,6 +540,15 @@ mod tests {
         assert_eq!(next_wait(Some(RETRY), false), RETRY * 2);
         assert_eq!(next_wait(Some(MAX_RETRY), false), MAX_RETRY);
         assert_eq!(next_wait(Some(MAX_RETRY), true), SIGN_IN_POLL);
+        // While it waits, a due retry only looks for a sign-in; one asked for always runs.
+        let timeout = Err(RecvTimeoutError::Timeout);
+        assert_eq!(next(timeout, || true), Next::AwaitSignIn);
+        assert_eq!(next(timeout, || false), Next::Restore);
+        assert_eq!(next(Ok(()), || true), Next::Restore);
+        assert_eq!(
+            next(Err(RecvTimeoutError::Disconnected), || false),
+            Next::Stop
+        );
     }
 
     #[test]

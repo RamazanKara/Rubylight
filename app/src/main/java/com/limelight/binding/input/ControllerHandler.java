@@ -889,31 +889,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         //
         // First, check if this is an internal device we're being called on.
         if (!isExternal(dev)) {
-            InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
-
-            boolean foundInternalGamepad = false;
-            boolean foundInternalSelect = false;
-            for (int id : im.getInputDeviceIds()) {
-                InputDevice currentDev = im.getInputDevice(id);
-
-                // Ignore external devices
-                if (currentDev == null || isExternal(currentDev)) {
-                    continue;
-                }
-
-                // Note that we are explicitly NOT excluding the current device we're examining here,
-                // since the other gamepad buttons may be on our current device and that's fine.
-                if (currentDev.hasKeys(KeyEvent.KEYCODE_BUTTON_SELECT)[0]) {
-                    foundInternalSelect = true;
-                }
-
-                // We don't check KEYCODE_BUTTON_A here, since the Shield Android TV has a
-                // virtual mouse device that claims to have KEYCODE_BUTTON_A. Instead, we rely
-                // on the SOURCE_GAMEPAD flag to be set on gamepad devices.
-                if (hasGamepadButtons(currentDev)) {
-                    foundInternalGamepad = true;
-                }
-            }
+            boolean[] internal = findInternalGamepadAndSelect();
+            boolean foundInternalGamepad = internal[0];
+            boolean foundInternalSelect = internal[1];
 
             // Allow the back button to function for navigation if we either:
             // a) have no internal gamepad (most phones)
@@ -947,27 +925,55 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      * A Back from a handheld's system button that is not on its gamepad device: one its firmware
      * injects (Android's virtual keyboard device) or a built-in key device such as gpio-keys.
      * Never the navigation bar or gesture, a fallback key, a mouse's right click, an external or
-     * alphabetic keyboard, a gamepad (handleButtonDown/Up), or a device without a built-in gamepad.
+     * alphabetic keyboard, a gamepad (handleButtonDown/Up), or a device without a built-in gamepad
+     * with its own Select (that Back is Select, see shouldIgnoreBack).
      */
     public static boolean isHandheldSystemBack(int keyCode, int flags, int source, boolean virtualDevice,
                                                boolean external, boolean alphabeticKeyboard, boolean gamepad,
-                                               boolean internalGamepad) {
-        return keyCode == KeyEvent.KEYCODE_BACK && internalGamepad &&
+                                               boolean internalGamepadWithSelect) {
+        return keyCode == KeyEvent.KEYCODE_BACK && internalGamepadWithSelect &&
                 (flags & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK | KeyEvent.FLAG_SOFT_KEYBOARD)) == 0 &&
                 (source & InputDevice.SOURCE_CLASS_POINTER) == 0 &&
                 (virtualDevice || (!external && !alphabeticKeyboard && !gamepad));
     }
 
-    /** Whether this device has a gamepad built in, as handhelds do. */
-    protected boolean hasInternalGamepad() {
+    /** Whether this device has a built-in gamepad and a built-in Select button, on any internal device. */
+    protected boolean[] findInternalGamepadAndSelect() {
         InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
+
+        boolean foundInternalGamepad = false;
+        boolean foundInternalSelect = false;
         for (int id : im.getInputDeviceIds()) {
-            InputDevice dev = im.getInputDevice(id);
-            if (dev != null && !isExternal(dev) && hasGamepadButtons(dev)) {
-                return true;
+            InputDevice currentDev = im.getInputDevice(id);
+
+            // Ignore external devices
+            if (currentDev == null || isExternal(currentDev)) {
+                continue;
+            }
+
+            // Note that we are explicitly NOT excluding the device a Back came from here,
+            // since the other gamepad buttons may be on that device and that's fine.
+            if (currentDev.hasKeys(KeyEvent.KEYCODE_BUTTON_SELECT)[0]) {
+                foundInternalSelect = true;
+            }
+
+            // We don't check KEYCODE_BUTTON_A here, since the Shield Android TV has a
+            // virtual mouse device that claims to have KEYCODE_BUTTON_A. Instead, we rely
+            // on the SOURCE_GAMEPAD flag to be set on gamepad devices.
+            if (hasGamepadButtons(currentDev)) {
+                foundInternalGamepad = true;
             }
         }
-        return false;
+        return new boolean[] {foundInternalGamepad, foundInternalSelect};
+    }
+
+    /**
+     * A handheld whose system Back is a spare button: a built-in gamepad with its own Select
+     * (Retroid, GPD XD). Without one (Shield Portable), shouldIgnoreBack sends that Back as Select.
+     */
+    private boolean hasInternalGamepadWithSelect() {
+        boolean[] internal = findInternalGamepadAndSelect();
+        return internal[0] && internal[1];
     }
 
     /**
@@ -983,7 +989,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (!isHandheldSystemBack(event.getKeyCode(), event.getFlags(), event.getSource(), virtualDevice,
                 !virtualDevice && isExternal(dev),
                 !virtualDevice && dev.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
-                !virtualDevice && (hasGamepadButtons(dev) || hasJoystickAxes(dev)), hasInternalGamepad())) {
+                !virtualDevice && (hasGamepadButtons(dev) || hasJoystickAxes(dev)), hasInternalGamepadWithSelect())) {
             return false;
         }
         if (stopped) {

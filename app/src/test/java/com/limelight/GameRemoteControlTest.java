@@ -282,10 +282,37 @@ public class GameRemoteControlTest {
     }
 
     private static class HandheldController extends ControllerHandler {
+        private final boolean internalSelect;
         HandheldController(Game activity, NvConnection connection, PreferenceConfiguration prefs) {
-            super(activity, connection, null, prefs);
+            this(activity, connection, prefs, true);
         }
-        @Override protected boolean hasInternalGamepad() { return true; }
+        HandheldController(Game activity, NvConnection connection, PreferenceConfiguration prefs, boolean internalSelect) {
+            super(activity, connection, null, prefs);
+            this.internalSelect = internalSelect;
+        }
+        @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, internalSelect}; }
+    }
+
+    // #49: on a handheld whose built-in pad has no Select (Shield Portable), the system Back is that pad's
+    // Select (shouldIgnoreBack), so Back as Guide leaves it alone and Select and the menu chord keep working.
+    @Test public void handheldWithoutItsOwnSelectKeepsBackAsSelect() {
+        InputDevice keys = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC);
+        RecordingConnection connection = new RecordingConnection();
+        RemoteGame game = game(connection);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.backAsGuide = true;
+        ReflectionHelpers.setField(game, "connected", true);
+        HandheldController controller = new HandheldController(game, connection, prefs, false);
+        ReflectionHelpers.setField(ReflectionHelpers.getField(controller, "defaultContext"), "assignedControllerNumber", true);
+        try {
+            assertFalse(controller.handleHandheldBackAsGuide(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK,
+                    keys.getId(), InputDevice.SOURCE_KEYBOARD)));
+            assertFalse(controller.handleHandheldBackAsGuide(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK,
+                    -1, InputDevice.SOURCE_KEYBOARD)));
+            assertTrue(connection.buttons.isEmpty());
+        } finally {
+            controller.destroy();
+        }
     }
 
     private static class CountingController extends ControllerHandler {

@@ -113,9 +113,9 @@ public class DecoderFailureTest {
         assertFalse(renderer.decoderFailedWithVulkan());
         // Five recoveries, not ten in 2 s: the sixth gives up.
         assertEquals(5, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
-        // The dialog says what happened; counting a crash would say "Video decoder crashed" again
-        // in the list and reset settings every third time.
-        assertEquals(Collections.emptyList(), crashes);
+        // Reported once, so the next stream runs without reference frame invalidation.
+        assertEquals(1, crashes.size());
+        assertTrue(crashes.get(0) instanceof MediaCodecDecoderRenderer.RendererException);
     }
 
     @Test
@@ -211,6 +211,20 @@ public class DecoderFailureTest {
 
         // And once frames flow after that one too, the hang check is back on.
         ReflectionHelpers.setField(renderer, "numFramesOut", 31);
+        FailingCodec.released = false;
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
+        assertTrue(renderer.getDecoderFailure(),
+                renderer.getDecoderFailure().startsWith("c2.mtk.hevc.decoder took no input for 5000 ms"));
+    }
+
+    @Test
+    public void aDecoderThatStopsTakingInputAfterAnEatenExceptionStillEndsTheStream() {
+        // One exception eaten (as at teardown), then no frame and no input without another throw:
+        // the hang check stayed off for good.
+        ReflectionHelpers.setField(renderer, "codecRecoveryAttempts", 10);
+        failOnce();
+        assertTrue(terminated.isEmpty());
         FailingCodec.released = false;
         assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
         assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);

@@ -45,6 +45,8 @@
 
     <string name="host_pyrowave_unavailable">This PC can’t stream PyroWave, so it uses %1$s.</string>
     <string name="stream_pyrowave_device_unavailable">This device can’t run PyroWave, so the stream uses %1$s.\n%2$s</string>
+    <string name="stream_pyrowave_full_chroma">PyroWave doesn’t run with “%2$s” on, so the stream uses %1$s.</string>
+    <string name="stream_pyrowave_no_hdr_on_pc">This PC has no PyroWave HDR, so the HDR stream uses %1$s.</string>
     <string name="connection_test_intro_delay">Test the delay to your PC.</string>
     <string name="host_feature_cursor_shape">Cursor shapes</string>
 </resources>

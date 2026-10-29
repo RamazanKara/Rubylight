@@ -40,6 +40,8 @@
     <string name="host_details_features_none">보고된 추가 기능 없음</string>
     <string name="host_pyrowave_unavailable">이 PC는 PyroWave를 스트리밍할 수 없어 %1$s을(를) 사용합니다.</string>
     <string name="stream_pyrowave_device_unavailable">이 기기에서는 PyroWave를 실행할 수 없어 스트림이 %1$s을(를) 사용합니다.\n%2$s</string>
+    <string name="stream_pyrowave_full_chroma">“%2$s”이(가) 켜져 있으면 PyroWave를 쓸 수 없어 스트림이 %1$s을(를) 사용합니다.</string>
+    <string name="stream_pyrowave_no_hdr_on_pc">이 PC에는 PyroWave HDR이 없어 HDR 스트림이 %1$s을(를) 사용합니다.</string>
     <string name="connection_test_intro_delay">PC까지의 지연 시간을 테스트합니다.</string>
     <string name="host_feature_cursor_shape">커서 모양</string>
 </resources>

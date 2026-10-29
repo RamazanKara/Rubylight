@@ -40,6 +40,8 @@
     <string name="host_details_features_none">Дополнительные функции не заявлены</string>
     <string name="host_pyrowave_unavailable">Этот ПК не может транслировать PyroWave, поэтому использует %1$s.</string>
     <string name="stream_pyrowave_device_unavailable">Это устройство не может запустить PyroWave, поэтому трансляция использует %1$s.\n%2$s</string>
+    <string name="stream_pyrowave_full_chroma">PyroWave не работает при включённом параметре «%2$s», поэтому трансляция использует %1$s.</string>
+    <string name="stream_pyrowave_no_hdr_on_pc">У этого ПК нет PyroWave HDR, поэтому HDR-трансляция использует %1$s.</string>
     <string name="connection_test_intro_delay">Проверьте задержку до ПК.</string>
     <string name="host_feature_cursor_shape">Формы курсора</string>
 </resources>

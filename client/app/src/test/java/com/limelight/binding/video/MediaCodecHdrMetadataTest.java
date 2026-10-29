@@ -267,8 +267,8 @@ public class MediaCodecHdrMetadataTest {
             assertEquals(java.util.Arrays.asList("release", "create c2.mtk.dvhe.st.decoder"), RecordingCodec.calls);
             assertEquals(false, ReflectionHelpers.getField(renderer, "dolbyVisionFailed"));
             assertNull(ReflectionHelpers.getField(renderer, "uncheckedHdrStaticInfo"));
-            // The stream ends with a dialog; a give-up is not counted as a crash.
-            assertEquals(0, crashes.size());
+            // Reported once: the next stream runs without reference frame invalidation.
+            assertEquals(1, crashes.size());
         }
     }
 

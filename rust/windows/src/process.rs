@@ -257,7 +257,7 @@ unsafe fn sid_text(sid: PSID) -> Result<String> {
         sid.context("Windows returned an invalid SID")
     }
 }
-fn token_user_sid(token: &OwnedHandle) -> Result<String> {
+pub(crate) fn token_user_sid(token: &OwnedHandle) -> Result<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from
     // ConvertSidToStringSidW is read before it is freed once with LocalFree.
@@ -386,7 +386,7 @@ pub fn create_folder_administrators_only(path: &Path) -> std::io::Result<()> {
     create_folder(path, ADMINISTRATORS_ONLY)
 }
 /// Create the folder `path` with `sddl`'s owner and permissions from the start.
-fn create_folder(path: &Path, sddl: &str) -> std::io::Result<()> {
+pub(crate) fn create_folder(path: &Path, sddl: &str) -> std::io::Result<()> {
     use windows::Win32::Storage::FileSystem::CreateDirectoryW;
     let name = wide(path.as_os_str()).map_err(std::io::Error::other)?;
     with_attributes(sddl, |attributes| {

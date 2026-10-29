@@ -119,9 +119,14 @@ impl Snapshot {
 
 /// Whether `value` is what Nucleus writes: [`NUCLEUS_DPI`] as REG_SZ.
 fn nucleus_wrote(value: &Value) -> bool {
+    value_text(value).is_some_and(|text| text == NUCLEUS_DPI)
+}
+
+/// A REG_SZ value's text; None for another type.
+fn value_text(value: &Value) -> Option<String> {
     const REG_SZ: u32 = 1;
     if value.kind != REG_SZ || !value.data.len().is_multiple_of(2) {
-        return false;
+        return None;
     }
     let text: Vec<u16> = value
         .data
@@ -131,7 +136,43 @@ fn nucleus_wrote(value: &Value) -> bool {
         .map(|&pair| u16::from_le_bytes(pair))
         .collect();
     let end = text.iter().rposition(|&c| c != 0).map_or(0, |at| at + 1);
-    String::from_utf16(&text[..end]).is_ok_and(|text| text == NUCLEUS_DPI)
+    String::from_utf16(&text[..end]).ok()
+}
+
+/// The layers `values` give the program at `exe` (`~ RUNASADMIN`),
+/// whatever the case of its name; None without one.
+pub fn program_layers(values: &BTreeMap<String, Value>, exe: &str) -> Option<String> {
+    let exe = plain(exe);
+    values
+        .iter()
+        .find(|(name, _)| plain(name) == exe)
+        .and_then(|(_, value)| value_text(value))
+}
+
+/// The machine's compatibility layers (`HKEY_LOCAL_MACHINE`), which apply
+/// to every user; none without the key.
+pub fn machine_values() -> Result<BTreeMap<String, Value>> {
+    use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+    let path = to_wide(KEY);
+    let mut key = HKEY::default();
+    // SAFETY: the path is terminated and outlives the call; `key` is an
+    // out-pointer, closed by `Key` once opened.
+    let opened = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(path.as_ptr()),
+            Some(0),
+            KEY_QUERY_VALUE,
+            &mut key,
+        )
+    };
+    if opened == ERROR_FILE_NOT_FOUND || opened == ERROR_PATH_NOT_FOUND {
+        return Ok(BTreeMap::new());
+    }
+    opened
+        .ok()
+        .with_context(|| format!(r"opening HKEY_LOCAL_MACHINE\{KEY}"))?;
+    read_values(&Key(key)).with_context(|| format!(r"reading HKEY_LOCAL_MACHINE\{KEY}"))
 }
 
 /// The values in `layers` now that Nucleus would set for `executable` at
@@ -394,19 +435,22 @@ pub struct Guard {
 }
 
 impl Guard {
-    /// Before Nucleus Co-op at `folder` starts `executable` (the file name)
-    /// of the game at `game`: restore what a session the host never ended
-    /// left, then keep the values now.
+    /// Before the Nucleus Co-op at `nucleus` starts `executable` (the file
+    /// name) of the game at `game`: restore what a session the host never
+    /// ended left, then keep the values now, in a file in `folder`, the
+    /// host's copy (which is `nucleus` unless the session runs the user's
+    /// own copy).
     pub fn take(
         mut layers: Box<dyn Layers>,
         folder: &Path,
+        nucleus: &Path,
         executable: &str,
         game: &str,
     ) -> Result<Self> {
         let journal = journal(folder, layers.user());
         let lock = Lock::take(&journal, LOCK_WAIT)?;
         restore_left(layers.as_mut(), &journal)?;
-        let snapshot = snapshot(layers.as_mut(), executable, game, &folder.join("content"))?;
+        let snapshot = snapshot(layers.as_mut(), executable, game, &nucleus.join("content"))?;
         write_journal(&journal, &snapshot)?;
         Ok(Self {
             layers,
@@ -908,7 +952,7 @@ pub mod tests {
     }
 
     fn take(map: &Map, folder: &Path) -> Result<Guard> {
-        Guard::take(Box::new(map.clone()), folder, "puzzle.EXE", GAME)
+        Guard::take(Box::new(map.clone()), folder, folder, "puzzle.EXE", GAME)
     }
 
     #[test]
@@ -941,6 +985,62 @@ pub mod tests {
         nucleus_runs(&map, &[GAME]);
         drop(guard);
         assert_eq!(map.values.lock().unwrap()[GAME], text("~ HIGHDPIAWARE"));
+    }
+
+    #[test]
+    fn a_users_own_copy_keeps_the_file_in_the_hosts_and_its_instances_count() {
+        let map = Map::default();
+        *map.values.lock().unwrap() =
+            BTreeMap::from([(GAME.to_string(), text("~ RUNASADMIN WIN7RTM"))]);
+        let host = tempfile::tempdir().unwrap();
+        let copy = tempfile::tempdir().unwrap();
+        let mut guard = Guard::take(
+            Box::new(map.clone()),
+            host.path(),
+            copy.path(),
+            "puzzle.EXE",
+            GAME,
+        )
+        .unwrap();
+        // Where the console's restore and the next session look, never in
+        // the folder the user can write.
+        assert!(journal(host.path(), "S-1-5-21-7").is_file());
+        assert!(std::fs::read_dir(copy.path()).unwrap().next().is_none());
+        // The copy's instance is the session's, the host's copy's is not.
+        let other = instance(host.path());
+        nucleus_runs(&map, &[GAME, &instance(copy.path()), &other]);
+        guard.restore();
+        assert_eq!(
+            *map.values.lock().unwrap(),
+            BTreeMap::from([
+                (GAME.to_string(), text("~ RUNASADMIN WIN7RTM")),
+                (other, text("~ HIGHDPIAWARE")),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_programs_layers_are_found_whatever_the_case() {
+        let values = BTreeMap::from([
+            (
+                r"D:\Games\Puzzle\PUZZLE.exe".to_string(),
+                text("~ RUNASADMIN"),
+            ),
+            (
+                r"D:\Games\Other.exe".to_string(),
+                Value {
+                    kind: 4,
+                    data: vec![1, 0, 0, 0],
+                },
+            ),
+        ]);
+        assert_eq!(
+            program_layers(&values, "d:/games/puzzle/puzzle.exe").as_deref(),
+            Some("~ RUNASADMIN")
+        );
+        // Not text, or not there.
+        assert_eq!(program_layers(&values, r"D:\Games\Other.exe"), None);
+        assert_eq!(program_layers(&values, r"D:\Games\Puzzle.exe"), None);
     }
 
     #[test]
@@ -1084,6 +1184,7 @@ pub mod tests {
         // The next session, of another game, restores first, then keeps its own.
         let next = Guard::take(
             Box::new(map.clone()),
+            folder.path(),
             folder.path(),
             "Other.exe",
             r"C:\Other\Other.exe",

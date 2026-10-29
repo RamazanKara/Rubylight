@@ -13,12 +13,14 @@ use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::audio_scope::Identity;
 use butterpollo_core::input::Input;
 use butterpollo_core::nucleus::coop::{self, End, Phase};
+use butterpollo_core::nucleus::elevation::Run;
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::EXECUTABLE;
 use butterpollo_core::nucleus::profile::{Player, TITLE};
 use butterpollo_core::nucleus::window;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::os::windows::io::OwnedHandle;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -50,7 +52,7 @@ pub trait Nucleus: Send {
     fn stop(&mut self, instances: &BTreeMap<u32, u64>);
 }
 
-/// Starts Nucleus Co-op: elevated on the PC, a fake in tests.
+/// Starts Nucleus Co-op: elevated or as the user on the PC, a fake in tests.
 pub trait Launcher {
     /// Start it for game `guid` with `environment` added to the user's: the
     /// game it starts gets the same.
@@ -60,6 +62,12 @@ pub trait Launcher {
         guid: &str,
         environment: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>>;
+    /// Run `work`, which writes Nucleus' settings and profile, as the
+    /// account whose copy it writes to: the host for its own copy, the user
+    /// for theirs.
+    fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+        work()
+    }
 }
 
 /// What Nucleus Co-op starts with for a game found from Steam app
@@ -84,28 +92,104 @@ impl Launcher for Elevated {
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
         require_administrator(crate::process::user_runs_elevated()?)?;
-        let environment = environment(extra)?;
-        let since = crate::process::now();
-        let program = folder.join(EXECUTABLE);
-        // Nucleus reads Settings.ini from its working folder, and its window
-        // must be visible for the profile click.
-        let process = crate::process::Process::spawn(
-            &program,
-            &[guid.into()],
-            Some(folder),
-            crate::process::Target::User { elevated: true },
-            &environment,
-            false,
-        )
-        .with_context(|| format!("starting {} elevated", program.display()))?;
-        tracing::info!(
-            pid = process.pid,
+        started(&launch_of(
+            folder,
             guid,
-            ?environment,
-            "Nucleus Co-op started"
-        );
-        Ok(Box::new(Started { process, since }))
+            &environment(extra)?,
+            Run::Elevated,
+        ))
     }
+}
+
+/// Nucleus Co-op from the signed-in user's own copy
+/// ([`super::user_copy`]), as them with their standard rights: Rubylight's
+/// own handler for a game that needs no administrator rights. The same
+/// environment, job and window as [`Elevated`]'s; its files are written as
+/// the user.
+pub struct Unelevated {
+    user: OwnedHandle,
+}
+impl Unelevated {
+    pub fn signed_in() -> Result<Self> {
+        Ok(Self {
+            user: super::user_copy::user()?,
+        })
+    }
+}
+impl Launcher for Unelevated {
+    fn launch(
+        &mut self,
+        folder: &Path,
+        guid: &str,
+        extra: &BTreeMap<String, String>,
+    ) -> Result<Box<dyn Nucleus>> {
+        started(&launch_of(folder, guid, &environment(extra)?, Run::User))
+    }
+    fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+        super::user_copy::as_user(Some(&self.user), work)?
+    }
+}
+
+/// How a session starts the Nucleus Co-op at `folder`: as the signed-in
+/// user, `elevated` or not, in its folder.
+#[derive(Debug, PartialEq)]
+struct Launch {
+    program: PathBuf,
+    folder: PathBuf,
+    arguments: Vec<std::ffi::OsString>,
+    elevated: bool,
+    environment: BTreeMap<String, String>,
+}
+
+/// [`Launch`] of game `guid` for `run`, with `environment` ([`environment`]).
+/// Nucleus reads Settings.ini from its working folder, and its window must
+/// be visible for the profile click.
+fn launch_of(
+    folder: &Path,
+    guid: &str,
+    environment: &BTreeMap<String, String>,
+    run: Run,
+) -> Launch {
+    Launch {
+        program: folder.join(EXECUTABLE),
+        folder: folder.to_path_buf(),
+        arguments: vec![guid.into()],
+        elevated: run == Run::Elevated,
+        environment: environment.clone(),
+    }
+}
+
+fn started(launch: &Launch) -> Result<Box<dyn Nucleus>> {
+    let since = crate::process::now();
+    let process = crate::process::Process::spawn(
+        &launch.program,
+        &launch.arguments,
+        Some(&launch.folder),
+        crate::process::Target::User {
+            elevated: launch.elevated,
+        },
+        &launch.environment,
+        false,
+    )
+    .with_context(|| {
+        format!(
+            "starting {} {}",
+            launch.program.display(),
+            if launch.elevated {
+                "elevated"
+            } else {
+                "without administrator rights"
+            }
+        )
+    })?;
+    tracing::info!(
+        pid = process.pid,
+        arguments = ?launch.arguments,
+        elevated = launch.elevated,
+        environment = ?launch.environment,
+        "Nucleus Co-op started"
+    );
+    Ok(Box::new(Started { process, since }))
 }
 
 /// Open Nucleus Co-op's own window on the PC's screen, as the signed-in user
@@ -477,8 +561,13 @@ pub fn audio_limit(build: Option<u32>) -> Option<String> {
 pub struct Start<'a> {
     pub id: u32,
     pub kind: coop::Kind,
-    /// Nucleus Co-op's folder.
+    /// The host's Nucleus Co-op folder, which keeps the compatibility
+    /// settings' file.
     pub folder: &'a Path,
+    /// The signed-in user's own copy ([`super::user_copy`]) when the
+    /// session runs it as them without administrator rights; None runs
+    /// `folder` elevated.
+    pub user_copy: Option<&'a Path>,
     pub handler: &'a Handler,
     /// The game's .exe as Nucleus starts it: the user's added game's, or the
     /// one Rubylight's handler is for.
@@ -506,12 +595,17 @@ pub struct Running {
 }
 
 /// Start a session on the PC: virtual Xbox pads, XInput, the user's desktop
-/// and compatibility settings, and Nucleus Co-op elevated.
+/// and compatibility settings, and Nucleus Co-op, elevated or from the
+/// user's own copy.
 pub fn start_on_pc(
     start: &Start,
     policy: butterpollo_core::input_policy::Policy,
     warnings: Arc<butterpollo_core::session::Warnings>,
 ) -> Result<Running> {
+    let mut launcher: Box<dyn Launcher> = match start.user_copy {
+        Some(_) => Box::new(Unelevated::signed_in()?),
+        None => Box::new(Elevated),
+    };
     let pads = pads::virtual_pads(policy, warnings)?;
     let mut xinput = pads::System::open()?;
     self::start(
@@ -520,17 +614,20 @@ pub fn start_on_pc(
         &mut xinput,
         Box::new(Win32::default()),
         Box::new(layers::UserHive::signed_in()?),
-        &mut Elevated,
+        launcher.as_mut(),
     )
 }
 
 /// What starting a session needs that doesn't need Nucleus Co-op closed:
-/// administrator rights for the signed-in user, their AppData folder and
-/// their account, and the compatibility settings an earlier session at
-/// `folder` left put back. Checked before a session closes the console's
-/// window, so a launch refused for one of these leaves the window open.
-pub fn ready(folder: &Path) -> Result<()> {
-    require_administrator(crate::process::user_runs_elevated()?)?;
+/// administrator rights for the signed-in user when it runs elevated, their
+/// AppData folder and their account, and the compatibility settings an
+/// earlier session left in the host's `folder` put back. Checked before a
+/// session closes the console's window, so a launch refused for one of
+/// these leaves the window open.
+pub fn ready(folder: &Path, run: Run) -> Result<()> {
+    if run == Run::Elevated {
+        require_administrator(crate::process::user_runs_elevated()?)?;
+    }
     environment(&BTreeMap::new())?;
     layers::restore_left_in(&mut layers::UserHive::signed_in()?, folder)?;
     Ok(())
@@ -585,28 +682,36 @@ pub fn start(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    files::write_settings(start.folder)?;
-    let number = files::write_profile(start.folder, &start.handler.guid, &players, &screens)?;
+    // The copy Nucleus runs from, written as the account it runs as.
+    let folder = start.user_copy.unwrap_or(start.folder);
+    let mut number = 0;
+    launcher.write(&mut || {
+        files::write_settings(folder)?;
+        number = files::write_profile(folder, &start.handler.guid, &players, &screens)?;
+        Ok(())
+    })?;
     tracing::info!(
         number,
         game = start.handler.guid,
         players = start.players,
+        folder = %folder.display(),
         "Nucleus Co-op profile {TITLE} written"
     );
     // Restored when the session ends, or here should Nucleus not start.
     let layers = Guard::take(
         layers,
         start.folder,
+        folder,
         &start.handler.executable,
         start.exe_path,
     )
     .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
     let nucleus = launcher.launch(
-        start.folder,
+        folder,
         &start.handler.guid,
         &steam_environment(start.steam_app),
     )?;
-    let content = start.folder.join("content");
+    let content = folder.join("content");
     let keeper = Keeper::new(
         start.players,
         std::slice::from_ref(&start.handler.executable),
@@ -787,6 +892,37 @@ mod tests {
     }
 
     #[test]
+    fn the_users_own_copy_starts_as_them_with_the_elevated_ones_environment() {
+        let local = Path::new(r"C:\Users\Player\AppData\Local");
+        let environment = webview_environment(local, &steam_environment(Some(400)));
+        let copy = Path::new(r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\2.4.2");
+        let user = launch_of(copy, "Rubylight-game", &environment, Run::User);
+        assert_eq!(
+            user,
+            Launch {
+                program: copy.join("NucleusCoop.exe"),
+                folder: copy.to_path_buf(),
+                arguments: vec!["Rubylight-game".into()],
+                elevated: false,
+                environment: BTreeMap::from([
+                    ("SteamAppId".to_string(), "400".to_string()),
+                    ("SteamGameId".to_string(), "400".to_string()),
+                    (
+                        "WEBVIEW2_USER_DATA_FOLDER".to_string(),
+                        r"C:\Users\Player\AppData\Local\Butterpollo\nucleus-webview".to_string()
+                    ),
+                ]),
+            }
+        );
+        // Nothing lowers the game's rights behind its back (__COMPAT_LAYER):
+        // the same environment as elevated, only the token differs.
+        let host = Path::new(r"C:\ProgramData\Butterpollo\nucleus\2.4.2");
+        let elevated = launch_of(host, "Rubylight-game", &environment, Run::Elevated);
+        assert!(elevated.elevated);
+        assert_eq!(elevated.environment, user.environment);
+    }
+
+    #[test]
     fn an_account_without_administrator_rights_is_refused_before_nucleus_starts() {
         // A standard user's Nucleus Co-op hung on its loading screen: it
         // could not write its WebView2 cache into the Administrators-only folder.
@@ -844,6 +980,10 @@ mod tests {
         layers: super::super::layers::tests::Map,
         /// Why Nucleus does not start, when it does not.
         refused: Arc<Mutex<Option<String>>>,
+        /// The folder each launch started Nucleus from.
+        folders: Arc<Mutex<Vec<PathBuf>>>,
+        /// What was written through the launcher's account, and when it ran.
+        writes: Arc<Mutex<usize>>,
     }
     struct FakeNucleus {
         probe: Probe,
@@ -874,13 +1014,14 @@ mod tests {
     impl Launcher for (Probe, Screen) {
         fn launch(
             &mut self,
-            _folder: &Path,
+            folder: &Path,
             guid: &str,
             environment: &BTreeMap<String, String>,
         ) -> Result<Box<dyn Nucleus>> {
             if let Some(why) = self.0.refused.lock().unwrap().clone() {
                 bail!(why);
             }
+            self.0.folders.lock().unwrap().push(folder.to_path_buf());
             self.0.launched.lock().unwrap().push(guid.into());
             self.0
                 .environments
@@ -1273,6 +1414,21 @@ mod tests {
         start_steam(folder, players, taken, screen, probe, None)
     }
 
+    impl Launcher for (Probe, Screen, ()) {
+        fn launch(
+            &mut self,
+            folder: &Path,
+            guid: &str,
+            environment: &BTreeMap<String, String>,
+        ) -> Result<Box<dyn Nucleus>> {
+            (self.0.clone(), self.1.clone()).launch(folder, guid, environment)
+        }
+        fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+            *self.0.writes.lock().unwrap() += 1;
+            work()
+        }
+    }
+
     fn start_steam(
         folder: &Path,
         players: usize,
@@ -1293,6 +1449,7 @@ mod tests {
             id: 1,
             kind: kind(players),
             folder,
+            user_copy: None,
             handler: &handler,
             exe_path: r"D:\Games\Game\Game.exe",
             steam_app,
@@ -1422,6 +1579,63 @@ mod tests {
             ])]
         );
         assert_eq!(steam_environment(None), BTreeMap::new());
+    }
+
+    #[test]
+    fn a_session_from_the_users_own_copy_writes_and_runs_there() {
+        let host = tempfile::tempdir().unwrap();
+        let copy = tempfile::tempdir().unwrap();
+        let (screen, probe) = (screen(), Probe::default());
+        label(&screen);
+        let recorder = Arc::new(Recorder::default());
+        let handler = handler();
+        let mut xinput = FakeXInput {
+            pads: &recorder,
+            taken: [false; 4],
+            hidden: false,
+            intruder: false,
+        };
+        let request = Start {
+            id: 1,
+            kind: kind(1),
+            folder: host.path(),
+            user_copy: Some(copy.path()),
+            handler: &handler,
+            exe_path: r"D:\Games\Game\Game.exe",
+            steam_app: None,
+            title: "Game",
+            players: 1,
+            owner: ("phone", "Phone"),
+            size: (1280, 720),
+        };
+        let running = start(
+            &request,
+            Box::new(Recorded(recorder.clone())),
+            &mut xinput,
+            Box::new(screen.clone()),
+            Box::new(probe.layers.clone()),
+            &mut (probe.clone(), screen.clone(), ()),
+        )
+        .unwrap();
+        // Settings and profile in the copy, written as the user; Nucleus
+        // started from it; the compatibility settings' file in the host's.
+        assert_eq!(*probe.writes.lock().unwrap(), 1);
+        assert!(copy.path().join("Settings.ini").is_file());
+        assert!(copy.path().join("game profiles").join("Game").is_dir());
+        assert!(!host.path().join("Settings.ini").exists());
+        assert!(!host.path().join("game profiles").exists());
+        assert_eq!(*probe.folders.lock().unwrap(), [copy.path().to_path_buf()]);
+        let journal: Vec<_> = std::fs::read_dir(host.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert!(
+            journal
+                .iter()
+                .any(|name| name.starts_with("Rubylight-layers-")),
+            "{journal:?}"
+        );
+        running.stop();
     }
 
     #[test]
@@ -1674,6 +1888,7 @@ mod tests {
             id: 1,
             kind: kind(players),
             folder: &folder,
+            user_copy: None,
             handler: &handler,
             exe_path: &exe_path,
             steam_app,

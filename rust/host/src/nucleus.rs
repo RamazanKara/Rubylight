@@ -325,7 +325,10 @@ impl Pc for OnPc {
         files::remove_own(folder, &appdata, own)
     }
     fn ready(&self, folder: &Path, own: Option<&Setup>, stale: &[&Handler]) -> Result<()> {
-        butterpollo_windows::nucleus::session::ready(folder)?;
+        butterpollo_windows::nucleus::session::ready(
+            folder,
+            butterpollo_core::nucleus::elevation::Run::Elevated,
+        )?;
         if own.is_some() || !stale.is_empty() {
             let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
                 anyhow!("finding the signed-in user's AppData folder, which holds Nucleus Co-op's game list: {error}")
@@ -1534,6 +1537,7 @@ impl Registry {
                     id,
                     kind,
                     folder: &folder,
+                    user_copy: None,
                     handler: &handler,
                     exe_path: &exe_path,
                     steam_app,

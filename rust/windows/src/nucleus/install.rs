@@ -59,7 +59,7 @@ fn installed_checked(
 
 /// SYSTEM's, the Administrators group's and TrustedInstaller's (what Program
 /// Files holds).
-const TRUSTED: [&str; 3] = [
+pub(super) const TRUSTED: [&str; 3] = [
     "S-1-5-18",
     "S-1-5-32-544",
     "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
@@ -122,10 +122,12 @@ fn verdict(path: &Path, owner: &str, others: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Held while the host's copy installs or its archive is fetched again.
+static INSTALLING: Mutex<()> = Mutex::new(());
+
 /// The Nucleus folder, installing the pinned release first when there is
 /// none. Concurrent calls install once.
 pub fn ensure(data: &Path, configured: &str, fetch: &mut dyn Fetch) -> Result<PathBuf> {
-    static INSTALLING: Mutex<()> = Mutex::new(());
     let _one = INSTALLING
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -163,6 +165,7 @@ fn install(data: &Path, fetch: &mut dyn Fetch, steps: &Steps) -> Result<PathBuf>
         .fetch(pinned::URL, pinned::SIZE)
         .with_context(|| format!("downloading Nucleus Co-op {}", pinned::VERSION))?;
     (steps.verify)(&archive).map_err(anyhow::Error::msg)?;
+    keep(data, &archive);
     let staging = root.join(format!("{}.partial", pinned::VERSION));
     remove_folder(&staging)?;
     let unpacked = unpack(&archive, &staging).and_then(|files| {
@@ -190,6 +193,66 @@ fn install(data: &Path, fetch: &mut dyn Fetch, steps: &Steps) -> Result<PathBuf>
     Ok(folder)
 }
 
+/// The verified release archive, which a user's own copy is unpacked from:
+/// the one the install kept, else downloaded again (a host that installed
+/// before it kept one, or `nucleus_path`) and kept. A kept one that fails
+/// the check is deleted and downloaded again.
+pub fn archive(data: &Path, fetch: &mut dyn Fetch) -> Result<Vec<u8>> {
+    archive_with(data, fetch, &Steps::PINNED)
+}
+
+fn archive_with(data: &Path, fetch: &mut dyn Fetch, steps: &Steps) -> Result<Vec<u8>> {
+    let _one = INSTALLING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = pinned::archive(data);
+    // Only SYSTEM and Administrators can write the folder it is in.
+    match std::fs::read(&path) {
+        Ok(bytes) => match (steps.verify)(&bytes) {
+            Ok(()) => return Ok(bytes),
+            Err(error) => {
+                tracing::warn!(file = %path.display(), error, "Nucleus Co-op: the kept release archive is not the pinned one; downloading it again");
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("deleting {}", path.display()))?;
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    }
+    let root = data.join("nucleus");
+    if !root.is_dir() {
+        std::fs::create_dir_all(&root).with_context(|| format!("creating {}", root.display()))?;
+        (steps.secure)(&root)
+            .with_context(|| format!("limiting {} to Administrators", root.display()))?;
+    }
+    tracing::info!(
+        version = pinned::VERSION,
+        url = pinned::URL,
+        "Downloading Nucleus Co-op for a user's own copy"
+    );
+    let archive = fetch
+        .fetch(pinned::URL, pinned::SIZE)
+        .with_context(|| format!("downloading Nucleus Co-op {}", pinned::VERSION))?;
+    (steps.verify)(&archive).map_err(anyhow::Error::msg)?;
+    keep(data, &archive);
+    Ok(archive)
+}
+
+/// Keep the verified `archive` for the users' own copies. Without it, the
+/// first such copy downloads it again: a warning, not a failed install.
+fn keep(data: &Path, archive: &[u8]) {
+    let path = pinned::archive(data);
+    let partial = path.with_extension("zip.partial");
+    let kept = std::fs::write(&partial, archive)
+        .and_then(|()| std::fs::rename(&partial, &path))
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&partial);
+        });
+    if let Err(error) = kept {
+        tracing::warn!(file = %path.display(), %error, "Nucleus Co-op: the release archive was not kept; a user's own copy downloads it again");
+    }
+}
+
 fn remove_folder(folder: &Path) -> Result<()> {
     match std::fs::remove_dir_all(folder) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
@@ -200,7 +263,7 @@ fn remove_folder(folder: &Path) -> Result<()> {
 }
 
 /// Unpack the release archive into the new folder `to`; the number of files.
-fn unpack(archive: &[u8], to: &Path) -> Result<usize> {
+pub(super) fn unpack(archive: &[u8], to: &Path) -> Result<usize> {
     let mut archive = zip::ZipArchive::new(Cursor::new(archive))?;
     std::fs::create_dir(to).with_context(|| format!("creating {}", to.display()))?;
     let mut files = 0;
@@ -333,6 +396,76 @@ mod tests {
         assert!(root.join("secured").is_file());
         assert!(!root.join(format!("{}.partial", pinned::VERSION)).exists());
         assert_eq!(installed(data.path(), "").unwrap(), Some(folder));
+    }
+
+    #[test]
+    fn the_install_keeps_the_archive_for_the_users_own_copies() {
+        let data = tempfile::tempdir().unwrap();
+        let release = archive(pinned::PASSWORD, &[]);
+        install(data.path(), &mut Fake::new(release.clone()), &TEST).unwrap();
+        assert_eq!(
+            std::fs::read(pinned::archive(data.path())).unwrap(),
+            release
+        );
+        // Read back, not downloaded again.
+        let mut offline = Fake {
+            archive: Err("no network".into()),
+            calls: Vec::new(),
+        };
+        assert_eq!(
+            archive_with(data.path(), &mut offline, &TEST).unwrap(),
+            release
+        );
+        assert!(offline.calls.is_empty());
+    }
+
+    #[test]
+    fn a_missing_or_wrong_archive_is_downloaded_again_and_kept() {
+        let data = tempfile::tempdir().unwrap();
+        let release = archive(pinned::PASSWORD, &[]);
+        // nucleus_path, or a host that installed before archives were kept.
+        let mut fake = Fake::new(release.clone());
+        assert_eq!(
+            archive_with(data.path(), &mut fake, &TEST).unwrap(),
+            release
+        );
+        assert_eq!(fake.calls, [(pinned::URL.to_string(), pinned::SIZE)]);
+        assert!(data.path().join("nucleus").join("secured").is_file());
+        assert_eq!(
+            std::fs::read(pinned::archive(data.path())).unwrap(),
+            release
+        );
+
+        // A kept one that fails the check is deleted, never used.
+        fn only_the_release(bytes: &[u8]) -> std::result::Result<(), String> {
+            if bytes.starts_with(b"PK") {
+                Ok(())
+            } else {
+                Err("not the release".into())
+            }
+        }
+        let steps = Steps {
+            verify: only_the_release,
+            secure,
+        };
+        std::fs::write(pinned::archive(data.path()), b"swapped").unwrap();
+        let mut fake = Fake::new(release.clone());
+        assert_eq!(
+            archive_with(data.path(), &mut fake, &steps).unwrap(),
+            release
+        );
+        assert_eq!(fake.calls.len(), 1);
+        assert_eq!(
+            std::fs::read(pinned::archive(data.path())).unwrap(),
+            release
+        );
+
+        // A download that fails the check is neither returned nor kept.
+        std::fs::remove_file(pinned::archive(data.path())).unwrap();
+        let error =
+            archive_with(data.path(), &mut Fake::new(b"swapped".to_vec()), &steps).unwrap_err();
+        assert_eq!(error.to_string(), "not the release");
+        assert!(!pinned::archive(data.path()).exists());
     }
 
     #[test]

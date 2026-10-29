@@ -824,13 +824,10 @@ mod tests {
     /// user, may not open it.
     fn admin_manifest_of(exe: &Path, sid: &str, user: &OwnedHandle) -> PathBuf {
         let manifest = admin_manifest(exe, 0);
-        let status = std::process::Command::new("icacls")
-            .arg(&manifest)
-            .args(["/inheritance:r", "/grant:r", &format!("*{sid}:F")])
-            .stdout(std::process::Stdio::null())
-            .status()
-            .unwrap();
-        assert!(status.success(), "icacls failed");
+        // The whole DACL is replaced: on CI the folder's Everyone entry
+        // reaches the file without being marked inherited, so icacls'
+        // /inheritance:r left it in place.
+        crate::process::restrict(&manifest, &format!("O:{sid}D:P(A;;FA;;;{sid})")).unwrap();
         let opened = {
             let _user = crate::user_folder::Impersonation::begin(Some(user)).unwrap();
             std::fs::File::open(&manifest).map(drop)

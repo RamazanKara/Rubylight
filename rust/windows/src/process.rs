@@ -318,7 +318,7 @@ pub fn restrict_to_administrators(folder: &Path) -> Result<()> {
     restrict(folder, ADMINISTRATORS_ONLY)
 }
 /// The permissions `sddl` describes on `folder` and the files in it.
-fn restrict(folder: &Path, sddl: &str) -> Result<()> {
+pub(crate) fn restrict(folder: &Path, sddl: &str) -> Result<()> {
     use windows::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
     };

@@ -959,8 +959,7 @@ impl Host {
             match butterpollo_windows::codec_probe::pyrowave(config) {
                 Ok(optional) => flags |= optional,
                 Err(error) => {
-                    retry_pyrowave =
-                        error.is::<butterpollo_windows::codec_probe::SessionNotReady>();
+                    retry_pyrowave = pyrowave_probe_worth_retrying(&error);
                     if flags & STANDARD_CODECS != 0 {
                         tracing::warn!(error = %format!("{error:#}"), retry = retry_pyrowave, "optional PyroWave probe failed; standard codecs remain available");
                     } else {
@@ -1152,8 +1151,9 @@ impl Host {
         }
     }
     /// Probe PyroWave again when the first probe ran before the signed-in
-    /// user's session was ready, as when the host starts with Windows.
-    /// PyroWave otherwise stayed unavailable until the host restarted.
+    /// user's session was ready, as when the host starts with Windows, or
+    /// timed out, as under a busy CPU. PyroWave otherwise stayed unavailable
+    /// until the host restarted. A timeout is retried once.
     fn retry_pyrowave_probe(&self, config: &Config) {
         use butterpollo_windows::codec_probe;
         use std::sync::atomic::Ordering;
@@ -1401,6 +1401,13 @@ fn focus_summary(support: &[butterpollo_core::encoder_focus::Support; 5]) -> Str
         .collect::<Vec<_>>()
         .join(" ")
 }
+/// The startup PyroWave probe ran before the user's session was ready, or
+/// timed out, as under a busy CPU: probing again once the host is idle can
+/// find PyroWave. A crashing driver or overlay stays a failure.
+fn pyrowave_probe_worth_retrying(error: &anyhow::Error) -> bool {
+    use butterpollo_windows::codec_probe::{SessionNotReady, TimedOut};
+    error.is::<SessionNotReady>() || error.is::<TimedOut>()
+}
 /// Checks one packed 4:4:4 mode on the encoder: `codec_probe::packed`, or a
 /// fake in tests.
 pub(crate) type PackedProbe = fn(&Config, &butterpollo_core::rtsp::Negotiated) -> Result<()>;
@@ -1541,6 +1548,16 @@ mod tests {
             focus_summary(&support),
             "h264=verified(+10.0) hevc=unsupported(the focus check failed: frame 3 was not encoded) hevc10=not_probed av1=verified(+50.0) av1_10=not_probed"
         );
+    }
+    #[test]
+    fn a_timed_out_or_early_pyrowave_probe_is_probed_again() {
+        use butterpollo_windows::codec_probe::TimedOut;
+        // A probe that stalled under a busy CPU left PyroWave unoffered
+        // until the host restarted.
+        assert!(super::pyrowave_probe_worth_retrying(&TimedOut.into()));
+        assert!(!super::pyrowave_probe_worth_retrying(&anyhow::anyhow!(
+            "optional codec probe exited before replying (0xc0000005)"
+        )));
     }
     #[test]
     fn packed_modes_are_logged_by_name() {

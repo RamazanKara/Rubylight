@@ -34,6 +34,17 @@ impl std::fmt::Display for SessionNotReady {
 }
 impl std::error::Error for SessionNotReady {}
 
+/// The probe did not answer within its time limit, as when other work keeps
+/// the CPU busy. Probing again once the host is idle can succeed.
+#[derive(Debug)]
+pub struct TimedOut;
+impl std::fmt::Display for TimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("optional codec probe timed out")
+    }
+}
+impl std::error::Error for TimedOut {}
+
 fn early_exit(code: u32) -> anyhow::Error {
     let message = format!("optional codec probe exited before replying (0x{code:08x})");
     if code == STATUS_DLL_INIT_FAILED {
@@ -46,7 +57,9 @@ fn check_worker(exit_code: Option<u32>, now: Instant, deadline: Instant) -> Resu
     if let Some(code) = exit_code {
         return Err(early_exit(code));
     }
-    ensure!(now < deadline, "optional codec probe timed out");
+    if now >= deadline {
+        return Err(TimedOut.into());
+    }
     Ok(())
 }
 
@@ -356,10 +369,11 @@ mod tests {
             assert!(!error.is::<SessionNotReady>());
         }
         for now in [deadline, deadline + Duration::from_secs(1)] {
-            assert_eq!(
-                check_worker(None, now, deadline).unwrap_err().to_string(),
-                "optional codec probe timed out"
-            );
+            let error = check_worker(None, now, deadline).unwrap_err();
+            assert_eq!(error.to_string(), "optional codec probe timed out");
+            // A stall under load is probed again once the host is idle.
+            assert!(error.is::<TimedOut>());
+            assert!(!error.is::<SessionNotReady>());
         }
     }
     #[test]

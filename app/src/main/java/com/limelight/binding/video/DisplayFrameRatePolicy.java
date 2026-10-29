@@ -15,8 +15,9 @@ public final class DisplayFrameRatePolicy {
         IN_USE,
         /**
          * VRR was asked for on Android before 16, which has no adaptive refresh API: the maximum
-         * rate is voted; with a host's frame times, a multiple of the game's rate once it holds
-         * one, where the screen reaches it without a blank (vrrContentVote).
+         * rate is voted; with a host's frame times, a lower multiple of the game's rate once it
+         * holds one that would judder at the maximum, where the screen reaches it without a blank
+         * (vrrContentVote).
          */
         ANDROID_TOO_OLD,
         /** Android 16 or newer, but this screen does not report ARR support: as above. */
@@ -47,7 +48,8 @@ public final class DisplayFrameRatePolicy {
      * host sends no usable frame times) and a surface that can vote seamlessly: API 30 or newer,
      * a SurfaceView, and not ARR, whose stream rate vote leaves the cadence to Android. VRR
      * without ARR (Android before 16, a panel without ARR) follows the content rate with
-     * vrrContentVote, which keeps the panel maximum unless a lower multiple is seamless.
+     * vrrContentVote, which keeps the panel maximum unless the game's rate would judder at it
+     * and a lower multiple is seamless (or a lower refresh rate is allowed).
      */
     public static boolean followsContentRate(int sdk, boolean enabled, boolean hostAnnouncesClockSync,
             boolean arr, boolean vrr, boolean textureView) {
@@ -55,13 +57,18 @@ public final class DisplayFrameRatePolicy {
     }
 
     /**
-     * The content vote with VRR and no ARR: the highest whole multiple of the game's rate up to
-     * the panel maximum, and only when the screen reaches it without a blank (seamlessHz, see
-     * seamlessRates). Otherwise the panel maximum, VRR's base vote. So a 60 fps game on a 60/120
-     * panel stays at 120, where a frame waits on an 8.3 ms grid instead of 16.7 ms; a 90 fps game
-     * on a 90/120 panel gets 90; and a fixed panel never gets a vote it cannot follow.
+     * The content vote with VRR and no ARR. With a lower refresh rate allowed (mayReduce) it is
+     * the vote without VRR: the game's rate, up to the panel maximum. Without that it overrides
+     * the setting only where the panel maximum (VRR's base vote) would judder: when that is not
+     * a whole multiple of the game's rate, the vote is the highest multiple that is, if the
+     * screen reaches it without a blank (seamlessHz, see seamlessRates), snapped to that mode's
+     * rate. Even frame timing then costs a little more wait for the next refresh. Otherwise it
+     * stays at the panel maximum. So 60, 30 or 24 fps on a 120 panel stays at 120; 90 or 45 fps
+     * on a 90/120 panel gets 90; 50 fps with no 100 Hz mode stays at 120; and a fixed panel never
+     * gets a vote it cannot follow.
      */
-    public static float vrrContentVote(float contentHz, float panelMaxHz, float[] seamlessHz) {
+    public static float vrrContentVote(float contentHz, float panelMaxHz, boolean mayReduce, float[] seamlessHz) {
+        if (mayReduce) return contentVote(contentHz, panelMaxHz, true, panelMaxHz);
         if (contentHz <= 0 || panelMaxHz <= 0) return panelMaxHz;
         // Within a frame rate's measuring error (59.94 against 60) a rate counts as reached.
         float tolerance = rateTolerance(panelMaxHz);
@@ -70,7 +77,7 @@ public final class DisplayFrameRatePolicy {
         float vote = contentHz * multiple;
         if (vote >= panelMaxHz - tolerance) return panelMaxHz;
         for (float rate : seamlessHz) {
-            if (Math.abs(rate - vote) <= rateTolerance(vote)) return vote;
+            if (Math.abs(rate - vote) <= rateTolerance(vote)) return rate;
         }
         return panelMaxHz;
     }
@@ -139,15 +146,16 @@ public final class DisplayFrameRatePolicy {
          * @param displayHz    the rate the display reports to the app, which shows a frame rate
          *                     override such as the 60 Hz game default; 0 when unknown
          * @param streamHz     the stream's frame rate; 0 when unknown
+         * Either rate unknown: nothing is judged, since half the frames alone may be Wi-Fi pairs.
          */
         public static boolean isHalf(float renderedFps, float presentedFps, float displayHz, float streamHz) {
-            if (presentedFps < 0 || renderedFps < MIN_RENDERED_FPS) return false;
+            if (presentedFps < 0 || renderedFps < MIN_RENDERED_FPS || displayHz <= 0 || streamHz <= 0) return false;
             if (presentedFps < renderedFps * LOW || presentedFps > renderedFps * HIGH) return false;
             // Wi-Fi often delivers frames in pairs, and a screen at the full rate then shows only
             // the newer of each: half the frames, with nothing holding the screen down. Only a
             // display at about half the stream rate (a vsync interval about twice the frame
             // interval) is Android's cap.
-            return displayHz <= 0 || streamHz <= 0 || displayHz <= streamHz * HIGH;
+            return displayHz <= streamHz * HIGH;
         }
 
         /** Takes one sample; returns whether the check is flagged now. */

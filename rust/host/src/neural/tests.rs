@@ -1603,6 +1603,60 @@ async fn a_download_goes_list_checksums_archives_cache() {
     }
 }
 
+/// The switch's download waits until no stream runs, and one that fails
+/// tells the console so without the mod's file names; the log has them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    *h.neural.probe.lock().unwrap() = Some(Probe {
+        gpus: vec![Gpu {
+            name: "AMD Radeon RX 7900 XT".into(),
+            arch: "gfx1100".into(),
+            compute_units: 84,
+        }],
+        driver: Some("26.10.1".into()),
+        error: None,
+    });
+    accept(h).unwrap();
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({"name": "Game", "uuid": "game"}));
+        true
+    })
+    .unwrap();
+    f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
+    assert!(matches!(enable(h, "game", None), Err(Refusal::Streaming)));
+    assert!(!h.neural.lock().jobs.contains_key("game"));
+    h.sessions.lock().unwrap().active.clear();
+
+    let mut files = r2_files();
+    files.insert(
+        "SHA256SUMS.txt".into(),
+        format!(
+            "{}  AMDNR-v0.3.5.8R2.zip\n{}  AMDNR-lmxxf-0.3.5.8R2.zip\n",
+            sha(b"another"),
+            sha(&files["AMDNR-lmxxf-0.3.5.8R2.zip"])
+        )
+        .into_bytes(),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let list = release_list(&base, "Alpha0.3.5.8R2", &files);
+    let server = serve(listener, list, Arc::new(files)).await;
+    *h.neural.origin.lock().unwrap() = Some(server.base);
+    enable(h, "game", None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let job = loop {
+        let job = h.neural.lock().jobs["game"].clone();
+        if job.phase == "failed" || Instant::now() > deadline {
+            break job;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(job.phase, "failed");
+    assert_eq!(job.error.as_deref(), Some(DOWNLOAD_FAILED));
+}
+
 /// The real release into `C:\tests\neural\fakegame` and out again, then
 /// the update to it from an older form of it, cut short by a placed file
 /// held open, and turned off; then cut short, finished and turned off:

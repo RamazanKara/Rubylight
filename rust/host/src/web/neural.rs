@@ -79,6 +79,10 @@ pub(super) async fn handle(
             StatusCode::CONFLICT,
             "Neural Rendering is busy with this game",
         ),
+        Ok(Err(Refusal::Streaming)) => error(
+            StatusCode::CONFLICT,
+            "Neural Rendering downloads about 1 GB: turn it on when no stream is running",
+        ),
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }

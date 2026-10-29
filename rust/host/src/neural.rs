@@ -52,6 +52,8 @@ const CANDIDATES: usize = 5;
 const PENDING: &str = "pending_removals";
 /// How often a pending removal is tried again.
 const PENDING_RETRY: Duration = Duration::from_secs(600);
+/// What the console shows for a failed download; the host's log has why.
+const DOWNLOAD_FAILED: &str = "the download or its check failed; Rubylight's log says why";
 
 #[derive(Default)]
 pub struct Neural {
@@ -1012,6 +1014,8 @@ pub enum Refusal {
     Unavailable(String),
     NotFound,
     Busy,
+    /// The download would take a stream's bandwidth.
+    Streaming,
 }
 
 /// An app delete refused while the switch is busy with the app: the
@@ -1081,6 +1085,9 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     }
     capability(h).map_err(Refusal::Unavailable)?;
     let app = app(h, uuid).ok_or(Refusal::NotFound)?;
+    if crate::updater::streaming(h) {
+        return Err(Refusal::Streaming);
+    }
     start_job(h, uuid, "install", "download")?;
     let (h, uuid) = (h.clone(), uuid.to_owned());
     tokio::spawn(async move {
@@ -1093,8 +1100,9 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
         let (package, _) = match fetch(&h, false, &progress).await {
             Ok(cached) => cached,
             Err(error) => {
+                // The details name the mod's files; the console says what happened.
                 tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the download failed");
-                return fail_job(&h, &uuid, format!("{error:#}"), false);
+                return fail_job(&h, &uuid, DOWNLOAD_FAILED.into(), false);
             }
         };
         update_job(&h, &uuid, |job| {

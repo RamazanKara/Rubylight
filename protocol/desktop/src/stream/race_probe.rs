@@ -2,9 +2,9 @@
 //! line of the window's monitor, calibrates the scan on a thread for the first second, runs the
 //! scan-restart check on the presents that follow (the polling that watches for the new scan runs
 //! on a helper thread, never on the render thread) and keeps the verdict the overlay and the timing
-//! CSV show. Created when the beam race is on, and on a VRR stream that presents with tearing,
-//! where a "no VRR" verdict switches the stream to V-Sync (`Streaming::sync_vrr`). Other streams do
-//! none of it.
+//! CSV show. Created when the beam race is on, on a VRR stream that presents with tearing, where a
+//! "no VRR" verdict switches the stream to the pacing it would have without VRR
+//! (`Streaming::sync_vrr`), and for `NIGHTJAR_VRR_SYNC=scan`. Other streams do none of it.
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -13,7 +13,7 @@ use sdl3_sys::everything::*;
 
 #[cfg(any(windows, test))]
 use super::scanline::Follow;
-use super::scanline::{decide, Beam, CalibrationError, Evidence, RestartCheck, Sample, Verdict};
+use super::scanline::{busy, decide, Beam, CalibrationError, Evidence, RestartCheck, Sample, Verdict};
 
 /// What the timing CSV records for one present: the beam when the present was issued and the
 /// verdict (`race_reason`: "on", the reason, or empty while it is being checked).
@@ -89,6 +89,8 @@ pub struct Surroundings {
     pub tearing: bool,
     /// The window is a fullscreen window.
     pub fullscreen: bool,
+    /// The window has the keyboard focus.
+    pub focused: bool,
     /// The stream's frame rate.
     pub content_hz: f64,
 }
@@ -100,6 +102,16 @@ pub struct RaceProbe {
     reported: String,
     rate: PresentRate,
     check: RestartCheck,
+    /// The highest rate the stream presented at while the check ran: a check that saw a busy rate
+    /// is measured again when the rate falls (`apply_surroundings`).
+    check_hz: f64,
+    /// Whether the last present went straight to a fullscreen window nothing covers, None before
+    /// the first. Only those feed the check: a composed present never restarts a scan.
+    direct: Option<bool>,
+    /// The window had the focus once. A fullscreen window that lost it may lie under another
+    /// (Alt-Tab in borderless fullscreen), composed, until it has it again (`covered`).
+    had_focus: bool,
+    covered: bool,
     beam: Option<Result<Beam, CalibrationError>>,
     calibration: Calibration,
     /// Counts the monitors the probe has measured; a calibration result carries the one it was for.
@@ -127,6 +139,10 @@ impl RaceProbe {
             reported: String::new(),
             rate: PresentRate::default(),
             check: RestartCheck::default(),
+            check_hz: 0.0,
+            direct: None,
+            had_focus: false,
+            covered: false,
             beam: None,
             calibration: Calibration::default(),
             generation: 0,
@@ -189,14 +205,7 @@ impl RaceProbe {
             Follow::Same => false,
             Follow::Moved | Follow::Lost => {
                 // Another display has another scan: whatever was measured is not about this one.
-                self.generation += 1;
-                self.check = RestartCheck::default();
-                self.check_said = false;
-                self.delays.clear();
-                self.delay_ns = 0;
-                self.longest_idle_ns = 0;
-                self.beam = None;
-                self.verdict = Verdict::Checking;
+                self.forget();
                 if follow == Follow::Lost {
                     eprintln!("nightjar: {}: the scan line of the monitor the window moved to cannot be read", self.topic);
                     self.scanline_ok = false;
@@ -206,6 +215,53 @@ impl RaceProbe {
                 true
             }
         }
+    }
+
+    /// Drops the calibration, the check and the verdict, to measure the display again.
+    fn forget(&mut self) {
+        self.generation += 1;
+        self.check = RestartCheck::default();
+        self.check_hz = 0.0;
+        self.check_said = false;
+        self.delays.clear();
+        self.delay_ns = 0;
+        self.longest_idle_ns = 0;
+        self.beam = None;
+        self.verdict = Verdict::Checking;
+    }
+
+    /// Whether this present feeds the restart check: it is still running and the present goes
+    /// straight to a fullscreen window.
+    fn checking(&self) -> bool { self.check.running() && self.direct == Some(true) }
+
+    /// What the window and the stream's rate mean for what was measured so far, ahead of the
+    /// present's check. Returns whether the display has to be measured again. A display found to
+    /// scan at its own rate stays so: the window and the rate do not change the display.
+    fn apply_surroundings(&mut self, around: Surroundings) -> bool {
+        if around.focused { self.had_focus = true; }
+        self.covered = around.fullscreen && self.had_focus && !around.focused;
+        let direct = around.fullscreen && !self.covered;
+        let was = self.direct.replace(direct);
+        if self.fixed_refresh() { return false; }
+        if was == Some(false) && direct {
+            // A composed window shows its presents at the compositor's refresh: a calibration and
+            // presents from then say nothing about how the display follows this one's.
+            eprintln!("nightjar: {}: the window went fullscreen, measuring the display again", self.topic);
+            self.forget();
+            return true;
+        }
+        let display_hz = self.beam().map_or(0.0, |beam| beam.refresh_hz);
+        if display_hz <= 0.0 || self.check.passed() || self.check.failed() { return false; }
+        let content_hz = self.rate.content_hz(around.content_hz);
+        if busy(self.check_hz, display_hz) && !busy(content_hz, display_hz) {
+            // Presents at a busy rate never let a display idle, VRR or not: what the check saw
+            // then would read as a fixed refresh at the slower rate.
+            eprintln!("nightjar: {}: the stream slowed to {content_hz:.0} presents a second, measuring the display again", self.topic);
+            self.forget();
+            return true;
+        }
+        if self.checking() { self.check_hz = self.check_hz.max(content_hz); }
+        false
     }
 
     /// Folds what the calibration thread found and the check so far into the verdict.
@@ -236,7 +292,7 @@ impl RaceProbe {
         self.verdict = decide(&Evidence {
             tearing: around.tearing,
             scanline: self.scanline_ok,
-            fullscreen: around.fullscreen,
+            fullscreen: around.fullscreen && !self.covered,
             beam: self.beam,
             check: self.check,
             content_hz: self.rate.content_hz(around.content_hz),
@@ -331,6 +387,7 @@ mod win {
         pub fn start(window: HWND, around: Surroundings, topic: &'static str) -> Self {
             let scan = Scanline::open(window, Instant::now());
             let mut probe = Self::new(scan.is_some(), topic);
+            probe.apply_surroundings(around);
             probe.scan = scan;
             match &probe.scan {
                 Some(scan) => {
@@ -401,9 +458,10 @@ mod win {
                 if follow == Follow::Lost { self.scan = None; }
                 if self.apply_follow(follow) { self.calibrate_in_background(window); }
             }
+            if self.apply_surroundings(around) { self.calibrate_in_background(window); }
             self.collect_outcomes();
             if let (Some(Ok(beam)), Some(before), Some(scan)) = (self.beam, before, &self.scan) {
-                if self.check.running() {
+                if self.checking() {
                     let idle = before.vblank && before.line >= beam.idle_from;
                     let (mut sent, mut gone) = (false, false);
                     if let (true, Some(helper)) = (idle, &self.helper) {
@@ -443,6 +501,7 @@ impl RaceProbe {
     /// The scan line is a Windows call: another platform has none to read.
     fn start_unavailable(around: Surroundings, topic: &'static str) -> Self {
         let mut probe = Self::new(false, topic);
+        probe.apply_surroundings(around);
         probe.decide(around);
         probe
     }
@@ -451,6 +510,7 @@ impl RaceProbe {
 
     fn after_unavailable(&mut self, around: Surroundings) {
         self.presents += 1;
+        self.apply_surroundings(around);
         self.decide(around);
     }
 }
@@ -460,12 +520,19 @@ fn surroundings(renderer: *mut SDL_Renderer, mode_tears: bool, content_hz: f64) 
     // SAFETY: a live renderer and the window it draws to.
     let window = unsafe { SDL_GetRenderWindow(renderer) };
     // SAFETY: as above.
-    let fullscreen = !window.is_null() && unsafe { SDL_GetWindowFlags(window) } & SDL_WINDOW_FULLSCREEN != 0;
+    let flags = (!window.is_null()).then(|| unsafe { SDL_GetWindowFlags(window) });
+    let has = |flag| flags.is_some_and(|flags| flags & flag != 0);
     #[cfg(windows)]
     let chain_tears = super::super::media::swapchain_allows_tearing(crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER));
     #[cfg(not(windows))]
     let chain_tears = true;
-    (Surroundings { tearing: mode_tears && chain_tears, fullscreen, content_hz }, window)
+    let surroundings = Surroundings {
+        tearing: mode_tears && chain_tears,
+        fullscreen: has(SDL_WINDOW_FULLSCREEN),
+        focused: has(SDL_WINDOW_INPUT_FOCUS),
+        content_hz,
+    };
+    (surroundings, window)
 }
 
 #[cfg(windows)]
@@ -499,13 +566,14 @@ impl RaceProbe {
 
 #[cfg(test)]
 mod tests {
+    use super::super::scanline::{Restart, CHECK_FRAMES, FIXED_FRAMES};
     use super::*;
 
     fn beam() -> Beam {
         Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 1840, longest_idle_ns: 17_000_000 }
     }
 
-    fn around() -> Surroundings { Surroundings { tearing: true, fullscreen: true, content_hz: 60.0 } }
+    fn around() -> Surroundings { Surroundings { tearing: true, fullscreen: true, focused: true, content_hz: 60.0 } }
 
     #[test]
     fn a_calibration_for_another_monitor_is_dropped() {
@@ -578,8 +646,98 @@ mod tests {
         // V-Sync presents do not tear: that is not the reason the display was found fixed.
         probe.decide(Surroundings { tearing: false, ..around() });
         assert!(probe.fixed_refresh(), "{}", probe.line());
+        // Nor do the window or the rate change the display.
+        assert!(!present(&mut probe, Surroundings { fullscreen: false, ..around() }, 1));
+        assert!(!present(&mut probe, Surroundings { focused: false, ..around() }, 1));
+        assert!(!present(&mut probe, Surroundings { content_hz: 20.0, ..around() }, 1));
+        assert!(!present(&mut probe, around(), 1));
+        assert!(probe.fixed_refresh(), "{}", probe.line());
         assert!(probe.apply_follow(Follow::Moved));
         assert!(!probe.fixed_refresh(), "another display is checked again");
         assert!(probe.beam().is_none());
+    }
+
+    /// Presents `n` pictures the way `after` does on Windows, each starting no scan. Returns
+    /// whether the display was to be measured again.
+    fn present(probe: &mut RaceProbe, around: Surroundings, n: u32) -> bool {
+        let mut again = false;
+        for _ in 0..n {
+            again |= probe.apply_surroundings(around);
+            if probe.beam().is_some() && probe.checking() { probe.check.push(Restart::NotTested); }
+            probe.decide(around);
+        }
+        again
+    }
+
+    #[test]
+    fn what_a_composed_window_saw_does_not_decide_the_display_once_it_is_fullscreen() {
+        // This PC's 240 Hz VRR panel behind a window, composed: little blanking, and no present
+        // starts a scan.
+        let windowed = Surroundings { fullscreen: false, ..around() };
+        let mut probe = RaceProbe::new(true, "display check");
+        assert!(!probe.apply_surroundings(windowed), "where the stream starts is not a change");
+        *probe.calibration.lock().unwrap() = Some((0, Ok(Beam { vblank_fraction: 0.05, ..beam() })));
+        assert!(!present(&mut probe, windowed, CHECK_FRAMES));
+        assert_eq!(probe.check, RestartCheck::default(), "composed presents feed no check");
+        assert_eq!(probe.line(), "off (not fullscreen)");
+        // What the check had from those presents before: starved under a 60 fps stream.
+        for _ in 0..CHECK_FRAMES { probe.check.push(Restart::NotTested); }
+        assert!(probe.apply_surroundings(around()), "F11: the display is measured again");
+        probe.decide(around());
+        assert_eq!(*probe.verdict(), Verdict::Checking, "not no VRR");
+        assert_eq!(probe.check, RestartCheck::default());
+        assert!(probe.beam().is_none(), "the composed calibration is dropped");
+        assert!(probe.checking());
+    }
+
+    #[test]
+    fn a_fullscreen_window_under_another_feeds_no_check_and_is_measured_again_with_the_focus() {
+        let mut probe = RaceProbe::new(true, "display check");
+        probe.apply_surroundings(around());
+        *probe.calibration.lock().unwrap() = Some((0, Ok(Beam { vblank_fraction: 0.05, ..beam() })));
+        assert!(!present(&mut probe, around(), 10));
+        let frames = probe.check.frames;
+        assert!(frames > 0);
+        // Alt-Tab in borderless fullscreen: the window stays fullscreen under another, composed.
+        let behind = Surroundings { focused: false, ..around() };
+        assert!(!present(&mut probe, behind, CHECK_FRAMES));
+        assert_eq!(probe.check.frames, frames, "composed presents feed no check");
+        assert!(!probe.fixed_refresh(), "{}", probe.line());
+        assert!(present(&mut probe, around(), 1), "the focus back: measured again");
+        assert_eq!(probe.check, RestartCheck::default());
+        // A fullscreen window that never had the focus (started from a script) is checked.
+        let mut unfocused = RaceProbe::new(true, "display check");
+        unfocused.apply_surroundings(behind);
+        assert!(unfocused.checking());
+    }
+
+    #[test]
+    fn a_check_at_a_busy_rate_is_measured_again_when_the_rate_falls_not_called_no_vrr() {
+        // This PC's 240 Hz VRR panel calibrated while it scanned at its top rate.
+        let vrr_busy = Beam { vblank_fraction: 0.12, ..beam() };
+        let fast = Surroundings { content_hz: 200.0, ..around() };
+        let still = Surroundings { content_hz: 20.0, ..around() };
+        // The check starved at 200 fps: no idle at this rate.
+        let mut probe = RaceProbe::new(true, "display check");
+        probe.apply_surroundings(fast);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(vrr_busy)));
+        assert!(!present(&mut probe, fast, CHECK_FRAMES + 1));
+        assert_eq!(probe.line(), "off (no idle at this frame rate)");
+        // A still screen the host repeats at 20 fps.
+        assert!(present(&mut probe, still, 1), "measured again at the slower rate");
+        assert!(!probe.fixed_refresh(), "{}", probe.line());
+        assert_eq!(*probe.verdict(), Verdict::Checking);
+        // Still running, past the presents the quick rule waits for, at 200 fps; then a menu at 60.
+        let mut probe = RaceProbe::new(true, "display check");
+        probe.apply_surroundings(fast);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(vrr_busy)));
+        assert!(!present(&mut probe, fast, FIXED_FRAMES * 2));
+        assert_eq!(*probe.verdict(), Verdict::Checking);
+        assert!(present(&mut probe, around(), 1));
+        assert!(!probe.fixed_refresh(), "{}", probe.line());
+        // A display that is fixed after all is found at the slower rate.
+        *probe.calibration.lock().unwrap() = Some((1, Ok(Beam { vblank_fraction: 0.01, ..beam() })));
+        assert!(!present(&mut probe, around(), FIXED_FRAMES + 1));
+        assert!(probe.fixed_refresh(), "{}", probe.line());
     }
 }

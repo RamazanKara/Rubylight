@@ -2,7 +2,7 @@
 //! monitor the window is on, a calibration of the scan from samples taken at the start of a
 //! stream, and the checks that say whether racing the beam can work here at all. Nothing runs
 //! unless `beam_race` is on or a VRR stream presents with tearing, where the same checks tell a
-//! fixed refresh display, which gets V-Sync instead (`Streaming::sync_vrr`).
+//! fixed refresh display, which gets the pacing it would have without VRR (`Streaming::sync_vrr`).
 //!
 //! The windows calls are in `Scanline`; the calibration, the scan-restart check and the reason
 //! mapping take plain samples so they are tested on synthetic ones.
@@ -281,6 +281,11 @@ pub const CHECK_FRAMES: u32 = 300;
 /// tested 30 of its first 84 presents, so one that idles starts a scan well within them.
 pub const FIXED_FRAMES: u32 = 60;
 
+/// Whether the stream presents about as often as the display scans (70% of its top rate or more),
+/// so a VRR display never idles between its scans either: its presents tell a fixed refresh
+/// from a variable one no better than a still screen does.
+pub fn busy(content_hz: f64, display_hz: f64) -> bool { content_hz >= display_hz * 0.7 }
+
 /// The restart check over the first presents of a stream.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RestartCheck {
@@ -429,7 +434,7 @@ pub fn decide(e: &Evidence) -> Verdict {
     // panel read 12%, taken while it still scanned at its top rate, so the share alone decides
     // nothing: with `FIXED_FRAMES` presents after it and none of them starting a scan, the check
     // is not waited for.
-    let fixed = e.content_hz > 0.0 && e.display_hz > 0.0 && e.content_hz < e.display_hz * 0.7 && beam.vblank_fraction < 0.3;
+    let fixed = e.content_hz > 0.0 && e.display_hz > 0.0 && !busy(e.content_hz, e.display_hz) && beam.vblank_fraction < 0.3;
     if fixed && e.check.running() && e.check.frames >= FIXED_FRAMES && e.check.tested == e.check.missed {
         return Verdict::Off(Reason::NoVrr, capability);
     }
@@ -440,7 +445,9 @@ pub fn decide(e: &Evidence) -> Verdict {
     if e.check.starved() {
         // Enough presents went by without the display ever idling after a scan. At a rate near
         // the display's own that is the stream's doing; below it, the display scans all the time.
-        let busy = e.content_hz >= e.display_hz * 0.7;
+        // A check that starved at a busy rate is measured again when the rate falls (the probe's
+        // `apply_surroundings`), so the rate here is the one it starved at.
+        let busy = busy(e.content_hz, e.display_hz);
         return Verdict::Off(if busy { Reason::NoIdle } else { Reason::NoVrr }, capability);
     }
     capability.vrr = true;

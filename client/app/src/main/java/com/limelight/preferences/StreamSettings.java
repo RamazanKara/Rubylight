@@ -1719,6 +1719,83 @@ public class StreamSettings extends NightjarActivity {
             pref.setEntryValues(entryValues);
         }
 
+        // Drops the fixed sizes above the largest width the display or the decoders take.
+        private void removeUndecodableResolutions(int maxSupportedResW) {
+            LimeLog.info("Maximum resolution slot: "+maxSupportedResW);
+            if (maxSupportedResW == 0) {
+                return;
+            }
+            if (maxSupportedResW < 3840) {
+                // 4K is unsupported
+                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_4K, new Runnable() {
+                    @Override
+                    public void run() {
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
+                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P);
+                        resetBitrateToDefault(prefs, null, null);
+                    }
+                });
+            }
+            if (maxSupportedResW < 2560) {
+                // 1440p is unsupported
+                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P, new Runnable() {
+                    @Override
+                    public void run() {
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
+                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P);
+                        resetBitrateToDefault(prefs, null, null);
+                    }
+                });
+            }
+            if (maxSupportedResW < 1920) {
+                // 1080p is unsupported
+                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P, new Runnable() {
+                    @Override
+                    public void run() {
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
+                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_720P);
+                        resetBitrateToDefault(prefs, null, null);
+                    }
+                });
+            }
+            // Never remove 720p
+        }
+
+        interface DecoderWidthProbe {
+            int probe(Context context);
+        }
+
+        // Tests swap in their own probe and wait for the thread.
+        static DecoderWidthProbe decoderWidthProbe = SettingsFragment::probeDecoderWidths;
+        Thread decoderProbe;
+
+        // The widest fixed size the AVC or HEVC decoder takes, or 0 when neither tells.
+        private static int probeDecoderWidths(Context context) {
+            // This must be called to do runtime initialization before calling functions that evaluate
+            // decoder lists.
+            MediaCodecHelper.initialize(context, GlPreferences.readPreferences(context).glRenderer);
+            return Math.max(
+                    decoderWidthSlot(MediaCodecHelper.findProbableSafeDecoder("video/avc", -1), "video/avc", "AVC"),
+                    decoderWidthSlot(MediaCodecHelper.findProbableSafeDecoder("video/hevc", -1), "video/hevc", "HEVC"));
+        }
+
+        private static int decoderWidthSlot(MediaCodecInfo decoder, String mime, String label) {
+            if (decoder == null) {
+                return 0;
+            }
+            Range<Integer> widths = decoder.getCapabilitiesForType(mime).getVideoCapabilities().getSupportedWidths();
+            LimeLog.info(label+" supported width range: "+widths.getLower()+" - "+widths.getUpper());
+
+            // If 720p is not reported as supported, ignore all results from this API
+            if (!widths.contains(1280)) {
+                return 0;
+            }
+            if (widths.contains(3840)) {
+                return 3840;
+            }
+            return widths.contains(1920) ? 1920 : 1280;
+        }
+
         // Removes a setting this device cannot use from whichever group holds it.
         private void removeSetting(String key) {
             Preference preference = findPreference(key);
@@ -2228,89 +2305,23 @@ public class StreamSettings extends NightjarActivity {
                     }
                 }
 
-                // This must be called to do runtime initialization before calling functions that evaluate
-                // decoder lists.
-                MediaCodecHelper.initialize(getContext(), GlPreferences.readPreferences(getContext()).glRenderer);
-
-                MediaCodecInfo avcDecoder = MediaCodecHelper.findProbableSafeDecoder("video/avc", -1);
-                MediaCodecInfo hevcDecoder = MediaCodecHelper.findProbableSafeDecoder("video/hevc", -1);
-
-                if (avcDecoder != null) {
-                    Range<Integer> avcWidthRange = avcDecoder.getCapabilitiesForType("video/avc").getVideoCapabilities().getSupportedWidths();
-
-                    LimeLog.info("AVC supported width range: "+avcWidthRange.getLower()+" - "+avcWidthRange.getUpper());
-
-                    // If 720p is not reported as supported, ignore all results from this API
-                    if (avcWidthRange.contains(1280)) {
-                        if (avcWidthRange.contains(3840) && maxSupportedResW < 3840) {
-                            maxSupportedResW = 3840;
+                // The decoders' width ranges can only raise the slot. Reading them builds a
+                // MediaCodecList, a blocking call to the media service that hit an ANR on a
+                // MediaTek Android 15 device (V+ c519d37): probe off the main thread and drop
+                // the sizes the decoders can't take once it's done.
+                final int displayResW = maxSupportedResW;
+                final android.app.Activity activity = getActivity();
+                final Context appContext = activity.getApplicationContext();
+                final DecoderWidthProbe probe = decoderWidthProbe;
+                decoderProbe = new Thread(() -> {
+                    int decoderResW = probe.probe(appContext);
+                    activity.runOnUiThread(() -> {
+                        if (isAdded() && getActivity() == activity && !activity.isFinishing()) {
+                            removeUndecodableResolutions(Math.max(displayResW, decoderResW));
                         }
-                        else if (avcWidthRange.contains(1920) && maxSupportedResW < 1920) {
-                            maxSupportedResW = 1920;
-                        }
-                        else if (maxSupportedResW < 1280) {
-                            maxSupportedResW = 1280;
-                        }
-                    }
-                }
-
-                if (hevcDecoder != null) {
-                    Range<Integer> hevcWidthRange = hevcDecoder.getCapabilitiesForType("video/hevc").getVideoCapabilities().getSupportedWidths();
-
-                    LimeLog.info("HEVC supported width range: "+hevcWidthRange.getLower()+" - "+hevcWidthRange.getUpper());
-
-                    // If 720p is not reported as supported, ignore all results from this API
-                    if (hevcWidthRange.contains(1280)) {
-                        if (hevcWidthRange.contains(3840) && maxSupportedResW < 3840) {
-                            maxSupportedResW = 3840;
-                        }
-                        else if (hevcWidthRange.contains(1920) && maxSupportedResW < 1920) {
-                            maxSupportedResW = 1920;
-                        }
-                        else if (maxSupportedResW < 1280) {
-                            maxSupportedResW = 1280;
-                        }
-                    }
-                }
-
-                LimeLog.info("Maximum resolution slot: "+maxSupportedResW);
-
-                if (maxSupportedResW != 0) {
-                    if (maxSupportedResW < 3840) {
-                        // 4K is unsupported
-                        removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_4K, new Runnable() {
-                            @Override
-                            public void run() {
-                                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                                setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P);
-                                resetBitrateToDefault(prefs, null, null);
-                            }
-                        });
-                    }
-                    if (maxSupportedResW < 2560) {
-                        // 1440p is unsupported
-                        removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P, new Runnable() {
-                            @Override
-                            public void run() {
-                                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                                setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P);
-                                resetBitrateToDefault(prefs, null, null);
-                            }
-                        });
-                    }
-                    if (maxSupportedResW < 1920) {
-                        // 1080p is unsupported
-                        removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P, new Runnable() {
-                            @Override
-                            public void run() {
-                                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                                setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_720P);
-                                resetBitrateToDefault(prefs, null, null);
-                            }
-                        });
-                    }
-                    // Never remove 720p
-                }
+                    });
+                }, "Decoder resolution probe");
+                decoderProbe.start();
             }
             else {
                 // We can get the true metrics via the getRealMetrics() function (unlike the lies

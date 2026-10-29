@@ -10,6 +10,7 @@ import android.media.MediaFormat;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -48,7 +49,13 @@ public class MediaCodecSdr10DecoderChoiceTest {
     @Before
     public void setUp() {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        MediaCodecHelper.forgetCodecList();
         ShadowMediaCodecList.addCodec(decoder(AVC_DECODER, AVC, CodecProfileLevel.AVCProfileHigh));
+    }
+
+    @After
+    public void tearDown() {
+        MediaCodecHelper.forgetCodecList();
     }
 
     private static MediaCodecInfo decoder(String name, String mime, int... profiles) {

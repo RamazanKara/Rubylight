@@ -224,6 +224,8 @@ pub struct VirtualDisplay {
     /// rotation and size changes made in place, so a second stream that asks
     /// for the first one's launch size still joins ([`join`]).
     created: (u32, u32, u32),
+    /// The modes the driver lists for the live display ([`SharedDisplay::offered`]).
+    offered: Vec<Timing>,
     /// Windows showed `mode`'s resolution after it was last set, at that or a
     /// slower refresh it accepted.
     size_applied: std::sync::atomic::AtomicBool,
@@ -268,6 +270,9 @@ pub(super) trait SharedDisplay {
     fn set_mode(&mut self, mode: Timing);
     /// Have the driver offer that mode; false, logged, when the driver refused.
     fn offer_mode(&self) -> bool;
+    /// The modes the driver lists for it: the one it was created with, and
+    /// those it offered since (its list is a union).
+    fn offered(&mut self) -> &mut Vec<Timing>;
     /// The refreshes (whole hertz) Windows lists now at that mode's size.
     fn listed_rates(&self) -> Vec<u32>;
     /// Set that mode in Windows; whether Windows shows it.
@@ -292,6 +297,9 @@ impl SharedDisplay for VirtualDisplay {
                 false
             }
         }
+    }
+    fn offered(&mut self) -> &mut Vec<Timing> {
+        &mut self.offered
     }
     fn listed_rates(&self) -> Vec<u32> {
         offered_rates(&supported_modes(&self.name), self.mode.0, self.mode.1)
@@ -413,17 +421,25 @@ fn reshape(display: &mut impl SharedDisplay, width: u32, height: u32) -> bool {
 /// Windows lists at its size differ from `turn_from`: the driver publishes
 /// the new list after it answers (16 ms later in the S1a run), and Windows
 /// refuses a mode it does not list yet (DISP_CHANGE_BADMODE). A mode already
-/// listed costs one look. A driver that refused is not waited for. False,
-/// with why, when Windows does not list it.
-fn offer_listed(display: &impl SharedDisplay, turn_from: Option<&[u32]>) -> bool {
+/// listed costs one look. A driver that refused, or that offered the mode
+/// before ([`SharedDisplay::offered`]), is not waited for: Windows' list does
+/// not change then, and a turn back to a size Windows filters that refresh at
+/// would stall every time. False, with why, when Windows does not list it.
+fn offer_listed(display: &mut impl SharedDisplay, turn_from: Option<&[u32]>) -> bool {
     let (_, mode) = display.modes();
+    let repeated = display.offered().contains(&mode);
+    let accepted = display.offer_mode();
+    if accepted && !repeated {
+        display.offered().push(mode);
+    }
+    let display = &*display;
     let turn = turn_from.is_some();
     let listed = || {
         let rates = display.listed_rates();
         lists_rate(&rates, mode.2)
             || turn_from.is_some_and(|before| !rates.is_empty() && rates != before)
     };
-    if !display.offer_mode() {
+    if !accepted || repeated {
         return listed();
     }
     let started = Instant::now();
@@ -728,6 +744,7 @@ impl VirtualDisplay {
             last_renew: Instant::now(),
             mode: (width, height, fps),
             created: (width, height, fps),
+            offered: vec![(width, height, fps)],
             size_applied: std::sync::atomic::AtomicBool::new(false),
             options,
             generation: 0,
@@ -1158,6 +1175,8 @@ impl VirtualDisplay {
             self.mode,
             self.options.peak_nits,
         ))?;
+        // A new display: its driver list starts again from the mode it is created with.
+        self.offered = vec![self.mode];
         self.startup_protection = Some(protection);
         self.resolve(&response)?;
         // Retain a resolved recovery even if protection needs a retry, so
@@ -1203,6 +1222,7 @@ mod tests {
         fastest: u32,
         /// The driver refuses to offer a mode.
         driver_refuses: bool,
+        offered: Vec<Timing>,
         log: std::cell::RefCell<Vec<String>>,
     }
     impl Fake {
@@ -1219,6 +1239,7 @@ mod tests {
                 looks: 0.into(),
                 fastest: u32::MAX,
                 driver_refuses: false,
+                offered: vec![mode],
                 log: Default::default(),
             }
         }
@@ -1247,6 +1268,9 @@ mod tests {
             self.pending.borrow_mut().push(self.mode);
             self.looks.set(0);
             true
+        }
+        fn offered(&mut self) -> &mut Vec<Timing> {
+            &mut self.offered
         }
         fn listed_rates(&self) -> Vec<u32> {
             self.looks.set(self.looks.get() + 1);
@@ -1554,6 +1578,17 @@ mod tests {
         display.lists_after = None;
         assert!(super::reshape(&mut display, 1920, 1080));
         assert_eq!(display.shown.get(), (1920, 1080, 120_000));
+        // Turned back and again: the driver offered both modes already, so
+        // neither turn waits, and the fallback serves the filtered one.
+        for (width, height, shown) in [(1080, 1920, portrait), (1920, 1080, (1920, 1080, 120_000))]
+        {
+            let started = Instant::now();
+            assert!(super::reshape(&mut display, width, height));
+            assert!(started.elapsed() < Duration::from_secs(1));
+            assert_eq!(display.looks.get(), 1);
+            assert_eq!(display.shown.get(), shown);
+        }
+        assert_eq!(display.offered, [portrait, landscape]);
     }
 
     #[test]

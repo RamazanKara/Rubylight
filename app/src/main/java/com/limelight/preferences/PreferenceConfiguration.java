@@ -1412,7 +1412,8 @@ public class PreferenceConfiguration {
         config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
         // The vote is for a SurfaceView. It needs the lower refresh rate switch: the settings screen greys it
         // without that, so a stored choice must not act on its own. VRR turns it on: without ARR (known only
-        // once the stream's display is) the content rate is the only way down from the panel maximum.
+        // once the stream's display is) the content rate is the only way down from the panel maximum, to a
+        // seamless multiple of the game's rate.
         config.contentRateFrameRate = com.limelight.binding.video.DisplayFrameRatePolicy.tracksContentRate(
                 prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false), config.reduceRefreshRate,
                 config.vrr, config.useTextureView);

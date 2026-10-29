@@ -79,17 +79,48 @@ public class DisplayFrameRatePolicyTest {
     }
 
     @Test
-    public void aVrrContentVoteIsTheGamesRateUpToThePanelMaximum() {
-        // VRR's base vote is the panel maximum; lower refresh is off, the vote still comes down.
-        assertTrue(DisplayFrameRatePolicy.contentVoteMayLower(true, false));
-        assertFalse(DisplayFrameRatePolicy.contentVoteMayLower(false, false));
-        assertTrue(DisplayFrameRatePolicy.contentVoteMayLower(false, true));
-        // Retroid: one 120 Hz panel, a 120 fps stream, a game at 60.
-        boolean lower = DisplayFrameRatePolicy.contentVoteMayLower(true, false);
-        assertEquals(60f, DisplayFrameRatePolicy.contentVote(60f, 120f, lower, 120f), 0f);
-        assertEquals(90f, DisplayFrameRatePolicy.contentVote(90f, 120f, lower, 120f), 0f);
+    public void aVrr60FpsGameOnA60And120PanelStaysAt120() {
+        // 60 on 60 Hz would hold each frame for the next 16.7 ms refresh instead of 8.3 ms.
+        float[] seamless = {120f, 60f};
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(60f, 120f, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(59.94f, 120f, seamless), 0f);
+        // A measured rate a hair above 60 is still 60, not a lone 60.02 Hz vote.
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(60.4f, 120f, seamless), 0f);
+        // 30 and 40 divide 120: the panel maximum.
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(30f, 120f, seamless), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(40f, 120f, seamless), 0f);
+    }
+
+    @Test
+    public void aVrr90FpsGameOnA90And120PanelGets90() {
+        float[] seamless = {120f, 60f, 90f};
+        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(90f, 120f, seamless), 0f);
+        // 45 fps doubles to 90.
+        assertEquals(90f, DisplayFrameRatePolicy.vrrContentVote(45f, 120f, seamless), 0f);
+        // 50 fps would need 100 Hz, which the panel lacks: the maximum.
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(50f, 120f, seamless), 0f);
+        // 90 reached only with a blank is not voted.
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(90f, 120f, new float[] {120f, 60f}), 0f);
         // Never above the panel maximum.
-        assertEquals(120f, DisplayFrameRatePolicy.contentVote(144f, 120f, lower, 120f), 0f);
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(144f, 120f, seamless), 0f);
+        // No game rate or no panel maximum: nothing to change.
+        assertEquals(120f, DisplayFrameRatePolicy.vrrContentVote(0f, 120f, seamless), 0f);
+    }
+
+    @Test
+    public void aVrrGameOnAFixedPanelKeepsThePanelMaximumAndNoMismatch() {
+        // Retroid Pocket 6: one 120 Hz mode, a game at 90. And a 60 Hz phone with a game at 45.
+        float[][] panels = {{120f, 90f}, {60f, 45f}};
+        for (float[] panel : panels) {
+            float maximum = panel[0];
+            float vote = DisplayFrameRatePolicy.vrrContentVote(panel[1], maximum, new float[] {maximum});
+            assertEquals(maximum, vote, 0f);
+            RefreshSwitchDiagnosis.PanelMode only = new RefreshSwitchDiagnosis.PanelMode(1, 1920, 1080, maximum, null);
+            for (int sdk : new int[] {30, 33}) {
+                assertFalse(RefreshSwitchDiagnosis.diagnose(sdk, vote, true, only,
+                        java.util.Collections.singletonList(only), RefreshSwitchDiagnosis.Conditions.NONE).mismatch());
+            }
+        }
     }
 
     @Test
@@ -107,40 +138,68 @@ public class DisplayFrameRatePolicyTest {
     @Test
     public void arrHalfRateIsFlaggedAfterThreeSecondsAndClearsAtOnce() {
         DisplayFrameRatePolicy.ArrHalfRateCheck check = new DisplayFrameRatePolicy.ArrHalfRateCheck();
-        // 120 fps received, 60 shown: Android's 60 Hz cap for games.
-        assertFalse(check.update(0, 120f, 60f));
-        assertFalse(check.update(1_000, 119f, 61f));
-        assertFalse(check.update(2_999, 120f, 59f));
-        assertTrue(check.update(3_000, 120f, 60f));
+        // 120 fps rendered, 60 presented, the display at 60: Android's 60 Hz cap for games.
+        assertFalse(check.update(0, 120f, 60f, 60f, 120f));
+        assertFalse(check.update(1_000, 119f, 61f, 60f, 120f));
+        assertFalse(check.update(2_999, 120f, 59f, 60f, 120f));
+        assertTrue(check.update(3_000, 120f, 60f, 60f, 120f));
         assertTrue(check.flagged());
-        assertTrue(check.update(4_000, 120f, 60f));
-        // The screen shows the received frames again: cleared on the first sample.
-        assertFalse(check.update(5_000, 120f, 118f));
+        assertTrue(check.update(4_000, 120f, 60f, 60f, 120f));
+        // The screen shows the rendered frames again: cleared on the first sample.
+        assertFalse(check.update(5_000, 120f, 118f, 120f, 120f));
         assertFalse(check.flagged());
         // A broken run starts over.
-        assertFalse(check.update(6_000, 120f, 60f));
-        assertFalse(check.update(7_000, 120f, 100f));
-        assertFalse(check.update(8_000, 120f, 60f));
-        assertFalse(check.update(10_999, 120f, 60f));
-        assertTrue(check.update(11_000, 120f, 60f));
+        assertFalse(check.update(6_000, 120f, 60f, 60f, 120f));
+        assertFalse(check.update(7_000, 120f, 100f, 60f, 120f));
+        assertFalse(check.update(8_000, 120f, 60f, 60f, 120f));
+        assertFalse(check.update(10_999, 120f, 60f, 60f, 120f));
+        assertTrue(check.update(11_000, 120f, 60f, 60f, 120f));
         check.reset();
         assertFalse(check.flagged());
-        assertFalse(check.update(12_000, 120f, 60f));
+        assertFalse(check.update(12_000, 120f, 60f, 60f, 120f));
+        // A device that stops reporting presented frames clears the flag: no evidence left.
+        assertFalse(check.update(16_000, 120f, -1f, 60f, 120f));
+        assertFalse(check.flagged());
     }
 
     @Test
-    public void onlyAboutHalfCountsAsHalf() {
-        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f));
-        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(144f, 72f));
-        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 50f));
-        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 70f));
+    public void onlyAboutHalfOfTheRenderedFramesCountsAsHalf() {
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 60f, 120f));
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(144f, 72f, 72f, 144f));
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 50f, 60f, 120f));
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 70f, 60f, 120f));
         // Full rate, a few drops, or a third are not half.
-        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 120f));
-        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 100f));
-        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 40f));
-        // Too few frames to judge, and no shown count (-1).
-        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(30f, 15f));
-        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, -1f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 120f, 60f, 120f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 100f, 60f, 120f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 40f, 60f, 120f));
+        // Too few frames to judge.
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(30f, 15f, 60f, 120f));
+    }
+
+    @Test
+    public void noPresentedCountMeansNoVerdict() {
+        // rates[2] = -1: the rendered rate stands in on the overlay, but cannot show a cap.
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, -1f, 60f, 120f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(60f, -1f, 60f, 120f));
+    }
+
+    @Test
+    public void framesTheClientDropsAreNotBlamedOnAndroid() {
+        // 120 fps received but 60 rendered (a slow decoder), all 60 presented: not half.
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(60f, 60f, 120f, 120f));
+    }
+
+    @Test
+    public void wifiPairsOnAFullRateScreenAreNotACap() {
+        // Frames arriving two at a time: the compositor shows the newer of each pair, so half are
+        // presented while the display runs at the full 120 Hz.
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 120f, 120f));
+        assertFalse(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 90f, 120f));
+        // The display at about half the stream rate is the cap.
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 60f, 120f));
+        // An unknown display or stream rate leaves the frame counts to decide.
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 0f, 120f));
+        assertTrue(DisplayFrameRatePolicy.ArrHalfRateCheck.isHalf(120f, 60f, 60f, 0f));
     }
 
     @Test

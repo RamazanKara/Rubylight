@@ -7,13 +7,18 @@
 # index, and the compatibility settings are as before afterwards. The
 # handler, entry and settings are removed again, also on a failure. Nucleus
 # Co-op must be installed (the console's Set up co-op) and not running.
+# -Run user (or elevated) asserts how the admission runs it: as the signed-in
+# user from their own copy, NucleusCoop.exe and the game unelevated at medium
+# integrity, or elevated from the host's.
 # Exit code: the test's.
 param(
     [Parameter(Mandatory)] [string] $Out,
     # The game's .exe, or else the Steam app whose .exe Steam starts.
     [string] $Game = '',
     [string] $SteamApp = '',
-    [int] $Hold = 20
+    [int] $Hold = 20,
+    # How the session must run; empty takes whichever the admission chooses.
+    [ValidateSet('user', 'elevated')] [string] $Run = ''
 )
 $ErrorActionPreference = 'Stop'
 if (-not $Game -and -not $SteamApp) { throw 'pass -Game <exe> or -SteamApp <id>' }
@@ -34,6 +39,7 @@ $lines = @(
 )
 if ($Game) { $lines += "set RUBYLIGHT_NUCLEUS_GAME=$Game" }
 if ($SteamApp) { $lines += "set RUBYLIGHT_NUCLEUS_STEAM_APP=$SteamApp" }
+if ($Run) { $lines += "set RUBYLIGHT_NUCLEUS_RUN=$Run" }
 $lines += "`"$exe`" --ignored --exact nucleus::tests::a_background_stream_without_a_hub_handler_on_this_pc --nocapture > `"$log`" 2>&1"
 $lines += "echo %ERRORLEVEL% > `"$done`""
 Set-Content -Path $script -Value $lines -Encoding ascii
@@ -52,5 +58,5 @@ try {
     schtasks /Delete /F /TN $task | Out-Null
 }
 $code = [int](Get-Content $done -Raw).Trim()
-Get-Content $log | Select-String -Pattern '^(handler|running after|game process|capture|pad A|stopped in|compatibility|cleanup|handler and entry|warning|test result)|panicked|Error'
+Get-Content $log | Select-String -Pattern '^(runs |handler|running after|game process|rights|capture|pad A|stopped in|compatibility|cleanup|handler and entry|warning|test result)|panicked|Error'
 exit $code

@@ -457,6 +457,15 @@ cases:
     output: '{{out}}\session.log'
     note: runs the host's ignored test nucleus::tests::a_background_stream_without_a_hub_handler_on_this_pc as SYSTEM through a one-shot scheduled task; Nucleus Co-op installed (console, Set up co-op) and not running, no host session. The app goes through the host's admission (path, launcher, anti-cheat, arguments, Unreal stub). The pad is checked at the session's XInput index, not inside the game. Covers the session, not a client; the stream itself is in the rc pass
 
+  - id: nucleus-generic-background-user
+    device: desktop
+    title: Background stream of a one-player game without a hub handler, run as the signed-in user from their own Nucleus Co-op copy
+    command: '& {{repo}}\tools\hw\nucleus-generic.ps1 -Out {{out}} -Game D:\games\BFME1\lotrbfme.exe -Run user; exit $LASTEXITCODE'
+    preconditions: [idle, gpu-lock]
+    pass: 'exit 0; session.log has "runs User from C:\ProgramData\Butterpollo\nucleus-user\<SID>\2.4.2", the handler there, "rights: NucleusCoop.exe and the game unelevated at medium integrity", and every line nucleus-generic-background asks for, "handlers and game list as before" included (the host''s and the copy''s handlers of Rubylight''s, the user''s list and the compatibility settings)'
+    output: '{{out}}\session.log'
+    note: as nucleus-generic-background, with RUBYLIGHT_NUCLEUS_RUN=user. BFME1 needs no administrator rights on this PC (2026-10-29, read only) -- no manifest level, no installer name or version info, its compatibility setting only HIGHDPIAWARE, and Authenticated Users may change every file below D:\games\BFME1 -- so the admission picks the user's copy even on this administrator account; nucleus-generic-background takes that path too now. Untested here (no such account on this PC) -- a standard account and Windows' Administrator protection, where the same game must stream and a game that needs administrator rights, a hub handler or co-op must be refused
+
   - id: nucleus-generic-background-steam
     device: desktop
     title: Background stream of a Steam link without a hub handler, through Rubylight's own Nucleus Co-op handler

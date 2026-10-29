@@ -4672,16 +4672,17 @@ mod tests {
     }
 
     /// Where Nucleus sets the DPI mode for the game at `game`: that exact
-    /// path, and the instances of its `executable` below Nucleus' `content`.
-    fn nucleus_sets(name: &str, game: &str, content: &Path, executable: &str) -> bool {
+    /// path, and the instances of its `executable` below the `content` folder
+    /// of each Nucleus copy it may run from (the host's, the user's).
+    fn nucleus_sets(name: &str, game: &str, contents: &[PathBuf], executable: &str) -> bool {
         let plain = |path: &str| path.trim().replace('/', "\\").to_lowercase();
         let name = plain(name);
-        let content = plain(&content.to_string_lossy());
-        name == plain(game)
-            || (name
-                .strip_prefix(content.trim_end_matches('\\'))
+        let below = |content: &PathBuf| {
+            name.strip_prefix(plain(&content.to_string_lossy()).trim_end_matches('\\'))
                 .is_some_and(|rest| rest.starts_with('\\'))
-                && file_name(&name).eq_ignore_ascii_case(executable))
+        };
+        name == plain(game)
+            || (contents.iter().any(below) && file_name(&name).eq_ignore_ascii_case(executable))
     }
 
     /// The compatibility settings the case changes back to `before`: each
@@ -4692,10 +4693,10 @@ mod tests {
         before: &BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
         after: &BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
         game: &str,
-        content: &Path,
+        contents: &[PathBuf],
         executable: &str,
     ) -> Vec<(String, Option<butterpollo_windows::nucleus::layers::Value>)> {
-        let named = |name: &&String| nucleus_sets(name, game, content, executable);
+        let named = |name: &&String| nucleus_sets(name, game, contents, executable);
         let mut changes: Vec<_> = after
             .iter()
             .filter(|(name, _)| named(name))
@@ -4718,7 +4719,8 @@ mod tests {
             kind: 1,
             data: vec![byte, 0, 0, 0],
         };
-        let content = Path::new(r"C:\Nucleus\content");
+        let content = [PathBuf::from(r"C:\Nucleus\content")];
+        let content = &content[..];
         let before = BTreeMap::from([
             (r"D:\G\Game.exe".to_string(), text(1)),
             (r"D:\Gone\Game.exe".to_string(), text(2)),
@@ -4755,15 +4757,41 @@ mod tests {
             ]
         );
         assert!(layer_changes(&before, &before, r"D:\G\Game.exe", content, "game.exe").is_empty());
+        // A session from the user's own copy sets its instances below that
+        // copy's content folder; the host's still count.
+        let user = r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\2.4.2\content";
+        let both = [PathBuf::from(r"C:\Nucleus\content"), PathBuf::from(user)];
+        let after = BTreeMap::from([
+            (format!(r"{user}\G\Instance0\Game.exe"), text(9)),
+            (
+                r"C:\Nucleus\content\G\Instance0\Game.exe".to_string(),
+                text(9),
+            ),
+            (format!(r"{user}\G\Instance0\Tool.exe"), text(9)),
+            (format!(r"{user}s\Game.exe"), text(9)),
+        ]);
+        let empty = BTreeMap::new();
+        assert_eq!(
+            layer_changes(&empty, &after, r"D:\G\Game.exe", &both, "game.exe"),
+            [
+                (r"C:\Nucleus\content\G\Instance0\Game.exe".to_string(), None),
+                (format!(r"{user}\G\Instance0\Game.exe"), None),
+            ]
+        );
+        assert_eq!(
+            layer_changes(&empty, &after, r"D:\G\Game.exe", content, "game.exe"),
+            [(r"C:\Nucleus\content\G\Instance0\Game.exe".to_string(), None)]
+        );
     }
 
     /// Files a hardware case may change, as they were before it: the user's
-    /// game list, and each handler of Rubylight's (its marker) by name.
+    /// game list, and each handler of Rubylight's (its marker) by name, in
+    /// each handlers folder (the host's copy, the user's own).
     #[derive(Debug, Default)]
     struct KeptFiles {
         /// Each path's bytes; None when it was not there.
         files: BTreeMap<PathBuf, Option<Vec<u8>>>,
-        handlers: PathBuf,
+        handlers: Vec<PathBuf>,
     }
     impl KeptFiles {
         fn own_handlers(handlers: &Path) -> Result<Vec<PathBuf>> {
@@ -4786,12 +4814,13 @@ mod tests {
             Ok(own)
         }
 
-        fn take(handlers: &Path, list: &Path) -> Result<Self> {
+        fn take(handlers: &[&Path], list: &Path) -> Result<Self> {
             let mut files = BTreeMap::new();
-            for path in Self::own_handlers(handlers)?
-                .into_iter()
-                .chain([list.to_path_buf()])
-            {
+            let mut own = Vec::new();
+            for folder in handlers {
+                own.extend(Self::own_handlers(folder)?);
+            }
+            for path in own.into_iter().chain([list.to_path_buf()]) {
                 let bytes = match std::fs::read(&path) {
                     Ok(bytes) => Some(bytes),
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -4801,7 +4830,7 @@ mod tests {
             }
             Ok(Self {
                 files,
-                handlers: handlers.into(),
+                handlers: handlers.iter().map(|folder| folder.to_path_buf()).collect(),
             })
         }
 
@@ -4809,16 +4838,18 @@ mod tests {
         /// Returns what could not be put back.
         fn put_back(&self) -> Vec<String> {
             let mut failures = Vec::new();
-            match Self::own_handlers(&self.handlers) {
-                Ok(now) => {
-                    for path in now.iter().filter(|path| !self.files.contains_key(*path)) {
-                        match std::fs::remove_file(path) {
-                            Ok(()) => println!("cleanup: removed {}", path.display()),
-                            Err(error) => failures.push(format!("{}: {error}", path.display())),
+            for folder in &self.handlers {
+                match Self::own_handlers(folder) {
+                    Ok(now) => {
+                        for path in now.iter().filter(|path| !self.files.contains_key(*path)) {
+                            match std::fs::remove_file(path) {
+                                Ok(()) => println!("cleanup: removed {}", path.display()),
+                                Err(error) => failures.push(format!("{}: {error}", path.display())),
+                            }
                         }
                     }
+                    Err(error) => failures.push(format!("{error:#}")),
                 }
-                Err(error) => failures.push(format!("{error:#}")),
             }
             for (path, bytes) in &self.files {
                 let now = std::fs::read(path).ok();
@@ -4857,7 +4888,7 @@ mod tests {
         std::fs::write(&earlier, ours("earlier")).unwrap();
         std::fs::write(&hub, "Game.GUID='Hub'\n").unwrap();
         std::fs::write(&list, r#"{"Games":[{"GameGuid":"Rubylight-earlier"}]}"#).unwrap();
-        let kept = KeptFiles::take(&handlers, &list).unwrap();
+        let kept = KeptFiles::take(&[&handlers], &list).unwrap();
         // The case's sweep takes the earlier one and its entry, and writes
         // its own; the user's hub handler changes meanwhile.
         std::fs::remove_file(&earlier).unwrap();
@@ -4877,10 +4908,39 @@ mod tests {
         );
         // A list that was not there goes again.
         std::fs::remove_file(&list).unwrap();
-        let kept = KeptFiles::take(&handlers, &list).unwrap();
+        let kept = KeptFiles::take(&[&handlers], &list).unwrap();
         std::fs::write(&list, "{}").unwrap();
         assert!(kept.put_back().is_empty());
         assert!(!list.exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_hardware_case_puts_the_users_copy_handlers_back_too() {
+        let root = std::env::temp_dir().join(format!("nucleus-case-{}", uuid::Uuid::new_v4()));
+        let (host, copy) = (root.join("host"), root.join("copy").join("handlers"));
+        std::fs::create_dir_all(&host).unwrap();
+        let list = root.join("userprofile.json");
+        let ours = format!(
+            "{}\nGame.GUID='Rubylight-case'\n",
+            butterpollo_core::nucleus::generic::MARKER
+        );
+        std::fs::write(host.join("Rubylight-earlier.js"), &ours).unwrap();
+        // The user's copy is not there yet: the session makes it.
+        let kept = KeptFiles::take(&[&host, &copy], &list).unwrap();
+        std::fs::create_dir_all(&copy).unwrap();
+        std::fs::write(copy.join("Rubylight-earlier.js"), &ours).unwrap();
+        std::fs::write(copy.join("Rubylight-case.js"), &ours).unwrap();
+        std::fs::write(copy.join("Hub.js"), "Game.GUID='Hub'\n").unwrap();
+        std::fs::remove_file(host.join("Rubylight-earlier.js")).unwrap();
+        assert!(kept.put_back().is_empty());
+        assert!(host.join("Rubylight-earlier.js").is_file());
+        assert_eq!(
+            KeptFiles::own_handlers(&copy).unwrap(),
+            Vec::<PathBuf>::new()
+        );
+        // Only ours go: a hub handler mirrored into the copy stays.
+        assert!(copy.join("Hub.js").is_file());
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -4892,7 +4952,9 @@ mod tests {
         registry: Arc<Registry>,
         kept: KeptFiles,
         layers_before: BTreeMap<String, butterpollo_windows::nucleus::layers::Value>,
-        content: PathBuf,
+        /// The `content` folder of each Nucleus copy the session may run
+        /// from: the host's and the user's own.
+        contents: Vec<PathBuf>,
         /// The game's path and its handler's .exe, once admitted.
         game: Option<(String, String)>,
         done: bool,
@@ -4914,7 +4976,7 @@ mod tests {
                         &self.layers_before,
                         &hive.values()?,
                         game,
-                        &self.content,
+                        &self.contents,
                         executable,
                     );
                     for (name, value) in &changes {
@@ -4947,6 +5009,179 @@ mod tests {
         }
     }
 
+    /// How a hardware case expects the session to run, from
+    /// `RUBYLIGHT_NUCLEUS_RUN`: "user" or "elevated". Unset or empty, it
+    /// takes whichever the admission chooses.
+    fn expected_run(value: Option<&str>) -> Result<Option<Run>> {
+        match value.map(str::trim) {
+            None | Some("") => Ok(None),
+            Some("user") => Ok(Some(Run::User)),
+            Some("elevated") => Ok(Some(Run::Elevated)),
+            Some(other) => {
+                anyhow::bail!("RUBYLIGHT_NUCLEUS_RUN is {other:?}, not user or elevated")
+            }
+        }
+    }
+
+    /// How a session ran, from its NucleusCoop.exe's program path `image`:
+    /// as the user from their own `copy`, elevated from the host's `folder`.
+    fn ran_from(image: &str, folder: &Path, copy: &Path) -> Result<Run> {
+        let plain = |path: &Path| {
+            let path = path.to_string_lossy().replace('/', "\\").to_lowercase();
+            let path = path.strip_prefix(r"\\?\").unwrap_or(&path);
+            path.trim_end_matches('\\').to_string()
+        };
+        let image = Path::new(image);
+        ensure!(
+            image
+                .file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("NucleusCoop.exe")),
+            "{} is not NucleusCoop.exe",
+            image.display()
+        );
+        match image.parent().map(plain) {
+            Some(parent) if parent == plain(copy) => Ok(Run::User),
+            Some(parent) if parent == plain(folder) => Ok(Run::Elevated),
+            _ => anyhow::bail!(
+                "NucleusCoop.exe ran from {}, neither the user's own copy {} nor the host's {}",
+                image.display(),
+                copy.display(),
+                folder.display()
+            ),
+        }
+    }
+
+    /// SECURITY_MANDATORY_MEDIUM_RID: the integrity level of a program
+    /// running with a user's standard rights.
+    const MEDIUM_INTEGRITY: u32 = 0x2000;
+
+    /// That `name` (process `pid`), whose token is `elevated` at `integrity`,
+    /// runs with the user's standard rights: not elevated, medium integrity.
+    fn standard_rights(name: &str, pid: u32, elevated: bool, integrity: u32) -> Result<()> {
+        ensure!(
+            !elevated && integrity == MEDIUM_INTEGRITY,
+            "{name} {pid} runs {} at integrity 0x{integrity:x}, not unelevated at medium (0x2000)",
+            if elevated { "elevated" } else { "unelevated" }
+        );
+        Ok(())
+    }
+
+    /// Whether process `pid`'s token is elevated, and its integrity level
+    /// (the last RID of its mandatory label).
+    fn token_rights(pid: u32) -> Result<(bool, u32)> {
+        use windows::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows::Win32::Security::{
+            GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_ELEVATION,
+            TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TokenElevation, TokenIntegrityLevel,
+        };
+        use windows::Win32::System::Threading::{
+            OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        struct Owned(HANDLE);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                // SAFETY: the handle was opened for this value and is closed once.
+                let _ = unsafe { CloseHandle(self.0) };
+            }
+        }
+        // SAFETY: each handle is closed once by `Owned`. The buffers outlive
+        // the calls that fill them, which get their sizes; the label's SID
+        // points into `label`, read while it lives.
+        unsafe {
+            let process = Owned(
+                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+                    .with_context(|| format!("opening process {pid}"))?,
+            );
+            let mut token = HANDLE::default();
+            OpenProcessToken(process.0, TOKEN_QUERY, &mut token)
+                .with_context(|| format!("opening process {pid}'s token"))?;
+            let token = Owned(token);
+            let mut elevation = TOKEN_ELEVATION::default();
+            let mut bytes = 0;
+            GetTokenInformation(
+                token.0,
+                TokenElevation,
+                Some((&mut elevation as *mut TOKEN_ELEVATION).cast()),
+                size_of::<TOKEN_ELEVATION>() as u32,
+                &mut bytes,
+            )?;
+            // TOKEN_MANDATORY_LABEL and the SID it points to, 8-byte aligned.
+            let mut label = [0u64; 16];
+            GetTokenInformation(
+                token.0,
+                TokenIntegrityLevel,
+                Some(label.as_mut_ptr().cast()),
+                size_of_val(&label) as u32,
+                &mut bytes,
+            )?;
+            let sid = (*label.as_ptr().cast::<TOKEN_MANDATORY_LABEL>()).Label.Sid;
+            let count = *GetSidSubAuthorityCount(sid);
+            ensure!(count > 0, "process {pid}'s integrity label has no level");
+            let integrity = *GetSidSubAuthority(sid, u32::from(count) - 1);
+            Ok((elevation.TokenIsElevated != 0, integrity))
+        }
+    }
+
+    #[test]
+    fn a_hardware_case_reads_the_run_it_expects() {
+        assert_eq!(expected_run(None).unwrap(), None);
+        assert_eq!(expected_run(Some(" ")).unwrap(), None);
+        assert_eq!(expected_run(Some("user")).unwrap(), Some(Run::User));
+        assert_eq!(expected_run(Some("elevated")).unwrap(), Some(Run::Elevated));
+        assert!(expected_run(Some("admin")).is_err());
+    }
+
+    #[test]
+    fn a_hardware_case_tells_the_users_copy_from_the_hosts() {
+        let folder = Path::new(r"C:\ProgramData\Butterpollo\nucleus\2.4.2");
+        let copy = Path::new(r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\2.4.2\");
+        let run = |image: &str| ran_from(image, folder, copy);
+        assert_eq!(
+            run(r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\2.4.2\NucleusCoop.exe")
+                .unwrap(),
+            Run::User
+        );
+        assert_eq!(
+            run(r"\\?\c:\programdata\butterpollo\NUCLEUS-USER\s-1-5-21-7\2.4.2\nucleuscoop.EXE")
+                .unwrap(),
+            Run::User
+        );
+        assert_eq!(
+            run(r"C:\ProgramData\Butterpollo\nucleus\2.4.2\NucleusCoop.exe").unwrap(),
+            Run::Elevated
+        );
+        // Another user's copy, a folder below the copy, another program.
+        for image in [
+            r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-8\2.4.2\NucleusCoop.exe",
+            r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\2.4.2\content\NucleusCoop.exe",
+            r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\2.4.2\Game.exe",
+        ] {
+            assert!(run(image).is_err(), "{image}");
+        }
+    }
+
+    #[test]
+    fn a_hardware_case_asks_for_standard_rights_at_medium_integrity() {
+        standard_rights("NucleusCoop.exe", 1, false, 0x2000).unwrap();
+        let elevated = standard_rights("NucleusCoop.exe", 1, true, 0x3000).unwrap_err();
+        assert_eq!(
+            elevated.to_string(),
+            "NucleusCoop.exe 1 runs elevated at integrity 0x3000, not unelevated at medium (0x2000)"
+        );
+        // UAC off: high integrity without an elevated token; a low one.
+        assert!(standard_rights("Game.exe", 2, false, 0x3000).is_err());
+        assert!(standard_rights("Game.exe", 2, false, 0x1000).is_err());
+        // This test's own process, read as the case reads the session's.
+        let (elevated, integrity) = token_rights(std::process::id()).unwrap();
+        assert_eq!(elevated, butterpollo_windows::process::elevated().unwrap());
+        if elevated {
+            assert!(integrity >= 0x3000, "0x{integrity:x}");
+        } else {
+            assert!(integrity >= MEDIUM_INTEGRITY, "0x{integrity:x}");
+        }
+        assert!(token_rights(0).is_err());
+    }
+
     /// A background stream of a one-player game without a hub handler on
     /// this PC, through the host's own admission (tools/hw/catalog.yaml,
     /// nucleus-generic-background): the app's .exe `RUBYLIGHT_NUCLEUS_GAME`
@@ -4964,6 +5199,14 @@ mod tests {
     /// paths are then exactly as before, also on a failure. Run as SYSTEM,
     /// like the service, with Nucleus Co-op
     /// installed by the console and not running.
+    ///
+    /// Where its NucleusCoop.exe runs from says how the admission ran it: as
+    /// the user from their own copy (`nucleus-user\<SID>\<version>`, the
+    /// handler written there), or elevated from the host's.
+    /// `RUBYLIGHT_NUCLEUS_RUN` (user or elevated) asserts which
+    /// (nucleus-generic-background-user). Run as the user, NucleusCoop.exe
+    /// and the game must hold tokens that are not elevated, at medium
+    /// integrity, and Rubylight's handlers in the copy are as before too.
     #[test]
     #[ignore = "starts a game through Nucleus Co-op on this PC as SYSTEM"]
     fn a_background_stream_without_a_hub_handler_on_this_pc() -> Result<()> {
@@ -4980,6 +5223,7 @@ mod tests {
                 .transpose()?
                 .unwrap_or(20),
         );
+        let expect = expected_run(std::env::var("RUBYLIGHT_NUCLEUS_RUN").ok().as_deref())?;
         let app = case_app(game.as_deref(), steam_app)?;
         let pc = OnPc;
         if let Some(why) = pc.unavailable() {
@@ -4996,12 +5240,24 @@ mod tests {
             .map_err(|error| anyhow!("the user's AppData folder: {error}"))?
             .join("Nucleus Coop")
             .join("userprofile.json");
+        // The signed-in user's own copy, which the admission makes when the
+        // session runs as them.
+        let copy = butterpollo_core::paths::data_root()
+            .join("nucleus-user")
+            .join(user_copy::sid(&user_copy::user()?)?)
+            .join(butterpollo_core::nucleus::install::VERSION);
+        let own_in = |handlers: &Path| -> Result<Vec<PathBuf>> {
+            let mut own = KeptFiles::own_handlers(handlers)?;
+            own.sort();
+            Ok(own)
+        };
         let before = pc.catalog(&folder)?;
+        let copy_before = own_in(&copy.join("handlers"))?;
         let mut cleanup = CaseCleanup {
             registry: registry.clone(),
-            kept: KeptFiles::take(&folder.join("handlers"), &list)?,
+            kept: KeptFiles::take(&[&folder.join("handlers"), &copy.join("handlers")], &list)?,
             layers_before: UserHive::signed_in()?.values()?,
-            content: folder.join("content"),
+            contents: vec![folder.join("content"), copy.join("content")],
             game: None,
             done: false,
         };
@@ -5023,7 +5279,48 @@ mod tests {
             .instance(seat.session)
             .context("the admitted session is not listed")?;
         let guid = instance.session(|s| s.game.clone());
-        let catalog = pc.catalog(&folder)?;
+        // Where its NucleusCoop.exe runs from says how it was run.
+        let looking = Instant::now();
+        let nucleus: Vec<(u32, String)> = loop {
+            let found = butterpollo_windows::process::processes()?
+                .into_iter()
+                .filter(|p| p.started >= since && p.name.eq_ignore_ascii_case("NucleusCoop.exe"))
+                .map(|p| {
+                    let image = butterpollo_windows::process::image_path(p.pid)
+                        .with_context(|| format!("NucleusCoop.exe {}'s program path", p.pid))?;
+                    Ok((p.pid, image))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if !found.is_empty() {
+                break found;
+            }
+            ensure!(
+                looking.elapsed() < Duration::from_secs(30),
+                "no NucleusCoop.exe started with the session"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        let runs = nucleus
+            .iter()
+            .map(|(_, image)| ran_from(image, &folder, &copy))
+            .collect::<Result<Vec<Run>>>()?;
+        let run = runs[0];
+        ensure!(
+            runs.iter().all(|other| *other == run),
+            "NucleusCoop.exe runs from both copies: {nucleus:?}"
+        );
+        if let Some(expect) = expect {
+            ensure!(
+                run == expect,
+                "the session runs {run:?}, not {expect:?}: {nucleus:?}"
+            );
+        }
+        let from = match run {
+            Run::User => &copy,
+            Run::Elevated => &folder,
+        };
+        println!("runs {run:?} from {}", from.display());
+        let catalog = pc.catalog(from)?;
         let handler = catalog
             .handlers
             .iter()
@@ -5032,7 +5329,7 @@ mod tests {
             .clone();
         ensure!(handler.own, "{} is not Rubylight's handler", handler.file);
         ensure!(
-            folder.join("handlers").join(&handler.file).is_file(),
+            from.join("handlers").join(&handler.file).is_file(),
             "{} was not written",
             handler.file
         );
@@ -5073,6 +5370,21 @@ mod tests {
             handler.executable
         );
         println!("game process {game_processes:?}");
+        if run == Run::User {
+            let names = nucleus
+                .iter()
+                .map(|(pid, _)| ("NucleusCoop.exe", *pid))
+                .chain(
+                    game_processes
+                        .iter()
+                        .map(|pid| (handler.executable.as_str(), *pid)),
+                );
+            for (name, pid) in names {
+                let (elevated, integrity) = token_rights(pid)?;
+                standard_rights(name, pid, elevated, integrity)?;
+            }
+            println!("rights: NucleusCoop.exe and the game unelevated at medium integrity");
+        }
         // The window streams through WGC, on the primary display's GPU.
         let display = butterpollo_windows::capture::primary_display().context("no display")?;
         let _com = butterpollo_windows::capture::ComGuard::new()?;
@@ -5163,7 +5475,7 @@ mod tests {
             &cleanup.layers_before,
             &UserHive::signed_in()?.values()?,
             &entry.exe_path,
-            &cleanup.content,
+            &cleanup.contents,
             &handler.executable,
         );
         ensure!(
@@ -5193,6 +5505,11 @@ mod tests {
             after.games,
             own(&before),
             before.games
+        );
+        let copy_after = own_in(&copy.join("handlers"))?;
+        ensure!(
+            copy_after == copy_before,
+            "Rubylight's handlers in the user's copy are not as before: {copy_after:?}, were {copy_before:?}"
         );
         println!("handlers and game list as before");
         Ok(())

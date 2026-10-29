@@ -429,6 +429,19 @@ impl VideoTexture {
         (self.width, self.height)
     }
 
+    /// The picture AI enhancement can read: a hardware-decoded NV12 or P010 Direct3D 11 texture.
+    #[cfg(windows)]
+    pub fn enhance_source(&self) -> Option<super::enhance::Source> {
+        let ten_bit = match self.format {
+            SDL_PIXELFORMAT_NV12 => false,
+            SDL_PIXELFORMAT_P010 => true,
+            _ => return None,
+        };
+        (!self.texture.is_null() && !self.d3d11.is_null()).then_some(super::enhance::Source {
+            texture: self.texture, d3d11: self.d3d11, picture: (self.width, self.height), ten_bit, colorspace: self.colorspace,
+        })
+    }
+
     fn ensure(
         &mut self,
         renderer: *mut SDL_Renderer,

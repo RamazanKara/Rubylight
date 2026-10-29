@@ -134,9 +134,9 @@ pub trait Pc: Send + Sync {
     /// ([`butterpollo_windows::nucleus::user_copy`]).
     fn user_copy(&self, folder: &Path) -> Result<PathBuf>;
     /// Write Rubylight's one-player handler for `setup` into the Nucleus at
-    /// `folder`, or into the user's own copy at `copy` (as the user, with
-    /// `folder`'s handlers), and add its game for the signed-in user;
-    /// refused while Nucleus Co-op runs.
+    /// `folder` (with the user's own copy at `copy`, then give that copy
+    /// `folder`'s handlers, as the user) and add its game for the signed-in
+    /// user; refused while Nucleus Co-op runs.
     fn write_own(&self, folder: &Path, copy: Option<&Path>, setup: &Setup) -> Result<Handler>;
     /// Remove Rubylight's handler `own`, which a hub handler replaces or no
     /// game uses ([`Catalog::stale`]), and its game; refused while Nucleus
@@ -357,9 +357,7 @@ impl Pc for OnPc {
             return files::write_own(folder, &appdata, setup);
         };
         let user = user_copy::user()?;
-        let handlers = user_copy::mirror_handlers(folder, copy, Some(&user))?;
-        tracing::debug!(handlers, copy = %copy.display(), "Nucleus Co-op: the user's own copy has the host's handlers");
-        files::write_own_as(copy, &appdata, setup, Some(&user))
+        user_copy::write_own(folder, copy, &appdata, setup, Some(&user))
     }
     fn remove_own(&self, folder: &Path, own: &Handler) -> Result<()> {
         if let Some(pid) = self.running()? {

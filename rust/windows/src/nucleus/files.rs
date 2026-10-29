@@ -156,42 +156,21 @@ pub fn check_own(folder: &Path, setup: &Setup) -> Result<()> {
 /// not write is never overwritten; one it did is rewritten when the template
 /// changed. Returns the handler as Nucleus reads it.
 pub fn write_own(folder: &Path, appdata: &Path, setup: &Setup) -> Result<Handler> {
-    write_own_as(folder, appdata, setup, None)
-}
-
-/// [`write_own`] with the handler written as the user of `token`: into
-/// their own copy at `folder`, which the host never writes as itself.
-pub fn write_own_as(
-    folder: &Path,
-    appdata: &Path,
-    setup: &Setup,
-    token: Option<&std::os::windows::io::OwnedHandle>,
-) -> Result<Handler> {
     let file = setup.file();
     // Only its account's sweep may find it unused: the list it is in is theirs.
     let owner = crate::process::user_sid()
         .context("finding the signed-in user, whose game list the handler is for")?;
     let text = setup.handler_of(Some(&owner));
     let handler = handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
-    super::user_copy::as_user(token, || write_handler(folder, setup, &file, &text))??;
-    let profile = list(appdata);
-    crate::user_folder::as_session_user(|| add_game(&profile, setup))
-        .context("acting as the signed-in user")??;
-    Ok(handler)
-}
-
-/// Write the handler `text` for `setup` as `file` into the Nucleus Co-op
-/// at `folder`, unless it is there already.
-fn write_handler(folder: &Path, setup: &Setup, file: &str, text: &str) -> Result<()> {
     let handlers = folder.join("handlers");
     std::fs::create_dir_all(&handlers)
         .with_context(|| format!("creating {}", handlers.display()))?;
-    let path = handlers.join(file);
+    let path = handlers.join(&file);
     check_own(folder, setup)?;
     match read_existing(&path)? {
         Some(old) if old == text => {}
         _ => {
-            std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+            std::fs::write(&path, &text).with_context(|| format!("writing {}", path.display()))?;
             tracing::info!(
                 file,
                 exe = setup.exe_path,
@@ -199,7 +178,10 @@ fn write_handler(folder: &Path, setup: &Setup, file: &str, text: &str) -> Result
             );
         }
     }
-    Ok(())
+    let profile = list(appdata);
+    crate::user_folder::as_session_user(|| add_game(&profile, setup))
+        .context("acting as the signed-in user")??;
+    Ok(handler)
 }
 
 /// Add `setup`'s game to the game list at `path`, replacing the file whole

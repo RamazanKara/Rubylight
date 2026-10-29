@@ -13,8 +13,10 @@
 //! Everything below `<SID>` is done as that user: writing the copy, checking
 //! it, removing an older one, the handlers, the profile and settings. What
 //! the user can change there runs with their rights only.
-use super::install;
+use super::{files, install};
 use anyhow::{Context, Result, bail, ensure};
+use butterpollo_core::nucleus::generic::Setup;
+use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::{self as pinned, Part};
 use std::collections::BTreeSet;
 use std::os::windows::fs::MetadataExt;
@@ -477,13 +479,34 @@ fn remove(folder: &Path) -> Result<()> {
     }
 }
 
+/// Write Rubylight's handler for `setup` into the host's Nucleus at
+/// `folder` and add its game to the user's list in `appdata`
+/// ([`files::write_own`]), then give the user's copy at `copy` the host's
+/// handlers, as the user of `token`. Both Nucleus copies read that one
+/// list, and each drops a game whose handler it lacks; the host's sweep
+/// removes the handler with its game ([`files::remove_own`]), and the next
+/// mirror the copy's.
+pub fn write_own(
+    folder: &Path,
+    copy: &Path,
+    appdata: &Path,
+    setup: &Setup,
+    token: Option<&OwnedHandle>,
+) -> Result<Handler> {
+    let handler = files::write_own(folder, appdata, setup)?;
+    let handlers = mirror_handlers(folder, copy, token)?;
+    tracing::debug!(handlers, copy = %copy.display(), "Nucleus Co-op: the user's own copy has the host's handlers");
+    Ok(handler)
+}
+
 /// Make the handlers of the user's copy at `copy` those of the host's copy
 /// at `folder`: the game list in the user's AppData is the one both use,
 /// and Nucleus drops from it every game whose handler it doesn't have. The
 /// host's are read as the host from its own folder and written as the user
-/// of `token`; a handler only the copy had goes, so the host's copy never
-/// sees one the user's has. Returns how many there are.
-pub fn mirror_handlers(folder: &Path, copy: &Path, token: Option<&OwnedHandle>) -> Result<usize> {
+/// of `token`; a handler only the copy had goes (Rubylight's own once the
+/// host's sweep removed it), so the host's copy never sees one the user's
+/// has. Returns how many there are.
+fn mirror_handlers(folder: &Path, copy: &Path, token: Option<&OwnedHandle>) -> Result<usize> {
     let source = folder.join("handlers");
     let mut handlers = Vec::new();
     let entries = match std::fs::read_dir(&source) {
@@ -532,7 +555,17 @@ fn write_handlers(target: &Path, handlers: &[(std::ffi::OsString, Vec<u8>)]) -> 
     }
     for (name, bytes) in handlers {
         let path = target.join(name);
-        if std::fs::read(&path).is_ok_and(|old| old == *bytes) {
+        // No more of the user's file than the host's handler holds.
+        let mut old = Vec::new();
+        let same = std::fs::File::open(&path)
+            .and_then(|file| {
+                std::io::Read::read_to_end(
+                    &mut std::io::Read::take(file, bytes.len() as u64 + 1),
+                    &mut old,
+                )
+            })
+            .is_ok_and(|_| old == *bytes);
+        if same {
             continue;
         }
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
@@ -1001,6 +1034,32 @@ mod tests {
         std::fs::remove_dir_all(&handlers).unwrap();
         assert_eq!(mirror_handlers(host.path(), copy.path(), None).unwrap(), 0);
         assert!(!theirs.join("Puzzle.js").exists());
+    }
+
+    #[test]
+    fn ours_is_in_the_hosts_nucleus_and_leaves_the_copy_after_the_hosts_sweep() {
+        let host = tempfile::tempdir().unwrap();
+        let copy = tempfile::tempdir().unwrap();
+        let appdata = tempfile::tempdir().unwrap();
+        let puzzle = Setup::new(r"D:\Puzzle\Puzzle.exe", "Puzzle", None);
+        let ice = Setup::new(r"D:\Ice\Ice.exe", "Ice", None);
+        let first = write_own(host.path(), copy.path(), appdata.path(), &puzzle, None).unwrap();
+        // The host's Nucleus has it too, so it keeps the game in the list
+        // both read.
+        let hosts = files::catalog(host.path(), Some(appdata.path())).unwrap();
+        assert!(hosts.handlers.iter().any(|h| h.own && h.guid == first.guid));
+        assert!(hosts.games.iter().any(|game| game.guid == first.guid));
+        // Another game's launch leaves the first game's in the copy.
+        write_own(host.path(), copy.path(), appdata.path(), &ice, None).unwrap();
+        let theirs = copy.path().join("handlers");
+        let mut both = [puzzle.file(), ice.file()];
+        both.sort();
+        assert_eq!(names(&theirs), both);
+        // The host's sweep removes it and its game; the next launch, the
+        // copy's.
+        files::remove_own(host.path(), appdata.path(), &first).unwrap();
+        write_own(host.path(), copy.path(), appdata.path(), &ice, None).unwrap();
+        assert_eq!(names(&theirs), [ice.file()]);
     }
 
     #[test]

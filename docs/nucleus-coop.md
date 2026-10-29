@@ -142,9 +142,13 @@ On a standard account, or with Windows' Administrator protection on, a game
 that needs none of that now streams in the background. A game that needs
 administrator rights is still refused there, and so is a game with a hub
 handler, for co-op and background streams alike: the Play together panel
-says so before you launch, and to sign in to Windows on this PC as an
-administrator to play it. **Open Nucleus Co-op on this PC** also needs an
-account Windows elevates; the panel says so before you press it.
+says so before you launch, with what to do: on a standard account, sign in
+to Windows on this PC as an administrator; under Administrator protection,
+turn it off in Windows Security and restart the PC. Rubylight tells the two
+apart by the signed-in user's token: Administrator protection elevates an
+administrator only into a separate account, which Rubylight never starts
+Nucleus Co-op as. **Open Nucleus Co-op on this PC** also needs an account
+Windows elevates; the panel says so before you press it, in the same words.
 
 A `background_mode` line that an earlier build wrote (`auto`,
 `child_session` or `virtual_display`) becomes `nucleus`, and the host log
@@ -217,7 +221,7 @@ another program before the launch doesn't count), that it doesn't list the
 game (naming the game list it reads, in the Nucleus Co-op the host installs),
 no profile Rubylight (open Nucleus Co-op and load the profile Rubylight once,
 then launch again), or no window at all, with the last error from its
-`crashlog.txt` if it wrote one.
+`crashlog.txt` if it wrote one (in the user's own copy, read as the user).
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A

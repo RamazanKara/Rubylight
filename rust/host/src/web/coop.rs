@@ -22,7 +22,7 @@ use butterpollo_core::{
     native_api::coop as wire,
     nucleus::{
         coop::Phase,
-        elevation::{self, Need, Run, Script},
+        elevation::{self, Account, Need, Run, Script},
         handler::Missing,
         install::{SIZE, VERSION},
         mode::{Decision, KEY},
@@ -128,11 +128,6 @@ fn configured(h: &Shared) -> String {
     crate::nucleus::configured(&h.config.read().unwrap_or_else(PoisonError::into_inner))
 }
 
-/// Why Open Nucleus Co-op on this PC is refused on an account Windows
-/// doesn't elevate: the text `butterpollo_windows::nucleus::session::open`
-/// refuses it with, so the console says it before the button is pressed.
-const OPEN_NEEDS_ELEVATION: &str = butterpollo_windows::nucleus::session::NEEDS_ADMINISTRATOR;
-
 /// A refused co-op action: its status and the host's text.
 fn refused(refusal: &Refusal) -> Response {
     error(
@@ -166,18 +161,14 @@ fn status(h: &Shared) -> Value {
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     let unavailable = h.nucleus.unavailable();
-    // Whether the account signed in on this PC elevates: None on a host that
-    // runs no sessions, or when Rubylight could not tell.
-    let elevates = unavailable
-        .is_none()
-        .then(|| h.nucleus.elevates())
-        .flatten();
+    // Whether the account signed in on this PC elevates, or why not: None on
+    // a host that runs no sessions, or when Rubylight could not tell.
+    let account = unavailable.is_none().then(|| h.nucleus.account()).flatten();
+    let refused_account = account.filter(|account| !account.elevates());
     // A hub handler (background streams and co-op) needs an elevated token:
     // without one, the refusal a launch would answer.
-    let hub_refusal = match elevates {
-        Some(false) => elevation::choose(Script::Hub, Need::Nothing, false).err(),
-        _ => None,
-    };
+    let hub_refusal = refused_account
+        .and_then(|account| elevation::choose(Script::Hub, Need::Nothing, account).err());
     let (games, catalog_error) = match h.nucleus.games(&apps, &config) {
         Some(Ok(statuses)) => (statuses.into_iter().map(Some).collect(), None),
         Some(Err(error)) => (vec![None; apps.len()], Some(error)),
@@ -309,10 +300,14 @@ fn status(h: &Shared) -> Value {
         // Whether Windows gives the signed-in account an elevated token,
         // which hub handlers, co-op and games that need administrator
         // rights run with; null when unknown.
-        "elevates": elevates,
+        "elevates": account.map(Account::elevates),
+        // An administrator Windows' Administrator protection gives none:
+        // the console tells them to turn it off, not to sign in as one.
+        "admin_protection": account == Some(Account::Protected),
         // Why Open Nucleus Co-op on this PC would be refused: an account
-        // Windows doesn't elevate.
-        "open_refusal": (elevates == Some(false)).then_some(OPEN_NEEDS_ELEVATION),
+        // Windows doesn't elevate, in the words
+        // `butterpollo_windows::nucleus::session::open` refuses it with.
+        "open_refusal": refused_account.map(butterpollo_windows::nucleus::session::needs_administrator),
         // The Nucleus Co-op window the console opened is still open.
         "opened": h.nucleus.opened(),
         "sessions": sessions,
@@ -339,6 +334,7 @@ mod tests {
     use axum::http::StatusCode;
     use butterpollo_core::{
         config::Config,
+        nucleus::elevation::{self, Account},
         rtsp::Negotiated,
         session::Role,
         state::{App, Client},
@@ -474,6 +470,7 @@ mod tests {
         );
         assert_eq!(body["sessions"][0]["players"][0]["rejoin_in"], Value::Null);
         assert_eq!(body["elevates"], true);
+        assert_eq!(body["admin_protection"], false);
         assert_eq!(body["open_refusal"], Value::Null);
         // Unavailable on this host: the reason shows.
         let elevations = || c.pc.elevations.load(std::sync::atomic::Ordering::Relaxed);
@@ -862,7 +859,7 @@ mod tests {
         assert_eq!(body["elevates"], true);
         // On an account Windows doesn't elevate: the hub handler's game says
         // so before a launch, in the launch's words; ours as the user stays.
-        *pc.elevates.lock().unwrap() = false;
+        *pc.account.lock().unwrap() = Account::Standard;
         f.host.nucleus.use_pc(pc.clone());
         let body = value(
             request(&f, "GET", "/api/coop", Value::Null).await,
@@ -871,10 +868,11 @@ mod tests {
         .await;
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(body["elevates"], false);
+        assert_eq!(body["admin_protection"], false);
         // Open Nucleus Co-op on this PC says why before it is pressed.
         assert_eq!(
             body["open_refusal"],
-            "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)"
+            "Nucleus Co-op needs administrator rights, and Windows doesn't give this account any: sign in to Windows on this PC as an administrator"
         );
         let games = body["games"].as_array().unwrap();
         assert_eq!(
@@ -883,7 +881,7 @@ mod tests {
                 &json!("ready"),
                 &json!(format!(
                     "Nucleus Co-op needs administrator rights for a hub handler, and {}",
-                    butterpollo_core::nucleus::elevation::NO_ELEVATION
+                    elevation::STANDARD
                 ))
             )
         );
@@ -900,9 +898,34 @@ mod tests {
             games[5]["reason"]
                 .as_str()
                 .unwrap()
-                .ends_with(butterpollo_core::nucleus::elevation::NO_ELEVATION),
+                .ends_with(elevation::STANDARD),
             "{}",
             games[5]
+        );
+        // An administrator under Windows' Administrator protection is told
+        // to turn it off, the same in every refusal.
+        *pc.account.lock().unwrap() = Account::Protected;
+        f.host.nucleus.use_pc(pc.clone());
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["elevates"], false);
+        assert_eq!(body["admin_protection"], true);
+        assert_eq!(
+            body["open_refusal"],
+            format!(
+                "Nucleus Co-op needs administrator rights, and {}",
+                elevation::PROTECTED
+            )
+        );
+        assert_eq!(
+            body["games"][0]["reason"],
+            format!(
+                "Nucleus Co-op needs administrator rights for a hub handler, and {}",
+                elevation::PROTECTED
+            )
         );
         // Before the install nothing is known yet.
         *pc.installed.lock().unwrap() = None;

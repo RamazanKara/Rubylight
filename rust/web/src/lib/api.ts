@@ -684,6 +684,11 @@ export interface CoopStatus {
    * games that need administrator rights run with. Null when the host can't tell; older hosts leave it out.
    */
   elevates?: boolean | null;
+  /**
+   * An administrator whom Windows' Administrator protection gives no elevated token Rubylight can use (older
+   * hosts leave it out).
+   */
+  admin_protection?: boolean;
   /** Why Open Nucleus Co-op on this PC would be refused (an account Windows doesn't elevate); null otherwise. */
   open_refusal?: string | null;
   /** The Nucleus Co-op window the console opened is still open (older hosts leave it out). */

@@ -5,8 +5,9 @@
 //! rights, and only for a game that asks Windows for none: a hub handler
 //! always runs elevated, whatever it says, and so does a game whose .exe
 //! needs administrator rights. On an account Windows gives no elevated
-//! token (a standard account, or Windows' Administrator protection) those
-//! are refused, never started another way.
+//! token ([`Account`]: a standard account, or Windows' Administrator
+//! protection) those are refused with what to do, never started another
+//! way.
 
 /// What a game's .exe asks of Windows to start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,19 +68,56 @@ pub enum Script {
     Own { needs_admin: bool },
 }
 
-/// Why a session is refused on an account Windows gives no elevated token.
-pub const NO_ELEVATION: &str = "Windows gives the account signed in on this PC no administrator rights to start it with (a standard account, or Windows' Administrator protection)";
+/// What Windows gives the account signed in on the PC to start a program
+/// elevated with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Account {
+    /// An elevated token of its own: an administrator Windows elevates.
+    Elevates,
+    /// No administrator rights: a standard account.
+    Standard,
+    /// An administrator whom Windows' Administrator protection elevates only
+    /// into a separate account after a Windows Hello prompt, which Rubylight
+    /// never starts Nucleus Co-op as.
+    Protected,
+}
 
-/// How a session of `script` for a game that needs `game` runs, where the
-/// signed-in user `elevates` (has an elevated token) or not. Rubylight's own
-/// handler for a game that needs nothing runs as the user even when they
-/// could elevate: least privilege. An `Err` is the refusal's text.
-pub fn choose(script: Script, game: Need, elevates: bool) -> Result<Run, String> {
+impl Account {
+    /// Whether it has an elevated token Nucleus Co-op can start with.
+    pub fn elevates(self) -> bool {
+        self == Self::Elevates
+    }
+
+    /// Why it has none, and what to do: the end of every refusal for want
+    /// of administrator rights ("{why}, and {this}"), in the console too.
+    /// Empty for [`Account::Elevates`].
+    pub fn no_elevation(self) -> &'static str {
+        match self {
+            Self::Elevates => "",
+            Self::Standard => STANDARD,
+            Self::Protected => PROTECTED,
+        }
+    }
+}
+
+/// Why a standard account is refused, and what to do.
+pub const STANDARD: &str =
+    "Windows doesn't give this account any: sign in to Windows on this PC as an administrator";
+/// Why an administrator under Windows' Administrator protection is refused,
+/// and what to do.
+pub const PROTECTED: &str = "Windows' Administrator protection doesn't let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC";
+
+/// How a session of `script` for a game that needs `game` runs for the
+/// signed-in `account`. Rubylight's own handler for a game that needs
+/// nothing runs as the user even when they could elevate: least privilege.
+/// An `Err` is the refusal's text.
+pub fn choose(script: Script, game: Need, account: Account) -> Result<Run, String> {
+    let elevates = account.elevates();
     let elevated = |why: String| {
         if elevates {
             Ok(Run::Elevated)
         } else {
-            Err(format!("{why}, and {NO_ELEVATION}"))
+            Err(format!("{why}, and {}", account.no_elevation()))
         }
     };
     match (script, game) {
@@ -207,39 +245,67 @@ mod tests {
     const OWN_ADMIN: Script = Script::Own { needs_admin: true };
     const ADMIN: Need = Need::Administrator(Why::Manifest);
 
+    const ELEVATES: Account = Account::Elevates;
+    const STANDARD_ACCOUNT: Account = Account::Standard;
+
     #[test]
     fn a_hub_handler_always_runs_elevated() {
         for game in [Need::Nothing, Need::Highest, ADMIN] {
-            assert_eq!(choose(Script::Hub, game, true), Ok(Run::Elevated));
-            let refused = choose(Script::Hub, game, false).unwrap_err();
-            assert!(
-                refused.starts_with(
-                    "Nucleus Co-op needs administrator rights for a hub handler, and Windows gives"
-                ),
-                "{refused}"
+            assert_eq!(choose(Script::Hub, game, ELEVATES), Ok(Run::Elevated));
+            let refused = choose(Script::Hub, game, STANDARD_ACCOUNT).unwrap_err();
+            assert_eq!(
+                refused,
+                "Nucleus Co-op needs administrator rights for a hub handler, and Windows doesn't give this account any: sign in to Windows on this PC as an administrator"
             );
         }
     }
 
     #[test]
+    fn administrator_protection_is_told_to_turn_it_off_not_to_sign_in_as_an_administrator() {
+        for (script, game) in [
+            (Script::Hub, Need::Nothing),
+            (OWN_ADMIN, Need::Nothing),
+            (OWN, ADMIN),
+        ] {
+            let refused = choose(script, game, Account::Protected).unwrap_err();
+            assert!(
+                refused.ends_with(", and Windows' Administrator protection doesn't let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC"),
+                "{refused}"
+            );
+            assert!(!refused.contains("sign in"), "{refused}");
+        }
+        // A game that needs nothing still runs as the user.
+        assert_eq!(
+            choose(OWN, Need::Nothing, Account::Protected),
+            Ok(Run::User)
+        );
+        assert_eq!(
+            choose(OWN, Need::Highest, Account::Protected),
+            Ok(Run::User)
+        );
+        assert!(!Account::Protected.elevates() && !Account::Standard.elevates());
+        assert_eq!(Account::Elevates.no_elevation(), "");
+    }
+
+    #[test]
     fn our_handler_runs_as_the_user_for_a_game_that_needs_nothing() {
         // Least privilege: also on an account that could elevate.
-        assert_eq!(choose(OWN, Need::Nothing, true), Ok(Run::User));
-        assert_eq!(choose(OWN, Need::Nothing, false), Ok(Run::User));
+        assert_eq!(choose(OWN, Need::Nothing, ELEVATES), Ok(Run::User));
+        assert_eq!(choose(OWN, Need::Nothing, STANDARD_ACCOUNT), Ok(Run::User));
     }
 
     #[test]
     fn our_handler_that_needs_admin_runs_elevated_or_is_refused() {
-        assert_eq!(choose(OWN_ADMIN, Need::Nothing, true), Ok(Run::Elevated));
-        let refused = choose(OWN_ADMIN, Need::Nothing, false).unwrap_err();
+        assert_eq!(
+            choose(OWN_ADMIN, Need::Nothing, ELEVATES),
+            Ok(Run::Elevated)
+        );
+        let refused = choose(OWN_ADMIN, Need::Nothing, STANDARD_ACCOUNT).unwrap_err();
         assert!(
             refused.contains("handler for this game needs administrator rights"),
             "{refused}"
         );
-        assert!(
-            refused.ends_with("Windows' Administrator protection)"),
-            "{refused}"
-        );
+        assert!(refused.ends_with(STANDARD), "{refused}");
     }
 
     #[test]
@@ -251,20 +317,20 @@ mod tests {
             Why::Folder,
         ] {
             let game = Need::Administrator(why);
-            assert_eq!(choose(OWN, game, true), Ok(Run::Elevated));
-            let refused = choose(OWN, game, false).unwrap_err();
+            assert_eq!(choose(OWN, game, ELEVATES), Ok(Run::Elevated));
+            let refused = choose(OWN, game, STANDARD_ACCOUNT).unwrap_err();
             assert!(
                 refused.starts_with(&format!("The game needs administrator rights ({why})")),
                 "{refused}"
             );
-            assert!(refused.contains(NO_ELEVATION), "{refused}");
+            assert!(refused.contains(STANDARD), "{refused}");
         }
     }
 
     #[test]
     fn a_game_that_asks_for_the_most_gets_what_the_account_has() {
-        assert_eq!(choose(OWN, Need::Highest, true), Ok(Run::Elevated));
-        assert_eq!(choose(OWN, Need::Highest, false), Ok(Run::User));
+        assert_eq!(choose(OWN, Need::Highest, ELEVATES), Ok(Run::Elevated));
+        assert_eq!(choose(OWN, Need::Highest, STANDARD_ACCOUNT), Ok(Run::User));
     }
 
     #[test]

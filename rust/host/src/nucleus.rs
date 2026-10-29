@@ -16,7 +16,7 @@ use butterpollo_core::config::Config;
 use butterpollo_core::input::Input;
 use butterpollo_core::input_policy::Policy;
 use butterpollo_core::nucleus::coop::{self, Admit, End, Kind, Phase, Refused};
-use butterpollo_core::nucleus::elevation::{self, Need, Run, Script};
+use butterpollo_core::nucleus::elevation::{self, Account, Need, Run, Script};
 use butterpollo_core::nucleus::generic::{self, Setup};
 use butterpollo_core::nucleus::handler::{self, Catalog, Handler, Match, Missing};
 use butterpollo_core::nucleus::mode;
@@ -122,9 +122,9 @@ pub trait Pc: Send + Sync {
     /// this PC, for a Steam link the one Steam starts. Another launcher's
     /// link names none.
     fn one_player(&self, app: &App) -> Result<Setup, Refusal>;
-    /// Whether Windows gives the signed-in user an elevated token to start
-    /// Nucleus Co-op with.
-    fn elevates(&self) -> Result<bool>;
+    /// What Windows gives the signed-in user to start Nucleus Co-op
+    /// elevated with: an elevated token, or why none.
+    fn account(&self) -> Result<Account>;
     /// What the game at `exe` asks of Windows to start; with `folder`, also
     /// whether the signed-in user may change its folder's files as Nucleus
     /// does (a walk of the folder: at launch, not for the console).
@@ -331,8 +331,8 @@ impl Pc for OnPc {
             },
         })
     }
-    fn elevates(&self) -> Result<bool> {
-        butterpollo_windows::process::user_runs_elevated()
+    fn account(&self) -> Result<Account> {
+        butterpollo_windows::process::user_account()
     }
     fn game_need(&self, exe: &str, folder: bool) -> Result<Need> {
         // The game's folder is usually the user's to change: its files are
@@ -809,16 +809,16 @@ fn run_of(pc: &dyn Pc, setup: &Setup, folder: bool) -> Result<Run, NotRun> {
             file_name(&setup.exe_path)
         ))
     };
-    let elevates = pc.elevates().map_err(unknown)?;
+    let account = pc.account().map_err(unknown)?;
     let script = Script::Own { needs_admin };
     let need = pc.game_need(&setup.exe_path, false).map_err(unknown)?;
-    let run = elevation::choose(script, need, elevates).map_err(NotRun::Refused)?;
+    let run = elevation::choose(script, need, account).map_err(NotRun::Refused)?;
     if run == Run::Elevated || !folder {
         return Ok(run);
     }
     // Only when it would run as the user: the walk is as long as the folder.
     let need = elevation::most([need, pc.game_need(&setup.exe_path, true).map_err(unknown)?]);
-    elevation::choose(script, need, elevates).map_err(NotRun::Refused)
+    elevation::choose(script, need, account).map_err(NotRun::Refused)
 }
 
 fn not_on_this_pc(exe: &str) -> String {
@@ -1019,9 +1019,9 @@ pub struct Registry {
     /// The console's [`own_status`] answers by .exe path; only the console
     /// reads them.
     own_statuses: Mutex<BTreeMap<String, OwnStatus>>,
-    /// Whether the signed-in account elevates, as the console last read it
-    /// ([`Self::elevates`]), and when.
-    elevates: Mutex<Option<(Instant, bool)>>,
+    /// Whether the signed-in account elevates, or why not, as the console
+    /// last read it ([`Self::account`]), and when.
+    account: Mutex<Option<(Instant, Account)>>,
     /// The Nucleus Co-op the console opened: the only one the host closes,
     /// for a session or the user.
     opened: Mutex<Option<Box<dyn Window>>>,
@@ -1036,7 +1036,7 @@ impl Registry {
             install_done: Condvar::new(),
             catalog: Mutex::new(None),
             own_statuses: Mutex::default(),
-            elevates: Mutex::new(None),
+            account: Mutex::new(None),
             opened: Mutex::new(None),
         }
     }
@@ -1054,7 +1054,7 @@ impl Registry {
         *self.pc.write().unwrap() = pc;
         *self.catalog.lock().unwrap() = None;
         self.own_statuses.lock().unwrap().clear();
-        *self.elevates.lock().unwrap() = None;
+        *self.account.lock().unwrap() = None;
     }
     fn pc(&self) -> Arc<dyn Pc> {
         self.pc
@@ -1337,20 +1337,21 @@ impl Registry {
 
     /// Whether Windows gives the account signed in on this PC an elevated
     /// token, which hub handlers, co-op and games that need administrator
-    /// rights run with: for the console, read again once [`OWN_STATUS_TTL`]
-    /// passed, so its poll asks Windows once a minute. None when Rubylight
-    /// could not tell (nobody signed in yet), asked again at the next poll.
-    pub fn elevates(&self) -> Option<bool> {
-        let mut kept = self.elevates.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some((at, elevates)) = *kept
+    /// rights run with, or why not: for the console, read again once
+    /// [`OWN_STATUS_TTL`] passed, so its poll asks Windows once a minute.
+    /// None when Rubylight could not tell (nobody signed in yet), asked
+    /// again at the next poll.
+    pub fn account(&self) -> Option<Account> {
+        let mut kept = self.account.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((at, account)) = *kept
             && at.elapsed() < OWN_STATUS_TTL
         {
-            return Some(elevates);
+            return Some(account);
         }
-        match self.pc().elevates() {
-            Ok(elevates) => {
-                *kept = Some((Instant::now(), elevates));
-                Some(elevates)
+        match self.pc().account() {
+            Ok(account) => {
+                *kept = Some((Instant::now(), account));
+                Some(account)
             }
             Err(error) => {
                 *kept = None;
@@ -1699,11 +1700,9 @@ impl Registry {
                 let run = match own {
                     Some(setup) => run_of(pc.as_ref(), setup, true).map_err(String::from),
                     None => pc
-                        .elevates()
+                        .account()
                         .map_err(|error| format!("{error:#}"))
-                        .and_then(|elevates| {
-                            elevation::choose(Script::Hub, Need::Nothing, elevates)
-                        }),
+                        .and_then(|account| elevation::choose(Script::Hub, Need::Nothing, account)),
                 }
                 .map_err(refused)?;
                 // Ours that a hub handler replaces or no game uses, but the
@@ -2367,10 +2366,10 @@ pub(crate) mod fake {
         pub known_lists: Mutex<Vec<bool>>,
         /// How often an app's game was looked up for Rubylight's handler.
         pub lookups: AtomicUsize,
-        /// Whether the signed-in user has an elevated token.
-        pub elevates: Mutex<bool>,
+        /// Whether the signed-in user has an elevated token, or why not.
+        pub account: Mutex<Account>,
         /// Why reading that fails (nobody signed in).
-        pub elevates_error: Mutex<Option<String>>,
+        pub account_error: Mutex<Option<String>>,
         /// How often it was read.
         pub elevations: AtomicUsize,
         /// What each game's .exe asks of Windows, by path; Nothing else.
@@ -2452,8 +2451,8 @@ pub(crate) mod fake {
                 exe_paths: Mutex::new(Vec::new()),
                 known_lists: Mutex::new(Vec::new()),
                 lookups: AtomicUsize::new(0),
-                elevates: Mutex::new(true),
-                elevates_error: Mutex::new(None),
+                account: Mutex::new(Account::Elevates),
+                account_error: Mutex::new(None),
                 elevations: AtomicUsize::new(0),
                 needs: Mutex::new(BTreeMap::new()),
                 folder_needs: Mutex::new(BTreeMap::new()),
@@ -2558,12 +2557,12 @@ pub(crate) mod fake {
                 })),
             }
         }
-        fn elevates(&self) -> Result<bool> {
+        fn account(&self) -> Result<Account> {
             self.elevations.fetch_add(1, Ordering::Relaxed);
-            if let Some(error) = self.elevates_error.lock().unwrap().clone() {
+            if let Some(error) = self.account_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
             }
-            Ok(*self.elevates.lock().unwrap())
+            Ok(*self.account.lock().unwrap())
         }
         fn game_need(&self, exe: &str, folder: bool) -> Result<Need> {
             if let Some(error) = self.need_error.lock().unwrap().clone() {
@@ -3199,7 +3198,7 @@ mod tests {
         for kept in registry.own_statuses.lock().unwrap().values_mut() {
             kept.at = Instant::now() - OWN_STATUS_TTL;
         }
-        *pc.elevates.lock().unwrap() = false;
+        *pc.account.lock().unwrap() = Account::Standard;
         pc.needs.lock().unwrap().insert(
             exe.to_string_lossy().into_owned(),
             Need::Administrator(Why::Manifest),
@@ -3918,8 +3917,12 @@ mod tests {
         let ice = app("Ice", r"C:\NoSuchGames\Ice\Ice.exe");
         // Least privilege: also on an account that could elevate, and on one
         // that can't.
-        for (launch, elevates) in [("a", true), ("b", false)] {
-            *pc.elevates.lock().unwrap() = elevates;
+        for (launch, account) in [
+            ("a", Account::Elevates),
+            ("b", Account::Standard),
+            ("c", Account::Protected),
+        ] {
+            *pc.account.lock().unwrap() = account;
             let seat = background(
                 &registry,
                 &ice,
@@ -3930,22 +3933,23 @@ mod tests {
             .unwrap();
             assert!(registry.end(seat.session));
         }
-        assert_eq!(*pc.ready_runs.lock().unwrap(), [Run::User, Run::User]);
+        assert_eq!(
+            *pc.ready_runs.lock().unwrap(),
+            [Run::User, Run::User, Run::User]
+        );
         // Its handler and Nucleus in the user's copy, never the host's.
-        assert_eq!(
-            *pc.own_in.lock().unwrap(),
-            [Some(user_copy()), Some(user_copy())]
-        );
-        assert_eq!(
-            *pc.user_copies.lock().unwrap(),
-            [Some(user_copy()), Some(user_copy())]
-        );
+        assert_eq!(*pc.own_in.lock().unwrap(), vec![Some(user_copy()); 3]);
+        assert_eq!(*pc.user_copies.lock().unwrap(), vec![Some(user_copy()); 3]);
         // The game's folder was walked at launch, as Nucleus will.
-        assert_eq!(pc.walks.load(std::sync::atomic::Ordering::Relaxed), 2);
+        assert_eq!(pc.walks.load(std::sync::atomic::Ordering::Relaxed), 3);
         // Made from the host's Nucleus at each launch, which checks it.
         assert_eq!(
             *pc.copied_from.lock().unwrap(),
-            [PathBuf::from(r"C:\Nucleus"), PathBuf::from(r"C:\Nucleus")]
+            [
+                PathBuf::from(r"C:\Nucleus"),
+                PathBuf::from(r"C:\Nucleus"),
+                PathBuf::from(r"C:\Nucleus")
+            ]
         );
     }
 
@@ -4036,7 +4040,7 @@ mod tests {
     #[test]
     fn an_admin_game_or_a_hub_handler_on_an_account_without_elevation_is_refused() {
         let (registry, pc, apps) = setup();
-        *pc.elevates.lock().unwrap() = false;
+        *pc.account.lock().unwrap() = Account::Standard;
         let exe = r"C:\NoSuchGames\Ice\Ice.exe";
         pc.needs
             .lock()
@@ -4055,9 +4059,25 @@ mod tests {
             refused.message,
             format!(
                 "Ice can't stream in the background: Nucleus Co-op did not start Ice: The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and {}",
-                elevation::NO_ELEVATION
+                elevation::STANDARD
             )
         );
+        // Under Windows' Administrator protection: what helps an
+        // administrator, not signing in as one.
+        *pc.account.lock().unwrap() = Account::Protected;
+        let refused = background(
+            &registry,
+            &app("Ice", exe),
+            "p",
+            &client("P", false),
+            &Config::default(),
+        )
+        .unwrap_err();
+        assert!(
+            refused.message.ends_with(elevation::PROTECTED),
+            "{refused:?}"
+        );
+        *pc.account.lock().unwrap() = Account::Standard;
         // A hub handler, whatever it says, background or co-op.
         let refused = background(
             &registry,
@@ -4140,21 +4160,21 @@ mod tests {
     fn the_console_reads_whether_the_account_elevates_once_a_minute() {
         let (registry, pc, _) = setup();
         let reads = || pc.elevations.load(std::sync::atomic::Ordering::Relaxed);
-        assert_eq!(registry.elevates(), Some(true));
+        assert_eq!(registry.account(), Some(Account::Elevates));
         // The 3 s poll asks Windows once.
-        *pc.elevates.lock().unwrap() = false;
-        assert_eq!(registry.elevates(), Some(true));
+        *pc.account.lock().unwrap() = Account::Standard;
+        assert_eq!(registry.account(), Some(Account::Elevates));
         assert_eq!(reads(), 1);
         // A minute later it reads the account again.
-        registry.elevates.lock().unwrap().as_mut().unwrap().0 = Instant::now() - OWN_STATUS_TTL;
-        assert_eq!(registry.elevates(), Some(false));
+        registry.account.lock().unwrap().as_mut().unwrap().0 = Instant::now() - OWN_STATUS_TTL;
+        assert_eq!(registry.account(), Some(Account::Standard));
         assert_eq!(reads(), 2);
         // One Rubylight could not tell is unknown, and asked again next time.
-        registry.elevates.lock().unwrap().as_mut().unwrap().0 = Instant::now() - OWN_STATUS_TTL;
-        *pc.elevates_error.lock().unwrap() = Some("nobody is signed in".into());
-        assert_eq!(registry.elevates(), None);
-        *pc.elevates_error.lock().unwrap() = None;
-        assert_eq!(registry.elevates(), Some(false));
+        registry.account.lock().unwrap().as_mut().unwrap().0 = Instant::now() - OWN_STATUS_TTL;
+        *pc.account_error.lock().unwrap() = Some("nobody is signed in".into());
+        assert_eq!(registry.account(), None);
+        *pc.account_error.lock().unwrap() = None;
+        assert_eq!(registry.account(), Some(Account::Standard));
         assert_eq!(reads(), 4);
     }
 
@@ -4182,7 +4202,7 @@ mod tests {
             .unwrap()
             .insert(path.clone(), Need::Administrator(Why::Compatibility));
         assert_eq!(run(status()), Ok(Run::Elevated));
-        *pc.elevates.lock().unwrap() = false;
+        *pc.account.lock().unwrap() = Account::Standard;
         let refused = run(status()).unwrap_err();
         assert!(
             refused.starts_with("The game needs administrator rights (its compatibility settings run it as administrator)"),
@@ -5853,7 +5873,7 @@ mod tests {
     /// like the service, with Nucleus Co-op
     /// installed by the console and not running. No message box of Nucleus
     /// or the game shows at any point, and Nucleus' crashlog.txt is
-    /// unchanged.
+    /// unchanged in the host's folder and in the user's copy (read as them).
     ///
     /// Where its NucleusCoop.exe runs from says how the admission ran it: as
     /// the user from their own copy (`nucleus-user\<SID>\<files>`, the
@@ -5903,14 +5923,21 @@ mod tests {
         if let Some(pid) = pc.running()? {
             anyhow::bail!("Nucleus Co-op runs (process {pid}): close it first");
         }
-        let crashlog = folder.join("crashlog.txt");
-        let crashes_before = read_if_there(&crashlog)?;
         // The signed-in user's own copy, made here as the admission would
         // when the session runs as them: its folder is named by the host's
         // program files, so it is only known once made. What is in it is
         // the user's to change: read and put back as them.
         let user = user_copy::user()?;
         let copy = pc.user_copy(&folder)?;
+        // Nucleus' crashlog.txt where either may run from.
+        let crashlogs = [folder.join("crashlog.txt"), copy.join("crashlog.txt")];
+        let crashes = || -> Result<Vec<Option<Vec<u8>>>> {
+            Ok(vec![
+                read_if_there(&crashlogs[0])?,
+                user_copy::as_user(Some(&user), || read_if_there(&crashlogs[1]))??,
+            ])
+        };
+        let crashes_before = crashes()?;
         let settings = folder.join("Settings.ini");
         let copy_settings = copy.join("Settings.ini");
         // Declared before the cleanup, so they are put back after the session ended.
@@ -6237,9 +6264,10 @@ mod tests {
         );
         println!("compatibility settings as before");
         ensure!(
-            read_if_there(&crashlog)? == crashes_before,
-            "Nucleus Co-op wrote to {}",
-            crashlog.display()
+            crashes()? == crashes_before,
+            "Nucleus Co-op wrote to {} or {}",
+            crashlogs[0].display(),
+            crashlogs[1].display()
         );
         println!("crashlog.txt unchanged");
         // No journal of Settings.ini in either: the copy's is never one.

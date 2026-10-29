@@ -13,7 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::audio_scope::Identity;
 use butterpollo_core::input::Input;
 use butterpollo_core::nucleus::coop::{self, End, Phase};
-use butterpollo_core::nucleus::elevation::Run;
+use butterpollo_core::nucleus::elevation::{Account, Run};
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::EXECUTABLE;
 use butterpollo_core::nucleus::profile::{Player, TITLE};
@@ -96,7 +96,7 @@ impl Launcher for Elevated {
         guid: &str,
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
-        require_administrator(crate::process::user_runs_elevated()?)?;
+        require_administrator(crate::process::user_account()?)?;
         started(&launch_of(
             folder,
             guid,
@@ -240,7 +240,7 @@ fn rights_note(asked: bool, elevated: &Result<bool>) -> Option<String> {
 /// game. It runs outside the host's job, so the host ending does not close
 /// it; the [`Opened`] it returns closes it before a session starts.
 pub fn open(folder: &Path) -> Result<Opened> {
-    require_administrator(crate::process::user_runs_elevated()?)?;
+    require_administrator(crate::process::user_account()?)?;
     let program = folder.join(EXECUTABLE);
     let line = crate::process::quote(program.as_os_str())?;
     let process = crate::process::Process::spawn_command(
@@ -289,14 +289,20 @@ fn webview_environment(
 /// its folder, which only administrators can change, and stops on its
 /// loading screen ("Microsoft Edge can't read and write to its data
 /// directory").
-fn require_administrator(elevated: bool) -> Result<()> {
-    ensure!(elevated, "{NEEDS_ADMINISTRATOR}");
+fn require_administrator(account: Account) -> Result<()> {
+    ensure!(account.elevates(), "{}", needs_administrator(account));
     Ok(())
 }
 
-/// What [`open`] refuses with when the signed-in user has no elevated
-/// token; the console says the same before the button is pressed.
-pub const NEEDS_ADMINISTRATOR: &str = "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)";
+/// What [`open`] refuses with when the signed-in `account` has no elevated
+/// token, with what to do; the console says the same before the button is
+/// pressed.
+pub fn needs_administrator(account: Account) -> String {
+    format!(
+        "Nucleus Co-op needs administrator rights, and {}",
+        account.no_elevation()
+    )
+}
 
 /// The Nucleus Co-op [`open`] started: the only one the host closes. It is
 /// every NucleusCoop.exe in the job [`open`] made, so one that restarted
@@ -368,9 +374,11 @@ impl Nucleus for Started {
     }
 }
 
-/// Nucleus' `crashlog.txt` in its working folder, where it appends each
-/// exception it catches (`[time] exception`, then its stack) and goes on,
-/// as it was when the session launched it.
+/// Nucleus' `crashlog.txt` in the folder it runs from, where it appends
+/// each exception it catches (`[time] exception`, then its stack) and goes
+/// on, as it was when the session launched it. It is read as the account
+/// that reads that folder: the user for their own copy, which is theirs to
+/// change, so the host never reads through a link they made there.
 struct Crashlog {
     path: PathBuf,
     /// Its length at the launch: what follows is this session's.
@@ -380,38 +388,55 @@ struct Crashlog {
 impl Crashlog {
     /// The longest line quoted.
     const LIMIT: usize = 300;
+    /// The most read, from its end: the newest exception is there, and a
+    /// file made huge is never read whole.
+    const TAIL: u64 = 64 * 1024;
 
-    fn at_launch(folder: &Path) -> Crashlog {
+    /// As it is at the launch, read as `reader` (None: as the host).
+    fn at_launch(folder: &Path, reader: Option<&OwnedHandle>) -> Crashlog {
         let path = folder.join("crashlog.txt");
-        let from = match std::fs::metadata(&path) {
-            Ok(metadata) => metadata.len(),
-            Err(error) => {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    tracing::warn!(error = %error, path = %path.display(), "Nucleus Co-op's crashlog not read");
-                }
-                0
-            }
-        };
-        Crashlog { path, from }
+        let from = Self::read(reader, &path, || std::fs::metadata(&path).map(|m| m.len()));
+        Crashlog {
+            from: from.unwrap_or(0),
+            path,
+        }
     }
 
-    /// The newest exception written since the launch: its first line.
-    fn newest(&self) -> Option<String> {
-        let bytes = match std::fs::read(&self.path) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    tracing::warn!(error = %error, path = %self.path.display(), "Nucleus Co-op's crashlog not read");
-                }
-                return None;
-            }
+    /// `work` on the file at `path` as `reader`: None when there is no
+    /// file, or with a warning when it could not be read.
+    fn read<T>(
+        reader: Option<&OwnedHandle>,
+        path: &Path,
+        work: impl FnOnce() -> std::io::Result<T>,
+    ) -> Option<T> {
+        let why = match super::user_copy::as_user(reader, work) {
+            Ok(Ok(value)) => return Some(value),
+            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => return None,
+            Ok(Err(error)) => error.to_string(),
+            Err(error) => format!("{error:#}"),
         };
-        // A shorter file was started again since.
-        let from = usize::try_from(self.from)
-            .ok()
-            .filter(|&from| from <= bytes.len())
-            .unwrap_or(0);
-        let text = String::from_utf8_lossy(&bytes[from..]);
+        tracing::warn!(error = why, path = %path.display(), "Nucleus Co-op's crashlog not read");
+        None
+    }
+
+    /// What was written since the launch, at most [`Self::TAIL`] from its
+    /// end; a shorter file was started again since, and counts whole.
+    fn since_launch(&self) -> std::io::Result<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(&self.path)?;
+        let length = file.metadata()?.len();
+        let from = if self.from <= length { self.from } else { 0 };
+        file.seek(SeekFrom::Start(from.max(length.saturating_sub(Self::TAIL))))?;
+        let mut bytes = Vec::new();
+        file.take(Self::TAIL).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    /// The newest exception written since the launch, read as `reader`:
+    /// its first line.
+    fn newest(&self, reader: Option<&OwnedHandle>) -> Option<String> {
+        let bytes = Self::read(reader, &self.path, || self.since_launch())?;
+        let text = String::from_utf8_lossy(&bytes);
         let lines: Vec<&str> = text
             .lines()
             .map(str::trim)
@@ -678,7 +703,8 @@ impl Runner {
         } else {
             "Nucleus Co-op showed no window".to_string()
         };
-        match self.crashlog.as_ref().and_then(Crashlog::newest) {
+        let reader = self.reader.as_ref();
+        match self.crashlog.as_ref().and_then(|log| log.newest(reader)) {
             Some(line) => format!("{why}. Its crashlog.txt says: {line}"),
             None => why,
         }
@@ -833,6 +859,9 @@ pub struct Running {
     stop: Mutex<Option<mpsc::Sender<()>>>,
     thread: Mutex<Option<JoinHandle<()>>>,
     players: usize,
+    /// The crashlog.txt a start that times out quotes.
+    #[cfg(test)]
+    crashlog: PathBuf,
 }
 
 /// Start a session on the PC: virtual Xbox pads, XInput, the user's desktop
@@ -873,7 +902,7 @@ fn game_folder(exe: &str) -> Option<PathBuf> {
 /// these leaves the window open.
 pub fn ready(folder: &Path, run: Run) -> Result<()> {
     if run == Run::Elevated {
-        require_administrator(crate::process::user_runs_elevated()?)?;
+        require_administrator(crate::process::user_account()?)?;
     }
     environment(&BTreeMap::new())?;
     layers::restore_left_in(&mut layers::UserHive::signed_in()?, folder)?;
@@ -978,7 +1007,11 @@ fn begin(
         start.exe_path,
     )
     .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
-    let crashlog = Crashlog::at_launch(start.folder);
+    // In the folder Nucleus runs from, read as the account that reads it.
+    let reader = launcher.reader()?;
+    let crashlog = Crashlog::at_launch(folder, reader.as_ref());
+    #[cfg(test)]
+    let crashlog_path = crashlog.path.clone();
     // Windows' boxes up now are another program's: Nucleus isn't running.
     let before = desktop
         .message_boxes(&BTreeSet::new())
@@ -1021,7 +1054,7 @@ fn begin(
         game: start
             .known_list
             .then(|| (folder.to_path_buf(), start.handler.guid.clone())),
-        reader: launcher.reader()?,
+        reader,
         progress: (false, 0, 0),
         windows: vec![None; start.players],
         deadline: Instant::now() + START_TIMEOUT,
@@ -1043,6 +1076,8 @@ fn begin(
         stop: Mutex::new(Some(stop)),
         thread: Mutex::new(Some(thread)),
         players: start.players,
+        #[cfg(test)]
+        crashlog: crashlog_path,
     })
 }
 
@@ -1239,12 +1274,25 @@ mod tests {
     fn an_account_without_administrator_rights_is_refused_before_nucleus_starts() {
         // A standard user's Nucleus Co-op hung on its loading screen: it
         // could not write its WebView2 cache into the Administrators-only folder.
-        assert!(require_administrator(true).is_ok());
-        let refused = format!("{:#}", require_administrator(false).unwrap_err());
-        assert!(refused.contains("needs administrator rights"), "{refused}");
-        // Both ways Windows has no elevated token for an account are named.
-        assert!(refused.contains("a standard account"), "{refused}");
-        assert!(refused.contains("Administrator protection"), "{refused}");
+        assert!(require_administrator(Account::Elevates).is_ok());
+        let refused = format!(
+            "{:#}",
+            require_administrator(Account::Standard).unwrap_err()
+        );
+        assert_eq!(
+            refused,
+            "Nucleus Co-op needs administrator rights, and Windows doesn't give this account any: sign in to Windows on this PC as an administrator"
+        );
+        // An administrator under Windows' Administrator protection is told
+        // what helps them: signing in as one doesn't.
+        let refused = format!(
+            "{:#}",
+            require_administrator(Account::Protected).unwrap_err()
+        );
+        assert_eq!(
+            refused,
+            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection doesn't let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC"
+        );
     }
 
     /// A fake desktop the test changes while the session runs.
@@ -1554,7 +1602,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let log = folder.path().join("crashlog.txt");
         std::fs::write(&log, "[01.10.2026 10:00:00] System.Exception: earlier\n").unwrap();
-        runner.crashlog = Some(Crashlog::at_launch(folder.path()));
+        runner.crashlog = Some(Crashlog::at_launch(folder.path(), None));
         let mut later = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
         std::io::Write::write_all(
             &mut later,
@@ -1622,12 +1670,12 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let log = folder.path().join("crashlog.txt");
         // No file at the launch or after it.
-        let none = Crashlog::at_launch(folder.path());
+        let none = Crashlog::at_launch(folder.path(), None);
         assert_eq!(none.from, 0);
-        assert_eq!(none.newest(), None);
+        assert_eq!(none.newest(None), None);
         std::fs::write(&log, "[1] System.Exception: before\n   at Old()\n").unwrap();
-        let crashlog = Crashlog::at_launch(folder.path());
-        assert_eq!(crashlog.newest(), None);
+        let crashlog = Crashlog::at_launch(folder.path(), None);
+        assert_eq!(crashlog.newest(None), None);
         let append = |text: &str| {
             let mut file = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
             std::io::Write::write_all(&mut file, text.as_bytes()).unwrap();
@@ -1636,24 +1684,69 @@ mod tests {
             "[2] System.Exception: first\n   at A()\n[3] System.Exception: second\n   at B()\n\n",
         );
         assert_eq!(
-            crashlog.newest().as_deref(),
+            crashlog.newest(None).as_deref(),
             Some("[3] System.Exception: second")
         );
         // A file started again since is read whole.
         std::fs::write(&log, "[4] new\n").unwrap();
-        assert_eq!(crashlog.newest().as_deref(), Some("[4] new"));
+        assert_eq!(crashlog.newest(None).as_deref(), Some("[4] new"));
         // A long line is cut.
         append(&format!("[5] {}\n", "x".repeat(400)));
-        let cut = Crashlog::at_launch(folder.path());
+        let cut = Crashlog::at_launch(folder.path(), None);
         append(&format!("[6] {}\n", "y".repeat(400)));
-        let line = cut.newest().unwrap();
+        let line = cut.newest(None).unwrap();
         assert!(
             line.starts_with("[6] yyy") && line.ends_with("..."),
             "{line}"
         );
         assert_eq!(line.chars().count(), Crashlog::LIMIT + 3);
         // None written since the launch: nothing is quoted.
-        assert_eq!(Crashlog::at_launch(folder.path()).newest(), None);
+        assert_eq!(Crashlog::at_launch(folder.path(), None).newest(None), None);
+        // Of a huge one, only its end is read, where the newest is.
+        let huge = Crashlog::at_launch(folder.path(), None);
+        append(&"   at Deep()\n".repeat(1 << 16));
+        append("[7] System.Exception: last\n   at C()\n");
+        assert_eq!(
+            huge.newest(None).as_deref(),
+            Some("[7] System.Exception: last")
+        );
+        assert!(huge.since_launch().unwrap().len() as u64 <= Crashlog::TAIL);
+    }
+
+    #[test]
+    fn a_users_crashlog_is_read_as_them() {
+        // Standing in for the user: refused what is granted to this account
+        // by name.
+        let user = crate::user_folder::tests::without_own_sid();
+        let sid = crate::process::own_sid().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let theirs = data.path().join("theirs");
+        crate::process::create_folder(&theirs, "D:P(A;OICI;FA;;;WD)").unwrap();
+        let crashlog = Crashlog::at_launch(&theirs, Some(&user));
+        std::fs::write(
+            theirs.join("crashlog.txt"),
+            "[1] System.Exception: theirs\n",
+        )
+        .unwrap();
+        assert_eq!(
+            crashlog.newest(Some(&user)).as_deref(),
+            Some("[1] System.Exception: theirs")
+        );
+        // What the user can't read, the host doesn't read for them, though
+        // it could.
+        let hidden = data.path().join("hidden");
+        crate::process::create_folder(&hidden, &format!("D:P(A;OICI;FA;;;{sid})")).unwrap();
+        let crashlog = Crashlog::at_launch(&hidden, Some(&user));
+        std::fs::write(
+            hidden.join("crashlog.txt"),
+            "[1] System.Exception: hidden\n",
+        )
+        .unwrap();
+        assert_eq!(crashlog.newest(Some(&user)), None);
+        assert_eq!(
+            crashlog.newest(None).as_deref(),
+            Some("[1] System.Exception: hidden")
+        );
     }
 
     #[test]
@@ -2304,6 +2397,9 @@ mod tests {
         // The copy's settings are the session's, written as the user with
         // no journal: nothing in the copy is put back as the host.
         assert_eq!(favourites(), b"False");
+        // A start that times out quotes the crashlog of the copy Nucleus
+        // runs from, not the host's.
+        assert_eq!(running.crashlog, copy.path().join("crashlog.txt"));
         let journals = || {
             [host.path(), copy.path()].map(|folder| folder.join("Rubylight-settings.json").exists())
         };

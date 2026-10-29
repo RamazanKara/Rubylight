@@ -77,13 +77,29 @@ export function runsText(game: CoopGame): string | null {
   return game.runs === 'elevated' ? RUNS_ELEVATED : null;
 }
 
+/**
+ * Why an account Windows doesn't elevate has no administrator rights, and what to do: the host's words
+ * (`elevation::STANDARD`, `elevation::PROTECTED`). An administrator under Windows' Administrator protection
+ * gains nothing by signing in as one.
+ */
+export const NO_ELEVATION = {
+  standard: 'Windows doesn’t give this account any: sign in to Windows on this PC as an administrator',
+  protected:
+    'Windows’ Administrator protection doesn’t let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC',
+};
+
+function noElevation(status: CoopStatus): string {
+  return status.admin_protection === true ? NO_ELEVATION.protected : NO_ELEVATION.standard;
+}
+
 /** Why Open Nucleus Co-op on this PC can't work on an account Windows doesn't elevate, and what to do. */
-export const OPEN_REFUSED =
-  'Nucleus Co-op needs administrator rights that Windows doesn’t give this account: sign in to Windows on this PC as an administrator to add a handler.';
+export function openRefused(status: CoopStatus): string {
+  return `Nucleus Co-op needs administrator rights, and ${noElevation(status)}.`;
+}
 
 /** Why a game with its handler added can't start on an account Windows doesn't elevate, and what to do. */
-export function handlerRefused(name: string): string {
-  return `${name}’s handler needs administrator rights that Windows doesn’t give this account: sign in to Windows on this PC as an administrator to play it.`;
+export function handlerRefused(name: string, status: CoopStatus): string {
+  return `${name}’s handler needs administrator rights, and ${noElevation(status)}.`;
 }
 
 export function gameOf(status: CoopStatus, app: string): CoopGame | undefined {
@@ -118,12 +134,12 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
   if (status.catalog_error) return { kind: 'broken', error: status.catalog_error };
   const name = game.name;
   // The host refuses Open Nucleus Co-op on this PC; older hosts don't say.
-  const openRefusal = status.elevates === false && status.open_refusal ? OPEN_REFUSED : null;
+  const openRefusal = status.elevates === false && status.open_refusal ? openRefused(status) : null;
   switch (game.status) {
     case 'ready': {
       const players = game.players ?? 1;
       // The host refuses the game's handler on an account Windows doesn't elevate; older hosts don't say.
-      const refusal = status.elevates === false && game.reason ? handlerRefused(name) : null;
+      const refusal = status.elevates === false && game.reason ? handlerRefused(name, status) : null;
       return {
         kind: 'ready',
         players: `Up to ${players} ${players === 1 ? 'player' : 'players'}.`,

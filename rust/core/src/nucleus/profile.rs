@@ -134,44 +134,88 @@ pub fn file_number(name: &str) -> Option<u32> {
 
 /// What the host's profile needs in Nucleus' `Settings.ini`: pads assigned
 /// by XInput index, which the profile's pad names are, and game profiles
-/// on, or Nucleus would not read the profile.
-const FORCED: [(&str, &str, &str); 2] = [
+/// on, or Nucleus would not read the profile. Nucleus' check of its own
+/// folder and of a Documents folder in OneDrive shows a message box before
+/// its window opens, which no one answers in a background stream, and its
+/// favourites-only list would hide the host's game (#59).
+const FORCED: [(&str, &str, &str); 4] = [
     ("Dev", "UseXinputIndex", "True"),
     ("Misc", "DisableGameProfiles", "False"),
+    ("Dev", "DisablePathCheck", "True"),
+    ("Dev", "ShowFavoriteOnly", "False"),
 ];
 
-/// Nucleus' `Settings.ini` with [`FORCED`] set; other lines stay as they are.
-pub fn settings_ini(text: &str) -> String {
+/// Nucleus' list filters in `[Misc] GameSortingOpt` (`SortOptionsPanel.cs`):
+/// only games with gamepad hooks, keyboard or several keyboards. Each would
+/// hide the host's own handler, which has none of them; the `Sort_*`
+/// orders stay.
+const LIST_FILTERS: [&str; 3] = ["Show_Type1", "Show_Type2", "Show_Type3"];
+
+/// The line of `key` in `section` and where the section ends, as
+/// `GetPrivateProfileString` finds them: names in any case, the first
+/// section of that name. None without the section.
+fn find(lines: &[String], section: &str, key: &str) -> Option<(Option<usize>, usize)> {
+    let header = format!("[{section}]");
+    let start = lines
+        .iter()
+        .position(|l| l.trim().eq_ignore_ascii_case(&header))?;
+    let end = lines[start + 1..]
+        .iter()
+        .position(|l| l.trim().starts_with('['))
+        .map_or(lines.len(), |i| start + 1 + i);
+    let existing = (start + 1..end).find(|&i| {
+        lines[i]
+            .split('=')
+            .next()
+            .is_some_and(|k| k.trim().eq_ignore_ascii_case(key))
+    });
+    Some((existing, end))
+}
+
+/// The value of `key` in `section` of an INI file, as Nucleus reads it.
+pub fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let (line, _) = find(&lines, section, key)?;
+    let (_, value) = lines[line?].split_once('=')?;
+    Some(value.trim().to_string())
+}
+
+/// An INI file with each (section, key, value) of `values` set, CRLF line
+/// ends; other lines stay as they are.
+pub fn ini_set(text: &str, values: &[(&str, &str, &str)]) -> String {
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    for (section, key, value) in FORCED {
-        let header = format!("[{section}]");
+    for &(section, key, value) in values {
         let entry = format!("{key}={value}");
-        let start = lines
-            .iter()
-            .position(|l| l.trim().eq_ignore_ascii_case(&header));
-        let Some(start) = start else {
-            lines.push(header);
-            lines.push(entry);
-            continue;
-        };
-        let end = lines[start + 1..]
-            .iter()
-            .position(|l| l.trim().starts_with('['))
-            .map_or(lines.len(), |i| start + 1 + i);
-        let existing = (start + 1..end).find(|&i| {
-            lines[i]
-                .split('=')
-                .next()
-                .is_some_and(|k| k.trim().eq_ignore_ascii_case(key))
-        });
-        match existing {
-            Some(i) => lines[i] = entry,
-            None => lines.insert(end, entry),
+        match find(&lines, section, key) {
+            Some((Some(i), _)) => lines[i] = entry,
+            Some((None, end)) => lines.insert(end, entry),
+            None => {
+                lines.push(format!("[{section}]"));
+                lines.push(entry);
+            }
         }
     }
     let mut text = lines.join("\r\n");
     text.push_str("\r\n");
     text
+}
+
+/// Nucleus' `Settings.ini` with [`FORCED`] set and [`LIST_FILTERS`] off;
+/// other lines stay as they are.
+pub fn settings_ini(text: &str) -> String {
+    let text = ini_set(text, &FORCED);
+    // Nucleus splits the value at commas and matches each entry exactly.
+    let Some(sorting) = ini_value(&text, "Misc", "GameSortingOpt") else {
+        return text;
+    };
+    let kept: Vec<&str> = sorting
+        .split(',')
+        .filter(|entry| !LIST_FILTERS.contains(&entry.trim()))
+        .collect();
+    if kept.len() == sorting.split(',').count() {
+        return text;
+    }
+    ini_set(&text, &[("Misc", "GameSortingOpt", &kept.join(","))])
 }
 
 #[cfg(test)]
@@ -264,25 +308,112 @@ mod tests {
         assert_eq!(file_number("notes.txt"), None);
     }
 
+    /// The `[Dev]` lines every rewrite adds after `UseXinputIndex`.
+    const DEV: &str = "DisablePathCheck=True\r\nShowFavoriteOnly=False\r\n";
+
     #[test]
     fn settings_ini_assigns_pads_by_index_and_keeps_the_rest() {
         let ini = "[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=False\r\nOther=1\r\n[Audio]\r\n";
         assert_eq!(
             settings_ini(ini),
-            "[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=True\r\nOther=1\r\n[Audio]\r\n"
+            format!(
+                "[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=True\r\nOther=1\r\n{DEV}[Audio]\r\n"
+            )
         );
         assert_eq!(
             settings_ini("[Dev]\nOther=1\n[Audio]\n"),
-            "[Dev]\r\nOther=1\r\nUseXinputIndex=True\r\n[Audio]\r\n[Misc]\r\nDisableGameProfiles=False\r\n"
+            format!(
+                "[Dev]\r\nOther=1\r\nUseXinputIndex=True\r\n{DEV}[Audio]\r\n[Misc]\r\nDisableGameProfiles=False\r\n"
+            )
         );
         // Profiles switched off would make Nucleus ignore the host's.
         assert_eq!(
             settings_ini("[Misc]\nDisableGameProfiles=True\n"),
-            "[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=True\r\n"
+            format!("[Misc]\r\nDisableGameProfiles=False\r\n[Dev]\r\nUseXinputIndex=True\r\n{DEV}")
         );
         assert_eq!(
             settings_ini(""),
-            "[Dev]\r\nUseXinputIndex=True\r\n[Misc]\r\nDisableGameProfiles=False\r\n"
+            format!("[Dev]\r\nUseXinputIndex=True\r\n{DEV}[Misc]\r\nDisableGameProfiles=False\r\n")
         );
+    }
+
+    #[test]
+    fn ini_values_are_read_and_set_as_nucleus_reads_them() {
+        let ini = "[misc]\r\n GameSortingOpt = Sort_1 \r\n[Dev]\r\nShowFavoriteOnly=True\r\n";
+        assert_eq!(
+            ini_value(ini, "Misc", "gamesortingopt").as_deref(),
+            Some("Sort_1")
+        );
+        assert_eq!(ini_value(ini, "Dev", "Missing"), None);
+        assert_eq!(ini_value(ini, "Audio", "Missing"), None);
+        assert_eq!(
+            ini_set(ini, &[("Dev", "ShowFavoriteOnly", "False"), ("Audio", "On", "1")]),
+            "[misc]\r\n GameSortingOpt = Sort_1 \r\n[Dev]\r\nShowFavoriteOnly=False\r\n[Audio]\r\nOn=1\r\n"
+        );
+    }
+
+    /// Nucleus Co-op 2.4.2's own Settings.ini as its release ships it.
+    const SHIPPED: &str = include_str!("fixtures/nucleus-2.4.2-Settings.ini");
+
+    #[test]
+    fn settings_ini_lets_nucleus_start_and_list_the_game_without_a_message_box() {
+        // A user's settings that stalled a background stream at Nucleus'
+        // start (#59): its folder check on (a message box for a Documents
+        // folder in OneDrive or a folder under Program Files), favourites
+        // only, and only games for a single keyboard listed.
+        // A checkout may have turned its line ends into CRLF.
+        let seeded = SHIPPED
+            .replace("\r\n", "\n")
+            .replace("ShowFavoriteOnly=False", "ShowFavoriteOnly=True")
+            .replace("GameSortingOpt=\n", "GameSortingOpt=Sort_2,Show_Type2\n");
+        assert!(seeded.contains("DisablePathCheck=False\n"), "{seeded}");
+        assert!(seeded.contains("ShowFavoriteOnly=True\n"), "{seeded}");
+        assert!(
+            seeded.contains("GameSortingOpt=Sort_2,Show_Type2\n"),
+            "{seeded}"
+        );
+        let fixed = settings_ini(&seeded);
+        let value = |key: &str| {
+            let section = if key == "GameSortingOpt" { "Misc" } else { "Dev" };
+            ini_value(&fixed, section, key).unwrap()
+        };
+        assert_eq!(value("DisablePathCheck"), "True");
+        assert_eq!(value("ShowFavoriteOnly"), "False");
+        assert_eq!(value("GameSortingOpt"), "Sort_2");
+        assert_eq!(value("UseXinputIndex"), "True");
+        // Every other line is as shipped, in its place.
+        let changed = [
+            "DisablePathCheck",
+            "ShowFavoriteOnly",
+            "GameSortingOpt",
+            "UseXinputIndex",
+        ];
+        let before: Vec<&str> = seeded.lines().collect();
+        let after: Vec<&str> = fixed.lines().collect();
+        assert_eq!(before.len(), after.len());
+        for (old, new) in before.iter().zip(&after) {
+            let key = old.split('=').next().unwrap();
+            if changed.contains(&key) {
+                assert!(new.starts_with(&format!("{key}=")), "{old} became {new}");
+            } else {
+                assert_eq!(old, new);
+            }
+        }
+        // A second pass changes nothing.
+        assert_eq!(settings_ini(&fixed), fixed);
+        // The Sort_* order is kept, the filters go, an empty value stays.
+        for (sorting, kept) in [
+            ("Show_Type1,Sort_4,Show_Type3", "Sort_4"),
+            ("Show_Type1", ""),
+            ("Sort_1", "Sort_1"),
+            ("", ""),
+        ] {
+            let text = settings_ini(&format!("[Misc]\r\nGameSortingOpt={sorting}\r\n"));
+            assert_eq!(
+                ini_value(&text, "Misc", "GameSortingOpt").as_deref(),
+                Some(kept),
+                "{sorting}"
+            );
+        }
     }
 }

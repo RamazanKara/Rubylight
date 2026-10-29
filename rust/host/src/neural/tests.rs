@@ -433,6 +433,85 @@ fn the_games_program_is_found_in_its_install_or_chosen() {
     ));
 }
 
+#[test]
+fn anti_cheat_is_found_however_the_install_is_written_and_a_huge_one_is_refused() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let install_dir = temp.path().join("SteamApps/common/Game");
+    let binaries = install_dir.join("Game/Plugins/Runtime/Binaries/Win64");
+    std::fs::create_dir_all(&binaries).unwrap();
+    std::fs::create_dir_all(install_dir.join("EasyAntiCheat")).unwrap();
+    let exe = binaries.join("Game-Win64-Shipping.exe");
+    std::fs::write(&exe, "MZ").unwrap();
+    // The library as the launcher wrote it, not as the folder has it.
+    let written = temp.path().join("steamapps/common/game");
+    let Response::Refused { reason } = install(Some(&exe), Some(&written), &cache) else {
+        panic!()
+    };
+    assert!(reason.contains("Easy Anti-Cheat"), "{reason}");
+    // A program chosen outside the install.
+    let elsewhere = temp.path().join("Elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("Game.exe"), "MZ").unwrap();
+    let Response::Refused { reason } = install(
+        Some(&elsewhere.join("Game.exe")),
+        Some(&install_dir),
+        &cache,
+    ) else {
+        panic!()
+    };
+    assert!(reason.contains("Easy Anti-Cheat"), "{reason}");
+    assert_eq!(names(&elsewhere), ["Game.exe"]);
+
+    // More files than the search looks at (fewer in tests).
+    let big = temp.path().join("Big");
+    std::fs::create_dir_all(&big).unwrap();
+    for index in 0..1_000 {
+        std::fs::write(big.join(format!("{index}.pak")), "").unwrap();
+    }
+    std::fs::write(big.join("Game.exe"), "MZ").unwrap();
+    let Response::Refused { reason } = install(Some(&big.join("Game.exe")), Some(&big), &cache)
+    else {
+        panic!()
+    };
+    assert!(reason.contains("too many files"), "{reason}");
+    let Response::ChooseExe { reason } = install(None, Some(&big), &cache) else {
+        panic!()
+    };
+    assert!(reason.contains("too many files"), "{reason}");
+    assert!(!big.join(MANIFEST).exists());
+}
+
+/// With no install known, the search above the .exe stops at a Program
+/// Files folder: anti-cheat installed there for other games is not this
+/// game's. A studio's own beside its games still is.
+#[test]
+fn anti_cheat_installed_for_every_game_does_not_refuse_one() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
+    let programs = temp.path().join("Program Files (x86)");
+    std::fs::create_dir_all(programs.join("EasyAntiCheat_EOS")).unwrap();
+    std::fs::create_dir_all(programs.join("Game")).unwrap();
+    let exe = programs.join("Game/Game.exe");
+    std::fs::write(&exe, "MZ").unwrap();
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    assert_eq!(names(&programs.join("Game")), ["Game.exe"]);
+
+    let studio = programs.join("Studio");
+    std::fs::create_dir_all(studio.join("EasyAntiCheat")).unwrap();
+    std::fs::create_dir_all(studio.join("Game/Bin")).unwrap();
+    let exe = studio.join("Game/Bin/Game.exe");
+    std::fs::write(&exe, "MZ").unwrap();
+    let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    assert!(reason.contains("Easy Anti-Cheat"), "{reason}");
+}
+
 fn archive(path: &Path, files: &[(&str, &[u8])]) {
     let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
     let options =

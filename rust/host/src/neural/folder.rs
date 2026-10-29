@@ -29,9 +29,10 @@ const PARTIAL: &str = ".rubylight-partial";
 /// Files at least this big are checked by size before a launch; hashing the
 /// 760 MB model at every launch would delay the game.
 const HASHED_AT_LAUNCH: u64 = 64 << 20;
-/// How far the anti-cheat and .exe searches look into an install.
+/// How far the anti-cheat and .exe searches look into an install, and how
+/// much they see before they give up (less in tests, which fill a folder).
 const DEPTH: usize = 6;
-const ENTRIES: usize = 50_000;
+const ENTRIES: usize = if cfg!(test) { 1_000 } else { 50_000 };
 
 /// A release in the host's cache: `files/` holds the package's contents and
 /// the runtime from the release's component, each checked against the
@@ -236,7 +237,7 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
     }
     let mut shipping = Vec::new();
     let mut top = Vec::new();
-    walk(install, |path, depth, folder| {
+    let walked = walk(install, |path, depth, folder| {
         let name = path
             .file_name()
             .unwrap_or_default()
@@ -252,6 +253,12 @@ fn find_exe(exe: Option<PathBuf>, install: Option<&Path>) -> Outcome<PathBuf> {
         }
         None
     });
+    if let Err(TooBig) = walked {
+        return Err(Failure::ChooseExe(format!(
+            "{} has too many files for Rubylight to tell which program is the game",
+            install.display()
+        )));
+    }
     match (shipping.len(), top.len()) {
         (1, _) => Ok(shipping.remove(0)),
         (0, 1) => Ok(top.remove(0)),
@@ -290,9 +297,15 @@ fn helper_program(name: &str) -> bool {
     .any(|part| name.contains(part))
 }
 
+/// [`walk`] saw more than [`ENTRIES`] and stopped.
+struct TooBig;
+
 /// Walk `root` breadth first, `depth` 1 for its own entries, without following
-/// links, until `visit` returns something or the walk is too big.
-fn walk<T>(root: &Path, mut visit: impl FnMut(&Path, usize, bool) -> Option<T>) -> Option<T> {
+/// links, until `visit` returns something; [`TooBig`] when the walk is too big.
+fn walk<T>(
+    root: &Path,
+    mut visit: impl FnMut(&Path, usize, bool) -> Option<T>,
+) -> Result<Option<T>, TooBig> {
     let mut queue = VecDeque::from([(root.to_path_buf(), 1)]);
     let mut seen = 0;
     while let Some((folder, depth)) = queue.pop_front() {
@@ -302,41 +315,85 @@ fn walk<T>(root: &Path, mut visit: impl FnMut(&Path, usize, bool) -> Option<T>) 
         for entry in entries.flatten() {
             seen += 1;
             if seen > ENTRIES {
-                return None;
+                return Err(TooBig);
             }
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
             let path = entry.path();
             if let Some(found) = visit(&path, depth, kind.is_dir()) {
-                return Some(found);
+                return Ok(Some(found));
             }
             if kind.is_dir() && !kind.is_symlink() && depth < DEPTH {
                 queue.push_back((path, depth + 1));
             }
         }
     }
-    None
+    Ok(None)
 }
 
-/// Refuse a game with anti-cheat anywhere in its install, or beside the
-/// three folders above its .exe (an Unreal game's `EasyAntiCheat` sits
-/// three up), stopping at a library's `common` folder and a drive's root.
+/// Whether `path` is `root` or inside it, comparing names as Windows does,
+/// whatever their case.
+fn inside(path: &Path, root: &Path) -> bool {
+    let mut parts = path.components();
+    root.components().all(|part| {
+        parts.next().is_some_and(|other| {
+            part.as_os_str().to_string_lossy().to_lowercase()
+                == other.as_os_str().to_string_lossy().to_lowercase()
+        })
+    })
+}
+fn same(a: &Path, b: &Path) -> bool {
+    a.components().count() == b.components().count() && inside(a, b)
+}
+
+/// A folder that holds other programs: a drive's root, a library's `common`
+/// folder or a Program Files folder.
+fn holds_others(folder: &Path) -> bool {
+    let Some(name) = folder.file_name() else {
+        return true;
+    };
+    let name = name.to_string_lossy();
+    ["common", "Program Files", "Program Files (x86)"]
+        .iter()
+        .any(|other| name.eq_ignore_ascii_case(other))
+        || ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
+            .into_iter()
+            .filter_map(std::env::var_os)
+            .any(|root| same(folder, Path::new(&root)))
+}
+
+/// Refuse a game with anti-cheat anywhere in its install or below its .exe,
+/// or beside the three folders above the .exe (an Unreal game's
+/// `EasyAntiCheat` sits three up). That last search stays in the install
+/// and stops at a folder that holds other programs ([`holds_others`]). An
+/// install too big to search through is refused too.
 fn refuse_anti_cheat(exe: &Path, install: Option<&Path>) -> Outcome<()> {
     let found = |path: &Path| {
         let name = path.file_name()?.to_string_lossy().into_owned();
         neural::anti_cheat(&name).map(|which| (which, path.to_path_buf()))
     };
-    let root = install
-        .filter(|install| exe.starts_with(install))
-        .unwrap_or(folder_of(exe));
-    let mut hit = walk(root, |path, _, _| found(path));
-    for above in folder_of(exe).ancestors().skip(1).take(3) {
-        let library = above.parent().is_none()
-            || above
-                .file_name()
-                .is_some_and(|name| name.eq_ignore_ascii_case("common"));
-        if hit.is_some() || library || install.is_some_and(|install| !above.starts_with(install)) {
+    let own = folder_of(exe);
+    let mut roots = Vec::from_iter(install.filter(|install| !same(install, own)));
+    roots.push(own);
+    let mut hit = None;
+    for root in roots {
+        hit = walk(root, |path, _, _| found(path)).map_err(|TooBig| {
+            Failure::Refused(format!(
+                "{} has too many files for Rubylight to check it for anti-cheat",
+                root.display()
+            ))
+        })?;
+        if hit.is_some() {
+            break;
+        }
+    }
+    let within = install.filter(|install| inside(own, install));
+    for above in own.ancestors().skip(1).take(3) {
+        if hit.is_some()
+            || holds_others(above)
+            || within.is_some_and(|install| !inside(above, install))
+        {
             break;
         }
         hit = std::fs::read_dir(above)

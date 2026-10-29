@@ -368,6 +368,27 @@ fn color_notice(offer: &color::Offer, negotiated: u32) -> Option<String> {
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
+/// When PyroWave was chosen and the stream runs another codec: the log line saying why, and
+/// what to tell the player. A device that can't decode PyroWave never gets here: the launch
+/// stops first with its reason (`pyrowave_mode::availability`).
+fn pyrowave_fallback(codec: CodecPreference, scm: u32, offered: u32, negotiated: u32) -> Option<(String, String)> {
+    if !codec.is_pyrowave() || negotiated & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+        return None;
+    }
+    let name = codec_name(negotiated);
+    let why = if offered & VIDEO_FORMAT_MASK_PYROWAVE == 0 {
+        format!("the host does not offer it (codec support {scm:#x})")
+    } else if scm == 0 {
+        "the host reports no codec support and chose another codec".to_owned()
+    } else {
+        format!("the host chose another codec (codec support {scm:#x})")
+    };
+    Some((
+        format!("nightjar: PyroWave was chosen, but {why}; streaming {name}"),
+        trf("This PC doesn’t offer PyroWave, so Nightjar uses {}.", &[&name]),
+    ))
+}
+
 fn stage_text(stage: Stage) -> &'static str {
     match stage {
         Stage::PlatformInit | Stage::NameResolution => en("Finding the PC"),
@@ -1107,7 +1128,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch, outcome.host_roaming);
-    let facts = Facts {
+    let mut facts = Facts {
         role,
         width: outcome.config.width,
         height: outcome.config.height,
@@ -1158,6 +1179,13 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         app_name: plan.app.name.clone(),
         host_name: plan.host_name.clone(),
     };
+    if let Some((log, notice)) = pyrowave_fallback(settings.codec, scm, offer.formats, outcome.negotiated_video_format) {
+        eprintln!("{log}");
+        // Told once: a reconnect of the same stream says it again only in the log.
+        if plan.recovery.is_none() {
+            facts.color_notice = Some(facts.color_notice.map_or_else(|| notice.clone(), |color| format!("{notice}\n{color}")));
+        }
+    }
     if facts.early_without_records {
         eprintln!("{EARLY_NO_RECORDS}");
     }
@@ -4002,6 +4030,32 @@ mod tests {
         let offer = offered_formats(&Settings { sdr_10bit: true, codec: CodecPreference::Hevc, ..Default::default() }, SCM_H264 | SCM_HEVC, &decodes_all());
         let text = crate::strings::tests::with_lang(crate::strings::Lang::De, || color_notice(&offer, VIDEO_FORMAT_H265));
         assert_eq!(text.as_deref(), Some("10-Bit-SDR wird nicht verwendet, der Stream läuft mit 8 Bit: der PC codiert es für diesen Codec nicht."));
+    }
+
+    #[test]
+    fn a_chosen_pyrowave_that_does_not_stream_is_logged_and_told() {
+        let fallback = |codec: CodecPreference, scm: u32, negotiated: u32| {
+            let offered = offered_formats(&Settings { codec, ..Default::default() }, scm, &decodes_all()).formats;
+            pyrowave_fallback(codec, scm, offered, negotiated)
+        };
+        // The PC lists its codecs, and PyroWave is not among them: it was never offered.
+        let (log, notice) = fallback(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC, VIDEO_FORMAT_H265).expect("a fallback");
+        assert_eq!(log, "nightjar: PyroWave was chosen, but the host does not offer it (codec support 0x101); streaming HEVC");
+        assert_eq!(notice, "This PC doesn’t offer PyroWave, so Nightjar uses HEVC.");
+        // Offered, and the PC picked another codec.
+        let (log, notice) = fallback(CodecPreference::PyroWave444, 0, VIDEO_FORMAT_H264).expect("a fallback");
+        assert_eq!(log, "nightjar: PyroWave was chosen, but the host reports no codec support and chose another codec; streaming H.264");
+        assert_eq!(notice, "This PC doesn’t offer PyroWave, so Nightjar uses H.264.");
+        let (log, _) = fallback(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC | SCM_PYROWAVE, VIDEO_FORMAT_H265).expect("a fallback");
+        assert!(log.contains("the host chose another codec (codec support"), "{log}");
+        // PyroWave streams, or was not chosen: nothing to say.
+        assert_eq!(fallback(CodecPreference::PyroWave, SCM_H264 | SCM_PYROWAVE, VIDEO_FORMAT_PYROWAVE), None);
+        assert_eq!(fallback(CodecPreference::PyroWave444, SCM_H264 | SCM_PYROWAVE, VIDEO_FORMAT_PYROWAVE), None);
+        assert_eq!(fallback(CodecPreference::Auto, SCM_H264 | SCM_HEVC, VIDEO_FORMAT_H265), None);
+        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || {
+            fallback(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC, VIDEO_FORMAT_H265).map(|(_, notice)| notice)
+        });
+        assert_eq!(german.as_deref(), Some("Dieser PC bietet PyroWave nicht an, daher nutzt Nightjar HEVC."));
     }
 
     #[test]

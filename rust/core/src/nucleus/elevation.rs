@@ -6,8 +6,8 @@
 //! always runs elevated, whatever it says, and so does a game whose .exe
 //! needs administrator rights. On an account Windows gives no elevated
 //! token ([`Account`]: a standard account, or Windows' Administrator
-//! protection) those are refused with what to do, never started another
-//! way.
+//! protection) those are refused, saying what to do or what still runs,
+//! never started another way.
 
 /// What a game's .exe asks of Windows to start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,24 +88,46 @@ impl Account {
         self == Self::Elevates
     }
 
-    /// Why it has none, and what to do: the end of every refusal for want
-    /// of administrator rights ("{why}, and {this}"), in the console too.
-    /// Empty for [`Account::Elevates`].
-    pub fn no_elevation(self) -> &'static str {
-        match self {
-            Self::Elevates => "",
-            Self::Standard => STANDARD,
-            Self::Protected => PROTECTED,
+    /// Why it has none, and what to do or what still runs: the end of every
+    /// refusal of `refused` for want of administrator rights ("{why}, and
+    /// {this}"), in the console too. Empty for [`Account::Elevates`].
+    pub fn no_elevation(self, refused: Refused) -> String {
+        match (self, refused) {
+            (Self::Elevates, _) => String::new(),
+            (Self::Standard, _) => STANDARD.to_string(),
+            (Self::Protected, Refused::Game) => {
+                format!("{PROTECTED}, so Nucleus Co-op can't run this game on this PC")
+            }
+            (Self::Protected, Refused::Hub) => format!(
+                "{PROTECTED}, so Nucleus Co-op can't run this game on this PC; {STILL_RUNS}"
+            ),
+            (Self::Protected, Refused::Open) => {
+                format!("{PROTECTED}, so Nucleus Co-op can't open on this PC; {STILL_RUNS}")
+            }
         }
     }
+}
+
+/// What a refusal for want of administrator rights keeps from starting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refused {
+    /// The game: it, or Rubylight's own handler for it, needs them.
+    Game,
+    /// The game's hub handler: a game without one may still run.
+    Hub,
+    /// Open Nucleus Co-op on this PC.
+    Open,
 }
 
 /// Why a standard account is refused, and what to do.
 pub const STANDARD: &str =
     "Windows doesn't give this account any: sign in to Windows on this PC as an administrator";
-/// Why an administrator under Windows' Administrator protection is refused,
-/// and what to do.
-pub const PROTECTED: &str = "Windows' Administrator protection doesn't let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC";
+/// Why an administrator under Windows' Administrator protection is refused.
+/// Rubylight never asks anyone to turn a Windows security feature off.
+pub const PROTECTED: &str = "Windows' Administrator protection keeps them from Rubylight";
+/// What Nucleus Co-op still runs under Windows' Administrator protection:
+/// Rubylight's own handler, as the user ([`Run::User`]).
+pub const STILL_RUNS: &str = "it still runs a game with no hub handler that needs no administrator rights, from this account's own copy";
 
 /// How a session of `script` for a game that needs `game` runs for the
 /// signed-in `account`. Rubylight's own handler for a game that needs
@@ -113,23 +135,26 @@ pub const PROTECTED: &str = "Windows' Administrator protection doesn't let Rubyl
 /// An `Err` is the refusal's text.
 pub fn choose(script: Script, game: Need, account: Account) -> Result<Run, String> {
     let elevates = account.elevates();
-    let elevated = |why: String| {
+    let elevated = |why: String, refused: Refused| {
         if elevates {
             Ok(Run::Elevated)
         } else {
-            Err(format!("{why}, and {}", account.no_elevation()))
+            Err(format!("{why}, and {}", account.no_elevation(refused)))
         }
     };
     match (script, game) {
-        (Script::Hub, _) => {
-            elevated("Nucleus Co-op needs administrator rights for a hub handler".into())
-        }
+        (Script::Hub, _) => elevated(
+            "Nucleus Co-op needs administrator rights for a hub handler".into(),
+            Refused::Hub,
+        ),
         (Script::Own { needs_admin: true }, _) => elevated(
             "Rubylight's Nucleus Co-op handler for this game needs administrator rights".into(),
+            Refused::Game,
         ),
-        (Script::Own { .. }, Need::Administrator(why)) => elevated(format!(
-            "The game needs administrator rights ({why}), so Nucleus Co-op runs elevated"
-        )),
+        (Script::Own { .. }, Need::Administrator(why)) => elevated(
+            format!("The game needs administrator rights ({why}), so Nucleus Co-op runs elevated"),
+            Refused::Game,
+        ),
         // As Windows starts it: elevated where the user can be.
         (Script::Own { .. }, Need::Highest) if elevates => Ok(Run::Elevated),
         (Script::Own { .. }, Need::Highest | Need::Nothing) => Ok(Run::User),
@@ -261,19 +286,34 @@ mod tests {
     }
 
     #[test]
-    fn administrator_protection_is_told_to_turn_it_off_not_to_sign_in_as_an_administrator() {
-        for (script, game) in [
-            (Script::Hub, Need::Nothing),
-            (OWN_ADMIN, Need::Nothing),
-            (OWN, ADMIN),
-        ] {
+    fn administrator_protection_is_told_what_can_and_cannot_run_never_to_turn_it_off() {
+        // A hub handler's game: what still runs is named.
+        assert_eq!(
+            choose(Script::Hub, Need::Nothing, Account::Protected).unwrap_err(),
+            "Nucleus Co-op needs administrator rights for a hub handler, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account's own copy"
+        );
+        // A game that needs them itself: nothing else runs it.
+        for (script, game) in [(OWN_ADMIN, Need::Nothing), (OWN, ADMIN)] {
             let refused = choose(script, game, Account::Protected).unwrap_err();
             assert!(
-                refused.ends_with(", and Windows' Administrator protection doesn't let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC"),
+                refused.ends_with(", and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC"),
                 "{refused}"
             );
-            assert!(!refused.contains("sign in"), "{refused}");
         }
+        for refused in [Refused::Game, Refused::Hub, Refused::Open] {
+            let words = Account::Protected.no_elevation(refused);
+            // Never to sign in as an administrator, which doesn't help, nor
+            // to turn a Windows security feature off.
+            for advice in ["sign in", "turn", "off", "restart", "disable"] {
+                assert!(!words.contains(advice), "{words}");
+            }
+            assert_eq!(Account::Elevates.no_elevation(refused), "");
+            assert_eq!(Account::Standard.no_elevation(refused), STANDARD);
+        }
+        assert_eq!(
+            Account::Protected.no_elevation(Refused::Open),
+            "Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't open on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account's own copy"
+        );
         // A game that needs nothing still runs as the user.
         assert_eq!(
             choose(OWN, Need::Nothing, Account::Protected),
@@ -284,7 +324,6 @@ mod tests {
             Ok(Run::User)
         );
         assert!(!Account::Protected.elevates() && !Account::Standard.elevates());
-        assert_eq!(Account::Elevates.no_elevation(), "");
     }
 
     #[test]

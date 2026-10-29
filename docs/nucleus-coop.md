@@ -142,10 +142,13 @@ On a standard account, or with Windows' Administrator protection on, a game
 that needs none of that now streams in the background. A game that needs
 administrator rights is still refused there, and so is a game with a hub
 handler, for co-op and background streams alike: the Play together panel
-says so before you launch, with what to do: on a standard account, sign in
-to Windows on this PC as an administrator; under Administrator protection,
-turn it off in Windows Security and restart the PC. Rubylight tells the two
-apart by the signed-in user's token: Administrator protection elevates an
+says so before you launch. On a standard account it says to sign in to
+Windows on this PC as an administrator. Under Administrator protection it
+says that the protection keeps administrator rights from Rubylight, so the
+game can't run on this PC, and that a game with no hub handler that needs no
+administrator rights still runs from the account's own copy. Rubylight never
+asks you to turn a Windows security feature off. It tells the two apart by
+the signed-in user's token: Administrator protection elevates an
 administrator only into a separate account, which Rubylight never starts
 Nucleus Co-op as. **Open Nucleus Co-op on this PC** also needs an account
 Windows elevates; the panel says so before you press it, in the same words.

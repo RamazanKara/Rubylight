@@ -4062,8 +4062,8 @@ mod tests {
                 elevation::STANDARD
             )
         );
-        // Under Windows' Administrator protection: what helps an
-        // administrator, not signing in as one.
+        // Under Windows' Administrator protection: that the game can't run,
+        // not to sign in as an administrator, which doesn't help.
         *pc.account.lock().unwrap() = Account::Protected;
         let refused = background(
             &registry,
@@ -4074,7 +4074,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            refused.message.ends_with(elevation::PROTECTED),
+            refused.message.ends_with(", and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC"),
             "{refused:?}"
         );
         *pc.account.lock().unwrap() = Account::Standard;

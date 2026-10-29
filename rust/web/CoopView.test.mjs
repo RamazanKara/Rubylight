@@ -233,17 +233,18 @@ test('the panel says how a background stream runs: as the signed-in user, or as 
 });
 
 test('a game that needs administrator rights on an account Windows doesn’t elevate is refused before launch', () => {
-  // The host's own refusal (elevation::NO_ELEVATION), as a launch would answer it.
+  // The host's own refusal (elevation::choose) under Windows' Administrator protection, as a launch would
+  // answer it: shown as it is.
   const refused = status({}, {
     status: 'refused',
-    reason: 'The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and Windows gives the account signed in on this PC no administrator rights to start it with (a standard account, or Windows\' Administrator protection)',
+    reason: 'The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and Windows\' Administrator protection keeps them from Rubylight, so Nucleus Co-op can\'t run this game on this PC',
     handler: null,
     players: null,
     runs: null,
   });
   const view = playTogether(refused, 'portal');
   assert.equal(view.kind, 'anti_cheat');
-  assert.match(view.reason, /no administrator rights to start it with \(a standard account, or Windows' Administrator protection\)\.$/);
+  assert.match(view.reason, /Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC\.$/);
   const out = html(refused);
   assert.match(out, /No co-op or background streams for this game/);
   assert.match(out, /Administrator protection/);
@@ -251,7 +252,7 @@ test('a game that needs administrator rights on an account Windows doesn’t ele
 });
 
 test('on an account Windows doesn’t elevate, a hub handler’s game says so before launch, and what to do', () => {
-  const words = 'Nucleus Co-op needs administrator rights for a hub handler, and Windows gives the account signed in on this PC no administrator rights to start it with (a standard account, or Windows\' Administrator protection)';
+  const words = 'Nucleus Co-op needs administrator rights for a hub handler, and Windows doesn\'t give this account any: sign in to Windows on this PC as an administrator';
   const refused = status({ elevates: false }, { reason: words });
   const view = playTogether(refused, 'portal');
   assert.equal(view.kind, 'ready');
@@ -265,13 +266,17 @@ test('on an account Windows doesn’t elevate, a hub handler’s game says so be
   assert.match(out, /No co-op or background streams on this account/);
   assert.match(out, /sign in to Windows on this PC as an administrator\./);
   assert.doesNotMatch(out, /hub handler|Administrator protection/);
-  // An administrator under Windows' Administrator protection: signing in as one doesn't help.
-  const shielded = status({ elevates: false, admin_protection: true }, { reason: words });
+  // An administrator under Windows' Administrator protection: signing in as one doesn't help, and Rubylight
+  // never asks for a Windows security feature to be turned off. What still runs is named.
+  const shielded = status(
+    { elevates: false, admin_protection: true },
+    { reason: 'Nucleus Co-op needs administrator rights for a hub handler, and Windows\' Administrator protection keeps them from Rubylight' },
+  );
   assert.equal(
     playTogether(shielded, 'portal').refusal,
-    'Portal 2’s handler needs administrator rights, and Windows’ Administrator protection doesn’t let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC.',
+    'Portal 2’s handler needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account’s own copy.',
   );
-  assert.doesNotMatch(html(shielded), /sign in/);
+  assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i);
   assert.doesNotMatch(out, /Start “Portal 2 \(Co-op\)” from Nightjar|A background stream runs it as administrator/);
   // An account that elevates, one the host can't tell, or an older host: nothing new.
   for (const elevates of [true, null, undefined]) {
@@ -290,7 +295,7 @@ test('on an account Windows doesn’t elevate, a hub handler’s game says so be
 });
 
 test('on an account Windows doesn’t elevate, Open Nucleus Co-op says why before it is pressed and stays off', () => {
-  const words = 'Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows\' Administrator protection)';
+  const words = 'Nucleus Co-op needs administrator rights, and Windows doesn\'t give this account any: sign in to Windows on this PC as an administrator';
   const openButton = /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open Nucleus Co-op on this PC/;
   for (const fixture of [fixtures.handler, fixtures.added]) {
     const name = fixture.games[0].status;
@@ -303,13 +308,14 @@ test('on an account Windows doesn’t elevate, Open Nucleus Co-op says why befor
     const out = html(refused);
     assert.match(out, /Nucleus Co-op can’t open on this account/, name);
     assert.doesNotMatch(out, /Administrator protection/, name);
-    // The same words as a game's refusal under Windows' Administrator protection.
+    // The host's words under Windows' Administrator protection: what still runs, never to turn it off.
     const shielded = { ...refused, admin_protection: true };
     assert.equal(
       playTogether(shielded, 'portal').openRefusal,
-      'Nucleus Co-op needs administrator rights, and Windows’ Administrator protection doesn’t let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC.',
+      'Nucleus Co-op needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t open on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account’s own copy.',
       name,
     );
+    assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i, name);
     assert.match(html(shielded), openButton, name);
     assert.match(out, openButton, name);
     // An account that elevates, one the host can't tell, or an older host: nothing new.

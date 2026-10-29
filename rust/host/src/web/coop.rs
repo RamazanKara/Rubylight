@@ -302,7 +302,7 @@ fn status(h: &Shared) -> Value {
         // rights run with; null when unknown.
         "elevates": account.map(Account::elevates),
         // An administrator Windows' Administrator protection gives none:
-        // the console tells them to turn it off, not to sign in as one.
+        // the console says what still runs, not to sign in as one.
         "admin_protection": account == Some(Account::Protected),
         // Why Open Nucleus Co-op on this PC would be refused: an account
         // Windows doesn't elevate, in the words
@@ -903,7 +903,7 @@ mod tests {
             games[5]
         );
         // An administrator under Windows' Administrator protection is told
-        // to turn it off, the same in every refusal.
+        // what can't run and what still does, never to turn it off.
         *pc.account.lock().unwrap() = Account::Protected;
         f.host.nucleus.use_pc(pc.clone());
         let body = value(
@@ -915,16 +915,13 @@ mod tests {
         assert_eq!(body["admin_protection"], true);
         assert_eq!(
             body["open_refusal"],
-            format!(
-                "Nucleus Co-op needs administrator rights, and {}",
-                elevation::PROTECTED
-            )
+            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't open on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account's own copy"
         );
         assert_eq!(
             body["games"][0]["reason"],
             format!(
                 "Nucleus Co-op needs administrator rights for a hub handler, and {}",
-                elevation::PROTECTED
+                Account::Protected.no_elevation(elevation::Refused::Hub)
             )
         );
         // Before the install nothing is known yet.

@@ -13,7 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::audio_scope::Identity;
 use butterpollo_core::input::Input;
 use butterpollo_core::nucleus::coop::{self, End, Phase};
-use butterpollo_core::nucleus::elevation::{Account, Run};
+use butterpollo_core::nucleus::elevation::{Account, Refused, Run};
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::EXECUTABLE;
 use butterpollo_core::nucleus::profile::{Player, TITLE};
@@ -96,7 +96,7 @@ impl Launcher for Elevated {
         guid: &str,
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
-        require_administrator(crate::process::user_account()?)?;
+        require_administrator(crate::process::user_account()?, Refused::Game)?;
         started(&launch_of(
             folder,
             guid,
@@ -240,7 +240,7 @@ fn rights_note(asked: bool, elevated: &Result<bool>) -> Option<String> {
 /// game. It runs outside the host's job, so the host ending does not close
 /// it; the [`Opened`] it returns closes it before a session starts.
 pub fn open(folder: &Path) -> Result<Opened> {
-    require_administrator(crate::process::user_account()?)?;
+    require_administrator(crate::process::user_account()?, Refused::Open)?;
     let program = folder.join(EXECUTABLE);
     let line = crate::process::quote(program.as_os_str())?;
     let process = crate::process::Process::spawn_command(
@@ -289,19 +289,23 @@ fn webview_environment(
 /// its folder, which only administrators can change, and stops on its
 /// loading screen ("Microsoft Edge can't read and write to its data
 /// directory").
-fn require_administrator(account: Account) -> Result<()> {
-    ensure!(account.elevates(), "{}", needs_administrator(account));
+fn require_administrator(account: Account, refused: Refused) -> Result<()> {
+    ensure!(account.elevates(), "{}", refusal(account, refused));
     Ok(())
 }
 
-/// What [`open`] refuses with when the signed-in `account` has no elevated
-/// token, with what to do; the console says the same before the button is
-/// pressed.
-pub fn needs_administrator(account: Account) -> String {
+fn refusal(account: Account, refused: Refused) -> String {
     format!(
         "Nucleus Co-op needs administrator rights, and {}",
-        account.no_elevation()
+        account.no_elevation(refused)
     )
+}
+
+/// What [`open`] refuses with when the signed-in `account` has no elevated
+/// token, with what to do or what still runs; the console says the same
+/// before the button is pressed.
+pub fn needs_administrator(account: Account) -> String {
+    refusal(account, Refused::Open)
 }
 
 /// The Nucleus Co-op [`open`] started: the only one the host closes. It is
@@ -902,7 +906,7 @@ fn game_folder(exe: &str) -> Option<PathBuf> {
 /// these leaves the window open.
 pub fn ready(folder: &Path, run: Run) -> Result<()> {
     if run == Run::Elevated {
-        require_administrator(crate::process::user_account()?)?;
+        require_administrator(crate::process::user_account()?, Refused::Game)?;
     }
     environment(&BTreeMap::new())?;
     layers::restore_left_in(&mut layers::UserHive::signed_in()?, folder)?;
@@ -1274,24 +1278,37 @@ mod tests {
     fn an_account_without_administrator_rights_is_refused_before_nucleus_starts() {
         // A standard user's Nucleus Co-op hung on its loading screen: it
         // could not write its WebView2 cache into the Administrators-only folder.
-        assert!(require_administrator(Account::Elevates).is_ok());
-        let refused = format!(
-            "{:#}",
-            require_administrator(Account::Standard).unwrap_err()
-        );
-        assert_eq!(
-            refused,
-            "Nucleus Co-op needs administrator rights, and Windows doesn't give this account any: sign in to Windows on this PC as an administrator"
-        );
+        for refused in [Refused::Open, Refused::Game] {
+            assert!(require_administrator(Account::Elevates, refused).is_ok());
+            let words = format!(
+                "{:#}",
+                require_administrator(Account::Standard, refused).unwrap_err()
+            );
+            assert_eq!(
+                words,
+                "Nucleus Co-op needs administrator rights, and Windows doesn't give this account any: sign in to Windows on this PC as an administrator"
+            );
+        }
         // An administrator under Windows' Administrator protection is told
-        // what helps them: signing in as one doesn't.
-        let refused = format!(
+        // what can't run and what still does: never to sign in as an
+        // administrator, which doesn't help, nor to turn it off.
+        let open = format!(
             "{:#}",
-            require_administrator(Account::Protected).unwrap_err()
+            require_administrator(Account::Protected, Refused::Open).unwrap_err()
         );
         assert_eq!(
-            refused,
-            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection doesn't let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC"
+            open,
+            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't open on this PC; it still runs a game with no hub handler that needs no administrator rights, from this account's own copy"
+        );
+        // The console's words before the button is pressed.
+        assert_eq!(open, needs_administrator(Account::Protected));
+        let game = format!(
+            "{:#}",
+            require_administrator(Account::Protected, Refused::Game).unwrap_err()
+        );
+        assert_eq!(
+            game,
+            "Nucleus Co-op needs administrator rights, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC"
         );
     }
 

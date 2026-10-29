@@ -78,28 +78,28 @@ export function runsText(game: CoopGame): string | null {
 }
 
 /**
- * Why an account Windows doesn't elevate has no administrator rights, and what to do: the host's words
- * (`elevation::STANDARD`, `elevation::PROTECTED`). An administrator under Windows' Administrator protection
- * gains nothing by signing in as one.
+ * Why an account Windows doesn't elevate has no administrator rights, and what to do or what still runs: the
+ * host's words (`Account::no_elevation`). An administrator under Windows' Administrator protection gains
+ * nothing by signing in as one, and Rubylight never asks anyone to turn a Windows security feature off.
  */
+const STILL_RUNS =
+  'it still runs a game with no hub handler that needs no administrator rights, from this account’s own copy';
 export const NO_ELEVATION = {
   standard: 'Windows doesn’t give this account any: sign in to Windows on this PC as an administrator',
-  protected:
-    'Windows’ Administrator protection doesn’t let Rubylight use them: turn it off in Windows Security on this PC, then restart the PC',
+  hub: `Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; ${STILL_RUNS}`,
+  open: `Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t open on this PC; ${STILL_RUNS}`,
 };
-
-function noElevation(status: CoopStatus): string {
-  return status.admin_protection === true ? NO_ELEVATION.protected : NO_ELEVATION.standard;
-}
 
 /** Why Open Nucleus Co-op on this PC can't work on an account Windows doesn't elevate, and what to do. */
 export function openRefused(status: CoopStatus): string {
-  return `Nucleus Co-op needs administrator rights, and ${noElevation(status)}.`;
+  const why = status.admin_protection === true ? NO_ELEVATION.open : NO_ELEVATION.standard;
+  return `Nucleus Co-op needs administrator rights, and ${why}.`;
 }
 
-/** Why a game with its handler added can't start on an account Windows doesn't elevate, and what to do. */
+/** Why a game with its hub handler added can't start on an account Windows doesn't elevate, and what to do. */
 export function handlerRefused(name: string, status: CoopStatus): string {
-  return `${name}’s handler needs administrator rights, and ${noElevation(status)}.`;
+  const why = status.admin_protection === true ? NO_ELEVATION.hub : NO_ELEVATION.standard;
+  return `${name}’s handler needs administrator rights, and ${why}.`;
 }
 
 export function gameOf(status: CoopStatus, app: string): CoopGame | undefined {

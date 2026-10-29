@@ -71,7 +71,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | HEVC C | at 2.8 s, rest of stream | 0 | 0 | 11.78 / 13.78 | 3.48 | 3.18 |
 | HEVC R | none | 1 | 0 | 11.71 / 13.91 | 3.42 | 3.19 |
 
-R never latched. AV1 picture age p50 was 0.42 ms higher on R's mean, over the 0.3 ms bound we set; p99 was 0.55 ms higher (bound 1 ms), and HEVC was within both. The gap is not on the host: present-to-send was 0.15 ms lower on R, the receiver's per-frame host processing (0.4-0.5 ms), transfer (0.30-0.33 ms) and decode (3.6-3.7 ms) medians matched, and P2's first 20 s, where both arms ran the same policy, had R 0.56 ms higher too. We read it as the receiver's present phase between runs, not the change. Kept.
+R never latched. AV1 picture age p50 was 0.42 ms higher on R's mean, over the 0.3 ms bound we set; p99 was 0.55 ms higher (bound 1 ms), and HEVC was within both. The gap is not on the host: present-to-send was 0.15 ms lower on R, the receiver's per-frame host processing (0.4-0.5 ms), transfer (0.30-0.33 ms) and decode (3.6-3.7 ms) medians matched, and P2's first 20 s, where both arms ran the same policy, had R 0.56 ms higher too. We read it as the receiver's present phase between runs, not the change. A check pair without fault injection, 60 s each, the base against the branch tip (commits 1-3, 5 and K, without W): picture age p50 14.30 against 14.29 ms, p99 20.71 against 20.86 ms, receiver host processing p50 0.5 ms on both, present-to-send 7.05 against 6.95 ms, encode mean 5.20 against 5.19 ms. Kept.
 
 **P2, the host's socket refuses video** (`--send-outage 20000:30`: 30 ms of refused sends at 20 and 40 s, C `pkg-c`, R `pkg-i`).
 

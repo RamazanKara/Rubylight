@@ -176,9 +176,24 @@ fn unreal_root(exe_folder: &str) -> Option<String> {
     {
         return None;
     }
-    let root = parent(parent(binaries));
-    // Never a drive's root.
-    (root.len() > 3 && root.contains('\\')).then(|| root.to_string())
+    let holder = parent(binaries);
+    let root = parent(holder);
+    // Never a drive's root: a game right on a drive (`D:\Game\Binaries`)
+    // is its own.
+    if drive_root(root) {
+        return (!drive_root(holder)).then(|| holder.to_string());
+    }
+    Some(root.to_string())
+}
+
+/// Whether `folder` is a drive's root (`D:`, `\\?\D:`) or no folder at all.
+fn drive_root(folder: &str) -> bool {
+    let folder = folder.trim_end_matches('\\');
+    let folder = folder
+        .strip_prefix(r"\\?\")
+        .or_else(|| folder.strip_prefix(r"\\.\"))
+        .unwrap_or(folder);
+    folder.len() <= 2 || !folder.contains('\\')
 }
 
 /// A JavaScript string literal, in the escapes `handler::parse` reads.
@@ -409,22 +424,51 @@ fn scan(mut folder: &str, root: &str) -> Option<&'static str> {
 }
 
 /// The folder the scan stops at: the game's root, but the folder holding an
-/// Unreal game's `Binaries` when no `Engine` is beside that folder. Unreal
-/// Engine 4 and 5 keep `<Game>\Engine` beside `<Game>\<Project>\Binaries`;
-/// Unreal Engine 3 keeps `<Game>\Binaries` beside `<Game>\Engine`, and the
-/// folder above `<Game>` is the user's games folder.
+/// Unreal game's `Binaries` when nothing says the folder above is the
+/// game's. Unreal Engine 4 and 5 keep `<Game>\Engine`, or at least the root
+/// stub `<Game>\<Name>.exe`, beside `<Game>\<Project>\Binaries`; Unreal
+/// Engine 3 keeps `<Game>\Binaries` beside `<Game>\Engine`, and the folder
+/// above `<Game>` is the user's games folder.
 fn scan_root(setup: &Setup) -> &str {
     let exe_folder = parent(&setup.exe_path);
+    let holder = parent(parent(exe_folder));
     match unreal_root(exe_folder) {
         Some(above)
             if setup.steam_app.is_none()
                 && above.eq_ignore_ascii_case(&setup.root)
-                && !Path::new(&above).join("Engine").is_dir() =>
+                && !above.eq_ignore_ascii_case(holder) =>
         {
-            parent(parent(exe_folder))
+            let game = Path::new(&above);
+            let stub = || {
+                !Path::new(holder).join("Engine").is_dir()
+                    && game.join(stub_name(&setup.exe_path)).is_file()
+            };
+            if game.join("Engine").is_dir() || stub() {
+                &setup.root
+            } else {
+                holder
+            }
         }
         _ => &setup.root,
     }
+}
+
+/// The root stub's name for an Unreal game's .exe: `Stray.exe` for
+/// `Stray-Win64-Shipping.exe`, else the .exe's own name.
+fn stub_name(exe_path: &str) -> String {
+    let name = file_name(exe_path);
+    let lower = name.to_ascii_lowercase();
+    [
+        "-win64-shipping.exe",
+        "-win32-shipping.exe",
+        "-wingdk-shipping.exe",
+    ]
+    .iter()
+    .find(|suffix| lower.ends_with(*suffix))
+    .map_or_else(
+        || name.to_string(),
+        |suffix| format!("{}.exe", &name[..name.len() - suffix.len()]),
+    )
 }
 
 /// Blizzard's anti-cheat for a game Battle.net installed: its `.build.info`
@@ -801,6 +845,14 @@ mod tests {
             None,
         );
         assert_eq!(unreal.root, r"D:\Epic\Hero");
+        // A game right on a drive is its own folder, never the drive's.
+        for (exe, root) in [
+            (r"D:\Game\Binaries\Win32\Game.exe", r"D:\Game"),
+            (r"\\?\D:\Game\Binaries\Win64\Game.exe", r"\\?\D:\Game"),
+            (r"D:\Binaries\Win64\Game.exe", r"D:\Binaries\Win64"),
+        ] {
+            assert_eq!(Setup::new(exe, "Game", None).root, root, "{exe}");
+        }
         // A Steam folder the exe is not in does not count.
         let elsewhere = Setup::new(
             r"C:\Other\Game.exe",
@@ -897,6 +949,22 @@ mod tests {
         assert_eq!(anti_cheat(&stub), Some("Easy Anti-Cheat"));
         std::fs::remove_dir(shooter.join("EasyAntiCheat")).unwrap();
         assert_eq!(anti_cheat(&stub), None);
+        // No Engine folder, but the root stub beside the project: the game's
+        // folder is the stub's, and the games folder still is not read.
+        let hero = games.join("Hero");
+        let win64 = hero.join("HeroGame").join("Binaries").join("Win64");
+        std::fs::create_dir_all(&win64).unwrap();
+        std::fs::create_dir(hero.join("EasyAntiCheat")).unwrap();
+        let exe = win64.join("Hero-Win64-Shipping.exe");
+        std::fs::write(&exe, b"").unwrap();
+        let setup = Setup::new(&exe.to_string_lossy(), "Hero", None);
+        assert_eq!(anti_cheat(&setup), None);
+        std::fs::write(hero.join("Hero.exe"), b"").unwrap();
+        assert_eq!(anti_cheat(&setup), Some("Easy Anti-Cheat"));
+        std::fs::remove_dir(hero.join("EasyAntiCheat")).unwrap();
+        assert_eq!(anti_cheat(&setup), None);
+        assert_eq!(stub_name(r"C:\G\Stray-WIN64-Shipping.exe"), "Stray.exe");
+        assert_eq!(stub_name(r"C:\G\HogwartsLegacy.exe"), "HogwartsLegacy.exe");
     }
 
     #[test]

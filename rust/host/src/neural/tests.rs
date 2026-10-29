@@ -1695,6 +1695,47 @@ async fn the_switch_is_offered_only_on_a_capable_gpu_after_the_notice() {
     assert!(matches!(enable(h, "missing", None), Err(Refusal::NotFound)));
 }
 
+/// A GPU found capable stays so until the host restarts, but not past a
+/// change of the display or Graphics card a stream uses: the GPU it named
+/// may no longer be the one that streams.
+#[test]
+fn the_gpu_check_is_asked_again_once_the_streaming_gpu_is_set_otherwise() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let answer = |name: &str| {
+        *h.neural.probe.lock().unwrap() = Some(Probe {
+            gpus: vec![Gpu {
+                name: name.into(),
+                arch: "gfx1100".into(),
+                compute_units: 84,
+                luid: None,
+            }],
+            driver: Some("26.10.1".into()),
+            error: None,
+        });
+    };
+    answer("AMD Radeon RX 7900 XT");
+    assert_eq!(capability(h), Ok("AMD Radeon RX 7900 XT".into()));
+    answer("AMD Radeon RX 7900 XTX");
+    assert_eq!(capability(h), Ok("AMD Radeon RX 7900 XT".into()));
+    // Each of the three settings, changed alone, asks again.
+    for (n, config) in [
+        "adapter_name=AMD Radeon RX 7900 XTX",
+        "adapter_name=AMD Radeon RX 7900 XTX\nadapter_pnp_id=PCI\\VEN_1002&DEV_744C",
+        "adapter_name=AMD Radeon RX 7900 XTX\nadapter_pnp_id=PCI\\VEN_1002&DEV_744C\noutput_name=\\\\.\\DISPLAY2",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        *h.config.write().unwrap() = butterpollo_core::config::Config::parse(config).unwrap();
+        let name = format!("AMD Radeon PRO W7900 {n}");
+        answer(&name);
+        assert_eq!(capability(h), Ok(name.clone()), "{config}");
+        answer("AMD Radeon RX 9070 XT");
+        assert_eq!(capability(h), Ok(name), "{config}");
+    }
+}
+
 /// A cache is used only as this host keeps it: no link on the way to it,
 /// for SYSTEM nobody but administrators may change it, its files checked
 /// once per host start, and its archives the ones GitHub lists now.

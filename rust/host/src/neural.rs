@@ -76,7 +76,8 @@ pub struct Neural {
 
 #[derive(Default)]
 struct State {
-    probe: Option<(Instant, Result<String, String>)>,
+    /// The last probe's answer, when it came and the settings it holds for.
+    probe: Option<(Instant, GpuSetting, Result<String, String>)>,
     jobs: BTreeMap<String, Job>,
     checking: bool,
     /// When the next daily check is due, from the record once read.
@@ -171,9 +172,12 @@ pub fn probe_main() -> i32 {
 }
 
 /// The GPU Neural Rendering runs on, or why this PC cannot have it. Probed
-/// in a helper process once, and again a while after a failure. Blocks.
+/// in a helper process once, again a while after a failure, and again once
+/// the GPU or display a stream uses is set otherwise. Blocks.
 pub fn capability(h: &Shared) -> Result<String, String> {
-    if let Some((at, result)) = &h.neural.lock().probe
+    let setting = gpu_setting(h);
+    if let Some((at, probed, result)) = &h.neural.lock().probe
+        && *probed == setting
         && (result.is_ok() || at.elapsed() < PROBE_RETRY)
     {
         return result.clone();
@@ -183,28 +187,33 @@ pub fn capability(h: &Shared) -> Result<String, String> {
         _ => neural::capable(
             &probe.gpus,
             probe.driver.as_deref(),
-            &streams_with(h, &probe)?,
+            &streams_with(&setting, &probe)?,
         )
         .map(|gpu| gpu.name.clone()),
     });
     if let Err(reason) = &result {
         tracing::info!(%reason, "Neural Rendering is not available on this PC");
     }
-    h.neural.lock().probe = Some((Instant::now(), result.clone()));
+    h.neural.lock().probe = Some((Instant::now(), setting, result.clone()));
     result
+}
+
+/// The settings that pick the GPU a stream uses: the display, and the
+/// Graphics card setting's name and PnP identity.
+type GpuSetting = [String; 3];
+fn gpu_setting(h: &Shared) -> GpuSetting {
+    let config = h.config.read().unwrap();
+    ["output_name", "adapter_name", "adapter_pnp_id"].map(|key| config.get(key, "").to_string())
 }
 
 /// The GPU this host captures and encodes with: the Graphics card setting's,
 /// or the one that drives the display it streams.
 #[cfg(not(test))]
-fn streams_with(h: &Shared, _: &Probe) -> Result<neural::Streams, String> {
-    let config = h.config.read().unwrap();
-    let (name, (low, high)) = butterpollo_windows::capture::stream_gpu(
-        config.get("output_name", ""),
-        config.get("adapter_name", ""),
-        config.get("adapter_pnp_id", ""),
-    )
-    .map_err(|e| format!("the GPU Rubylight streams with can't be found: {e:#}"))?;
+fn streams_with(setting: &GpuSetting, _: &Probe) -> Result<neural::Streams, String> {
+    let [display, adapter_name, pnp_id] = setting;
+    let (name, (low, high)) =
+        butterpollo_windows::capture::stream_gpu(display, adapter_name, pnp_id)
+            .map_err(|e| format!("the GPU Rubylight streams with can't be found: {e:#}"))?;
     Ok(neural::Streams {
         name,
         luid: (u64::from(high as u32) << 32) | u64::from(low),
@@ -212,7 +221,7 @@ fn streams_with(h: &Shared, _: &Probe) -> Result<neural::Streams, String> {
 }
 /// Tests stream with the probe's first GPU.
 #[cfg(test)]
-fn streams_with(_: &Shared, probe: &Probe) -> Result<neural::Streams, String> {
+fn streams_with(_: &GpuSetting, probe: &Probe) -> Result<neural::Streams, String> {
     let gpu = probe.gpus.first().ok_or("no GPU in this test")?;
     Ok(neural::Streams {
         name: gpu.name.clone(),

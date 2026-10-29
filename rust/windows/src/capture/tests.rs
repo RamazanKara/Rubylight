@@ -698,6 +698,47 @@ fn a_stream_pins_to_the_biggest_radeon_and_leaves_a_display_already_on_one() {
     );
 }
 #[test]
+fn with_no_display_the_stream_gpu_is_the_pinned_or_only_radeon_or_refused() {
+    let other = |name: &str, vendor| Gpu {
+        name: name.into(),
+        vendor,
+        dedicated_memory: 4 << 30,
+        luid: (vendor, 0),
+        pnp_id: None,
+    };
+    let nvidia = || other("NVIDIA GeForce RTX 3050", 0x10de);
+    let intel = || other("Intel(R) UHD Graphics", 0x8086);
+    // Beside another vendor's GPU: the Radeon a stream pins to, the biggest.
+    let [igpu, dgpu] = hybrid_gpus();
+    let gpus = [nvidia(), igpu, dgpu];
+    assert_eq!(headless_gpu(&gpus).unwrap().name, "AMD Radeon RX 6850M XT");
+    // The only Radeon, alone or beside another vendor's GPU.
+    let [igpu, dgpu] = hybrid_gpus();
+    assert_eq!(
+        headless_gpu(&[dgpu]).unwrap().name,
+        "AMD Radeon RX 6850M XT"
+    );
+    assert_eq!(
+        headless_gpu(&[intel(), igpu]).unwrap().name,
+        "AMD Radeon(TM) 680M"
+    );
+    // Several Radeons and none chosen, or none at all: refused, not guessed.
+    let error = format!(
+        "{:#}",
+        headless_gpu(&hybrid_gpus())
+            .map(|gpu| &gpu.name)
+            .unwrap_err()
+    );
+    assert!(error.contains("Graphics card setting"), "{error}");
+    for gpus in [vec![nvidia(), intel()], vec![]] {
+        let error = format!(
+            "{:#}",
+            headless_gpu(&gpus).map(|gpu| &gpu.name).unwrap_err()
+        );
+        assert!(error.contains("no AMD GPU"), "{error}");
+    }
+}
+#[test]
 fn the_probe_skips_a_non_amd_display_only_when_no_gpu_is_chosen_and_an_amd_one_exists() {
     let (nvidia, amd, intel) = (0x10de, 0x1002, 0x8086);
     // The monitor on NVIDIA, an AMD iGPU beside it, Graphics card Automatic.

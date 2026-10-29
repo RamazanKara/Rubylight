@@ -69,14 +69,12 @@ struct Program {
 /// Every read of `exe` and its manifest, done here as the user of `token`
 /// (None: as the host, in tests).
 fn program(exe: &Path, token: Option<&OwnedHandle>) -> Result<Program> {
-    let _user =
-        crate::user_folder::Impersonation::begin(token).context("acting as the signed-in user")?;
-    let manifest = manifest_need(exe)?;
+    let manifest = manifest_as(exe, token, embedded_manifest)?;
     let installer = manifest.is_none()
         && exe
             .file_name()
             .is_some_and(|name| rule::installer_name(&name.to_string_lossy()))
-        && thirty_two_bit(exe)?;
+        && read_as(token, exe, thirty_two_bit)?;
     Ok(Program {
         manifest,
         installer,
@@ -87,14 +85,35 @@ fn program(exe: &Path, token: Option<&OwnedHandle>) -> Result<Program> {
 /// `<name>.exe.manifest` beside it, as Windows reads them. None when it
 /// names none. Read as this thread is: [`game_need`] reads it as the user.
 pub fn manifest_need(exe: &Path) -> Result<Option<Need>> {
-    let text = match embedded_manifest(exe)? {
-        Some(text) => text,
-        None => match external_manifest_text(exe)? {
-            Some(text) => text,
-            None => return Ok(None),
-        },
+    manifest_as(exe, None, embedded_manifest)
+}
+
+/// [`manifest_need`] read as the user of `token`, with `embedded` reading
+/// the manifest `exe` embeds.
+fn manifest_as(
+    exe: &Path,
+    token: Option<&OwnedHandle>,
+    embedded: fn(&Path) -> Result<Option<String>>,
+) -> Result<Option<Need>> {
+    let text = match read_as(token, exe, embedded)? {
+        Some(text) => Some(text),
+        None => read_as(token, exe, external_manifest_text)?,
     };
-    Ok(rule::manifest_need(&text))
+    Ok(text.and_then(|text| rule::manifest_need(&text)))
+}
+
+/// `read` of `exe`, as the user of `token` from its start. Each read acts as
+/// the user anew: should one end this thread's impersonation (Windows'
+/// loader reads the manifest a program embeds), the next is still not done
+/// as the host.
+fn read_as<T>(
+    token: Option<&OwnedHandle>,
+    exe: &Path,
+    read: impl FnOnce(&Path) -> Result<T>,
+) -> Result<T> {
+    let _user =
+        crate::user_folder::Impersonation::begin(token).context("acting as the signed-in user")?;
+    read(exe)
 }
 
 fn external_manifest(exe: &Path) -> PathBuf {
@@ -271,7 +290,10 @@ static WALKED: Mutex<Walked> = Mutex::new(BTreeMap::new());
 /// big, so its answer is kept for up to [`KEPT_FOR`] while no folder it
 /// went into, nor the file it stopped at, changes (their change times: a
 /// file or folder added, removed or renamed, permissions or attributes),
-/// and until [`forget`]. Older answers go as new ones are kept.
+/// and until [`forget`]. Older answers go as new ones are kept. One that saw
+/// a change made after the walk began is not kept: a change time moves
+/// once per clock tick (15.6 ms on most PCs), so another change in that
+/// tick would leave it as it was.
 pub fn folder_need(folder: &Path, token: Option<&OwnedHandle>) -> Result<Need> {
     kept(&WALKED, folder, token, Instant::now(), &mut walk)
 }
@@ -291,6 +313,16 @@ pub(crate) fn is_kept(folder: &Path) -> bool {
         .unwrap_or_else(PoisonError::into_inner)
         .keys()
         .any(|(_, kept)| kept == folder)
+}
+
+/// Wait for the system clock's next tick: whatever changed before has an
+/// older change time than a walk begun after ([`settled`]).
+#[cfg(test)]
+pub(crate) fn next_tick() {
+    let now = crate::process::now();
+    while crate::process::now() <= now {
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 
 fn forget_in(walked: &Mutex<Walked>, folder: &Path) {
@@ -323,8 +355,9 @@ fn kept(
         lock().insert(key, found);
         return Ok(need);
     }
+    let began = crate::process::now();
     let Walk { need, seen } = walk(folder)?;
-    if let Some(seen) = seen {
+    if let Some(seen) = seen.filter(|seen| settled(seen, began)) {
         let mut walked = lock();
         walked.retain(|_, kept| now.saturating_duration_since(kept.at) < KEPT_FOR);
         walked.insert(
@@ -337,6 +370,13 @@ fn kept(
         );
     }
     Ok(need)
+}
+
+/// Whether nothing in `seen` changed at or after `began` (the system time,
+/// which change times are stamped from: [`crate::process::now`]).
+fn settled(seen: &[Seen], began: u64) -> bool {
+    seen.iter()
+        .all(|(_, _, changed)| changed.is_none_or(|time| (time as u64) < began))
 }
 
 /// Whether `kept` still holds at `now`: younger than [`KEPT_FOR`], and
@@ -764,14 +804,7 @@ mod tests {
         crate::process::create_folder(&open, "D:P(A;OICI;FA;;;WD)").unwrap();
         let bare = program(&open, "bare.exe", None);
         assert_eq!(game_need(&bare, &sid, Some(&user)).unwrap(), Need::Nothing);
-        let manifest = admin_manifest(&bare, 0);
-        let status = std::process::Command::new("icacls")
-            .arg(&manifest)
-            .args(["/inheritance:r", "/grant:r", &format!("*{sid}:F")])
-            .stdout(std::process::Stdio::null())
-            .status()
-            .unwrap();
-        assert!(status.success(), "icacls failed");
+        admin_manifest_of(&bare, &sid, &user);
         assert_eq!(
             game_need(&bare, &sid, None).unwrap(),
             Need::Administrator(Why::Manifest)
@@ -784,6 +817,68 @@ mod tests {
             game_need(&bare, &sid, None).unwrap(),
             Need::Administrator(Why::Manifest)
         );
+    }
+
+    /// The manifest beside `exe`, asking for administrator rights, that only
+    /// this account by name (`sid`) may read: `user`, standing in for the
+    /// user, may not open it.
+    fn admin_manifest_of(exe: &Path, sid: &str, user: &OwnedHandle) -> PathBuf {
+        let manifest = admin_manifest(exe, 0);
+        let status = std::process::Command::new("icacls")
+            .arg(&manifest)
+            .args(["/inheritance:r", "/grant:r", &format!("*{sid}:F")])
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "icacls failed");
+        let opened = {
+            let _user = crate::user_folder::Impersonation::begin(Some(user)).unwrap();
+            std::fs::File::open(&manifest).map(drop)
+        };
+        assert!(
+            opened.is_err_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied),
+            "the stand-in for the user may open {}, so these tests can't tell whose reads it is: {}",
+            manifest.display(),
+            String::from_utf8_lossy(
+                &std::process::Command::new("icacls")
+                    .arg(&manifest)
+                    .output()
+                    .unwrap()
+                    .stdout
+            )
+        );
+        manifest
+    }
+
+    #[test]
+    fn each_read_of_the_games_files_acts_as_the_user_anew() {
+        // A read that leaves this thread as the host, as a loader that read
+        // the manifest a program embeds could: the one beside it is still
+        // read as the user.
+        fn then_as_the_host(exe: &Path) -> Result<Option<String>> {
+            let text = embedded_manifest(exe);
+            // SAFETY: ends this thread's impersonation; the guard ending it
+            // again does nothing.
+            unsafe { windows::Win32::Security::RevertToSelf() }.unwrap();
+            text
+        }
+        let sid = crate::process::own_sid().unwrap();
+        let user = crate::user_folder::tests::without_own_sid();
+        let root = tempfile::tempdir().unwrap();
+        let open = root.path().join("open");
+        crate::process::create_folder(&open, "D:P(A;OICI;FA;;;WD)").unwrap();
+        let bare = program(&open, "bare.exe", None);
+        admin_manifest_of(&bare, &sid, &user);
+        assert_eq!(
+            manifest_as(&bare, None, then_as_the_host).unwrap(),
+            Some(Need::Administrator(Why::Manifest))
+        );
+        let error = format!(
+            "{:#}",
+            manifest_as(&bare, Some(&user), then_as_the_host).unwrap_err()
+        );
+        assert!(error.contains("reading"), "{error}");
+        assert!(error.contains("bare.exe.manifest"), "{error}");
     }
 
     fn junction(target: &Path, link: &Path) {
@@ -903,8 +998,12 @@ mod tests {
             walk(folder)
         };
         let t0 = Instant::now();
-        let mut look =
-            |folder: &Path, at: Instant| kept(&walked, folder, None, at, &mut counted).unwrap();
+        // A clock tick after the change before it, as a launch is: a walk in
+        // the tick of a change is not kept.
+        let mut look = |folder: &Path, at: Instant| {
+            next_tick();
+            kept(&walked, folder, None, at, &mut counted).unwrap()
+        };
         for _ in 0..3 {
             assert_eq!(look(game.path(), t0), Need::Nothing);
         }
@@ -986,6 +1085,36 @@ mod tests {
     }
 
     #[test]
+    fn a_walk_that_saw_a_change_made_after_it_began_is_not_kept() {
+        let game = tempfile::tempdir().unwrap();
+        std::fs::write(game.path().join("game.exe"), b"MZ").unwrap();
+        let walked = Mutex::new(Walked::new());
+        let walks = std::cell::Cell::new(0);
+        // A file added as the walk begins: another change in that clock
+        // tick would leave the folder's change time as the walk saw it.
+        let mut changing = |folder: &Path| {
+            walks.set(walks.get() + 1);
+            std::fs::write(folder.join(format!("{}.dll", walks.get())), b"MZ").unwrap();
+            walk(folder)
+        };
+        let t0 = Instant::now();
+        next_tick();
+        kept(&walked, game.path(), None, t0, &mut changing).unwrap();
+        kept(&walked, game.path(), None, t0, &mut changing).unwrap();
+        assert_eq!(walks.get(), 2);
+        assert!(walked.lock().unwrap().is_empty());
+        // Nothing changed since the walk began: kept.
+        let mut counted = |folder: &Path| {
+            walks.set(walks.get() + 1);
+            walk(folder)
+        };
+        next_tick();
+        kept(&walked, game.path(), None, t0, &mut counted).unwrap();
+        kept(&walked, game.path(), None, t0, &mut counted).unwrap();
+        assert_eq!(walks.get(), 3);
+    }
+
+    #[test]
     fn a_link_the_walk_passed_keeps_the_answer_while_it_leads_where_it_did() {
         use crate::user_folder::tests::mount;
         let game = tempfile::tempdir().unwrap();
@@ -1003,7 +1132,10 @@ mod tests {
             walk(folder)
         };
         let t0 = Instant::now();
-        let mut look = |at: Instant| kept(&walked, game.path(), None, at, &mut counted).unwrap();
+        let mut look = |at: Instant| {
+            next_tick();
+            kept(&walked, game.path(), None, at, &mut counted).unwrap()
+        };
         // A second link into a folder already walked, then led elsewhere in
         // place: walked again.
         let again = game.path().join("again");
@@ -1047,7 +1179,10 @@ mod tests {
             walk(folder)
         };
         let t0 = Instant::now();
-        let mut look = |at: Instant| kept(&walked, game.path(), None, at, &mut counted).unwrap();
+        let mut look = |at: Instant| {
+            next_tick();
+            kept(&walked, game.path(), None, at, &mut counted).unwrap()
+        };
         assert_eq!(look(t0), Need::Nothing);
         assert_eq!(look(t0), Need::Nothing);
         assert_eq!(walks.get(), 1);

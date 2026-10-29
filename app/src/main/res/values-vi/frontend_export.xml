@@ -22,4 +22,11 @@
     <string name="frontend_setup_esde">Khởi động lại ES-DE để tải hệ thống Nightjar. Nếu đã bỏ qua thư mục cấu hình, hãy chọn trong lần xuất tiếp theo để thêm hệ thống và ảnh bìa đã lưu.</string>
     <string name="frontend_setup_daijisho">Tạo nền tảng cho tệp .art trong thư mục butterpollo đã xuất. Thêm trình phát Android với đối số intent bên dưới, rồi quét thư mục.</string>
     <string name="frontend_setup_pegasus">Dùng thư mục butterpollo đã xuất và các tệp .art. Đặt lệnh khởi chạy bên dưới trong siêu dữ liệu bộ sưu tập.</string>
+    <string name="frontend_sync_title">%1$s · Đang đồng bộ</string>
+    <string name="frontend_sync_stop">Dừng đồng bộ</string>
+    <string name="frontend_sync_summary">Đang đồng bộ: %1$s</string>
+    <string name="frontend_sync_note">%1$s tự cập nhật thư mục này khi trò chơi trên PC thay đổi.</string>
+    <string name="frontend_sync_failed">Trò chơi %1$s của %2$s không còn được đồng bộ: không truy cập được thư mục. Hãy chọn lại thư mục trong cài đặt của PC.</string>
+    <string name="frontend_sync_failed_message">Không truy cập được thư mục nên các trò chơi này không còn được đồng bộ. Hãy chọn lại thư mục hoặc dừng đồng bộ.</string>
+    <string name="frontend_sync_failed_summary">Đã dừng đồng bộ, không truy cập được thư mục: %1$s</string>
 </resources>

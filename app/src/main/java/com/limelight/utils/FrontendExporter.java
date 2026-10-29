@@ -10,6 +10,9 @@ import android.provider.DocumentsContract.Document;
 import com.limelight.AppView;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
+import com.limelight.grid.assets.CachedAppAssetLoader;
+import com.limelight.grid.assets.DiskAssetLoader;
+import com.limelight.grid.assets.NetworkAssetLoader;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
@@ -44,6 +47,16 @@ public final class FrontendExporter {
     private final Context context;
     private final ContentResolver resolver;
     private final ComputerDetails computer;
+    private CoverSource covers = new CoverSource() {
+        @Override
+        public File cover(NvApp app) {
+            return cachedCover(app);
+        }
+    };
+
+    interface CoverSource {
+        File cover(NvApp app);
+    }
 
     public FrontendExporter(Context context, ComputerDetails computer) {
         this.context = context.getApplicationContext();
@@ -73,8 +86,43 @@ public final class FrontendExporter {
         return apps;
     }
 
+    /** Fetches covers the app grid never loaded from the PC while exporting. */
+    public void downloadMissingCovers(final String uniqueId) {
+        covers = new CoverSource() {
+            @Override
+            public File cover(NvApp app) {
+                File cached = cachedCover(app);
+                if (cached.isFile()) return cached;
+                CachedAppAssetLoader.LoaderTuple tuple = new CachedAppAssetLoader.LoaderTuple(computer, app);
+                try (InputStream in = new NetworkAssetLoader(context, uniqueId).getBitmapStream(tuple)) {
+                    if (in != null) new DiskAssetLoader(context).populateCacheWithStream(tuple, in);
+                } catch (IOException | RuntimeException e) {
+                    // An offline PC only costs this export the cover; a later export fetches it.
+                    LimeLog.warning("Unable to fetch cover for " + app.getAppName() + ": " + e.getMessage());
+                }
+                return cached;
+            }
+        };
+    }
+
+    private File cachedCover(NvApp app) {
+        return CacheHelper.openPath(false, context.getCacheDir(), "boxart",
+                computer.uuid, app.getAssetCacheKey() + ".png");
+    }
+
     /** Returns the number of entries written. Either tree may be null except the ROMs one. */
     public int export(List<NvApp> apps, Uri romsTree, Uri esdeTree) throws IOException {
+        return export(apps, romsTree, esdeTree, new HashMap<String, String>());
+    }
+
+    /**
+     * Makes the folder match the PC's games: entries of this PC's games that are gone or hidden
+     * are removed with their covers. {@code ownCovers} names the covers Nightjar wrote (file name
+     * to asset key); only those are replaced when the art changes or removed, and it is updated
+     * in place. Covers the user placed are never touched.
+     */
+    public int export(List<NvApp> apps, Uri romsTree, Uri esdeTree, Map<String, String> ownCovers)
+            throws IOException {
         Uri romsRoot = treeRoot(romsTree);
         Uri systemDir = directory(romsTree, romsRoot, FrontendEntry.ES_SYSTEM_NAME);
         Map<String, Uri> existing = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -99,12 +147,24 @@ public final class FrontendExporter {
             Uri systemMedia = directory(esdeTree, media, FrontendEntry.ES_SYSTEM_NAME);
             coversDir = directory(esdeTree, systemMedia, "covers");
             existingCovers = listChildren(esdeTree, coversDir);
+            // A cover the user deleted is no longer ours to replace.
+            ownCovers.keySet().retainAll(existingCovers.keySet());
+        }
+
+        // Gone first, so a new game may take a removed game's file name.
+        for (String gone : staleEntries(entries, apps)) {
+            delete(existing.remove(gone));
+            entries.remove(gone);
+            String cover = baseName(gone) + ".png";
+            if (coversDir != null && ownCovers.remove(cover) != null) {
+                delete(existingCovers.remove(cover));
+            }
         }
 
         int written = 0;
         for (NvApp app : apps) {
             String fileName = entryFileName(app, existing, entries);
-            String base = fileName.substring(0, fileName.length() - FrontendEntry.EXTENSION.length());
+            String base = baseName(fileName);
             String contents = FrontendEntry.serialize(computer.uuid, computer.name,
                     app.getAppUuid(), app.getAppName(), app.getAppId());
             Map<String, String> values = FrontendEntry.parse(new StringReader(contents));
@@ -112,18 +172,59 @@ public final class FrontendExporter {
             if (entry == null) {
                 entry = createText(systemDir, ENTRY_MIME, fileName, contents);
                 existing.put(fileName, entry);
-            } else {
+            } else if (!values.equals(entries.get(fileName))) {
                 writeText(entry, contents);
             }
             entries.put(fileName, values);
             written++;
 
-            if (coversDir != null && !existingCovers.containsKey(base + ".png")) {
-                Uri cover = copyCover(app, coversDir, base + ".png");
-                if (cover != null) existingCovers.put(base + ".png", cover);
+            if (coversDir != null) {
+                String name = base + ".png";
+                String key = app.getAssetCacheKey();
+                Uri current = existingCovers.get(name);
+                boolean ours = ownCovers.containsKey(name);
+                if (current == null || (ours && !key.equals(ownCovers.get(name)))) {
+                    Uri cover = copyCover(app, coversDir, name, current);
+                    if (cover != null) {
+                        existingCovers.put(name, cover);
+                        ownCovers.put(name, key);
+                    }
+                }
             }
         }
         return written;
+    }
+
+    /** This PC's entries that match none of its current games: Nightjar wrote them, and they are stale. */
+    private List<String> staleEntries(Map<String, Map<String, String>> entries, List<NvApp> apps) {
+        List<String> stale = new ArrayList<>();
+        for (Map.Entry<String, Map<String, String>> entry : entries.entrySet()) {
+            if (!computer.uuid.equalsIgnoreCase(entry.getValue().get(FrontendEntry.KEY_HOST_UUID))) continue;
+            boolean current = false;
+            for (NvApp app : apps) {
+                if (FrontendEntry.matchesApp(entry.getValue(), computer.uuid, app.getAppUuid(), app.getAppId())) {
+                    current = true;
+                    break;
+                }
+            }
+            if (!current) stale.add(entry.getKey());
+        }
+        return stale;
+    }
+
+    private static String baseName(String entryFileName) {
+        return entryFileName.substring(0, entryFileName.length() - FrontendEntry.EXTENSION.length());
+    }
+
+    private void delete(Uri document) throws IOException {
+        if (document == null) return;
+        try {
+            if (!DocumentsContract.deleteDocument(resolver, document)) {
+                throw new IOException("Unable to remove " + document);
+            }
+        } catch (RuntimeException e) {
+            throw new IOException("Unable to remove " + document, e);
+        }
     }
 
     /**
@@ -197,16 +298,17 @@ public final class FrontendExporter {
         }
     }
 
-    private Uri copyCover(NvApp app, Uri coversDir, String name) {
-        File cached = CacheHelper.openPath(false, context.getCacheDir(), "boxart",
-                computer.uuid, app.getAssetCacheKey() + ".png");
-        if (!cached.isFile()) {
+    /** Writes the cover into {@code existing} when given (one of ours whose art changed), else a new file. */
+    private Uri copyCover(NvApp app, Uri coversDir, String name, Uri existing) {
+        File cached = covers.cover(app);
+        if (cached == null || !cached.isFile()) {
             return null;
         }
         Uri created = null;
+        Uri target = existing;
         try (InputStream in = new FileInputStream(cached)) {
-            created = create(coversDir, "image/png", name);
-            try (OutputStream out = resolver.openOutputStream(created, "wt")) {
+            if (target == null) target = created = create(coversDir, "image/png", name);
+            try (OutputStream out = resolver.openOutputStream(target, "wt")) {
                 if (out == null) throw new IOException("Unable to write cover");
                 byte[] buffer = new byte[16384];
                 int count;
@@ -219,7 +321,7 @@ public final class FrontendExporter {
             LimeLog.warning("Unable to copy cover for " + app.getAppName() + ": " + e.getMessage());
             return null;
         }
-        return created;
+        return target;
     }
 
     private Uri createText(Uri parent, String mime, String name, String contents) throws IOException {

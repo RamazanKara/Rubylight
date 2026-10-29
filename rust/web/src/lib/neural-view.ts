@@ -32,7 +32,7 @@ export const NOTICE = {
 
 /** What the panel says it is for. */
 export const ABOUT =
-  'Neural upscaling for games with DLSS, FSR or XeSS, through a third-party mod Rubylight puts in the game’s folder and takes out again. It needs about 2 GB of video memory.';
+  'Neural upscaling for games with DLSS, FSR or XeSS, through a third-party mod Rubylight puts in the game’s folder and takes out again.';
 
 export function neuralView(status: NeuralStatus): NeuralView {
   const job = status.job;

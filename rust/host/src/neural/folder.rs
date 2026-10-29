@@ -6,8 +6,11 @@
 //! `butterpollo.exe --neural-folder` with the signed-in user's token
 //! ([`super::run_folder`]). It writes a folder itself only when the user may
 //! not and nobody but administrators may change it ([`Writer::System`]).
-//! Neither changes a folder through a link: one planted in a library that
-//! other accounts share would send a copy or a delete elsewhere.
+//! Neither changes a folder through a link inside the game's folder: one
+//! planted in a library that other accounts share would send a copy or a
+//! delete elsewhere. Only the user's helper follows the game's folder
+//! itself when it is a link, as a game moved and linked back leaves it
+//! ([`followed`]); a SYSTEM host follows none.
 use butterpollo_core::neural::{
     self, MANIFEST, Manifest, Now, Occupant, PLACED_BY, PROXY_SOURCE, Placed, SETTINGS, SUMS,
 };

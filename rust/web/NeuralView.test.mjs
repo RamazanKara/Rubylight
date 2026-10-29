@@ -79,3 +79,9 @@ test('the notice says what it is, where it comes from and who does not stand beh
     readFileSync(new URL('./src/lib/neural-view.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(shown, /AMDNR|AMD-NR|3zwr1|OptiScaler/i);
 });
+
+test('the text claims nothing the host neither checks nor measured', () => {
+  for (const text of [ABOUT, ...Object.values(NOTICE).flat()].filter((t) => typeof t === 'string')) {
+    assert.doesNotMatch(text, /video memory|VRAM|\bGB of\b/i, text);
+  }
+});

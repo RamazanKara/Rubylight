@@ -390,6 +390,9 @@ pub struct Ready {
     client_display: Option<HostDisplay>,
     virtual_layout: Option<String>,
     exclusive_layout: bool,
+    /// One game window's stream (`Ready::window`): never kept for a
+    /// reconnect, whose launch prepares and checks the window again.
+    game_window: bool,
     /// The launch's policy, or the stream request's once `retime` raised it.
     framegen: Mutex<Policy>,
     mode_report: ModeReport,
@@ -465,6 +468,7 @@ impl Ready {
             client_display,
             virtual_layout,
             exclusive_layout,
+            game_window: false,
             framegen: Mutex::new(framegen),
             mode_report,
             turned,
@@ -547,6 +551,7 @@ impl Ready {
             client_display: None,
             virtual_layout: None,
             exclusive_layout: false,
+            game_window: true,
             framegen: Mutex::new(framegen),
             mode_report,
             turned: Arc::new(Mutex::new(None)),
@@ -597,6 +602,12 @@ impl Ready {
             display: self,
             _limiter: limiter,
         })
+    }
+    /// Whether the device's next stream may reuse this one. A game window's
+    /// is not kept: resuming would skip the window's check, and its warnings
+    /// would keep going to the first session.
+    pub fn kept_for_reconnect(&self) -> bool {
+        !self.game_window
     }
     pub fn matches(&self, stream: &Negotiated) -> bool {
         self.mode == stream_mode(stream)
@@ -2208,6 +2219,21 @@ pub fn prepare_stream(
     stream: &Negotiated,
     config: &Config,
 ) -> Result<StreamPreparation> {
+    if let Some(target) = configured_window(config)? {
+        configured_window_open(&target)?;
+        tracing::info!(target = %target, "streaming the configured window");
+        let name = target.to_string();
+        // The window is checked every 100 ms: closed or minimised, the stream
+        // says so while its capture fails (stream.rs gives up after 30 s).
+        return Ready::window(
+            h,
+            stream,
+            config,
+            name.clone(),
+            Box::new(move || configured_window_open(&target).map(|()| name.clone())),
+            launch.warnings.clone(),
+        );
+    }
     let prepare = |physical_only: bool| {
         butterpollo_windows::input::on_input_desktop(|| {
             Ready::prepare(Prepared::create(h, launch, stream, config, physical_only)?)
@@ -2223,6 +2249,35 @@ pub fn prepare_stream(
         }
         result => result,
     }
+}
+
+/// One window streamed instead of a display: `output_name` set to
+/// `window:<hwnd>/<pid>@<display>`, as the release harness does for its looped
+/// game clip (e2e.py --content). Like a co-op player's window, no display is
+/// prepared, changed or kept; a malformed target is refused, never streamed as
+/// a display, and a window that closes fails the capture loudly. The target
+/// must name the window's process: a handle written into the settings outlives
+/// its window, and Windows gives it to the next one.
+fn configured_window(
+    config: &Config,
+) -> Result<Option<butterpollo_windows::capture::WindowTarget>> {
+    let output = config.get("output_name", "").trim();
+    let target = butterpollo_windows::capture::WindowTarget::parse(output)
+        .context("output_name is neither a display nor a window:<hwnd>/<pid>@<display> target")?;
+    if let Some(target) = &target {
+        anyhow::ensure!(
+            target.process.is_some(),
+            "output_name names the window {target} without its process: use window:<hwnd>/<pid>@<display>"
+        );
+    }
+    Ok(target)
+}
+
+/// A closed, minimised, reused or misplaced configured window refuses the
+/// stream with the reason.
+fn configured_window_open(target: &butterpollo_windows::capture::WindowTarget) -> Result<()> {
+    butterpollo_windows::capture::check_window(target)
+        .with_context(|| format!("output_name names the window {target}, which cannot be streamed"))
 }
 
 /// Streams share the saved layout's restoration, like the arrangement and
@@ -2686,6 +2741,83 @@ pub(crate) mod tests {
         assert_eq!(stream_profile(true, None, false, calibration), None);
         assert_eq!(looked.get(), 2);
         assert_eq!(stream_profile(true, None, true, || None), None);
+    }
+
+    #[test]
+    fn a_window_output_streams_that_window_and_a_display_name_does_not() {
+        let window = Config::parse(r"output_name = window:0x2056c/812@\\.\DISPLAY1 ").unwrap();
+        assert_eq!(
+            configured_window(&window).unwrap(),
+            Some(
+                butterpollo_windows::capture::WindowTarget::new(0x2056c, r"\\.\DISPLAY1")
+                    .owned_by(812)
+            )
+        );
+        for display in ["", r"output_name=\\.\DISPLAY1", "output_name=Dell U2723QE"] {
+            assert_eq!(
+                configured_window(&Config::parse(display).unwrap()).unwrap(),
+                None,
+                "{display}"
+            );
+        }
+        // A malformed target is refused instead of being streamed as a display.
+        for broken in [
+            "output_name=window:garbage",
+            r"output_name=window:0@\\.\DISPLAY1",
+            "output_name=window:12@",
+            r"output_name=window:@\\.\DISPLAY1",
+            // Without its process a reused handle could show another window.
+            r"output_name=window:0x2056c@\\.\DISPLAY1",
+        ] {
+            let error = configured_window(&Config::parse(broken).unwrap()).unwrap_err();
+            assert!(
+                format!("{error:#}").contains("output_name"),
+                "{broken}: {error:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_closed_configured_window_refuses_the_stream_with_the_reason() {
+        // No window has this handle; a minimised, reused or misplaced one is
+        // refused the same way (capture::window's tests).
+        let gone = butterpollo_windows::capture::WindowTarget::new(0x7fff_fff0, r"\\.\DISPLAY1")
+            .owned_by(9);
+        let error = format!("{:#}", configured_window_open(&gone).unwrap_err());
+        assert!(
+            error.contains(r"output_name names the window window:2147483632/9@\\.\DISPLAY1"),
+            "{error}"
+        );
+        assert!(error.contains("closed"), "{error}");
+    }
+
+    #[test]
+    fn a_window_stream_is_not_kept_for_a_reconnect_and_a_display_stream_is() {
+        // Resuming a kept window stream would skip the window's check and
+        // send its warnings to the first session; the launch prepares again.
+        let fixture = crate::state::test_support::Fixture::new();
+        let config = Config::default();
+        let stream = Negotiated {
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            ..Default::default()
+        };
+        let window = Ready::window(
+            &fixture.host,
+            &stream,
+            &config,
+            r"window:5/9@\\.\DISPLAY1".into(),
+            Box::new(|| Ok(r"window:5/9@\\.\DISPLAY1".into())),
+            Default::default(),
+        )
+        .unwrap();
+        assert!(!window.display.kept_for_reconnect());
+        let prepared = test_prepared(&fixture.host);
+        let limiter =
+            limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
+        let display = Ready::prepare((prepared, limiter)).unwrap();
+        assert!(display.display.kept_for_reconnect());
     }
 
     #[test]

@@ -98,11 +98,24 @@ def capture_integrity(log, requested_capture=None, requested_source=None):
                 if requested_capture is not None and requested_source is not None else 'unverified'), failures
 
 
+CONTENT_MAX_GAP_MS = 200
+
+
 def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, recovery=0, host_log='',
-             requested_capture=None, requested_source=None, claim_trace=True):
+             requested_capture=None, requested_source=None, claim_trace=True, content=None):
     """claim_trace: the host ran with pacing=trace. Without it (a diagnostic
     run's own RUST_LOG) the claim check is reported as not measured instead of
-    failing as missing."""
+    failing as missing.
+
+    content: the player's record of a game clip streamed instead of the motion
+    strip (e2e.py --content). A game picture carries no strip or barcode, so
+    unique_fps, motion_coverage and picture age cannot be measured: they are
+    listed in not_applicable instead of failing as missing or passing unseen,
+    and PyroWave, which requires picture age, is refused. The long-interval
+    and p99 gap limits are not applicable either (frame_gap_limits): the
+    clip's player adds jitter of its own, so content runs compare A/B arms and
+    the gap numbers stay in the result; a gap over CONTENT_MAX_GAP_MS still
+    fails as a freeze. A player that fell behind the clip fails the case."""
     def find(pattern, cast=float):
         match = re.search(pattern, client, re.MULTILINE)
         return cast(match.group(1)) if match else None
@@ -165,6 +178,19 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
                           host_static_repeats=sum(choice == 'static_repeat' for *_, choice in encodes)
                           if encodes else None)
     failures = []
+    not_applicable = []
+    if content is not None:
+        # The player's own presents add delivery jitter the strip has not: 30 s HEVC arms
+        # alternating with the strip had 18-22 long intervals and p99 25.0-25.4 ms against the
+        # strip's 0 and 18.1-20.9 ms. The gaps are reported for A/B comparisons, not judged.
+        not_applicable = ['unique_fps', 'motion_coverage', 'picture_age', 'frame_gap_limits']
+        for key in ('unique_fps', 'motion_coverage'):
+            result.pop(key)
+        result['content'] = content
+        if pyrowave or recovery:
+            failures.append('a game clip cannot measure PyroWave picture age or keyframe requests; use the motion strip')
+        if not content.get('passed'):
+            failures.append(f"the clip's player did not keep up: {content.get('error') or content}")
     missing = [key for key, value in result.items() if value is None]
     if recovery and not claim_trace:
         result.update(host_claims=None, host_pictures_encoded_again=None, host_static_repeats=None)
@@ -196,11 +222,14 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
             failures.append('steady frame rate is outside 97-103% of the requested rate')
         # A requested keyframe is several frames' worth of data and encode
         # time; one late frame per request is the keyframe's own cost.
-        if (result['long_intervals'] > result['steady_frames'] * .01 + recovery
+        if content is None and (result['long_intervals'] > result['steady_frames'] * .01 + recovery
                 or (not recovery and result['interval_p99_ms'] > 1500 / fps)
                 or result['interval_max_ms'] > 3000 / fps):
             failures.append('frame delivery has excessive gaps')
-        if result['motion_coverage'] < .95 or result['unique_fps'] < fps * .9:
+        # The player's jitter stayed under 30 ms (max 29.7 ms at 60 FPS); a frozen stream does not.
+        if content is not None and result['interval_max_ms'] > CONTENT_MAX_GAP_MS:
+            failures.append(f'frame delivery froze: a gap over {CONTENT_MAX_GAP_MS} ms')
+        if content is None and (result['motion_coverage'] < .95 or result['unique_fps'] < fps * .9):
             failures.append('moving pictures were missing or repeated too often')
         if (not result['audio_packets'] or not result['audio_tone_blocks']
                 or result['audio_peak'] <= .01 or result['audio_continuous'] != 1):
@@ -235,5 +264,7 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
                  if re.search(r'^AUDIO_RENDER\b', tone_log, re.MULTILINE) else None)
     if result['audio_continuous'] == 0 and underruns:
         failures.append(f'test tone source also ran dry {underruns} time(s); CPU contention can interrupt the fixture')
+    if not_applicable:
+        result['not_applicable'] = not_applicable
     result.update(audio_source_underruns=underruns, passed=not failures, failures=failures)
     return result

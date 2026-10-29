@@ -33,6 +33,17 @@ hitch:90:100), instead of twice the stream rate or the stream rate; the cadence 
 --skip-first SECONDS: the warm-up left out of the --record timing table.
 --port PORT: the host's HTTP port (default 48523, inside the 48518-48544 block); another runner takes another block.
 
+--content CLIP: a raw Y4M game clip (demo_content.py) instead of the strip, for repeatable A/Bs on real
+content: ffplay shows it in a borderless window of the stream's size behind the user's windows, the host
+captures only that window, and the clip plays from its start once the host's capture opens. The
+mode defaults to the clip's. unique_fps, motion_coverage and picture age need the strip and are listed in
+not_applicable, as are the long-interval and p99 gap limits (the player adds jitter: content runs compare
+A/B arms, the gap numbers stay in the result); a gap over 200 ms still fails as a freeze. The tone check
+stays (audio_probe is independent of the picture); result.json's content has the player's CPU and the share
+of real time it kept, under 99 % failing the case. Needs a host that takes window targets in output_name
+(after 3.0.0-rc.5).
+--content-at X,Y: the clip window's corner (default 0,0); --ffplay: the player (default ffplay on PATH).
+
 --motion-at-rate: the same strip, minimum frame rate and trace without
 requests, the control for --recovery. BUTTERPOLLO_E2E_RUST_LOG replaces the
 host's RUST_LOG; without pacing=trace in it the claim check is reported as
@@ -44,6 +55,7 @@ and exits with EXIT_GPU_HANG, its result.json naming the evidence in gpu_hang.
 import argparse, json, pathlib, subprocess, sys, time
 import xml.etree.ElementTree as ET
 import requests
+import demo_content
 from e2e_result import evaluate, host_frames
 from e2e_host import installed_idle, prepare, receiver_environment
 from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
@@ -72,6 +84,10 @@ parser.add_argument('--port', type=int, default=48523, help="the host's HTTP por
 parser.add_argument('--skip-first', type=float, default=0, metavar='SECONDS', help='warm-up left out of the --record timing table')
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
+parser.add_argument('--content', type=pathlib.Path, metavar='CLIP',
+                    help="a raw Y4M game clip, looped in ffplay's window, as the picture instead of the motion strip (demo_content.py)")
+parser.add_argument('--content-at', default='0,0', metavar='X,Y', help="the clip window's top-left corner on the desktop")
+parser.add_argument('--ffplay', default='ffplay', help='the ffplay that plays --content')
 parser.add_argument('--quiet-wait', type=pathlib.Path, metavar='JSON',
                     help="machine_load.py's verdict before this stream (check.ps1), recorded as quiet_wait")
 args = parser.parse_args()
@@ -87,6 +103,12 @@ interop = pathlib.Path(__file__).resolve().parents[1] / 'tests' / 'interop.py'
 
 installed_idle()
 plain = requests.Session(); plain.trust_env = False
+if args.content:
+    assert not (at_rate or args.motion_script or args.noise_height), '--content replaces the motion strip'
+    clip = demo_content.read_header(args.content)
+    args.mode = args.mode or f"{clip['width']}x{clip['height']}x{round(clip['fps'])}"
+    refused = demo_content.check_clip(clip, *map(int, args.mode.split('x')[:2]), float(args.mode.split('x')[2]))
+    assert not refused, refused
 
 name = args.name or (args.codec + ('-vrr' if args.vrr else '')
                      + ('-recovery' if args.recovery else '-at-rate' if args.motion_at_rate else ''))
@@ -125,7 +147,16 @@ def watch():
     if evidence: raise Hang(evidence)
 hang = None
 stream_load = None
+player = content = None
 try:
+    if args.content:
+        # The host captures only the clip's window (output_name = window:<hwnd>/<pid>@<display>),
+        # which waits paused at the clip's start behind the user's windows.
+        left, top = map(int, args.content_at.split(','))
+        player = demo_content.Player(args.ffplay, args.content, int(width), int(height), left, top, case / 'player.log')
+        conf = profile / 'sunshine.conf'
+        lines = [line for line in conf.read_text().splitlines() if line.split('=', 1)[0].strip() != 'output_name']
+        conf.write_text('\n'.join(lines + [f"output_name = {player.target(display['display_name'])}", '']))
     host_env = dict(env, BUTTERPOLLO_TIMING_RECORD=str(case / 'record')) if args.record else env
     if args.record:
         (case / 'record').mkdir()
@@ -145,10 +176,14 @@ try:
     tone = spawn([str(audio_probe), fixture_seconds, sink['id'], '--render-only'], 'tone.log', env=env)
     motion_rate = args.motion_script or (int(fps) if at_rate else int(fps) * 2)
     strip = [str(args.noise_height), 'noise'] if args.noise_height else ['128']
-    motion = spawn([str(motion_probe), display['display_name'], fixture_seconds, str(case / 'motion.json'), str(motion_rate), *strip], 'motion.log', env=env)
+    motion = None if player else spawn([str(motion_probe), display['display_name'], fixture_seconds, str(case / 'motion.json'), str(motion_rate), *strip], 'motion.log', env=env)
     time.sleep(.5)
-    assert tone.poll() is None and motion.poll() is None, 'audio or motion fixture exited'
+    assert tone.poll() is None and (motion is None or motion.poll() is None), 'audio or motion fixture exited'
     client_env = receiver_environment(env, display, args.mode, args.client, args.vrr, args.port)
+    if player:
+        # A game picture has no motion strip or barcode; the receiver still requires a detailed picture.
+        for key in [key for key in client_env if key.startswith('BUTTERPOLLO_TEST_BARCODE')] + ['BUTTERPOLLO_TEST_REQUIRE_MOTION']:
+            client_env.pop(key, None)
     if args.motion_script:
         # A script below the stream rate delivers fewer pictures by design; the matrix reads the timing table.
         client_env['BUTTERPOLLO_TEST_MIN_FPS'] = '1'
@@ -165,14 +200,23 @@ try:
     # Other work on the machine starves the fixtures: a timing failure under
     # load is told apart by the CPU the stream ran beside (its own included).
     load_start = snapshot()
+    # Every run streams the clip from its start: it plays once the stream's capture opens.
+    opened = demo_content.stream_starts(log.read_text(errors='replace')) if player else 0
     receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'], 'client.log', env=client_env)
     deadline = time.monotonic() + int(args.seconds) + 120
     while receiver.poll() is None:
         watch()
         if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
+        if player and not player.started:
+            if demo_content.stream_starts(log.read_text(errors='replace')) > opened:
+                player.resume()
+            time.sleep(.05)
+            continue
         time.sleep(.25)
     rc = receiver.returncode
     stream_load = load_since(load_start)
+    if player:
+        content = dict(clip=str(args.content), **player.verdict())
     if args.motion_script:
         motion.wait(timeout=MOTION_SCRIPT_EXTRA + 30)
     if args.record:
@@ -190,6 +234,8 @@ finally:
             try: p.wait(timeout=120)
             except subprocess.TimeoutExpired: print(f'{name}: process {p.pid} did not exit', file=sys.stderr)
         f.close()
+    if player:
+        player.stop()
 
 # A watchdog report can land after the receiver gave up on a frozen stream.
 hang = hang or guard.check()
@@ -202,14 +248,14 @@ if hang:
 client = (case / 'client.log').read_text(errors='replace')
 config = dict(line.split('=', 1) for line in (profile / 'sunshine.conf').read_text().splitlines() if '=' in line)
 config = {key.strip(): value.strip() for key, value in config.items()}
-requested_source = dict(width=display['width'], height=display['height'], refresh_hz=display['refresh_hz'],
-                        pixel='RgbaF16' if display['hdr'] else 'Bgra8')
+requested_source = dict(width=int(width) if player else display['width'], height=int(height) if player else display['height'],
+                        refresh_hz=display['refresh_hz'], pixel='RgbaF16' if display['hdr'] else 'Bgra8')
 result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.recovery,
                   requested_capture=config['capture'], requested_source=requested_source,
                   host_log=log.read_text(errors='replace') if log.exists() else '',
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),
-                  claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
+                  claim_trace='pacing=trace' in env.get('RUST_LOG', ''), content=content)
 result = dict(case=name, **result, machine_load=stream_load, quiet_wait=quiet_wait, **audio_sink)
 if args.launch_fps:
     result['launch_fps'] = args.launch_fps

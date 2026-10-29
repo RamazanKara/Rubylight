@@ -2031,6 +2031,8 @@ mod tests {
         use super::super::elevation;
         let t0 = Instant::now();
         let game = tempfile::tempdir().unwrap();
+        // A walk in the clock tick the folder was made in is not kept.
+        elevation::next_tick();
         elevation::folder_need(game.path(), None).unwrap();
         assert!(elevation::is_kept(game.path()));
         let (screen, probe) = (screen(), Probe::default());

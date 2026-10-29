@@ -752,15 +752,19 @@ impl RunningApp {
         }
         self.foreground_check = None;
         let ForegroundCheck { pid, program, .. } = check;
-        if !verdict.foreign {
-            self.not_foreign.insert(pid, program);
-            return;
-        }
+        let created = match verdict {
+            ForegroundVerdict::Foreign(created) => created,
+            ForegroundVerdict::NotForeign => {
+                self.not_foreign.insert(pid, program);
+                return;
+            }
+            ForegroundVerdict::Retry => return,
+        };
         if self.foreign.len() >= 8 || self.foreign.contains_key(&pid) {
             return;
         }
         tracing::info!(app = %self.name, program, pid, "game started by another program; quitting the app closes it");
-        self.foreign.insert(pid, verdict.created);
+        self.foreign.insert(pid, created);
         self.game_seen = true;
     }
     /// A check that could not be started: the program is looked at again.
@@ -866,9 +870,15 @@ pub struct ForegroundCheck {
     launched_at: u64,
     generation: String,
 }
-pub struct ForegroundVerdict {
-    created: u64,
-    foreign: bool,
+#[derive(Debug, PartialEq, Eq)]
+pub enum ForegroundVerdict {
+    /// The process (pid → creation time) is the app's game.
+    Foreign(u64),
+    /// It is not: never closed, not looked at again.
+    NotForeign,
+    /// The program is gone, or its id now names another process: nothing is
+    /// recorded, and the next look sees whatever holds the id then.
+    Retry,
 }
 impl ForegroundCheck {
     pub fn run(&self) -> ForegroundVerdict {
@@ -877,17 +887,42 @@ impl ForegroundCheck {
             butterpollo_windows::process::processes,
         )
     }
+    /// The process is looked at only as the program the window showed: by the
+    /// time this runs, its id can name an unrelated process, which quitting
+    /// must never close.
     fn run_with(
         &self,
         creation_time: impl FnOnce(u32) -> u64,
         processes: impl FnOnce() -> Result<Vec<butterpollo_core::steam::Process>>,
     ) -> ForegroundVerdict {
         let created = creation_time(self.pid);
+        if created == 0 {
+            return ForegroundVerdict::Retry;
+        }
+        let Ok(processes) = processes() else {
+            return ForegroundVerdict::Retry;
+        };
+        let name = self
+            .program
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(&self.program);
+        if !processes.iter().any(|process| {
+            process.pid == self.pid
+                && process.started == created
+                && process.name.eq_ignore_ascii_case(name)
+        }) {
+            return ForegroundVerdict::Retry;
+        }
         // A program the user opened on the streamed display (its parent is
         // explorer.exe) is theirs, not the app's.
-        let foreign = foreign_game(&self.program, created, self.launched_at)
-            && !processes().is_ok_and(|processes| started_from_desktop(self.pid, &processes));
-        ForegroundVerdict { created, foreign }
+        if foreign_game(&self.program, created, self.launched_at)
+            && !started_from_desktop(self.pid, &processes)
+        {
+            ForegroundVerdict::Foreign(created)
+        } else {
+            ForegroundVerdict::NotForeign
+        }
     }
 }
 /// Whether a fullscreen `program`, created at `created`, is a game a store
@@ -1594,13 +1629,81 @@ mod tests {
         let mut app = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
         app.launches = true;
         let check = app.observe_foreground(30, "game.exe").unwrap();
-        let verdict = check.run_with(|_| app.launched_at + 1, || Ok(vec![]));
+        let created = app.launched_at + 1;
+        let verdict = check.run_with(
+            |_| created,
+            || {
+                Ok(vec![butterpollo_core::steam::Process {
+                    pid: 30,
+                    parent: 40,
+                    started: created,
+                    name: "game.exe".into(),
+                }])
+            },
+        );
+        assert_eq!(verdict, ForegroundVerdict::Foreign(created));
         let mut successor = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
         successor.launches = true;
         successor.foreground_check = Some(77);
         successor.finish_foreground(check, verdict);
         assert!(successor.foreign.is_empty());
         assert_eq!(successor.foreground_check, Some(77));
+    }
+    #[test]
+    fn a_foreground_check_records_nothing_for_a_program_gone_or_replaced_under_its_id() {
+        use butterpollo_core::steam::Process;
+        let mut app = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        app.launches = true;
+        let created = app.launched_at + 5;
+        let list = |name: &str, started| {
+            let name = name.to_owned();
+            move || {
+                Ok(vec![
+                    Process {
+                        pid: 1,
+                        parent: 0,
+                        started: 1,
+                        name: "launcher.exe".into(),
+                    },
+                    Process {
+                        pid: 30,
+                        parent: 1,
+                        started,
+                        name,
+                    },
+                ])
+            }
+        };
+        type List = Box<dyn FnOnce() -> Result<Vec<Process>>>;
+        let cases: [(&str, u64, List); 5] = [
+            // Gone before the check ran: no creation time.
+            ("gone", 0, Box::new(list("game.exe", created))),
+            // Gone from the list.
+            ("missing", created, Box::new(|| Ok(vec![]))),
+            // The id now names an unrelated program, which quitting must not close.
+            ("reused", created, Box::new(list("notepad.exe", created))),
+            // The same name, a later process under a reused id.
+            (
+                "restarted",
+                created,
+                Box::new(list("game.exe", created + 1)),
+            ),
+            ("unreadable", created, Box::new(|| anyhow::bail!("no list"))),
+        ];
+        for (case, time, processes) in cases {
+            let check = app.observe_foreground(30, r"C:\Games\game.exe").unwrap();
+            let verdict = check.run_with(|_| time, processes);
+            assert_eq!(verdict, ForegroundVerdict::Retry, "{case}");
+            app.finish_foreground(check, verdict);
+            assert!(app.foreign.is_empty(), "{case}");
+            assert!(app.not_foreign.is_empty(), "{case}");
+            assert_eq!(app.foreground_check, None, "{case}");
+        }
+        // The program itself, still running under its id, is the game.
+        let check = app.observe_foreground(30, r"C:\Games\game.exe").unwrap();
+        let verdict = check.run_with(|_| created, list("GAME.EXE", created));
+        app.finish_foreground(check, verdict);
+        assert_eq!(app.foreign.get(&30), Some(&created));
     }
     #[test]
     fn device_commands_in_the_formats_apollo_writes_are_accepted() {

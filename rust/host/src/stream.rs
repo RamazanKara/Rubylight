@@ -5730,11 +5730,22 @@ mod tests {
         // A "game" started after the launch by a program other than the
         // desktop (this test), as a store client starts one.
         let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-        let mut game = std::process::Command::new(format!(r"{root}\System32\PING.EXE"))
-            .args(["-n", "30", "127.0.0.1"])
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
+        let program = format!(r"{root}\System32\PING.EXE");
+        /// Ends the stand-in game however the test ends.
+        struct Game(std::process::Child);
+        impl Drop for Game {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let game = Game(
+            std::process::Command::new(&program)
+                .args(["-n", "30", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
         let game_up = || {
             f.host
                 .current_app
@@ -5745,21 +5756,20 @@ mod tests {
                 .launch_progress()
                 .map(|(up, _)| up)
         };
-        // The look hands the check off and returns: the process list is read
-        // and the result applied on the check's own thread.
-        assert!(observe_foreground_game(
-            &f.host,
-            "client",
-            "game.exe",
-            game.id()
-        ));
+        // Each look hands a check off and returns, as the stream's once-a-second
+        // look does: the process list is read and the result applied on the
+        // check's own thread.
         let deadline = Instant::now() + Duration::from_secs(10);
         while game_up() != Some(true) {
             assert!(Instant::now() < deadline, "the check never found the game");
+            assert!(observe_foreground_game(
+                &f.host,
+                "client",
+                &program,
+                game.0.id()
+            ));
             thread::sleep(Duration::from_millis(5));
         }
-        let _ = game.kill();
-        let _ = game.wait();
     }
     #[test]
     fn input_skips_controller_cleanup_while_another_thread_holds_the_app() {

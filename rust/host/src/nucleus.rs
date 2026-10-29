@@ -1269,9 +1269,20 @@ impl Registry {
                 },
                 // Shown as a background launch would answer it: one without
                 // the user's added game streams with ours.
-                Listing::Missing(
-                    missing @ (Missing::NoHandler { .. } | Missing::NotAdded { .. }),
-                ) => GameStatus::Missing(self.own_status(app).unwrap_or(missing)),
+                Listing::Missing(missing @ Missing::NoHandler { .. }) => {
+                    GameStatus::Missing(self.own_status(app).unwrap_or(missing))
+                }
+                // Adding the game makes it ready, for co-op and background
+                // streams alike, through the hub handler: only what adding
+                // can't fix (no .exe, one not on this PC) says otherwise.
+                Listing::Missing(missing @ Missing::NotAdded { .. }) => {
+                    GameStatus::Missing(match self.own_status(app) {
+                        Some(
+                            refused @ (Missing::NoExecutable { .. } | Missing::Refused { .. }),
+                        ) => refused,
+                        _ => missing,
+                    })
+                }
                 Listing::Missing(missing) => GameStatus::Missing(missing),
             })
             .collect();
@@ -2691,9 +2702,9 @@ mod tests {
     }
 
     #[test]
-    fn a_hub_handler_without_the_added_game_shows_the_background_answer() {
-        // A background stream of a game the user never added streams with
-        // ours, or is refused: the console showed only "not added".
+    fn a_hub_handler_without_the_added_game_says_to_add_it_unless_that_cant_help() {
+        // Adding the game makes the hub handler start it, anti-cheat and
+        // all: the console says to add it. A game that isn't there says so.
         let (registry, pc, _) = setup();
         pc.catalog.lock().unwrap().games.clear();
         registry.use_pc(pc.clone());
@@ -2707,7 +2718,24 @@ mod tests {
         )];
         assert!(matches!(
             &registry.games(&apps, &Config::default()).unwrap().unwrap()[0],
-            GameStatus::Missing(Missing::AntiCheat { anti_cheat, .. }) if anti_cheat == "Easy Anti-Cheat"
+            GameStatus::Missing(Missing::NotAdded { .. })
+        ));
+        // Not on this PC, or no .exe named: adding can't help.
+        let gone = [
+            app(
+                "Portal 2",
+                &format!("\"{}\"", dir.join(r"Gone\portal2.exe").display()),
+            ),
+            app("Portal 2", "portal2.exe"),
+        ];
+        let statuses = registry.games(&gone, &Config::default()).unwrap().unwrap();
+        assert!(matches!(
+            &statuses[0],
+            GameStatus::Missing(Missing::Refused { reason }) if reason.contains("is not on this PC")
+        ));
+        assert!(matches!(
+            &statuses[1],
+            GameStatus::Missing(Missing::NoExecutable { .. })
         ));
         // A game ours streams keeps the hint to add it for co-op.
         let other = dir.join("Clean");

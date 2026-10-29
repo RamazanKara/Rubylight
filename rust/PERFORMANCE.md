@@ -60,7 +60,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 ## October 29: Nightjar desktop on a VRR panel and a fixed one
 
-Until now the VRR evidence was the host's: capture under the VRR hint and arrival at the client. This is the first measurement of how Nightjar desktop shows a VRR stream. VRR is on by default and presents on decode with tearing allowed. On a display that keeps its own refresh, that tears. Nightjar now runs the beam race's display check (the scan line around each present) on every VRR stream that tears in fullscreen. A display that scans at its own rate gets V-Sync.
+Until now the VRR evidence was the host's: capture under the VRR hint and arrival at the client. This is the first measurement of how Nightjar desktop shows a VRR stream. VRR is on by default and presents on decode with tearing allowed. On a display that keeps its own refresh, that tears. Nightjar now runs the beam race's display check (the scan line around each present) on every VRR stream that tears in fullscreen. On Windows, a display that scans at its own rate gets V-Sync when the stream runs below about 70% of that rate. Only 60 fps was measured; a faster stream on such a display still tears, because its presents leave a VRR display no idle time either.
 
 Fixture: this PC (RX 7900 XT, Samsung G9 5120x1440, FreeSync 48-240 Hz) ran an isolated 3.0.0-rc.5 test host on 127.0.0.1 through `client/scripts/pyrowave-loopback.ps1`, with the scrolling content of `pyrowave-anim.ps1`. Nightjar desktop ran from `C:\tests\nightjar\a` in borderless fullscreen (branch build `f3d2b5393`), PyroWave 1080p60 at 399 Mbps with GPU decode, and PresentMon 2.6.0 on the client. Each arm got one 60 s leg; the first 300 frames are dropped.
 

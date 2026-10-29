@@ -47,6 +47,7 @@ import requests
 from e2e_result import evaluate, host_frames
 from e2e_host import installed_idle, prepare, receiver_environment
 from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
+from machine_load import load_since, snapshot
 from timing_report import case_report, wait_for_footer
 
 parser = argparse.ArgumentParser()
@@ -118,6 +119,7 @@ def watch():
     evidence = guard.check()
     if evidence: raise Hang(evidence)
 hang = None
+stream_load = None
 try:
     host_env = dict(env, BUTTERPOLLO_TIMING_RECORD=str(case / 'record')) if args.record else env
     if args.record:
@@ -155,6 +157,9 @@ try:
         client_env.update(BUTTERPOLLO_TEST_IDR_PROBE=str(args.recovery),
                           BUTTERPOLLO_TEST_IDR_PROBE_INTERVAL_MS=str(RECOVERY_INTERVAL_MS))
     (case / 'receiver').mkdir()
+    # Other work on the machine starves the fixtures: a timing failure under
+    # load is told apart by the CPU the stream ran beside (its own included).
+    load_start = snapshot()
     receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'], 'client.log', env=client_env)
     deadline = time.monotonic() + int(args.seconds) + 120
     while receiver.poll() is None:
@@ -162,6 +167,7 @@ try:
         if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
         time.sleep(.25)
     rc = receiver.returncode
+    stream_load = load_since(load_start)
     if args.motion_script:
         motion.wait(timeout=MOTION_SCRIPT_EXTRA + 30)
     if args.record:
@@ -199,7 +205,7 @@ result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.rec
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),
                   claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
-result = dict(case=name, **result)
+result = dict(case=name, **result, machine_load=stream_load)
 if args.launch_fps:
     result['launch_fps'] = args.launch_fps
 if args.record:

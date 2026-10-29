@@ -20,5 +20,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $python = if ($env:BUTTERPOLLO_TEST_PYTHON) { $env:BUTTERPOLLO_TEST_PYTHON } else { 'python' }
+# The load cases add their own GPU load; other sessions' builds would add CPU load.
+& $python "$PSScriptRoot/machine_load.py"
 & $python "$PSScriptRoot/soak.py" --mode $Mode --package $Package --client $Client --gpu-load $GpuLoad --work $Work @(if ($Only) { '--only', $Only }) @($Config | ForEach-Object { '--config', $_ })
 exit $LASTEXITCODE

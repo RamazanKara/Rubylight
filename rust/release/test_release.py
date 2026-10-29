@@ -799,5 +799,71 @@ class ReceiverPath(unittest.TestCase):
                              os.pathsep.join([str(msys), str(system)]))
 
 
+class MachineLoad(unittest.TestCase):
+    """check.ps1 and soak.ps1 wait for a quiet CPU: rc.4's check failed twice under other lanes' builds."""
+
+    def setUp(self):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import machine_load
+        self.load = machine_load
+
+    def test_cpu_counts_kernel_and_user_time_less_idle(self):
+        # GetSystemTimes' kernel time includes idle time.
+        self.assertAlmostEqual(self.load.cpu_percent((100, 200, 50), (175, 300, 75)), 40.0)
+        self.assertEqual(self.load.cpu_percent((1, 2, 3), (1, 2, 3)), 0.0)
+
+    def test_only_working_or_new_build_tools_count(self):
+        second = 10_000_000  # 100 ns units
+        before = {1: ('java', 50 * second), 2: ('rustc', 0), 3: ('cargo', None), 9: ('ninja', 0)}
+        after = {1: ('java', 50 * second + 1000),   # an idle Gradle daemon: stays for hours
+                 2: ('rustc', 2 * second),          # compiling
+                 3: ('cargo', 5),                   # times unreadable before
+                 4: ('gradle', 0),                  # started in the window
+                 9: ('java', 0)}                    # the pid was reused
+        self.assertEqual(self.load.active_tools(before, after, 5), ['cargo', 'gradle', 'java', 'rustc'])
+        self.assertEqual(self.load.active_tools(before, {1: after[1]}, 5), [])
+
+    def wait(self, loads, timeout=60):
+        loads, said, now = iter(loads), [], [0.0]
+        def measure(window):
+            now[0] += window
+            return dict(next(loads), seconds=window)
+        return self.load.wait_quiet(30, 5, timeout, measure=measure, clock=lambda: now[0], say=said.append), said
+
+    def test_waits_for_a_quiet_window_without_build_tools(self):
+        result, said = self.wait([dict(cpu_percent=95.0, busy_tools=['rustc']), dict(cpu_percent=12.0, busy_tools=['java']),
+                                  dict(cpu_percent=12.0, busy_tools=[])])
+        self.assertTrue(result['quiet'])
+        self.assertEqual((result['cpu_percent'], result['waited_seconds']), (12.0, 15))
+        self.assertEqual(len(said), 2)
+        self.assertFalse(any('WARNING' in line for line in said))
+
+    def test_a_machine_that_stays_busy_is_recorded_not_hidden(self):
+        result, said = self.wait([dict(cpu_percent=80.0, busy_tools=[])] * 3, timeout=15)
+        self.assertFalse(result['quiet'])
+        self.assertEqual((result['cpu_percent'], result['waited_seconds']), (80.0, 15))
+        self.assertIn('WARNING', said[-1])
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows CPU counters')
+    def test_reads_this_machine(self):
+        start = self.load.snapshot()
+        load = self.load.load_since(start)
+        self.assertTrue(0 <= load['cpu_percent'] <= 100, load)
+        self.assertIsInstance(load['busy_tools'], list)
+
+    def test_the_release_scripts_wait_and_take_the_build_lock_only_if_present(self):
+        check = (ROOT / 'rust/release/check.ps1').read_text()
+        soak = (ROOT / 'rust/release/soak.ps1').read_text()
+        self.assertIn('function Wait-Quiet { & $python "$tools\\machine_load.py" }', check)
+        stream = check.index('Step "stream $case"')
+        first, retry = (check.index('& $python "$tools\\e2e.py" @stream', stream),
+                        check.rindex('& $python "$tools\\e2e.py" @stream'))
+        self.assertIn('Exclusive {\n        Wait-Quiet\n', check[stream:first])
+        self.assertIn('Wait-Quiet', check[check.index('} catch {', first):retry])
+        self.assertIn('$locked = Test-Path -LiteralPath $BuildLockScript', check)
+        self.assertIn('if ($locked) { Exit-BuildLock }', check)
+        self.assertLess(soak.index('machine_load.py'), soak.index('soak.py'))
+
+
 if __name__ == '__main__':
     unittest.main()

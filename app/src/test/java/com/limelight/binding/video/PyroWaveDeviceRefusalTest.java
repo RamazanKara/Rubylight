@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Application;
 
 import com.limelight.R;
+import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 
 import org.junit.Test;
@@ -35,8 +36,28 @@ public class PyroWaveDeviceRefusalTest {
             assertFalse(renderer.isPyroWaveSupported());
             int reason = PyroWaveDecoderRenderer.neverAvailableReason();
             assertTrue(reason == R.string.pyrowave_decoder_unavailable || reason == R.string.pyrowave_needs_64_bit);
-            assertEquals(reason, renderer.getPyroWaveUnavailableReason());
+            assertEquals(reason, (int) ReflectionHelpers.getField(renderer, "pyroWaveUnavailableReason"));
         }
+    }
+
+    @Test
+    public void theDropReasonBlamesThePcOnlyWhenItsCodecsLackPyroWave() {
+        int hdr = MoonBridge.VIDEO_FORMAT_PYROWAVE_MAIN10;
+        int sdr = MoonBridge.VIDEO_FORMAT_PYROWAVE;
+        // This device cannot run it: its reason, whatever the PC offers.
+        assertEquals(R.string.pyrowave_needs_64_bit, MediaCodecDecoderRenderer.pyroWaveDropReason(true,
+                R.string.pyrowave_needs_64_bit, true, 0, 0));
+        // The device can and the PC's codecs have none.
+        assertEquals(MediaCodecDecoderRenderer.PYROWAVE_NOT_OFFERED,
+                MediaCodecDecoderRenderer.pyroWaveDropReason(true, 0, false, 0, 0));
+        // Both offer it and no surface could be set up: the device's display, not the PC.
+        assertEquals(R.string.pyrowave_missing_swapchain, MediaCodecDecoderRenderer.pyroWaveDropReason(true,
+                0, true, 0, R.string.pyrowave_hdr_display_refused));
+        // The HDR surface failed and SDR PyroWave is ready: the HDR failure, if HDR takes another codec.
+        assertEquals(R.string.pyrowave_hdr_display_refused, MediaCodecDecoderRenderer.pyroWaveDropReason(true,
+                0, true, sdr, R.string.pyrowave_hdr_display_refused));
+        assertEquals(0, MediaCodecDecoderRenderer.pyroWaveDropReason(true, 0, true, hdr, 0));
+        assertEquals(0, MediaCodecDecoderRenderer.pyroWaveDropReason(false, 0, false, 0, 0));
     }
 
     @Test
@@ -46,7 +67,7 @@ public class PyroWaveDeviceRefusalTest {
             MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(),
                     new PreferenceConfiguration(), null, 0, false, false, "", null);
             assertFalse(renderer.isPyroWaveSupported());
-            assertEquals(0, renderer.getPyroWaveUnavailableReason());
+            assertEquals(0, (int) ReflectionHelpers.getField(renderer, "pyroWaveUnavailableReason"));
         }
     }
 }

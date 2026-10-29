@@ -5,6 +5,12 @@ import com.limelight.nvstream.jni.MoonBridge;
 
 import org.junit.Test;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import static org.junit.Assert.*;
 
 public class StreamExitPolicyTest {
@@ -50,6 +56,31 @@ public class StreamExitPolicyTest {
         assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.ML_ERROR_FRAME_CONVERSION, false, false, false));
         // A failed decoder says what to change before the stream starts again.
         assertTrue(StreamExitPolicy.terminationNeedsAction(MoonBridge.CLIENT_ERROR_DECODER, false, false, false));
+    }
+
+    @Test public void aDecoderGivenUpWithVulkanOnNamesTheSettingInEveryLanguage() throws Exception {
+        assertEquals(R.string.decoder_failed_vulkan, StreamExitPolicy.decoderFailureMessage(true));
+        assertEquals(R.string.decoder_failed, StreamExitPolicy.decoderFailureMessage(false));
+        // The TV's 4K HEVC decoder failed into Vulkan's buffers: the dialog tells the player which
+        // switch to turn off, by the name the settings show in that language.
+        File[] dirs = new File("src/main/res").listFiles((dir, name) ->
+                name.matches("values(-[a-z]{2}(-r[A-Z]{2})?)?") && new File(dir, name + "/strings.xml").exists());
+        assertNotNull(dirs);
+        assertEquals(15, dirs.length);
+        for (File dir : dirs) {
+            String strings = new String(Files.readAllBytes(new File(dir, "strings.xml").toPath()), StandardCharsets.UTF_8);
+            String title = string(strings, "title_vulkan_render");
+            String message = string(strings, "decoder_failed_vulkan");
+            assertNotNull(dir.getName(), title);
+            assertNotNull(dir.getName(), message);
+            assertTrue(dir.getName() + ": " + message, message.contains(title));
+            assertFalse(dir.getName(), string(strings, "decoder_failed").contains(title));
+        }
+    }
+
+    private static String string(String xml, String name) {
+        Matcher m = Pattern.compile("<string name=\"" + name + "\"[^>]*>([^<]*)</string>").matcher(xml);
+        return m.find() ? m.group(1) : null;
     }
 
     @Test public void aBlockedPortTestKeepsTheDialogForAnyError() {

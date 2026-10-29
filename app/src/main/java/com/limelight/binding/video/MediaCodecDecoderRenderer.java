@@ -171,7 +171,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean vulkanNoticeShown;
     private volatile boolean stopping;
     private CrashListener crashListener;
-    private boolean reportedCrash;
     private int consecutiveCrashCount;
     private String glRenderer;
     private boolean foreground = true;
@@ -195,6 +194,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int codecRecoveryAttempts = 0;
     // Recoveries in a row that bring no frame wait longer each time, then end the stream
     private DecoderRecoveryBackoff recoveryBackoff = new DecoderRecoveryBackoff();
+    // The pending recovery follows a decoder failure; planned restarts (HDR, size, input buffer
+    // growth) neither wait nor count toward giving up
+    private volatile boolean recoveryAfterFailure;
     // Why the decoder was given up and the stream ended, or null while it has not been
     private volatile String decoderFailure;
     private volatile boolean decoderFailedWithVulkan;
@@ -202,6 +204,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile String activeDecoderName;
     // Why PyroWave chosen in the settings cannot run on this device (a string), or 0
     private int pyroWaveUnavailableReason;
+    // Why the last prepareVideoFormats left out PyroWave chosen in the settings (a string,
+    // PYROWAVE_NOT_OFFERED when the PC's codecs lack it), or 0
+    private volatile int pyroWaveDropReason;
+    public static final int PYROWAVE_NOT_OFFERED = -1;
     // The input buffer size a frame that did not fit asked for; every later configure keeps it.
     private int requiredInputBufferSize = 0;
 
@@ -214,6 +220,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private RendererException initialException;
     private long initialExceptionTimestamp;
+    // Frames out when initialException was taken; once more come out, it is forgiven
+    private int initialExceptionFramesOut;
     private static final int EXCEPTION_REPORT_DELAY_MS = 3000;
 
     private VideoStats activeWindowVideoStats;
@@ -413,12 +421,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             codecRecoveryMonitor.notifyAll();
         }
         LimeLog.severe("Decoder failed, ending the stream: " + reason);
-        if (!reportedCrash) {
-            reportedCrash = true;
-            if (crashListener != null) {
-                crashListener.notifyCrash(new RendererException(this, cause != null ? cause : new IllegalStateException(reason)));
-            }
-        }
+        if (cause != null) LimeLog.severe("Decoder failure cause: " + new RendererException(this, cause));
+        // Not a crash: the dialog says what happened, and counting it would show "Video decoder
+        // crashed" again in the list, turn features off and reset settings every third time.
         MoonBridge.bridgeClConnectionTerminated(MoonBridge.CLIENT_ERROR_DECODER);
     }
 
@@ -1587,9 +1592,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return reason == 0;
     }
 
-    /** Why PyroWave chosen in the settings cannot run on this device, or 0 when it can. */
-    public int getPyroWaveUnavailableReason() {
-        return pyroWaveUnavailableReason;
+    /**
+     * Why the last prepareVideoFormats left out PyroWave chosen in the settings: a string,
+     * PYROWAVE_NOT_OFFERED when the PC's codecs lack it, or 0 when it kept PyroWave.
+     */
+    public int getPyroWaveDropReason() {
+        return pyroWaveDropReason;
+    }
+
+    // deviceReason: why this device cannot run PyroWave, or 0. choice: the PyroWave format whose
+    // surface was set up, or 0 when every one failed. hdrFailure: why PyroWave HDR failed, or 0.
+    static int pyroWaveDropReason(boolean chosen, int deviceReason, boolean pcOffers, int choice, int hdrFailure) {
+        if (!chosen) return 0;
+        if (deviceReason != 0) return deviceReason;
+        if (!pcOffers) return PYROWAVE_NOT_OFFERED;
+        if (choice == 0) return R.string.pyrowave_missing_swapchain;
+        return (choice & MoonBridge.VIDEO_FORMAT_MASK_10BIT) == 0 ? hdrFailure : 0;
     }
 
     public int getSupportedVideoFormats(boolean hdr) {
@@ -1646,6 +1664,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public int prepareVideoFormats(int formats, int width, int height, int fps) {
+        boolean pcOffersPyroWave = (formats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+        pyroWaveDropReason = 0;
         formats = gatePackedHdr(formats, width, height, fps);
         float displayRefreshRate = outputDisplay.getRefreshRate();
         pyroWaveHdrFailure = 0;
@@ -1665,6 +1685,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // the connection falls back to AV1 or HEVC HDR and says why.
             pyroWaveHdrFailure = PyroWaveDecoderRenderer.hdrFailureSummary(context);
             LimeLog.warning("PyroWave HDR unavailable on this device: " + context.getString(pyroWaveHdrFailure));
+        }
+        if (!stopping) {
+            pyroWaveDropReason = pyroWaveDropReason(
+                    prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE,
+                    pyroWaveUnavailableReason, pcOffersPyroWave, choice, pyroWaveHdrFailure);
         }
         if (choice != 0) {
             LimeLog.info("PyroWave surface initialized before negotiation: " + Integer.toHexString(choice));
@@ -2834,12 +2859,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         // Something went wrong during the restart, let's use a bigger hammer
                         // and try a reset instead.
                         restartReason = "failed flush";
+                        recoveryAfterFailure = true;
                         codecRecoveryType.set(CR_RECOVERY_TYPE_RESTART);
                     }
                 }
 
                 // Recoveries in a row that bring no frame back off, then give the decoder up.
-                if (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE && !backOffBeforeRecovery()) {
+                if (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE && recoveryAfterFailure &&
+                        !backOffBeforeRecovery()) {
                     return true;
                 }
 
@@ -2853,10 +2880,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     try {
                         if (!CodecRecoverySteps.run(codecRecoveryType.get() == CR_RECOVERY_TYPE_RESTART,
                                 restartRecreates, restartReason, recoveryCodec)) {
-                            // Our Surface is probably invalid, so just stop
+                            if (renderTarget != null && renderTarget.isValid()) {
+                                // The surface is fine: the decoder refused its configuration.
+                                failDecoder(decoderName() + " refused its configuration after a recovery", null);
+                                return true;
+                            }
+                            // Our Surface is gone, so just stop
                             stopping = true;
                         }
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
+                        recoveryAfterFailure = false;
                     } catch (IllegalStateException e) {
                         // Not even a decoder set up from scratch works: end the stream.
                         e.printStackTrace();
@@ -3033,6 +3066,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 }
 
                 // The recovery will take place when all threads reach doCodecRecoveryIfRequired().
+                recoveryAfterFailure = true;
                 return false;
             }
         }
@@ -3058,6 +3092,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     throw new IllegalStateException("Unexpected codec recovery type: " + codecRecoveryType.get());
                 }
 
+                recoveryAfterFailure = true;
                 return false;
             }
         }
@@ -3071,7 +3106,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // first exception. If we are still receiving exceptions 3 seconds later, we will
             // throw the original exception again.
             //
-            if (initialException != null) {
+            if (unresolvedInitialException() != null) {
                 // This isn't the first time we've had an exception processing video
                 if (SystemClock.uptimeMillis() - initialExceptionTimestamp >= EXCEPTION_REPORT_DELAY_MS) {
                     // It's been over 3 seconds and we're still getting exceptions: end the stream.
@@ -3085,11 +3120,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // This is the first exception we've hit
                 initialException = new RendererException(this, e);
                 initialExceptionTimestamp = SystemClock.uptimeMillis();
+                initialExceptionFramesOut = numFramesOut;
             }
         }
 
         // Not transient
         return false;
+    }
+
+    // The first exception, until the decoder puts out a frame after it: then the stream recovered,
+    // and neither the hang check nor a later exception's 3 s rule should go by it.
+    private RendererException unresolvedInitialException() {
+        if (initialException != null && numFramesOut != initialExceptionFramesOut) {
+            initialException = null;
+        }
+        return initialException;
     }
 
     static long nextVsyncTimeNs(long nowNs, long vsyncNs, long intervalNs, long presentationDeadlineNs) {
@@ -3583,7 +3628,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (nextInputBuffer == null) {
             // We've been hung for 5 seconds and no other exception was reported,
             // so generate a decoder hung exception
-            if (deltaMs >= 5000 && initialException == null) {
+            if (deltaMs >= 5000 && unresolvedInitialException() == null) {
                 // The engine drops an exception thrown here, which left the picture frozen.
                 failDecoder(decoderName() + " took no input for " + deltaMs + " ms", new DecoderHungException(deltaMs));
             }

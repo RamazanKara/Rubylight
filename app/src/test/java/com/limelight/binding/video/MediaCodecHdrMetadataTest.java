@@ -267,7 +267,8 @@ public class MediaCodecHdrMetadataTest {
             assertEquals(java.util.Arrays.asList("release", "create c2.mtk.dvhe.st.decoder"), RecordingCodec.calls);
             assertEquals(false, ReflectionHelpers.getField(renderer, "dolbyVisionFailed"));
             assertNull(ReflectionHelpers.getField(renderer, "uncheckedHdrStaticInfo"));
-            assertEquals(1, crashes.size());
+            // The stream ends with a dialog; a give-up is not counted as a crash.
+            assertEquals(0, crashes.size());
         }
     }
 

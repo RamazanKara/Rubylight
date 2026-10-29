@@ -2,7 +2,9 @@ package com.limelight.binding.video;
 
 import android.app.Activity;
 import android.app.Application;
+import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
+import android.view.Surface;
 
 import com.limelight.PcViewLifecycleTest;
 import com.limelight.nvstream.NvConnectionListener;
@@ -33,6 +35,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /** A decoder that keeps failing ends the stream with its reason, never by crashing the app. */
@@ -44,6 +47,7 @@ public class DecoderFailureTest {
 
     private final List<Integer> terminated = new CopyOnWriteArrayList<>();
     private final List<Throwable> uncaught = new CopyOnWriteArrayList<>();
+    private final List<Exception> crashes = new CopyOnWriteArrayList<>();
     private Thread.UncaughtExceptionHandler previousHandler;
     private ActivityController<Activity> activity;
     private MediaCodecDecoderRenderer renderer;
@@ -63,8 +67,8 @@ public class DecoderFailureTest {
         ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", listener);
 
         activity = Robolectric.buildActivity(Activity.class).create();
-        renderer = new MediaCodecDecoderRenderer(activity.get(), new PreferenceConfiguration(), null, 0, false,
-                false, "", null);
+        renderer = new MediaCodecDecoderRenderer(activity.get(), new PreferenceConfiguration(), crashes::add, 0,
+                false, false, "", null);
         FailingCodec.released = true;
         codec = MediaCodec.createDecoderByType("video/hevc");
         ReflectionHelpers.setField(renderer, "videoDecoder", codec);
@@ -109,6 +113,123 @@ public class DecoderFailureTest {
         assertFalse(renderer.decoderFailedWithVulkan());
         // Five recoveries, not ten in 2 s: the sixth gives up.
         assertEquals(5, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+        // The dialog says what happened; counting a crash would say "Video decoder crashed" again
+        // in the list and reset settings every third time.
+        assertEquals(Collections.emptyList(), crashes);
+    }
+
+    @Test
+    public void stoppingDuringABackOffWakesTheWaitingThreadsAtOnce() throws Exception {
+        DecoderRecoveryBackoff backoff = new DecoderRecoveryBackoff(new long[] {0, 250, 250, 250, 250});
+        ReflectionHelpers.setField(renderer, "recoveryBackoff", backoff);
+        ReflectionHelpers.callInstanceMethod(renderer, "startRendererThread");
+        Thread rendererThread = ReflectionHelpers.getField(renderer, "rendererThread");
+        Thread input = new Thread(() -> {
+            while (!(boolean) ReflectionHelpers.getField(renderer, "stopping")) {
+                ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer");
+            }
+        });
+        input.start();
+
+        // The second recovery in a row without a frame has just begun its 250 ms wait.
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (backoff.recoveriesWithoutFrame() < 2 && System.nanoTime() < deadline) Thread.sleep(1);
+        assertEquals(2, backoff.recoveriesWithoutFrame());
+
+        // The stream ends from another thread, as the UI's stop does: the renderer thread is
+        // interrupted and the input thread woken, instead of either sleeping the wait out.
+        long stopNs = System.nanoTime();
+        Thread stopper = new Thread(renderer::prepareForStop);
+        stopper.start();
+        stopper.join(5000);
+        input.join(5000);
+        rendererThread.join(5000);
+        long tookMs = (System.nanoTime() - stopNs) / 1_000_000;
+
+        assertFalse("Input thread still running", input.isAlive());
+        assertFalse("Renderer thread still running", rendererThread.isAlive());
+        assertTrue("Stopping took " + tookMs + " ms", tookMs < 200);
+        assertEquals(Collections.emptyList(), uncaught);
+        // A stop is not a decoder failure: no -107 and no reason.
+        assertEquals(Collections.emptyList(), terminated);
+        assertNull(renderer.getDecoderFailure());
+        assertEquals(2, backoff.recoveriesWithoutFrame());
+    }
+
+    @Test
+    public void plannedRestartsNeitherWaitNorCountTowardGivingUp() {
+        // Six planned restarts (HDR changes) with no frame between them: a healthy stream, no wait.
+        DecoderRecoveryBackoff backoff = new DecoderRecoveryBackoff(new long[] {0, 60_000, 60_000, 60_000, 60_000});
+        ReflectionHelpers.setField(renderer, "recoveryBackoff", backoff);
+        for (int i = 0; i < 6; i++) {
+            ReflectionHelpers.callInstanceMethod(renderer, "requestRestart",
+                    ReflectionHelpers.ClassParameter.from(String.class, "HDR on"));
+            recoverOnTheInputThread();
+        }
+        assertEquals(0, backoff.recoveriesWithoutFrame());
+        assertEquals(6, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+        assertTrue(terminated.isEmpty());
+        assertNull(renderer.getDecoderFailure());
+    }
+
+    @Test
+    public void aDecoderThatRefusesItsConfigurationOnAValidSurfaceEndsTheStream() {
+        SurfaceTexture texture = new SurfaceTexture(0);
+        Surface surface = new Surface(texture);
+        try {
+            ReflectionHelpers.setField(renderer, "renderTarget", surface);
+            ReflectionHelpers.setField(renderer, "recoveryCodec", new RefusingRecovery());
+            failOnce();
+            recoverOnTheInputThread();
+            assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
+            assertEquals("c2.mtk.hevc.decoder refused its configuration after a recovery", renderer.getDecoderFailure());
+
+            // With the surface gone, the same refusal only stops: the stream is ending anyway.
+            terminated.clear();
+            ReflectionHelpers.setField(renderer, "decoderFailure", null);
+            ReflectionHelpers.setField(renderer, "stopping", false);
+            surface.release();
+            failOnce();
+            recoverOnTheInputThread();
+            assertTrue(terminated.isEmpty());
+            assertTrue((boolean) ReflectionHelpers.getField(renderer, "stopping"));
+        } finally {
+            surface.release();
+            texture.release();
+        }
+    }
+
+    @Test
+    public void anExceptionIsForgivenOnceFramesFlowAgain() {
+        ReflectionHelpers.setField(renderer, "codecRecoveryAttempts", 10);
+        failOnce();
+        // Frames come out again: an exception a minute later is a new first one, not the end.
+        ReflectionHelpers.setField(renderer, "numFramesOut", 30);
+        ShadowSystemClock.advanceBy(Duration.ofMillis(60_000));
+        failOnce();
+        assertTrue(terminated.isEmpty());
+
+        // And once frames flow after that one too, the hang check is back on.
+        ReflectionHelpers.setField(renderer, "numFramesOut", 31);
+        FailingCodec.released = false;
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
+        assertTrue(renderer.getDecoderFailure(),
+                renderer.getDecoderFailure().startsWith("c2.mtk.hevc.decoder took no input for 5000 ms"));
+    }
+
+    private void failOnce() {
+        ReflectionHelpers.callInstanceMethod(renderer, "handleDecoderException",
+                ReflectionHelpers.ClassParameter.from(IllegalStateException.class, new IllegalStateException(RELEASED)));
+    }
+
+    // The renderer thread has quiesced; the input thread is the last and runs the recovery.
+    private void recoverOnTheInputThread() {
+        int renderThread = ReflectionHelpers.getStaticField(MediaCodecDecoderRenderer.class, "CR_FLAG_RENDER_THREAD");
+        int inputThread = ReflectionHelpers.getStaticField(MediaCodecDecoderRenderer.class, "CR_FLAG_INPUT_THREAD");
+        ReflectionHelpers.setField(renderer, "codecRecoveryThreadQuiescedFlags", renderThread);
+        assertTrue((boolean) ReflectionHelpers.callInstanceMethod(renderer, "doCodecRecoveryIfRequired",
+                ReflectionHelpers.ClassParameter.from(int.class, inputThread)));
     }
 
     @Test
@@ -152,6 +273,15 @@ public class DecoderFailureTest {
         @Override public void reset() { steps.add("reset"); }
         @Override public void configure() { steps.add("configure"); }
         @Override public void rebuild(boolean codecFailed) { steps.add("rebuild"); }
+    }
+
+    /** Every configure fails as configure() does for a surface it cannot use. */
+    private static final class RefusingRecovery implements CodecRecoverySteps.Codec {
+        @Override public void stop() {}
+        @Override public boolean recreate() { return true; }
+        @Override public void reset() {}
+        @Override public void configure() { throw new IllegalArgumentException("configure refused"); }
+        @Override public void rebuild(boolean codecFailed) { throw new IllegalArgumentException("configure refused"); }
     }
 
     /** Released: every call throws, like a codec the platform let go. Otherwise it never has input. */

@@ -41,6 +41,8 @@ pub enum Command {
     Sleep { host: u64, ask: u64, token: String, at: Handed },
     /// Name a PC on this device only; empty brings back the PC's own name.
     Rename { host: u64, alias: String },
+    /// Always connect to the PC through this known address; None brings back the automatic pick.
+    PinAddress { host: u64, address: Option<String> },
     HostSettings(u64),
     SaveHostSettings(u64),
     AppSettings { host: u64, app: nightjar_core::http::App },
@@ -1707,6 +1709,7 @@ impl Launcher {
                     ui.label(RichText::new(why).color(ERROR));
                 }
             }
+            self.connection_address(ui, host, commands);
             section(ui, "Play away from home");
             let button = row(ui, "Remote access", "Checks the paired PC's identity with five small HTTPS requests. It does not start a stream or download a speed-test file.", |ui| {
                 if running {
@@ -1743,6 +1746,33 @@ impl Launcher {
                 self.coop_sessions(ui, id, commands);
             }
         });
+    }
+
+    /// The details page's connection address: Automatic, or one of the PC's known addresses to
+    /// always connect through (Moonlight V+ PC's address pinning). Shown once the PC has more
+    /// than one address, or while one is pinned.
+    fn connection_address(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) {
+        let record = &host.record;
+        let known: Vec<&String> = std::iter::once(&record.address).chain(&record.other_addresses).collect();
+        if known.len() < 2 && record.pinned_address.is_none() {
+            return;
+        }
+        section(ui, "Connection");
+        let pinned = record.pinned_address.clone();
+        let mut choice = pinned.clone();
+        let shown = pinned.clone().unwrap_or_else(|| tr("Automatic").to_owned());
+        let chooser = row(ui, "Connection address", "Automatic tries the address that answered last, then the PC's other addresses. Choose one to always connect through it.", |ui| {
+            egui::ComboBox::from_id_salt("pinned-address").selected_text(shown).show_ui(ui, |ui| {
+                ui.selectable_value(&mut choice, None, tr("Automatic"));
+                for address in &known {
+                    ui.selectable_value(&mut choice, Some((*address).clone()), address.as_str());
+                }
+            }).response
+        });
+        self.focus_item(&chooser, "pinned-address", false);
+        if choice != pinned {
+            commands.push(Command::PinAddress { host: host.id, address: choice });
+        }
     }
 
     /// The details page's Nucleus Co-op sessions (Experimental): their players, free slots and

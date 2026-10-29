@@ -970,6 +970,12 @@ impl App {
             Command::SleepOffer { host, ask } => self.hosts.sleep_offer(host, ask),
             Command::Sleep { host, ask, token, at } => self.hosts.sleep(host, ask, token, at),
             Command::Rename { host, alias } => rename_host(&mut self.hosts, &self.store, host, &alias),
+            Command::PinAddress { host, address } => {
+                if self.hosts.pin_address(host, address.as_deref()) {
+                    save_hosts(&self.store, &self.hosts);
+                    self.hosts.poll_one(host);
+                }
+            }
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {
                     self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi));

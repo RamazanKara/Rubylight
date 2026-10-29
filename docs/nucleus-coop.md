@@ -30,10 +30,20 @@ streaming the PC's monitors.
 
 A background stream needs no handler from the hub. A game you added at that
 exact path with a hub handler always uses it, and co-op still needs one.
-Otherwise the host writes its own one-player handler into Nucleus Co-op's
-`handlers` folder (`Rubylight-<game>-<hash>.js`) and adds the game to your
-Nucleus Co-op game list, as Nucleus' own "add game" would. It does that only
-while Nucleus Co-op isn't running, and never over a file it did not write.
+Otherwise, in the Nucleus Co-op the host installs, the host writes its own
+one-player handler into Nucleus Co-op's `handlers` folder
+(`Rubylight-<game>-<hash>.js`) and adds the game to Nucleus Co-op's game list (`content\userprofile.json` in its folder, the only
+one 2.4.2 reads), as Nucleus' own "add game" would, and to the game list of
+the user's own copy when the game runs from there
+([Without administrator rights](#without-administrator-rights)). It does that
+only while Nucleus Co-op isn't running, and never over a file it did not write.
+Earlier Rubylight versions added the game to
+`%APPDATA%\Nucleus Coop\userprofile.json` instead, which Nucleus Co-op never
+reads, so it showed no game and the stream hung at its start (#59); the host
+removes those entries, and only those, from that file. With `nucleus_path`
+set, another Nucleus Co-op release may read another list, so such a game is
+refused with the reason (add its handler from the hub, or clear
+`nucleus_path`), and the games you added in either list count.
 
 Installing a hub handler for the same .exe doesn't remove the host's handler
 right away: the next Nucleus Co-op session of another game removes it and its
@@ -95,6 +105,47 @@ the PC's cursor.
 - **Some games pause anyway** when their window is not in front, despite the
   focus hooks. Those need a hub handler made for them.
 
+### Without administrator rights
+
+A background stream with Rubylight's own handler runs Nucleus Co-op as the
+signed-in user, without administrator rights, unless the game needs them.
+That holds on an administrator account too. It runs from the user's own copy
+of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which
+the host copies from the release it installs, once Nucleus Co-op is closed,
+without its settings, logs, game list and game data, and copies again when a
+program file changes on either side. With `nucleus_path` set, such a game is
+refused ([Games without a handler](#games-without-a-handler)). The copy
+starts from Nucleus Co-op's own default settings, never another account's
+nicknames or Steam IDs. It keeps the copy's handlers in step with the
+elevated one's. Everything Rubylight writes in the copy (its game list, its
+`Settings.ini` and the session's profile) it writes as the user, and the copy
+keeps the session's settings: nothing there is put back as SYSTEM. Only
+SYSTEM and Administrators can change the folders above it; the user can only
+list `<SID>`, and can change only what is inside their own copy, never move
+or delete the copy's folder. While Nucleus Co-op starts, the host holds the
+copy's folder and `NucleusCoop.exe` open so neither can be made a link or
+replaced, and starts it only when the program opened in that folder.
+
+A game needs administrator rights when:
+
+- its manifest asks for them (`requireAdministrator`),
+- its compatibility settings run it as administrator,
+- Windows treats it as an installer (by its name, such as `setup.exe`), or
+- the signed-in user can't change the files in its folder (Nucleus Co-op
+  clears their attributes before it starts the game). The launch checks
+  this; the Play together panel doesn't.
+
+Such a game runs elevated, as before. So do hub handlers and co-op, always.
+The Play together panel says which way a background stream of the game runs.
+
+On a standard account, or with Windows' Administrator protection on, a game
+that needs none of that now streams in the background. A game that needs
+administrator rights is still refused there, and so is a game with a hub
+handler, for co-op and background streams alike: the Play together panel
+says so before you launch, and to sign in to Windows on this PC as an
+administrator to play it. **Open Nucleus Co-op on this PC** also needs an
+account Windows elevates; the panel says so before you press it.
+
 A `background_mode` line that an earlier build wrote (`auto`,
 `child_session` or `virtual_display`) becomes `nucleus`, and the host log
 says so once. A value that is no mode at all refuses background launches and
@@ -143,16 +194,41 @@ hub"; a background stream of it uses Rubylight's own handler
 ([Games without a handler](#games-without-a-handler)).
 
 Rubylight writes a Nucleus profile named **Rubylight** for each session and
-loads it. When a start times out with "open Nucleus Co-op and load the profile
-Rubylight once", do that on the PC and launch again.
+loads it. For that it sets a few of Nucleus Co-op's settings: pads by XInput
+index and game profiles on, which stay, and, for the session only, no
+install-folder check at its start (it warns about a Documents folder in
+OneDrive), no reminder of the End key, and no favourites-only or game-type
+filter on its list. In the user's own copy
+([Without administrator rights](#without-administrator-rights)) the session's
+values stay. Otherwise your own values of those come back when the session ends,
+or after a host crash when the service starts it again; a value you or Nucleus
+Co-op changed meanwhile stays, and a `Settings.ini` deleted meanwhile has
+nothing to put back. While a session starts or runs, the service leaves its
+values alone. Keys missing from `Settings.ini`, or the whole file, are filled
+in from Nucleus Co-op 2.4.2's own defaults; another Nucleus Co-op release set
+with `nucleus_path` ignores keys it doesn't read. A
+`Settings.ini` saved as UTF-16 (Unicode) text is never edited: the launch
+says to save it as ANSI or delete it.
+
+A start that times out says what Nucleus Co-op shows instead: a message on the
+PC's screen, from Nucleus Co-op or from Windows on its behalf, before or after
+the click on the profile (answer or fix it there; a box Windows showed for
+another program before the launch doesn't count), that it doesn't list the
+game (naming the game list it reads, in the Nucleus Co-op the host installs),
+no profile Rubylight (open Nucleus Co-op and load the profile Rubylight once,
+then launch again), or no window at all, with the last error from its
+`crashlog.txt` if it wrote one.
 
 The host must run as the Windows service (the installer's default), because
-Nucleus Co-op runs elevated as the signed-in user. A portable host refuses
-these launches and says why. The Windows account signed in on the PC must be
-an administrator that Windows gives an elevated token: for a standard account,
-or with Windows' Administrator protection on (which elevates only into a
-separate account after a Windows Hello prompt), launches and **Open Nucleus
-Co-op on this PC** are refused and say so.
+Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A
+portable host refuses these launches and says why. Everything that runs
+elevated needs an administrator account that Windows gives an elevated token:
+for a standard account, or with Windows' Administrator protection on (which
+elevates only into a separate account after a Windows Hello prompt), co-op,
+hub handlers, games that need administrator rights and **Open Nucleus Co-op
+on this PC** are refused and say so. A background stream that needs no
+administrator rights runs there anyway
+([Without administrator rights](#without-administrator-rights)).
 
 ## Playing co-op
 

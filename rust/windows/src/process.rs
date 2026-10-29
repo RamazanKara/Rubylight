@@ -257,7 +257,7 @@ unsafe fn sid_text(sid: PSID) -> Result<String> {
         sid.context("Windows returned an invalid SID")
     }
 }
-fn token_user_sid(token: &OwnedHandle) -> Result<String> {
+pub(crate) fn token_user_sid(token: &OwnedHandle) -> Result<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from
     // ConvertSidToStringSidW is read before it is freed once with LocalFree.
@@ -386,7 +386,7 @@ pub fn create_folder_administrators_only(path: &Path) -> std::io::Result<()> {
     create_folder(path, ADMINISTRATORS_ONLY)
 }
 /// Create the folder `path` with `sddl`'s owner and permissions from the start.
-fn create_folder(path: &Path, sddl: &str) -> std::io::Result<()> {
+pub(crate) fn create_folder(path: &Path, sddl: &str) -> std::io::Result<()> {
     use windows::Win32::Storage::FileSystem::CreateDirectoryW;
     let name = wide(path.as_os_str()).map_err(std::io::Error::other)?;
     with_attributes(sddl, |attributes| {
@@ -470,6 +470,11 @@ pub fn open_file_writers(file: &std::fs::File) -> Result<Vec<String>> {
 /// folder's permissions or owner: as [`open_file_writers`], without those who may only add to it.
 pub fn open_file_child_movers(file: &std::fs::File) -> Result<Vec<String>> {
     open_file_allowed(file, CHILD_MOVE)
+}
+/// Who may move or delete the file or folder `file` has open itself, or what a folder holds, or
+/// change its permissions or owner: as [`open_file_child_movers`], with those who may delete it.
+pub fn open_file_movers(file: &std::fs::File) -> Result<Vec<String>> {
+    open_file_allowed(file, CHILD_MOVE | 0x1_0000)
 }
 fn open_file_allowed(file: &std::fs::File, mask: u32) -> Result<Vec<String>> {
     use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
@@ -1309,6 +1314,20 @@ fn environment(token: Option<&OwnedHandle>) -> Result<BTreeMap<String, String>> 
 impl Process {
     pub(crate) fn handle(&self) -> HANDLE {
         raw(&self.handle)
+    }
+    /// Whether Windows gave this process administrator rights: its token,
+    /// which is not always what its [`Target`] asked for (an administrator
+    /// with User Account Control off has only their full token).
+    pub fn elevated(&self) -> Result<bool> {
+        // SAFETY: `self.handle` is the child's owned process handle, and
+        // `token` a valid out-pointer whose handle is owned once filled.
+        let token = unsafe {
+            let mut token = HANDLE::default();
+            OpenProcessToken(raw(&self.handle), TOKEN_QUERY, &mut token)
+                .context("opening the process's token")?;
+            owned(token)
+        };
+        token_elevated(&token)
     }
     /// Import an unnamed resource from this owned child. The child never gets
     /// a handle to the service process or its credentials.
@@ -2254,6 +2273,29 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_process_says_whether_windows_gave_it_administrator_rights() {
+        use super::*;
+        let ping = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap())
+            .join("System32")
+            .join("ping.exe");
+        // Runs where the test runs: as this user, elevated or not.
+        let elevated = is_system() || token_elevated(&token().unwrap()).unwrap();
+        let args = ["-n", "30", "127.0.0.1"].map(OsString::from);
+        let process = Process::spawn(
+            &ping,
+            &args,
+            None,
+            Target::User { elevated },
+            &BTreeMap::new(),
+            true,
+        )
+        .unwrap();
+        let rights = process.elevated();
+        process.terminate().unwrap();
+        assert_eq!(rights.unwrap(), elevated);
+    }
+
     #[test]
     fn a_pipe_end_can_be_used_by_its_creator() {
         use super::*;

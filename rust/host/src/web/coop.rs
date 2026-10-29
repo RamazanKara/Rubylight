@@ -22,6 +22,7 @@ use butterpollo_core::{
     native_api::coop as wire,
     nucleus::{
         coop::Phase,
+        elevation::{self, Need, Run, Script},
         handler::Missing,
         install::{SIZE, VERSION},
         mode::{Decision, KEY},
@@ -127,6 +128,11 @@ fn configured(h: &Shared) -> String {
     crate::nucleus::configured(&h.config.read().unwrap_or_else(PoisonError::into_inner))
 }
 
+/// Why Open Nucleus Co-op on this PC is refused on an account Windows
+/// doesn't elevate: the text `butterpollo_windows::nucleus::session::open`
+/// refuses it with, so the console says it before the button is pressed.
+const OPEN_NEEDS_ELEVATION: &str = butterpollo_windows::nucleus::session::NEEDS_ADMINISTRATOR;
+
 /// A refused co-op action: its status and the host's text.
 fn refused(refusal: &Refusal) -> Response {
     error(
@@ -159,6 +165,19 @@ fn status(h: &Shared) -> Value {
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
+    let unavailable = h.nucleus.unavailable();
+    // Whether the account signed in on this PC elevates: None on a host that
+    // runs no sessions, or when Rubylight could not tell.
+    let elevates = unavailable
+        .is_none()
+        .then(|| h.nucleus.elevates())
+        .flatten();
+    // A hub handler (background streams and co-op) needs an elevated token:
+    // without one, the refusal a launch would answer.
+    let hub_refusal = match elevates {
+        Some(false) => elevation::choose(Script::Hub, Need::Nothing, false).err(),
+        _ => None,
+    };
     let (games, catalog_error) = match h.nucleus.games(&apps, &config) {
         Some(Ok(statuses)) => (statuses.into_iter().map(Some).collect(), None),
         Some(Err(error)) => (vec![None; apps.len()], Some(error)),
@@ -170,6 +189,21 @@ fn status(h: &Shared) -> Value {
         .filter(|(app, _)| crate::nucleus::names_executable(app))
         .filter_map(|(app, status)| {
             let uuid = app.extra.get("uuid")?.as_str()?;
+            let missing_status = |missing: &Missing| match missing {
+                Missing::NoExecutable { .. } => "no_executable",
+                Missing::NoHandler { .. } => "no_handler",
+                Missing::NotAdded { .. } => "not_added",
+                Missing::AntiCheat { .. } => "anti_cheat",
+                Missing::Refused { .. } => "refused",
+            };
+            // How a background stream of it runs Rubylight's own handler.
+            let runs = match &status {
+                Some(GameStatus::Own { run, .. }) => Some(match run {
+                    Run::User => "user",
+                    Run::Elevated => "elevated",
+                }),
+                _ => None,
+            };
             let (status, reason, handler, players) = match status {
                 // Started through a launcher: no handler can match it.
                 _ if !crate::nucleus::starts_exe(app) || crate::nucleus::starts_launcher(app) => {
@@ -177,18 +211,14 @@ fn status(h: &Shared) -> Value {
                 }
                 None => ("unknown", None, None, None),
                 Some(GameStatus::Ready { handler, players }) => {
-                    ("ready", None, Some(handler), Some(players))
+                    ("ready", hub_refusal.clone(), Some(handler), Some(players))
                 }
-                Some(GameStatus::Missing(missing)) => {
-                    let status = match missing {
-                        Missing::NoExecutable { .. } => "no_executable",
-                        Missing::NoHandler { .. } => "no_handler",
-                        Missing::NotAdded { .. } => "not_added",
-                        Missing::AntiCheat { .. } => "anti_cheat",
-                        Missing::Refused { .. } => "refused",
-                    };
-                    (status, Some(missing.to_string()), None, None)
-                }
+                Some(GameStatus::Missing(missing) | GameStatus::Own { missing, .. }) => (
+                    missing_status(&missing),
+                    Some(missing.to_string()),
+                    None,
+                    None,
+                ),
                 Some(GameStatus::Taken { entry }) => (
                     "taken",
                     Some(format!(
@@ -205,11 +235,11 @@ fn status(h: &Shared) -> Value {
                 "reason": reason,
                 "handler": handler,
                 "players": players,
+                "runs": runs,
                 "entry": crate::nucleus::entry_name(&app.name),
             }))
         })
         .collect();
-    let unavailable = h.nucleus.unavailable();
     let sessions: Vec<Value> = h
         .nucleus
         .sessions()
@@ -276,6 +306,13 @@ fn status(h: &Shared) -> Value {
         "catalog_error": catalog_error,
         "available": unavailable.is_none(),
         "reason": unavailable,
+        // Whether Windows gives the signed-in account an elevated token,
+        // which hub handlers, co-op and games that need administrator
+        // rights run with; null when unknown.
+        "elevates": elevates,
+        // Why Open Nucleus Co-op on this PC would be refused: an account
+        // Windows doesn't elevate.
+        "open_refusal": (elevates == Some(false)).then_some(OPEN_NEEDS_ELEVATION),
         // The Nucleus Co-op window the console opened is still open.
         "opened": h.nucleus.opened(),
         "sessions": sessions,
@@ -436,7 +473,11 @@ mod tests {
             butterpollo_core::nucleus::coop::GRACE.as_secs()
         );
         assert_eq!(body["sessions"][0]["players"][0]["rejoin_in"], Value::Null);
+        assert_eq!(body["elevates"], true);
+        assert_eq!(body["open_refusal"], Value::Null);
         // Unavailable on this host: the reason shows.
+        let elevations = || c.pc.elevations.load(std::sync::atomic::Ordering::Relaxed);
+        let asked = elevations();
         *c.pc.unavailable.lock().unwrap() = Some("not on this test PC".into());
         let body = value(
             request(&c.f, "GET", "/api/coop", Value::Null).await,
@@ -445,6 +486,10 @@ mod tests {
         .await;
         assert_eq!(body["available"], false);
         assert_eq!(body["reason"], "not on this test PC");
+        // A host that runs no sessions doesn't ask whether the account elevates.
+        assert_eq!(body["elevates"], Value::Null);
+        assert_eq!(body["open_refusal"], Value::Null);
+        assert_eq!(elevations(), asked);
     }
 
     #[tokio::test]
@@ -767,27 +812,98 @@ mod tests {
                 "portal1",
             ),
         ];
+        let dir = std::env::temp_dir().join(format!("coop-runs-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (ice, fort) = (dir.join("Ice.exe"), dir.join("Fort.exe"));
+        std::fs::write(&ice, b"").unwrap();
+        std::fs::write(&fort, b"").unwrap();
+        pc.needs.lock().unwrap().insert(
+            fort.to_string_lossy().into_owned(),
+            butterpollo_core::nucleus::elevation::Need::Administrator(
+                butterpollo_core::nucleus::elevation::Why::Manifest,
+            ),
+        );
+        f.host.apps.write().unwrap().extend([
+            app("Ice", &format!("\"{}\"", ice.display()), "ice"),
+            app("Fort", &format!("\"{}\"", fort.display()), "fort"),
+        ]);
         let body = value(
             request(&f, "GET", "/api/coop", Value::Null).await,
             StatusCode::OK,
         )
         .await;
+        let no_handler = |name: &str| {
+            format!(
+                "No Nucleus Co-op handler for {name}.exe: add one in Nucleus Co-op's handler hub"
+            )
+        };
         assert_eq!(
             body["games"],
             json!([
                 {"app": "portal", "name": "Portal 2", "status": "ready", "reason": null,
-                 "handler": "Portal 2", "players": 2, "entry": "Portal 2 (Co-op)"},
+                 "handler": "Portal 2", "players": 2, "runs": null, "entry": "Portal 2 (Co-op)"},
                 // Without a handler, as a background launch would answer.
                 {"app": "puzzle", "name": "Puzzle", "status": "refused",
                  "reason": r"C:\Games\Puzzle.exe is not on this PC: set the app's command to the game's .exe",
-                 "handler": null, "players": null, "entry": "Puzzle (Co-op)"},
+                 "handler": null, "players": null, "runs": null, "entry": "Puzzle (Co-op)"},
                 {"app": "cs2", "name": "Counter-Strike 2", "status": "launcher", "reason": null,
-                 "handler": null, "players": null, "entry": "Counter-Strike 2 (Co-op)"},
+                 "handler": null, "players": null, "runs": null, "entry": "Counter-Strike 2 (Co-op)"},
                 {"app": "portal1", "name": "Portal", "status": "launcher", "reason": null,
-                 "handler": null, "players": null, "entry": "Portal (Co-op)"},
+                 "handler": null, "players": null, "runs": null, "entry": "Portal (Co-op)"},
+                // Rubylight's own handler: as the user, or elevated as the
+                // game asks.
+                {"app": "ice", "name": "Ice", "status": "no_handler", "reason": no_handler("Ice"),
+                 "handler": null, "players": null, "runs": "user", "entry": "Ice (Co-op)"},
+                {"app": "fort", "name": "Fort", "status": "no_handler", "reason": no_handler("Fort"),
+                 "handler": null, "players": null, "runs": "elevated", "entry": "Fort (Co-op)"},
             ])
         );
         assert_eq!(body["catalog_error"], Value::Null);
+        assert_eq!(body["elevates"], true);
+        // On an account Windows doesn't elevate: the hub handler's game says
+        // so before a launch, in the launch's words; ours as the user stays.
+        *pc.elevates.lock().unwrap() = false;
+        f.host.nucleus.use_pc(pc.clone());
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(body["elevates"], false);
+        // Open Nucleus Co-op on this PC says why before it is pressed.
+        assert_eq!(
+            body["open_refusal"],
+            "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)"
+        );
+        let games = body["games"].as_array().unwrap();
+        assert_eq!(
+            (&games[0]["status"], &games[0]["reason"]),
+            (
+                &json!("ready"),
+                &json!(format!(
+                    "Nucleus Co-op needs administrator rights for a hub handler, and {}",
+                    butterpollo_core::nucleus::elevation::NO_ELEVATION
+                ))
+            )
+        );
+        assert_eq!(
+            (&games[4]["status"], &games[4]["reason"], &games[4]["runs"]),
+            (
+                &json!("no_handler"),
+                &json!(no_handler("Ice")),
+                &json!("user")
+            )
+        );
+        assert_eq!(games[5]["status"], "refused");
+        assert!(
+            games[5]["reason"]
+                .as_str()
+                .unwrap()
+                .ends_with(butterpollo_core::nucleus::elevation::NO_ELEVATION),
+            "{}",
+            games[5]
+        );
         // Before the install nothing is known yet.
         *pc.installed.lock().unwrap() = None;
         let body = value(

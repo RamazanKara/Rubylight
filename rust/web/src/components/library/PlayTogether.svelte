@@ -145,8 +145,12 @@
         <p class="muted" role="status">Checking Nucleus Co-op’s handlers…</p>
       {:else if view.kind === 'handler'}
         <p class="lead">{view.text}</p>
+        {#if view.runs}<p class="muted note">{view.runs}</p>{/if}
+        {#if view.openRefusal}
+          <Banner tone="warn" title="Nucleus Co-op can’t open on this account">{view.openRefusal}</Banner>
+        {/if}
         <div class="action">
-          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true} onclick={open}>Open Nucleus Co-op on this PC</Button>
+          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true || view.openRefusal !== null} onclick={open}>Open Nucleus Co-op on this PC</Button>
           {#if status?.opened}{@render closeAction()}{/if}
         </div>
         <p class="muted note">{view.steps}</p>
@@ -155,13 +159,18 @@
           <p class="muted note">{AWAY_FROM_PC}</p>
         </details>
       {:else if view.kind === 'ready'}
-        <p class="lead"><strong>{view.players}</strong> {view.start}</p>
+        {#if view.refusal}
+          <Banner tone="warn" title="No co-op or background streams on this account">{view.refusal}</Banner>
+        {:else}
+          <p class="lead"><strong>{view.players}</strong> {view.start}</p>
+        {/if}
         <Toggle
           label="Show “{view.entry}” in the library"
           hint="Saves with the app."
           bind:checked={() => draft.flag('coop-entry'), (value) => draft.setFlag('coop-entry', value)}
         />
         <p class="muted note">{COOP_LIMITS}</p>
+        {#if view.runs}<p class="muted note">{view.runs}</p>{/if}
         {#if status?.opened}
           <div class="action">
             <span class="muted note">{OPEN_ON_PC}</span>

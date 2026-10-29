@@ -204,6 +204,7 @@ fn restore_nucleus_layers(config: &std::path::Path) {
             return;
         }
     };
+    restore_nucleus_settings(&configured);
     match crate::nucleus::layers::restore_at_console(
         &butterpollo_core::paths::data_root(),
         &configured,
@@ -230,6 +231,47 @@ fn restore_nucleus_layers(config: &std::path::Path) {
             tracing::error!(error = %format!("{error:#}"), "Nucleus Co-op: the compatibility settings an earlier session changed were not put back")
         }
     }
+}
+
+/// Put back the user's Nucleus Co-op settings a session changed when its
+/// host stopped mid-session ([`nucleus_settings_left`]).
+fn restore_nucleus_settings(configured: &str) {
+    let restored = (|| -> Result<Option<usize>> {
+        let Some(folder) =
+            crate::nucleus::install::installed(&butterpollo_core::paths::data_root(), configured)?
+        else {
+            return Ok(Some(0));
+        };
+        nucleus_settings_left(&folder, crate::nucleus::session::running)
+    })();
+    match restored {
+        Ok(Some(0)) => {}
+        Ok(None) => tracing::info!(
+            "Nucleus Co-op runs or a session holds its settings; they are put back when it ends or before the next"
+        ),
+        Ok(Some(changed)) => tracing::info!(
+            changed,
+            "Nucleus Co-op: the settings an earlier session changed are back"
+        ),
+        Err(error) => tracing::error!(
+            error = %format!("{error:#}"),
+            "Nucleus Co-op: the settings an earlier session changed were not put back"
+        ),
+    }
+}
+
+/// [`crate::nucleus::files::restore_settings_left`] in the Nucleus Co-op at
+/// `folder`, unless it runs (`running`): a session's own puts them back as
+/// it ends. None when skipped, as also while a session holds the lock.
+fn nucleus_settings_left(
+    folder: &std::path::Path,
+    running: impl FnOnce() -> Result<Option<u32>>,
+) -> Result<Option<usize>> {
+    if let Some(pid) = running()? {
+        tracing::info!(pid, "Nucleus Co-op runs");
+        return Ok(None);
+    }
+    crate::nucleus::files::restore_settings_left(folder)
 }
 
 fn supervise() -> Result<()> {
@@ -413,6 +455,49 @@ fn supervise() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nucleus_settings_are_put_back_only_with_neither_nucleus_nor_a_session() {
+        use butterpollo_core::nucleus::profile::Forced;
+        let nucleus = tempfile::tempdir().unwrap();
+        let folder = nucleus.path();
+        let settings = folder.join("Settings.ini");
+        // What a host that stopped mid-session left.
+        let left = || {
+            std::fs::write(&settings, "[Dev]\r\nShowFavoriteOnly=False\r\n").unwrap();
+            let forced = [Forced {
+                section: "Dev".into(),
+                key: "ShowFavoriteOnly".into(),
+                before: b"True".to_vec(),
+                forced: b"False".to_vec(),
+            }];
+            std::fs::write(
+                folder.join("Rubylight-settings.json"),
+                serde_json::to_vec(&forced).unwrap(),
+            )
+            .unwrap();
+        };
+        let favourites = || std::fs::read_to_string(&settings).unwrap();
+        left();
+        // Nucleus Co-op runs: nothing is read or put back.
+        let running = || Ok(Some(42));
+        assert_eq!(nucleus_settings_left(folder, running).unwrap(), None);
+        assert!(favourites().contains("ShowFavoriteOnly=False"));
+        // A session starting holds the lock until it ends.
+        let session = crate::nucleus::files::write_settings(folder).unwrap();
+        left();
+        assert_eq!(nucleus_settings_left(folder, || Ok(None)).unwrap(), None);
+        assert!(favourites().contains("ShowFavoriteOnly=False"));
+        drop(session);
+        left();
+        assert_eq!(nucleus_settings_left(folder, || Ok(None)).unwrap(), Some(1));
+        assert!(favourites().contains("ShowFavoriteOnly=True"));
+        assert!(!folder.join("Rubylight-settings.json").exists());
+        // A failed look at the processes is an error, not a restore.
+        left();
+        let error = nucleus_settings_left(folder, || anyhow::bail!("denied")).unwrap_err();
+        assert_eq!(error.to_string(), "denied");
+        assert!(favourites().contains("ShowFavoriteOnly=False"));
+    }
     #[test]
     fn a_sign_in_at_the_console_puts_back_what_nucleus_left() {
         assert!(signs_in(SessionChangeReason::SessionLogon, 1, 1));

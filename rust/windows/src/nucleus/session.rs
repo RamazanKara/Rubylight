@@ -5,7 +5,7 @@
 //! show; nothing falls back to another mode.
 use super::desktop::Win32;
 use super::files;
-use super::instances::{Desktop, Keeper};
+use super::instances::{Desktop, Keeper, MessageBox};
 use super::layers::{self, Guard, Layers};
 use super::pads::{self, Dropped, Pads, XInput};
 use crate::input::PadReport;
@@ -13,12 +13,14 @@ use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::audio_scope::Identity;
 use butterpollo_core::input::Input;
 use butterpollo_core::nucleus::coop::{self, End, Phase};
+use butterpollo_core::nucleus::elevation::Run;
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::EXECUTABLE;
 use butterpollo_core::nucleus::profile::{Player, TITLE};
 use butterpollo_core::nucleus::window;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::os::windows::io::OwnedHandle;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -50,7 +52,7 @@ pub trait Nucleus: Send {
     fn stop(&mut self, instances: &BTreeMap<u32, u64>);
 }
 
-/// Starts Nucleus Co-op: elevated on the PC, a fake in tests.
+/// Starts Nucleus Co-op: elevated or as the user on the PC, a fake in tests.
 pub trait Launcher {
     /// Start it for game `guid` with `environment` added to the user's: the
     /// game it starts gets the same.
@@ -60,6 +62,17 @@ pub trait Launcher {
         guid: &str,
         environment: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>>;
+    /// Run `work`, which writes Nucleus' settings and profile, as the
+    /// account whose copy it writes to: the host for its own copy, the user
+    /// for theirs.
+    fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+        work()
+    }
+    /// The account the folder it runs from is read as while the session
+    /// runs: None for the host's own, the user for their copy.
+    fn reader(&self) -> Result<Option<OwnedHandle>> {
+        Ok(None)
+    }
 }
 
 /// What Nucleus Co-op starts with for a game found from Steam app
@@ -84,27 +97,141 @@ impl Launcher for Elevated {
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
         require_administrator(crate::process::user_runs_elevated()?)?;
-        let environment = environment(extra)?;
-        let since = crate::process::now();
-        let program = folder.join(EXECUTABLE);
-        // Nucleus reads Settings.ini from its working folder, and its window
-        // must be visible for the profile click.
-        let process = crate::process::Process::spawn(
-            &program,
-            &[guid.into()],
-            Some(folder),
-            crate::process::Target::User { elevated: true },
-            &environment,
-            false,
-        )
-        .with_context(|| format!("starting {} elevated", program.display()))?;
-        tracing::info!(
-            pid = process.pid,
+        started(&launch_of(
+            folder,
             guid,
-            ?environment,
-            "Nucleus Co-op started"
-        );
-        Ok(Box::new(Started { process, since }))
+            &environment(extra)?,
+            Run::Elevated,
+        ))
+    }
+}
+
+/// Nucleus Co-op from the signed-in user's own copy
+/// ([`super::user_copy`]), as them with their standard rights: Rubylight's
+/// own handler for a game that needs no administrator rights. The same
+/// environment, job and window as [`Elevated`]'s; its files are written as
+/// the user.
+pub struct Unelevated {
+    user: OwnedHandle,
+}
+impl Unelevated {
+    pub fn signed_in() -> Result<Self> {
+        Ok(Self {
+            user: super::user_copy::user()?,
+        })
+    }
+}
+impl Launcher for Unelevated {
+    fn launch(
+        &mut self,
+        folder: &Path,
+        guid: &str,
+        extra: &BTreeMap<String, String>,
+    ) -> Result<Box<dyn Nucleus>> {
+        let launch = launch_of(folder, guid, &environment(extra)?, Run::User);
+        // Windows opens the program and its folder as the host: held, the
+        // user can't swap either for a link until it runs.
+        let sid = super::user_copy::sid(&self.user)?;
+        let _held = super::user_copy::hold(folder, &sid)?;
+        started(&launch)
+    }
+    fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+        super::user_copy::as_user(Some(&self.user), work)?
+    }
+    fn reader(&self) -> Result<Option<OwnedHandle>> {
+        let user = self
+            .user
+            .try_clone()
+            .context("keeping the signed-in user's token")?;
+        Ok(Some(user))
+    }
+}
+
+/// How a session starts the Nucleus Co-op at `folder`: as the signed-in
+/// user, `elevated` or not, in its folder.
+#[derive(Debug, PartialEq)]
+struct Launch {
+    program: PathBuf,
+    folder: PathBuf,
+    arguments: Vec<std::ffi::OsString>,
+    elevated: bool,
+    environment: BTreeMap<String, String>,
+}
+
+/// [`Launch`] of game `guid` for `run`, with `environment` ([`environment`]).
+/// Nucleus reads Settings.ini from its working folder, and its window must
+/// be visible for the profile click.
+fn launch_of(
+    folder: &Path,
+    guid: &str,
+    environment: &BTreeMap<String, String>,
+    run: Run,
+) -> Launch {
+    Launch {
+        program: folder.join(EXECUTABLE),
+        folder: folder.to_path_buf(),
+        arguments: vec![guid.into()],
+        elevated: run == Run::Elevated,
+        environment: environment.clone(),
+    }
+}
+
+fn started(launch: &Launch) -> Result<Box<dyn Nucleus>> {
+    let since = crate::process::now();
+    let process = crate::process::Process::spawn(
+        &launch.program,
+        &launch.arguments,
+        Some(&launch.folder),
+        crate::process::Target::User {
+            elevated: launch.elevated,
+        },
+        &launch.environment,
+        false,
+    )
+    .with_context(|| {
+        format!(
+            "starting {} {}",
+            launch.program.display(),
+            if launch.elevated {
+                "elevated"
+            } else {
+                "without administrator rights"
+            }
+        )
+    })?;
+    let elevated = process.elevated();
+    tracing::info!(
+        pid = process.pid,
+        arguments = ?launch.arguments,
+        asked = if launch.elevated { "elevated" } else { "user" },
+        rights = match &elevated {
+            Ok(true) => "administrator",
+            Ok(false) => "standard",
+            Err(_) => "unknown",
+        },
+        environment = ?launch.environment,
+        "Nucleus Co-op started"
+    );
+    if let Some(note) = rights_note(launch.elevated, &elevated) {
+        tracing::warn!(pid = process.pid, "{note}");
+    }
+    Ok(Box::new(Started { process, since }))
+}
+
+/// What the log adds when Nucleus Co-op's rights are not what its launch
+/// asked for (`asked`: elevated), or can't be read.
+fn rights_note(asked: bool, elevated: &Result<bool>) -> Option<String> {
+    match (asked, elevated) {
+        (false, Ok(true)) => Some(
+            "Nucleus Co-op: started as the signed-in user, it runs with administrator rights all the same: Windows gives this account only its full token (User Account Control is off)".into(),
+        ),
+        (true, Ok(false)) => Some(
+            "Nucleus Co-op: started elevated, it runs without administrator rights".into(),
+        ),
+        (_, Err(error)) => Some(format!(
+            "Nucleus Co-op: Rubylight could not read whether it runs with administrator rights: {error:#}"
+        )),
+        _ => None,
     }
 }
 
@@ -163,12 +290,13 @@ fn webview_environment(
 /// loading screen ("Microsoft Edge can't read and write to its data
 /// directory").
 fn require_administrator(elevated: bool) -> Result<()> {
-    ensure!(
-        elevated,
-        "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)"
-    );
+    ensure!(elevated, "{NEEDS_ADMINISTRATOR}");
     Ok(())
 }
+
+/// What [`open`] refuses with when the signed-in user has no elevated
+/// token; the console says the same before the button is pressed.
+pub const NEEDS_ADMINISTRATOR: &str = "Nucleus Co-op needs administrator rights, and Windows gives the account signed in on this PC none to start it with (a standard account, or Windows' Administrator protection)";
 
 /// The Nucleus Co-op [`open`] started: the only one the host closes. It is
 /// every NucleusCoop.exe in the job [`open`] made, so one that restarted
@@ -240,6 +368,67 @@ impl Nucleus for Started {
     }
 }
 
+/// Nucleus' `crashlog.txt` in its working folder, where it appends each
+/// exception it catches (`[time] exception`, then its stack) and goes on,
+/// as it was when the session launched it.
+struct Crashlog {
+    path: PathBuf,
+    /// Its length at the launch: what follows is this session's.
+    from: u64,
+}
+
+impl Crashlog {
+    /// The longest line quoted.
+    const LIMIT: usize = 300;
+
+    fn at_launch(folder: &Path) -> Crashlog {
+        let path = folder.join("crashlog.txt");
+        let from = match std::fs::metadata(&path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(error = %error, path = %path.display(), "Nucleus Co-op's crashlog not read");
+                }
+                0
+            }
+        };
+        Crashlog { path, from }
+    }
+
+    /// The newest exception written since the launch: its first line.
+    fn newest(&self) -> Option<String> {
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(error = %error, path = %self.path.display(), "Nucleus Co-op's crashlog not read");
+                }
+                return None;
+            }
+        };
+        // A shorter file was started again since.
+        let from = usize::try_from(self.from)
+            .ok()
+            .filter(|&from| from <= bytes.len())
+            .unwrap_or(0);
+        let text = String::from_utf8_lossy(&bytes[from..]);
+        let lines: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        let line = lines
+            .iter()
+            .rev()
+            .find(|line| line.starts_with('['))
+            .or(lines.last())?;
+        Some(match line.char_indices().nth(Self::LIMIT) {
+            Some((at, _)) => format!("{}...", &line[..at]),
+            None => line.to_string(),
+        })
+    }
+}
+
 /// What the session thread and the host share.
 struct Shared {
     session: Mutex<coop::Session>,
@@ -260,14 +449,38 @@ struct Runner {
     clicked: bool,
     /// Why the last click on the profile was refused.
     unclicked: Option<String>,
+    /// While the profile is not shown: Nucleus' message boxes at the last
+    /// look, every one logged so far, whether it showed any window, and why
+    /// the last look failed. A box Windows showed for another program
+    /// before the launch (`before`, its windows) is not Nucleus'.
+    showing: Vec<MessageBox>,
+    logged: Vec<MessageBox>,
+    before: BTreeSet<u64>,
+    shown: bool,
+    unseen: Option<String>,
+    /// Nucleus' crashlog.txt as it was at the launch. None for a runner
+    /// tested alone.
+    crashlog: Option<Crashlog>,
+    /// The folder Nucleus Co-op runs from and the game's GUID, to tell
+    /// whether Nucleus lists the game, read as `reader` (the user, for their
+    /// own copy). None for a runner tested alone, and for a Nucleus Co-op
+    /// whose game list Rubylight doesn't know.
+    game: Option<(PathBuf, String)>,
+    reader: Option<OwnedHandle>,
     /// Clicked, instances found, windows found.
     progress: (bool, usize, usize),
     windows: Vec<Option<u64>>,
     deadline: Instant,
     exited: bool,
     failed: u32,
-    /// The game's compatibility settings from before Nucleus started; last,
-    /// so it drops after Nucleus. None for a runner tested alone.
+    /// The game's folder: walked again after a failed start
+    /// ([`super::elevation::forget`]).
+    game_folder: Option<PathBuf>,
+    /// The user's Nucleus settings the session changed (None from the
+    /// user's own copy, whose stay), then the game's compatibility settings
+    /// from before Nucleus started; last, so they drop after Nucleus. None
+    /// for a runner tested alone.
+    settings: Option<files::SettingsGuard>,
     layers: Option<Guard>,
 }
 
@@ -351,6 +564,11 @@ impl Runner {
             }
         }
         self.failed = 0;
+        if !running && roots == 0 && self.clicked {
+            // A box Nucleus shows after the click (its End-key reminder, a
+            // check of the game) holds the start as one before it does.
+            self.look(&job);
+        }
         if !running && now >= self.deadline {
             return Some(End::Failed(self.timeout()));
         }
@@ -374,7 +592,10 @@ impl Runner {
     fn click(&mut self, job: &BTreeSet<u32>) -> Option<End> {
         let label = match self.desktop.label(job, TITLE) {
             Ok(Some(label)) => label,
-            Ok(None) => return None,
+            Ok(None) => {
+                self.look(job);
+                return None;
+            }
             Err(error) => return Some(End::Failed(format!("{error:#}"))),
         };
         match self.desktop.click(label) {
@@ -389,9 +610,99 @@ impl Runner {
                     tracing::warn!(why, "Nucleus Co-op profile {TITLE} not clicked");
                 }
                 self.unclicked = Some(why);
+                // What covers the list may be Nucleus' own message box.
+                self.look(job);
             }
         }
         None
+    }
+
+    /// What Nucleus shows instead of the profile: a message box it shows
+    /// before its window (its folder check, a missing runtime) waits for an
+    /// answer no one gives during a background stream (#59).
+    fn look(&mut self, job: &BTreeSet<u32>) {
+        let looked = match self.desktop.message_boxes(job) {
+            Ok(mut boxes) => {
+                boxes.retain(|shown| !self.before.contains(&shown.window));
+                self.showing = boxes;
+                self.desktop
+                    .windows()
+                    .map(|windows| windows.iter().any(|w| w.visible && job.contains(&w.pid)))
+            }
+            Err(error) => {
+                self.showing.clear();
+                Err(error)
+            }
+        };
+        match looked {
+            Ok(shown) => {
+                self.shown |= shown;
+                self.unseen = None;
+            }
+            Err(error) => {
+                let why = format!("{error:#}");
+                if self.unseen.as_ref() != Some(&why) {
+                    tracing::warn!(why, "Nucleus Co-op's windows not listed");
+                }
+                self.unseen = Some(why);
+            }
+        }
+        for shown in &self.showing {
+            if !self.logged.contains(shown) {
+                tracing::warn!(
+                    "Nucleus Co-op shows \"{}\" on the PC's screen",
+                    shown.summary()
+                );
+                self.logged.push(shown.clone());
+            }
+        }
+    }
+
+    /// Why Nucleus did not show the profile.
+    fn unshown(&self) -> String {
+        if let Some(shown) = self.showing.first() {
+            return format!(
+                "Nucleus Co-op shows \"{}\" on the PC's screen",
+                shown.summary()
+            );
+        }
+        let why = if self.shown {
+            self.unlisted().unwrap_or_else(|| {
+                format!(
+                    "Nucleus Co-op shows no profile {TITLE} for {}; open Nucleus Co-op and load the profile {TITLE} once",
+                    self.title
+                )
+            })
+        } else if let Some(unseen) = &self.unseen {
+            format!("Nucleus Co-op's windows could not be listed: {unseen}")
+        } else {
+            "Nucleus Co-op showed no window".to_string()
+        };
+        match self.crashlog.as_ref().and_then(Crashlog::newest) {
+            Some(line) => format!("{why}. Its crashlog.txt says: {line}"),
+            None => why,
+        }
+    }
+
+    /// Why Nucleus Co-op shows no entry for the game, when it doesn't: no
+    /// profile of a game it doesn't list ever appears (#59).
+    fn unlisted(&self) -> Option<String> {
+        let (folder, guid) = self.game.as_ref()?;
+        let list = files::list(folder);
+        let listed =
+            super::user_copy::as_user(self.reader.as_ref(), || files::listed_by_nucleus(folder))
+                .and_then(|listed| listed);
+        match listed {
+            Ok(listed) if listed.contains(guid) => None,
+            Ok(_) => Some(format!(
+                "Nucleus Co-op does not list {}: {} has no entry for it with its handler and an .exe that is there",
+                self.title,
+                list.display()
+            )),
+            Err(error) => Some(format!(
+                "Nucleus Co-op's game list can't be read: {error:#}"
+            )),
+        }
     }
 
     fn failure(&self, why: String) -> End {
@@ -406,7 +717,10 @@ impl Runner {
         let (clicked, roots, _) = self.progress;
         let hint = format!("open Nucleus Co-op and load the profile {TITLE} once");
         match (&self.unclicked, clicked, roots) {
+            // The box is why: it covers the list or holds the start.
+            (_, _, 0) if !self.showing.is_empty() => self.unshown(),
             (Some(why), false, 0) => format!("Nucleus Co-op did not start {}: {why}", self.title),
+            (None, false, 0) => self.unshown(),
             (_, _, 0) => format!("Nucleus Co-op did not start {}; {hint}", self.title),
             _ if roots < self.players => format!(
                 "Nucleus Co-op started {roots} of {} instances of {}; {hint}",
@@ -436,7 +750,10 @@ impl Runner {
                 tracing::info!(title = self.title, "Nucleus Co-op session ended")
             }
             Phase::Ended(why) => {
-                tracing::warn!(title = self.title, "Nucleus Co-op session ended: {why}")
+                tracing::warn!(title = self.title, "Nucleus Co-op session ended: {why}");
+                if let (End::Failed(_), Some(game)) = (why, &self.game_folder) {
+                    super::elevation::forget(game);
+                }
             }
             _ => {}
         }
@@ -445,6 +762,9 @@ impl Runner {
         // Nucleus sets them as it starts each instance: back once all stopped.
         if let Some(layers) = &mut self.layers {
             layers.restore();
+        }
+        if let Some(settings) = &mut self.settings {
+            settings.restore();
         }
     }
 }
@@ -477,8 +797,18 @@ pub fn audio_limit(build: Option<u32>) -> Option<String> {
 pub struct Start<'a> {
     pub id: u32,
     pub kind: coop::Kind,
-    /// Nucleus Co-op's folder.
+    /// The host's Nucleus Co-op folder, which keeps the compatibility
+    /// settings' file.
     pub folder: &'a Path,
+    /// The signed-in user's own copy ([`super::user_copy`]) when the
+    /// session runs it as them without administrator rights; None runs
+    /// `folder` elevated.
+    pub user_copy: Option<&'a Path>,
+    /// Whether it is the release whose game list Rubylight knows
+    /// ([`files::list`]): the host's own install of 2.4.2 (or the user's
+    /// copy of it), not a `nucleus_path` copy. Only then does a start that
+    /// times out say whether the game is listed.
+    pub known_list: bool,
     pub handler: &'a Handler,
     /// The game's .exe as Nucleus starts it: the user's added game's, or the
     /// one Rubylight's handler is for.
@@ -506,12 +836,17 @@ pub struct Running {
 }
 
 /// Start a session on the PC: virtual Xbox pads, XInput, the user's desktop
-/// and compatibility settings, and Nucleus Co-op elevated.
+/// and compatibility settings, and Nucleus Co-op, elevated or from the
+/// user's own copy.
 pub fn start_on_pc(
     start: &Start,
     policy: butterpollo_core::input_policy::Policy,
     warnings: Arc<butterpollo_core::session::Warnings>,
 ) -> Result<Running> {
+    let mut launcher: Box<dyn Launcher> = match start.user_copy {
+        Some(_) => Box::new(Unelevated::signed_in()?),
+        None => Box::new(Elevated),
+    };
     let pads = pads::virtual_pads(policy, warnings)?;
     let mut xinput = pads::System::open()?;
     self::start(
@@ -520,17 +855,26 @@ pub fn start_on_pc(
         &mut xinput,
         Box::new(Win32::default()),
         Box::new(layers::UserHive::signed_in()?),
-        &mut Elevated,
+        launcher.as_mut(),
     )
 }
 
+/// The folder of the game at `exe`, which [`super::elevation::folder_need`]
+/// walks.
+fn game_folder(exe: &str) -> Option<PathBuf> {
+    Path::new(exe).parent().map(Path::to_path_buf)
+}
+
 /// What starting a session needs that doesn't need Nucleus Co-op closed:
-/// administrator rights for the signed-in user, their AppData folder and
-/// their account, and the compatibility settings an earlier session at
-/// `folder` left put back. Checked before a session closes the console's
-/// window, so a launch refused for one of these leaves the window open.
-pub fn ready(folder: &Path) -> Result<()> {
-    require_administrator(crate::process::user_runs_elevated()?)?;
+/// administrator rights for the signed-in user when it runs elevated, their
+/// AppData folder and their account, and the compatibility settings an
+/// earlier session left in the host's `folder` put back. Checked before a
+/// session closes the console's window, so a launch refused for one of
+/// these leaves the window open.
+pub fn ready(folder: &Path, run: Run) -> Result<()> {
+    if run == Run::Elevated {
+        require_administrator(crate::process::user_runs_elevated()?)?;
+    }
     environment(&BTreeMap::new())?;
     layers::restore_left_in(&mut layers::UserHive::signed_in()?, folder)?;
     Ok(())
@@ -538,8 +882,24 @@ pub fn ready(folder: &Path) -> Result<()> {
 
 /// Start a session: refused while Nucleus Co-op already runs, then one pad
 /// per player, the profile, the game's compatibility settings kept
-/// ([`layers`]), and Nucleus.
+/// ([`layers`]), and Nucleus. Should it fail, the game's folder is walked
+/// again next time ([`super::elevation::forget`]).
 pub fn start(
+    start: &Start,
+    pads: Box<dyn Pads>,
+    xinput: &mut dyn XInput,
+    desktop: Box<dyn Desktop>,
+    layers: Box<dyn Layers>,
+    launcher: &mut dyn Launcher,
+) -> Result<Running> {
+    begin(start, pads, xinput, desktop, layers, launcher).inspect_err(|_| {
+        if let Some(game) = game_folder(start.exe_path) {
+            super::elevation::forget(&game);
+        }
+    })
+}
+
+fn begin(
     start: &Start,
     pads: Box<dyn Pads>,
     xinput: &mut dyn XInput,
@@ -585,28 +945,53 @@ pub fn start(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    files::write_settings(start.folder)?;
-    let number = files::write_profile(start.folder, &start.handler.guid, &players, &screens)?;
+    // The copy Nucleus runs from, written as the account it runs as. The
+    // host's own settings are put back when the session ends, or here should
+    // Nucleus not start; the user's copy keeps the session's, and nothing in
+    // it is written as the host.
+    let folder = start.user_copy.unwrap_or(start.folder);
+    let settings = match start.user_copy {
+        None => Some(files::write_settings(start.folder)?),
+        Some(_) => None,
+    };
+    let mut number = 0;
+    launcher.write(&mut || {
+        if start.user_copy.is_some() {
+            files::write_copy_settings(folder)?;
+        }
+        number = files::write_profile(folder, &start.handler.guid, &players, &screens)?;
+        Ok(())
+    })?;
     tracing::info!(
         number,
         game = start.handler.guid,
         players = start.players,
+        folder = %folder.display(),
         "Nucleus Co-op profile {TITLE} written"
     );
     // Restored when the session ends, or here should Nucleus not start.
     let layers = Guard::take(
         layers,
         start.folder,
+        folder,
         &start.handler.executable,
         start.exe_path,
     )
     .context("keeping the game's compatibility settings, which Nucleus Co-op changes")?;
+    let crashlog = Crashlog::at_launch(start.folder);
+    // Windows' boxes up now are another program's: Nucleus isn't running.
+    let before = desktop
+        .message_boxes(&BTreeSet::new())
+        .context("listing the message boxes on the PC's screen before Nucleus Co-op starts")?
+        .into_iter()
+        .map(|shown| shown.window)
+        .collect();
     let nucleus = launcher.launch(
-        start.folder,
+        folder,
         &start.handler.guid,
         &steam_environment(start.steam_app),
     )?;
-    let content = start.folder.join("content");
+    let content = folder.join("content");
     let keeper = Keeper::new(
         start.players,
         std::slice::from_ref(&start.handler.executable),
@@ -627,11 +1012,23 @@ pub fn start(
         players: start.players,
         clicked: false,
         unclicked: None,
+        showing: Vec::new(),
+        logged: Vec::new(),
+        before,
+        shown: false,
+        unseen: None,
+        crashlog: Some(crashlog),
+        game: start
+            .known_list
+            .then(|| (folder.to_path_buf(), start.handler.guid.clone())),
+        reader: launcher.reader()?,
         progress: (false, 0, 0),
         windows: vec![None; start.players],
         deadline: Instant::now() + START_TIMEOUT,
         exited: false,
         failed: 0,
+        game_folder: game_folder(start.exe_path),
+        settings,
         layers: Some(layers),
     };
     let (stop, stopped) = mpsc::channel();
@@ -787,6 +1184,58 @@ mod tests {
     }
 
     #[test]
+    fn the_log_says_what_rights_nucleus_really_has() {
+        assert_eq!(rights_note(false, &Ok(false)), None);
+        assert_eq!(rights_note(true, &Ok(true)), None);
+        // An administrator with User Account Control off: a "user" run
+        // gets their full token.
+        let uac_off = rights_note(false, &Ok(true)).unwrap();
+        assert!(
+            uac_off.contains("runs with administrator rights all the same"),
+            "{uac_off}"
+        );
+        assert!(
+            rights_note(true, &Ok(false))
+                .unwrap()
+                .contains("without administrator rights")
+        );
+        let unread = rights_note(false, &Err(anyhow::anyhow!("access denied"))).unwrap();
+        assert!(unread.ends_with(": access denied"), "{unread}");
+    }
+
+    #[test]
+    fn the_users_own_copy_starts_as_them_with_the_elevated_ones_environment() {
+        let local = Path::new(r"C:\Users\Player\AppData\Local");
+        let environment = webview_environment(local, &steam_environment(Some(400)));
+        let copy =
+            Path::new(r"C:\ProgramData\Butterpollo\nucleus-user\S-1-5-21-7\0123456789abcdef");
+        let user = launch_of(copy, "Rubylight-game", &environment, Run::User);
+        assert_eq!(
+            user,
+            Launch {
+                program: copy.join("NucleusCoop.exe"),
+                folder: copy.to_path_buf(),
+                arguments: vec!["Rubylight-game".into()],
+                elevated: false,
+                environment: BTreeMap::from([
+                    ("SteamAppId".to_string(), "400".to_string()),
+                    ("SteamGameId".to_string(), "400".to_string()),
+                    (
+                        "WEBVIEW2_USER_DATA_FOLDER".to_string(),
+                        r"C:\Users\Player\AppData\Local\Butterpollo\nucleus-webview".to_string()
+                    ),
+                ]),
+            }
+        );
+        // Nothing lowers the game's rights behind its back (__COMPAT_LAYER):
+        // the same environment as elevated, only the token differs.
+        let host = Path::new(r"C:\ProgramData\Butterpollo\nucleus\2.4.2");
+        let elevated = launch_of(host, "Rubylight-game", &environment, Run::Elevated);
+        assert!(elevated.elevated);
+        assert_eq!(elevated.environment, user.environment);
+    }
+
+    #[test]
     fn an_account_without_administrator_rights_is_refused_before_nucleus_starts() {
         // A standard user's Nucleus Co-op hung on its loading screen: it
         // could not write its WebView2 cache into the Administrators-only folder.
@@ -829,6 +1278,9 @@ mod tests {
         fn click(&mut self, label: u64) -> Result<()> {
             self.0.lock().unwrap().click(label)
         }
+        fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
+            self.0.lock().unwrap().message_boxes(processes)
+        }
     }
 
     const NUCLEUS: u32 = 10;
@@ -844,6 +1296,10 @@ mod tests {
         layers: super::super::layers::tests::Map,
         /// Why Nucleus does not start, when it does not.
         refused: Arc<Mutex<Option<String>>>,
+        /// The folder each launch started Nucleus from.
+        folders: Arc<Mutex<Vec<PathBuf>>>,
+        /// What was written through the launcher's account, and when it ran.
+        writes: Arc<Mutex<usize>>,
     }
     struct FakeNucleus {
         probe: Probe,
@@ -874,13 +1330,14 @@ mod tests {
     impl Launcher for (Probe, Screen) {
         fn launch(
             &mut self,
-            _folder: &Path,
+            folder: &Path,
             guid: &str,
             environment: &BTreeMap<String, String>,
         ) -> Result<Box<dyn Nucleus>> {
             if let Some(why) = self.0.refused.lock().unwrap().clone() {
                 bail!(why);
             }
+            self.0.folders.lock().unwrap().push(folder.to_path_buf());
             self.0.launched.lock().unwrap().push(guid.into());
             self.0
                 .environments
@@ -950,11 +1407,21 @@ mod tests {
             players,
             clicked: false,
             unclicked: None,
+            showing: Vec::new(),
+            logged: Vec::new(),
+            before: BTreeSet::new(),
+            shown: false,
+            unseen: None,
+            crashlog: None,
+            game: None,
+            reader: None,
             progress: (false, 0, 0),
             windows: vec![None; players],
             deadline: t0 + START_TIMEOUT,
             exited: false,
             failed: 0,
+            game_folder: None,
+            settings: None,
             layers: None,
         }
     }
@@ -1033,14 +1500,160 @@ mod tests {
         let mut runner = runner(1, &screen, &probe, t0);
         assert_eq!(runner.step(t0 + START_TIMEOUT / 2), None);
         let end = runner.step(t0 + START_TIMEOUT).unwrap();
-        assert_eq!(
-            end,
-            End::Failed(format!("Nucleus Co-op did not start Game; {HINT}"))
-        );
+        assert_eq!(end, End::Failed("Nucleus Co-op showed no window".into()));
         let shared = runner.shared.clone();
         runner.finish(end.clone());
         assert_eq!(shared.session.lock().unwrap().phase, Phase::Ended(end));
         assert_eq!(*probe.stopped.lock().unwrap(), Some(BTreeMap::new()));
+    }
+
+    #[test]
+    fn a_message_box_nucleus_shows_instead_of_the_profile_is_named() {
+        // Nucleus' check of a Documents folder in OneDrive waits for an
+        // answer before its window opens; nobody gives it during a
+        // background stream (#59).
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        let shown = MessageBox {
+            window: 1,
+            caption: "OneDrive must be disabled".into(),
+            text: "Your Documents folder\r\nis in OneDrive.".into(),
+        };
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .boxes
+            .push((NUCLEUS, shown.clone()));
+        // Another program's box is not Nucleus'.
+        screen.0.lock().unwrap().boxes.push((
+            99,
+            MessageBox {
+                window: 2,
+                caption: "Other".into(),
+                text: String::new(),
+            },
+        ));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [shown]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op shows \"OneDrive must be disabled: Your Documents folder is in OneDrive.\" on the PC's screen".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_window_without_the_profile_is_named_with_the_sessions_crash() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        let folder = tempfile::tempdir().unwrap();
+        let log = folder.path().join("crashlog.txt");
+        std::fs::write(&log, "[01.10.2026 10:00:00] System.Exception: earlier\n").unwrap();
+        runner.crashlog = Some(Crashlog::at_launch(folder.path()));
+        let mut later = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        std::io::Write::write_all(
+            &mut later,
+            b"[29.10.2026 12:00:00] System.NullReferenceException: no game\n   at ChangeGame()\n",
+        )
+        .unwrap();
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .windows
+            .push(window(5, NUCLEUS, ON_SCREEN));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(format!(
+                "Nucleus Co-op shows no profile Rubylight for Game; {HINT}. Its crashlog.txt says: [29.10.2026 12:00:00] System.NullReferenceException: no game"
+            )))
+        );
+    }
+
+    #[test]
+    fn a_game_nucleus_does_not_list_is_named_with_its_list() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let folder = tempfile::tempdir().unwrap();
+        let exe = folder.path().join("Game.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let setup =
+            butterpollo_core::nucleus::generic::Setup::new(&exe.to_string_lossy(), "Game", None);
+        let own = files::write_own(folder.path(), &setup).unwrap();
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .windows
+            .push(window(5, NUCLEUS, ON_SCREEN));
+        let timeout = || {
+            let mut runner = runner(1, &screen, &probe, t0);
+            runner.game = Some((folder.path().to_path_buf(), own.guid.clone()));
+            assert_eq!(runner.step(t0), None);
+            runner.step(t0 + START_TIMEOUT)
+        };
+        // Listed: the profile is what's missing.
+        assert_eq!(
+            timeout(),
+            Some(End::Failed(format!(
+                "Nucleus Co-op shows no profile Rubylight for Game; {HINT}"
+            )))
+        );
+        // Not in the list Nucleus reads (#59).
+        let list = files::list(folder.path());
+        std::fs::remove_file(&list).unwrap();
+        assert_eq!(
+            timeout(),
+            Some(End::Failed(format!(
+                "Nucleus Co-op does not list Game: {} has no entry for it with its handler and an .exe that is there",
+                list.display()
+            )))
+        );
+    }
+
+    #[test]
+    fn only_crashes_written_after_the_launch_are_quoted() {
+        let folder = tempfile::tempdir().unwrap();
+        let log = folder.path().join("crashlog.txt");
+        // No file at the launch or after it.
+        let none = Crashlog::at_launch(folder.path());
+        assert_eq!(none.from, 0);
+        assert_eq!(none.newest(), None);
+        std::fs::write(&log, "[1] System.Exception: before\n   at Old()\n").unwrap();
+        let crashlog = Crashlog::at_launch(folder.path());
+        assert_eq!(crashlog.newest(), None);
+        let append = |text: &str| {
+            let mut file = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+            std::io::Write::write_all(&mut file, text.as_bytes()).unwrap();
+        };
+        append(
+            "[2] System.Exception: first\n   at A()\n[3] System.Exception: second\n   at B()\n\n",
+        );
+        assert_eq!(
+            crashlog.newest().as_deref(),
+            Some("[3] System.Exception: second")
+        );
+        // A file started again since is read whole.
+        std::fs::write(&log, "[4] new\n").unwrap();
+        assert_eq!(crashlog.newest().as_deref(), Some("[4] new"));
+        // A long line is cut.
+        append(&format!("[5] {}\n", "x".repeat(400)));
+        let cut = Crashlog::at_launch(folder.path());
+        append(&format!("[6] {}\n", "y".repeat(400)));
+        let line = cut.newest().unwrap();
+        assert!(
+            line.starts_with("[6] yyy") && line.ends_with("..."),
+            "{line}"
+        );
+        assert_eq!(line.chars().count(), Crashlog::LIMIT + 3);
+        // None written since the launch: nothing is quoted.
+        assert_eq!(Crashlog::at_launch(folder.path()).newest(), None);
     }
 
     #[test]
@@ -1057,6 +1670,136 @@ mod tests {
             runner.step(t0 + START_TIMEOUT),
             Some(End::Failed(
                 "Nucleus Co-op did not start Game: covered".into()
+            ))
+        );
+    }
+
+    fn reminder() -> MessageBox {
+        MessageBox {
+            window: 3,
+            caption: "Nucleus Co-op".into(),
+            text: "Press the End key to unlock the input.".into(),
+        }
+    }
+    const REMINDED: &str = "Nucleus Co-op shows \"Nucleus Co-op: Press the End key to unlock the input.\" on the PC's screen";
+
+    #[test]
+    fn only_a_box_windows_shows_after_the_launch_is_named() {
+        use super::super::instances::tests::CSRSS;
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let other = MessageBox {
+            window: 4,
+            caption: "Explorer.EXE - Application Error".into(),
+            text: "The instruction referenced memory that could not be read.".into(),
+        };
+        screen.0.lock().unwrap().boxes.push((CSRSS, other.clone()));
+        let mut runner = runner(1, &screen, &probe, t0);
+        // What start keeps: the boxes up before Nucleus Co-op ran.
+        runner.before = screen
+            .clone()
+            .message_boxes(&BTreeSet::new())
+            .unwrap()
+            .into_iter()
+            .map(|shown| shown.window)
+            .collect();
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .windows
+            .push(window(5, NUCLEUS, ON_SCREEN));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, []);
+        // Windows shows one for Nucleus Co-op (DefaultDesktopOnly) later.
+        let unreadable = MessageBox {
+            window: 6,
+            caption: "Nucleus Co-op".into(),
+            text: "Unable to load settings.".into(),
+        };
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .boxes
+            .push((CSRSS, unreadable.clone()));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [unreadable]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op shows \"Nucleus Co-op: Unable to load settings.\" on the PC's screen"
+                    .into()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_start_that_cannot_list_the_boxes_up_before_nucleus_is_refused() {
+        let folder = tempfile::tempdir().unwrap();
+        let (screen, probe) = (screen(), Probe::default());
+        screen.0.lock().unwrap().unlisted = true;
+        let (running, _) = start_with(folder.path(), 1, [false; 4], &screen, &probe);
+        let error = format!("{:#}", running.err().unwrap());
+        assert!(
+            error.contains("message boxes on the PC's screen before Nucleus Co-op starts"),
+            "{error}"
+        );
+        assert!(probe.launched.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_box_covering_the_profile_list_is_named_instead_of_the_cover() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        {
+            let mut desktop = screen.0.lock().unwrap();
+            desktop.covered = true;
+            desktop.boxes.push((NUCLEUS, reminder()));
+        }
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [reminder()]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(REMINDED.into()))
+        );
+    }
+
+    #[test]
+    fn a_box_nucleus_shows_after_the_click_is_named() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(screen.0.lock().unwrap().clicks, vec![7]);
+        screen.0.lock().unwrap().boxes.push((NUCLEUS, reminder()));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.logged, [reminder()]);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(REMINDED.into()))
+        );
+    }
+
+    #[test]
+    fn a_box_gone_from_the_list_is_not_quoted_and_a_failed_list_is_named() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        screen.0.lock().unwrap().boxes.push((NUCLEUS, reminder()));
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.showing, [reminder()]);
+        // The box may be gone; a list that failed doesn't say it's still up.
+        screen.0.lock().unwrap().unlisted = true;
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.showing, []);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op's windows could not be listed: access denied".into()
             ))
         );
     }
@@ -1170,6 +1913,45 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_start_walks_the_game_folder_again() {
+        use super::super::elevation;
+        let t0 = Instant::now();
+        let game = tempfile::tempdir().unwrap();
+        elevation::folder_need(game.path(), None).unwrap();
+        assert!(elevation::is_kept(game.path()));
+        let (screen, probe) = (screen(), Probe::default());
+        // A session stopped, or one that crashed once it ran: it stays.
+        for end in [End::Ended, End::Crashed("kicked".into())] {
+            let mut runner = runner(1, &screen, &probe, t0);
+            runner.game_folder = Some(game.path().to_path_buf());
+            runner.finish(end);
+            assert!(elevation::is_kept(game.path()));
+        }
+        // One that failed to start: walked again next time.
+        let mut runner = runner(1, &screen, &probe, t0);
+        runner.game_folder = Some(game.path().to_path_buf());
+        runner.finish(End::Failed("Nucleus Co-op did not start Game".into()));
+        assert!(!elevation::is_kept(game.path()));
+        // Nor one Nucleus never started for.
+        elevation::folder_need(game.path(), None).unwrap();
+        assert!(elevation::is_kept(game.path()));
+        let exe = game.path().join("Game.exe");
+        let folder = tempfile::tempdir().unwrap();
+        *probe.refused.lock().unwrap() = Some("access denied".into());
+        let (running, _) = start_steam(
+            folder.path(),
+            1,
+            [false; 4],
+            &self::screen(),
+            &probe,
+            None,
+            exe.to_str().unwrap(),
+        );
+        assert_eq!(running.err().unwrap().to_string(), "access denied");
+        assert!(!elevation::is_kept(game.path()));
+    }
+
+    #[test]
     fn a_session_ended_by_the_host_keeps_its_reason() {
         let t0 = Instant::now();
         let (screen, probe) = (screen(), Probe::default());
@@ -1263,6 +2045,9 @@ mod tests {
         }
     }
 
+    /// The game the sessions start.
+    const GAME: &str = r"D:\Games\Game\Game.exe";
+
     fn start_with(
         folder: &Path,
         players: usize,
@@ -1270,7 +2055,22 @@ mod tests {
         screen: &Screen,
         probe: &Probe,
     ) -> (Result<Running>, Arc<Recorder>) {
-        start_steam(folder, players, taken, screen, probe, None)
+        start_steam(folder, players, taken, screen, probe, None, GAME)
+    }
+
+    impl Launcher for (Probe, Screen, ()) {
+        fn launch(
+            &mut self,
+            folder: &Path,
+            guid: &str,
+            environment: &BTreeMap<String, String>,
+        ) -> Result<Box<dyn Nucleus>> {
+            (self.0.clone(), self.1.clone()).launch(folder, guid, environment)
+        }
+        fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+            *self.0.writes.lock().unwrap() += 1;
+            work()
+        }
     }
 
     fn start_steam(
@@ -1280,6 +2080,7 @@ mod tests {
         screen: &Screen,
         probe: &Probe,
         steam_app: Option<u32>,
+        exe_path: &str,
     ) -> (Result<Running>, Arc<Recorder>) {
         let recorder = Arc::new(Recorder::default());
         let handler = handler();
@@ -1293,8 +2094,10 @@ mod tests {
             id: 1,
             kind: kind(players),
             folder,
+            user_copy: None,
+            known_list: true,
             handler: &handler,
-            exe_path: r"D:\Games\Game\Game.exe",
+            exe_path,
             steam_app,
             title: "Game",
             players,
@@ -1411,7 +2214,15 @@ mod tests {
     fn a_game_found_from_steam_starts_with_its_app_id() {
         let folder = tempfile::tempdir().unwrap();
         let (screen, probe) = (screen(), Probe::default());
-        let (running, _) = start_steam(folder.path(), 1, [false; 4], &screen, &probe, Some(242050));
+        let (running, _) = start_steam(
+            folder.path(),
+            1,
+            [false; 4],
+            &screen,
+            &probe,
+            Some(242050),
+            GAME,
+        );
         running.unwrap().stop();
         let app = || "242050".to_string();
         assert_eq!(
@@ -1422,6 +2233,85 @@ mod tests {
             ])]
         );
         assert_eq!(steam_environment(None), BTreeMap::new());
+    }
+
+    #[test]
+    fn a_session_from_the_users_own_copy_writes_and_runs_there() {
+        let host = tempfile::tempdir().unwrap();
+        let copy = tempfile::tempdir().unwrap();
+        // A favourites-only list in the copy, which would hide the game.
+        let ini = copy.path().join("Settings.ini");
+        std::fs::write(&ini, "[Dev]\r\nShowFavoriteOnly=True\r\n").unwrap();
+        let favourites = || {
+            butterpollo_core::nucleus::profile::ini_value(
+                &std::fs::read(&ini).unwrap(),
+                "Dev",
+                "ShowFavoriteOnly",
+            )
+            .unwrap()
+        };
+        let (screen, probe) = (screen(), Probe::default());
+        label(&screen);
+        let recorder = Arc::new(Recorder::default());
+        let handler = handler();
+        let mut xinput = FakeXInput {
+            pads: &recorder,
+            taken: [false; 4],
+            hidden: false,
+            intruder: false,
+        };
+        let request = Start {
+            id: 1,
+            kind: kind(1),
+            folder: host.path(),
+            user_copy: Some(copy.path()),
+            known_list: true,
+            handler: &handler,
+            exe_path: r"D:\Games\Game\Game.exe",
+            steam_app: None,
+            title: "Game",
+            players: 1,
+            owner: ("phone", "Phone"),
+            size: (1280, 720),
+        };
+        let running = start(
+            &request,
+            Box::new(Recorded(recorder.clone())),
+            &mut xinput,
+            Box::new(screen.clone()),
+            Box::new(probe.layers.clone()),
+            &mut (probe.clone(), screen.clone(), ()),
+        )
+        .unwrap();
+        // Settings and profile in the copy, written as the user; Nucleus
+        // started from it; the compatibility settings' file in the host's.
+        assert_eq!(*probe.writes.lock().unwrap(), 1);
+        assert!(copy.path().join("Settings.ini").is_file());
+        assert!(copy.path().join("game profiles").join("Game").is_dir());
+        assert!(!host.path().join("Settings.ini").exists());
+        assert!(!host.path().join("game profiles").exists());
+        assert_eq!(*probe.folders.lock().unwrap(), [copy.path().to_path_buf()]);
+        let journal: Vec<_> = std::fs::read_dir(host.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert!(
+            journal
+                .iter()
+                .any(|name| name.starts_with("Rubylight-layers-")),
+            "{journal:?}"
+        );
+        // The copy's settings are the session's, written as the user with
+        // no journal: nothing in the copy is put back as the host.
+        assert_eq!(favourites(), b"False");
+        let journals = || {
+            [host.path(), copy.path()].map(|folder| folder.join("Rubylight-settings.json").exists())
+        };
+        assert_eq!(journals(), [false, false]);
+        running.stop();
+        assert_eq!(favourites(), b"False");
+        assert_eq!(journals(), [false, false]);
+        assert_eq!(*probe.writes.lock().unwrap(), 1);
     }
 
     #[test]
@@ -1439,11 +2329,20 @@ mod tests {
                 .insert(game.into(), text(value))
         };
         set("~ RUNASADMIN");
+        let ini = folder.path().join("Settings.ini");
+        std::fs::write(&ini, "[Dev]\r\nShowFavoriteOnly=True\r\n").unwrap();
+        let favourites = || {
+            let text = std::fs::read(&ini).unwrap();
+            butterpollo_core::nucleus::profile::ini_value(&text, "Dev", "ShowFavoriteOnly").unwrap()
+        };
         let (running, _) = start_with(folder.path(), 1, [false; 4], &screen, &probe);
         let running = running.unwrap();
+        assert_eq!(favourites(), b"False");
         // Nucleus sets the instance's DPI mode as it starts it.
         set("~ HIGHDPIAWARE");
         running.stop();
+        // The user's own Nucleus settings are back too.
+        assert_eq!(favourites(), b"True");
         assert_eq!(
             *probe.layers.values.lock().unwrap(),
             BTreeMap::from([(game.to_string(), text("~ RUNASADMIN"))])
@@ -1456,6 +2355,8 @@ mod tests {
             *probe.layers.values.lock().unwrap(),
             BTreeMap::from([(game.to_string(), text("~ RUNASADMIN"))])
         );
+        assert_eq!(favourites(), b"True");
+        // No journal of the settings is left either.
         let mut files: Vec<_> = std::fs::read_dir(folder.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
@@ -1656,9 +2557,7 @@ mod tests {
             .with_context(|| format!("reading {}", path.display()))?;
         let handler =
             butterpollo_core::nucleus::handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
-        let appdata =
-            crate::user_folder::roaming_app_data().map_err(|error| anyhow::anyhow!("{error}"))?;
-        let exe_path = files::catalog(&folder, Some(&appdata))?
+        let exe_path = files::catalog(&folder, true, None)?
             .games
             .into_iter()
             .find(|game| game.guid == handler.guid)
@@ -1674,6 +2573,8 @@ mod tests {
             id: 1,
             kind: kind(players),
             folder: &folder,
+            user_copy: None,
+            known_list: true,
             handler: &handler,
             exe_path: &exe_path,
             steam_app,

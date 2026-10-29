@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Di chuyển chuột theo bước cố định</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">Ở chế độ chuột bằng tay cầm điều khiển, giữ X trong khi di chuyển cần để con trỏ di chuyển một số pixel cố định mỗi lần. Nhấn Y để nhân đôi bước, từ 1 đến 128 pixel rồi quay lại 1.</string>
     <string name="stream_mouse_step">Bước chuột: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">Gửi phím hệ thống</string>
+    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, phím Windows và các phím tương tự được gửi tới PC khi đầu vào đang được bắt giữ, kể cả phím Quay lại mà nhiều bàn phím cho Android đặt thay cho Esc. Android chỉ nhường Alt+Tab và phím Windows từ Android 16 QPR2 (tháng 12/2025) trở lên và trên nhiều thiết bị Samsung; ở nơi khác Android tự giữ. Phím Màn hình chính, nguồn và âm lượng luôn thuộc về Android. Mở menu luồng bằng Ctrl+Alt+Shift+M hoặc cử chỉ hay nút Quay lại của Android. Áp dụng từ luồng tiếp theo.</string>
     <string name="title_checkbox_back_as_meta">Phím Quay lại trên bàn phím gửi phím Windows</string>
     <string name="summary_checkbox_back_as_meta">Phím Quay lại trên bàn phím vật lý sẽ gửi phím Windows (Command trên Mac). Mở menu stream bằng Ctrl+Alt+Shift+M, cử chỉ hoặc nút Quay lại của Android, hoặc tổ hợp nút trên tay cầm.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt phải làm Command</string>

@@ -57,6 +57,7 @@ import com.google.android.material.slider.Slider;
 import com.limelight.utils.FrontendExporter;
 import com.limelight.utils.FrontendLauncher;
 import com.limelight.utils.FrontendExportStore;
+import com.limelight.utils.FrontendSync;
 import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.HostDetailsDialog;
 import com.limelight.utils.PyroWaveBandwidthTest;
@@ -545,17 +546,41 @@ public class HostStreamSettings extends NightjarActivity {
             chooseFrontendFolder();
             return;
         }
+        if (store.failed()) {
+            new NavigationDialogBuilder(this)
+                    .setTitle(exportLauncher.label)
+                    .setMessage(R.string.frontend_sync_failed_message)
+                    .setPositiveButton(R.string.frontend_export_pick, (dialog, which) -> chooseFrontendFolder())
+                    .setNeutralButton(R.string.frontend_sync_stop, (dialog, which) -> stopFrontendSync(store))
+                    .setNegativeButton(android.R.string.cancel, null).show();
+            return;
+        }
         new NavigationDialogBuilder(this)
-                .setTitle(exportLauncher.label)
+                .setTitle(getString(R.string.frontend_sync_title, exportLauncher.label))
                 .setItems(new String[] {getString(R.string.frontend_export_update),
-                        getString(R.string.frontend_export_pick), getString(R.string.frontend_setup_title)},
+                        getString(R.string.frontend_export_pick), getString(R.string.frontend_setup_title),
+                        getString(R.string.frontend_sync_stop)},
                         (dialog, which) -> {
                             if (which == 0) {
                                 exportRomsTree = store.romsTree();
                                 runFrontendExport(store.esdeTree());
                             } else if (which == 1) chooseFrontendFolder();
-                            else showFrontendSetup(null);
+                            else if (which == 2) showFrontendSetup(null);
+                            else stopFrontendSync(store);
                         }).show();
+    }
+
+    /** The files stay in the launcher; Nightjar just stops updating them. */
+    private void stopFrontendSync(FrontendExportStore store) {
+        store.forget();
+        refreshActions();
+    }
+
+    private void refreshActions() {
+        SettingsFragment fragment = (SettingsFragment) getFragmentManager().findFragmentById(R.id.host_profile_settings);
+        if (fragment != null && fragment.activity != null) {
+            fragment.showActions();
+        }
     }
 
     private void chooseFrontendFolder() {
@@ -645,13 +670,24 @@ public class HostStreamSettings extends NightjarActivity {
             boolean succeeded = false;
             try {
                 FrontendExporter exporter = new FrontendExporter(HostStreamSettings.this, target);
+                exporter.downloadMissingCovers(new IdentityManager(HostStreamSettings.this).getUniqueId());
                 java.util.List<com.limelight.nvstream.http.NvApp> apps = exporter.loadApps();
                 if (apps.isEmpty()) message = getString(R.string.frontend_export_no_apps);
                 else {
-                    int count = exporter.export(apps, romsTree, esdeTree);
-                    store.save(romsTree, esdeTree);
+                    int count;
+                    boolean lasting = FrontendSync.hasAccess(HostStreamSettings.this, romsTree) &&
+                            (esdeTree == null || FrontendSync.hasAccess(HostStreamSettings.this, esdeTree));
+                    synchronized (FrontendSync.EXPORT_LOCK) {
+                        java.util.Map<String, String> covers = store.covers(esdeTree);
+                        count = exporter.export(apps, romsTree, esdeTree, covers);
+                        store.save(romsTree, esdeTree, FrontendSync.fingerprint(target.name, apps), covers);
+                        // A provider that granted only this visit: the export worked, syncing can't.
+                        if (!lasting) store.markFailed(romsTree, esdeTree);
+                    }
                     succeeded = true;
-                    message = getResources().getQuantityString(R.plurals.frontend_export_done, count, count);
+                    message = getResources().getQuantityString(R.plurals.frontend_export_done, count, count) +
+                            "\n" + getString(lasting ? R.string.frontend_sync_note : R.string.frontend_sync_unavailable,
+                            getString(R.string.app_name));
                 }
             } catch (IOException | RuntimeException e) {
                 LimeLog.warning("Frontend export failed: " + e);
@@ -662,6 +698,7 @@ public class HostStreamSettings extends NightjarActivity {
             runOnUiThread(() -> {
                 exportRunning = false;
                 if (isFinishing() || isDestroyed()) return;
+                refreshActions();
                 exportLauncher = launcher;
                 if (success) showFrontendSetup(result);
                 else new NavigationDialogBuilder(this).setTitle(launcher.label).setMessage(result)
@@ -869,7 +906,7 @@ public class HostStreamSettings extends NightjarActivity {
                     .setSummary(R.string.pc_settings_details_summary);
             if (!unpaired) {
                 row(host, "frontend_export", R.string.frontend_export_menu, screen::startFrontendExport)
-                        .setSummary(R.string.pc_settings_export_summary);
+                        .setSummary(exportSummary(pc));
                 if (screen.canPinShortcuts()) {
                     row(host, "shortcut", R.string.pc_settings_shortcut, screen::pinShortcut)
                             .setSummary(R.string.pc_settings_shortcut_summary);
@@ -884,6 +921,23 @@ public class HostStreamSettings extends NightjarActivity {
                 row(host, "unpair", R.string.pcview_menu_unpair_pc, () -> screen.hostActions.confirmUnpair(screen.computer));
             }
             row(host, "remove", R.string.pcview_menu_delete_pc, () -> screen.hostActions.confirmRemove(screen.computer));
+        }
+
+        /** Which launchers are kept in sync, and first any whose folder was lost. */
+        private String exportSummary(ComputerDetails pc) {
+            java.util.List<String> synced = new java.util.ArrayList<>();
+            java.util.List<String> failed = new java.util.ArrayList<>();
+            for (FrontendLauncher launcher : FrontendExportStore.exported(activity, pc.uuid)) {
+                boolean lost = new FrontendExportStore(activity, pc.uuid, launcher).failed();
+                (lost ? failed : synced).add(launcher.label);
+            }
+            if (!failed.isEmpty()) {
+                return getString(R.string.frontend_sync_failed_summary, android.text.TextUtils.join(", ", failed));
+            }
+            if (!synced.isEmpty()) {
+                return getString(R.string.frontend_sync_summary, android.text.TextUtils.join(", ", synced));
+            }
+            return getString(R.string.pc_settings_export_summary);
         }
 
         private String onOff(boolean value) {

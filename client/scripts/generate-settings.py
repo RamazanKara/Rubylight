@@ -75,6 +75,8 @@ ADVICE = {
     "keyboard_shortcuts_editor": "Create, edit or delete up to 32 named keyboard chords for the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts).",
     "checkbox_back_as_meta": "Enable to send the Windows key from a physical keyboard's Back key. Android's Back gesture and TV remotes keep their local navigation; the controller menu chord remains available. See [keyboard options](controls.md#keyboard-options).",
     "checkbox_back_opens_menu": "Enable for a handheld's dedicated physical Back key, such as on AYN Thor, to open the stream menu instead of being forwarded as a controller button. Off preserves its existing mapping. Select/Start, mouse right-click and Keyboard Back sends Windows key keep their behavior. Applies from the next stream.",
+    "checkbox_back_as_guide": "Enable so Back on a handheld's built-in controls sends Guide (Home/PS), for handhelds such as the Retroid Pocket whose system button acts as Back: the built-in pad's Back when it has its own Select, a built-in Back key and a Back the firmware injects. External controllers and pads whose Select or Start is Back keep it. Physical Back opens stream menu takes priority; Android's Back gesture and the controller menu chord still open the stream menu. Android only: desktop controllers report a real Guide button. Applies from the next stream.",
+    "checkbox_capture_system_keys": "On by default. Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, and an external keyboard's Back key (the Esc key of many Android keyboards) sends Esc on Android 10 and newer; a built-in keyboard's Back stays Back. Android hands Alt+Tab and the Windows key to apps only on Android 16 QPR2 and newer (keyboard capture) and on many Samsung devices; elsewhere, and for Home, power and volume, Android keeps them. Keyboard Back sends Windows key and Physical Back opens stream menu take priority for keyboard Back. Ctrl+Alt+Shift+M and Android's Back gesture open the stream menu. Matches desktop's Send system keys. Applies from the next stream.",
     "checkbox_right_alt_as_meta": "Enable on a Mac host so Right Alt acts as Command (the Windows key). Left Alt is unchanged; leave off if you type with AltGr.",
     "checkbox_keyboard_follows_text_fields": "Opens the on-screen keyboard when a text field in the stream gets focus, with the field's type (numbers, no suggestions for passwords), and closes it when the field loses focus. Needs a host that sends text field notices; an attached hardware keyboard keeps typing instead.",
     "checkbox_clipboard_sync": "Off by default. Turn on to share copied text both ways while streaming. Android lets the app read the clipboard only while the stream is in front, so copies made in other apps go when you return. Needs a host that offers clipboard sync and lets this device read and write its clipboard. It carries text only: copy a PC image from the stream menu, and send large copies with Send clipboard to host.",
@@ -179,7 +181,10 @@ def generate():
 
     preferences = ET.parse(RES / "xml/preferences.xml").getroot()
     nodes = {node.get(ANDROID + "key"): node for category in preferences for node in category}
-    if set(nodes) != set(ADVICE):
+    # The overview's rows beside the sections: Presets (its own table below) and Profiles under it.
+    overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
+    profiles = next(node for node in overview if node.get(ANDROID + "key") == "stream_profiles")
+    if set(nodes) | {"stream_profiles"} != set(ADVICE):
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes)}")
     categories = {category.get(ANDROID + "key"): category for category in preferences}
     tiers = ET.parse(RES / "values/settings_tiers.xml").getroot()
@@ -190,9 +195,8 @@ def generate():
         if len(keys) > 8 or set(keys) - set(nodes):
             raise ValueError(f"Review the main rows of {section}: at most 8, all in preferences.xml")
     # Sections: the overview rows (preferences_root.xml) and the groups each one shows (StreamSettings.SECTIONS).
-    overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
     section_titles = {node.get(ANDROID + "key"): resolve(node.get(ANDROID + "title"))
-                      for node in overview if not node.tag.endswith("PresetPreference")}
+                      for node in overview if not node.tag.endswith("PresetPreference") and node is not profiles}
     settings_java = (JAVA / "preferences/StreamSettings.java").read_text(encoding="utf-8")
     sections = {}
     for name, members in re.findall(r'SECTIONS\.put\("(\w+)", new String\[\] \{([^}]*)\}\);', settings_java):
@@ -338,7 +342,10 @@ def generate():
               "| Allow lower refresh rate | Off | On |",
               "| Decoder performance hints | On | Off |",
               f"| {resolve('@string/title_gpu_max_clocks')} | Unchanged | Off |",
-              "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", ""]
+              "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", "",
+              "## Profiles", "",
+              f"{resolve(profiles.get(ANDROID + 'title'))} (`stream_profiles`), under the presets on the Settings overview: "
+              + ADVICE["stream_profiles"], ""]
     return "\n".join(lines)
 
 

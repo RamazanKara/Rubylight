@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The settings overview. Each row opens the section of the same key in StreamSettings.SECTIONS. -->
+<!-- The settings overview. Under the presets, Profiles opens the named profiles (StreamProfilesActivity); each
+     other row opens the section of the same key in StreamSettings.SECTIONS. -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
     <com.limelight.preferences.PresetPreference android:key="stream_presets" android:title="@string/stream_presets" />
+    <!-- Profiles span every section, so they sit with the presets; the summary names the one in use. -->
+    <Preference android:key="stream_profiles" android:title="@string/profiles_title"
+        android:summary="@string/profiles_summary_none" />
     <Preference android:key="video" android:title="@string/settings_section_video" />
     <Preference android:key="display" android:title="@string/settings_section_display" />
     <Preference android:key="input" android:title="@string/settings_section_input"

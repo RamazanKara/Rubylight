@@ -5415,8 +5415,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             inputCaptureProvider.disableCapture();
         }
 
-        // Grab/ungrab system keyboard shortcuts
-        setMetaKeyCaptureState(grab);
+        // Grab/ungrab system keyboard shortcuts, unless the user leaves them to Android
+        setMetaKeyCaptureState(grab && prefConfig.captureSystemKeys);
 
         grabbedInput = grab;
         if (controllerHandler != null) {
@@ -5595,21 +5595,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return (byte) (modifierFlags | (modifierFlags >> 8));
     }
 
-    // The keyboard options can turn a physical Back or Right Alt into the Windows key.
+    // The keyboard options can turn a physical Back or Right Alt into the Windows key, and sending
+    // system keys turns a keyboard's Back (the Esc key of many keyboards made for Android) into Esc.
+    // Physical Back opens stream menu is an explicit choice, so it keeps keyboard Back.
     private int physicalKeyCode(KeyEvent event) {
         int keyCode = event.getKeyCode();
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && ControllerHandler.isRemoteControlEvent(event)) {
             return KeyEvent.KEYCODE_ENTER;
         }
+        boolean backAsEscape = prefConfig.captureSystemKeys && !prefConfig.backOpensMenu;
         boolean keyboardBack = false;
-        if (keyCode == KeyEvent.KEYCODE_BACK && prefConfig.backAsMeta) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && (prefConfig.backAsMeta || backAsEscape)) {
             InputDevice device = event.getDevice();
             keyboardBack = device != null && KeyboardTranslator.isKeyboardBack(keyCode,
                     (event.getFlags() & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK)) != 0,
                     device.isVirtual(), device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
                     ControllerHandler.isGameControllerDevice(device), event.getSource());
+            // Esc only from an external keyboard: a keyboard phone's own keyboard may have no Ctrl
+            // for Ctrl+Alt+Shift+M, and below Android 10 we cannot tell, so Back stays Back there.
+            backAsEscape &= keyboardBack && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && device.isExternal();
         }
-        return KeyboardTranslator.remapPhysicalKey(keyCode, keyboardBack, prefConfig.backAsMeta, prefConfig.rightAltAsMeta);
+        return KeyboardTranslator.remapPhysicalKey(keyCode, keyboardBack, prefConfig.backAsMeta, backAsEscape,
+                prefConfig.rightAltAsMeta);
     }
 
     @Override
@@ -5668,6 +5675,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         if (handlePhysicalBackMenuKey(event)) return true;
+        // Back as Guide for a handheld's Back that is not on its gamepad device
+        if (connected && controllerHandler != null && controllerHandler.handleHandheldBackAsGuide(event)) return true;
 
         boolean handled = false;
 
@@ -5756,6 +5765,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         if (handlePhysicalBackMenuKey(event)) return true;
+        // Back as Guide for a handheld's Back that is not on its gamepad device
+        if (connected && controllerHandler != null && controllerHandler.handleHandheldBackAsGuide(event)) return true;
 
         boolean handled = false;
         if (!ControllerHandler.isRemoteControlEvent(event) && ControllerHandler.isGameControllerDevice(event.getDevice())) {

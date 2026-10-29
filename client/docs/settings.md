@@ -24,7 +24,6 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 
 | Setting / preference key | Tier | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- | --- |
-| Profiles<br>`stream_profiles` | Main | No stored default | Action | Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings). |
 | Stream resolution<br>`list_resolution` | Main | This screen's native resolution; follows the screen used for each stream | 360p (640 × 360 pixels); 480p (854 × 480 pixels); 720p (1280 × 720 pixels); 1080p (1920 × 1080 pixels); 1440p (2560 × 1440 pixels); 4K (3840 × 2160 pixels) | Choose Custom to enter a fixed width and height (64–16384 pixels each) for every stream without a resolution override. Named profiles, PC and game overrides retain their priority. Custom dimensions stay fixed when the screen changes. Raise for detail; lower for less network and decoding load. The picker also includes screen and standard sizes; larger fixed presets stay listed while chosen. Changing resolution preserves an explicitly chosen bitrate. |
 | Video frame rate<br>`list_fps` | Main | Screen maximum (rounded, 1–1000 FPS) | 30 FPS; 60 FPS; 90 FPS; 120 FPS | Raise for smoother motion on a fast screen. Open the list and choose Show all frame rates to include rates the screen may not support (possible stutter; compare rendered FPS in the overlay), or Show supported frame rates only to go back. Stored as `checkbox_unlock_fps`. The screen's own refresh rate is added as Screen refresh rate. Changing resolution or FPS preserves an explicitly chosen bitrate. |
 | Video bitrate<br>`seekbar_bitrate_kbps` | Main | Calculated for the native resolution and screen maximum FPS; follows changes until bitrate is chosen explicitly | 0.5 Mbps–2000 Mbps; step 0.5 Mbps; buttons 1 Mbps; presets 10 Mbps, 20 Mbps, 40 Mbps, 80 Mbps, 150 Mbps, 280 Mbps | Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments. |
@@ -83,6 +82,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Controller buttons<br>`controller_button_mapping` | Main | No stored default | Action | Open Controller buttons, press a digital button and choose its output or Nothing. Mappings default to the original button, are saved per controller model and apply next stream. |
 | Controller test<br>`controller_test` | Main | No stored default | Action | Open Controller test to see buttons, sticks, triggers and the D-pad live and to try rumble, lights, motion sensors and the touchpad where the controller has them. Works with a D-pad or controller alone; hold B or Back for one second to leave. Leaving stops rumble and restores the lights. See [controller test](controls.md#controller-test). |
 | Physical Back opens stream menu<br>`checkbox_back_opens_menu` | More | Off | On; Off | Enable for a handheld's dedicated physical Back key, such as on AYN Thor, to open the stream menu instead of being forwarded as a controller button. Off preserves its existing mapping. Select/Start, mouse right-click and Keyboard Back sends Windows key keep their behavior. Applies from the next stream. |
+| Back button as Guide<br>`checkbox_back_as_guide` | More | Off | On; Off | Enable so Back on a handheld's built-in controls sends Guide (Home/PS), for handhelds such as the Retroid Pocket whose system button acts as Back: the built-in pad's Back when it has its own Select, a built-in Back key and a Back the firmware injects. External controllers and pads whose Select or Start is Back keep it. Physical Back opens stream menu takes priority; Android's Back gesture and the controller menu chord still open the stream menu. Android only: desktop controllers report a real Guide button. Applies from the next stream. |
 | Analog stick deadzone<br>`seekbar_deadzone` | More | 7% | -20%–20%; step 1% | Raise to suppress stick drift; lower for small movements. Games can add their own deadzone on top. |
 | Flip face buttons<br>`checkbox_flip_face_buttons` | Main | Off | On; Off | Enable to swap A/B and X/Y on physical and on-screen gamepads. |
 | Controller mouse mode<br>`checkbox_mouse_emulation` | More | On | On; Off | Leave on to toggle controller mouse mode by holding Start. |
@@ -143,6 +143,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Setting / preference key | Tier | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- | --- |
 | Keyboard shortcuts<br>`keyboard_shortcuts_editor` | More | No stored default | Action | Create, edit or delete up to 32 named keyboard chords for the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts). |
+| Send system keys<br>`checkbox_capture_system_keys` | More | On | On; Off | On by default. Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, and an external keyboard's Back key (the Esc key of many Android keyboards) sends Esc on Android 10 and newer; a built-in keyboard's Back stays Back. Android hands Alt+Tab and the Windows key to apps only on Android 16 QPR2 and newer (keyboard capture) and on many Samsung devices; elsewhere, and for Home, power and volume, Android keeps them. Keyboard Back sends Windows key and Physical Back opens stream menu take priority for keyboard Back. Ctrl+Alt+Shift+M and Android's Back gesture open the stream menu. Matches desktop's Send system keys. Applies from the next stream. |
 | Keyboard Back sends Windows key<br>`checkbox_back_as_meta` | More | Off | On; Off | Enable to send the Windows key from a physical keyboard's Back key. Android's Back gesture and TV remotes keep their local navigation; the controller menu chord remains available. See [keyboard options](controls.md#keyboard-options). |
 | Right Alt as Command<br>`checkbox_right_alt_as_meta` | More | Off | On; Off | Enable on a Mac host so Right Alt acts as Command (the Windows key). Left Alt is unchanged; leave off if you type with AltGr. |
 | Keyboard follows text fields<br>`checkbox_keyboard_follows_text_fields` | Main | On | On; Off | Opens the on-screen keyboard when a text field in the stream gets focus, with the field's type (numbers, no suggestions for passwords), and closes it when the field loses focus. Needs a host that sends text field notices; an attached hardware keyboard keeps typing instead. |
@@ -284,6 +285,10 @@ Both presets stream at this screen's own resolution and keep the selected codec,
 
 Native also turns these back on: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Keep only the newest frame, Instant mouse and pen input, Prioritize stream traffic.
 
+## Profiles
+
+Profiles (`stream_profiles`), under the presets on the Settings overview: Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings).
+
 <!-- END GENERATED SETTINGS -->
 
 ## Per-PC stream profiles
@@ -311,7 +316,7 @@ Profiles saved by builds up to test.10 copied every main setting. They now keep 
 
 ## Named profiles and game settings
 
-A named profile is a set of stream values with a name, such as *Home 4K120*, *Hotel* or *Mobile data*. Open **Settings → Video → Profiles** to manage them. They are created in [StreamProfilesActivity.java](../app/src/main/java/com/limelight/preferences/StreamProfilesActivity.java), stored by [StreamProfiles.java](../app/src/main/java/com/limelight/preferences/StreamProfiles.java) and combined by [StreamLayers.java](../app/src/main/java/com/limelight/preferences/StreamLayers.java).
+A named profile is a set of stream values with a name, such as *Home 4K120*, *Hotel* or *Mobile data*. Open **Settings → Profiles** (under the presets) to manage them. They are created in [StreamProfilesActivity.java](../app/src/main/java/com/limelight/preferences/StreamProfilesActivity.java), stored by [StreamProfiles.java](../app/src/main/java/com/limelight/preferences/StreamProfiles.java) and combined by [StreamLayers.java](../app/src/main/java/com/limelight/preferences/StreamLayers.java).
 
 ### Which value a stream uses
 

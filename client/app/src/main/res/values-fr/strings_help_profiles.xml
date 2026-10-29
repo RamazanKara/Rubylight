@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="help_profiles_title">Profils et paramètres par jeu</string>
-    <string name="help_profiles_body">Les profils sont des ensembles nommés de valeurs de stream, comme « Maison 4K120 » ou « Hôtel ». Créez-les dans Paramètres, Vidéo, Profils, puis choisissez le profil utilisé, ou laissez le réseau en choisir un au début d’un stream : données mobiles, Wi-Fi domestique ou autre Wi-Fi. Les valeurs propres à un jeu (Paramètres de stream pour ce jeu, dans son menu de la bibliothèque) l’emportent sur celles du PC, celles du PC sur le profil, et le profil sur les paramètres principaux. Débit sur données mobiles plafonne le débit sur données mobiles.</string>
+    <string name="help_profiles_body">Les profils sont des ensembles nommés de valeurs de stream, comme « Maison 4K120 » ou « Hôtel ». Créez-les dans Paramètres, Profils, puis choisissez le profil utilisé, ou laissez le réseau en choisir un au début d’un stream : données mobiles, Wi-Fi domestique ou autre Wi-Fi. Les valeurs propres à un jeu (Paramètres de stream pour ce jeu, dans son menu de la bibliothèque) l’emportent sur celles du PC, celles du PC sur le profil, et le profil sur les paramètres principaux. Débit sur données mobiles plafonne le débit sur données mobiles.</string>
     <string name="help_profiles_link">Guide des profils</string>
 </resources>

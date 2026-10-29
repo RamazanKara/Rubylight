@@ -977,6 +977,8 @@ public class StreamSettings extends NightjarActivity {
     }
 
     static final String SEARCH_ROW_KEY = "settings_search";
+    /** The overview's Profiles row, under the presets: profiles hold values from every section. */
+    static final String PROFILES_KEY = "stream_profiles";
 
     public static class RootFragment extends PreferenceFragment {
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater = (prefs, key) -> updateSummaries();
@@ -1005,6 +1007,7 @@ public class StreamSettings extends NightjarActivity {
             findPreference("audio").setSummary(entryFor(context, R.array.audio_config_names, R.array.audio_config_values,
                     prefs.getString(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, "2")));
             findPreference("app").setSummary(getString(R.string.settings_section_app_summary, BuildConfig.VERSION_NAME));
+            findPreference(PROFILES_KEY).setSummary(SettingsFragment.profilesSummary(context));
         }
 
         @Override
@@ -1027,6 +1030,14 @@ public class StreamSettings extends NightjarActivity {
                     return true;
                 });
             }
+            // Profiles opens its own screen, with a section's look: a title, what is in use, a chevron.
+            Preference profiles = findPreference(PROFILES_KEY);
+            profiles.setLayoutResource(R.layout.settings_section);
+            if (isTelevision(getActivity())) profiles.setIcon(SettingsRail.iconOf(PROFILES_KEY));
+            profiles.setOnPreferenceClickListener(preference -> {
+                startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
+                return true;
+            });
             if (showsSearchRow(getActivity(), ((StreamSettings) getActivity()).twoPane)) {
                 Preference search = new Preference(getActivity());
                 search.setKey(SEARCH_ROW_KEY);
@@ -1169,6 +1180,20 @@ public class StreamSettings extends NightjarActivity {
                     return true;
                 });
                 screen.addPreference(presets);
+                resultCount++;
+            }
+            // Profiles live on the overview too, outside every section's rows: their result opens them.
+            if (!query.isEmpty() && SettingsSearch.matches(query, getString(R.string.profiles_title),
+                    profilesSummary(getActivity()), null)) {
+                Preference profiles = new Preference(getActivity());
+                profiles.setKey("search_result_" + PROFILES_KEY);
+                profiles.setTitle(R.string.profiles_title);
+                profiles.setSummary(profilesSummary(getActivity()));
+                profiles.setOnPreferenceClickListener(pref -> {
+                    startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
+                    return true;
+                });
+                screen.addPreference(profiles);
                 resultCount++;
             }
             for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
@@ -1399,8 +1424,6 @@ public class StreamSettings extends NightjarActivity {
                             prefs.getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
                     pref.setSummary(partial ? getString(R.string.settings_low_latency_partial) : null);
                     continue;
-                } else if ("stream_profiles".equals(pref.getKey())) {
-                    value = profilesSummary(getActivity());
                 } else if (SettingRules.micEffect(pref.getKey()) != null && !(pref instanceof ListPreference)) {
                     // The switches have no value line; it says when the device lacks the effect.
                     pref.setSummary(SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects()) ?
@@ -2020,13 +2043,6 @@ public class StreamSettings extends NightjarActivity {
                 startActivity(new Intent(getActivity(), ControllerMappingActivity.class));
                 return true;
             });
-            Preference profiles = findPreference("stream_profiles");
-            if (profiles != null) {
-                profiles.setOnPreferenceClickListener(preference -> {
-                    startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
-                    return true;
-                });
-            }
             findPreference("controller_test").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), ControllerTestActivity.class));
                 return true;

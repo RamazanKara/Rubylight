@@ -153,11 +153,16 @@ public class KeyboardTranslator implements InputManager.InputDeviceListener {
 
     /**
      * The Android key a physical keyboard key stands for once the keyboard options apply: Back on
-     * a keyboard can send the Windows key, and Right Alt can act as Command (Windows) for macOS hosts.
+     * a keyboard can send the Windows key or, as the Esc key of many keyboards made for Android
+     * sends Back, Esc; Right Alt can act as Command (Windows) for macOS hosts.
      */
-    public static int remapPhysicalKey(int keyCode, boolean keyboardBack, boolean backAsMeta, boolean rightAltAsMeta) {
+    public static int remapPhysicalKey(int keyCode, boolean keyboardBack, boolean backAsMeta,
+                                       boolean backAsEscape, boolean rightAltAsMeta) {
         if (keyCode == KeyEvent.KEYCODE_BACK && keyboardBack && backAsMeta) {
             return KeyEvent.KEYCODE_META_LEFT;
+        }
+        if (keyCode == KeyEvent.KEYCODE_BACK && keyboardBack && backAsEscape) {
+            return KeyEvent.KEYCODE_ESCAPE;
         }
         if (keyCode == KeyEvent.KEYCODE_ALT_RIGHT && rightAltAsMeta) {
             return KeyEvent.KEYCODE_META_LEFT;

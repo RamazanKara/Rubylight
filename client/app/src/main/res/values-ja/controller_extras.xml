@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">固定ステップでマウスを移動</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">コントローラのマウスモードで X を押しながらスティックを動かすと、ポインタが一定のピクセル数ずつ移動します。Y を押すとステップが 2 倍になり、1 から 128 ピクセルまで増えた後 1 に戻ります。</string>
     <string name="stream_mouse_step">マウスのステップ: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">システムキーを送信</string>
+    <string name="summary_checkbox_capture_system_keys">入力のキャプチャ中は、Esc、Alt+Tab、Windows キーなどを PC に送ります。多くの Android 向けキーボードで Esc の代わりにある戻るキーも Esc として送ります。Alt+Tab と Windows キーを Android がアプリに渡すのは Android 16 QPR2 (2025 年 12 月) 以降と多くの Samsung 端末だけで、それ以外では Android が使います。ホーム、電源、音量キーは常に Android が使います。ストリームメニューは Ctrl+Alt+Shift+M、Android の戻るジェスチャーまたはボタンで開きます。次のストリームから適用されます。</string>
     <string name="title_checkbox_back_as_meta">キーボードの戻るキーで Windows キーを送信</string>
     <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで Windows キー (Mac では Command) を送信します。ストリームメニューは Ctrl+Alt+Shift+M、Android の戻るジェスチャーまたはボタン、コントローラのボタン同時押しで開きます。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt を Command として使用</string>

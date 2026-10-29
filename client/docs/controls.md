@@ -190,8 +190,9 @@ With **Flip face buttons** on, A/B and X/Y swap here as they do in games, and a 
 
 ### Keyboard options
 
-Both are in **Settings → Controls → Keyboard** and off by default.
+These are in **Settings → Controls → Keyboard**. Send system keys is on by default, the others off.
 
+- **Send system keys**: Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured. Many keyboards made for Android send Back from their Esc key; an external keyboard's Back sends Esc too on Android 10 and newer (Keyboard Back sends Windows key and Physical Back opens stream menu take priority when on). A built-in keyboard's Back, as on keyboard phones, stays Android's Back. Android hands Alt+Tab and the Windows key to an app only on Android 16 QPR2 and newer and on many Samsung devices; elsewhere Android keeps them, and Home, power and volume always stay with Android. Open the stream menu with **Ctrl+Alt+Shift+M**, Android's Back gesture or navigation button, or **Start+Back+LB+RB** on a controller. Turn it off to leave system shortcuts and keyboard Back to Android. Desktop Nightjar has the same option.
 - **Keyboard Back sends Windows key**: the Back key of a physical keyboard sends the Windows key (Command on a Mac host). Only keyboard Back changes: a controller's Back, a TV remote, Android's navigation button or Back gesture and a mouse's right-click Back keep their usual roles. With this on, open the stream menu with **Ctrl+Alt+Shift+M**, Android's Back gesture or navigation button, or **Start+Back+LB+RB** on a controller. While input is released (Ctrl+Alt+Shift+Z), keyboard Back opens the menu as before.
 - **Right Alt as Command**: Right Alt sends the Windows key, which macOS hosts use as Command, so Right Alt+C and Right Alt+V copy and paste. Left Alt stays Alt. Leave it off if you type characters with AltGr, since Right Alt then no longer works as AltGr.
 
@@ -357,7 +358,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 
 | Shortcut | Action |
 | --- | --- |
-| Android Back / Ctrl+Alt+Shift+M | Open the stream menu. Back in a page of the menu returns to the menu; Back again closes it. With **Keyboard Back sends Windows key** on, a keyboard's Back key sends Win instead. |
+| Android Back / Ctrl+Alt+Shift+M | Open the stream menu. Back in a page of the menu returns to the menu; Back again closes it. A keyboard's Back key sends Esc (**Send system keys**) or Win (**Keyboard Back sends Windows key**) instead. |
 | Ctrl+Alt+Shift+K | Show or hide the PC keyboard. |
 | Ctrl+Alt+Shift+S | Show or hide the performance overlay. |
 | Ctrl+Alt+Shift+Z | Toggle input capture. |
@@ -368,6 +369,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Start+Back+LB+RB on a controller, USB-driver pads included | Open the stream menu once all four are released. The stream keeps running. |
 | Start+LB when the controller has no Select/Back button | Send Select/Back. |
 | Start+Select when the controller has no Guide button | Send Guide; without Select, use Start+RB. |
+| Back on a handheld's built-in controls, with **Back button as Guide** on | Send Guide, also for a handheld's system button that acts as Back. External controllers and pads whose Select or Start is Back keep it. Android only: desktop controllers report a real Guide button. |
 | Select+LB when device-motion fallback emulates a touchpad-capable controller | Send a touchpad click. |
 | Three-finger tap in Trackpad, Direct mouse or Local cursor mode | Toggle the system keyboard (or the PC keyboard when set so), or middle-click when **Three-finger tap** is set to Middle click. |
 | Stream menu → Overlay (top row) | Show or hide the overlay. **Display → Overlay and diagnostics** chooses Compact, Statistics or Debug. |

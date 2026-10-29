@@ -64,7 +64,7 @@ public class SettingsNavigationTest {
             assertFalse("Preset chips/help must not steal focus from the preference list", preset.hasFocusable());
             assertNotNull("Preset help stays available with D-pad right", preset.getTag(R.id.preference_help));
             assertTrue(list.requestFocusFromTouch());
-            list.setSelection(3); // Controls after Presets, Video, Display.
+            list.setSelection(4); // Controls after Presets, Profiles, Video, Display.
             root.layout(0, 0, 1080, 2400);
             assertFalse(screen.findViewById(R.id.preset_help).hasFocus());
             assertFalse(preset.findViewById(R.id.preset_help).requestFocus());

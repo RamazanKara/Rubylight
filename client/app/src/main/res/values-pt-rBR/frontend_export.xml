@@ -24,4 +24,12 @@
     <string name="frontend_setup_esde">Reinicie o ES-DE para carregar o sistema Nightjar. Se pulou a pasta de configuração, selecione-a na próxima exportação para adicionar o sistema e as capas em cache.</string>
     <string name="frontend_setup_daijisho">Crie uma plataforma para arquivos .art na pasta exportada butterpollo. Adicione um player Android com os argumentos de intent abaixo e escaneie a pasta.</string>
     <string name="frontend_setup_pegasus">Use a pasta exportada butterpollo e os arquivos .art. Defina o comando abaixo nos metadados da coleção.</string>
+    <string name="frontend_sync_title">%1$s · Sincronizado</string>
+    <string name="frontend_sync_stop">Parar de sincronizar</string>
+    <string name="frontend_sync_summary">Sincronizado: %1$s</string>
+    <string name="frontend_sync_note">O %1$s mantém esta pasta atualizada quando os jogos do PC mudam.</string>
+    <string name="frontend_sync_failed">Os jogos do %1$s para %2$s não são mais sincronizados: a pasta não está disponível. Escolha-a de novo nas configurações do PC.</string>
+    <string name="frontend_sync_failed_message">A pasta não está disponível, então estes jogos não são mais sincronizados. Escolha-a de novo ou pare de sincronizar.</string>
+    <string name="frontend_sync_failed_summary">Sincronização parada, pasta indisponível: %1$s</string>
+    <string name="frontend_sync_unavailable">O %1$s não consegue manter esta pasta sincronizada porque ela só permitiu o acesso desta vez. Escolha uma pasta local ou do cartão SD para mantê-la atualizada.</string>
 </resources>

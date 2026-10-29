@@ -107,11 +107,42 @@ public class SettingsStructureTest {
             StreamSettings screen = controller.get();
             settle(screen);
             PreferenceScreen root = ((StreamSettings.RootFragment) shown(screen)).getPreferenceScreen();
-            assertEquals(Arrays.asList("stream_presets", "video", "display", "input", "audio", "streaming", "app", "advanced"),
-                    keys(root));
+            assertEquals(Arrays.asList("stream_presets", "stream_profiles", "video", "display", "input", "audio", "streaming",
+                    "app", "advanced"), keys(root));
             assertEquals(screen.getString(R.string.settings_section_display), root.findPreference("display").getTitle());
             assertNotNull(root.findPreference("display").getSummary());
             assertNotNull(root.findPreference("audio").getSummary());
+        }
+    }
+
+    /** nightjar#44: profiles hold values of every section, so they sit with the presets, not in Video. */
+    @Test
+    public void profilesSitUnderThePresetsAndOpenTheirScreen() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            settle(screen);
+            PreferenceScreen root = ((StreamSettings.RootFragment) shown(screen)).getPreferenceScreen();
+            Preference profiles = root.findPreference("stream_profiles");
+            assertEquals(screen.getString(R.string.profiles_summary_none), profiles.getSummary().toString());
+            profiles.getOnPreferenceClickListener().onPreferenceClick(profiles);
+            assertEquals(StreamProfilesActivity.class.getName(),
+                    shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
+
+            assertNull("not in Video any more", open(screen, "video").findPreference("stream_profiles"));
+        }
+    }
+
+    @Test
+    public void searchFindsTheProfilesAndItsResultOpensThem() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            settle(screen);
+            Preference result = search(screen, screen.getString(R.string.profiles_title))
+                    .getPreferenceScreen().findPreference("search_result_stream_profiles");
+            assertNotNull(result);
+            result.getOnPreferenceClickListener().onPreferenceClick(result);
+            assertEquals(StreamProfilesActivity.class.getName(),
+                    shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
         }
     }
 

@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Movimento do mouse em passos fixos</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">No modo mouse do controle, segure X enquanto move o analógico para mover o ponteiro um número fixo de pixels por vez. Pressione Y para dobrar o passo, de 1 até 128 pixels e depois de volta a 1.</string>
     <string name="stream_mouse_step">Passo do mouse: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">Enviar teclas do sistema</string>
+    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, a tecla Windows e similares vão para o PC enquanto a entrada está capturada, assim como a tecla Voltar que muitos teclados para Android têm no lugar do Esc. O Android só libera Alt+Tab e a tecla Windows a partir do Android 16 QPR2 (dezembro de 2025) e em muitos aparelhos Samsung; nos demais, ele as mantém. Início, liga/desliga e volume ficam sempre com o Android. Abra o menu do stream com Ctrl+Alt+Shift+M ou o gesto ou botão Voltar do Android. Vale no próximo stream.</string>
     <string name="title_checkbox_back_as_meta">Voltar do teclado envia a tecla Windows</string>
     <string name="summary_checkbox_back_as_meta">A tecla Voltar de um teclado físico envia a tecla Windows (Command no Mac). Abra o menu da transmissão com Ctrl+Alt+Shift+M, o gesto ou botão Voltar do Android ou a combinação de botões do controle.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt direito como Command</string>

@@ -25,9 +25,10 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
     static final long PANE_MS = 140;
     static final float PANE_SHIFT_DP = 16;
 
-    /** The rail's sections, by key, as their icons. */
+    /** The rail's sections and the Profiles row, by key, as their icons. */
     static int iconOf(String key) {
         switch (key) {
+            case StreamSettings.PROFILES_KEY: return R.drawable.ic_folder;
             case "video": return R.drawable.ic_play;
             case "display": return R.drawable.ic_monitor;
             case "input": return R.drawable.ic_gamepad;

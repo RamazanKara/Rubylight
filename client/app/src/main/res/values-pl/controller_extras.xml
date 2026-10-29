@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Ruch myszy o stały krok</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">W trybie myszy kontrolera przytrzymaj X podczas ruchu gałką, aby przesuwać wskaźnik o stałą liczbę pikseli naraz. Naciśnij Y, aby podwoić krok, od 1 do 128 pikseli, a potem znów od 1.</string>
     <string name="stream_mouse_step">Krok myszy: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">Wysyłaj klawisze systemowe</string>
+    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, klawisz Windows i podobne trafiają do komputera, gdy wejście jest przechwytywane, podobnie jak klawisz Wstecz, który wiele klawiatur do Androida ma zamiast Esc. Android oddaje Alt+Tab i klawisz Windows tylko od Androida 16 QPR2 (grudzień 2025) i na wielu urządzeniach Samsung; gdzie indziej zatrzymuje je dla siebie. Ekran główny, zasilanie i głośność zawsze zostają przy Androidzie. Menu strumienia otworzysz skrótem Ctrl+Alt+Shift+M albo gestem lub przyciskiem Wstecz Androida. Od następnego strumienia.</string>
     <string name="title_checkbox_back_as_meta">Wstecz na klawiaturze jako klawisz Windows</string>
     <string name="summary_checkbox_back_as_meta">Klawisz Wstecz na fizycznej klawiaturze wysyła klawisz Windows (Command na Macu). Menu strumienia otworzysz skrótem Ctrl+Alt+Shift+M, gestem lub przyciskiem Wstecz Androida albo kombinacją przycisków kontrolera.</string>
     <string name="title_checkbox_right_alt_as_meta">Prawy Alt jako Command</string>

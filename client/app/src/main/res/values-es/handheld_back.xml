@@ -2,4 +2,6 @@
 <resources>
     <string name="title_checkbox_back_opens_menu">Atrás físico abre el menú del stream</string>
     <string name="summary_checkbox_back_opens_menu">La tecla Atrás dedicada de la consola portátil o mando abre el menú del stream. Select y Start conservan su asignación. La opción de enviar Windows con Atrás tiene prioridad en teclados físicos. Se aplica al próximo stream.</string>
+    <string name="title_checkbox_back_as_guide">Botón Atrás como Guide</string>
+    <string name="summary_checkbox_back_as_guide">Atrás en los controles integrados de una consola portátil envía Guide (Home/PS), para portátiles cuyo botón del sistema funciona como Atrás. Los mandos cuyo Select es Atrás lo conservan. «Atrás físico abre el menú del stream» tiene prioridad. Abre el menú del stream con la combinación de botones del mando o el gesto Atrás de Android. Se aplica al próximo stream.</string>
 </resources>

@@ -3578,8 +3578,9 @@ impl Media {
                     s.audio_haptics.push(samples, client_channels);
                 }
             } else if audio_sink::ping_timed_out(
-                s.stopping() || h.stop.load(Ordering::Acquire),
-                s.media_wait_start(start).elapsed(),
+                &s,
+                &h.stop,
+                start,
                 crate::network::ping_timeout(&config),
             ) {
                 anyhow::bail!("client audio ping timed out");

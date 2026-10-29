@@ -1020,7 +1020,6 @@ async fn pair_over_http(f: &Fixture, args: &Args) -> (StatusCode, String) {
 #[tokio::test]
 async fn a_replayed_pairing_link_with_no_live_code_is_refused_with_400() {
     let f = Fixture::new();
-    let peer = "127.0.0.1".parse().unwrap();
     let scanned = crypto::Identity::generate().unwrap();
     let link = device_request(&scanned, "scanned", Some(("5678", "qr phrase")));
     let refused = |body: &str| {

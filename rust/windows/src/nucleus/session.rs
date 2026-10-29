@@ -654,11 +654,6 @@ pub fn start_on_pc(
         Box::new(layers::UserHive::signed_in()?),
         launcher.as_mut(),
     )
-    .inspect_err(|_| {
-        if let Some(game) = game_folder(start.exe_path) {
-            super::elevation::forget(&game);
-        }
-    })
 }
 
 /// The folder of the game at `exe`, which [`super::elevation::folder_need`]
@@ -684,8 +679,24 @@ pub fn ready(folder: &Path, run: Run) -> Result<()> {
 
 /// Start a session: refused while Nucleus Co-op already runs, then one pad
 /// per player, the profile, the game's compatibility settings kept
-/// ([`layers`]), and Nucleus.
+/// ([`layers`]), and Nucleus. Should it fail, the game's folder is walked
+/// again next time ([`super::elevation::forget`]).
 pub fn start(
+    start: &Start,
+    pads: Box<dyn Pads>,
+    xinput: &mut dyn XInput,
+    desktop: Box<dyn Desktop>,
+    layers: Box<dyn Layers>,
+    launcher: &mut dyn Launcher,
+) -> Result<Running> {
+    begin(start, pads, xinput, desktop, layers, launcher).inspect_err(|_| {
+        if let Some(game) = game_folder(start.exe_path) {
+            super::elevation::forget(&game);
+        }
+    })
+}
+
+fn begin(
     start: &Start,
     pads: Box<dyn Pads>,
     xinput: &mut dyn XInput,
@@ -1402,6 +1413,22 @@ mod tests {
         runner.game = Some(game.path().to_path_buf());
         runner.finish(End::Failed("Nucleus Co-op did not start Game".into()));
         assert!(!elevation::is_kept(game.path()));
+        // Nor one Nucleus never started for.
+        elevation::folder_need(game.path(), None).unwrap();
+        let exe = game.path().join("Game.exe");
+        let folder = tempfile::tempdir().unwrap();
+        *probe.refused.lock().unwrap() = Some("access denied".into());
+        let (running, _) = start_steam(
+            folder.path(),
+            1,
+            [false; 4],
+            &self::screen(),
+            &probe,
+            None,
+            exe.to_str().unwrap(),
+        );
+        assert_eq!(running.err().unwrap().to_string(), "access denied");
+        assert!(!elevation::is_kept(game.path()));
     }
 
     #[test]
@@ -1498,6 +1525,9 @@ mod tests {
         }
     }
 
+    /// The game the sessions start.
+    const GAME: &str = r"D:\Games\Game\Game.exe";
+
     fn start_with(
         folder: &Path,
         players: usize,
@@ -1505,7 +1535,7 @@ mod tests {
         screen: &Screen,
         probe: &Probe,
     ) -> (Result<Running>, Arc<Recorder>) {
-        start_steam(folder, players, taken, screen, probe, None)
+        start_steam(folder, players, taken, screen, probe, None, GAME)
     }
 
     impl Launcher for (Probe, Screen, ()) {
@@ -1530,6 +1560,7 @@ mod tests {
         screen: &Screen,
         probe: &Probe,
         steam_app: Option<u32>,
+        exe_path: &str,
     ) -> (Result<Running>, Arc<Recorder>) {
         let recorder = Arc::new(Recorder::default());
         let handler = handler();
@@ -1545,7 +1576,7 @@ mod tests {
             folder,
             user_copy: None,
             handler: &handler,
-            exe_path: r"D:\Games\Game\Game.exe",
+            exe_path,
             steam_app,
             title: "Game",
             players,
@@ -1662,7 +1693,15 @@ mod tests {
     fn a_game_found_from_steam_starts_with_its_app_id() {
         let folder = tempfile::tempdir().unwrap();
         let (screen, probe) = (screen(), Probe::default());
-        let (running, _) = start_steam(folder.path(), 1, [false; 4], &screen, &probe, Some(242050));
+        let (running, _) = start_steam(
+            folder.path(),
+            1,
+            [false; 4],
+            &screen,
+            &probe,
+            Some(242050),
+            GAME,
+        );
         running.unwrap().stop();
         let app = || "242050".to_string();
         assert_eq!(

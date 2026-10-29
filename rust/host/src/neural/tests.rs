@@ -1863,6 +1863,26 @@ fn only_the_cache_itself_is_held_whole() {
     super::trusted_root_with(&root, false, |_, _| panic!("asked")).unwrap();
 }
 
+/// A record that can't be read is never taken for empty and written over:
+/// it holds the acceptance and the pending removals.
+#[test]
+fn a_damaged_record_is_never_written_over() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let path = h.directory.join(SETTINGS_FILE);
+    assert!(!path.exists());
+    assert!(!accepted(h));
+    accept(h).unwrap();
+    assert!(accepted(h));
+    for damaged in [&b"{\"accepted_at\": 1, \"pending_rem"[..], b"[]"] {
+        std::fs::write(&path, damaged).unwrap();
+        let error = format!("{:#}", accept(h).unwrap_err());
+        assert!(error.contains("damaged"), "{error}");
+        assert!(record_pending(h, &[]).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), damaged);
+    }
+}
+
 /// A cache is used only as this host keeps it: no link on the way to it,
 /// for SYSTEM nobody but administrators may change it, its files checked
 /// once per host start, and its archives the ones GitHub lists now.

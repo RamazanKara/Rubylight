@@ -396,12 +396,31 @@ fn as_system(answer: Response, system: bool, again: impl FnOnce() -> Response) -
 
 // ---- The user's acceptance and the update check's record ----
 
+/// The record, empty only when there is none yet: one that can't be read
+/// is an error, never taken for empty and written over (it holds the
+/// acceptance and the pending removals).
+fn read_settings(h: &Shared) -> Result<Value> {
+    let path = h.directory.join(SETTINGS_FILE);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(json!({})),
+        Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+    };
+    let value: Value =
+        serde_json::from_slice(&bytes).with_context(|| format!("{} is damaged", path.display()))?;
+    ensure!(
+        value.is_object(),
+        "{} is damaged: no object",
+        path.display()
+    );
+    Ok(value)
+}
+/// [`read_settings`] for a reader, empty and logged when it can't be read.
 fn settings(h: &Shared) -> Value {
-    std::fs::read(h.directory.join(SETTINGS_FILE))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(|| json!({}))
+    read_settings(h).unwrap_or_else(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: its record can't be read");
+        json!({})
+    })
 }
 fn update_settings(h: &Shared, change: impl FnOnce(&mut Value)) -> Result<()> {
     let _one = h
@@ -409,7 +428,7 @@ fn update_settings(h: &Shared, change: impl FnOnce(&mut Value)) -> Result<()> {
         .record
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    let mut value = settings(h);
+    let mut value = read_settings(h)?;
     change(&mut value);
     butterpollo_core::state::write_json(&h.directory.join(SETTINGS_FILE), &value)
 }

@@ -181,6 +181,16 @@ fn standard_user(
     })
 }
 
+/// Runs `work` on this thread as the user (see [`user_token`]), so Windows
+/// checks what it opens, follows and replaces against the user's rights, not
+/// the host's: a link the user put in a folder of theirs leads nowhere the
+/// user could not reach anyway. With nobody to act as, `work` does not run.
+pub fn as_user<T>(work: impl FnOnce() -> T) -> Result<T, UserFolderError> {
+    let token = user_token()?;
+    let _user = Impersonation::begin(token.as_ref())?;
+    Ok(work())
+}
+
 /// Runs `work` on this thread as the user signed in to the host's session
 /// when the host runs as SYSTEM, for what Windows keeps per user. Otherwise,
 /// or with nobody signed in, it runs as the host.

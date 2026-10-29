@@ -9,8 +9,11 @@
 //! after a crash. A Disconnect leaves a suspended session, which keeps them. A launch from the
 //! console has no stream, so it writes nothing.
 //!
-//! Restores run where they are decided, under the session lock: a settings file is small.
-use crate::state::Shared;
+//! The files are reached as the signed-in Windows user, never as SYSTEM (see
+//! `butterpollo_core::game_files::Access`). Restores run on a thread of their own, so a file
+//! that is slow to open never holds the session lock; one that fails stays journaled and is
+//! tried again.
+use crate::state::{Host, Shared};
 use butterpollo_core::{
     game_files::{self, JOURNAL_FILE, Report, Scope, Unusable},
     state::App,
@@ -18,12 +21,33 @@ use butterpollo_core::{
 use std::{
     collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak,
+        mpsc::{self, Receiver, RecvTimeoutError},
+    },
+    time::{Duration, Instant},
 };
 
 /// The launch argument the host sets for the rate its frame limiter holds the stream's game
 /// to, when it limits; never the client's. See `process::BACKGROUND_ARG`.
 pub const FRAME_LIMIT_ARG: &str = "rubylightFrameLimit";
+/// The first wait before a restore that failed is tried again; it doubles up to [`MAX_RETRY`].
+const RETRY: Duration = Duration::from_secs(30);
+const MAX_RETRY: Duration = Duration::from_secs(600);
+
+/// How game files are reached: as the signed-in Windows user; the tests reach theirs as the
+/// test process.
+const ACCESS: game_files::Access = if cfg!(test) {
+    game_files::as_host
+} else {
+    as_user
+};
+
+#[cfg_attr(test, allow(dead_code))]
+fn as_user(work: &mut dyn FnMut()) -> std::io::Result<()> {
+    butterpollo_windows::user_folder::as_user(work)
+        .map_err(|error| std::io::Error::other(error.to_string()))
+}
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -31,10 +55,22 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[derive(Default)]
 pub struct GameFiles {
-    /// Devices that may have keys written in this run. A device leaves when its restore runs.
+    /// Devices whose stream may have written keys in this run. Their journal entries are
+    /// theirs until they leave the session; every other entry is due to go back.
     written: Mutex<BTreeSet<String>>,
     /// Held through every journal change, so a write and a restore never interleave.
     journal: Mutex<()>,
+    /// The restore thread, once the host started it.
+    worker: Mutex<Option<mpsc::Sender<()>>>,
+    /// Restores asked for and done, so a shutdown can wait for them.
+    progress: Mutex<Progress>,
+    settled: Condvar,
+}
+
+#[derive(Default)]
+struct Progress {
+    asked: u64,
+    done: u64,
 }
 
 impl GameFiles {
@@ -43,7 +79,7 @@ impl GameFiles {
     /// device that wrote keys and is not present gets them back. `present` is not called when
     /// no device wrote anything.
     pub fn sync(&self, directory: &Path, present: impl FnOnce() -> Option<BTreeSet<String>>) {
-        let ended: Vec<String> = {
+        {
             let mut written = locked(&self.written);
             if written.is_empty() {
                 return;
@@ -51,42 +87,94 @@ impl GameFiles {
             let Some(present) = present() else {
                 return;
             };
-            let ended: Vec<String> = written
-                .iter()
-                .filter(|device| !present.contains(*device))
-                .cloned()
-                .collect();
-            for device in &ended {
-                written.remove(device);
+            let before = written.len();
+            written.retain(|device| present.contains(device));
+            if written.len() == before {
+                return;
             }
-            ended
-        };
-        for device in ended {
-            self.restore(directory, Scope::Session(&device));
         }
+        self.request(directory);
     }
     /// A device was unpaired or turned off: its keys go back even though its session may
     /// linger until the grace period ends.
     pub fn release_device(&self, directory: &Path, device: &str) {
         if locked(&self.written).remove(device) {
-            self.restore(directory, Scope::Session(device));
+            self.request(directory);
         }
     }
-    /// Every key the host changed goes back, whatever the sessions do (unpair all, shutdown,
-    /// the start after a crash).
+    /// Every key the host changed goes back, whatever the sessions do (unpair all, the start
+    /// after a crash).
     pub fn release_all(&self, directory: &Path) {
         locked(&self.written).clear();
-        self.restore(directory, Scope::All);
+        self.request(directory);
+    }
+    /// A clean shutdown: every key goes back, waiting at most `wait`. What is not back by then
+    /// stays journaled for the next start.
+    pub fn shutdown(&self, directory: &Path, wait: Duration) {
+        self.release_all(directory);
+        if !self.flush(wait) {
+            tracing::error!(
+                wait_seconds = wait.as_secs(),
+                "managed game file keys were still being put back at shutdown; the next host start puts back what is left"
+            );
+        }
+    }
+    /// Wait, at most `wait`, until every restore asked for so far has run. True when they have.
+    pub fn flush(&self, wait: Duration) -> bool {
+        let progress = locked(&self.progress);
+        let asked = progress.asked;
+        let (progress, _) = self
+            .settled
+            .wait_timeout_while(progress, wait, |progress| progress.done < asked)
+            .unwrap_or_else(PoisonError::into_inner);
+        progress.done >= asked
     }
 
-    fn restore(&self, directory: &Path, scope: Scope<'_>) {
+    /// Have every journaled key of a device that left put back: on the restore thread, or
+    /// here without one (it could not start, or in tests).
+    fn request(&self, directory: &Path) {
+        let asked = {
+            let mut progress = locked(&self.progress);
+            progress.asked += 1;
+            progress.asked
+        };
+        let sent = locked(&self.worker)
+            .as_ref()
+            .is_some_and(|worker| worker.send(()).is_ok());
+        if !sent {
+            self.restore_ended(directory);
+            self.finished(asked);
+        }
+    }
+    fn finished(&self, asked: u64) {
+        let mut progress = locked(&self.progress);
+        progress.done = progress.done.max(asked);
+        self.settled.notify_all();
+    }
+
+    /// Put back every journaled key of a device that is not streaming. True when one could not
+    /// be, and stays journaled to be tried again.
+    fn restore_ended(&self, directory: &Path) -> bool {
         let _journal = locked(&self.journal);
-        match game_files::restore(&directory.join(JOURNAL_FILE), scope) {
-            Ok(report) => log_restore(&report),
-            Err(error) => tracing::error!(
-                error = format!("{error:#}"),
-                "the game files journal could not be read; the keys in it stay changed until it can be"
-            ),
+        // Read under the journal lock: a device that started a new stream since its restore was
+        // asked for owns its entries again, and they go back when that stream ends.
+        let running = locked(&self.written).clone();
+        match game_files::restore(
+            &directory.join(JOURNAL_FILE),
+            Scope::Except(&running),
+            ACCESS,
+        ) {
+            Ok(report) => {
+                log_restore(&report);
+                !report.failed.is_empty()
+            }
+            Err(error) => {
+                tracing::error!(
+                    error = format!("{error:#}"),
+                    "the game files journal could not be read; the keys in it stay changed until it can be"
+                );
+                false
+            }
         }
     }
 
@@ -100,7 +188,7 @@ impl GameFiles {
         let _journal = locked(&self.journal);
         // Noted first: a write that half succeeded is still the session's to put back.
         locked(&self.written).insert(device.to_owned());
-        match game_files::apply(&directory.join(JOURNAL_FILE), device, targets) {
+        match game_files::apply(&directory.join(JOURNAL_FILE), device, targets, ACCESS) {
             Ok(report) => Some(report),
             Err(error) => {
                 tracing::warn!(
@@ -123,10 +211,48 @@ fn log_restore(report: &Report) {
     }
 }
 
-/// Put back what a run that ended without its restores left changed. At host start, before
-/// any stream.
+/// Start the restore thread and put back what a run that ended without its restores left
+/// changed. At host start, before any stream.
 pub fn start(h: &Shared) {
+    let (sender, receiver) = mpsc::channel();
+    let host = Arc::downgrade(h);
+    match std::thread::Builder::new()
+        .name("game-files".into())
+        .spawn(move || restorer(&host, &receiver))
+    {
+        Ok(_) => *locked(&h.game_files.worker) = Some(sender),
+        Err(error) => {
+            tracing::error!(%error, "no thread for managed game file restores; they run where they are decided");
+        }
+    }
     h.game_files.release_all(&h.directory);
+}
+
+/// The restore thread: a restore for every request (those that queue up meanwhile run as
+/// one), and again later while one fails. It ends with the host.
+fn restorer(host: &Weak<Host>, receiver: &Receiver<()>) {
+    let mut retry: Option<(Instant, Duration)> = None;
+    loop {
+        let woke = match retry {
+            Some((at, _)) => receiver.recv_timeout(at.saturating_duration_since(Instant::now())),
+            None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
+        if woke == Err(RecvTimeoutError::Disconnected) {
+            return;
+        }
+        while receiver.try_recv().is_ok() {}
+        let Some(h) = host.upgrade() else {
+            return;
+        };
+        let files = &h.game_files;
+        let asked = locked(&files.progress).asked;
+        let failed = files.restore_ended(&h.directory);
+        files.finished(asked);
+        retry = failed.then(|| {
+            let wait = retry.map_or(RETRY, |(_, wait)| (wait * 2).min(MAX_RETRY));
+            (Instant::now() + wait, wait)
+        });
+    }
 }
 
 /// Where `app`'s files are: the folder a relative path starts at (the working directory, else
@@ -152,7 +278,7 @@ pub fn folders(app: &App) -> (Option<PathBuf>, Vec<PathBuf>) {
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from);
     let base = working.clone().or_else(|| steam.clone());
-    let folders = game_files::folders(working.into_iter().chain(program).chain(steam));
+    let folders = game_files::folders(working.into_iter().chain(program).chain(steam), ACCESS);
     (base, folders)
 }
 
@@ -182,7 +308,7 @@ pub fn check(app: &App) -> anyhow::Result<()> {
     }
     for entry in &entries {
         if let Err(Unusable::Refused(why)) =
-            game_files::resolve(&entry.path, base.as_deref(), &folders)
+            game_files::resolve(&entry.path, base.as_deref(), &folders, ACCESS)
         {
             anyhow::bail!("{}: {why}", game_files::SETTING);
         }
@@ -213,7 +339,14 @@ pub fn launching(h: &Shared, app: &App, args: &HashMap<String, String>) {
         .and_then(|mode| crate::radeon_profile::stream_fps(mode));
     let (base, folders) = folders(app);
     let mut report = Report::default();
-    let targets = game_files::targets(&entries, fps, base.as_deref(), &folders, &mut report);
+    let targets = game_files::targets(
+        &entries,
+        fps,
+        base.as_deref(),
+        &folders,
+        ACCESS,
+        &mut report,
+    );
     if let Some(limit) = args
         .get(FRAME_LIMIT_ARG)
         .and_then(|limit| limit.parse::<u32>().ok())
@@ -321,6 +454,25 @@ mod tests {
         let restarted = GameFiles::default();
         restarted.release_all(&h.directory);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), INI);
+    }
+
+    #[test]
+    fn restores_run_on_their_own_thread_and_a_shutdown_waits_for_them() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let (app, file) = game(&f);
+        start(h);
+        assert!(locked(&h.game_files.worker).is_some());
+        launching(h, &app, &args("phone", "1920x1080x60"));
+        assert!(std::fs::read_to_string(&file).unwrap().contains("=60"));
+        h.game_files.sync(&h.directory, || Some(BTreeSet::new()));
+        assert!(h.game_files.flush(Duration::from_secs(10)));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), INI);
+        launching(h, &app, &args("tv", "1920x1080x90"));
+        assert!(std::fs::read_to_string(&file).unwrap().contains("=90"));
+        h.game_files.shutdown(&h.directory, Duration::from_secs(10));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), INI);
+        assert!(locked(&h.game_files.written).is_empty());
     }
 
     #[test]

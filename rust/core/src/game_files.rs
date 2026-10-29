@@ -28,7 +28,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt,
     io::{Read, Write},
     ops::Range,
@@ -278,19 +278,52 @@ fn local(path: &Path) -> bool {
     }
 }
 
-/// The folders, of `candidates`, that an app's files may be in: those that exist, resolved,
-/// on a local drive, and neither a drive's root nor inside the Windows folder.
-pub fn folders(candidates: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+/// How the host reaches game files: runs the file work it is given with the rights Windows
+/// checks that work against, or fails without running it. The host acts as the signed-in
+/// Windows user: a game's folder is usually the user's to change, so a link or junction put in
+/// it between a check and a write could otherwise lead a host running as SYSTEM to any file.
+/// As the user, it leads nowhere the user could not write anyway. The journal is the host's
+/// own and is not reached this way.
+pub type Access = fn(&mut dyn FnMut()) -> std::io::Result<()>;
+
+/// [`Access`] as the calling process, for tests and tools.
+pub fn as_host(work: &mut dyn FnMut()) -> std::io::Result<()> {
+    work();
+    Ok(())
+}
+
+/// Run `work` through `access`.
+fn reach<T>(access: Access, work: impl FnOnce() -> T) -> std::io::Result<T> {
+    let mut work = Some(work);
+    let mut done = None;
+    access(&mut || done = work.take().map(|work| work()))?;
+    done.ok_or_else(|| std::io::Error::other("the game file work did not run"))
+}
+
+/// The folders, of `candidates`, that an app's files may be in: those that exist, resolved
+/// through `access`, on a local drive, and neither a drive's root nor inside the Windows
+/// folder.
+pub fn folders(candidates: impl IntoIterator<Item = PathBuf>, access: Access) -> Vec<PathBuf> {
     let windows = std::env::var_os("SystemRoot").and_then(|root| std::fs::canonicalize(root).ok());
     let mut found: Vec<PathBuf> = Vec::new();
     for candidate in candidates {
         if candidate.as_os_str().is_empty() || !candidate.is_absolute() {
             continue;
         }
-        let Ok(folder) = std::fs::canonicalize(&candidate) else {
-            continue;
+        let resolved = reach(access, || {
+            std::fs::canonicalize(&candidate)
+                .ok()
+                .map(|folder| (folder.is_dir(), folder))
+        });
+        let (is_dir, folder) = match resolved {
+            Ok(Some(found)) => found,
+            Ok(None) => continue,
+            Err(error) => {
+                tracing::warn!(folder = %candidate.display(), %error, "this folder of the app cannot be read as the Windows user; managed game files are not taken from it");
+                continue;
+            }
         };
-        let refused = !folder.is_dir()
+        let refused = !is_dir
             || !local(&folder)
             || folder.parent().is_none()
             || windows
@@ -305,10 +338,15 @@ pub fn folders(candidates: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
     found
 }
 
-/// The file `path` names: resolved, an existing `.ini` file of at most [`MAX_FILE_BYTES`]
-/// inside one of `folders` (see [`folders`]). A relative path starts at `base`, the app's
-/// working directory.
-pub fn resolve(path: &str, base: Option<&Path>, folders: &[PathBuf]) -> Result<PathBuf, Unusable> {
+/// The file `path` names: resolved through `access`, an existing `.ini` file of at most
+/// [`MAX_FILE_BYTES`] inside one of `folders` (see [`folders`]). A relative path starts at
+/// `base`, the app's working directory. Without the access (nobody signed in), it is missing.
+pub fn resolve(
+    path: &str,
+    base: Option<&Path>,
+    folders: &[PathBuf],
+    access: Access,
+) -> Result<PathBuf, Unusable> {
     check_path(path).map_err(|error| Unusable::Refused(format!("{error:#}")))?;
     let path = path.trim();
     let written = Path::new(path);
@@ -322,7 +360,15 @@ pub fn resolve(path: &str, base: Option<&Path>, folders: &[PathBuf]) -> Result<P
         };
         base.join(written)
     };
-    let file = match std::fs::canonicalize(&candidate) {
+    reach(access, || resolve_file(path, &candidate, folders)).unwrap_or_else(|error| {
+        Err(Unusable::Missing(format!(
+            "{path}: the host cannot act as the Windows user: {error}"
+        )))
+    })
+}
+
+fn resolve_file(path: &str, candidate: &Path, folders: &[PathBuf]) -> Result<PathBuf, Unusable> {
+    let file = match std::fs::canonicalize(candidate) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(Unusable::Missing(format!("{path}: no such file")));
@@ -489,6 +535,12 @@ pub fn value_of(bytes: &[u8], section: &str, key: &str) -> Result<Option<String>
 /// was; `None` when the file has no such key.
 pub fn with_value(bytes: &[u8], section: &str, key: &str, value: &str) -> Result<Option<Vec<u8>>> {
     check_text(value, "value")?;
+    set_value(bytes, section, key, value)
+}
+
+/// [`with_value`] for a value read from the file before: an original goes back as it was, even
+/// one longer than a value an entry may set.
+fn set_value(bytes: &[u8], section: &str, key: &str, value: &str) -> Result<Option<Vec<u8>>> {
     match wide(bytes) {
         None => {
             let skip = if bytes.starts_with(UTF8_BOM) { 3 } else { 0 };
@@ -581,6 +633,7 @@ pub fn targets(
     fps: Option<u32>,
     base: Option<&Path>,
     folders: &[PathBuf],
+    access: Access,
     report: &mut Report,
 ) -> Vec<Target> {
     let mut found: Vec<Target> = Vec::new();
@@ -594,7 +647,7 @@ pub fn targets(
         let target = check_entry(entry)
             .and_then(|()| Template::parse(&entry.value)?.resolve(fps))
             .and_then(|value| {
-                let file = resolve(&entry.path, base, folders)?;
+                let file = resolve(&entry.path, base, folders, access)?;
                 Ok(Target {
                     file,
                     section: entry.section.trim().to_owned(),
@@ -731,10 +784,25 @@ fn replace(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
         drop(out);
         swap(file, &temporary)
     })();
-    if result.is_err() {
+    let Err(error) = result else {
+        return Ok(());
+    };
+    if std::fs::symlink_metadata(file).is_ok() {
         let _ = std::fs::remove_file(&temporary);
+        return Err(error);
     }
-    result
+    if std::fs::symlink_metadata(&temporary).is_err() {
+        return Err(error);
+    }
+    // A swap that failed halfway (ERROR_UNABLE_TO_MOVE_REPLACEMENT, when the new file is held
+    // open) has removed the file and left the new one under its temporary name: move it in.
+    // The temporary file is the only copy now, so it is never deleted here.
+    std::fs::rename(&temporary, file).map_err(|again| {
+        std::io::Error::other(format!(
+            "{error}; the file is gone and its new contents are in {}: {again}",
+            temporary.display()
+        ))
+    })
 }
 
 #[cfg(windows)]
@@ -789,7 +857,7 @@ fn swap(file: &Path, replacement: &Path) -> std::io::Result<()> {
 fn put_back(bytes: &mut Vec<u8>, change: &Change, report: &mut Report) {
     match value_of(bytes, &change.section, &change.key) {
         Ok(Some(current)) if current == change.written => {
-            match with_value(bytes, &change.section, &change.key, &change.original) {
+            match set_value(bytes, &change.section, &change.key, &change.original) {
                 Ok(Some(next)) => {
                     *bytes = next;
                     report.restored.push(change.to_string());
@@ -811,8 +879,14 @@ fn put_back(bytes: &mut Vec<u8>, change: &Change, report: &mut Report) {
 /// every key's original before the file changes. Another session's change to one of these keys
 /// goes back first, so the original recorded is the PC's own value. A key the file does not
 /// have, or a file that cannot be read, is skipped with a warning; a file that cannot be
-/// written is left as it was. Errors only when the journal cannot be read: nothing is written.
-pub fn apply(journal_path: &Path, session: &str, targets: &[Target]) -> Result<Report> {
+/// written is left as it was. The files are reached through `access`. Errors only when the
+/// journal cannot be read: nothing is written.
+pub fn apply(
+    journal_path: &Path,
+    session: &str,
+    targets: &[Target],
+    access: Access,
+) -> Result<Report> {
     let mut journal = Journal::load(journal_path)?;
     let mut report = Report::default();
     let mut files: Vec<&Path> = Vec::new();
@@ -823,13 +897,16 @@ pub fn apply(journal_path: &Path, session: &str, targets: &[Target]) -> Result<R
     }
     for file in files {
         let wanted: Vec<&Target> = targets.iter().filter(|t| t.file == file).collect();
-        let found = read(file).map_err(anyhow::Error::from).and_then(|bytes| {
+        let found = reach(access, || {
+            let bytes = read(file)?;
             // A file that is still the one resolved: a link put in its place since is not followed.
             if std::fs::canonicalize(file)? != file {
                 bail!("the file was replaced by a link");
             }
             Ok(bytes)
-        });
+        })
+        .map_err(anyhow::Error::from)
+        .and_then(|found| found);
         let bytes = match found {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -906,22 +983,26 @@ pub fn apply(journal_path: &Path, session: &str, targets: &[Target]) -> Result<R
                 Err(error) => skip(&mut done, &target.to_string(), &format!("{error:#}")),
             }
         }
-        if next != journal {
-            // The journal first: a crash before the swap finds the file at its originals, and a
-            // restore then leaves it.
-            if let Err(error) = next.save(journal_path) {
-                for target in &wanted {
-                    skip(
-                        &mut report,
-                        &target.to_string(),
-                        &format!("the journal could not be written: {error:#}"),
-                    );
-                }
-                continue;
+        // The journal first, still with the other sessions' entries this write puts back: a
+        // crash before the swap finds the file as it was, and those entries then still match it
+        // (a restore puts their originals back and finds this session's keys unwritten). After
+        // the swap their keys hold this session's values, so a left-over entry is left alone.
+        let mut before = next.clone();
+        before.changes.extend(others.iter().cloned());
+        if before != journal
+            && let Err(error) = before.save(journal_path)
+        {
+            for target in &wanted {
+                skip(
+                    &mut report,
+                    &target.to_string(),
+                    &format!("the journal could not be written: {error:#}"),
+                );
             }
+            continue;
         }
         if edited != bytes
-            && let Err(error) = replace(file, &edited)
+            && let Err(error) = reach(access, || replace(file, &edited)).and_then(|done| done)
         {
             for target in &wanted {
                 skip(
@@ -930,7 +1011,7 @@ pub fn apply(journal_path: &Path, session: &str, targets: &[Target]) -> Result<R
                     &format!("the file could not be written: {error}"),
                 );
             }
-            if next != journal
+            if before != journal
                 && let Err(error) = journal.save(journal_path)
             {
                 tracing::error!(
@@ -939,6 +1020,14 @@ pub fn apply(journal_path: &Path, session: &str, targets: &[Target]) -> Result<R
                 );
             }
             continue;
+        }
+        if next != before
+            && let Err(error) = next.save(journal_path)
+        {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "the game files journal still lists keys another device's stream had changed; their restore finds the new values and leaves them"
+            );
         }
         journal = next;
         report.written.append(&mut done.written);
@@ -956,21 +1045,50 @@ pub enum Scope<'a> {
     All,
     /// The changes of one device's session.
     Session(&'a str),
+    /// Every change but those of these devices' sessions, which still run.
+    Except(&'a BTreeSet<String>),
 }
 impl Scope<'_> {
     fn matches(&self, change: &Change) -> bool {
         match self {
             Self::All => true,
             Self::Session(session) => change.session == *session,
+            Self::Except(running) => !running.contains(&change.session),
         }
+    }
+}
+
+/// What a restore finds where a journaled file was.
+enum Found {
+    File(Vec<u8>),
+    /// A link or junction now: it is not followed.
+    Link,
+    /// The file is gone from a folder that is still there.
+    Gone,
+}
+
+/// Look at `file` for a restore. A folder that is missing too (a drive not mounted yet) is an
+/// error, so the changes stay journaled.
+fn look_up(file: &Path) -> std::io::Result<Found> {
+    match std::fs::canonicalize(file) {
+        Ok(resolved) if resolved == file => read(file).map(Found::File),
+        Ok(_) => Ok(Found::Link),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && file.parent().is_some_and(Path::is_dir) =>
+        {
+            Ok(Found::Gone)
+        }
+        Err(error) => Err(error),
     }
 }
 
 /// Put back the changes `scope` selects: an original goes back only while its key still holds
 /// what the host wrote. A key changed since, a file gone or a file that is now a link leaves
-/// the file as it is and drops the change. A file that cannot be read or written keeps its
-/// changes journaled for the next restore. Errors only when the journal cannot be read or saved.
-pub fn restore(journal_path: &Path, scope: Scope<'_>) -> Result<Report> {
+/// the file as it is and drops the change. A file that cannot be reached, read or written
+/// (through `access`) keeps its changes journaled for the next restore. Errors only when the
+/// journal cannot be read or saved.
+pub fn restore(journal_path: &Path, scope: Scope<'_>, access: Access) -> Result<Report> {
     let mut journal = Journal::load(journal_path)?;
     let mut report = Report::default();
     let mut files: Vec<PathBuf> = Vec::new();
@@ -994,9 +1112,15 @@ pub fn restore(journal_path: &Path, scope: Scope<'_>) -> Result<Report> {
                 .changes
                 .retain(|c| !(c.path == file && scope.matches(c)));
         };
-        match std::fs::canonicalize(&file) {
-            Ok(resolved) if resolved == file => {}
-            Ok(_) => {
+        let failed = |report: &mut Report, error: &dyn fmt::Display| {
+            for change in &changes {
+                tracing::error!(key = %change, %error, "a managed game file key could not be put back; it stays journaled");
+                report.failed.push(format!("{change}: {error}"));
+            }
+        };
+        let bytes = match reach(access, || look_up(&file)).and_then(|found| found) {
+            Ok(Found::File(bytes)) => bytes,
+            Ok(Found::Link) => {
                 for change in &changes {
                     skip(
                         &mut report,
@@ -1007,7 +1131,7 @@ pub fn restore(journal_path: &Path, scope: Scope<'_>) -> Result<Report> {
                 drop_them(&mut journal);
                 continue;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(Found::Gone) => {
                 for change in &changes {
                     skip(&mut report, &change.to_string(), "the file is gone");
                 }
@@ -1015,20 +1139,7 @@ pub fn restore(journal_path: &Path, scope: Scope<'_>) -> Result<Report> {
                 continue;
             }
             Err(error) => {
-                for change in &changes {
-                    tracing::error!(key = %change, %error, "a managed game file key could not be put back; it stays journaled");
-                    report.failed.push(format!("{change}: {error}"));
-                }
-                continue;
-            }
-        }
-        let bytes = match read(&file) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                for change in &changes {
-                    tracing::error!(key = %change, %error, "a managed game file key could not be put back; it stays journaled");
-                    report.failed.push(format!("{change}: {error}"));
-                }
+                failed(&mut report, &error);
                 continue;
             }
         };
@@ -1038,12 +1149,9 @@ pub fn restore(journal_path: &Path, scope: Scope<'_>) -> Result<Report> {
             put_back(&mut edited, change, &mut done);
         }
         if edited != bytes
-            && let Err(error) = replace(&file, &edited)
+            && let Err(error) = reach(access, || replace(&file, &edited)).and_then(|done| done)
         {
-            for change in &changes {
-                tracing::error!(key = %change, %error, "a managed game file key could not be put back; it stays journaled");
-                report.failed.push(format!("{change}: {error}"));
-            }
+            failed(&mut report, &error);
             continue;
         }
         drop_them(&mut journal);
@@ -1061,6 +1169,32 @@ mod tests {
     use serde_json::json;
 
     const OPTISCALER: &str = "; OptiScaler settings\r\n[Framerate]\r\n; 0 = no limit\r\nFramerateLimit = 59\r\n\r\n[Upscalers]\r\nDx12Upscaler=fsr31\r\n";
+
+    // The tests reach their files as the test process.
+    fn folders(candidates: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+        super::folders(candidates, as_host)
+    }
+    fn resolve(path: &str, base: Option<&Path>, folders: &[PathBuf]) -> Result<PathBuf, Unusable> {
+        super::resolve(path, base, folders, as_host)
+    }
+    fn targets(
+        entries: &[Entry],
+        fps: Option<u32>,
+        base: Option<&Path>,
+        folders: &[PathBuf],
+        report: &mut Report,
+    ) -> Vec<Target> {
+        super::targets(entries, fps, base, folders, as_host, report)
+    }
+    fn apply(journal: &Path, session: &str, targets: &[Target]) -> Result<Report> {
+        super::apply(journal, session, targets, as_host)
+    }
+    fn restore(journal: &Path, scope: Scope<'_>) -> Result<Report> {
+        super::restore(journal, scope, as_host)
+    }
+    fn no_user(_: &mut dyn FnMut()) -> std::io::Result<()> {
+        Err(std::io::Error::other("nobody is signed in"))
+    }
 
     #[test]
     fn values_are_fixed_or_follow_the_stream() {
@@ -1307,7 +1441,7 @@ mod tests {
         );
         assert!(matches!(resolve("missing.ini"), Err(Unusable::Missing(_))));
         assert!(matches!(
-            super::resolve("OptiScaler.ini", None, &folders),
+            self::resolve("OptiScaler.ini", None, &folders),
             Err(Unusable::Missing(_))
         ));
         // A file beside the folder, named with its full path, is outside it.
@@ -1329,8 +1463,8 @@ mod tests {
         assert!(matches!(resolve("big.ini"), Err(Unusable::Refused(_))));
         // A drive's root and the Windows folder are never an app's folder.
         let windows = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-        assert!(super::folders([PathBuf::from(r"C:\"), PathBuf::from(&windows)]).is_empty());
-        assert!(super::folders([PathBuf::from("relative")]).is_empty());
+        assert!(self::folders([PathBuf::from(r"C:\"), PathBuf::from(&windows)]).is_empty());
+        assert!(self::folders([PathBuf::from("relative")]).is_empty());
     }
 
     #[test]
@@ -1458,6 +1592,131 @@ mod tests {
         let report = restore(&game.journal, Scope::All).unwrap();
         assert_eq!(report.skipped.len(), 1);
         assert!(Journal::load(&game.journal).unwrap().changes.is_empty());
+        // A folder gone too, as a drive not mounted yet, keeps them for a later restore.
+        journal.changes[0].path = game.folder.join("unmounted").join("OptiScaler.ini");
+        journal.save(&game.journal).unwrap();
+        let report = restore(&game.journal, Scope::All).unwrap();
+        assert_eq!(report.failed.len(), 1, "{report:?}");
+        assert_eq!(
+            Journal::load(&game.journal).unwrap().changes,
+            journal.changes
+        );
+    }
+
+    #[test]
+    fn a_crash_while_another_devices_key_goes_back_leaves_the_pcs_own_value() {
+        let game = game();
+        let change = |session: &str, written: &str| Change {
+            session: session.into(),
+            path: game.resolved.clone(),
+            section: "Framerate".into(),
+            key: "FramerateLimit".into(),
+            original: "59".into(),
+            written: written.into(),
+        };
+        // The TV wrote 60 over the PC's 59. The handheld's write put the 59 back and journaled
+        // its 120, keeping the TV's entry until the file changed. In either order, a restore
+        // after a crash before the swap (the file at 60) or after it (at 120) gives the 59.
+        for order in [["tv", "handheld"], ["handheld", "tv"]] {
+            for on_disk in ["60", "120"] {
+                let journal = Journal {
+                    version: 1,
+                    changes: order
+                        .iter()
+                        .map(|session| change(session, if *session == "tv" { "60" } else { "120" }))
+                        .collect(),
+                };
+                journal.save(&game.journal).unwrap();
+                std::fs::write(
+                    &game.file,
+                    OPTISCALER.replace("= 59", &format!("= {on_disk}")),
+                )
+                .unwrap();
+                restore(&game.journal, Scope::All).unwrap();
+                assert_eq!(current(&game.file), "59", "{order:?} {on_disk}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_original_goes_back_whatever_its_length() {
+        let game = game();
+        let long = "x".repeat(MAX_TEXT + 10);
+        std::fs::write(
+            &game.file,
+            format!("[Framerate]\r\nFramerateLimit={long}\r\n"),
+        )
+        .unwrap();
+        let folders = folders([game.folder.clone()]);
+        let targets = targets(
+            &[limit("60")],
+            None,
+            Some(&game.folder),
+            &folders,
+            &mut Report::default(),
+        );
+        apply(&game.journal, "phone", &targets).unwrap();
+        assert_eq!(current(&game.file), "60");
+        restore(&game.journal, Scope::All).unwrap();
+        assert_eq!(current(&game.file), long);
+    }
+
+    #[test]
+    fn without_the_windows_user_nothing_is_written_and_restores_wait() {
+        let game = game();
+        assert!(super::folders([game.folder.clone()], no_user).is_empty());
+        let folders = folders([game.folder.clone()]);
+        assert!(matches!(
+            super::resolve("OptiScaler.ini", Some(&game.folder), &folders, no_user),
+            Err(Unusable::Missing(_))
+        ));
+        let targets = targets(
+            &[limit("60")],
+            None,
+            Some(&game.folder),
+            &folders,
+            &mut Report::default(),
+        );
+        let report = super::apply(&game.journal, "phone", &targets, no_user).unwrap();
+        assert!(
+            report.written.is_empty() && report.skipped.len() == 1,
+            "{report:?}"
+        );
+        assert_eq!(std::fs::read_to_string(&game.file).unwrap(), OPTISCALER);
+        assert!(Journal::load(&game.journal).unwrap().changes.is_empty());
+        apply(&game.journal, "phone", &targets).unwrap();
+        let report = super::restore(&game.journal, Scope::All, no_user).unwrap();
+        assert_eq!(report.failed.len(), 1, "{report:?}");
+        assert_eq!(current(&game.file), "60");
+        restore(&game.journal, Scope::All).unwrap();
+        assert_eq!(std::fs::read_to_string(&game.file).unwrap(), OPTISCALER);
+    }
+
+    #[test]
+    fn a_restore_can_spare_the_sessions_still_running() {
+        let game = game();
+        let folders = folders([game.folder.clone()]);
+        let mut upscaler = limit("xess");
+        upscaler.section = "Upscalers".into();
+        upscaler.key = "Dx12Upscaler".into();
+        for (session, entry) in [("tv", limit("60")), ("phone", upscaler)] {
+            let targets = targets(
+                &[entry],
+                None,
+                Some(&game.folder),
+                &folders,
+                &mut Report::default(),
+            );
+            apply(&game.journal, session, &targets).unwrap();
+        }
+        let running = BTreeSet::from(["tv".to_owned()]);
+        restore(&game.journal, Scope::Except(&running)).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&game.file).unwrap(),
+            OPTISCALER.replace("= 59", "= 60")
+        );
+        restore(&game.journal, Scope::Except(&BTreeSet::new())).unwrap();
+        assert_eq!(std::fs::read_to_string(&game.file).unwrap(), OPTISCALER);
     }
 
     #[test]

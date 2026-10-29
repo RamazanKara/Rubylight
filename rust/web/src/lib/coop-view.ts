@@ -11,7 +11,9 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  * and `failed` (the download), `broken` (the handlers didn't load), `taken` (another app of the same
  * name already lists the co-op entry, so the library shows this one's nowhere), `anti_cheat` (the game
  * ships anti-cheat, so neither co-op nor background streams hook it) and `refused` (Rubylight's own handler
- * never starts it: a game on a network share, Windows' own program, a missing .exe), shown alike.
+ * never starts it: a game on a network share, Windows' own program, a missing .exe, a game that needs
+ * administrator rights on an account Windows doesn't elevate), shown alike. `handler` and `ready` also say
+ * how a background stream runs: as the signed-in user or as administrator.
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -22,10 +24,10 @@ export type PlayTogetherView =
   | { kind: 'failed'; error: string }
   | { kind: 'broken'; error: string }
   | { kind: 'checking' }
-  | { kind: 'handler'; added: boolean; text: string; steps: string }
+  | { kind: 'handler'; added: boolean; text: string; steps: string; runs: string | null }
   | { kind: 'taken'; reason: string }
   | { kind: 'anti_cheat'; reason: string }
-  | { kind: 'ready'; players: string; entry: string; start: string };
+  | { kind: 'ready'; players: string; entry: string; start: string; runs: string };
 
 /** Megabytes as the release page counts them, kept on one line. */
 export function megabytes(bytes: number): string {
@@ -54,6 +56,21 @@ export function installProgress(status: CoopStatus): { label: string; percent: n
     label: `Downloading Nucleus Co-op… ${megabytes(received)} of ${megabytes(size)}`,
     percent: Math.min(99, Math.floor((100 * received) / size)),
   };
+}
+
+/** A background stream run elevated: every hub handler, and Rubylight's own for a game that needs it. */
+export const RUNS_ELEVATED = 'A background stream runs it as administrator.';
+
+/**
+ * How a background stream of the game runs, from the host's `runs`. The console doesn't walk the game's
+ * folder; the launch does, and elevates if the signed-in user can't change it. Null when the host
+ * doesn't say (an older host, a Steam link checked at launch).
+ */
+export function runsText(game: CoopGame): string | null {
+  if (game.runs === 'user') {
+    return 'A background stream runs it as the signed-in user, without administrator rights, unless only an administrator may change its folder.';
+  }
+  return game.runs === 'elevated' ? RUNS_ELEVATED : null;
 }
 
 export function gameOf(status: CoopStatus, app: string): CoopGame | undefined {
@@ -95,6 +112,8 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
         players: `Up to ${players} ${players === 1 ? 'player' : 'players'}.`,
         entry: game.entry,
         start: `Start “${game.entry}” from Nightjar or Moonlight. Each device that starts it next joins as the next player.`,
+        // The hub handler runs it, and a hub handler always runs elevated.
+        runs: RUNS_ELEVATED,
       };
     }
     case 'taken':
@@ -115,6 +134,7 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
         added: false,
         text: `${name} streams in the background without a handler. To play it together, Nucleus Co-op needs one.`,
         steps: `Nucleus Co-op opens on the PC’s screen. There, search its handler hub for ${name}, download the handler, then add the game. This panel moves on by itself.`,
+        runs: runsText(game),
       };
     case 'not_added':
       return {
@@ -122,6 +142,7 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
         added: true,
         text: `Nucleus Co-op has a handler for ${name}, but the game isn’t added yet.`,
         steps: `Nucleus Co-op opens on the PC’s screen. There, add ${name} once, choosing the .exe this app starts. This panel moves on by itself.`,
+        runs: runsText(game),
       };
     default:
       return { kind: 'checking' };

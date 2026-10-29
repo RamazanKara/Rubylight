@@ -209,6 +209,47 @@ test('a game Rubylight never starts says why in the host’s words', () => {
   assert.doesNotMatch(out, /streams in the background without a handler/);
 });
 
+test('the panel says how a background stream runs: as the signed-in user, or as administrator', () => {
+  const user = 'A background stream runs it as the signed-in user, without administrator rights, unless only an administrator may change its folder.';
+  const admin = 'A background stream runs it as administrator.';
+  // Rubylight's own handler, without a hub handler or with the game not added yet.
+  for (const fixture of [fixtures.handler, fixtures.added]) {
+    const name = fixture.games[0].status;
+    const runsUser = { ...fixture, games: [{ ...fixture.games[0], runs: 'user' }] };
+    assert.equal(playTogether(runsUser, 'portal').runs, user, name);
+    assert.ok(html(runsUser).includes(user), name);
+    const runsAdmin = { ...fixture, games: [{ ...fixture.games[0], runs: 'elevated' }] };
+    assert.equal(playTogether(runsAdmin, 'portal').runs, admin, name);
+    assert.ok(html(runsAdmin).includes(admin), name);
+    assert.doesNotMatch(html(runsAdmin), /without administrator rights/, name);
+    // An older host doesn't say: no line rather than a guess.
+    assert.equal(playTogether(fixture, 'portal').runs, null, name);
+    assert.doesNotMatch(html(fixture), /A background stream runs it/, name);
+  }
+  // A hub handler always runs elevated, whatever the host's runs says.
+  assert.equal(playTogether(fixtures.ready, 'portal').runs, admin);
+  assert.ok(html(fixtures.ready).includes(admin));
+  assert.equal(playTogether(status({}, { runs: null }), 'portal').runs, admin);
+});
+
+test('a game that needs administrator rights on an account Windows doesn’t elevate is refused before launch', () => {
+  // The host's own refusal (elevation::NO_ELEVATION), as a launch would answer it.
+  const refused = status({}, {
+    status: 'refused',
+    reason: 'The game needs administrator rights (its manifest asks for them), so Nucleus Co-op runs elevated, and Windows gives the account signed in on this PC no administrator rights to start it with (a standard account, or Windows\' Administrator protection)',
+    handler: null,
+    players: null,
+    runs: null,
+  });
+  const view = playTogether(refused, 'portal');
+  assert.equal(view.kind, 'anti_cheat');
+  assert.match(view.reason, /no administrator rights to start it with \(a standard account, or Windows' Administrator protection\)\.$/);
+  const out = html(refused);
+  assert.match(out, /No co-op or background streams for this game/);
+  assert.match(out, /Administrator protection/);
+  assert.doesNotMatch(out, /A background stream runs it|Open Nucleus Co-op/);
+});
+
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {
   const view = playTogether(fixtures.launcher, 'portal');
   assert.equal(view.text, 'Co-op finds a game by its .exe, and Counter-Strike 2 starts through a launcher. To play it together, set the command above to the game’s .exe.');

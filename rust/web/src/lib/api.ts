@@ -625,7 +625,8 @@ export interface CoopSession {
  * `ready` with a handler and the added game, `launcher` for an app a launcher's link starts (no handler can
  * match it), `taken` when another app already lists under its co-op entry's name, `anti_cheat` for a game that
  * ships anti-cheat (Rubylight never hooks it), `refused` for one Rubylight's own handler never starts (a game on
- * a network share, Windows' own program, a missing .exe), otherwise why not, in the host's words (`reason`).
+ * a network share, Windows' own program, a missing .exe, a game that needs administrator rights on an account
+ * Windows doesn't elevate), otherwise why not, in the host's words (`reason`).
  */
 export type CoopGameStatus =
   | 'unknown'
@@ -647,6 +648,12 @@ export interface CoopGame {
   handler: string | null;
   /** The most players a session seats when ready. */
   players: number | null;
+  /**
+   * How a background stream of it runs Nucleus Co-op with Rubylight's own handler: as the signed-in user
+   * or elevated. Null when the hub handler runs it (always elevated) or the game is checked at launch;
+   * older hosts leave it out.
+   */
+  runs?: 'user' | 'elevated' | null;
   /** The co-op entry's name in the library: `<name> (Co-op)`. */
   entry: string;
 }

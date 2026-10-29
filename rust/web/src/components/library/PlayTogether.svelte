@@ -145,6 +145,7 @@
         <p class="muted" role="status">Checking Nucleus Co-op’s handlers…</p>
       {:else if view.kind === 'handler'}
         <p class="lead">{view.text}</p>
+        {#if view.runs}<p class="muted note">{view.runs}</p>{/if}
         <div class="action">
           <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true} onclick={open}>Open Nucleus Co-op on this PC</Button>
           {#if status?.opened}{@render closeAction()}{/if}
@@ -162,6 +163,7 @@
           bind:checked={() => draft.flag('coop-entry'), (value) => draft.setFlag('coop-entry', value)}
         />
         <p class="muted note">{COOP_LIMITS}</p>
+        <p class="muted note">{view.runs}</p>
         {#if status?.opened}
           <div class="action">
             <span class="muted note">{OPEN_ON_PC}</span>

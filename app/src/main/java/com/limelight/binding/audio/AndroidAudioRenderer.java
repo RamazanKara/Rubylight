@@ -44,6 +44,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private long trackSamplesWritten;
     private boolean reserveStarvationShown;
     private int largestReserveFrames;
+    // The AAudio underruns the log last showed: each new one is logged, a stall too, which leaves the reserve as it is.
+    private int loggedUnderruns;
     private long lastBufferCheckMs;
     private int channelConfig, sampleRate, samplesPerFrame, channels;
     private boolean stopped;
@@ -138,6 +140,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
         lastBufferCheckMs = 0;
         reserveStarvationShown = false;
         largestReserveFrames = 0;
+        loggedUnderruns = 0;
         nativeRate = nativeOutputRate();
 
         switch (audioConfiguration.channelCount)
@@ -645,7 +648,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
             // on the Retroid the 37 to 56 ms ones took the reserve from 14 to 32 ms without covering the next.
             int reserve = reservePolicy.sample(stats[11], now);
             int device = bufferPolicy.sample(stats[5], now);
-            if (reserve != stats[2] || device != stats[4]) {
+            boolean resized = reserve != stats[2] || device != stats[4];
+            if (resized) {
                 if (reserve != stats[2]) {
                     int applied = nativeAudioReserve(nativeAudio, reserve);
                     reservePolicy.applied(applied);
@@ -653,6 +657,9 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 }
                 if (device != stats[4]) bufferPolicy.applied(nativeAudioBuffer(nativeAudio, device));
                 stats = nativeAudioStats(nativeAudio);
+            }
+            if (resized || stats[6] != loggedUnderruns) {
+                loggedUnderruns = stats[6];
                 LimeLog.info("AAudio reserve " + stats[2] + " frames, device buffer " + stats[4] + ", underruns " +
                         stats[6] + ", stalls " + stats[12] + ", xruns " + stats[5]);
             }

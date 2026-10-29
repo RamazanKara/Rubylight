@@ -1397,6 +1397,22 @@ impl Tracker {
         self.grace = grace;
         self
     }
+    /// The processes in `now` whose program path the next [`Self::update`]
+    /// may ask for: new ones that are not Steam's and not looked at yet. A
+    /// caller reads their paths before it takes whatever guards the tracker.
+    pub fn unchecked(&self, now: &[Process]) -> Vec<u32> {
+        now.iter()
+            .filter(|process| {
+                let name = process.name.to_ascii_lowercase();
+                self.tracked.get(&process.pid) != Some(&process.started)
+                    && self.baseline.get(&process.pid) != Some(&process.started)
+                    && !STEAM_PROCESSES.contains(&name.as_str())
+                    && !NOT_THE_GAME.contains(&name.as_str())
+                    && !self.checked.contains(&(process.pid, process.started))
+            })
+            .map(|process| process.pid)
+            .collect()
+    }
     /// Update from the current process list; `image` gives a process's full
     /// program path (asked once per new process).
     pub fn update(
@@ -2335,6 +2351,59 @@ mod tests {
         assert_eq!(tracker.update(&launched, images), Tracked::Running);
         assert_eq!(tracker.tracked.keys().copied().collect::<Vec<_>>(), [3, 4]);
         assert_eq!(tracker.update(&before, images), Tracked::Exited);
+    }
+    #[test]
+    fn the_paths_an_update_asks_for_are_the_ones_listed_before_it() {
+        let process = |pid, parent, started, name: &str| Process {
+            pid,
+            parent,
+            started,
+            name: name.into(),
+        };
+        let before = [
+            process(1, 0, 10, "explorer.exe"),
+            process(2, 1, 20, "steam.exe"),
+        ];
+        let mut tracker = Tracker::new(
+            &before,
+            "C:\\Games\\Portal",
+            std::time::Duration::from_secs(15),
+        );
+        let images = |pid| (pid == 3).then(|| "c:\\games\\portal\\portal.exe".to_owned());
+        let rounds = [
+            vec![
+                process(1, 0, 10, "explorer.exe"),
+                process(2, 1, 20, "steam.exe"),
+                process(3, 2, 30, "portal.exe"),
+                process(4, 3, 40, "crashhandler.exe"),
+                process(5, 1, 50, "other.exe"),
+                process(6, 1, 60, "chrome.exe"),
+            ],
+            // Looked at once: the same processes are not asked about again,
+            // while a new one and a reused id are.
+            vec![
+                process(1, 0, 10, "explorer.exe"),
+                process(3, 2, 30, "portal.exe"),
+                process(5, 1, 50, "other.exe"),
+                process(7, 1, 70, "notes.exe"),
+                process(4, 1, 80, "reused.exe"),
+            ],
+        ];
+        let mut listed = vec![];
+        for now in rounds {
+            let unchecked = tracker.unchecked(&now);
+            let mut asked = vec![];
+            tracker.update(&now, |pid| {
+                asked.push(pid);
+                images(pid)
+            });
+            assert!(
+                asked.iter().all(|pid| unchecked.contains(pid)),
+                "{asked:?} not in {unchecked:?}"
+            );
+            listed.push(unchecked);
+        }
+        assert_eq!(listed, [vec![3, 4, 5], vec![7, 4]]);
     }
     #[test]
     fn a_game_restarting_through_steam_and_a_browser_it_opens_do_not_end_or_extend_it() {

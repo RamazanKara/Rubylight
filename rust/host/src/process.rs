@@ -235,9 +235,12 @@ pub struct RunningApp {
     /// as a store client, started after the launch (pid → creation time).
     /// Quitting closes them like the app's own processes.
     foreign: BTreeMap<u32, u64>,
-    /// Fullscreen programs on that display the desktop started (pid,
-    /// creation time): never closed, and not looked at again.
-    desktop: std::collections::BTreeSet<(u32, u64)>,
+    /// Fullscreen programs on that display found not to be such a game (pid →
+    /// program), such as one the desktop started: never closed, and not
+    /// looked at again.
+    not_foreign: BTreeMap<u32, String>,
+    /// The process whose [`ForegroundCheck`] runs.
+    foreground_check: Option<u32>,
     /// The game's own process or window has been seen, so a launcher window is no longer
     /// standing in for it (`launcher_watch`).
     game_seen: bool,
@@ -358,7 +361,8 @@ impl RunningApp {
                     .is_some_and(|commands| !commands.is_empty()),
             launched_at: butterpollo_windows::process::now(),
             foreign: BTreeMap::new(),
-            desktop: Default::default(),
+            not_foreign: BTreeMap::new(),
+            foreground_check: None,
             game_seen: false,
             launcher_only: only_opens_launchers(app),
             exit_timeout: Duration::from_secs(
@@ -620,25 +624,34 @@ impl RunningApp {
             && self.steam.is_some()
             && self.steam_check.elapsed() >= Duration::from_secs(1)
     }
-    /// `processes` is the process list read for a [`Self::wants_processes`]
-    /// that said yes; without one, a Steam game is looked for next time.
-    pub fn exited(
-        &mut self,
-        processes: Option<&[butterpollo_core::steam::Process]>,
-    ) -> Result<bool> {
+    /// The processes in `processes` whose program path the Steam game's
+    /// tracker has not read yet, for [`ProcessScan::paths`].
+    pub fn unlooked(&self, processes: &[butterpollo_core::steam::Process]) -> Vec<u32> {
+        self.steam
+            .as_ref()
+            .map_or_else(Vec::new, |tracker| tracker.unchecked(processes))
+    }
+    /// A process list asked for by [`Self::wants_processes`] could not be
+    /// read: the next try is a second away, as after a look.
+    pub fn scan_failed(&mut self) {
+        self.steam_check = std::time::Instant::now();
+    }
+    /// `scan` is read for a [`Self::wants_processes`] that said yes; without
+    /// one, a Steam game is looked for next time.
+    pub fn exited(&mut self, scan: Option<&ProcessScan>) -> Result<bool> {
         if let Some(launch) = &self.playnite {
             return Ok(launch.finished());
         }
         if let Some(tracker) = &mut self.steam {
             use butterpollo_core::steam::Tracked;
-            let Some(processes) =
-                processes.filter(|_| self.steam_check.elapsed() >= Duration::from_secs(1))
+            let Some(scan) = scan.filter(|_| self.steam_check.elapsed() >= Duration::from_secs(1))
             else {
                 return Ok(false);
             };
             self.steam_check = std::time::Instant::now();
-            // Image paths are read only for processes started since the last look.
-            match tracker.update(processes, butterpollo_windows::process::image_path) {
+            // Every path the tracker asks for was read with the scan.
+            let path = |pid| scan.paths.get(&pid).cloned().flatten();
+            match tracker.update(&scan.processes, path) {
                 Tracked::Waiting => return Ok(false),
                 Tracked::Running => {
                     self.game_seen = true;
@@ -689,7 +702,11 @@ impl RunningApp {
     /// them. Such a game is remembered when the app launched a program, no
     /// Steam or Playnite tracking covers it, and its process started after the
     /// launch; quitting the plain desktop never closes what a user opened.
-    pub fn observe_foreground(&mut self, pid: u32, program: &str) {
+    ///
+    /// Whether a program is such a game takes the PC's process list: that is
+    /// left to the returned check, which runs off the stream's thread and
+    /// without `current_app` held, one at a time.
+    pub fn observe_foreground(&mut self, pid: u32, program: &str) -> Option<ForegroundCheck> {
         // The job's process list is read at most once, and not at all once the game was seen
         // and nothing else needs it: this runs on the stream's thread every second.
         let mut owned = None;
@@ -711,28 +728,44 @@ impl RunningApp {
             || self.foreign.contains_key(&pid)
             || self.foreign.len() >= 8
             || pid == std::process::id()
+            || self.foreground_check.is_some()
+            || self
+                .not_foreign
+                .get(&pid)
+                .is_some_and(|seen| seen == program)
             || owns(self)
         {
+            return None;
+        }
+        self.foreground_check = Some(pid);
+        Some(ForegroundCheck {
+            pid,
+            program: program.to_owned(),
+            launched_at: self.launched_at,
+            generation: self.generation.clone(),
+        })
+    }
+    /// Apply what `check` found, if this is still the app it was made for.
+    pub fn finish_foreground(&mut self, check: ForegroundCheck, verdict: ForegroundVerdict) {
+        if check.generation != self.generation {
             return;
         }
-        let created = butterpollo_windows::process::creation_time(pid);
-        if self.desktop.contains(&(pid, created))
-            || !foreign_game(program, created, self.launched_at)
-        {
+        self.foreground_check = None;
+        let ForegroundCheck { pid, program, .. } = check;
+        if !verdict.foreign {
+            self.not_foreign.insert(pid, program);
             return;
         }
-        // A program the user opened on the streamed display (its parent is
-        // explorer.exe) is theirs, not the app's. Remembered, so the process
-        // list is not read again every second on the stream's thread.
-        if butterpollo_windows::process::processes()
-            .is_ok_and(|processes| started_from_desktop(pid, &processes))
-        {
-            self.desktop.insert((pid, created));
+        if self.foreign.len() >= 8 || self.foreign.contains_key(&pid) {
             return;
         }
         tracing::info!(app = %self.name, program, pid, "game started by another program; quitting the app closes it");
-        self.foreign.insert(pid, created);
+        self.foreign.insert(pid, verdict.created);
         self.game_seen = true;
+    }
+    /// A check that could not be started: the program is looked at again.
+    pub fn abandon_foreground(&mut self) {
+        self.foreground_check = None;
     }
     /// Whether the game itself is up, and how long ago the app was launched, for an app that
     /// starts a program. A launcher window is a prompt only while the game is not up.
@@ -764,6 +797,18 @@ impl RunningApp {
             Duration::ZERO,
         ));
         self.steam_check = std::time::Instant::now() - Duration::from_secs(2);
+    }
+    /// As an app that started a program, without starting one.
+    #[cfg(test)]
+    pub fn mark_launching(&mut self) {
+        self.launches = true;
+    }
+    /// The processes the Steam game's tracker follows.
+    #[cfg(test)]
+    pub fn steam_tracked(&self) -> Vec<u32> {
+        self.steam.as_ref().map_or_else(Vec::new, |tracker| {
+            tracker.tracked.keys().copied().collect()
+        })
     }
     #[cfg(test)]
     pub fn mark_game_seen(&mut self) {
@@ -803,6 +848,46 @@ fn exit_action(
         ExitAction::Detached((code != 0).then_some(code))
     } else {
         ExitAction::Finished
+    }
+}
+/// The PC's processes read for a Steam game's tracker, with the program paths
+/// of the ones it has not looked at ([`RunningApp::unlooked`]), all read
+/// without `current_app` held.
+pub struct ProcessScan {
+    pub processes: Vec<butterpollo_core::steam::Process>,
+    pub paths: HashMap<u32, Option<String>>,
+}
+/// Whether a fullscreen program another program started is the app's game,
+/// from [`RunningApp::observe_foreground`]: run off the stream's thread
+/// without `current_app` held, then given to [`RunningApp::finish_foreground`].
+pub struct ForegroundCheck {
+    pub pid: u32,
+    program: String,
+    launched_at: u64,
+    generation: String,
+}
+pub struct ForegroundVerdict {
+    created: u64,
+    foreign: bool,
+}
+impl ForegroundCheck {
+    pub fn run(&self) -> ForegroundVerdict {
+        self.run_with(
+            butterpollo_windows::process::creation_time,
+            butterpollo_windows::process::processes,
+        )
+    }
+    fn run_with(
+        &self,
+        creation_time: impl FnOnce(u32) -> u64,
+        processes: impl FnOnce() -> Result<Vec<butterpollo_core::steam::Process>>,
+    ) -> ForegroundVerdict {
+        let created = creation_time(self.pid);
+        // A program the user opened on the streamed display (its parent is
+        // explorer.exe) is theirs, not the app's.
+        let foreign = foreign_game(&self.program, created, self.launched_at)
+            && !processes().is_ok_and(|processes| started_from_desktop(self.pid, &processes));
+        ForegroundVerdict { created, foreign }
     }
 }
 /// Whether a fullscreen `program`, created at `created`, is a game a store
@@ -1338,7 +1423,12 @@ mod tests {
         app.steam_check = std::time::Instant::now() - Duration::from_secs(2);
         assert!(app.wants_processes());
         let processes = butterpollo_windows::process::processes().unwrap();
-        assert!(!app.exited(Some(&processes)).unwrap());
+        let paths = app
+            .unlooked(&processes)
+            .into_iter()
+            .map(|pid| (pid, butterpollo_windows::process::image_path(pid)))
+            .collect();
+        assert!(!app.exited(Some(&ProcessScan { processes, paths })).unwrap());
         assert!(app.steam.is_some());
         // Looked once: the next look is a second away.
         assert!(!app.wants_processes());
@@ -1460,6 +1550,57 @@ mod tests {
         assert!(!started_from_desktop(30, &processes));
         assert!(!started_from_desktop(50, &processes));
         assert!(!started_from_desktop(99, &processes));
+    }
+    #[test]
+    fn a_store_started_game_is_found_by_a_check_handed_out_one_at_a_time() {
+        use butterpollo_core::steam::Process;
+        let mut app = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        app.launches = true;
+        let launched = app.launched_at;
+        let process = |pid, parent, started, name: &str| Process {
+            pid,
+            parent,
+            started,
+            name: name.into(),
+        };
+        let processes = || {
+            Ok(vec![
+                process(10, 1, 100, "explorer.exe"),
+                process(40, 1, 200, "EpicGamesLauncher.exe"),
+                process(20, 10, launched + 1, "player.exe"),
+                process(30, 40, launched + 2, "game.exe"),
+            ])
+        };
+        // The check is handed out, not run: the process list is not read here.
+        let check = app.observe_foreground(30, "game.exe").unwrap();
+        // One at a time: nothing more while it runs.
+        assert!(app.observe_foreground(20, "player.exe").is_none());
+        let verdict = check.run_with(|_| launched + 2, processes);
+        app.finish_foreground(check, verdict);
+        assert_eq!(app.foreign.get(&30), Some(&(launched + 2)));
+        assert_eq!(app.launch_progress().map(|(up, _)| up), Some(true));
+        assert!(app.observe_foreground(30, "game.exe").is_none());
+        // A program the user opened from the desktop is theirs, and not looked at again.
+        let check = app.observe_foreground(20, "player.exe").unwrap();
+        let verdict = check.run_with(|_| launched + 1, processes);
+        app.finish_foreground(check, verdict);
+        assert!(!app.foreign.contains_key(&20));
+        assert!(app.observe_foreground(20, "player.exe").is_none());
+        // Another program under that id is.
+        assert!(app.observe_foreground(20, "other.exe").is_some());
+    }
+    #[test]
+    fn a_foreground_check_for_a_replaced_app_is_not_applied_to_its_successor() {
+        let mut app = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        app.launches = true;
+        let check = app.observe_foreground(30, "game.exe").unwrap();
+        let verdict = check.run_with(|_| app.launched_at + 1, || Ok(vec![]));
+        let mut successor = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        successor.launches = true;
+        successor.foreground_check = Some(77);
+        successor.finish_foreground(check, verdict);
+        assert!(successor.foreign.is_empty());
+        assert_eq!(successor.foreground_check, Some(77));
     }
     #[test]
     fn device_commands_in_the_formats_apollo_writes_are_accepted() {

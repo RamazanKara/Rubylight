@@ -24,14 +24,20 @@ fn streaming(h: &Shared) -> bool {
         .any(|session| session.launch.role == Role::Stream && !session.stopping())
 }
 fn application_finished(h: &Shared) -> bool {
-    application_finished_with(h, butterpollo_windows::process::processes)
+    application_finished_with(
+        h,
+        butterpollo_windows::process::processes,
+        butterpollo_windows::process::image_path,
+    )
 }
-/// The process list a Steam game is looked for in is read with `current_app`
-/// released (the stream and input threads look at the app every second) and
-/// applied only to the app it was read for.
+/// The process list a Steam game is looked for in, and the program paths of
+/// its new processes, are read with `current_app` released (the stream and
+/// input threads look at the app every second) and applied only to the app
+/// they were read for.
 fn application_finished_with(
     h: &Shared,
     processes: impl FnOnce() -> anyhow::Result<Vec<butterpollo_core::steam::Process>>,
+    image_path: impl Fn(u32) -> Option<String>,
 ) -> bool {
     let connected = streaming(h);
     let scan_for = {
@@ -44,20 +50,47 @@ fn application_finished_with(
         }
         app.wants_processes().then(|| app.generation.clone())
     };
-    let processes = match scan_for.as_ref().map(|_| processes()) {
-        Some(Err(error)) => {
+    let scan = match scan_for
+        .as_deref()
+        .map(|generation| (generation, processes()))
+    {
+        Some((generation, Err(error))) => {
             tracing::warn!(%error, "application exit check failed");
+            // A failed read waits its second like a look, not retried every tick.
+            if let Some(app) = h
+                .current_app
+                .lock()
+                .unwrap()
+                .as_mut()
+                .filter(|app| app.generation == generation)
+            {
+                app.scan_failed();
+            }
             return false;
         }
-        Some(Ok(processes)) => Some(processes),
+        Some((generation, Ok(processes))) => {
+            let unlooked = h
+                .current_app
+                .lock()
+                .unwrap()
+                .as_ref()
+                .filter(|app| app.generation == generation)
+                .map(|app| app.unlooked(&processes))
+                .unwrap_or_default();
+            let paths = unlooked
+                .into_iter()
+                .map(|pid| (pid, image_path(pid)))
+                .collect();
+            Some(crate::process::ProcessScan { processes, paths })
+        }
         None => None,
     };
     h.current_app.lock().unwrap().as_mut().is_some_and(|app| {
         // An app that replaced the one scanned for is looked at with its own list next time.
-        let processes = processes
-            .as_deref()
+        let scan = scan
+            .as_ref()
             .filter(|_| scan_for.as_deref() == Some(app.generation.as_str()));
-        match app.exited(processes) {
+        match app.exited(scan) {
             Ok(finished) => finished,
             Err(error) => {
                 tracing::warn!(%error, "application exit check failed");
@@ -394,17 +427,58 @@ mod tests {
         let fixture = Fixture::new();
         *fixture.host.current_app.lock().unwrap() = Some(steam_app());
         let mut scanned = false;
-        assert!(!application_finished_with(&fixture.host, || {
-            // The stream and input threads look at the app while the list is read.
-            assert!(
-                fixture.host.try_current_app().is_some(),
-                "the process scan held the running app"
-            );
-            scanned = true;
-            Ok(Vec::new())
-        }));
+        let paths = std::cell::RefCell::new(vec![]);
+        assert!(!application_finished_with(
+            &fixture.host,
+            || {
+                // The stream and input threads look at the app while the list is read.
+                assert!(
+                    fixture.host.try_current_app().is_some(),
+                    "the process scan held the running app"
+                );
+                scanned = true;
+                Ok(vec![butterpollo_core::steam::Process {
+                    pid: 4242,
+                    parent: 1,
+                    started: 10,
+                    name: "game.exe".into(),
+                }])
+            },
+            |pid| {
+                // And while the new process's program path is.
+                assert!(
+                    fixture.host.try_current_app().is_some(),
+                    "the path read held the running app"
+                );
+                paths.borrow_mut().push(pid);
+                Some(r"C:\not-a-game\game.exe".into())
+            }
+        ));
         assert!(scanned);
-        // The list was applied: the next look is a second away.
+        assert_eq!(*paths.borrow(), [4242]);
+        // The list was applied: the game runs, and the next look is a second away.
+        let current = fixture.host.current_app.lock().unwrap();
+        let app = current.as_ref().unwrap();
+        assert!(!app.wants_processes());
+        assert_eq!(app.steam_tracked(), [4242]);
+    }
+
+    #[test]
+    fn a_failed_process_scan_is_tried_again_a_second_later_not_every_tick() {
+        let fixture = Fixture::new();
+        *fixture.host.current_app.lock().unwrap() = Some(steam_app());
+        let scans = std::cell::Cell::new(0);
+        for _ in 0..3 {
+            assert!(!application_finished_with(
+                &fixture.host,
+                || {
+                    scans.set(scans.get() + 1);
+                    anyhow::bail!("no process list")
+                },
+                |_| None
+            ));
+        }
+        assert_eq!(scans.get(), 1);
         let current = fixture.host.current_app.lock().unwrap();
         assert!(!current.as_ref().unwrap().wants_processes());
     }
@@ -413,10 +487,14 @@ mod tests {
     fn a_process_list_read_for_a_replaced_app_is_not_applied_to_its_successor() {
         let fixture = Fixture::new();
         *fixture.host.current_app.lock().unwrap() = Some(steam_app());
-        assert!(!application_finished_with(&fixture.host, || {
-            *fixture.host.current_app.lock().unwrap() = Some(steam_app());
-            Ok(Vec::new())
-        }));
+        assert!(!application_finished_with(
+            &fixture.host,
+            || {
+                *fixture.host.current_app.lock().unwrap() = Some(steam_app());
+                Ok(Vec::new())
+            },
+            |_| None
+        ));
         // The new app still gets its own first look.
         let current = fixture.host.current_app.lock().unwrap();
         assert!(current.as_ref().unwrap().wants_processes());

@@ -10,6 +10,12 @@ use serde_json::{Value, json};
 
 pub const TITLE: &str = "Rubylight";
 
+/// A player's ideal processor when none is set, as Nucleus 2.4.2 writes it
+/// (`PlayerInfo.IdealProcessor`). `GenericGameHandler.Play` parses any
+/// other value with `int.Parse`, so an empty one fails the start with a
+/// FormatException after the game's process is up.
+const IDEAL_PROCESSOR_ANY: &str = "*";
+
 /// One player of the profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Player {
@@ -59,7 +65,7 @@ pub fn build(players: &[Player], screens: &[Rect]) -> Value {
                 "IsSDL2": false,
                 "Guests": { "GUIDS": "" },
                 "Processor": {
-                    "IdealProcessor": "",
+                    "IdealProcessor": IDEAL_PROCESSOR_ANY,
                     "ProcessorAffinity": "",
                     "ProcessorPriorityClass": "Normal"
                 },
@@ -490,6 +496,30 @@ mod tests {
             "AudioInstances",
         ] {
             assert!(!p[key].is_null(), "{key}");
+        }
+    }
+
+    /// #59: Nucleus 2.4.2's `GenericGameHandler.Play` runs `int.Parse` on a
+    /// player's ideal processor unless it is "*", and an empty one failed
+    /// every start with a FormatException once the game's process was up.
+    #[test]
+    fn each_player_s_processor_settings_are_ones_nucleus_starts_with() {
+        let player = Player {
+            xinput: 0,
+            bounds: SCREEN,
+        };
+        let p = build(&[player, player], &[SCREEN]);
+        for data in p["Data"].as_array().unwrap() {
+            let processor = &data["Processor"];
+            let ideal = processor["IdealProcessor"].as_str().unwrap();
+            assert!(
+                ideal == "*" || ideal.parse::<i32>().is_ok(),
+                "Nucleus can't parse IdealProcessor {ideal:?}"
+            );
+            assert_eq!(ideal, "*");
+            // No affinity and Normal priority: Nucleus keeps its own.
+            assert_eq!(processor["ProcessorAffinity"], "");
+            assert_eq!(processor["ProcessorPriorityClass"], "Normal");
         }
     }
 

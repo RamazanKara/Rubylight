@@ -2,6 +2,8 @@
 
 [Documentation](index.md) · [All defaults](settings.md)
 
+This page describes the Android app. [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux) has its own section at the end. On-screen controls and touch controls are part of the Android app only; the desktop client is driven by keyboard, mouse, touchpad and controllers.
+
 If your host has per-device permissions, it must grant the relevant input permission to this device. If video works but controls do not, check [host permissions](pairing.md#per-device-permissions) first.
 
 ## The stream menu
@@ -59,7 +61,7 @@ For direct DualSense or DualSense Edge USB support:
 
 The toggle is off by default. Denying USB access keeps the ordinary Android input path; unplug and reconnect to retry. The host must support the requested feedback.
 
-Enable **USB DualSense audio and haptics**, then reconnect the controller and stream, for native waveform vibration from hosts that support it (e.g. Rubylight or Vibepollo). Hosts that also support controller audio (currently Rubylight) carry its speaker, headset and microphone audio. Bluetooth waveform output is unavailable through Android’s standard controller API. See [audio and haptics setup](dualsense-haptics.md).
+Enable **USB DualSense audio and haptics**, then reconnect the controller and stream, for native waveform vibration from hosts that support it, such as Rubylight or Vibepollo. Hosts that also support controller audio (currently Rubylight) carry its speaker, headset and microphone audio. Bluetooth waveform output is unavailable through Android’s standard controller API. See [audio and haptics setup](dualsense-haptics.md).
 
 For gyro aiming and radial menus, use the game’s **Steam Input** controller layout on the host and enable controller motion in Nightjar. The client forwards motion and touchpad input; Steam supplies the aiming behavior and menu overlay. Games using native DualSense effects may need Steam Input disabled for that game.
 
@@ -295,7 +297,7 @@ For a dock, USB-C/HDMI monitor or Android presentation-capable wireless display,
 
 Select **This device** to return. Removing the external display triggers the same client reconnect back to the phone/tablet. A display that disappears before launch falls back to the device. Output selection is session-local and is preserved through reconnects, not saved as a global preference. PiP auto-entry is disabled while presenting externally. Locking/leaving the activity follows the normal stream lifecycle; no background input or unattended reconnect is introduced.
 
-Android 0.4.9 tracks changes to the selected video display's maximum refresh rate. On hosts (currently Rubylight) and decoders supporting [in-place reconfiguration](recovery-and-quality.md#choosing-automatic-quality), streams that follow the display rate can update their FPS target and automatic-quality ceiling without reconnecting, even when the phone's refresh rate is unchanged. Returning to **This device** restores phone/tablet display tracking, including native-resolution changes. Received and rendered FPS in the overlay remain the measurements of delivered video.
+Nightjar tracks changes to the selected video display's maximum refresh rate. On hosts (Rubylight) and decoders supporting [in-place reconfiguration](recovery-and-quality.md#choosing-automatic-quality), streams that follow the display rate can update their FPS target and automatic-quality ceiling without reconnecting, even when the phone's refresh rate is unchanged. Returning to **This device** restores phone/tablet display tracking, including native-resolution changes. Received and rendered FPS in the overlay remain the measurements of delivered video.
 
 For external MediaCodec video, **Balanced** pacing uses the lowest-latency path for this session, with a notice when it changes. Android's public Choreographer callbacks follow the internal display, so using them to pace an external surface can hold video to the phone's cadence. The saved pacing preference is unchanged; other pacing modes keep their behavior. PyroWave keeps its own Vulkan presentation. External output does not send phase-lock timing derived from the phone display, and this fallback does not claim a measured FPS or VRR result.
 
@@ -318,7 +320,7 @@ The microphone's effects sit under **More Audio settings**:
 | Automatic gain | Off | Levels a voice that swings between quiet and loud. |
 | Microphone gain | 100 % | 25 to 400 %, applied before sending. Loud peaks are rounded off instead of crackling. |
 
-A device without one of these effects, or one that refuses to turn it on, says so in the stream and the setting reads "Not on this device". When the microphone stops during a stream, for example because another app took it, Nightjar says so and mutes it; unmuting tries it again. Remote Monitor sessions never open the microphone. Nightjar for Windows and Linux sends the microphone without these effects.
+A device without one of these effects, or one that refuses to turn it on, says so in the stream and the setting reads "Not on this device". When the microphone stops during a stream, for example because another app took it, Nightjar says so and mutes it; unmuting tries it again. Remote Monitor sessions never open the microphone. Nightjar for Windows and Linux has echo cancellation (Automatic, On or Off) and none of the other effects.
 
 ## Input-only on any PC
 
@@ -375,3 +377,25 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Stream menu → Overlay (top row) | Show or hide the overlay. **Display → Overlay and diagnostics** chooses Compact, Statistics or Debug. |
 
 Nightjar can also pin app shortcuts to the Android launcher. For external game libraries and intent-based shortcuts, see [frontends](FRONTENDS.md).
+
+## Nightjar for Windows and Linux
+
+The desktop client takes a keyboard, a mouse, a touchpad and controllers. It has no on-screen or touch controls; those are Android-only by design. Its settings are listed in the [desktop settings reference](settings.md#nightjar-for-windows-and-linux).
+
+| Input | What it does |
+| --- | --- |
+| Ctrl+Alt+Shift+Tab, or Start+Back on a controller | Open or close the stream controls. With **Back opens stream controls** on, the controller's Back button opens them alone. |
+| Ctrl+Alt+Shift+Q, or the controller quit combo | Leave the stream. The combo is Start+Select+LB+RB by default, and **Controller quit combo** offers five others. |
+| Ctrl+Alt+Shift+Z | Release or capture input. |
+| Ctrl+Alt+Shift+S | Show or hide the performance overlay. |
+| Ctrl+Alt+Shift+M | Switch between **Captured** and **Desktop pointer** mouse modes. |
+| Ctrl+Alt+Shift+X | Toggle fullscreen. |
+| Ctrl+Alt+Shift+D | Minimize the window. |
+| F12 | Save a screenshot of the window to the `screenshots` folder in the configuration folder. |
+| Hold Start for 750 ms on a controller | Toggle controller mouse mode: the stick moves the pointer, A and B click and the D-pad scrolls. |
+
+- **Keyboard:** with **Send system keys** on, Alt+Tab, the Windows key and similar go to the PC while input is captured. **Right Alt as Windows key** helps on keyboards without one. Saved key chords are sent from the stream controls, and import and export in the Android app's shortcut format.
+- **Mouse:** **Captured** sends relative motion for games; **Desktop pointer** sends absolute positions for desktop work and, with **Local cursor** on, draws the PC's cursor shape on this computer from hosts that send it. High-resolution scrolling and the mouse's Back and Forward buttons are sent.
+- **Touchpad and pen:** **Touchpad gestures on the PC** sends the touchpad's fingers to a PC that takes native touch. Native pen input is sent where the host supports it.
+- **Controllers:** every connected controller becomes a controller on the PC, with motion, rumble and trigger rumble. DualSense over USB adds waveform haptics and its speaker, headset and microphone with **DualSense USB audio**. **Controller touchpad as mouse** turns a DualSense or similar touchpad into a mouse.
+- **Microphone:** **Settings → Audio → Microphone** sends the default microphone to a host that accepts one, with echo cancellation.

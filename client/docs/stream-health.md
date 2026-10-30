@@ -6,7 +6,7 @@ Repeated observations can identify network loss/variation, slow decode output, h
 
 Collect a few seconds of gameplay, then open the report just after a stutter. Sampling continues while navigating menus and pauses during backgrounding and host actions. Individual stage counters must be no more than two seconds old before entering the history. Old history expires, and advice is withheld when recent video is unavailable.
 
-For repeated network evidence, a host that supports runtime bitrate changes (currently Rubylight) can offer **Try a lower bitrate**. It reduces the current encoder bitrate by 20%, with a 500 Kbps floor, for this session. Compare similar gameplay for another 30 seconds, then return and choose **Undo bitrate trial**. Device controls bitrate, automatic quality and manual changes take ownership of the settings; the doctor does not compete with them. Other hosts still get observations and manual advice when their counters are available; unsupported runtime changes are not offered.
+For repeated network evidence, a host that supports runtime bitrate changes (Rubylight) can offer **Try a lower bitrate**. It reduces the current encoder bitrate by 20%, with a 500 Kbps floor, for this session. Compare similar gameplay for another 30 seconds, then return and choose **Undo bitrate trial**. Device controls bitrate, automatic quality and manual changes take ownership of the settings; the doctor does not compete with them. Other hosts still get observations and manual advice when their counters are available; unsupported runtime changes are not offered.
 
 ## Wi-Fi facts
 

@@ -2,7 +2,7 @@
 
 [Controls](controls.md#dualsense-and-usb) · [Settings](settings.md)
 
-Nightjar implements the waveform extension used by [Nonary's Vibepollo nightly](https://github.com/Nonary/Vibepollo/releases/tag/2.0.1-daily.d20261012.2). A USB-connected DualSense or DualSense Edge can receive the game's distinct left/right actuator samples alongside input, adaptive triggers and lights. On hosts that support it (currently Rubylight), controller speaker, headset and microphone audio are carried too. Older releases and Vibepollo's waveform-only extension do not provide these additional audio paths.
+Nightjar implements the DualSense waveform extension that [Vibepollo](https://github.com/Nonary/Vibepollo) and Rubylight hosts send. A USB-connected DualSense or DualSense Edge can receive the game's distinct left/right actuator samples alongside input, adaptive triggers and lights. On hosts that support it (Rubylight), controller speaker, headset and microphone audio are carried too. Older releases and Vibepollo's waveform-only extension do not provide these additional audio paths.
 
 ## Setup
 
@@ -24,14 +24,14 @@ The Android log reports `DualSense USB waveform backend ready` only after a sile
 
 After reproducing the problem, use **Settings → App → Report a problem** without closing the app. Include the phone and Android version, controller model, USB connection, exact host version and game. On Vibepollo, also check that the optional **DualSense USB audio and haptics** installer component is installed and the host presents a DualSense to the game. A client setting alone cannot enable the host's audio endpoint or a game's native effects.
 
-Android 0.4.9 includes USB HID readiness, the waveform initialization stage, queued controller capabilities and the first received waveform/adaptive-trigger packet in the report. These distinguish USB setup failures from feedback that never arrives from the host. A successful queue result confirms local submission, not that the game produced effects. Version 0.4.8 lacks these additional diagnostics and announcement retries.
+The report includes USB HID readiness, the waveform initialization stage, queued controller capabilities and the first received waveform/adaptive-trigger packet in the report. These distinguish USB setup failures from feedback that never arrives from the host. A successful queue result confirms local submission, not that the game produced effects.
 
-In 0.4.9, a pending USB controller's input waits for its type and capabilities to be queued; rejected startup announcements are retried. Opening the stream menu or unplugging that controller does not bypass this ordering. Buttons already held by an existing controller or on-screen controls can still release while the new controller's announcement is pending.
+A pending USB controller's input waits for its type and capabilities to be queued; rejected startup announcements are retried. Opening the stream menu or unplugging that controller does not bypass this ordering. Buttons already held by an existing controller or on-screen controls can still release while the new controller's announcement is pending.
 
 ## Limitations
 
 - **USB only.** Android's standard Bluetooth controller path does not expose raw waveform output. This option does not convert the samples into phone vibration or ordinary rumble.
-- **Additional audio needs a host that supports it (currently Rubylight).** With a waveform-only host, use another audio device for sound and microphone input. Disable this option and reconnect the controller to restore Android's normal USB audio ownership.
+- **Additional audio needs a host that supports it (Rubylight).** With a waveform-only host, use another audio device for sound and microphone input. Disable this option and reconnect the controller to restore Android's normal USB audio ownership.
 - **Host and game support are required.** Advertising the extension does not generate effects on a host or in a game that does not send waveform samples.
 - **Device compatibility.** The USB backend checks the controller's descriptors and transfer support. Unsupported USB configurations retain ordinary feedback. Automated checks cover packets and sample handling; physical sound, haptics and headset switching still need validation on the target devices.
 

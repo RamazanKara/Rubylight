@@ -2,13 +2,13 @@
 
 [Documentation](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md)
 
-The Windows host, service, launcher and installer are built with Rust. Use [rust/build.ps1](../rust/build.ps1) for the complete build and package; [.github/workflows/rust-windows.yml](../.github/workflows/rust-windows.yml) records the CI environment. The [Rust developer guide](../rust/README.md) describes the workspace and implementation.
+The Windows host, service, launcher and installer are written in Rust. [rust/build.ps1](../rust/build.ps1) performs the complete build and packaging; [.github/workflows/rust-windows.yml](../.github/workflows/rust-windows.yml) defines the CI environment. The [Rust developer guide](../rust/README.md) describes the workspace and its crates.
 
-To install a release and start streaming, use [Getting started](getting-started.md). The [archived C++ build guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/building-cpp.md) covers the earlier CMake host, whose sources live at the 2.0.0-rc.23 tag.
+To install a release instead, see [Getting started](getting-started.md). The [archived C++ build guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/building-cpp.md) covers the earlier CMake host, whose sources live at the 2.0.0-rc.23 tag.
 
 ## Windows prerequisites
 
-Use Windows x64 with PowerShell, Git, Rustup and Node.js 22. In an MSYS2 UCRT64 shell, install these packages, matching CI:
+Windows x64 with PowerShell, Git, Rustup, Node.js 22, MSYS2, and Visual Studio with the C++ workload and the Windows Driver Kit (for the display driver). In an MSYS2 UCRT64 shell, install these packages, matching CI:
 
 ```sh
 pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-nasm make
@@ -16,11 +16,12 @@ pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang min
 
 The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target.
 
-Clone the repository and install the pinned toolchains in PowerShell:
+Clone the repository with its submodules and install the pinned toolchains in PowerShell:
 
 ```powershell
 git clone https://github.com/RamazanKara/Rubylight.git
 cd Rubylight
+git submodule update --init --recursive
 
 rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
 rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gnu
@@ -36,7 +37,7 @@ Run the full build from the repository root in a **Visual Studio x64 developer P
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-The script builds the pinned PyroWave SDK and FFmpeg 8.1.2's AC3 and E-AC3 codecs (LGPL, `rust/tools/build_ffmpeg.sh`, kept when the dependency folder already holds the same build), and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave and FFmpeg build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
+The script builds the pinned PyroWave SDK and FFmpeg 8.1.2's AC3 and E-AC3 codecs (LGPL, `rust/tools/build_ffmpeg.sh`, kept when the dependency folder already holds the same build), and extracts the signed gamepad driver package, `nefconc.exe` and the Playnite plugin from the pinned Vibepollo 2.0.0 release. Rubylight's own display driver is built from source in this repository. Archive hashes, the PyroWave and FFmpeg build identities and the gamepad driver's signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
 
 The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and the display driver. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
 
@@ -49,7 +50,7 @@ Default outputs are under `%LOCALAPPDATA%\ButterpolloRust\target`:
 | `butterpollo-rust-release.zip` | ZIP of the portable package. |
 | `butterpollo-setup-<version>.exe` | Installer carrying that package; version comes from the workspace manifest. |
 
-SDK downloads use `%LOCALAPPDATA%\ButterpolloRust\sdk`. Choose a separate build location with `-TargetDirectory` and a dependency cache with `-Dependencies`.
+CI publishes the installer and the archive as `rubylight-setup-<version>.exe` and `rubylight-<version>-windows-x64.zip`. SDK downloads use `%LOCALAPPDATA%\ButterpolloRust\sdk`. Choose a separate build location with `-TargetDirectory` and a dependency cache with `-Dependencies`.
 
 Useful options:
 
@@ -58,7 +59,7 @@ Useful options:
 | `-DebugBuild` | Build debug executables for development. Use release builds for streaming measurements. |
 | `-PyrowaveRoot` | Reuse an existing PyroWave SDK. Its identity must match the pinned revision and patches. |
 | `-FfmpegRoot` | Reuse an existing `rust/tools/build_ffmpeg.sh` build. Its `build-info.txt` must name the pinned source and the LGPL. |
-| `-DriverRoot <path>` | Supply the signed release's `drivers` folder for packaging. |
+| `-DriverRoot <path>` | Take the signed gamepad driver package from a Vibepollo installation's `drivers` folder instead of the pinned release. |
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
 | `-Stage Test\|Lint\|Build` | Run one stage: tests, Clippy, or the release build (with `-Package`). CI runs the three as parallel jobs; the default `All` runs them in order. |
 

@@ -8,9 +8,10 @@
 #   nightjar-desktop-<version>-linux-x86_64.deb and .rpm (nfpm): the archive in /opt/nightjar,
 #     /usr/bin/nightjar, and the archive's share/ (the desktop entry, the icon in the hicolor sizes
 #     and the AppStream data) in /usr/share;
-#   nightjar-desktop-<version>-linux-x86_64.AppImage (appimagetool with the type 2 runtime given,
-#     so nothing is fetched while it builds): the archive plus libopus, the one library of
-#     LINUX-RUNTIME.txt that is safe to carry;
+#   nightjar-desktop-<version>-x86_64.AppImage (appimagetool with the type 2 runtime given, so
+#     nothing is fetched while it builds; no "linux" in the name, as the AppImage catalog asks):
+#     the archive plus libopus, and libva, libva-drm and libdrm as fallbacks AppRun uses only
+#     where the system has none;
 #   PKGBUILD and io.github.ramazankara.nightjar.yml: the AUR and Flatpak recipes of this
 #     folder with the version and the archive's SHA-256 filled in. They are not published.
 #
@@ -202,24 +203,32 @@ EOF
 "$nfpm" package --config "$work/nfpm.yaml" --packager deb --target "$out/$name.deb"
 "$nfpm" package --config "$work/nfpm.yaml" --packager rpm --target "$out/$name.rpm"
 
-# AppImage: the archive as the AppDir, run through the executable itself (AppRun links to it, so
-# its run path $ORIGIN/lib and the PyroWave SDK beside it resolve inside the mounted image).
+# AppImage: the archive as the AppDir, started by AppRun (the executable's run path $ORIGIN/lib
+# and the PyroWave SDK beside it resolve inside the mounted image).
 appdir=$work/AppDir
+appimage=$out/nightjar-desktop-$version-x86_64.AppImage
 cp -a "$stage" "$appdir"
-ln -s nightjar "$appdir/AppRun"
+install -m 755 "$here/AppRun" "$appdir/AppRun"
 cp "$share/applications/$app_id.desktop" "$appdir/"
 cp "$share/icons/hicolor/256x256/apps/$app_id.png" "$appdir/"
 ln -s "$app_id.png" "$appdir/.DirIcon"
 mkdir "$appdir/usr"
 cp -r "$share" "$appdir/usr/share"
+# An installed library's path, by soname.
+lib_path() { ldconfig -p | sed -n "s|^[[:space:]]*${1//./\\.} (libc6,x86-64) => ||p" | head -n1; }
 # libopus keeps one soname everywhere and has no plugins: carrying it lets the AppImage start
-# where it is not installed. libva stays the system's (its drivers are the distribution's).
-opus=$(ldconfig -p | sed -n 's|^[[:space:]]*libopus\.so\.0 (libc6,x86-64) => ||p' | head -n1)
-[[ -n $opus ]] || { echo "error: libopus.so.0 is not installed on this machine" >&2; exit 1; }
-cp -L "$opus" "$appdir/lib/libopus.so.0"
-ARCH=x86_64 "$appimagetool" --no-appstream --runtime-file "$runtime" "$appdir" "$out/$name.AppImage" >"$work/appimagetool.log" 2>&1 ||
+# where it is not installed. libva and libdrm go to lib/fallback, which AppRun puts on the library
+# path only where the system has no copy: the system's libva finds its VA-API drivers, and Mesa
+# needs the system's libdrm.
+for lib in libopus.so.0:lib libva.so.2:lib/fallback/libva libva-drm.so.2:lib/fallback/libva libdrm.so.2:lib/fallback/libdrm; do
+	path=$(lib_path "${lib%%:*}")
+	[[ -n $path ]] || { echo "error: ${lib%%:*} is not installed on this machine" >&2; exit 1; }
+	mkdir -p "$appdir/${lib#*:}"
+	cp -L "$path" "$appdir/${lib#*:}/${lib%%:*}"
+done
+ARCH=x86_64 "$appimagetool" --no-appstream --runtime-file "$runtime" "$appdir" "$appimage" >"$work/appimagetool.log" 2>&1 ||
 	{ cat "$work/appimagetool.log" >&2; exit 1; }
-chmod +x "$out/$name.AppImage"
+chmod +x "$appimage"
 
 # The AUR and Flatpak recipes with this archive's version and hash.
 sha=$(sha256sum "$archive" | cut -d' ' -f1)
@@ -229,6 +238,6 @@ sed -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha/g" "$here/flatpak/$app_id.ym
 
 echo "deb depends: ${deb_depends[*]}"
 echo "rpm depends: ${rpm_depends[*]}"
-for file in "$out/$name.deb" "$out/$name.rpm" "$out/$name.AppImage"; do
+for file in "$out/$name.deb" "$out/$name.rpm" "$appimage"; do
 	echo "$file: $(du -h "$file" | cut -f1)"
 done

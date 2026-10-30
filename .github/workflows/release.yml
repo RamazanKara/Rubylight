@@ -226,11 +226,13 @@ jobs:
             "dist/nightjar-desktop-$VERSION-linux-x86_64.tar.gz"
       # Each package installs, answers --version (no window needed) and uninstalls without
       # leftovers: the .deb on this Ubuntu runner, the .rpm in a clean Fedora. The AppImage runs in
-      # a Fedora of its own with only libva added: it brings libopus itself, and removing the .rpm
-      # would also have removed the libraries the .rpm pulled in. --version returns before SDL
-      # starts, so the .deb and the .rpm must also name the libraries SDL cannot start without, and
-      # each opens its launcher window under Xvfb (check-start.sh) in a clean container holding
-      # only the package and its hard dependencies (no recommends, no weak dependencies).
+      # a Fedora of its own without libva and libdrm, as the AppImage catalog tests it (it carries
+      # libopus, and libva and libdrm as fallbacks), and opens its window there with only ALSA and
+      # X11 added; removing the .rpm would also have removed the libraries the .rpm pulled in.
+      # --version returns before SDL starts, so the .deb and the .rpm must also name the libraries
+      # SDL cannot start without, and each opens its launcher window under Xvfb (check-start.sh) in
+      # a clean container holding only the package and its hard dependencies (no recommends, no
+      # weak dependencies).
       - name: Install, start and remove the packages
         run: |
           name="nightjar-desktop-$VERSION-linux-x86_64"
@@ -252,7 +254,8 @@ jobs:
           test -s /usr/share/icons/hicolor/256x256/apps/io.github.ramazankara.nightjar.png || { echo "::error::the .deb has no icon"; exit 1; }
           sudo apt-get remove -y -qq nightjar
           if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "::error::removing the .deb left files behind"; exit 1; fi
-          APPIMAGE_EXTRACT_AND_RUN=1 "./dist/$name.AppImage" --version | grep -qx "Nightjar $VERSION" || { echo "::error::the AppImage does not start"; exit 1; }
+          appimage="nightjar-desktop-$VERSION-x86_64.AppImage"
+          APPIMAGE_EXTRACT_AND_RUN=1 "./dist/$appimage" --version | grep -qx "Nightjar $VERSION" || { echo "::error::the AppImage does not start"; exit 1; }
           docker run --rm -e VERSION -e name="$name" -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux/check-start.sh:/check-start.sh:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
             requires=$(rpm -qp --requires "/dist/$name.rpm")
             for lib in "libasound.so.2()(64bit)" "libX11.so.6()(64bit)" "libXext.so.6()(64bit)"; do
@@ -266,9 +269,13 @@ jobs:
             dnf remove -y -q nightjar
             if test -e /opt/nightjar || test -e /usr/bin/nightjar; then echo "removing the .rpm left files behind"; exit 1; fi
             echo "fedora: .rpm passed"'
-          docker run --rm -e VERSION -e name="$name" -v "$PWD/dist:/dist:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
-            dnf install -y -q libva
-            cd /tmp && APPIMAGE_EXTRACT_AND_RUN=1 "/dist/$name.AppImage" --version | grep -qx "Nightjar $VERSION"
+          docker run --rm -e VERSION -e appimage="$appimage" -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux/check-start.sh:/check-start.sh:ro" "$FEDORA_IMAGE" bash -euo pipefail -c '
+            if rpm -q libva libdrm; then echo "the Fedora image already has libva or libdrm"; exit 1; fi
+            export APPIMAGE_EXTRACT_AND_RUN=1
+            cd /tmp && "/dist/$appimage" --version | grep -qx "Nightjar $VERSION"
+            dnf install -y -q --setopt=install_weak_deps=False alsa-lib libX11 libXext xorg-x11-server-Xvfb xwininfo xprop mesa-dri-drivers mesa-libEGL mesa-libGL
+            if rpm -q libva; then echo "the window check would not use the fallback libva"; exit 1; fi
+            bash /check-start.sh "/dist/$appimage"
             echo "fedora: AppImage passed"'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -569,7 +576,7 @@ jobs:
           merge-multiple: true
       - name: Check the desktop packages
         run: |
-          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64".{tar.gz,deb,rpm,AppImage} \
+          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64".{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64.AppImage" \
               "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
           done

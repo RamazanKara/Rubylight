@@ -19,15 +19,16 @@ Every release carries these files; the installer and the packages hold the same 
 | `nightjar-desktop-<version>-windows-x86_64.zip` | Unzip it anywhere and run `nightjar.exe`. | Delete the folder. |
 | `nightjar-desktop-<version>-linux-x86_64.deb` | `sudo apt install ./nightjar-desktop-<version>-linux-x86_64.deb` (Debian 13, Ubuntu 24.04 and later) | `sudo apt remove nightjar` |
 | `nightjar-desktop-<version>-linux-x86_64.rpm` | `sudo dnf install ./nightjar-desktop-<version>-linux-x86_64.rpm` (Fedora 40 and later) | `sudo dnf remove nightjar` |
-| `nightjar-desktop-<version>-linux-x86_64.AppImage` | `chmod +x` it and run it; nothing is installed. Without FUSE, run it with `--appimage-extract-and-run`. | Delete the file. |
+| `nightjar-desktop-<version>-x86_64.AppImage` | `chmod +x` it and run it; nothing is installed. Without FUSE, run it with `--appimage-extract-and-run`. | Delete the file. |
 | `nightjar-desktop-<version>-linux-x86_64.tar.gz` | Unpack it and run `./nightjar`. `share/` holds the desktop entry and icons, laid out as under `/usr/share`. | Delete the folder. |
 
 The .deb and the .rpm put the program in `/opt/nightjar`, `nightjar` in `/usr/bin`, the desktop entry
 `io.github.ramazankara.nightjar.desktop`, the icon in the hicolor sizes and the AppStream data in `/usr/share`. They
 need glibc 2.39 or newer, libopus, libva, libudev, and the ALSA, libX11 and libXext libraries SDL3 cannot start
 without (pulled in as dependencies), and recommend the other libraries SDL3 and PyroWave open at run time (Wayland,
-PulseAudio, PipeWire, Vulkan, the VA-API driver). The AppImage carries libopus too; libva and its drivers stay the
-system's, and so do ALSA and X11, which every desktop has.
+PulseAudio, PipeWire, Vulkan, the VA-API driver). The AppImage carries libopus too, and libva, libva-drm and libdrm
+as fallbacks: its `AppRun` uses them only where the system has none, so an installed libva still finds the system's
+VA-API drivers (without one, decoding is in software). ALSA and X11 stay the system's, which every desktop has.
 
 Your settings, paired PCs, controller layouts, app lists, cover art, logs, screenshots and saved statistics live in
 `%APPDATA%\Nightjar\config` (Windows) or `~/.config/nightjar` (Linux), outside every install folder: no update
@@ -122,11 +123,11 @@ Both are made from the finished archives, so they carry exactly their files (`pa
   UCRT64 binutils bring).
 
 The release workflow pins nfpm, appimagetool, the AppImage runtime and Inno Setup by version and SHA-256, installs
-the .deb on its Ubuntu 24.04 runner, the .rpm in a clean Fedora container and the AppImage in another one with only
-libva added, and runs the installer's
-`-Smoke` on its Windows runner. `--version` returns before SDL starts, so it also checks that the .deb and the .rpm
-name the libraries SDL cannot start without and, with `packaging/linux/check-start.sh`, that each opens its launcher
-window under Xvfb in a clean container holding only the package and its hard dependencies.
+the .deb on its Ubuntu 24.04 runner, the .rpm in a clean Fedora container and the AppImage in another one without
+libva and libdrm (as the AppImage catalog tests it), and runs the installer's `-Smoke` on its Windows runner.
+`--version` returns before SDL starts, so it also checks that the .deb and the .rpm name the libraries SDL cannot
+start without and, with `packaging/linux/check-start.sh`, that each package and the AppImage open the launcher window
+under Xvfb in a clean container.
 
 ### Linux
 

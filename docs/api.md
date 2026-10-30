@@ -2,11 +2,11 @@
 
 [Documentation](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md)
 
-Rubylight's Windows Rust host serves its administration API at `https://localhost:47990/api`. The console uses the same API. Changing the base `port` setting moves the console to `port + 1`.
+The host serves its administration API at `https://localhost:47990/api`; the web console is built on the same API. Changing the base `port` setting moves the console to `port + 1`.
 
-This guide covers the Rust implementation: routing, authentication and token scopes in [web.rs](../rust/host/src/web.rs), and the handlers for each area in [web/](../rust/host/src/web). Moonlight pairing, app discovery and streaming use separate protocol endpoints in [nvhttp.rs](../rust/host/src/nvhttp.rs). The [historical C++ API guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/api-cpp.md) is kept at the 2.0.0-rc.23 tag as a migration reference.
+Routing, authentication and token scopes are implemented in [web.rs](../rust/host/src/web.rs), and the handlers for each area in [web/](../rust/host/src/web). Moonlight pairing, app discovery and streaming use separate protocol endpoints in [nvhttp.rs](../rust/host/src/nvhttp.rs). The [C++ host's API guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/api-cpp.md) is kept at the 2.0.0-rc.23 tag as a migration reference.
 
-Paired clients use a separate API on the streaming HTTPS port: [Native API v1](native-api.md) (`/api/native/v1`, Rubylight 3.0 and later) covers the game library, session state and actions, and Radeon settings. It authenticates with the client certificate it paired with, so none of the methods below apply to it.
+Paired clients use a separate API on the streaming HTTPS port: [Native API v1](native-api.md) (`/api/native/v1`, Rubylight 3.0 and later) covers the game library, session state and actions, and Radeon settings. It authenticates with the client certificate the device paired with, so none of the methods below apply to it; [Native API v1 (paired clients)](#native-api-v1-paired-clients) summarises it.
 
 For client overlay telemetry, see [Hardware metrics](hardware-metrics.md). Its `/api/hardware-metrics` endpoint uses the streaming HTTPS port and the paired client's TLS certificate; the administration authentication methods below do not apply to it.
 
@@ -26,7 +26,7 @@ The public API routes are `/api/auth/status`, `/api/auth/login`, `/api/auth/refr
 
 ### Scoped tokens
 
-Use the console's API token controls, or these administrator-authenticated routes. **Select all permissions** selects every available path and method, including paths hidden by search. You can clear the selection or deselect individual permissions before creating the token. The host accepts its full advertised catalog; tokens are no longer limited to 64 paths.
+Use the console's API token controls, or these administrator-authenticated routes. **Select all permissions** selects every available path and method, including paths hidden by search. You can clear the selection or deselect individual permissions before creating the token. A token may hold any number of the advertised paths.
 
 | Method and path | Result |
 | --- | --- |
@@ -95,7 +95,7 @@ The routes below are implemented by the Rust host. JSON requests use `Content-Ty
 | Steam | `GET /api/steam/status`, `GET /api/steam/games` | `POST /api/steam/force_sync`, `POST /api/steam/launch` |
 | Playnite | `GET /api/playnite/status`, `GET /api/playnite/games`, `GET /api/playnite/categories` | `POST /api/playnite/install`, `POST /api/playnite/uninstall`, `POST /api/playnite/force_sync`, `POST /api/playnite/cover`, `POST /api/playnite/launch` |
 | Library extras | `GET /api/covers/{id}`, `GET /api/lossless_scaling/status`, `GET /api/browse?path=...&type=...` | `POST /api/covers/upload`, `POST /api/apps/purge_autosync` |
-| Radeon | `GET /api/radeon`: the GPU's Radeon settings as the [native panel](#radeon-settings) lists them (id, state, range, options), for a game's Radeon controls. It only reads; a game's profile is applied when it starts. | Set `radeon-profile` and `radeon-settings` on the application. |
+| Radeon | `GET /api/radeon`: the GPU's Radeon settings as the [native API](native-api.md#radeon-state-and-writes) lists them (id, state, range, options), for a game's Radeon controls. It only reads; a game's profile is applied when it starts. | Set `radeon-profile` and `radeon-settings` on the application. |
 | Updates | `GET /api/updates` | `POST /api/updates/check`, `POST /api/updates/install`, `POST /api/updates/install_now`, `POST /api/updates/cancel` |
 | Diagnostics | `GET /api/logs`, `GET /api/logs/tail`, `GET /api/logs/analysis`, `GET /api/logs/export`, `GET /api/logs/export_crash`, `GET /api/logs/export_crash/manifest`, `GET /api/health/crashdump` | `POST /api/health/crashdump/dismiss` |
 | Administration | Authentication and token routes above. | `POST /api/password`, `POST /api/restart`, `POST /api/quit` |
@@ -124,30 +124,9 @@ For exact request fields beyond this overview, follow [the API router](../rust/h
 
 ## Native API v1 (paired clients)
 
-Rubylight 3.0 and later. Nightjar and other paired clients use `/api/native/v1` on the streaming HTTPS port (`HttpsPort` from `/serverinfo`, normally 47984). The administration methods above do not apply to it: no Basic auth, cookies or API tokens, and nothing on plain HTTP or the console port. [Native API v1](native-api.md) is the design and contract; this section is the short reference for using it. Where the two differ, the host code in [native_api.rs](../rust/host/src/native_api.rs) and [native_api/radeon.rs](../rust/host/src/native_api/radeon.rs) is right.
+Rubylight 3.0 and later. Nightjar and other paired clients use `/api/native/v1` on the streaming HTTPS port (`HttpsPort` from `/serverinfo`, normally 47984). The administration methods above do not apply: no Basic authentication, cookies or API tokens, and nothing on plain HTTP or the console port. The client presents the TLS certificate it paired with, and the host checks the device's permissions on every request. [Native API v1](native-api.md) is the full contract: discovery, every endpoint, errors, Radeon settings, versioning and compatibility. Where it and the code differ, [native_api.rs](../rust/host/src/native_api.rs) and [native_api/radeon.rs](../rust/host/src/native_api/radeon.rs) are authoritative.
 
-### Authentication
-
-The client presents the TLS certificate it paired with. The host looks the device up on every request, so a change in the console applies to the next call.
-
-- Not paired (no certificate, or an unknown, disabled or permission-less device): `403 not_paired`.
-- The permissions are the usual List, View and Launch. A missing one is `403 permission_required`, and the message names it.
-- **Host control** is a separate per-device flag, off by default, that only the console can turn on (Devices → device → Other). It is required for `close-game` and for every `POST /radeon/*`. Reads never need it. Turning it off applies to the next request and does not end a stream.
-- Over plain HTTP, every `/api/native/v1` path is `404`: the API exists on HTTPS only.
-
-### Discovery
-
-`GET /serverinfo` has one more field, `NativeApiVersion`:
-
-| Value | Meaning |
-|---|---|
-| missing | No native API (2.6, Sunshine, Apollo, Vibepollo): use the classic app grid |
-| `0` | The host has it, but not for this request: plain HTTP, or a certificate that is not paired, is disabled or has no permissions (`perm` 0) |
-| `1` | A paired HTTPS request may call `/api/native/v1/capabilities` |
-
-Stock Moonlight ignores the field. Every other `/serverinfo` field, `/applist` and `/cancel` answer exactly as before, which the host tests pin byte for byte.
-
-### Endpoints
+`GET /serverinfo` carries `NativeApiVersion`: missing on hosts without the API, `0` for a request that may not use it (plain HTTP, or a certificate that is not paired, disabled or without permissions), and `1` when a paired HTTPS request may call `/api/native/v1/capabilities`. Stock Moonlight ignores the field.
 
 | Method | Path | Needs | Answer |
 |---|---|---|---|
@@ -156,62 +135,11 @@ Stock Moonlight ignores the field. Every other `/serverinfo` field, `/applist` a
 | GET | `/session` | paired | State, owner, app, allowed actions. Other devices see state and owner only |
 | POST | `/session/disconnect` | View or Launch, session owner | Stops the stream and keeps the game and display for the grace period |
 | POST | `/session/end` | Launch, session owner | Ends the stream and releases the display. The game keeps running |
-| POST | `/session/close-game` | Launch and Host control | Like End session, and quits the game. Also works with no session when a game is left running |
+| POST | `/session/close-game` | Launch and Host control; session owner, or no session | Like End session, and quits the game. Also works with no session when a game is left running |
 | GET | `/radeon` | View or Launch | Radeon settings of the encoding GPU, each in one of five states |
 | POST | `/radeon/settings` | View and Host control, owner of a `streaming` or `suspended` session | Applies `{ "gpu": id, "changes": [{ "id", "value" }] }` and answers with the new Radeon state |
-| POST | `/radeon/restore` | View and Host control, owner of a `streaming` or `suspended` session | Puts back everything this session changed |
+| POST | `/radeon/restore` | View and Host control, session owner | Puts back everything this session changed |
 
-Playing and resuming stay on `/launch` and `/resume`. Cover images stay on `/appasset`. The API never carries video, input or telemetry.
+Hosts that list the matching features also serve wake targets, audio processing, files, shared folders and co-op endpoints; the [endpoint table](native-api.md#endpoints) has all of them.
 
-All answers are `application/json; charset=utf-8` with `Cache-Control: no-store`. A POST body is empty or JSON of at most 16 KiB, sent as `application/json`, `text/plain` or without a content type; actions take no fields. Clients poll `/session` about every 2 s while a home or detail screen shows.
-
-Session states are `idle`, `preparing`, `launching`, `streaming`, `suspended` and `stopping`. After End session the game can still run: the state is `idle` with `game_running: true`. A repeated action is safe and answers `200` with the new session; `end` and `close-game` wait up to 5 s for the streams to stop.
-
-### Errors
-
-Every non-2xx answer over HTTPS has one body shape. (Over plain HTTP the native paths do not exist, and the host's router answers a bare `404`.) Clients branch on `code` and keep the HTTP status:
-
-```json
-{ "error": { "code": "host_control_required", "message": "Turn on Host control for this device in the Rubylight console.", "setting": null, "retry_after_ms": null } }
-```
-
-| HTTP | `code` | When |
-|---|---|---|
-| 403 | `not_paired` | No certificate, or the device is unknown or disabled |
-| 403 | `permission_required` | List, View or Launch is off |
-| 403 | `host_control_required` | A write or Close game without Host control |
-| 404 | `not_found` | Unknown path or method under the prefix, a GPU or setting id the host does not list. On a host without Radeon controls the POSTs are `404`, while `GET /radeon` answers `200` with state `unsupported` and reason `no_radeon` |
-| 400 | `invalid_request` | Malformed JSON, unknown fields in a write, a content type other than JSON or text, or a body over 16 KiB |
-| 422 | `invalid_value`, `not_writable` | Wrong type or range, or the setting is not `configurable`. `setting` names it |
-| 409 | `no_session`, `not_session_owner`, `session_busy` | The caller owns no session, another device owns it, or a launch or teardown is in progress (`retry_after_ms` says when to retry) |
-| 409 | `driver_rejected` | The driver refused a write. The earlier changes of the request were rolled back |
-| 503 | `temporarily_unavailable` | The Radeon worker is busy, reinitialising or could not restore. Retry after `retry_after_ms` |
-| 500 | `internal` | A host bug, also in the host log |
-
-`not_streaming` appears only as the `reason` of a disallowed action in `GET /session`. Disconnect with no session at all is `409 no_session`. On a session that is already suspended it answers `200` again.
-
-### Radeon settings
-
-`GET /radeon` returns a `revision`, a panel `state`, `host_control` and `writable_now` for the caller, and `gpus` (today the one the host encodes on). Each setting has an `id` (`<group>.<field>`, for example `anti_lag.enabled` or `chill.max_fps`), a `kind` (`toggle`, `integer` with `range`, `choice` with `options`) and one of five states:
-
-| State | Meaning |
-|---|---|
-| `configurable` | Readable and writable. The value is present |
-| `read_only` | Readable, not writable on this driver |
-| `needs_external_setup` | Turn it on once in AMD Software. `message` says how |
-| `unsupported` | Not on this GPU or driver. No value |
-| `temporarily_unavailable` | Try again later. `message` says why |
-
-A setting is `configurable` only if the hardware probe proved it on the installed driver ([hardware matrix](hardware-matrix.md)). Clients ignore ids and fields they do not know.
-
-A write is validated as a whole first (ids, types, range and step), so a bad request changes nothing. Before a setting changes for the first time in a session, the host writes its original value to a journal on disk. The changes then apply in order. If the driver refuses one, the earlier ones are undone and the answer is `driver_rejected`. The response is the re-read state, so settings the driver changed in turn show up too. While a change is pending, the setting carries `restore: { "original", "written" }`.
-
-**Restore.** The host puts the original values back when the session ends (End session, Close game, grace period over, a stock `/cancel`, the stream ending with no grace), when the device is unpaired or disabled, on host shutdown, on `POST /radeon/restore`, and at the next host start if a journal survived a crash. It does not restore at Disconnect: a suspended session keeps its settings until the session ends, and resuming does not restore either. A setting is put back only if it still has the value the host wrote. A change made on the PC meanwhile wins and the entry is dropped. A restore that fails goes into the host log, stays in the journal, is retried, and keeps showing in `GET /radeon`.
-
-### Versioning
-
-The path carries the major version. Inside v1, changes only add: fields, features, setting ids, actions, error codes and enum values. Removing or renaming anything needs `/v2`, announced by a higher `NativeApiVersion`, and the host keeps serving v1 for the whole 3.x line. Clients ignore unknown fields, treat an unknown setting state as `unsupported` and an unknown session state as `idle` with no actions. The Rust types are the `rubylight-native-api` crate (`rust/core/native-api`), with JSON fixtures under `tests/fixtures`.
-
-### Compatibility
-
-Stock Moonlight and Nightjar 0.7.x never call these paths. Against a 3.0 host their `/serverinfo`, `/applist` and `/cancel` requests give the same answers as before apart from the new field, `/cancel` still needs only Launch permission, and reading the native API, or an action that is refused, changes nothing they can see. A successful End session or Close game does change `/serverinfo` (`currentgame`, `state`), as a stock quit would. The tests are in [compat.rs](../rust/host/src/nvhttp/native_tests/compat.rs) and [native_tests.rs](../rust/host/src/nvhttp/native_tests.rs). A Nightjar 3.0 client that finds the field missing shows the classic grid.
+**Host control** is a per-device permission, off by default, that only the console can grant (**Devices** → device → **Other**). It is required for `close-game` and every `POST /radeon/*`; reads never need it. Playing and resuming stay on `/launch` and `/resume`, and cover images on `/appasset`. Every error has the body `{ "error": { "code", "message", "setting", "retry_after_ms" } }`; clients branch on `code` and keep the HTTP status ([error codes](native-api.md#errors)).

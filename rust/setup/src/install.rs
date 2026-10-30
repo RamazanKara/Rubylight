@@ -150,6 +150,25 @@ pub(crate) fn probe(profile: &Path) -> SocketAddr {
 }
 
 pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
+    let mut set_aside = None;
+    install_with(options, progress, &mut set_aside).map_err(|error| match &set_aside {
+        Some(aside) => moved_aside(error, aside),
+        None => error,
+    })
+}
+/// An error that also says where `prepare_profile` moved a folder: the next
+/// run no longer finds it to say so.
+fn moved_aside(error: anyhow::Error, aside: &Path) -> anyhow::Error {
+    anyhow!(
+        "{error:#}\n\nAn earlier Rubylight settings folder could be changed by accounts other than Administrators, so setup moved it to {}.",
+        aside.display()
+    )
+}
+fn install_with(
+    options: &Options,
+    progress: &Progress,
+    set_aside: &mut Option<PathBuf>,
+) -> Result<Outcome> {
     let mut payload = Payload::open()?
         .context("this setup.exe carries no package; build it with build.ps1 -Package")?;
     let found = detect::scan();
@@ -165,9 +184,16 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
         system::trusted_ancestors(&install)
             .map_err(|error| anyhow!("{error:#}; choose another installation folder"))?;
     }
-    // The installed service identifies Rubylight's profile.
-    prepare_profile(&profile, target != Target::Fresh)?;
+    // The installed service identifies Rubylight's profile, even when its
+    // folder is gone and setup installs in full.
+    *set_aside = prepare_profile(&profile, found.service_install.is_some())?;
     let mut notes = Vec::new();
+    if let Some(aside) = set_aside {
+        notes.push(format!(
+            "An earlier Rubylight settings folder could be changed by accounts other than Administrators, so setup moved it to {} and Rubylight starts with new settings. You can delete that folder.",
+            aside.display()
+        ));
+    }
     let mut restart_needed = false;
 
     if updating {
@@ -948,17 +974,66 @@ pub(crate) fn untrust_console() {
         Duration::from_secs(30),
     );
 }
-pub(crate) fn prepare_profile(profile: &Path, updating: bool) -> Result<()> {
+/// The host's folder of users' own Nucleus copies
+/// (`butterpollo_core::nucleus::install::user_root`).
+fn nucleus_user_root(root: &Path) -> PathBuf {
+    root.join("nucleus-user")
+}
+/// Makes the profile's folder safe for the SYSTEM service, returning where a
+/// folder it could not trust was moved. `installed`: a Rubylight service is
+/// registered, which identifies the folder as Rubylight's.
+pub(crate) fn prepare_profile(profile: &Path, installed: bool) -> Result<Option<PathBuf>> {
     let root = profile.parent().context("profile has no parent")?;
     system::trusted_parents(root)?;
-    match system::trusted_folder(root) {
-        Err(_) if updating => {
-            // Earlier installers restricted the profile's ACL but left its user
-            // owner. Repair it only after identifying the installed service.
-            secure_profile(profile)?;
-            system::trusted_folder(root)
-        }
-        result => result,
+    // One look decides: users may create folders in ProgramData, so a
+    // missing root is made here, locked down from the start, and fails if
+    // someone made it meanwhile.
+    let present = match std::fs::symlink_metadata(root) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    if !present {
+        return system::create_restricted(root, true).map(|()| None);
+    }
+    if installed {
+        return match system::trusted_folder(root) {
+            Err(_) => {
+                // Earlier installers restricted the profile's ACL but left its
+                // user owner. Repair it only after identifying the service.
+                secure_profile(profile)?;
+                system::trusted_folder(root).map(|()| None)
+            }
+            Ok(()) => Ok(None),
+        };
+    }
+    // No service vouches for this folder (left by another tool, an old
+    // uninstall or anyone who could create it): it is kept only when no one
+    // else owns or may change anything in it, so nothing can be added after
+    // the check either. Otherwise its settings and pairings are not adopted:
+    // it moves aside unchanged (#61). The host checks the Nucleus copies it
+    // lets users write itself.
+    let opaque = [nucleus_user_root(root)];
+    let error = match system::trusted_tree(root, &opaque) {
+        Ok(()) => return Ok(None),
+        Err(error) if error.downcast_ref::<system::Untrusted>().is_some() => error,
+        Err(error) => return Err(error),
+    };
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let name = root.file_name().context("profile root has no name")?;
+    let aside = root.with_file_name(format!("{}.untrusted-{seconds}", name.display()));
+    line(format!(
+        "moving {} to {}: {error:#}",
+        root.display(),
+        aside.display()
+    ));
+    std::fs::rename(root, &aside)
+        .with_context(|| format!("{error:#}; moving it to {} failed", aside.display()))?;
+    match system::create_restricted(root, true) {
+        Ok(()) => Ok(Some(aside)),
+        Err(error) => Err(moved_aside(error, &aside)),
     }
 }
 
@@ -1981,8 +2056,7 @@ mod tests {
             )?;
             assert_eq!(code, 0, "{output}");
         }
-        assert!(prepare_profile(&profile, false).is_err());
-        prepare_profile(&profile, true)?;
+        assert_eq!(prepare_profile(&profile, true)?, None);
         system::trusted_ancestors(&root)?;
         system::trusted_folder(&settings)?;
         assert_eq!(std::fs::read(&settings)?, b"port=48123\n");
@@ -2066,9 +2140,175 @@ mod tests {
             Duration::from_secs(10),
         )?;
         assert_eq!(code, 0, "{output}");
-        let error = prepare_profile(&untrusted.join("Butterpollo/config"), true).unwrap_err();
-        assert!(error.to_string().contains("must be owned by"), "{error:#}");
-        assert!(!untrusted.join("Butterpollo").exists());
+        for updating in [true, false] {
+            let error =
+                prepare_profile(&untrusted.join("Butterpollo/config"), updating).unwrap_err();
+            assert!(error.to_string().contains("must be owned by"), "{error:#}");
+            assert!(!untrusted.join("Butterpollo").exists());
+        }
+        Ok(())
+    }
+    #[test]
+    fn fresh_installs_move_an_untrusted_profile_aside_unchanged() -> Result<()> {
+        // #61: a ProgramData\Butterpollo that the user owned, with no
+        // Rubylight installed, stopped every fresh install.
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let root = temp.path().join("Butterpollo");
+        let profile = root.join("config");
+        std::fs::create_dir_all(&profile)?;
+        std::fs::write(profile.join("sunshine.conf"), b"planted")?;
+        let (code, output) = system::run(
+            &system::system32("icacls.exe"),
+            &[
+                &root.display().to_string(),
+                "/setowner",
+                "*S-1-5-32-545",
+                "/Q",
+            ],
+            Duration::from_secs(10),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        let aside = prepare_profile(&profile, false)?.context("the profile stayed")?;
+        // A new root, locked down and empty, replaces it.
+        system::trusted_folder(&root)?;
+        assert_eq!(std::fs::read_dir(&root)?.count(), 0);
+        assert_eq!(aside.parent(), Some(temp.path()));
+        assert!(
+            aside
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("Butterpollo.untrusted-")),
+            "{}",
+            aside.display()
+        );
+        assert_eq!(
+            std::fs::read(aside.join("config/sunshine.conf"))?,
+            b"planted"
+        );
+        assert!(system::trusted_folder(&aside).is_err());
+        // A trusted profile stays where it is.
+        std::fs::create_dir_all(&profile)?;
+        assert_eq!(prepare_profile(&profile, false)?, None);
+        assert!(profile.is_dir());
+        // So is a trusted root holding something someone else owns: its owner
+        // could change its permissions back.
+        let (code, output) = system::run(
+            &system::system32("icacls.exe"),
+            &[
+                &profile.display().to_string(),
+                "/setowner",
+                "*S-1-5-32-545",
+                "/Q",
+            ],
+            Duration::from_secs(10),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        let child_aside = prepare_profile(&profile, false)?.context("the child stayed")?;
+        assert!(child_aside.join("config").is_dir());
+        assert_eq!(std::fs::read_dir(&root)?.count(), 0);
+        // A missing root is made locked down from the start, also for an
+        // installed service whose profile was deleted.
+        for installed in [false, true] {
+            std::fs::remove_dir_all(&root)?;
+            assert_eq!(prepare_profile(&profile, installed)?, None);
+            system::trusted_tree(&root, &[])?;
+        }
+        // Something users may change or that they own moves aside too.
+        let icacls = |args: &[&str]| -> Result<()> {
+            let (code, output) = system::run(
+                &system::system32("icacls.exe"),
+                args,
+                Duration::from_secs(10),
+            )?;
+            assert_eq!(code, 0, "{output}");
+            Ok(())
+        };
+        let profile_text = profile.display().to_string();
+        for change in [
+            ["/grant", "*S-1-5-32-545:(OI)(CI)(M)"],
+            ["/setowner", "*S-1-5-32-545"],
+        ] {
+            std::fs::create_dir(&profile)?;
+            icacls(&[&profile_text, change[0], change[1], "/Q"])?;
+            let error = system::trusted_tree(&root, &[]).unwrap_err();
+            assert!(
+                error.downcast_ref::<system::Untrusted>().is_some(),
+                "{error:#}"
+            );
+            assert!(prepare_profile(&profile, false)?.is_some());
+            assert!(!profile.exists());
+        }
+        // The host lets users write in their Nucleus copies and checks them
+        // itself: a profile holding one stays, unless the copies' folder
+        // itself is open to users.
+        let nucleus = nucleus_user_root(&root);
+        assert_eq!(
+            nucleus,
+            butterpollo_core::nucleus::install::user_root(&root)
+        );
+        let copy = nucleus.join("S-1-5-21-1").join("0123456789abcdef");
+        std::fs::create_dir_all(&copy)?;
+        std::fs::write(copy.join("handler.js"), b"user's")?;
+        let copy_text = copy.display().to_string();
+        icacls(&[&copy_text, "/grant", "*S-1-5-32-545:(OI)(CI)(M)", "/Q"])?;
+        icacls(&[&copy_text, "/setowner", "*S-1-5-32-545", "/T", "/Q"])?;
+        assert_eq!(prepare_profile(&profile, false)?, None);
+        assert_eq!(std::fs::read(copy.join("handler.js"))?, b"user's");
+        let nucleus_text = nucleus.display().to_string();
+        icacls(&[&nucleus_text, "/grant", "*S-1-5-32-545:(M)", "/Q"])?;
+        assert!(prepare_profile(&profile, false)?.is_some());
+        assert!(!nucleus.exists());
+        Ok(())
+    }
+    #[test]
+    fn folders_created_restricted_match_restricted_ones() -> Result<()> {
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        for users_read in [true, false] {
+            let created = temp.path().join(format!("created-{users_read}"));
+            let restricted = temp.path().join(format!("restricted-{users_read}"));
+            system::create_restricted(&created, users_read)?;
+            assert!(system::create_restricted(&created, users_read).is_err());
+            std::fs::create_dir(&restricted)?;
+            system::restrict(&restricted, users_read)?;
+            let acl = |folder: &Path| -> Result<String> {
+                let (code, output) = system::run(
+                    &system::system32("icacls.exe"),
+                    &[&folder.display().to_string()],
+                    Duration::from_secs(10),
+                )?;
+                assert_eq!(code, 0, "{output}");
+                Ok(output.replace(&folder.display().to_string(), ""))
+            };
+            assert_eq!(acl(&created)?, acl(&restricted)?);
+            system::trusted_tree(&created, &[])?;
+        }
+        Ok(())
+    }
+    #[test]
+    fn fresh_installs_move_a_linked_profile_aside_not_its_target() -> Result<()> {
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside)?;
+        std::fs::write(outside.join("sunshine.conf"), b"unchanged")?;
+        let linked = temp.path().join("linked");
+        std::os::windows::fs::symlink_dir(&outside, &linked)?;
+        let aside = prepare_profile(&linked.join("config"), false)?.context("the link stayed")?;
+        assert!(std::fs::symlink_metadata(&aside)?.file_type().is_symlink());
+        assert!(!std::fs::symlink_metadata(&linked)?.file_type().is_symlink());
+        system::trusted_folder(&linked)?;
+        assert_eq!(std::fs::read(outside.join("sunshine.conf"))?, b"unchanged");
+        assert_eq!(std::fs::read_dir(&outside)?.count(), 1);
         Ok(())
     }
     #[test]

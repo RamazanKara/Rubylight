@@ -1036,6 +1036,17 @@ pub fn firewall_rule_present(rule: &str) -> Result<bool> {
         result
     }
 }
+/// Why a folder fails [`trusted_folder`] when someone other than
+/// Administrators, SYSTEM or TrustedInstaller may have made or changed it: a
+/// link in it, or another owner. Errors reading the folder are not one.
+#[derive(Debug)]
+pub struct Untrusted(String);
+impl std::fmt::Display for Untrusted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for Untrusted {}
 pub fn trusted_folder(folder: &Path) -> Result<()> {
     if let Err(error) = std::fs::symlink_metadata(folder) {
         return if error.kind() == std::io::ErrorKind::NotFound {
@@ -1046,6 +1057,149 @@ pub fn trusted_folder(folder: &Path) -> Result<()> {
     }
     no_reparse_points(folder)?;
     trusted_owner(folder, false)
+}
+/// [`trusted_folder`] for an existing `folder` and everything in it, which
+/// also no one else may change or add to: the owner of any entry can change
+/// its permissions back, and anyone they let write can plant settings. A
+/// missing `folder` is an error. Of each folder in `opaque` (which the host
+/// lets users write into and checks itself) only the folder is checked.
+/// Entries setup may not read count as untrusted too.
+pub fn trusted_tree(folder: &Path, opaque: &[PathBuf]) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    let mut pending = vec![folder.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err(Untrusted(format!("{} is a reparse point", path.display())).into());
+        }
+        let checked = trusted_owner(&path, false)
+            .and_then(|()| other_writer(&path))
+            .and_then(|writer| match writer {
+                Some(writer) => Err(Untrusted(format!(
+                    "{} may be changed by {writer}, not only Administrators, SYSTEM or TrustedInstaller",
+                    path.display()
+                ))
+                .into()),
+                None => Ok(()),
+            });
+        let entries = match checked {
+            Ok(()) if metadata.is_dir() && !opaque.contains(&path) => std::fs::read_dir(&path)
+                .and_then(|entries| {
+                    entries
+                        .map(|entry| entry.map(|entry| entry.path()))
+                        .collect::<std::io::Result<Vec<_>>>()
+                }),
+            Ok(()) => Ok(Vec::new()),
+            Err(error) => return Err(denied_is_untrusted(error, &path)),
+        };
+        pending.extend(entries.map_err(|error| denied_is_untrusted(error.into(), &path))?);
+    }
+    Ok(())
+}
+/// An entry setup may not read: whoever owns it denied Administrators.
+fn denied_is_untrusted(error: anyhow::Error, path: &Path) -> anyhow::Error {
+    let denied = error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
+            || cause
+                .downcast_ref::<windows::core::Error>()
+                .is_some_and(|e| e.code() == windows::Win32::Foundation::E_ACCESSDENIED)
+    });
+    if denied {
+        Untrusted(format!("{} may not be read: {error:#}", path.display())).into()
+    } else {
+        error
+    }
+}
+/// The first account other than SYSTEM, Administrators or TrustedInstaller
+/// (or the creator or owner, both trusted here) that `path`'s permissions
+/// let change it or add to it.
+fn other_writer(path: &Path) -> Result<Option<String>> {
+    use windows::Win32::{
+        Foundation::{HLOCAL, LocalFree},
+        Security::{Authorization::*, *},
+    };
+    // Reading, executing and synchronizing, as specific or generic rights.
+    const READING: u32 = 0x1200a9 | 0x8000_0000 | 0x2000_0000;
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: dacl and its entries point into descriptor until it is freed once below.
+    unsafe {
+        GetNamedSecurityInfoW(
+            &HSTRING::from(path.as_os_str()),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            Some(&mut dacl),
+            None,
+            &mut descriptor,
+        )
+        .ok()?;
+        let result = (|| -> Result<Option<String>> {
+            if dacl.is_null() {
+                return Ok(Some("everyone (it has no permission list)".into()));
+            }
+            let mut size = ACL_SIZE_INFORMATION::default();
+            GetAclInformation(
+                dacl,
+                (&raw mut size).cast(),
+                std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
+                AclSizeInformation,
+            )?;
+            for index in 0..size.AceCount {
+                let mut ace = std::ptr::null_mut();
+                GetAce(dacl, index, &mut ace)?;
+                match (*ace.cast::<ACE_HEADER>()).AceType {
+                    // Allowed.
+                    0 => {}
+                    // Denied, plainly or for an object or a callback.
+                    1 | 6 | 10 | 12 => continue,
+                    other => return Ok(Some(format!("an access entry of type {other}"))),
+                }
+                let allowed = &*ace.cast::<ACCESS_ALLOWED_ACE>();
+                if allowed.Mask & !READING == 0 {
+                    continue;
+                }
+                let sid = PSID((&raw const allowed.SidStart).cast_mut().cast());
+                let trusted = [
+                    WinLocalSystemSid,
+                    WinBuiltinAdministratorsSid,
+                    WinCreatorOwnerSid,
+                    WinCreatorOwnerRightsSid,
+                ]
+                .into_iter()
+                .any(|known| IsWellKnownSid(sid, known).as_bool())
+                    || trusted_installer(sid);
+                if !trusted {
+                    return Ok(Some(account_name(sid)));
+                }
+            }
+            Ok(None)
+        })();
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        result.with_context(|| format!("reading the permissions of {}", path.display()))
+    }
+}
+/// Whether `sid` is TrustedInstaller's service SID.
+fn trusted_installer(sid: PSID) -> bool {
+    use windows::Win32::{
+        Foundation::{HLOCAL, LocalFree},
+        Security::Authorization::ConvertSidToStringSidW,
+    };
+    let mut text = PWSTR::null();
+    // SAFETY: text is freed once below after it is read.
+    unsafe {
+        let installer = ConvertSidToStringSidW(sid, &mut text).is_ok()
+            && text.to_string().is_ok_and(|sid| {
+                sid == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+            });
+        if !text.is_null() {
+            let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+        }
+        installer
+    }
 }
 pub fn trusted_ancestors(folder: &Path) -> Result<()> {
     trusted_parents(folder)?;
@@ -1096,17 +1250,9 @@ fn trusted_owner(folder: &Path, administrator_accounts: bool) -> Result<()> {
             &mut descriptor,
         )
         .ok()?;
-        let mut text = PWSTR::null();
-        let installer = ConvertSidToStringSidW(owner, &mut text).is_ok()
-            && text.to_string().is_ok_and(|sid| {
-                sid == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
-            });
-        if !text.is_null() {
-            let _ = LocalFree(Some(HLOCAL(text.0.cast())));
-        }
         let trusted = IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool()
             || IsWellKnownSid(owner, WinLocalSystemSid).as_bool()
-            || installer;
+            || trusted_installer(owner);
         let result = if trusted {
             Ok(())
         } else {
@@ -1117,7 +1263,7 @@ fn trusted_owner(folder: &Path, administrator_accounts: bool) -> Result<()> {
                     folder.display(),
                     account_name(owner)
                 ))),
-                _ => Err(anyhow::anyhow!(
+                _ => Err(Untrusted(format!(
                     "{} must be owned by Administrators, SYSTEM or TrustedInstaller{}, not {}",
                     folder.display(),
                     if administrator_accounts {
@@ -1126,7 +1272,8 @@ fn trusted_owner(folder: &Path, administrator_accounts: bool) -> Result<()> {
                         ""
                     },
                     account_name(owner)
-                )),
+                ))
+                .into()),
             }
         };
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
@@ -1311,11 +1458,9 @@ pub fn no_reparse_points(folder: &Path) -> Result<()> {
     let mut pending = vec![folder.to_path_buf()];
     while let Some(path) = pending.pop() {
         let metadata = std::fs::symlink_metadata(&path)?;
-        ensure!(
-            metadata.file_attributes() & 0x400 == 0,
-            "{} is a reparse point",
-            path.display()
-        );
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err(Untrusted(format!("{} is a reparse point", path.display())).into());
+        }
         if metadata.is_dir() {
             for entry in std::fs::read_dir(&path)? {
                 pending.push(entry?.path());
@@ -1332,11 +1477,7 @@ pub fn restrict(folder: &Path, users_read: bool) -> Result<()> {
         Foundation::{HLOCAL, LocalFree},
         Security::{Authorization::*, *},
     };
-    let sddl = if users_read {
-        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"
-    } else {
-        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
-    };
+    let sddl = restricted_sddl(users_read);
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     // SAFETY: descriptor owns the SID and ACL until LocalFree after the last call.
     unsafe {
@@ -1369,6 +1510,41 @@ pub fn restrict(folder: &Path, users_read: bool) -> Result<()> {
         })();
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
         result.with_context(|| format!("setting permissions on {}", folder.display()))
+    }
+}
+fn restricted_sddl(users_read: bool) -> &'static str {
+    if users_read {
+        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"
+    } else {
+        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+    }
+}
+/// Create `folder` (not its parents) with the permissions [`restrict`]
+/// gives, from the start: a folder created in ProgramData first inherits
+/// users' right to add to it. Fails if `folder` exists.
+pub fn create_restricted(folder: &Path, users_read: bool) -> Result<()> {
+    use windows::Win32::{
+        Foundation::{HLOCAL, LocalFree},
+        Security::{Authorization::*, *},
+        Storage::FileSystem::CreateDirectoryW,
+    };
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: descriptor stays alive until LocalFree after CreateDirectoryW.
+    unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            &HSTRING::from(restricted_sddl(users_read)),
+            1,
+            &mut descriptor,
+            None,
+        )?;
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor.0,
+            bInheritHandle: false.into(),
+        };
+        let result = CreateDirectoryW(&HSTRING::from(folder.as_os_str()), Some(&attributes));
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        result.with_context(|| format!("creating {}", folder.display()))
     }
 }
 /// Reset a folder's contents to inherit the folder's permissions.

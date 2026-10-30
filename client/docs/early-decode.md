@@ -1,4 +1,6 @@
-# Early decode (Rubylight 3.0 plan, B10 step 1)
+# Early decode
+
+[Documentation](index.md) · [Beam racing](beam-racing.md) · [PyroWave GPU decoding](pyrowave-decode.md)
 
 The Nightjar desktop client can decode the blocks of a PyroWave frame while the rest of the
 frame is still arriving. It is the `early_decode` setting (off by default) or

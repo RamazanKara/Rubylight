@@ -1,6 +1,8 @@
-# Refresh rate switching on multi-rate phones
+# Refresh rate switching on Android
 
-**Status: not yet seen on a multi-rate phone.** Nightjar's own devices are a Retroid Pocket 6, an emulator and a Linux NUC. The Retroid's refresh policy allows one rate at a time (`primaryRefreshRateRange` is [60 60] or pinned at 120), so a screen that switches seamlessly between several rates (a Pixel, a Samsung with Adaptive refresh rate) has never been in front of this code. The votes, the withdrawal and the reasons below are covered by unit tests with fake displays only.
+[Documentation](index.md) · [Video and latency](video-and-latency.md)
+
+How Nightjar for Android asks the screen for the stream's frame rate and explains when the screen does not follow. The votes, the withdrawal and the reasons are covered by unit tests with synthetic displays. Our Retroid Pocket 6 allows one rate at a time (`primaryRefreshRateRange` is [60 60] or pinned at 120), so seamless switching between several rates, as on a Pixel or a Samsung with Adaptive refresh rate, has not run on our devices.
 
 ## What the app does
 
@@ -33,13 +35,13 @@ Before Android 12 no mode lists alternatives, so a blanking switch cannot be tol
 - Samsung: Adaptive goes up to 120 Hz, Standard stays at 60 Hz, and 120 Hz availability varies by app and device. [Samsung: how to set the display refresh rate](https://www.samsung.com/ie/support/mobile-devices/how-to-set-the-display-refresh-rate-on-your-galaxy-phone/)
 - Pixel: an app `setFrameRate(90)` moved a 60 Hz default device to 90 Hz in the [Redfin (Pixel 5) device change c1bad51](https://android.googlesource.com/device/google/redfin/+/c1bad51), with the Smooth display options still honoured. Pixels also have a Developer options toggle, Disable default frame rate for games ([9to5Google](https://9to5google.com/how-to-disable-default-frame-rates-for-games/)).
 
-Not checked against a source in this pass: the API levels of `getAlternativeRefreshRates()` (Android 12, API 31) and `Display.Mode.getSupportedHdrTypes()` (Android 14, API 34) are from the platform reference as remembered. The `peak_refresh_rate` and `min_refresh_rate` keys are internal and may differ on vendor ROMs.
+`getAlternativeRefreshRates()` exists from Android 12 (API 31) and `Display.Mode.getSupportedHdrTypes()` from Android 14 (API 34). The `peak_refresh_rate` and `min_refresh_rate` keys are internal and may differ on vendor ROMs.
 
-## Other video and display items not seen on hardware
+## Other displays
 
 Looked at, with no code change because nothing can be decided without the hardware: Android TV and Shield boxes (HDMI mode switches are never seamless and take seconds, so a vote may blank the TV), foldables (the mode list changes with the fold state, which the monitor re-reads every second), and tablets with a single 60 Hz mode (the monitor reports "No mode" for any other vote). Android 16 ARR support is the one exception: its fallback reason is now shown, and its vote changed (see above).
 
-## What a tester should look for
+## Checking it on a multi-rate phone
 
 On a 60/90/120 phone with Adaptive or Smooth display on, stream a 120 fps host with **Match content frame rate** on a Rubylight host and a game that holds 60:
 
@@ -48,9 +50,3 @@ On a 60/90/120 phone with Adaptive or Smooth display on, stream a 120 fps host w
 3. Turning the game's frame rate back up withdraws and re-votes without a flash.
 
 Report the phone, Android version, the three refresh settings and the `Refresh switch:` log line.
-
-## Rubylight wording
-
-- Plan, B1: "Refresh-rate mode switch on a multi-rate phone: Nightjar names the reason when the screen does not follow the vote."
-- Hardware matrix: "Nightjar Android, seamless refresh switching on 60/90/120 phones | Unit-tested | None | Votes and the reasons are unit-tested with fake displays; the Retroid's policy allows one rate."
-- Release notes: "The Statistics overlay says why the screen stays at a different refresh rate than the stream asked for."

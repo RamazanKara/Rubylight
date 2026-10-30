@@ -54,7 +54,7 @@ Throughout the documentation, the **PC** is the computer you stream from and the
 | [Building](building.md) | Toolchains, tests, signing, the release workflow and the [documentation checks](building.md#documentation-checks) |
 | [Beam racing](beam-racing.md), [early decode](early-decode.md) | Desktop presentation timing |
 | [PyroWave GPU decoding](pyrowave-decode.md), [PyroWave decode stages](pyrowave-decode-stages.md) | The desktop PyroWave decoder and its timing |
-| [Refresh rate switching](expected-refresh-switch.md), [HDR10 on HDR phones](expected-hdr10.md) | Design notes for display mode and HDR handling on Android |
+| [Refresh rate switching](expected-refresh-switch.md), [HDR on Android displays](expected-hdr10.md) | How the Android app handles refresh rate votes and HDR requests |
 | [Client roaming](protocol/client-roaming.md), [host cursor shapes](protocol/cursor-shape.md) | Protocol extensions proposed for Moonlight-compatible hosts |
 | [Android audit, October 2026](android-audit-2026-10.md) | Audit findings and their resolution |
 | [Rename history](RENAME.md) | What changed when the app was renamed to Nightjar, and what kept its old name |

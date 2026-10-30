@@ -1,4 +1,6 @@
-# Beam racing (Rubylight 3.0 plan, B10 step 4)
+# Beam racing
+
+[Documentation](index.md) · [Early decode](early-decode.md) · [PyroWave GPU decoding](pyrowave-decode.md)
 
 Opt-in. It missed its default-on gate on loopback (the numbers and the decision are
 in [pyrowave-decode.md](pyrowave-decode.md#beam-racing-measured-opt-in-helps-the-median-at-low-pace-not-p95-worse-receive_to_present-at-high-pace));

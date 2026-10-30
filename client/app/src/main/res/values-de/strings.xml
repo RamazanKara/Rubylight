@@ -332,7 +332,6 @@
     <string name="stream_bitrate_help">Mbit/s für diese Sitzung festlegen.\n„Gerät steuert die Bitrate“ wird ausgeschaltet.</string>
     <string name="stream_bitrate_invalid">Gib eine Bitrate von 0,5 bis 2000 Mbit/s ein.</string>
     <string name="stream_bitrate_applied">Host nutzt %1$.1f Mbit/s</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbit/s liegt unter dem PyroWave-Minimum von %2$d Mbit/s bei %3$d×%4$d, %5$d FPS. Das Bild wird zerfallen.</string>
     <string name="summary_bitrate_pyrowave_below_minimum">Unter dem PyroWave-Minimum von %1$d Mbit/s bei %2$d×%3$d, %4$d FPS: Das Bild wird zerfallen.</string>
     <string name="stream_enabled">An</string>
     <string name="stream_disabled">Aus</string>

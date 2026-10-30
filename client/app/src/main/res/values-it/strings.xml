@@ -332,7 +332,6 @@
     <string name="stream_bitrate_help">Imposta i Mbps per questa sessione.\n«Il dispositivo controlla il bitrate» verrà disattivato.</string>
     <string name="stream_bitrate_invalid">Inserisci un bitrate da 0,5 a 2000 Mbps</string>
     <string name="stream_bitrate_applied">L’host ha applicato %1$.1f Mbps</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps è sotto il minimo di PyroWave di %2$d Mbps a %3$d×%4$d, %5$d FPS. L’immagine risulterà frammentata.</string>
     <string name="summary_bitrate_pyrowave_below_minimum">Sotto il minimo di PyroWave di %1$d Mbps a %2$d×%3$d, %4$d FPS: l’immagine si romperà.</string>
     <string name="stream_enabled">Attivo</string>
     <string name="stream_disabled">Disattivato</string>

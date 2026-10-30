@@ -1083,4 +1083,6 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Confirm", "Bestätigen"),
     ("Close Nightjar", "Nightjar schließen"),
     ("{} of {} digits entered", "{0} von {1} Ziffern eingegeben"),
+    ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "Die Datei der PIN-Sperre ist beschädigt: {}. Lösche diese Datei, um die PIN-Sperre zu entfernen."),
+    ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "Die Datei der PIN-Sperre kann gerade nicht gelesen werden ({0}): {1}. Nightjar versucht es erneut; lösche diese Datei, um die PIN-Sperre zu entfernen."),
 ];

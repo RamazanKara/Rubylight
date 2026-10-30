@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Stereo</string>
     <string name="audioconf_51surround">5.1-Surround</string>
     <string name="audioconf_71surround">7.1-Surround</string>
+    <string name="audioconf_714surround">7.1.4-Surround</string>
     <string name="videoformat_auto">Automatisch (empfohlen)</string>
     <string name="videoformat_av1always">AV1 bevorzugen</string>
     <string name="videoformat_hevcalways">HEVC bevorzugen</string>

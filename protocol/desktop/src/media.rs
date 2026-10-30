@@ -852,7 +852,8 @@ unsafe impl Send for OpusDecoder {}
 
 impl OpusDecoder {
     pub fn new(channels: u8, streams: u8, coupled: u8, mapping: &[u8]) -> Result<Self, i32> {
-        if !(1..=8).contains(&channels) || mapping.len() < usize::from(channels) {
+        // Up to 7.1.4's 12 channels.
+        if !(1..=12).contains(&channels) || mapping.len() < usize::from(channels) {
             return Err(-1);
         }
         let mut error = 0;
@@ -1123,7 +1124,19 @@ mod tests {
 
     #[test]
     fn invalid_opus_mapping_is_rejected_before_ffi() {
-        assert!(OpusDecoder::new(9, 1, 0, &[0; 9]).is_err());
+        assert!(OpusDecoder::new(13, 1, 0, &[0; 13]).is_err());
+        assert!(OpusDecoder::new(12, 8, 4, &[0; 11]).is_err());
         assert!(OpusDecoder::new(2, 1, 1, &[0]).is_err());
+    }
+
+    /// 7.1.4 in Foundation Sunshine's layouts opens a decoder.
+    #[test]
+    fn seven_one_four_opens_an_opus_decoder() {
+        use rubylight_protocol::audio_ext::{LAYOUT_714, LAYOUT_714_HQ};
+        for layout in [LAYOUT_714, LAYOUT_714_HQ] {
+            let decoder =
+                OpusDecoder::new(12, layout.streams, layout.coupled, &layout.mapping).unwrap();
+            assert_eq!(decoder.channels, 12);
+        }
     }
 }

@@ -331,6 +331,11 @@ public class StreamConfiguration {
     public MoonBridge.AudioConfiguration getAudioConfiguration() {
         return audioConfiguration;
     }
+
+    /** The audio this host is asked for once its serverinfo is read (Surround714.forHost). */
+    public void setHostAudioConfiguration(MoonBridge.AudioConfiguration audioConfig) {
+        this.audioConfiguration = audioConfig;
+    }
     
     public int getSupportedVideoFormats() {
         return supportedVideoFormats;

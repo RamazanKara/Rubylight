@@ -10,6 +10,7 @@ import android.view.Display;
 
 import com.limelight.binding.audio.MicGain;
 import com.limelight.binding.audio.MicProcessing;
+import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.binding.input.touch.FingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
@@ -84,6 +85,8 @@ public class PreferenceConfiguration {
     private static final String SMALL_ICONS_PREF_STRING = "checkbox_small_icon_mode";
     private static final String MULTI_CONTROLLER_PREF_STRING = "checkbox_multi_controller";
     static final String AUDIO_CONFIG_PREF_STRING = "list_audio_config";
+    /** The audio setting's 7.1.4 value, offered only where {@link Surround714#playable} says so. */
+    static final String AUDIO_CONFIG_714 = "714";
     private static final String USB_DRIVER_PREF_SRING = "checkbox_usb_driver";
     private static final String USB_DUALSENSE_PREF_STRING = "checkbox_usb_dualsense";
     private static final String USB_SWITCH_PRO_PREF_STRING = "checkbox_usb_switch_pro";
@@ -1282,7 +1285,18 @@ public class PreferenceConfiguration {
         }
 
         String audioConfig = prefs.getString(AUDIO_CONFIG_PREF_STRING, DEFAULT_AUDIO_CONFIG);
-        if (audioConfig.equals("71")) {
+        if (audioConfig.equals(AUDIO_CONFIG_714)) {
+            // Moonlight V+'s 7.1.4 where this device plays it (the route may have changed since it
+            // was picked), and 7.1 otherwise.
+            if (Surround714.playable(context)) {
+                config.audioConfiguration = MoonBridge.AUDIO_CONFIGURATION_714_SURROUND;
+            }
+            else {
+                com.limelight.LimeLog.info("7.1.4 isn't playable on this output; asking for 7.1");
+                config.audioConfiguration = MoonBridge.AUDIO_CONFIGURATION_71_SURROUND;
+            }
+        }
+        else if (audioConfig.equals("71")) {
             config.audioConfiguration = MoonBridge.AUDIO_CONFIGURATION_71_SURROUND;
         }
         else if (audioConfig.equals("51")) {

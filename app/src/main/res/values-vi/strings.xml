@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Stereo</string>
     <string name="audioconf_51surround">Âm thanh vòm 5.1</string>
     <string name="audioconf_71surround">Âm thanh vòm 7.1</string>
+    <string name="audioconf_714surround">Âm thanh vòm 7.1.4</string>
     <string name="videoformat_auto">Tự động (khuyên dùng)</string>
     <string name="videoformat_av1always">Ưu tiên AV1</string>
     <string name="videoformat_hevcalways">Ưu tiên HEVC</string>

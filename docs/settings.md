@@ -158,7 +158,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 
 | Setting / preference key | Tier | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- | --- |
-| Surround sound<br>`list_audio_config` | Main | Stereo | Stereo; 5.1 Surround Sound; 7.1 Surround Sound | Choose 5.1 or 7.1 for a matching audio output and host configuration; use stereo for headphones or two speakers. |
+| Surround sound<br>`list_audio_config` | Main | Stereo | Stereo; 5.1 Surround Sound; 7.1 Surround Sound; 7.1.4 Surround Sound | Choose 5.1 or 7.1 for a matching audio output and host configuration; use stereo for headphones or two speakers. |
 | Play audio on the host PC<br>`checkbox_host_audio` | Main | Off | On; Off | Enable to hear audio on the PC as well as Android. |
 | Send microphone to the PC<br>`checkbox_enable_mic` | Main | Off | On; Off | Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending. |
 | Microphone button<br>`checkbox_mic_button` | Main | On | On; Off | Leave on for a round button on the stream that mutes and unmutes with one tap; drag it anywhere and it stays there. Shown only while the PC takes the microphone. Turn off to mute from the stream menu only; the menu's Input section can show or hide it during a stream. Requires Send microphone to the PC On. |

@@ -11,7 +11,10 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use nightjar_core::control::negotiation::feature;
-use nightjar_core::input::packets::{mouse_button, touch_event, touchpad, TouchpadContact};
+#[cfg(windows)]
+use nightjar_core::input::packets::mouse_button;
+use nightjar_core::input::packets::{touch_event, touchpad, TouchpadContact};
+#[cfg(windows)]
 use nightjar_core::input::{InputError, InputQueue};
 use sdl3_sys::everything::*;
 
@@ -277,6 +280,7 @@ impl Transport {
         }
     }
 
+    #[cfg(windows)]
     pub fn send(self, outs: Vec<Out>, queue: &mut InputQueue) {
         for out in outs {
             let sent = match out {
@@ -295,62 +299,56 @@ impl Transport {
 }
 
 /// The stream's touchpad passthrough: off until the first pump with the setting on.
+#[cfg(windows)]
 #[derive(Default)]
 pub struct Touchpad {
     pub tracker: Tracker,
     transport: Option<Transport>,
     started: bool,
-    #[cfg(windows)]
     raw: Option<raw::RawTouchpad>,
 }
 
+#[cfg(windows)]
 impl super::Streaming {
     /// Sends what the touchpad did since the last call; called after each round of events.
     pub fn pump_touchpad(&mut self, window: *mut SDL_Window) {
         if !self.settings.native_touchpad {
             return;
         }
-        #[cfg(windows)]
-        {
-            if !self.touchpad.started {
-                self.touchpad.started = true;
-                let transport = Transport::of(self.session.input(|q| q.feature_flags()));
-                match transport {
-                    None => eprintln!("nightjar: touchpad gestures stay a mouse: the PC takes no touchpad contacts"),
-                    Some(transport) => match raw::RawTouchpad::install(window) {
-                        Ok(raw) => {
-                            eprintln!("nightjar: touchpad contacts go to the PC ({transport:?} packets)");
-                            self.touchpad.transport = Some(transport);
-                            self.touchpad.raw = Some(raw);
-                        }
-                        Err(e) => eprintln!("nightjar: touchpad gestures stay a mouse: {e}"),
-                    },
-                }
-            }
-            let (Some(transport), Some(raw)) = (self.touchpad.transport, self.touchpad.raw.as_ref()) else { return };
-            let events = raw.take();
-            let live = self.captured && self.focused && !self.absolute;
-            let now = Instant::now();
-            let tracker = &mut self.touchpad.tracker;
-            let mut outs = Vec::new();
-            if !live {
-                outs = tracker.cancel();
-            } else {
-                for event in events {
-                    match event {
-                        raw::Event::Frame(frame) => outs.extend(tracker.frame(frame, now)),
-                        raw::Event::Removed(device) if device == tracker.device() => outs.extend(tracker.cancel()),
-                        raw::Event::Removed(_) => {}
+        if !self.touchpad.started {
+            self.touchpad.started = true;
+            let transport = Transport::of(self.session.input(|q| q.feature_flags()));
+            match transport {
+                None => eprintln!("nightjar: touchpad gestures stay a mouse: the PC takes no touchpad contacts"),
+                Some(transport) => match raw::RawTouchpad::install(window) {
+                    Ok(raw) => {
+                        eprintln!("nightjar: touchpad contacts go to the PC ({transport:?} packets)");
+                        self.touchpad.transport = Some(transport);
+                        self.touchpad.raw = Some(raw);
                     }
-                }
-            }
-            if !outs.is_empty() {
-                self.session.input(|q| transport.send(outs, q));
+                    Err(e) => eprintln!("nightjar: touchpad gestures stay a mouse: {e}"),
+                },
             }
         }
-        #[cfg(not(windows))]
-        {
-            let _ = (window, &mut self.touchpad.started, &self.touchpad.transport);
+        let (Some(transport), Some(raw)) = (self.touchpad.transport, self.touchpad.raw.as_ref()) else { return };
+        let events = raw.take();
+        let live = self.captured && self.focused && !self.absolute;
+        let now = Instant::now();
+        let tracker = &mut self.touchpad.tracker;
+        let mut outs = Vec::new();
+        if !live {
+            outs = tracker.cancel();
+        } else {
+            for event in events {
+                match event {
+                    raw::Event::Frame(frame) => outs.extend(tracker.frame(frame, now)),
+                    raw::Event::Removed(device) if device == tracker.device() => outs.extend(tracker.cancel()),
+                    raw::Event::Removed(_) => {}
+                }
+            }
+        }
+        if !outs.is_empty() {
+            self.session.input(|q| transport.send(outs, q));
         }
     }
 

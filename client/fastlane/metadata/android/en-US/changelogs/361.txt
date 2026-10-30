@@ -1,0 +1,3 @@
+• AV1 with low-latency mode on MediaTek TVs and sticks uses the decoder settings of Nightjar 3.2 again: the shorter queues of 4.0 showed rainbow colours on one.
+• New Thermal protection setting, off by default: device heat no longer halves the bitrate or lowers the resolution unless you turn it on.
+• The log says why Device controls bitrate changed the bitrate.

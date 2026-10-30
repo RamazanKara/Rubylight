@@ -2171,6 +2171,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     let style = glyphs::Style::of(pads);
                     ui.label(trf("Ctrl+Alt+Shift+Tab or {}+{} opens this menu.", &[&style.start(), &style.select()]));
                 });
+        } else {
+            s.settle_bitrate_slider(&ctx);
         }
         if visible {
             egui::Area::new(egui::Id::unique("overlay"))

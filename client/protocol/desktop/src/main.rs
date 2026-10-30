@@ -958,6 +958,7 @@ impl App {
         let hosts = &self.hosts;
         let pads = &self.pads;
         let updates = &mut self.updates;
+        self.gui.set_readable(true);
         let output = self.gui.run(self.window, self.renderer, |ui| {
             updates.show(ui.ctx());
             commands = launcher.ui(
@@ -1996,6 +1997,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     let (anchor, offset) = overlay_anchor(s.overlay_corner);
     let visible = s.overlay_visible;
     let title = format!("{} · {}", s.facts.app_name, s.facts.host_name);
+    // Screen readers get the menu and the Remote Input screen, not every frame of the overlay.
+    gui.set_readable(s.menu_visible || input_only);
     let output = gui.run(window, renderer, |ui| {
         let ctx = ui.ctx().clone();
         if input_only {

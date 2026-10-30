@@ -1,6 +1,7 @@
 //! `GET /audio` and `POST /audio/settings`: night mode and headphone surround of the caller's
 //! stream. The contract is `docs/native-api.md`, "Audio processing"; the settings live on the
-//! session (`audio_dsp::Controls`) and a write applies from the next audio packet.
+//! session (`audio_dsp::Controls`) and a write applies from the next audio packet. Each device
+//! reads and changes only its own Stream session's.
 use super::{Failure, Reply, caller, json, read_body, require_view_or_launch};
 use crate::{
     state::{Session, Shared},
@@ -17,20 +18,22 @@ use butterpollo_core::{
         audio::AudioWrite,
         error::ErrorCode,
         radeon::{Change, Value},
-        session::State as SessionState,
     },
+    session::Role,
     session_state::Refusal,
+    state::Client,
 };
 use serde::Deserialize;
+use std::sync::Arc;
 
 pub async fn read(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
     let client = caller(&h, &c)?;
     require_view_or_launch(&client)?;
     tokio::task::spawn_blocking(move || {
-        let audio = match crate::couch_menu::own_stream(&h, &client) {
-            Ok(s) => audio_dsp::state(Some(&s.audio), base(&h, &s)?),
+        let audio = match own_stream(&h, &client) {
+            Some(s) => audio_dsp::state(Some(&s.audio), base(&h, &s)?),
             // Another device's stream is no more writable for this one than none at all.
-            Err(_) => audio_dsp::state(None, Settings::default()),
+            None => audio_dsp::state(None, Settings::default()),
         };
         Ok(json(StatusCode::OK, &audio))
     })
@@ -94,18 +97,11 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
             })
             .collect(),
     };
-    // The refusals of the Radeon writes: the owner of a streaming or suspended session.
-    let snapshot = h.session_snapshot();
-    match snapshot.state {
-        SessionState::Idle => return Err(Refusal::NoSession.into()),
-        _ if snapshot.owner.as_deref() != Some(client.uuid.as_str()) => {
-            return Err(Refusal::NotOwner.into());
-        }
-        SessionState::Streaming | SessionState::Suspended => {}
-        _ => return Err(Refusal::Busy.into()),
-    }
-    // A suspended session has no stream whose audio a change could reach.
-    let s = crate::couch_menu::own_stream(h, &client).map_err(|_| Refusal::NoSession)?;
+    // The settings belong to the caller's own stream, whoever owns the PC's main session: a
+    // second device streaming beside it changes its own sound. Without such a stream (none, a
+    // suspended one, another device's, or only a monitor or input session) there is nothing to
+    // change, as the read says.
+    let s = own_stream(h, &client).ok_or(Refusal::NoSession)?;
     let base = base(h, &s)?;
     let audio = audio_dsp::apply(&s.audio, base, &write).map_err(|error| {
         let failure = Failure::new(error.code, error.message);
@@ -120,6 +116,19 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
         "native API: audio settings changed for this stream"
     );
     Ok(json(StatusCode::OK, &audio))
+}
+
+/// The caller's live Stream session, whose audio thread reads the settings. A Remote Monitor or
+/// input-only session has no sound of its own to change, so it counts as none.
+fn own_stream(h: &Shared, client: &Client) -> Option<Arc<Session>> {
+    let sessions = h.sessions.lock().unwrap();
+    sessions
+        .active
+        .values()
+        .find(|s| {
+            !s.stopping() && s.launch.role == Role::Stream && s.launch.client.uuid == client.uuid
+        })
+        .cloned()
 }
 
 /// The choice `s` starts with, for a setting its audio thread has not resolved yet: the launch

@@ -369,9 +369,9 @@ POST /api/native/v1/audio/settings
 { "changes": [ { "id": "audio.night_mode", "value": false }, { "id": "audio.headphone_surround", "value": true } ] }
 ```
 
-- For the owner of a `streaming` or `suspended` session, with View or Launch. Host control isn't needed: the change affects only the caller's own stream.
+- For a device with its own live Stream session (also a second device streaming beside the PC's main session), with View or Launch. Host control isn't needed: the change affects only the caller's own stream. A Remote Monitor or input-only session has no settings here; GET reports them `temporarily_unavailable` (`no_session`) as without a stream.
 - It applies to this session from the next audio packet and isn't saved. It answers the new Audio object.
-- Refusals: `no_session`, `not_session_owner` and `session_busy` as for the Radeon writes, and `no_session` for a suspended session, which has no stream to change; `not_found` for an id the host doesn't list; `invalid_value` for a value that isn't a boolean; `invalid_request` for unknown fields.
+- Refusals: `no_session` when the caller has no live Stream session of its own (none, a suspended one, only another device's, or only a monitor or input session); `not_found` for an id the host doesn't list; `invalid_value` for a value that isn't a boolean; `invalid_request` for unknown fields.
 
 **Launch parameters.** `/launch` and `/resume` take `audioNightMode=on|off` and `audioHeadphoneSurround=on|off`, the session choice above. A client sends them only when the host lists the feature and the user picked something other than the host setting. Other values are logged and ignored, and hosts without the features ignore the parameters.
 

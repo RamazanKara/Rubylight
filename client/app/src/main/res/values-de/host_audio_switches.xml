@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">Kopfhörer-Surround</string>
     <string name="stream_audio_next_stream">Gilt ab dem nächsten Stream</string>
     <string name="stream_audio_failed">Der Ton des PCs ließ sich nicht ändern: %1$s</string>
+    <string name="stream_audio_unread">Die Toneinstellungen des PCs ließen sich nicht lesen</string>
 </resources>

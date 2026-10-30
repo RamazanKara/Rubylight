@@ -122,6 +122,90 @@ async fn a_write_changes_the_callers_stream_from_the_next_packet() {
     );
 }
 
+fn paired(s: &Setup, uuid: &str) -> Client {
+    let paired = s.host().paired.read().unwrap();
+    paired
+        .clients
+        .iter()
+        .find(|c| c.uuid == uuid)
+        .unwrap()
+        .clone()
+}
+
+#[tokio::test]
+async fn a_second_device_changes_its_own_stream_beside_the_main_session() {
+    let s = Setup::new();
+    let main = s.streaming();
+    let other = other_device(&s.f, VIEW, false);
+    let theirs = s.stream_as(paired(&s, "other-device"));
+    // The PC's main session stays the first device's; the second still sees its own switches.
+    assert_eq!(
+        s.host().session_snapshot().owner.as_deref(),
+        Some(s.client.uuid.as_str())
+    );
+    let read = audio(&api(&s.f, &other, "GET", "/audio").await);
+    assert!(
+        read.settings
+            .iter()
+            .all(|setting| setting.state == ControlState::Configurable)
+    );
+    let changed = audio(
+        &write(
+            &s,
+            &other,
+            r#"{"changes":[{"id":"audio.headphone_surround","value":true}]}"#,
+        )
+        .await,
+    );
+    assert_eq!(
+        changed.settings[1].value,
+        Some(Value::Bool(true)),
+        "{changed:?}"
+    );
+    assert!(
+        theirs
+            .audio
+            .settings(Settings::default())
+            .headphone_surround
+    );
+    // The first device's stream keeps its own.
+    assert_eq!(
+        main.audio.settings(Settings::default()),
+        Settings::default()
+    );
+    assert_eq!(
+        audio(&s.get("/audio").await).settings[1].value,
+        Some(Value::Bool(false))
+    );
+}
+
+#[tokio::test]
+async fn a_monitor_or_input_session_has_no_audio_settings() {
+    for role in [Role::RemoteMonitor, Role::InputOnly] {
+        let s = Setup::new();
+        let session = s.f.session(s.client.clone(), role);
+        let read = audio(&s.get("/audio").await);
+        assert!(
+            read.settings.iter().all(|setting| setting.state
+                == ControlState::TemporarilyUnavailable
+                && setting.reason.as_deref() == Some("no_session")),
+            "{role:?}: {read:?}"
+        );
+        write(
+            &s,
+            &s.connection,
+            r#"{"changes":[{"id":"audio.night_mode","value":true}]}"#,
+        )
+        .await
+        .assert_error(409, "no_session");
+        assert_eq!(
+            session.audio.settings(Settings::default()),
+            Settings::default(),
+            "{role:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn writes_refuse_bad_bodies_other_devices_and_missing_permissions() {
     let s = Setup::new();
@@ -160,10 +244,11 @@ async fn writes_refuse_bad_bodies_other_devices_and_missing_permissions() {
     .await;
     reply.assert_error(404, "not_found");
     assert_eq!(reply.json()["error"]["setting"], "audio.loudness");
+    // Another device's stream is not one this device can change.
     let other = other_device(&s.f, ALL, true);
     write(&s, &other, night)
         .await
-        .assert_error(409, "not_session_owner");
+        .assert_error(409, "no_session");
     // None of these changed anything, all or nothing.
     assert_eq!(
         session.audio.settings(Settings::default()),

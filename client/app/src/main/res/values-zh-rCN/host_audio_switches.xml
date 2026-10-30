@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">耳机环绕声</string>
     <string name="stream_audio_next_stream">下次串流时生效</string>
     <string name="stream_audio_failed">无法更改电脑的音频：%1$s</string>
+    <string name="stream_audio_unread">无法读取电脑的音频设置</string>
 </resources>

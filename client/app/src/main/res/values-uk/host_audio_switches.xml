@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">Обʼємний звук у навушниках</string>
     <string name="stream_audio_next_stream">Діє з наступного стриму</string>
     <string name="stream_audio_failed">Не вдалося змінити звук ПК: %1$s</string>
+    <string name="stream_audio_unread">Не вдалося прочитати налаштування звуку ПК</string>
 </resources>

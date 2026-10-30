@@ -8,6 +8,7 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod a11y;
 mod autostream;
 mod cli;
 mod clipboard;
@@ -32,6 +33,8 @@ mod media;
 mod nav_repeat;
 mod network;
 mod network_test;
+mod pin_lock;
+mod pin_ui;
 mod radeon;
 mod sdl;
 mod session_page;
@@ -157,6 +160,8 @@ struct App {
     /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
     /// decoder and the renderer stay the same while Nightjar runs.
     color_probed: Option<(Hardware, (u32, String))>,
+    /// The stream start that waits for the PIN screen.
+    pin_pending: Option<PinPending>,
     /// This launch's update check (Windows); command-line and test streams make none.
     updates: update_check::Updates,
 }
@@ -372,8 +377,6 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     #[cfg(not(windows))]
     sdl::set_icon(window, &theme::logo_rgba(64), 64);
     sdl::exclude_from_capture_if_asked(window);
-    // SAFETY: a live window.
-    unsafe { SDL_ShowWindow(window) };
 
     let waker: hosts::Waker = Arc::new(move || {
         // SAFETY: SDL_PushEvent is thread-safe; the event is plain data.
@@ -384,11 +387,18 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         }
     });
 
-    let gui = Gui::new();
+    let mut gui = Gui::new();
+    // Before the window shows: UI Automation's adapter has to be on it from the start.
+    if let Err(e) = gui.attach_accessibility(window, waker.clone()) {
+        eprintln!("nightjar: screen readers cannot read this window: {e}");
+    }
+    // SAFETY: a live window.
+    unsafe { SDL_ShowWindow(window) };
     theme::apply(&gui.ctx);
     let display = display_of(window);
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
+    launcher.pin = Some(pin_ui::PinLock::open(store.dir()));
     launcher.favourites = store.favourites();
     launcher.system_languages = sdl::preferred_languages();
     #[cfg(windows)]
@@ -482,6 +492,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         updates,
         cli,
         color_probed: None,
+        pin_pending: None,
     };
     match identity {
         Some(identity) => {
@@ -520,6 +531,8 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
 
 impl App {
     fn shutdown(&mut self) {
+        // Closing Nightjar is leaving it: a start within the grace time stays unlocked.
+        if let Some(pin) = self.launcher.pin.as_mut() { pin.left(); }
         self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
         if let Some((streaming, _)) = self.streaming.take() {
@@ -668,7 +681,20 @@ impl App {
         !keys.is_empty()
     }
 
+    /// Minimizing or hiding the window is leaving Nightjar for the PIN lock's grace time.
+    fn track_visibility(&mut self, event: &SDL_Event) {
+        // SAFETY: reading the event type.
+        let kind = SDL_EventType(unsafe { event.r#type });
+        let Some(pin) = self.launcher.pin.as_mut() else { return };
+        match kind {
+            SDL_EVENT_WINDOW_MINIMIZED | SDL_EVENT_WINDOW_HIDDEN => pin.left(),
+            SDL_EVENT_WINDOW_RESTORED | SDL_EVENT_WINDOW_SHOWN => pin.returned(),
+            _ => {}
+        }
+    }
+
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
+        self.track_visibility(event);
         let scale = Scale::of(self.window);
         // SAFETY: union members read by event type.
         unsafe {
@@ -704,7 +730,8 @@ impl App {
         let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || self.launcher.remote.running() || self.launcher.files.busy()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
-            || self.identity.is_some() || self.autostream.is_some();
+            || self.identity.is_some() || self.autostream.is_some()
+            || self.launcher.pin.as_ref().is_some_and(pin_ui::PinLock::busy);
         let timeout = if busy { 16 } else { 250 };
         // A held direction wakes the loop for its next step.
         let timeout = self.nav_repeat.next(Instant::now()).map_or(timeout, |next| timeout.min(next.as_millis().min(250) as i32 + 1));
@@ -975,6 +1002,18 @@ impl App {
 
     fn command(&mut self, command: Command) {
         match command {
+            Command::PinPassed => match self.pin_pending.take() {
+                Some(PinPending::Launch { host, app, resume, small, from }) => self.launch(host, app, resume, small, from),
+                Some(PinPending::QuitAndLaunch { host, app, named }) => self.command(Command::QuitAndLaunch { host, app, named }),
+                None => {}
+            },
+            Command::PinCancelled => {
+                eprintln!("nightjar: stream start cancelled at the PIN");
+                if let Some(PinPending::Launch { from: LaunchFrom::CommandLine, .. }) = self.pin_pending.take() {
+                    if let Some(cli) = self.cli.as_mut() { cli.cancel(); }
+                }
+            }
+            Command::Quit => self.running = false,
             Command::Launch { host, app, resume } => self.launch(host, app, resume, false, LaunchFrom::Launcher),
             Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, true, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
@@ -992,6 +1031,10 @@ impl App {
             }
             Command::ControlAction { host, app } => self.hosts.control_action(host, app),
             Command::QuitAndLaunch { host, app, named } => {
+                // Quitting the running game is part of this start: the PIN comes first.
+                if self.pin_holds(host, PinPending::QuitAndLaunch { host, app, named }) {
+                    return;
+                }
                 // The PC may run another app than the prompt named: look again before closing anything.
                 let now = self.hosts.get(host).and_then(|h| h.running_app());
                 match console::recheck_running(named, now) {
@@ -1404,7 +1447,7 @@ impl App {
             host: cli.host_seen(&self.hosts),
             message,
             busy: self.streaming.is_some() || self.connecting.is_some() || self.network_launch.is_some(),
-            confirming: self.pending_replace.is_some(),
+            confirming: self.pending_replace.is_some() || self.pin_pending.is_some(),
         };
         match cli.next(&seen) {
             cli::Step::Wait => {}
@@ -1427,8 +1470,26 @@ impl App {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), if small { ", input only through a small stream" } else { "" });
         if busy { return; }
+        // The quit-and-start prompt's start was let through with its quit.
+        if from != LaunchFrom::Replace && self.pin_holds(host_id, PinPending::Launch { host: host_id, app: app_id, resume, small, from }) {
+            return;
+        }
         self.network_launch = Some((host_id, app_id, resume, small));
         self.network_query = Some(network::query(self.waker.clone()));
+    }
+
+    /// Whether the PIN lock holds a stream start on `host` back; it then asks for the PIN and
+    /// keeps `pending` until the PIN screen answers (Command::PinPassed or PinCancelled).
+    fn pin_holds(&mut self, host: u64, pending: PinPending) -> bool {
+        let Some(pin) = self.launcher.pin.as_mut() else { return false };
+        let (uuid, name) = self.hosts.get(host).map_or((String::new(), String::new()), |h| (h.record.unique_id.clone(), h.display_name().to_owned()));
+        if !pin.needs_pin_for_stream(&uuid) {
+            return false;
+        }
+        eprintln!("nightjar: the PIN lock asks for the PIN before this start");
+        pin.ask_for_stream(&uuid, &name);
+        self.pin_pending = Some(pending);
+        true
     }
 
     fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool) {
@@ -1842,6 +1903,7 @@ impl App {
     }
 
     fn dispatch_stream_event(&mut self, event: &SDL_Event) {
+        self.track_visibility(event);
         // SAFETY: reading the event type.
         let kind = SDL_EventType(unsafe { event.r#type });
         if kind.0 == self.wake_event {
@@ -2310,6 +2372,12 @@ fn remove_host(
     }
     hosts.remove(id);
     save_hosts(store, hosts);
+}
+
+/// A stream start the PIN lock holds until the PIN is entered.
+enum PinPending {
+    Launch { host: u64, app: i32, resume: bool, small: bool, from: LaunchFrom },
+    QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
 }
 
 /// What asked for a launch. The log names it, so it shows what had the PC start or replace a game.

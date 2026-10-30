@@ -124,3 +124,93 @@ static void setSurround714Fallback(POPUS_MULTISTREAM_CONFIGURATION opusConfig) {
         opusConfig->mapping[i] = (unsigned char)i;
     }
 }
+
+// The first `a=<attribute>:` line of a DESCRIBE answer as a 7.1.4 layout, read as the Rust
+// client's audio_ext::Layout::parse reads it: channels, streams, coupled streams and 12 mapping
+// entries, comma-separated (`12,7,5,0,1,10,11,2,3,4,5,6,7,8,9`). 1 when the line is there and
+// valid, 0 when there is none, negative when it is malformed.
+static int parseSurround714Layout(const char* payload, const char* attribute, POPUS_MULTISTREAM_CONFIGURATION opusConfig) {
+    char needle[64];
+    const char* p;
+    int numbers[15];
+    int i;
+
+    snprintf(needle, sizeof(needle), "a=%s:", attribute);
+    // Only at the start of a line.
+    p = strstr(payload, needle);
+    while (p && p != payload && p[-1] != '\n') {
+        p = strstr(p + 1, needle);
+    }
+    if (!p) {
+        return 0;
+    }
+    p += strlen(needle);
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    for (i = 0; i < 15; i++) {
+        int digits = 0;
+
+        if (i > 0 && *p++ != ',') {
+            Limelog("%s has too few values\n", attribute);
+            return -1;
+        }
+        numbers[i] = 0;
+        for (; SURROUND_PARAMS_IS_DIGIT(*p) && digits < 4; p++, digits++) {
+            numbers[i] = numbers[i] * 10 + (*p - '0');
+        }
+        if (digits == 0 || digits > 3 || numbers[i] > 255) {
+            Limelog("Invalid value %d in %s\n", i, attribute);
+            return -1;
+        }
+    }
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    if (*p != '\0' && *p != '\r' && *p != '\n') {
+        Limelog("%s has trailing data\n", attribute);
+        return -1;
+    }
+    if (numbers[0] != 12 || numbers[2] > numbers[1] || numbers[1] + numbers[2] != 12) {
+        Limelog("%s is not a 7.1.4 layout\n", attribute);
+        return -1;
+    }
+    for (i = 0; i < 12; i++) {
+        if (numbers[3 + i] >= 12) {
+            Limelog("%s maps past 12 channels\n", attribute);
+            return -1;
+        }
+    }
+
+    opusConfig->channelCount = 12;
+    opusConfig->streams = numbers[1];
+    opusConfig->coupledStreams = numbers[2];
+    for (i = 0; i < 12; i++) {
+        opusConfig->mapping[i] = (unsigned char)numbers[3 + i];
+    }
+    return 1;
+}
+
+// 7.1.4 from a DESCRIBE answer without surround-params for it. A Rubylight 3.0 rc (rc.4, rc.5)
+// names its layouts only in `a=x-rl-audio.layout714` and `layout714Hq` (7 streams, 5 coupled);
+// with neither, V+'s fallback. 0, or negative when an x-rl line is malformed.
+static int setSurround714FromDescribe(const char* payload, POPUS_MULTISTREAM_CONFIGURATION normal,
+                                      POPUS_MULTISTREAM_CONFIGURATION highQuality, bool* highQualitySupported) {
+    int found;
+
+    *highQualitySupported = false;
+    found = parseSurround714Layout(payload, "x-rl-audio.layout714", normal);
+    if (found < 0) {
+        return found;
+    }
+    if (found == 0) {
+        setSurround714Fallback(normal);
+        return 0;
+    }
+    found = parseSurround714Layout(payload, "x-rl-audio.layout714Hq", highQuality);
+    if (found < 0) {
+        return found;
+    }
+    *highQualitySupported = found == 1;
+    return 0;
+}

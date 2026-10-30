@@ -1,1 +1,0 @@
-- A device's **Display overrides** in the console no longer close while you type a display mode, and **Stream preset** no longer closes on its own.

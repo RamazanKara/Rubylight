@@ -1073,6 +1073,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private static final String EXTRA_STREAM_NETWORK = "StreamNetwork";
     private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
     private static final String EXTRA_RECOVERY_MEDIA_FAILURE = "RecoveryMediaFailure";
+    // An earlier connection of this automatic reconnect chain showed video (videoStarted).
+    private static final String EXTRA_RECOVERY_VIDEO = "RecoveryVideoShown";
     // Packed full chroma failed in this session and the reconnect runs without it (not the setting).
     private static final String EXTRA_PACKED_OFF = "PackedChromaOff";
     private static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
@@ -4180,6 +4182,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
         retry.removeExtra(EXTRA_RECOVERY_STARTED);
         retry.removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
+        retry.removeExtra(EXTRA_RECOVERY_VIDEO);
         retry.removeExtra(EXTRA_OUTPUT_RESUME_ONLY);
         if (outputSwitchPending) {
             if (app == null || app.isControlAction()) return null;
@@ -4411,7 +4414,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Intent retry = createStreamHandoffIntent(LaunchSource.RECOVERY)
                 .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid);
         if (packedOff) retry.putExtra(EXTRA_PACKED_OFF, true);
+        // Only a drop after video marks the chain; a restart before it (packed chroma) carries what it had.
+        if (videoStarted()) retry.putExtra(EXTRA_RECOVERY_VIDEO, true);
         return queueAutomaticRecovery(retry, packedOff, false, immediate);
+    }
+
+    /**
+     * Whether video started: this connection showed a frame, or an earlier one of its automatic
+     * reconnect chain did. A reconnect after a real drop that has no frame yet when it drops again
+     * keeps reconnecting within the budget; a stream that never had video does not reconnect
+     * (Moonlight V+ PC 6792aeed).
+     */
+    boolean videoStarted() {
+        MediaCodecDecoderRenderer videoRenderer = decoderRenderer;
+        return (videoRenderer != null && videoRenderer.hasReceivedVideo()) ||
+                getIntent().getBooleanExtra(EXTRA_RECOVERY_VIDEO, false);
     }
 
     /**
@@ -4419,9 +4436,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
      * checks, and an attempt left in the budget. Spends nothing.
      */
     private boolean recoversAutomatically() {
-        MediaCodecDecoderRenderer videoRenderer = decoderRenderer;
         if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog || !connected || !foreground ||
-                videoRenderer == null || !videoRenderer.hasReceivedVideo() ||
+                !videoStarted() ||
                 isFinishing() || isDestroyed() || recoveryHandoffInProgress || pendingRecovery != null ||
                 app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
         int resumeId = recoveryAppId != 0 ? recoveryAppId :
@@ -7222,9 +7238,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         // A stream that never had video does not reconnect: its error (and the port test) shows at once.
-        final MediaCodecDecoderRenderer videoRenderer = decoderRenderer;
-        final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode,
-                videoRenderer != null && videoRenderer.hasReceivedVideo());
+        final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode, videoStarted());
         // A renderer failure on this device says nothing about the network
         final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
                 errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER || errorCode == MoonBridge.CLIENT_ERROR_DECODER ||
@@ -7420,8 +7434,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
             // Roamed, or carrying on (the same address back, or no route yet): the stream goes on,
             // and its own timeout decides if it cannot.
+            // Like a drop, only a stream whose video started reconnects (desktop: reconnects_on_its_own).
             if (!connected || displayedFailureDialog || isFinishing() || isDestroyed() || prefConfig == null ||
-                    !NetworkReturnRecovery.reconnectsAtOnce(change == MoonBridge.NETWORK_CANNOT_CONTINUE, metered,
+                    !videoStarted() || !NetworkReturnRecovery.reconnectsAtOnce(change == MoonBridge.NETWORK_CANNOT_CONTINUE, metered,
                             prefConfig.roamingMetered, prefConfig.autoReconnect,
                             prefConfig.networkGraceSeconds * 1000)) return;
             // The connection cannot carry on over this network and would only time out first.

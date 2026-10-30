@@ -23,7 +23,7 @@ Phones, handhelds, tablets, TVs and the desktop client share one streaming engin
 </p>
 
 <p align="center">
-  <img src="docs/assets/shots/handheld-home.png" width="405" alt="Nightjar's Home on a Retroid Pocket 6 handheld: Continue playing and the Library shelf (demo library)">
+  <img src="docs/assets/shots/handheld-home.png" width="405" alt="Nightjar's Home on a handheld: Continue playing and the Library shelf (demo library)">
   <img src="docs/assets/shots/stream-stats.png" width="405" alt="A stream with the Statistics overlay: resolution, codec, frame rate, bitrate, round trip, decode time and the PC's CPU and GPU readings (demo data)">
 </p>
 

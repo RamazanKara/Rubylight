@@ -871,6 +871,48 @@ public final class HostActions {
         dialog.show();
     }
 
+    /**
+     * Automatic, or one of the PC's known addresses to always connect through (Moonlight V+ PC's address
+     * pinning).
+     */
+    public void chooseAddress(final ComputerDetails computer) {
+        java.util.List<ComputerDetails.AddressTuple> known = computer.knownAddresses();
+        if (computer.pinnedAddress != null && !known.contains(computer.pinnedAddress)) {
+            known.add(computer.pinnedAddress);
+        }
+        String[] items = new String[known.size() + 1];
+        items[0] = activity.getString(R.string.host_address_automatic);
+        int checked = 0;
+        for (int i = 0; i < known.size(); i++) {
+            items[i + 1] = known.get(i).toString();
+            if (known.get(i).equals(computer.pinnedAddress)) {
+                checked = i + 1;
+            }
+        }
+        new NavigationDialogBuilder(activity)
+                .setTitle(R.string.host_menu_connection_address)
+                .setSingleChoiceItems(items, checked, (d, which) -> {
+                    d.dismiss();
+                    pinAddress(computer, which == 0 ? null : known.get(which - 1));
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    @VisibleForTesting
+    void pinAddress(ComputerDetails computer, ComputerDetails.AddressTuple address) {
+        ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+        if (binder == null) {
+            showError(R.string.host_menu_connection_address, activity.getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        binder.pinAddress(computer.uuid, address);
+        computer.pinnedAddress = address;
+        if (address != null) {
+            computer.activeAddress = address;
+        }
+    }
+
     @VisibleForTesting
     void saveName(ComputerDetails computer, String typed) {
         ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();

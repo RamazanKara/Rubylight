@@ -21,13 +21,13 @@ mod video;
 
 use std::io;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub use audio::AUDIO_QUEUE_BOUND;
-pub use net::{is_nat64_with, is_private};
+pub use net::{is_nat64_with, is_private, ReceiveBuffer};
 pub use roam::{NetworkChange, NetworkHint, RoamingConfig};
 pub use video::DECODE_UNIT_QUEUE_BOUND;
 
@@ -333,6 +333,9 @@ pub(crate) struct Shared {
     start_gate: Mutex<StartGate>,
     /// "Prioritize stream traffic" ([`SessionConfig::network_priority`]).
     network_priority: bool,
+    /// Bytes of every video and audio datagram received, FEC parity included: what the stream
+    /// takes on the wire ([`Session::wire_bytes`]).
+    wire_bytes: AtomicU64,
 }
 
 enum StartGate {
@@ -348,7 +351,13 @@ impl Shared {
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
+            wire_bytes: AtomicU64::new(0),
         }
+    }
+
+    /// Counts a received video or audio datagram toward [`Session::wire_bytes`].
+    pub(crate) fn received(&self, bytes: usize) {
+        self.wire_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
     /// Reports a termination once, on its own thread, unless the session is stopping. While
@@ -448,6 +457,8 @@ struct Parts {
     /// An input-only session's video pings, with no receive side behind them.
     video_pinger: Option<net::Pinger>,
     video_shared: Option<Arc<video::VideoShared>>,
+    /// The video socket's receive buffer, as asked and as granted.
+    video_receive_buffer: Option<net::ReceiveBuffer>,
     audio_shared: Arc<audio::AudioShared>,
     control: Option<ControlHandle>,
     control_thread: Option<JoinHandle<driver::Outcome>>,
@@ -548,6 +559,7 @@ impl Session {
             audio_pinger: None,
             video_pinger: None,
             video_shared: None,
+            video_receive_buffer: None,
             audio_shared: Arc::new(audio::AudioShared::default()),
             control: None,
             control_thread: None,
@@ -601,6 +613,18 @@ impl Session {
             .outcome
             .as_ref()
             .expect("a started session has negotiated")
+    }
+
+    /// The video socket's receive buffer as asked and as the OS granted it; None without video
+    /// or when the size could not be read back.
+    pub fn video_receive_buffer(&self) -> Option<ReceiveBuffer> {
+        self.parts.video_receive_buffer
+    }
+
+    /// Bytes of video and audio datagrams received so far, FEC parity included: the stream's
+    /// bandwidth on the wire, as Moonlight V+'s `LiGetRTPVideoBytesReceived` with audio added.
+    pub fn wire_bytes(&self) -> u64 {
+        self.parts.shared.wire_bytes.load(Ordering::Relaxed)
     }
 
     /// `LiGetPendingAudioDuration`: the milliseconds of audio queued for the renderer, counted
@@ -1106,10 +1130,17 @@ fn start(
         if let Err(code) = decoder.setup(&setup) {
             return Err(video_fail(code, "the video decoder setup failed".into()));
         }
-        let socket = match net::bind_udp(local, video_buffer, Qos::Video, config.network_priority, |m| {
+        let socket = match net::bind_udp_sized(local, video_buffer, Qos::Video, config.network_priority, |m| {
             listener.warn(m)
         }) {
-            Ok(socket) => socket,
+            Ok((socket, buffer)) => {
+                if let Some(buffer) = buffer {
+                    let text = buffer.describe("Video");
+                    if buffer.short() { listener.warn(&text) } else { listener.log(&text) }
+                }
+                parts.video_receive_buffer = buffer;
+                socket
+            }
             Err(e) => {
                 decoder.cleanup();
                 return Err(video_fail(io_code(&e), e.to_string()));

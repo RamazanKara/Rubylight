@@ -6,6 +6,7 @@
     <string name="stats_waiting">ストリームの統計情報を待機しています…</string>
     <string name="stats_frame_rates">描画: %1$s FPS · 受信: %2$s FPS</string>
     <string name="stats_throughput">映像データ: %1$s Mbps · 損失: %2$s%%</string>
+    <string name="stats_wire">回線上: %1$s Mbps (FEC と音声を含む)</string>
     <string name="stats_network">ネットワーク RTT: %1$s ms（±%2$s ms）</string>
     <string name="stats_host">ホストの処理: %1$s ms</string>
     <string name="stats_host_network">ホストからネットワーク: %1$s ms</string>

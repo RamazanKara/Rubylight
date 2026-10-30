@@ -2,6 +2,7 @@ package com.limelight.nvstream.http;
 
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 
@@ -84,6 +85,11 @@ public class ComputerDetails {
     public AddressTuple remoteAddress;
     public AddressTuple manualAddress;
     public AddressTuple ipv6Address;
+    /**
+     * The known address the user chose to always connect through, or null for the automatic pick
+     * (Moonlight V+ PC's pinned address). Kept beside the database ({@code PinnedAddresses}).
+     */
+    public AddressTuple pinnedAddress;
     public String macAddress;
     public X509Certificate serverCert;
 
@@ -182,6 +188,28 @@ public class ComputerDetails {
         // Copy details from the other computer
         update(details);
         this.alias = details.alias;
+        this.pinnedAddress = details.pinnedAddress;
+    }
+
+    /** The PC's known addresses without repeats, in the automatic pick's order: local, manual, remote, IPv6. */
+    public List<AddressTuple> knownAddresses() {
+        List<AddressTuple> known = new ArrayList<>();
+        for (AddressTuple address : new AddressTuple[] {localAddress, manualAddress, remoteAddress, ipv6Address}) {
+            if (address != null && !known.contains(address)) {
+                known.add(address);
+            }
+        }
+        return known;
+    }
+
+    /** The addresses a poll tries: only the pinned one while the user pinned it, else every known one in order. */
+    public List<AddressTuple> pollAddresses() {
+        if (pinnedAddress != null) {
+            List<AddressTuple> pinned = new ArrayList<>();
+            pinned.add(pinnedAddress);
+            return pinned;
+        }
+        return knownAddresses();
     }
 
     /** What this device calls the PC: the name the user gave it, else the PC's own. */

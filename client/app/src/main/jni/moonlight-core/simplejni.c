@@ -171,6 +171,11 @@ Java_com_limelight_nvstream_jni_MoonBridge_cGetPendingVideoFrames(JNIEnv *env, j
     return LiGetPendingVideoFrames();
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cGetWireBytesReceived(JNIEnv *env, jclass clazz) {
+    return (jlong)LiGetWireBytesReceived();
+}
+
 JNIEXPORT jint JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_testClientConnectivity(JNIEnv *env, jclass clazz, jstring testServerHostName, jint referencePort, jint testFlags) {
     int ret;

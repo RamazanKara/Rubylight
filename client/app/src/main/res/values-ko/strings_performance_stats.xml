@@ -6,6 +6,7 @@
     <string name="stats_waiting">스트림 통계를 기다리는 중…</string>
     <string name="stats_frame_rates">렌더링: %1$s FPS · 수신: %2$s FPS</string>
     <string name="stats_throughput">동영상 데이터: %1$s Mbps · 손실: %2$s%%</string>
+    <string name="stats_wire">네트워크 전송량: %1$s Mbps (FEC 및 오디오 포함)</string>
     <string name="stats_network">네트워크 RTT: %1$s ms(±%2$s ms)</string>
     <string name="stats_host">호스트 처리: %1$s ms</string>
     <string name="stats_host_network">호스트에서 네트워크까지: %1$s ms</string>

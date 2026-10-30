@@ -1,0 +1,20 @@
+{
+  "source": "StreamRecoveryPolicyTest.noReconnectBeforeTheFirstVideo",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": null,
+  "calls": [
+    {"call": "recovers_termination", "args": [-100, false], "expect": false},
+    {"call": "recovers_termination", "args": [-101, false], "expect": false},
+    {"call": "recovers_termination", "args": [-102, false], "expect": false},
+    {"call": "recovers_termination", "args": [10054, false], "expect": false},
+    {"call": "recovers_termination", "args": [-1, false], "expect": false},
+    {"call": "recovers_termination", "args": [-100, true], "expect": true},
+    {"call": "recovers_termination", "args": [-102, true], "expect": true},
+    {"call": "recovers_termination", "args": [10054, true], "expect": true},
+    {"call": "recovers_termination", "args": [-1, true], "expect": true},
+    {"call": "recovers_termination", "args": [0, true], "expect": false},
+    {"call": "recovers_termination", "args": [-103, true], "expect": false},
+    {"call": "recovers_termination", "args": [403, true], "expect": false}
+  ]
+}

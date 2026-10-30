@@ -75,7 +75,7 @@ Updates are offered in the console and can install automatically while nothing i
 ## Quick start
 
 1. Install Rubylight and open **https://localhost:47990** on the PC. Create the console account.
-2. Pair a device. In Nightjar, scan the QR code on the console's **Home** page. In Moonlight, select the PC and enter the PIN it shows on the console's **Devices** page.
+2. Pair a device. In Nightjar, scan the QR code on the console's **Devices** page (also shown on Home until the first device is paired). In Moonlight, select the PC, then enter the PIN Moonlight shows on the console's **Devices** page.
 3. Start **Desktop** at 1080p60 with HDR off. When picture, sound and input work, raise the resolution, frame rate and bitrate, and turn on HDR.
 
 The [getting started guide](docs/getting-started.md) covers each step, choosing a stream format and importing an existing profile.
@@ -88,7 +88,7 @@ The [getting started guide](docs/getting-started.md) covers each step, choosing 
 | --- | --- | --- |
 | [Moonlight](https://moonlight-stream.org) | Windows, macOS, Linux, Android, iOS, Apple TV, and community ports such as Xbox | The standard client: H.264, HEVC and AV1, SDR and HDR, as the device decodes them |
 | [Artemis](https://github.com/ClassicOldSong/moonlight-android) | Android | Apollo's Android client; virtual displays matched to the device |
-| [Nightjar](https://github.com/RamazanKara/nightjar) | Android, Android TV, Windows, Linux | Rubylight's client: PyroWave and packed 4:4:4, QR pairing, the game library, Radeon controls, error correction and pacing chosen by the device |
+| [Nightjar](https://github.com/RamazanKara/nightjar) | Android, Android TV, Fire TV, Windows, Linux | Rubylight's client: PyroWave and packed 4:4:4, QR pairing, the game library, Radeon controls, error correction and pacing chosen by the device |
 | [Nonary's Moonlight](https://github.com/Nonary/moonlight-qt) | Desktop (a Moonlight-Qt fork) | PyroWave |
 | Browsers and Samsung Tizen TVs | WebRTC | H.264, HEVC and AV1 with HDR, surround and gamepads, paired with a PIN ([WebRTC](docs/webrtc.md)) |
 

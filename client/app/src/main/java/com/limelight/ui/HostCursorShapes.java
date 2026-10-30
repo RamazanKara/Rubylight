@@ -25,6 +25,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class HostCursorShapes {
     /** More queued messages than this means the host floods the channel; the excess is dropped. */
     private static final int MAX_PENDING = 64;
+    /**
+     * How long a hide waits for a show that cancels it: Windows hides the cursor for a moment
+     * while it changes it, and hiding at once made it flicker. Moonlight V+'s
+     * REMOTE_CURSOR_HIDE_DEBOUNCE_MS (https://github.com/qiin2333/moonlight-qt, GPL-3.0).
+     */
+    static final long HIDE_DELAY_MS = 150;
 
     private static final class Shape {
         final Drawable drawable;
@@ -55,6 +61,9 @@ public final class HostCursorShapes {
     private boolean displayPosted, displayShape, displayHidden;
     private Shape displayed;
     private final Runnable display = this::display;
+    // UI thread: whether the host's cursor is hidden, and whether a hide waits out HIDE_DELAY_MS.
+    private boolean hostHidden, hidePending;
+    private final Runnable hide = this::hide;
 
     /** rejected runs on the UI thread, at most once, after the first message that could not be drawn. */
     public HostCursorShapes(Resources resources, LocalCursorView cursorView, TrackpadPointer pointer, Runnable rejected) {
@@ -189,6 +198,21 @@ public final class HostCursorShapes {
         } else if (setShape) {
             cursorView.setCursor(shape.drawable, shape.hotspotX, shape.hotspotY);
         }
-        pointer.setHostCursorHidden(hidden);
+        if (!hidden) {
+            if (hidePending) ui.removeCallbacks(hide);
+            hidePending = false;
+            hostHidden = false;
+            pointer.setHostCursorHidden(false);
+        } else if (!hostHidden && !hidePending) {
+            hidePending = true;
+            ui.postDelayed(hide, HIDE_DELAY_MS);
+        }
+    }
+
+    private void hide() {
+        hidePending = false;
+        if (closed) return;
+        hostHidden = true;
+        pointer.setHostCursorHidden(true);
     }
 }

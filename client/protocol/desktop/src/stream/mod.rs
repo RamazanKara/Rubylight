@@ -1662,6 +1662,7 @@ impl Streaming {
         } else {
             0
         };
+        crate::sdl::alt_f4_to_host(true);
         if facts.host_timing {
             let _ = session.send(ClientMessage::HostTimingRequest(HostTimingRequest { enabled: true }));
         }
@@ -2786,6 +2787,7 @@ impl Streaming {
 
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
+        self.cursor.tick(Instant::now());
         if let Some(microphone) = &self.microphone {
             while let Ok(packet) = microphone.packets.try_recv() {
                 if let Err(error) = self.session.send_microphone(&packet) {
@@ -2839,7 +2841,7 @@ impl Streaming {
             (Some(picture), Some(slice)) => Some(picture.min(slice)),
             (picture, slice) => picture.or(slice),
         };
-        match due {
+        let wait = match due {
             Some(due) => {
                 let now = session::now_us();
                 if due <= now {
@@ -2849,6 +2851,11 @@ impl Streaming {
                 }
             }
             None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
+        };
+        // A hide from the PC waiting out its delay wakes the loop when due.
+        match (wait, self.cursor.hide_in(Instant::now())) {
+            (Wait::For(wait), Some(hide)) => Wait::For(wait.min(hide)),
+            (wait, _) => wait,
         }
     }
 
@@ -3817,6 +3824,7 @@ impl Streaming {
         self.text_field.stop(window);
         self.set_capture(window, false);
         self.cursor.clear();
+        crate::sdl::alt_f4_to_host(false);
         for controller in 0..16 {
             if self.audio_status.0[usize::from(controller)] != 0 {
                 let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller, flags: 0 });

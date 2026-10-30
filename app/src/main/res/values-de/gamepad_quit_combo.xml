@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Controller-Tastenkombination zum Beenden</string>
+    <string name="summary_list_gamepad_quit_combo">Diese Tasten zusammen halten, um den Stream zu verlassen; er endet, sobald alle losgelassen sind. Aus überlässt das dem Stream-Menü, das Start+Select+LB+RB öffnet. Gilt ab dem nächsten Stream.</string>
+    <string name="gamepad_quit_combo_off">Aus</string>
+    <string name="stream_controller_mouse">Controller-Maus</string>
+</resources>

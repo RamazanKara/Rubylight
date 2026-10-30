@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Combinação para sair no controle</string>
+    <string name="summary_list_gamepad_quit_combo">Segure estes botões para sair da transmissão; ela termina quando todos são soltos. Desligado deixa isso para o menu da transmissão, que Start+Select+LB+RB abre. Vale a partir da próxima transmissão.</string>
+    <string name="gamepad_quit_combo_off">Desligado</string>
+    <string name="stream_controller_mouse">Mouse no controle</string>
+</resources>

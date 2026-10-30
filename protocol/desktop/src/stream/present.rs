@@ -309,6 +309,14 @@ pub struct VideoTexture {
     d3d11_picture: bool,
     #[cfg(windows)]
     hdr10_plus: Option<f32>,
+    /// The current 10-bit SDR picture converted to RGB by the pass, for SDL (`sdl_texture`), the
+    /// view the pass writes it through, and whether it holds the current picture.
+    #[cfg(windows)]
+    converted: *mut SDL_Texture,
+    #[cfg(windows)]
+    converted_view: Option<windows::Win32::Graphics::Direct3D11::ID3D11RenderTargetView>,
+    #[cfg(windows)]
+    converted_current: bool,
 }
 
 impl Default for VideoTexture {
@@ -356,6 +364,12 @@ impl Default for VideoTexture {
             d3d11_picture: false,
             #[cfg(windows)]
             hdr10_plus: None,
+            #[cfg(windows)]
+            converted: std::ptr::null_mut(),
+            #[cfg(windows)]
+            converted_view: None,
+            #[cfg(windows)]
+            converted_current: false,
         }
     }
 }
@@ -413,6 +427,49 @@ fn direct_matrix(space: SDL_Colorspace) -> (u32, bool) {
         SDL_COLORSPACE_BT2020_FULL => (2, true),
         SDL_COLORSPACE_BT709_FULL => (1, true),
         _ => (1, false),
+    }
+}
+
+/// Whether a decoded picture is PQ, one decision for every path that shows it: a P010 picture
+/// when the stream shows HDR (`shows_hdr`: the host's HDR mode, else the PQ transfer or the
+/// negotiated HDR), even when the bitstream does not signal PQ; never an NV12 one.
+#[cfg(windows)]
+fn picture_pq(format: SDL_PixelFormat, hdr_mode: Option<bool>, hdr_stream: bool, hdr_frame: bool) -> bool {
+    format == SDL_PIXELFORMAT_P010 && shows_hdr(hdr_mode, hdr_stream, if hdr_frame { 16 } else { 0 })
+}
+
+/// SDL's D3D11 shaders decode every P010 texture as PQ (and NV12 as gamma): a picture whose
+/// `picture_pq` differs reaches SDL converted to RGB by the pass.
+#[cfg(windows)]
+fn sdl_needs_rgb(format: SDL_PixelFormat, pq: bool) -> bool {
+    (format == SDL_PIXELFORMAT_P010) != pq
+}
+
+/// The pass for the renderer's device, made on first use or after the device changed.
+#[cfg(windows)]
+fn direct_pass(direct: &mut Option<(usize, super::direct::Direct)>, renderer: *mut SDL_Renderer) -> Result<&mut super::direct::Direct, String> {
+    let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+    if !direct.as_ref().is_some_and(|(made_on, _)| *made_on == device as usize) {
+        *direct = None;
+        // SAFETY: The renderer's live device, used on the presenting thread.
+        let made = unsafe {
+            use windows::core::Interface;
+            let device = windows::Win32::Graphics::Direct3D11::ID3D11Device::from_raw_borrowed(&device)
+                .ok_or("the renderer has no Direct3D 11 device")?;
+            super::direct::Direct::new(device)?
+        };
+        *direct = Some((device as usize, made));
+    }
+    Ok(&mut direct.as_mut().unwrap().1)
+}
+
+/// Runs a submission that reads `texture` under the decoder's lock when it is the held
+/// decoder picture's.
+#[cfg(windows)]
+fn lock_for(held: &Option<media::Frame>, texture: *mut c_void, submit: &mut dyn FnMut()) {
+    match held {
+        Some(frame) if frame.d3d11_surface().is_some_and(|surface| surface.texture == texture) => frame.with_decoder_lock(submit),
+        _ => submit(),
     }
 }
 
@@ -502,7 +559,7 @@ impl VideoTexture {
             _ => return None,
         };
         (!self.texture.is_null() && !self.d3d11.is_null()).then_some(super::enhance::Source {
-            texture: self.texture, d3d11: self.d3d11, picture: (self.width, self.height), ten_bit, colorspace: self.colorspace,
+            texture: self.texture, d3d11: self.d3d11, picture: (self.width, self.height), ten_bit, colorspace: self.colorspace, pq: self.pq(),
         })
     }
 
@@ -616,6 +673,7 @@ impl VideoTexture {
         {
             self.d3d11_picture = false;
             self.held = None;
+            self.converted_current = false;
         }
         // SDL's HDR headroom and tone mapping are relative to the display's SDR white.
         let white_level = if shows_hdr(self.hdr_mode, self.hdr_stream, info.color_trc) {
@@ -892,10 +950,17 @@ impl VideoTexture {
         unsafe { importer.import(renderer, self.texture, export, info.width as u32, info.height as u32) }
     }
 
-    /// Puts a held decoder picture into the video texture, for what reads the texture (the
-    /// upscalers, AI enhancement, SDL's drawing). Nothing to do when the picture was copied.
+    /// Whether the current picture is PQ: the one decision of the pass, AI enhancement and what
+    /// SDL draws (`picture_pq`).
     #[cfg(windows)]
-    pub fn materialize(&mut self) {
+    fn pq(&self) -> bool {
+        picture_pq(self.format, self.hdr_mode, self.hdr_stream, self.hdr_frame)
+    }
+
+    /// Puts a held decoder picture into the video texture, for what reads it (AI enhancement,
+    /// `sdl_texture`). Nothing to do when the picture was copied.
+    #[cfg(windows)]
+    pub fn copy_held(&mut self) {
         let Some(frame) = &self.held else { return };
         if self.copied || self.d3d11.is_null() { return; }
         self.copied = frame.copy_to_d3d11(self.d3d11, self.width, self.height);
@@ -908,33 +973,123 @@ impl VideoTexture {
     }
 
     #[cfg(not(windows))]
-    pub fn materialize(&mut self) {}
+    pub fn copy_held(&mut self) {}
 
-    /// Draws the current D3D11VA picture into the back buffer with `stream::direct` and returns
-    /// true, or returns false for SDL to draw the video texture: another kind of picture, the
-    /// pass switched off, or the pass failed (logged once; SDL draws from then on).
+    /// The texture SDL draws or the upscalers read for the current picture: the video texture
+    /// (with a held picture copied in), or for a 10-bit SDR picture, which SDL's shaders would
+    /// decode as PQ, its RGB conversion by the pass.
     #[cfg(windows)]
-    pub fn draw_direct(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect) -> bool {
+    pub fn sdl_texture(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_Texture {
+        if self.texture.is_null() || !self.d3d11_picture || !sdl_needs_rgb(self.format, self.pq()) {
+            self.copy_held();
+            return self.texture;
+        }
+        if !self.converted_current {
+            if let Err(error) = self.convert(renderer) {
+                self.fail(format!("converting a 10-bit SDR picture for SDL failed: {error}"), "the GPU conversion failed".into());
+                self.copy_held();
+                return self.texture;
+            }
+            self.converted_current = true;
+        }
+        self.converted
+    }
+
+    #[cfg(not(windows))]
+    pub fn sdl_texture(&mut self, _renderer: *mut SDL_Renderer) -> *mut SDL_Texture {
+        self.texture
+    }
+
+    #[cfg(windows)]
+    fn convert(&mut self, renderer: *mut SDL_Renderer) -> Result<(), String> {
+        use windows::core::Interface;
+        let picture = self.picture().ok_or("no picture to convert")?;
+        if self.converted.is_null() {
+            // SAFETY: SDL calls on the presenting thread's live renderer.
+            unsafe {
+                let props = SDL_CreateProperties();
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64::from(SDL_PIXELFORMAT_ABGR2101010.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64::from(SDL_TEXTUREACCESS_TARGET.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64::from(self.width));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, i64::from(self.height));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64::from(SDL_COLORSPACE_SRGB.0));
+                self.converted = SDL_CreateTextureWithProperties(renderer, props);
+                SDL_DestroyProperties(props);
+                if self.converted.is_null() { return Err(format!("SDL could not make the RGB texture: {}", crate::sdl::error())); }
+                SDL_SetTextureScaleMode(self.converted, SDL_SCALEMODE_LINEAR);
+                let raw = SDL_GetPointerProperty(SDL_GetTextureProperties(self.converted), SDL_PROP_TEXTURE_D3D11_TEXTURE_POINTER, std::ptr::null_mut());
+                let texture = windows::Win32::Graphics::Direct3D11::ID3D11Texture2D::from_raw_borrowed(&raw).ok_or("the RGB texture has no Direct3D 11 texture")?;
+                let mut view = None;
+                texture.GetDevice().and_then(|device| device.CreateRenderTargetView(texture, None, Some(&mut view)))
+                    .map_err(|e| format!("the RGB texture's view: {e}"))?;
+                self.converted_view = view;
+            }
+        }
+        let view = self.converted_view.clone().ok_or("the RGB texture has no view")?;
+        let size = (self.width as u32, self.height as u32);
+        let pass = direct_pass(&mut self.direct, renderer)?;
+        let held = &self.held;
+        // SAFETY: The picture's texture and the view belong to the renderer's device.
+        unsafe { pass.convert(&view, size, &picture, |submit| lock_for(held, picture.texture, submit)) }
+    }
+
+    /// The current D3D11VA picture for the pass: the held decoder slice or the copied texture.
+    #[cfg(windows)]
+    fn picture(&self) -> Option<super::direct::Picture> {
         let ten_bit = match self.format {
             SDL_PIXELFORMAT_NV12 => false,
             SDL_PIXELFORMAT_P010 => true,
-            _ => return false,
+            _ => return None,
         };
-        if !self.d3d11_picture || self.direct_failed || self.texture.is_null() || !super::direct::enabled() {
-            return false;
+        if !self.d3d11_picture || self.texture.is_null() {
+            return None;
         }
         let (texture, slice) = match &self.held {
-            Some(frame) => match frame.d3d11_surface() {
-                Some(surface) => (surface.texture, surface.slice),
-                None => return false,
-            },
+            Some(frame) => frame.d3d11_surface().map(|surface| (surface.texture, surface.slice))?,
             None if self.copied && !self.d3d11.is_null() => (self.d3d11, 0),
-            None => return false,
+            None => return None,
         };
         let (matrix, full_range) = direct_matrix(self.colorspace);
-        let picture = super::direct::Picture {
-            texture, slice, size: (self.width as u32, self.height as u32), ten_bit, full_range, matrix, pq: self.hdr_frame,
-        };
+        Some(super::direct::Picture {
+            texture, slice, size: (self.width as u32, self.height as u32), ten_bit, full_range, matrix, pq: self.pq(),
+        })
+    }
+
+    /// Draws `texture` into the back buffer with `stream::direct` and returns true, or returns
+    /// false for SDL to draw it. `texture` is the video texture or AI enhancement's output; the
+    /// pass draws the D3D11VA picture of either, and nothing else. A failing pass is logged
+    /// once and SDL draws from then on.
+    #[cfg(windows)]
+    pub fn draw_direct(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
+        let drawn = self.try_draw_direct(renderer, destination, texture);
+        if !drawn {
+            // SDL may resize the back buffer before the pass draws again.
+            if let Some((_, pass)) = &mut self.direct { pass.release_back_buffer(); }
+        }
+        drawn
+    }
+
+    #[cfg(windows)]
+    fn try_draw_direct(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
+        if self.direct_failed || texture.is_null() || !super::direct::enabled() {
+            return false;
+        }
+        let Some(mut picture) = self.picture() else { return false };
+        if texture != self.texture {
+            // AMF's HQ Scaler output: the same picture as NV12 or P010 at the output size.
+            // SAFETY: A live texture of this renderer.
+            let (format, w, h) = unsafe { ((*texture).format, (*texture).w, (*texture).h) };
+            if format != self.format {
+                return false;
+            }
+            // SAFETY: A live texture of this renderer.
+            picture.texture = unsafe { SDL_GetPointerProperty(SDL_GetTextureProperties(texture), SDL_PROP_TEXTURE_D3D11_TEXTURE_POINTER, std::ptr::null_mut()) };
+            if picture.texture.is_null() {
+                return false;
+            }
+            picture.slice = 0;
+            picture.size = (w as u32, h as u32);
+        }
         let metadata = self.hdr_metadata.filter(|_| self.hdr_mode == Some(true));
         let white_nits = 80.0 * self.white_level;
         let tone = super::direct::Tone {
@@ -942,41 +1097,19 @@ impl VideoTexture {
             hdr10_plus: self.hdr10_plus,
             static_peak: hdr_properties(true, self.white_level, metadata).headroom.map(|headroom| headroom * white_nits),
         };
-        let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
-        match self.present_direct(renderer, device, destination, &picture, tone) {
+        let drawn = direct_pass(&mut self.direct, renderer).and_then(|pass| {
+            let held = &self.held;
+            // SAFETY: The picture's texture and the renderer belong to the pass's device.
+            unsafe { pass.present(renderer, destination, &picture, tone, |submit| lock_for(held, picture.texture, submit)) }
+        });
+        match drawn {
             Ok(()) => true,
             Err(error) => {
                 eprintln!("nightjar: drawing the decoder's pictures directly failed: {error}; SDL draws them from now on");
                 self.direct_failed = true;
                 self.direct = None;
-                self.materialize();
                 false
             }
-        }
-    }
-
-    #[cfg(windows)]
-    fn present_direct(&mut self, renderer: *mut SDL_Renderer, device: *mut c_void, destination: &SDL_FRect,
-        picture: &super::direct::Picture, tone: super::direct::Tone) -> Result<(), String> {
-        if !self.direct.as_ref().is_some_and(|(made_on, _)| *made_on == device as usize) {
-            self.direct = None;
-            // SAFETY: The renderer's live device, used on the presenting thread.
-            let made = unsafe {
-                use windows::core::Interface;
-                let device = windows::Win32::Graphics::Direct3D11::ID3D11Device::from_raw_borrowed(&device)
-                    .ok_or("the renderer has no Direct3D 11 device")?;
-                super::direct::Direct::new(device)?
-            };
-            self.direct = Some((device as usize, made));
-        }
-        let pass = &mut self.direct.as_mut().unwrap().1;
-        let held = &self.held;
-        // SAFETY: The picture's texture and the renderer belong to the pass's device.
-        unsafe {
-            pass.present(renderer, destination, picture, tone, |submit| match held {
-                Some(frame) => frame.with_decoder_lock(submit),
-                None => submit(),
-            })
         }
     }
 
@@ -1151,6 +1284,12 @@ impl VideoTexture {
         if !self.texture.is_null() {
             // SAFETY: a texture we created.
             unsafe { SDL_DestroyTexture(self.texture) };
+        }
+        #[cfg(windows)]
+        if !self.converted.is_null() {
+            self.converted_view = None;
+            // SAFETY: a texture we created.
+            unsafe { SDL_DestroyTexture(self.converted) };
         }
         // The stage timers belong to the whole stream, not to one texture.
         let stages = std::mem::replace(&mut self.pyrowave_stages, super::stage_times::Stages::new(super::pyrowave_gpu::UPLOAD_AND_PASSES));
@@ -1586,5 +1725,41 @@ pub(crate) mod tests {
         pacer.accept(picture);
         pacer.accept(decoded(50));
         assert_eq!(pacer.front_race(), Some((7, 40)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_hdr_stream_is_pq_without_a_pq_transfer_in_the_bitstream() {
+        // The host's HDR mode decides, not the VUI: a host that leaves the transfer out still streams PQ.
+        assert!(picture_pq(SDL_PIXELFORMAT_P010, Some(true), false, false));
+        // Before the HDR mode arrives, the negotiated HDR or the PQ transfer decides.
+        assert!(picture_pq(SDL_PIXELFORMAT_P010, None, true, false));
+        assert!(picture_pq(SDL_PIXELFORMAT_P010, None, false, true));
+        // 10-bit SDR, and HDR mode off, are not PQ.
+        assert!(!picture_pq(SDL_PIXELFORMAT_P010, None, false, false));
+        assert!(!picture_pq(SDL_PIXELFORMAT_P010, Some(false), true, true));
+        // An 8-bit picture is never PQ.
+        assert!(!picture_pq(SDL_PIXELFORMAT_NV12, Some(true), true, true));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn sdl_gets_rgb_exactly_when_its_shaders_would_decode_the_picture_wrongly() {
+        // SDL decodes P010 as PQ and NV12 as gamma: every case of the one decision.
+        for (format, hdr_mode, hdr_stream, hdr_frame) in [
+            (SDL_PIXELFORMAT_P010, Some(true), false, false),
+            (SDL_PIXELFORMAT_P010, None, false, false),
+            (SDL_PIXELFORMAT_P010, Some(false), true, true),
+            (SDL_PIXELFORMAT_NV12, Some(true), true, true),
+            (SDL_PIXELFORMAT_NV12, None, false, false),
+        ] {
+            let pq = picture_pq(format, hdr_mode, hdr_stream, hdr_frame);
+            let sdl_decodes_pq = format == SDL_PIXELFORMAT_P010;
+            assert_eq!(sdl_needs_rgb(format, pq), sdl_decodes_pq != pq, "{} {hdr_mode:?} {hdr_stream} {hdr_frame}", format.0);
+        }
+        // 10-bit SDR is the case: converted, not shown as PQ.
+        assert!(sdl_needs_rgb(SDL_PIXELFORMAT_P010, false));
+        assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_P010, true));
+        assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_NV12, false));
     }
 }

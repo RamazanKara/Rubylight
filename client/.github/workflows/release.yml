@@ -287,6 +287,10 @@ jobs:
           docker run --rm -e VERSION -e appimage="$appimage" -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux/check-start.sh:/check-start.sh:ro" "$UBUNTU_OLDEST_IMAGE" bash -euo pipefail -c '
             export DEBIAN_FRONTEND=noninteractive APPIMAGE_EXTRACT_AND_RUN=1
             cd /tmp && "/dist/$appimage" --version | grep -qx "Nightjar $VERSION"
+            # The PyroWave SDK must load with the stock libstdc++ (2 = loaded, no Vulkan device):
+            # the runner has a newer one, and a missing PyroWave only hides the decoder.
+            code=0; "/dist/$appimage" --check-pyrowave /tmp/pyrowave.txt || code=$?
+            if [ "$code" != 0 ] && [ "$code" != 2 ]; then cat /tmp/pyrowave.txt; echo "the PyroWave SDK does not load on Ubuntu 22.04"; exit 1; fi
             apt-get update -qq
             apt-get install -y -qq --no-install-recommends libasound2 libx11-6 libxext6 xvfb x11-utils libgl1-mesa-dri libegl1 libgl1 >/dev/null
             if dpkg -s libva2 >/dev/null 2>&1; then echo "the window check would not use the fallback libva"; exit 1; fi

@@ -7668,11 +7668,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 // A link test before the launch may have started the stream lower than the setting.
                 currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
-                // A chosen bitrate below PyroWave's floor starts at the floor; said once, at the start.
-                if (conn.getPyroWaveRaisedFromKbps() > 0 && !prefConfig.disableWarnings) {
-                    messages.alert(getString(R.string.stream_pyrowave_bitrate_raised,
-                            conn.getPyroWaveRaisedFromKbps() / 1000.0, currentBitrate / 1000.0), Toast.LENGTH_LONG);
-                }
                 warnIfBelowPyroWaveFloor(currentBitrate);
                 notePyroWaveFallback();
                 startStreamBitrate();

@@ -952,15 +952,11 @@ public class NvConnection {
 
         }
 
-        int configuredKbps = context.streamConfig.getBitrate();
-        context.startBitrateKbps = pyroWaveStartKbps(context);
-        context.pyroWaveRaisedFromKbps = !context.streamConfig.isAutomaticBitrate() &&
-                context.startBitrateKbps > configuredKbps ? configuredKbps : 0;
-        if (context.pyroWaveRaisedFromKbps > 0) {
-            LimeLog.warning("PyroWave: the chosen " + configuredKbps + " kbps is below its floor, starting at " +
-                    context.startBitrateKbps + " kbps");
-        } else if (context.startBitrateKbps != configuredKbps) {
-            LimeLog.info("PyroWave: starting at its default of " + context.startBitrateKbps + " kbps");
+        context.linkHints = WiredLink.hintsToward(appContext, context.serverAddress.address);
+        context.startBitrateKbps = pyroWaveStartKbps(context, context.linkHints.mbps);
+        if (context.startBitrateKbps != context.streamConfig.getBitrate()) {
+            LimeLog.info("PyroWave: starting at its default of " + context.startBitrateKbps + " kbps (link " +
+                    context.linkHints.mbps + " Mbps)");
         }
 
         // We will perform some connection type detection if the caller asked for it
@@ -1090,17 +1086,18 @@ public class NvConnection {
 
     /**
      * The bitrate a stream that negotiated PyroWave starts at ({@link PyroWaveBitrateFloor#startKbps}):
-     * PyroWave's default when the bitrate is automatic, else the chosen one, at least PyroWave's floor;
-     * either no higher than this client's cap (the mobile data limit). Any other codec, and a stream
-     * that is not PyroWave after all, keeps the configured bitrate.
+     * PyroWave's default when the bitrate is automatic (within {@code linkMbps}, this device's wired
+     * link toward the host, 0 when unknown) and no higher than this client's cap (the mobile data
+     * limit). A chosen bitrate, any other codec, and a stream that is not PyroWave after all keep the
+     * configured bitrate.
      */
-    static int pyroWaveStartKbps(ConnectionContext context) {
+    static int pyroWaveStartKbps(ConnectionContext context, int linkMbps) {
         StreamConfiguration config = context.streamConfig;
         if ((context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) {
             return config.getBitrate();
         }
         int start = PyroWaveBitrateFloor.startKbps(config.getBitrate(), config.isAutomaticBitrate(),
-                context.negotiatedWidth, context.negotiatedHeight, config.getRefreshRate());
+                context.negotiatedWidth, context.negotiatedHeight, config.getRefreshRate(), linkMbps);
         int limit = config.getBitrateLimitKbps();
         return limit > 0 ? Math.min(start, Math.max(limit, config.getBitrate())) : start;
     }
@@ -1272,7 +1269,7 @@ public class NvConnection {
                     // same path (PyroWavePaceCalibration), if any. Zero (Wi-Fi, cellular,
                     // unknown) leaves either out of the stream description.
                     boolean pyroWave = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
-                    WiredLink.Hints linkHints = WiredLink.hintsToward(appContext, context.serverAddress.address);
+                    WiredLink.Hints linkHints = context.linkHints;
                     int pyroWaveLinkMbps = linkHints.mbps;
                     boolean wirelessRoute = linkHints.wireless;
                     PreferenceConfiguration hintPrefs = PreferenceConfiguration.readPreferences(appContext);
@@ -1418,11 +1415,6 @@ public class NvConnection {
     /** The bitrate this stream started at: the configured one, or lower after a link test. */
     public int getStartBitrateKbps() {
         return context.startBitrateKbps;
-    }
-
-    /** The chosen bitrate PyroWave's floor raised this stream's start from, or 0 when it did not. */
-    public int getPyroWaveRaisedFromKbps() {
-        return context.pyroWaveRaisedFromKbps;
     }
 
     public synchronized boolean startHardwareMetricsPolling(Consumer<HardwareMetrics> listener) {

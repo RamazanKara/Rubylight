@@ -158,21 +158,45 @@ pub fn minimum_kbps(width: u32, height: u32, fps: u32) -> u32 {
     bitrate_kbps(width, height, fps, if height < 1080 { 25 } else { 15 })
 }
 
+/// The default's ceiling when the client does not know its link: 900 Mbps, so a first stream fits
+/// ordinary gigabit Ethernet and Wi-Fi.
+pub const UNKNOWN_LINK_DEFAULT_CAP_KBPS: u32 = 900_000;
+
 /// The bitrate a PyroWave stream starts at when the user has not chosen one: the host's
 /// clean-picture target (`pyrowave::recommended_kbps`), 5 bits per pixel per frame below 1080
 /// lines and 3.2 from 1080 up, which is about 280 Mbps at 720p60 and 400 Mbps at 1080p60, the
-/// starting points the client docs give. No more than a stream may ask for.
-pub fn default_kbps(width: u32, height: u32, fps: u32) -> u32 {
-    bitrate_kbps(width, height, fps, if height < 1080 { 50 } else { 32 }).min(MAX_RUNTIME_KBPS)
+/// starting points the client docs give. It stays within 90% of the client's link
+/// (`link_mbps`, its wired port speed toward the host, the `pyrowaveLinkMbps` hint) or, with the
+/// link unknown (0), [`UNKNOWN_LINK_DEFAULT_CAP_KBPS`], but never below [`minimum_kbps`]; and no
+/// more than a stream may ask for.
+pub fn default_kbps(width: u32, height: u32, fps: u32, link_mbps: u32) -> u32 {
+    let clean = bitrate_kbps(width, height, fps, if height < 1080 { 50 } else { 32 });
+    let cap = if link_mbps > 0 {
+        link_mbps.saturating_mul(900)
+    } else {
+        UNKNOWN_LINK_DEFAULT_CAP_KBPS
+    };
+    clean
+        .min(cap)
+        .max(minimum_kbps(width, height, fps))
+        .min(MAX_RUNTIME_KBPS)
 }
 
 /// The bitrate a PyroWave stream starts at: [`default_kbps`] when the bitrate is automatic, else
-/// the chosen one, raised to [`minimum_kbps`] (up to what a stream may ask for) when below it.
-pub fn start_kbps(configured: u32, automatic: bool, width: u32, height: u32, fps: u32) -> u32 {
+/// the chosen one as it is, whatever the link, also below [`minimum_kbps`] (the bitrate setting
+/// warns about that).
+pub fn start_kbps(
+    configured: u32,
+    automatic: bool,
+    width: u32,
+    height: u32,
+    fps: u32,
+    link_mbps: u32,
+) -> u32 {
     if automatic {
-        default_kbps(width, height, fps)
+        default_kbps(width, height, fps, link_mbps)
     } else {
-        configured.max(minimum_kbps(width, height, fps).min(MAX_RUNTIME_KBPS))
+        configured
     }
 }
 
@@ -268,12 +292,19 @@ impl Subject for TracedFloor {
                 Ok(minimum_kbps(a.int(0)?, a.int(1)?, a.int(2)?).into())
             }
             "default_kbps" => {
-                let a = Args::new(args, 3)?;
-                Ok(default_kbps(a.int(0)?, a.int(1)?, a.int(2)?).into())
+                let a = Args::new(args, 4)?;
+                Ok(default_kbps(a.int(0)?, a.int(1)?, a.int(2)?, a.int(3)?).into())
             }
             "start_kbps" => {
-                let a = Args::new(args, 5)?;
-                let kbps = start_kbps(a.int(0)?, flag(args, 1)?, a.int(2)?, a.int(3)?, a.int(4)?);
+                let a = Args::new(args, 6)?;
+                let kbps = start_kbps(
+                    a.int(0)?,
+                    flag(args, 1)?,
+                    a.int(2)?,
+                    a.int(3)?,
+                    a.int(4)?,
+                    a.int(5)?,
+                );
                 Ok(kbps.into())
             }
             _ => Err(format!("unknown method {method}")),
@@ -297,12 +328,13 @@ mod tests {
     fn an_absurd_frame_rate_saturates_the_floor() {
         assert_eq!(minimum_kbps(3840, 2160, u32::MAX), u32::MAX);
         assert!(minimum_kbps(3840, 2160, 1_000_000) > MAX_RUNTIME_KBPS);
-        assert_eq!(default_kbps(3840, 2160, u32::MAX), MAX_RUNTIME_KBPS);
-        assert_eq!(start_kbps(5_000, false, 3840, 2160, u32::MAX), MAX_RUNTIME_KBPS);
+        assert_eq!(default_kbps(3840, 2160, u32::MAX, 0), MAX_RUNTIME_KBPS);
+        assert_eq!(default_kbps(3840, 2160, 120, u32::MAX), MAX_RUNTIME_KBPS);
+        assert_eq!(start_kbps(20_000, true, 3840, 2160, u32::MAX, 0), MAX_RUNTIME_KBPS);
     }
 
     // The host's own figures (rust/core/src/pyrowave.rs, quality_bitrates_scale_with_pixels_and_frame_rate),
-    // so the client never starts PyroWave at a rate the host calls too low.
+    // so the client never defaults PyroWave to a rate the host calls too low.
     #[test]
     fn the_floor_and_default_are_the_hosts() {
         assert_eq!(minimum_kbps(1280, 720, 60), 138_240);
@@ -310,27 +342,48 @@ mod tests {
         assert_eq!(minimum_kbps(3840, 2160, 60), 746_496);
         assert_eq!(minimum_kbps(1920, 1080, 30), 93_312);
         assert_eq!(minimum_kbps(1280, 720, 120), 276_480);
-        assert_eq!(default_kbps(1280, 720, 60), 276_480);
-        assert_eq!(default_kbps(1920, 1080, 60), 398_132);
-        assert_eq!(default_kbps(3840, 2160, 60), 1_592_525);
-        assert_eq!(default_kbps(1920, 1080, 120), 796_263);
+        assert_eq!(default_kbps(1280, 720, 60, 0), 276_480);
+        assert_eq!(default_kbps(1920, 1080, 60, 0), 398_132);
+        assert_eq!(default_kbps(1920, 1080, 120, 0), 796_263);
         for (w, h, fps) in [(1280, 720, 60), (1920, 1080, 60), (2560, 1440, 120), (3840, 2160, 60)] {
-            assert!(default_kbps(w, h, fps) > minimum_kbps(w, h, fps), "{w}x{h}@{fps}");
+            assert!(default_kbps(w, h, fps, 0) > minimum_kbps(w, h, fps), "{w}x{h}@{fps}");
         }
     }
 
+    // A default over gigabit broke a first PyroWave stream on ordinary Ethernet and Wi-Fi.
     #[test]
-    fn a_stream_starts_at_the_default_or_a_chosen_rate_no_lower_than_the_floor() {
+    fn the_default_fits_the_link_but_never_drops_below_the_floor() {
+        // Link unknown: no more than 900 Mbps.
+        assert_eq!(default_kbps(2560, 1440, 120, 0), 900_000);
+        assert_eq!(default_kbps(3840, 2160, 60, 0), 900_000);
+        // ... unless the floor is higher.
+        assert_eq!(default_kbps(3840, 2160, 120, 0), 1_492_992);
+        // A known link: 90% of it, again never below the floor.
+        assert_eq!(default_kbps(3840, 2160, 60, 2500), 1_592_525);
+        assert_eq!(default_kbps(2560, 1440, 120, 2500), 1_415_578);
+        assert_eq!(default_kbps(3840, 2160, 60, 1000), 900_000);
+        assert_eq!(default_kbps(1920, 1080, 60, 300), 270_000);
+        assert_eq!(default_kbps(1920, 1080, 60, 100), 186_624);
+        assert_eq!(default_kbps(3840, 2160, 120, 10_000), MAX_RUNTIME_KBPS);
+        // 10G at 4K60 gets the full clean target, 1G at 1440p120 about 900 Mbps.
+        assert_eq!(default_kbps(3840, 2160, 60, 10_000), 1_592_525);
+        assert_eq!(default_kbps(2560, 1440, 120, 1000), 900_000);
+    }
+
+    #[test]
+    fn a_stream_starts_at_the_default_or_the_chosen_rate() {
         // Automatic: the default, whatever the stored conventional default was.
-        assert_eq!(start_kbps(20_000, true, 1920, 1080, 60), 398_132);
-        assert_eq!(start_kbps(20_000, true, 2560, 1440, 120), 1_415_578);
-        assert_eq!(start_kbps(20_000, true, 3840, 2160, 60), 1_592_525);
-        assert_eq!(start_kbps(20_000, true, 3840, 2160, 120), MAX_RUNTIME_KBPS);
-        // Chosen below the floor: raised to it. Above it: untouched, even past the default.
-        assert_eq!(start_kbps(20_000, false, 1920, 1080, 60), 186_624);
-        assert_eq!(start_kbps(200_000, false, 1920, 1080, 60), 200_000);
-        assert_eq!(start_kbps(900_000, false, 1920, 1080, 60), 900_000);
-        assert_eq!(start_kbps(MAX_RUNTIME_KBPS, false, 3840, 2160, 60), MAX_RUNTIME_KBPS);
+        assert_eq!(start_kbps(20_000, true, 1920, 1080, 60, 0), 398_132);
+        assert_eq!(start_kbps(20_000, true, 2560, 1440, 120, 0), 900_000);
+        assert_eq!(start_kbps(20_000, true, 3840, 2160, 60, 0), 900_000);
+        assert_eq!(start_kbps(20_000, true, 3840, 2160, 60, 2500), 1_592_525);
+        // Chosen: kept as it is, below the floor (the settings warn) or past the default or the link.
+        assert_eq!(start_kbps(20_000, false, 1920, 1080, 60, 0), 20_000);
+        assert_eq!(start_kbps(20_000, false, 3840, 2160, 240, 0), 20_000);
+        assert_eq!(start_kbps(200_000, false, 1920, 1080, 60, 0), 200_000);
+        assert_eq!(start_kbps(900_000, false, 1920, 1080, 60, 0), 900_000);
+        assert_eq!(start_kbps(1_500_000, false, 3840, 2160, 60, 1000), 1_500_000);
+        assert_eq!(start_kbps(MAX_RUNTIME_KBPS, false, 3840, 2160, 60, 0), MAX_RUNTIME_KBPS);
     }
 
     #[test]

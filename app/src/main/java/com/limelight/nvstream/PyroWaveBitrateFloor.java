@@ -22,24 +22,33 @@ public final class PyroWaveBitrateFloor {
     }
 
     /**
+     * The default's ceiling when the client does not know its link: 900 Mbps, so a first stream
+     * fits ordinary gigabit Ethernet and Wi-Fi.
+     */
+    public static final int UNKNOWN_LINK_DEFAULT_CAP_KBPS = 900_000;
+
+    /**
      * The bitrate a PyroWave stream starts at when the user has not chosen one: the host's
      * clean-picture target (pyrowave::recommended_kbps), 5 bits per pixel per frame below 1080 lines
      * and 3.2 from 1080 up, which is about 280 Mbps at 720p60 and 400 Mbps at 1080p60, the starting
-     * points the client docs give. No more than a stream may ask for.
+     * points the client docs give. It stays within 90% of the client's link ({@code linkMbps}, its
+     * wired port speed toward the host, the pyrowaveLinkMbps hint) or, with the link unknown (0),
+     * {@link #UNKNOWN_LINK_DEFAULT_CAP_KBPS}, but never below {@link #minimumKbps}; and no more than
+     * a stream may ask for.
      */
-    public static int defaultKbps(int width, int height, int fps) {
-        return Math.min(bitrateKbps(width, height, fps, height < 1080 ? 50 : 32), MAX_KBPS);
+    public static int defaultKbps(int width, int height, int fps, int linkMbps) {
+        int clean = bitrateKbps(width, height, fps, height < 1080 ? 50 : 32);
+        int cap = linkMbps > 0 ? (int) Math.min(linkMbps * 900L, Integer.MAX_VALUE) : UNKNOWN_LINK_DEFAULT_CAP_KBPS;
+        return Math.min(Math.max(Math.min(clean, cap), minimumKbps(width, height, fps)), MAX_KBPS);
     }
 
     /**
      * The bitrate a PyroWave stream starts at: {@link #defaultKbps} when the bitrate is automatic,
-     * else the chosen one, raised to {@link #minimumKbps} (up to what a stream may ask for) when below it.
+     * else the chosen one as it is, whatever the link, also below {@link #minimumKbps} (the bitrate
+     * setting warns about that).
      */
-    public static int startKbps(int configured, boolean automatic, int width, int height, int fps) {
-        if (automatic) {
-            return defaultKbps(width, height, fps);
-        }
-        return Math.max(configured, Math.min(minimumKbps(width, height, fps), MAX_KBPS));
+    public static int startKbps(int configured, boolean automatic, int width, int height, int fps, int linkMbps) {
+        return automatic ? defaultKbps(width, height, fps, linkMbps) : configured;
     }
 
     // The host's arithmetic at a whole frame rate: tenths of a bit per pixel per frame, rounded up.

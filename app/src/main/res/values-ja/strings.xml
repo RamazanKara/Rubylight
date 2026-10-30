@@ -333,7 +333,7 @@
     <string name="stream_bitrate_invalid">0.5～2000 Mbps のビットレートを入力してください</string>
     <string name="stream_bitrate_applied">ホストが %1$.1f Mbps を適用しました</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps は PyroWave の最低値 %2$d Mbps（%3$d×%4$d、%5$d FPS）を下回っています。映像が崩れます。</string>
-    <string name="stream_pyrowave_bitrate_raised">ビットレート %1$.1f Mbps は PyroWave の最低値を下回っているため、このストリームは %2$.1f Mbps を使います。</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">%2$d×%3$d、%4$d FPS での PyroWave の最低値 %1$d Mbps を下回っています。映像が崩れます。</string>
     <string name="stream_enabled">オン</string>
     <string name="stream_disabled">オフ</string>
     <string name="stream_limiter_status">ホストのフレーム制限: %1$s\n自動表示制限: %2$s\n目標: %3$s</string>

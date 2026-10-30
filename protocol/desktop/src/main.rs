@@ -1698,8 +1698,7 @@ impl App {
         if notices_changed {
             self.save_hosts();
         }
-        let notices: Vec<&str> = pyrowave.as_deref().into_iter().chain(streaming.facts.pyrowave_raised.as_deref())
-            .chain(streaming.facts.color_notice.as_deref()).collect();
+        let notices: Vec<&str> = pyrowave.as_deref().into_iter().chain(streaming.facts.color_notice.as_deref()).collect();
         let notices = notices.join("\n");
         let network = &self.launcher.network;
         let profiles = &self.launcher.profiles;

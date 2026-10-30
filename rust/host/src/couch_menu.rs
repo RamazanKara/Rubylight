@@ -578,8 +578,8 @@ pub(crate) fn request(h: &Shared, client: &Client, open: bool) -> Result<bool, F
 }
 
 /// The caller's live stream, a Stream before a monitor or input session: what the couch menu
-/// and the audio settings (`native_api::audio`) act on.
-pub(crate) fn own_stream(h: &Shared, client: &Client) -> Result<Arc<Session>, Refusal> {
+/// acts on.
+fn own_stream(h: &Shared, client: &Client) -> Result<Arc<Session>, Refusal> {
     let sessions = h.sessions.lock().unwrap();
     let mut live = sessions
         .active

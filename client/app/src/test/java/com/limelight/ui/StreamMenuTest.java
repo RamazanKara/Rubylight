@@ -314,6 +314,20 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void aConnectedControllerGetsTheControllerMouseSwitch() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse("No controller, no switch", items(StreamMenu.mainPage(options)).contains(CONTROLLER_MOUSE));
+        options.controllerMouseAvailable = true;
+        assertEquals(Arrays.asList(TOUCH_MODE, CONTROLLER_MOUSE, ONSCREEN_CONTROLS, KEYBOARD_KEYS),
+                sections(StreamMenu.mainPage(options)).get(StreamMenu.Section.INPUT));
+        assertEquals(Boolean.FALSE, entry(StreamMenu.mainPage(options), CONTROLLER_MOUSE).checked);
+        options.controllerMouseOn = true;
+        assertEquals(Boolean.TRUE, entry(StreamMenu.mainPage(options), CONTROLLER_MOUSE).checked);
+        options.canSendInput = false;
+        assertFalse("Watching only: nothing to steer", items(StreamMenu.mainPage(options)).contains(CONTROLLER_MOUSE));
+    }
+
+    @Test
     public void deviceStateAddsAndRemovesItsOwnItems() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.mouseConnected = true;
@@ -385,6 +399,7 @@ public class StreamMenuTest {
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.micButtonAvailable = options.mouseConnected = options.onscreenControls = options.gameControls = true;
+            options.controllerMouseAvailable = true;
             options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));

@@ -3225,6 +3225,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ((Game) activityContext).showStreamMenu();
             }
         }
+        releaseQuitCombo(context, context.inputMap);
 
         return true;
     }
@@ -3440,6 +3441,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                                  ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
             context.pendingExit = true;
         }
+        holdQuitCombo(context, context.inputMap);
 
         // Start+LB acts like select for controllers with one button
         if (!context.hasSelect) {
@@ -3602,6 +3604,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
             context.menuComboPending = true;
         }
+        holdQuitCombo(context, buttons);
 
         sendControllerInputPacket(context);
 
@@ -3611,6 +3614,75 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ((Game) activityContext).showStreamMenu();
             }
         }
+        releaseQuitCombo(context, buttons);
+    }
+
+    /**
+     * The buttons of the controller quit combo chosen in Settings, or 0 when it is off (the default:
+     * Start+Select+LB+RB opens the stream menu here). The choices are Moonlight V+ PC's
+     * (qiin2333/moonlight-qt, gamepad.cpp), less its default, which is the menu combo on Android.
+     */
+    static int quitComboMask(String combo) {
+        int shoulders = ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG;
+        switch (combo == null ? "" : combo) {
+            case "select_lb_rb_y": return shoulders | ControllerPacket.BACK_FLAG | ControllerPacket.Y_FLAG;
+            case "start_lb_rb_a": return shoulders | ControllerPacket.PLAY_FLAG | ControllerPacket.A_FLAG;
+            case "start_lb_rb_b": return shoulders | ControllerPacket.PLAY_FLAG | ControllerPacket.B_FLAG;
+            case "lb_rb_x_y": return shoulders | ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG;
+            case "lb_rb_a_b": return shoulders | ControllerPacket.A_FLAG | ControllerPacket.B_FLAG;
+            default: return 0;
+        }
+    }
+
+    private void holdQuitCombo(GenericControllerContext context, int buttons) {
+        int mask = quitComboMask(prefConfig.gamepadQuitCombo);
+        if (mask != 0 && buttons == mask) {
+            context.quitComboPending = true;
+        }
+    }
+
+    // Like the menu combo, the stream ends once every button is up, so none stays held on the PC.
+    private void releaseQuitCombo(GenericControllerContext context, int buttons) {
+        if (context.quitComboPending && buttons == 0) {
+            context.quitComboPending = false;
+            if (activityContext instanceof Game) {
+                ((Game) activityContext).leaveStreamFromController();
+            }
+        }
+    }
+
+    /** Any controller drives the mouse (mouse emulation). */
+    public boolean isMouseEmulationActive() {
+        if (defaultContext.mouseEmulationActive) return true;
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.mouseEmulationActive) return true;
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.mouseEmulationActive) return true;
+        }
+        return false;
+    }
+
+    /** A controller is connected, so the stream menu offers its mouse switch. */
+    public boolean hasControllers() {
+        return !inputDeviceContexts.isEmpty() || !usbDeviceContexts.isEmpty();
+    }
+
+    /**
+     * The stream menu's controller mouse switch, as in Moonlight V+ PC: every active controller
+     * mouse turns off, or the first controller's turns on. It works with the Start long press off.
+     */
+    public void toggleMouseEmulationFromMenu() {
+        boolean active = false;
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.mouseEmulationActive) { context.toggleMouseEmulation(); active = true; }
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.mouseEmulationActive) { context.toggleMouseEmulation(); active = true; }
+        }
+        if (active) return;
+        for (InputDeviceContext context : inputDeviceContexts.values()) { context.toggleMouseEmulation(); return; }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) { context.toggleMouseEmulation(); return; }
     }
 
     // The keyboard owns the pad: report each change to it, and treat what is still held on the way
@@ -3775,6 +3847,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public short leftStickY = 0x0000;
 
         public boolean mouseEmulationActive;
+        // The quit combo was held; the stream ends once every button is up.
+        boolean quitComboPending;
         public int mouseEmulationLastInputMap;
         public boolean mouseEmulationFixedStepHeld;
         public int mouseEmulationStep = FixedStepMouse.MIN_STEP;

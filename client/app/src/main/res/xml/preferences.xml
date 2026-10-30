@@ -244,6 +244,13 @@
             android:title="@string/title_checkbox_back_opens_menu"
             android:dialogMessage="@string/summary_checkbox_back_opens_menu"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_gamepad_quit_combo"
+            android:title="@string/title_list_gamepad_quit_combo"
+            android:dialogMessage="@string/summary_list_gamepad_quit_combo"
+            android:entries="@array/gamepad_quit_combo_names"
+            android:entryValues="@array/gamepad_quit_combo_values"
+            android:defaultValue="off" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_back_as_guide"
             android:title="@string/title_checkbox_back_as_guide"

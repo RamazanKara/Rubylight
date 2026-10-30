@@ -275,6 +275,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_disable_rumble", new Read(false, true, c -> c.disableRumble));
         reads.put("checkbox_back_as_meta", new Read(false, true, c -> c.backAsMeta));
         reads.put("checkbox_back_opens_menu", new Read(false, true, c -> c.backOpensMenu));
+        reads.put("list_gamepad_quit_combo", new Read("off", "lb_rb_a_b", c -> c.gamepadQuitCombo));
         reads.put("checkbox_back_as_guide", new Read(false, true, c -> c.backAsGuide));
         reads.put("checkbox_capture_system_keys", new Read(true, false, c -> c.captureSystemKeys));
         reads.put("checkbox_right_alt_as_meta", new Read(false, true, c -> c.rightAltAsMeta));

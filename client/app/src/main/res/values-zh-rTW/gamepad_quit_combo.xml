@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">手把退出組合鍵</string>
+    <string name="summary_list_gamepad_quit_combo">按住這些按鍵即可退出串流，全部放開後結束。關閉時由串流選單（Start+Select+LB+RB 開啟）負責。下次串流生效。</string>
+    <string name="gamepad_quit_combo_off">關閉</string>
+    <string name="stream_controller_mouse">手把滑鼠</string>
+</resources>

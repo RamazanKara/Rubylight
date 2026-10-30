@@ -69,6 +69,8 @@ public class GameRecoveryTest {
                 null, 0, false, false, "", null) {
             @Override public void prepareForStop() {}
         });
+        // The stream showed video before it dropped.
+        ReflectionHelpers.setField(ReflectionHelpers.getField(game, "decoderRenderer"), "lastVideoFrameTimeMs", 1L);
         ReflectionHelpers.setField(game, "tombstonePrefs", game.getSharedPreferences("recovery-test", 0));
         ReflectionHelpers.setField(game, "attemptedConnection", true);
         ReflectionHelpers.setField(game, "recoveryAppId", 73);
@@ -235,6 +237,53 @@ public class GameRecoveryTest {
             return Integer.toString(portFlags);
         }
         @Implementation public static int getPortFlagsFromTerminationErrorCode(int errorCode) { return 0; }
+    }
+
+    // The review's regression: video showed, the network dropped, and the first reconnect had no frame
+    // yet when it dropped too. The chain carries its video, so the next attempt follows; a stream whose
+    // chain never showed video shows its error at once, and a network return does not reconnect it.
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aReconnectWithoutAFrameYetKeepsTheChainGoingAfterARealDrop() throws Exception {
+        Game shown = establishedGame();
+        ReflectionHelpers.setField(shown, "conn", new MuteConnection());
+        try {
+            assertTrue(ReflectionHelpers.callInstanceMethod(shown, "tryAutomaticRecovery"));
+            assertTrue("the drop came after video", awaitRecoveryLaunch(shown, 1).getBooleanExtra("RecoveryVideoShown", false));
+        } finally {
+            cleanupRecovery(shown);
+        }
+        for (boolean chainHadVideo : new boolean[] {true, false}) {
+            Game attempt = establishedGame();
+            ReflectionHelpers.setField(ReflectionHelpers.getField(attempt, "decoderRenderer"), "lastVideoFrameTimeMs", 0L);
+            attempt.setIntent(new Intent().putExtra("RecoveryVideoShown", chainHadVideo));
+            ReflectionHelpers.setField(attempt, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { return false; }
+            });
+            try {
+                attempt.connectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC);
+                assertEquals(chainHadVideo, ReflectionHelpers.getField(attempt, "pendingRecovery") != null);
+            } finally {
+                cleanupRecovery(attempt);
+            }
+        }
+        for (boolean video : new boolean[] {true, false}) {
+            Game returned = establishedGame();
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(returned, "prefConfig");
+            prefs.networkGraceSeconds = 0;
+            if (!video) {
+                ReflectionHelpers.setField(ReflectionHelpers.getField(returned, "decoderRenderer"), "lastVideoFrameTimeMs", 0L);
+            }
+            ReflectionHelpers.setField(returned, "conn", new MuteConnection());
+            try {
+                returned.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, false);
+                org.robolectric.shadows.ShadowLooper.idleMainLooper();
+                assertEquals("a network return reconnects only a stream that had video",
+                        video, ReflectionHelpers.getField(returned, "pendingRecoveryIntent") != null);
+            } finally {
+                cleanupRecovery(returned);
+            }
+        }
     }
 
     @Test

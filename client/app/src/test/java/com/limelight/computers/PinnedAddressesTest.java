@@ -42,6 +42,15 @@ public class PinnedAddressesTest {
         assertEquals(REMOTE, pc.pinnedAddress);
         assertEquals("the pinned address is the only one polled", Arrays.asList(REMOTE), pc.pollAddresses());
         assertEquals("a copy keeps the pin", Arrays.asList(REMOTE), new ComputerDetails(pc).pollAddresses());
+        // The review's regression: an mDNS rediscovery or another answer must not move a pinned PC.
+        pc.activeAddress = REMOTE;
+        ComputerDetails rediscovered = new ComputerDetails();
+        rediscovered.uuid = pc.uuid;
+        rediscovered.localAddress = LOCAL;
+        rediscovered.activeAddress = LOCAL;
+        pc.update(rediscovered);
+        assertEquals("the pin keeps the address streams use", REMOTE, pc.activeAddress);
+        assertEquals(REMOTE, new ComputerDetails(pc).activeAddress);
         PinnedAddresses.set(context, "uuid-2", IPV6);
         assertEquals("IPv6 survives the round trip", IPV6, PinnedAddresses.get(context, "uuid-2"));
 

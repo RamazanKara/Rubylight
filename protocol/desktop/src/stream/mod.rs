@@ -21,6 +21,7 @@ mod quality;
 mod rate_change;
 pub mod menu_extras;
 mod touch;
+mod touchpad;
 mod upscale;
 pub mod enhance;
 #[cfg(windows)]
@@ -1642,6 +1643,7 @@ pub struct Streaming {
     keys_down: HashSet<u16>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
+    touchpad: touchpad::Touchpad,
     captured: bool,
     absolute: bool,
     relative_remainder: (f32, f32),
@@ -1841,6 +1843,7 @@ impl Streaming {
             keys_down: HashSet::new(),
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
+            touchpad: touchpad::Touchpad::default(),
             captured: false,
             relative_remainder: (0.0, 0.0),
             offset: ClockOffset::default(),
@@ -3646,6 +3649,9 @@ impl Streaming {
         // SAFETY: union members read by event type.
         unsafe {
             let kind = SDL_EventType(event.r#type);
+            if self.touchpad_swallows(event) {
+                return;
+            }
             match kind {
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
                     self.exit = Some(Exit::CloseWindow);

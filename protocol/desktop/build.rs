@@ -19,15 +19,20 @@ fn main() {
         // nightjar.exe: Explorer, the taskbar, pins and the window (SDL takes the executable's
         // first icon) show it. Without windres (MSYS2 binutils) or rc.exe the build fails rather
         // than ship an exe with no icon at all.
+        // packaging/nightjar.exe.manifest becomes manifest resource 1 (RT_MANIFEST is 24) in the
+        // same script; tests/manifest.rs reads it back from the built exe.
         let icon = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/icons/nightjar.ico");
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/nightjar.exe.manifest");
         println!("cargo:rerun-if-changed={}", icon.display());
+        println!("cargo:rerun-if-changed={}", manifest.display());
         let rc = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("nightjar.rc");
         let path = icon.display().to_string().replace('\\', "/");
-        std::fs::write(&rc, format!("1 ICON \"{path}\"\n"))
+        let manifest_path = manifest.display().to_string().replace('\\', "/");
+        std::fs::write(&rc, format!("1 ICON \"{path}\"\n1 24 \"{manifest_path}\"\n"))
             .unwrap_or_else(|e| panic!("write {}: {e}", rc.display()));
         embed_resource::compile_for(&rc, ["nightjar"], embed_resource::NONE)
             .manifest_required()
-            .unwrap_or_else(|e| panic!("embed the icon (needs windres or rc.exe on PATH): {e}"));
+            .unwrap_or_else(|e| panic!("embed the icon and manifest (needs windres or rc.exe on PATH): {e}"));
     }
     let prefix = std::env::var("NIGHTJAR_FFMPEG_DIR")
         .ok()

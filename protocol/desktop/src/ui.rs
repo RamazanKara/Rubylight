@@ -1073,7 +1073,7 @@ impl Launcher {
             }
             ui.add_space(8.0);
             ui.label(
-                RichText::new(tr("Options for a PC: F2, right-click, the three dots, or the controller's X button. Ctrl+N adds a PC."))
+                RichText::new(trf("Options for a PC: F2, right-click, the three dots, or the controller's {} button. Ctrl+N adds a PC.", &[&crate::glyphs::Style::of(view.pads).face(crate::glyphs::Face::West)]))
                     .color(OUTLINE)
                     .font(regular(text::CAPTION)),
             );
@@ -1106,7 +1106,7 @@ impl Launcher {
                     ui.label(RichText::new(tr("This PC lists no apps.")).color(ON_SURFACE_VARIANT));
                     return;
                 }
-                ui.label(RichText::new(tr("Game settings: right-click a game, press F2, or use the controller's left face button.")).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(trf("Game settings: right-click a game, press F2, or use the controller's {} button.", &[&crate::glyphs::Style::of(view.pads).face(crate::glyphs::Face::West)])).color(ON_SURFACE_VARIANT));
                 ui.add_space(12.0);
                 scroll(ui, "apps", |ui| {
                     let gap = 20.0;
@@ -2477,6 +2477,9 @@ impl Launcher {
             });
             setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "Sensitivity of the captured pointer.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Send the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
+            if cfg!(windows) {
+                setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Send the touchpad's fingers to a PC that takes them, so its gestures work there. Other PCs get the pointer as before.", |ui, s| toggle(ui, &mut s.native_touchpad));
+            }
             setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
             setting_row(ui, s, &mut rows, &["controllers"], "Controllers", "Every connected controller becomes a controller on the PC.", |ui, s| {
                 toggle(ui, &mut s.controllers)

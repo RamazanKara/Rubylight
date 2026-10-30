@@ -218,6 +218,9 @@ pub struct Settings {
     pub mouse_mode: MouseMode,
     pub mouse_speed: u32,
     pub mouse_nav_buttons: bool,
+    /// Windows: a precision touchpad's fingers go to a PC that takes touchpad contacts
+    /// (Foundation Sunshine) instead of the pointer Windows makes of them.
+    pub native_touchpad: bool,
     pub right_alt_as_meta: bool,
     /// Send Alt+Tab, the Windows key and similar to the host while the stream has focus.
     pub capture_system_keys: bool,
@@ -535,6 +538,7 @@ impl Default for Settings {
             mouse_mode: MouseMode::Capture,
             mouse_speed: 100,
             mouse_nav_buttons: true,
+            native_touchpad: false,
             right_alt_as_meta: false,
             capture_system_keys: true,
             controllers: true,

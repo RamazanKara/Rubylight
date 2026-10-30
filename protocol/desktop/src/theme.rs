@@ -218,10 +218,14 @@ pub fn apply(ctx: &egui::Context) {
         .get(&FontFamily::Proportional)
         .cloned()
         .unwrap_or_default();
+    // Hack, egui's monospace font, comes last for the PlayStation button symbols (glyphs.rs)
+    // that neither Figtree nor egui's proportional fonts draw.
     let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
     proportional.insert(0, "figtree".into());
+    proportional.push("Hack".into());
     let mut bold = vec!["figtree-semibold".to_owned()];
     bold.extend(fallback);
+    bold.push("Hack".into());
     fonts.families.insert(FontFamily::Name("semibold".into()), bold);
     ctx.set_fonts(fonts);
     set_look(ctx, high_contrast(), false);

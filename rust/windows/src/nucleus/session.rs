@@ -30,6 +30,11 @@ use std::time::{Duration, Instant};
 pub const START_TIMEOUT: Duration = Duration::from_secs(60);
 /// How often the session looks at the desktop.
 const PERIOD: Duration = Duration::from_millis(250);
+/// How long after a click on the profile it is clicked again while Nucleus
+/// still lists it: a loaded profile with every player's controller plays at
+/// once and hides the list within about a second, and a click before its
+/// setup screen is made fails.
+const RECLICK: Duration = Duration::from_secs(5);
 /// Passes in a row that may fail (the desktop switching for a UAC prompt)
 /// before the session ends with the error.
 const FAILED_PASSES: u32 = 8;
@@ -480,6 +485,16 @@ struct Runner {
     title: String,
     players: usize,
     clicked: bool,
+    /// When the profile was last clicked.
+    clicked_at: Option<Instant>,
+    /// Whether Nucleus hid its profile list after a click: it plays then,
+    /// and the profile is never clicked again.
+    hid: bool,
+    /// The forms Nucleus showed over its window after a click, closed;
+    /// whether one was closed since the last click; the last one.
+    closed: BTreeSet<u64>,
+    boxed: bool,
+    last_form: Option<MessageBox>,
     /// Why the last click on the profile was refused.
     unclicked: Option<String>,
     /// While the profile is not shown: Nucleus' message boxes at the last
@@ -541,7 +556,7 @@ impl Runner {
         // click could start the game again.
         if !self.clicked
             && self.progress.1 == 0
-            && let Some(end) = self.click(&job)
+            && let Some(end) = self.click(&job, now)
         {
             return Some(end);
         }
@@ -596,12 +611,59 @@ impl Runner {
                 );
             }
         }
-        self.failed = 0;
         if !running && roots == 0 && self.clicked {
+            // A click that comes while Nucleus 2.4.2 still makes its setup
+            // screen fails to load the profile, and its box saying so
+            // disables the window, so no later click lands (#59). Nobody
+            // answers it during a background stream: it is closed, and the
+            // profile clicked again.
+            match self.desktop.close_forms(&job) {
+                Ok(closed) => {
+                    for form in closed {
+                        // One that takes a few passes to close is told once.
+                        if self.closed.insert(form.window) {
+                            tracing::warn!(
+                                "Nucleus Co-op showed \"{}\" over its window after the profile {TITLE} was clicked; closed it to click the profile again",
+                                form.summary()
+                            );
+                        }
+                        self.last_form = Some(form);
+                        self.boxed = true;
+                    }
+                }
+                Err(error) => {
+                    return self.failed_pass(error.context("closing Nucleus Co-op's windows"));
+                }
+            }
             // A box Nucleus shows after the click (its End-key reminder, a
             // check of the game) holds the start as one before it does.
             self.look(&job);
+            // Nucleus hides the list when it plays the profile: a list that
+            // comes back means no second click, which could start the game
+            // again.
+            if !self.hid {
+                match self.desktop.label(&job, TITLE) {
+                    Ok(Some(label)) => {
+                        // Not as the start times out: what the last click
+                        // led to says why.
+                        if self.showing.is_empty()
+                            && self.clicked_at.is_some_and(|at| now >= at + RECLICK)
+                            && now < self.deadline
+                        {
+                            // Still no instance: clicked again.
+                            self.press(&job, label, now);
+                        }
+                    }
+                    Ok(None) => self.hid = true,
+                    Err(error) => {
+                        return self.failed_pass(
+                            error.context("looking for Nucleus Co-op's profile list"),
+                        );
+                    }
+                }
+            }
         }
+        self.failed = 0;
         if !running && now >= self.deadline {
             return Some(End::Failed(self.timeout()));
         }
@@ -622,7 +684,7 @@ impl Runner {
     }
 
     /// Load the host's profile: Nucleus starts the game by itself then.
-    fn click(&mut self, job: &BTreeSet<u32>) -> Option<End> {
+    fn click(&mut self, job: &BTreeSet<u32>, now: Instant) -> Option<End> {
         let label = match self.desktop.label(job, TITLE) {
             Ok(Some(label)) => label,
             Ok(None) => {
@@ -631,10 +693,24 @@ impl Runner {
             }
             Err(error) => return Some(End::Failed(format!("{error:#}"))),
         };
+        self.press(job, label, now);
+        None
+    }
+
+    /// Click the profile's entry in Nucleus' list.
+    fn press(&mut self, job: &BTreeSet<u32>, label: u64, now: Instant) {
         match self.desktop.click(label) {
             Ok(()) => {
-                tracing::info!("Nucleus Co-op profile {TITLE} clicked");
+                if self.clicked {
+                    tracing::info!(
+                        "Nucleus Co-op profile {TITLE} clicked again: it still lists it"
+                    );
+                } else {
+                    tracing::info!("Nucleus Co-op profile {TITLE} clicked");
+                }
                 self.clicked = true;
+                self.clicked_at = Some(now);
+                self.boxed = false;
                 self.unclicked = None;
             }
             Err(error) => {
@@ -647,7 +723,6 @@ impl Runner {
                 self.look(job);
             }
         }
-        None
     }
 
     /// What Nucleus shows instead of the profile: a message box it shows
@@ -711,6 +786,44 @@ impl Runner {
         } else {
             "Nucleus Co-op showed no window".to_string()
         };
+        self.quoting_crashlog(why)
+    }
+
+    /// Why Nucleus did not start the game after the profile was clicked.
+    /// Nucleus plays a loaded profile by itself once each of its players
+    /// has a controller (`GameProfile.FindProfilePlayers`), and hides the
+    /// profile list then.
+    /// What came after the last click says why: a form closed since it, or
+    /// else whether the list is still there.
+    fn unstarted(&self) -> String {
+        let boxed = self.last_form.as_ref().filter(|_| self.boxed);
+        let why = if let Some(form) = boxed {
+            let said = match form.summary() {
+                summary if summary.is_empty() => "a window".to_string(),
+                summary => format!("\"{summary}\""),
+            };
+            format!(
+                "Nucleus Co-op did not start {}: after the last click on the profile {TITLE} it showed {said} over its window ({} closed since the launch)",
+                self.title,
+                self.closed.len()
+            )
+        } else if !self.hid {
+            format!(
+                "Nucleus Co-op did not start {}: it still shows its setup screen with the profile {TITLE}, which starts the game once every player has a controller there",
+                self.title
+            )
+        } else {
+            format!(
+                "Nucleus Co-op did not start {} after loading the profile {TITLE}",
+                self.title
+            )
+        };
+        self.quoting_crashlog(why)
+    }
+
+    /// `why`, with the newest exception of Nucleus' crashlog.txt since the
+    /// launch.
+    fn quoting_crashlog(&self, why: String) -> String {
         let reader = self.reader.as_ref();
         match self.crashlog.as_ref().and_then(|log| log.newest(reader)) {
             Some(line) => format!("{why}. Its crashlog.txt says: {line}"),
@@ -749,17 +862,16 @@ impl Runner {
 
     fn timeout(&self) -> String {
         let (clicked, roots, _) = self.progress;
-        let hint = format!("open Nucleus Co-op and load the profile {TITLE} once");
         match (&self.unclicked, clicked, roots) {
             // The box is why: it covers the list or holds the start.
             (_, _, 0) if !self.showing.is_empty() => self.unshown(),
             (Some(why), false, 0) => format!("Nucleus Co-op did not start {}: {why}", self.title),
             (None, false, 0) => self.unshown(),
-            (_, _, 0) => format!("Nucleus Co-op did not start {}; {hint}", self.title),
-            _ if roots < self.players => format!(
-                "Nucleus Co-op started {roots} of {} instances of {}; {hint}",
+            (_, _, 0) => self.unstarted(),
+            _ if roots < self.players => self.quoting_crashlog(format!(
+                "Nucleus Co-op started {roots} of {} instances of {}",
                 self.players, self.title
-            ),
+            )),
             _ => {
                 let slot = self.windows.iter().position(Option::is_none).unwrap_or(0);
                 format!(
@@ -1052,6 +1164,11 @@ fn begin(
         title: start.title.to_string(),
         players: start.players,
         clicked: false,
+        clicked_at: None,
+        hid: false,
+        closed: BTreeSet::new(),
+        boxed: false,
+        last_form: None,
         unclicked: None,
         showing: Vec::new(),
         logged: Vec::new(),
@@ -1350,6 +1467,9 @@ mod tests {
         fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
             self.0.lock().unwrap().message_boxes(processes)
         }
+        fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
+            self.0.lock().unwrap().close_forms(processes)
+        }
     }
 
     const NUCLEUS: u32 = 10;
@@ -1475,6 +1595,11 @@ mod tests {
             title: "Game".into(),
             players,
             clicked: false,
+            clicked_at: None,
+            hid: false,
+            closed: BTreeSet::new(),
+            boxed: false,
+            last_form: None,
             unclicked: None,
             showing: Vec::new(),
             logged: Vec::new(),
@@ -1560,6 +1685,211 @@ mod tests {
         );
         // Running, the session never times out.
         assert_eq!(runner.step(t0 + 10 * START_TIMEOUT), None);
+    }
+
+    /// #59: a click Nucleus gets while it still makes its setup screen does
+    /// not load the profile. While it lists the profile and no instance
+    /// runs, the profile is clicked again; never once it hides the list to
+    /// play, nor once an instance runs.
+    #[test]
+    fn the_profile_is_clicked_again_while_nucleus_still_lists_it() {
+        let t0 = Instant::now();
+        let clicks = |screen: &Screen| screen.0.lock().unwrap().clicks.len();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.step(t0 + RECLICK - PERIOD), None);
+        assert_eq!(clicks(&screen), 1);
+        assert_eq!(runner.step(t0 + RECLICK), None);
+        assert_eq!(clicks(&screen), 2);
+        // Nucleus plays: the list is gone. A list that comes back before
+        // the instance is not clicked: that could start the game twice.
+        screen.0.lock().unwrap().labels.clear();
+        assert_eq!(runner.step(t0 + 2 * RECLICK), None);
+        label(&screen);
+        assert_eq!(runner.step(t0 + 3 * RECLICK), None);
+        assert_eq!(runner.step(t0 + 5 * RECLICK), None);
+        assert_eq!(clicks(&screen), 2);
+        instance(&screen, 0);
+        assert_eq!(runner.step(t0 + 6 * RECLICK), None);
+        assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
+        assert_eq!(runner.step(t0 + 8 * RECLICK), None);
+        assert_eq!(clicks(&screen), 2);
+    }
+
+    /// A box Nucleus shows after the click (its End-key reminder) holds the
+    /// start: no click goes through it until it is answered.
+    #[test]
+    fn a_box_nucleus_shows_holds_the_second_click() {
+        let t0 = Instant::now();
+        let clicks = |screen: &Screen| screen.0.lock().unwrap().clicks.len();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        let reminder = MessageBox {
+            window: 400,
+            caption: "Nucleus Co-op".into(),
+            text: "Press End to unlock the inputs.".into(),
+        };
+        screen.0.lock().unwrap().boxes.push((NUCLEUS, reminder));
+        assert_eq!(runner.step(t0 + RECLICK), None);
+        assert_eq!(runner.step(t0 + 2 * RECLICK), None);
+        assert_eq!(clicks(&screen), 1);
+        screen.0.lock().unwrap().boxes.clear();
+        assert_eq!(runner.step(t0 + 3 * RECLICK), None);
+        assert_eq!(clicks(&screen), 2);
+    }
+
+    /// Looking for the list again after the click goes through the passes
+    /// that may fail, not ending the start at once.
+    #[test]
+    fn a_failed_look_for_the_list_after_the_click_fails_the_pass() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        // Two entries named alike: the fake's lookup fails.
+        label(&screen);
+        for pass in 1..FAILED_PASSES {
+            assert_eq!(runner.step(t0 + pass * PERIOD), None);
+        }
+        assert_eq!(
+            runner.step(t0 + FAILED_PASSES * PERIOD),
+            Some(End::Failed(
+                "looking for Nucleus Co-op's profile list: two labels".into()
+            ))
+        );
+    }
+
+    /// #59: Nucleus 2.4.2 answers a click that comes before its setup screen
+    /// is made with "The profile can't be loaded", a form that disables its
+    /// window until someone closes it, so no later click lands. The session
+    /// closes it and clicks the profile again; one Nucleus shows before any
+    /// click is left alone.
+    #[test]
+    fn a_box_nucleus_shows_after_the_click_is_closed_and_the_profile_clicked_again() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        let form = |covered: bool| {
+            let mut desktop = screen.0.lock().unwrap();
+            desktop.forms.push((NUCLEUS, unloaded(300)));
+            desktop.covered = covered;
+        };
+        form(true);
+        assert_eq!(runner.step(t0), None);
+        assert!(screen.0.lock().unwrap().closed.is_empty());
+        screen.0.lock().unwrap().forms.clear();
+        screen.0.lock().unwrap().covered = false;
+        label(&screen);
+        assert_eq!(runner.step(t0 + PERIOD), None);
+        assert_eq!(screen.0.lock().unwrap().clicks.len(), 1);
+        // The click failed: the box covers the window.
+        form(true);
+        assert_eq!(runner.step(t0 + 2 * PERIOD), None);
+        assert_eq!(screen.0.lock().unwrap().closed, [300]);
+        screen.0.lock().unwrap().covered = false;
+        assert_eq!(runner.step(t0 + PERIOD + RECLICK), None);
+        assert_eq!(screen.0.lock().unwrap().clicks.len(), 2);
+        instance(&screen, 0);
+        assert_eq!(runner.step(t0 + PERIOD + RECLICK + PERIOD), None);
+        assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
+
+        // A box after every click ends the start saying so, counting each
+        // box once though it takes passes to close.
+        let (screen, probe) = (self::screen(), Probe::default());
+        let mut runner = self::runner(1, &screen, &probe, t0);
+        label(&screen);
+        let mut at = t0;
+        while at < t0 + START_TIMEOUT {
+            let window = 300 + screen.0.lock().unwrap().clicks.len() as u64;
+            screen
+                .0
+                .lock()
+                .unwrap()
+                .forms
+                .push((NUCLEUS, unloaded(window)));
+            assert_eq!(runner.step(at), None);
+            at += PERIOD;
+        }
+        let (clicks, closed) = {
+            let desktop = screen.0.lock().unwrap();
+            let distinct: BTreeSet<u64> = desktop.closed.iter().copied().collect();
+            (desktop.clicks.len(), distinct.len())
+        };
+        assert!(clicks > 2);
+        assert!(screen.0.lock().unwrap().closed.len() > closed);
+        assert_eq!(
+            runner.step(at),
+            Some(End::Failed(format!(
+                "Nucleus Co-op did not start Game: after the last click on the profile Rubylight it showed \"The profile can't be loaded.\" over its window ({closed} closed since the launch)"
+            )))
+        );
+
+        // One early box, then a wait for a controller: the wait is why.
+        let (screen, probe) = (self::screen(), Probe::default());
+        let mut runner = self::runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .forms
+            .push((NUCLEUS, unloaded(300)));
+        assert_eq!(runner.step(t0 + PERIOD), None);
+        assert_eq!(runner.step(t0 + RECLICK), None);
+        assert_eq!(screen.0.lock().unwrap().clicks.len(), 2);
+        assert_eq!(
+            runner.step(t0 + RECLICK + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op did not start Game: it still shows its setup screen with the profile Rubylight, which starts the game once every player has a controller there".into()
+            ))
+        );
+    }
+
+    /// What Nucleus 2.4.2 shows for a click before its setup screen is made.
+    fn unloaded(window: u64) -> MessageBox {
+        MessageBox {
+            window,
+            caption: String::new(),
+            text: "The profile can't be loaded.".into(),
+        }
+    }
+
+    /// #59: a profile Nucleus loaded but never played says so, not to load
+    /// it by hand: Nucleus plays it once each player has a controller.
+    #[test]
+    fn a_profile_nucleus_does_not_play_says_where_it_stopped() {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.step(t0 + RECLICK), None);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op did not start Game: it still shows its setup screen with the profile Rubylight, which starts the game once every player has a controller there".into()
+            ))
+        );
+        assert!(screen.0.lock().unwrap().clicks.len() > 1);
+        // It hid the list, and no instance came.
+        let (screen, probe) = (self::screen(), Probe::default());
+        let mut runner = self::runner(1, &screen, &probe, t0);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        screen.0.lock().unwrap().labels.clear();
+        assert_eq!(runner.step(t0 + RECLICK), None);
+        assert_eq!(
+            runner.step(t0 + START_TIMEOUT),
+            Some(End::Failed(
+                "Nucleus Co-op did not start Game after loading the profile Rubylight".into()
+            ))
+        );
     }
 
     #[test]
@@ -1933,9 +2263,9 @@ mod tests {
         assert_eq!(runner.step(first + START_TIMEOUT - PERIOD), None);
         assert_eq!(
             runner.step(first + START_TIMEOUT),
-            Some(End::Failed(format!(
-                "Nucleus Co-op started 1 of 2 instances of Game; {HINT}"
-            )))
+            Some(End::Failed(
+                "Nucleus Co-op started 1 of 2 instances of Game".into()
+            ))
         );
     }
 

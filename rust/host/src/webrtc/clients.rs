@@ -3,7 +3,7 @@
 //!
 //! A paired device is an ordinary `Client` with an empty certificate and
 //! `extra.webrtc` (see `butterpollo_core::state::Client::webrtc`). The
-//! console's PIN page approves a request through `/api/pin`: the request
+//! console's Devices page approves a request through `/api/pin`: the request
 //! sits in `Host::pins` under its unguessable request ID with an empty
 //! certificate, which no GameStream pairing has, and `/api/pin` hands the
 //! entered PIN to the connection that is waiting for it.

@@ -355,7 +355,7 @@ const network: Setting[] = [
     label: 'WebRTC server',
     description: 'Let TVs and browsers that speak the Moonlight WebRTC protocol pair and stream.',
     details:
-      'Pairing requests appear on the PIN page. Signalling is plain ws:// on the local network: signing in keeps other devices from using this PC, but does not hide the traffic. Only devices on the local network are accepted.',
+      'Pairing requests appear on the Devices page. Signalling is plain ws:// on the local network: signing in keeps other devices from using this PC, but does not hide the traffic. Only devices on the local network are accepted.',
     category: 'network',
     group: 'WebRTC',
     control: { kind: 'toggle' },

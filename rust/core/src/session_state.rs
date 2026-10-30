@@ -21,7 +21,7 @@
 //! `settle` is the resting place after any transition: streaming while a
 //! stream runs, suspended while a game runs with a retained display, idle
 //! otherwise. A game left running after End session is therefore `idle` with
-//! `game_running: true` (native-api.md, open question 1).
+//! `game_running: true` (native-api.md, design decision 1).
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};

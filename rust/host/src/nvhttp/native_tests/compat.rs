@@ -1,4 +1,4 @@
-//! The compatibility matrix of `docs/native-api.md` (Brief 5): stock Moonlight
+//! The compatibility matrix of `docs/native-api.md`: stock Moonlight
 //! and Nightjar 0.7.x know nothing of the native API, and their requests to
 //! `/serverinfo`, `/applist` and `/cancel` behave as they did before it.
 //! Both clients call exactly these endpoints (plus `/launch`, `/resume` and

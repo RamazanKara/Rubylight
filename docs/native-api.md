@@ -1,15 +1,15 @@
 # Native API v1
 
-[Documentation](README.md) · [HTTP API](api.md) · [Hardware metrics](hardware-metrics.md) · [3.0 plan](rubylight-3.0-plan.md)
+[Documentation](README.md) · [HTTP API](api.md) · [Control messages](control-messages.md) · [Hardware metrics](hardware-metrics.md)
 
-Status: **shipped in 3.0.0** (capabilities, library, session actions and the Radeon endpoints). Fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs` cover the contract, and the Radeon round trip and crash restore are recorded in the [hardware matrix](hardware-matrix.md). Nightjar 0.8.0 is the reference client. The short user and developer reference is in [HTTP API](api.md#native-api-v1-paired-clients); where it differs from this design text, the code wins. It is the contract between the host and `nightjar-core`: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
+The native API lets a paired client go beyond the Moonlight protocol: read the host's capabilities, game library and session state, run session actions, and, with the device's host control permission, read and change Radeon settings. Further features (wake targets, audio processing, files, the image clipboard, shared folders and USB forwarding) are listed in the capabilities response when the host serves them. Version 1 shipped in Rubylight 3.0.0, and Nightjar is the reference client. This page is the contract between the host and Nightjar's `nightjar-core`; [HTTP API](api.md#native-api-v1-paired-clients) has a short summary. Fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs` cover the contract, and the [hardware matrix](hardware-matrix.md) records the Radeon round trip and crash restore on real hardware.
 
 ## Ground rules
 
 - **Transport and authentication are reused.** Every endpoint is served by the streaming HTTPS service (`HttpsPort` from `/serverinfo`, normally 47984), next to `/api/hardware-metrics` in `rust/host/src/nvhttp.rs`. The client presents the certificate it paired with, and the host looks it up with `authenticated()` (`client_by_certificate`, enabled and `perm != 0`). Plain HTTP, the admin console port, Basic auth, cookies and API tokens do not apply.
 - **Moonlight is unaffected.** `PROTOCOL_VERSION`, `/applist`, `/launch`, `/resume`, `/cancel` and `/appasset` stay as they are. The only change stock clients can see is one more `/serverinfo` field, which they ignore, as they already ignore the `RustHost*` fields.
 - **Nothing new on the stream path.** Play and Resume still go through `/launch?appuuid=` and `/resume` with the usual RTSP setup. This API reads state and runs actions. It never carries video, input or per-packet telemetry.
-- All responses are `application/json; charset=utf-8` with `Cache-Control: no-store`. POST bodies are at most 16 KiB of JSON, except a file upload (see Files). The host parses the raw body and accepts `application/json`, `text/plain` (nightjar-core's transport sends that for POST today) or no content type. An empty body counts as `{}`.
+- All responses are `application/json; charset=utf-8` with `Cache-Control: no-store`. POST bodies are at most 16 KiB of JSON, except a file upload (see Files). The host parses the raw body and accepts `application/json`, `text/plain` (nightjar-core's transport sends it for POST) or no content type. An empty body counts as `{}`.
 
 ## Discovery and capabilities
 
@@ -118,10 +118,10 @@ The entries are the host's configured apps (`h.apps`), in console order. The syn
 | Field | Stable across | Source | Use |
 |---|---|---|---|
 | `install_id` | renames, reorders, host restarts | the app's `uuid` in `apps.json`. Imports set it to `library::Game::uuid()`: Steam's canonical UUID, otherwise UUIDv5 of `rubylight:library:<source>:<id>` | The client's primary key per host. Launch with `/launch?appuuid=` |
-| `game_id` | hosts | `<source>:<store id>` from `launcher-source`/`launcher-id` (or `steam-id`), `null` for manual apps | Merges one title across paired hosts (A6 "library across paired hosts"), and keys favourites and profiles later (B5) |
+| `game_id` | hosts | `<source>:<store id>` from `launcher-source`/`launcher-id` (or `steam-id`), `null` for manual apps | Merges one title across paired hosts in the client's library, and keys favourites and per-game profiles |
 | `app_id` | nothing (it is CRC32 of the name unless pinned) | `App::id()` | Only for `/appasset` and old GameStream calls |
 
-- `store.source` is a string, not a closed enum, so stores added later don't break v1 clients. Today it is one of `steam`, `epic`, `battlenet`, `ea`, `ubisoft`, `gog`, `microsoft` (`library::Source::key`; `microsoft` covers Microsoft Store and Xbox PC games), and `name` is `Source::name()`.
+- `store.source` is a string, not a closed enum, so stores added later don't break v1 clients. In 3.0 it is one of `steam`, `epic`, `battlenet`, `ea`, `ubisoft`, `gog`, `microsoft` (`library::Source::key`; `microsoft` covers Microsoft Store and Xbox PC games), and `name` is `Source::name()`.
 - `microsoft` (Microsoft Store and Xbox PC games, `rust/windows/src/library/store.rs`): the host lists the packages registered for the signed-in user (`PackageManager`, skipping frameworks, resources and bundles) and takes the ones with a `MicrosoftGame.config` in the package folder or its `Content` folder, which is what a GDK game ships; it also reads `<drive>:\XboxGames\<title>` on fixed drives for a game on disk that no package registers (listed, with the reason, and not launchable). `id` is the config's identity name, the game is started with `shell:AppsFolder\<package family>!<application id>` (the Start menu's way; the application id is the config's `Executable` Id, or the manifest application that runs the same program), and the cover is the config's `Square150x150Logo`. Console-only titles (no executable for PCs) are left out. It starts the package's own entry point and bypasses no licence, sign in or Xbox app check. A Store app that is not a GDK game (a UWP game with no `MicrosoftGame.config`) cannot be told from any other app and is not listed; add it by hand. A failure to list packages shows as a scan error on the source, never as an empty library.
 - `installed`: `true` or `false` from the host's last launcher scan (`butterpollo_windows::library::discover`), `null` for manual apps or when no scan has run. The host caches the scan and refreshes it in the background at most every 5 minutes and after console imports. A library request never waits for a scan.
 - `running`: the app is the host's current game (`remote_game`), whoever owns it.
@@ -130,7 +130,7 @@ The entries are the host's configured apps (`h.apps`), in console order. The syn
 
 ## Session
 
-States follow A4: `idle → preparing → launching → streaming → suspended → stopping → idle`.
+States: `idle → preparing → launching → streaming → suspended → stopping → idle`.
 
 ```http
 GET /api/native/v1/session
@@ -160,12 +160,12 @@ GET /api/native/v1/session
 | `preparing` | Launch accepted: displays and integrations are being prepared (`display_session::prepare_stream`) |
 | `launching` | App commands are running, and the stream is not up yet |
 | `streaming` | Video is flowing to the owner |
-| `suspended` | The owner disconnected. The game and the virtual display stay alive until `suspended_until_unix_ms` (the A4 grace period) |
+| `suspended` | The owner disconnected. The game and the virtual display stay alive until `suspended_until_unix_ms` (the reconnect grace period) |
 | `stopping` | Teardown is in progress. Repeating an action is safe |
 
 `owner` is `none`, `you` or `other_device`. Other devices see `state` and `owner` only: `app` is null and every action is refused with `not_session_owner`, the same scoping `/serverinfo` uses for `currentgame`. Without View or Launch permission, `app` is null as well. The host always names the owner of a session that isn't `idle`: `native::session_view` asserts it in debug builds, since without an owner every caller would read as another device.
 
-The host keeps this state explicitly (A4): `butterpollo_core::session_state::Machine`, fed by `rust/host/src/session_control.rs`. It is a projection of what the host observes plus the transitions the launch and teardown code report, so stock Moonlight flows (`/launch`, `/resume`, `/cancel`, RTSP and ENet disconnects, "Quit app") run unchanged and only record what they do.
+The host keeps this state explicitly: `butterpollo_core::session_state::Machine`, fed by `rust/host/src/session_control.rs`. It is a projection of what the host observes plus the transitions the launch and teardown code report, so stock Moonlight flows (`/launch`, `/resume`, `/cancel`, RTSP and ENet disconnects, "Quit app") run unchanged and only record what they do.
 
 | From | To | When |
 |---|---|---|
@@ -191,12 +191,12 @@ The host writes `session.json` in the profile directory while a session is not `
 
 | Action | Effect | Game | Virtual display | Radeon changes |
 |---|---|---|---|---|
-| `resume` | The client calls the existing `/resume`, and A4 reattaches the suspended session. No native endpoint | kept | reused | kept |
+| `resume` | The client calls the existing `/resume`, and the host reattaches the suspended session. No native endpoint | kept | reused | kept |
 | `disconnect` | Stops the owner's transport now instead of waiting for a timeout. State becomes `suspended` | kept | kept for the grace period | kept |
 | `end` | Tears down the owner's stream and the owner's kept display (`request_stop` plus display release). Streams and displays of other devices keep running | **kept running** | released | restored |
 | `close_game` | Like `end`, plus ends the game process (`stop_app`, with its undo commands and exit timeout) | ended | released | restored |
 
-When the grace period of a suspended session runs out, the host behaves as for `end`. A disconnect never ends the game (decision 6). `close_game` also works with no session, when `game_running` is true, for a caller with Launch and host control. That closes a game left behind by End session. Stock Moonlight's `/cancel` keeps its current behaviour (it stops every stream and closes the game with Launch permission alone), because decision 2 freezes it.
+When the grace period of a suspended session runs out, the host behaves as for `end`. A disconnect never ends the game. `close_game` also works with no session, when `game_running` is true, for a caller with Launch and host control. That closes a game left behind by End session. Stock Moonlight's `/cancel` is unchanged: it stops every stream and closes the game with Launch permission alone.
 
 Clients poll `/session` about every 2 s while a home or detail screen is visible, and not at all while streaming. The overlay knows the stream is up.
 
@@ -245,18 +245,18 @@ GET /api/native/v1/radeon
 }
 ```
 
-**The five states** (decision 5). A client draws exactly what the state says and never shows a toggle that does nothing:
+**The five states.** A client draws exactly what the state says and never shows a toggle that does nothing:
 
 | `state` | `value` | Client shows |
 |---|---|---|
 | `configurable` | present | An editable control (if `writable_now`) |
-| `read_only` | present | The value, not editable. The A5 probe proved it readable but not writable on this driver |
+| `read_only` | present | The value, not editable. The host's driver probe found it readable but not writable on this driver |
 | `needs_external_setup` | optional | The value if present, plus `message` saying what to do on the PC |
 | `unsupported` | absent | Greyed out with "Not supported on this GPU or driver", or hidden |
 | `temporarily_unavailable` | absent | Greyed out with `message`. The client re-reads later |
 
 - The top-level `state` applies the same five states to the whole panel. For example, `temporarily_unavailable` with `reason: "adlx_unavailable"` means ADLX failed to load, and `gpus` is then empty.
-- A setting appears as `configurable` or `read_only` only if A5's probe on the installed driver proved it (`docs/hardware-matrix.md`). Settings from the catalogue that the probe didn't cover are `unsupported`. The catalogue ids are `<group>.<field>`, for example `anti_lag.enabled`, `chill.enabled`, `chill.min_fps`, `chill.max_fps`, `boost.enabled`, `boost.min_resolution`, `image_sharpening.enabled`, `image_sharpening.sharpness`, `enhanced_sync.enabled`, `frame_rate_target.enabled`, `frame_rate_target.fps`, `afmf.enabled`, `rsr.enabled`, `rsr.sharpness`, `vsync.mode`. A5 finalises the list. Clients render ids they don't know generically from `kind`, `range`, `options` and `unit`.
+- A setting appears as `configurable` or `read_only` only if the host's probe of the installed driver proved it (see the [hardware matrix](hardware-matrix.md)). Settings from the catalogue that the probe didn't cover are `unsupported`. The catalogue ids are `<group>.<field>`, for example `anti_lag.enabled`, `chill.enabled`, `chill.min_fps`, `chill.max_fps`, `boost.enabled`, `boost.min_resolution`, `image_sharpening.enabled`, `image_sharpening.sharpness`, `enhanced_sync.enabled`, `frame_rate_target.enabled`, `frame_rate_target.fps`, `afmf.enabled`, `rsr.enabled`, `rsr.sharpness`, `vsync.mode`. Clients render ids they don't know generically from `kind`, `range`, `options` and `unit`.
 - `kind` is `toggle` (bool value), `integer` (with `range`) or `choice` (string value, with `options: [{"value": "...", "label": "..."}]`).
 - `gpus[].id` is the same `id` that `/api/hardware-metrics` reports. v1 lists the GPU the host encodes on.
 - `host_control` is the caller's flag. `writable_now` is true only when the caller has host control and owns a `streaming` or `suspended` session. A GPU's `id` is the signed ADLX id that `/api/hardware-metrics` reports, so it can be negative; a write naming an id the host does not list is `not_found`. Reads go through the host's ADLX worker thread (the `telemetry.rs` pattern), are cached for 1 s, and never run on a stream thread.
@@ -273,9 +273,9 @@ POST /api/native/v1/radeon/settings
 3. The host applies the changes in order. If the driver refuses one, the host restores the ones from this request it has already applied and answers `driver_rejected` with that setting's id.
 4. On success the host re-reads the settings and returns the full Radeon object. The driver's read-back is the truth, so dependent settings the driver changed show up too.
 
-**Restore on session end.** Writes are global (A5), and the journal ties them to the session:
+**Restore on session end.** Writes are global to the driver, and the journal ties them to the session:
 
-- The host restores at End session, Close game, grace expiry, unpair or disable of the owner, host shutdown, on `POST /radeon/restore`, and at the next host start if a journal survived a crash. It does **not** restore at Disconnect: a suspended session keeps its settings until it resumes or ends.
+- The host restores at End session, Close game, grace expiry, unpair or disable of the owner, host shutdown, on `POST /radeon/restore`, and at the next host start if a journal survived a crash. It does **not** restore at Disconnect: a suspended session keeps its settings through a resume, and they are restored when the session ends.
 - A journaled setting is restored only if its current value still equals the value the host wrote. If someone changed it on the PC in the meantime, the local change wins, and the host drops the entry and logs it.
 - A restore that fails is loud: it goes into the host log with the setting id, the entry stays in the journal, the host retries at the next start, and `GET /radeon` keeps showing `restore` with `message`.
 - While a change is pending, `restore: { "original", "written" }` is present, so the overlay can say "Goes back to 120 fps when you end the session".
@@ -351,7 +351,7 @@ GET /api/native/v1/audio
 
 - The settings are Radeon `Setting` objects, `kind: toggle`, `group: sound`, with the ids `audio.night_mode` and `audio.headphone_surround`. Each appears only when the host lists its feature.
 - `value` is the caller's session choice, resolved highest first: a live change in this session, the session's launch parameter, the app, the device, then the host. `revision` goes up with every change.
-- A `reason` with `message` (plain English) is a note on a setting this stream doesn't apply. The owner can still write it, so it stays `state: configurable` with `value`, the choice. Only a setting the caller can't write is `temporarily_unavailable`, without a `value`: today that is `no_session`. The reasons:
+- A `reason` with `message` (plain English) is a note on a setting this stream doesn't apply. The owner can still write it, so it stays `state: configurable` with `value`, the choice. Only a setting the caller can't write is `temporarily_unavailable`, without a `value`: in 3.0 that is `no_session`. The reasons:
 
 | `reason` | Meaning |
 |---|---|
@@ -481,9 +481,9 @@ Feature `usb` is listed while the host's USB forwarding setting (`usb_forwarding
 | 403 | `usb_disabled` | The host's USB forwarding setting is off, or the device has no `usb` permission |
 | 409 | `usb_limit` | The host already forwards as many devices as it allows |
 
-## Defined, not yet served
+## Reserved features
 
-These are defined for 3.0 in `rubylight-native-api` and not yet served: no host lists their features. Until one does, the routes below answer 404 `not_found` like any unknown path under `/api/native/v1`.
+These are defined in `rubylight-native-api` but no host serves them yet, so none lists their features. Until one does, the routes below answer 404 `not_found` like any unknown path under `/api/native/v1`.
 
 | Feature | Listed while | Permission |
 | --- | --- | --- |
@@ -506,7 +506,7 @@ Every non-2xx answer has the same body:
 | HTTP | `code` | When |
 |---|---|---|
 | 403 | `not_paired` | No TLS client certificate, or the device is unknown or disabled |
-| 403 | `permission_required` | List, View or Launch missing. `message` names the permission, as `authenticated()` does today |
+| 403 | `permission_required` | List, View or Launch missing. `message` names the permission, as `authenticated()` does for the Moonlight endpoints |
 | 403 | `host_control_required` | Write or Close game without host control |
 | 403 | `file_transfer_disabled` / `forbidden` | Files: the host's File transfer setting is off / the device lacks Upload files or Download files |
 | 404 | `not_found` | Unknown path under `/api/native/v1`, GPU or setting id, or Radeon controls this host does not have (a restore or write on a host without them) |
@@ -537,9 +537,9 @@ Which actions are allowed (`GET /session`, and the same rules apply to the POSTs
 
 The API types live in a dependency-light crate inside `rust/core`, re-exported by butterpollo-core:
 
-- `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive` (`serde_json` for tests). Its manifest is self-contained: it sets `version`, `edition = "2021"`, `rust-version = "1.80"`, `license` and `repository` itself and copies the workspace lints, because a `*.workspace = true` key makes cargo read the root manifest, whose `resolver = "3"` a 1.80 cargo can't parse. The crate has its own version, `1.0.0`, which follows the API and not the host, so `rust/release/bump.py` (which only bumps `rust/*/Cargo.toml`) leaves it alone. That a 1.80 cargo builds it from a git dependency is still to be checked in Nightjar's pin bump.
+- `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive` (`serde_json` for tests). Its manifest is self-contained: it sets `version`, `edition = "2021"`, `rust-version = "1.80"`, `license` and `repository` itself and copies the workspace lints, because a `*.workspace = true` key makes cargo read the root manifest, whose `resolver = "3"` a 1.80 cargo can't parse. The crate has its own version, `1.0.0`, which follows the API and not the host, so `rust/release/bump.py` (which only bumps `rust/*/Cargo.toml`) leaves it alone.
 - `butterpollo-core` depends on it by path and exposes it as `butterpollo_core::native_api` (`pub use rubylight_native_api as native_api;` in `rust/core/src/lib.rs`).
-- Why not `butterpollo-core` itself: nightjar-core uses butterpollo-core only as a **dev-dependency** for interop tests. Plan decision 7 overstates this, so it needs a correction. As a runtime dependency it would pull `x509-parser`, `rcgen`, `regex`, `quick-xml`, `prost`, `anyhow` and an `embed-resource` build script into the Android library, and its edition 2024 / Rust 1.88 floor into Nightjar's 1.80 workspace. Why not `rubylight-protocol`: it is `no_std` without serde, and JSON doesn't belong there.
+- Why not `butterpollo-core` itself: nightjar-core uses butterpollo-core only as a **dev-dependency** for interop tests. As a runtime dependency it would pull `x509-parser`, `rcgen`, `regex`, `quick-xml`, `prost`, `anyhow` and an `embed-resource` build script into the Android library, and its edition 2024 / Rust 1.88 floor into Nightjar's 1.80 workspace. Why not `rubylight-protocol`: it is `no_std` without serde, and JSON doesn't belong there.
 
 Modules (serde shapes as in the examples above, all `snake_case`):
 
@@ -626,104 +626,14 @@ impl ErrorCode { pub fn status(self) -> u16 { /* table above */ } }
 
 `Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`, `setting` and `retry_after_ms` in an error, and `primary` and `idle_sleep.reason` in Wake). Response structs don't deny unknown fields, so old clients read newer hosts. In a Radeon response, a setting's `value`, `range` or `restore` of a shape the client doesn't know (a float, an array) reads as absent instead of failing the whole response. Requests stay strict. Request structs do, so typos fail loudly. The crate carries JSON fixtures (`rust/core/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
 
-**After the pin bump, nightjar-core needs:**
+## Design decisions
 
-1. `rubylight-native-api = { git = "https://github.com/RamazanKara/Rubylight", rev = "<host commit>", package = "rubylight-native-api" }` and `serde_json = "1"` in `protocol/client/Cargo.toml`. Bump the existing `butterpollo-core` dev-dependency to the same rev.
-2. `capabilities.rs`: `native_api_version: i32` in `Evidence`, parsed from `NativeApiVersion`, plus `Feature::NativeApi` and its derivation (see Discovery). Raise the `Feature::ALL` count.
-3. `http/native.rs`: `native_capabilities()`, `library()`, `session()`, `session_action(ActionId)`, `radeon()`, `write_radeon(&SettingsWrite)` and `restore_radeon()` on the existing HTTPS client. Map non-2xx answers to an error carrying `ApiError`.
-4. `transport.rs`: let POST send `Content-Type: application/json`. The host accepts the current `text/plain`, so this is cleanup, not a blocker.
-5. Interop tests that parse the host fixtures and the host's real serialised output (butterpollo-core dev-dep), plus "no field means classic grid" tests against 2.6-style serverinfo fixtures.
-
-## Open questions
-
-Decided 2026-10-22, while the user was away. Revisit any of these if they say so:
-
-1. A4 keeps its six states. A game left running after End session reports `idle` with `game_running: true`.
-2. v1 allows Radeon writes only during an owned `streaming` or `suspended` session. Writing before Play waits for B5.
-3. v1 lists only the encode GPU.
-4. v1 lists only games that are added. Scanned games that aren't added wait for B5.
-5. v1 polls.
-6. v1 has covers only.
-7. Yes. Nightjar 3.0 replaces "Quit app" with the native session actions when `NativeApiVersion >= 1`. The host keeps serving `/cancel` unchanged for stock Moonlight.
-8. Fixed in the plan. The types go in `rubylight-native-api`.
-9. A5's probe decides the setting catalogue.
-
-The original questions:
-
-1. **A running game with no session.** Decided in A4: no extra state. After End session the game keeps running, the host reports `idle` with `game_running: true`, and Resume becomes a new `/launch` or `/resume` of that game. Close game works from there.
-2. **Radeon writes before Play.** v1 allows writes only for the owner of a `streaming` or `suspended` session, because restore is tied to session end. Changing settings from the game-detail screen before launch belongs with B5 per-game profiles. Confirm that v1 doesn't need it.
-3. **Multi-GPU.** v1 lists only the encode GPU. Should other AMD GPUs show up read-only?
-4. **Installed games that aren't added.** Adding them needs the admin import. Should v1 list scanned but not imported games with `"added": false`, or leave that to B5?
-5. **Polling or long-poll** for `/session` (`?since=<revision>&wait_ms=`). v1 polls. Revisit only if the A6 home screen shows lag or battery cost.
-6. **Artwork beyond the cover** (hero, logo). The launcher scan only finds covers today. This is a B5 question.
-7. **Moonlight's Quit.** `/cancel` closes the game without host control (frozen by decision 2). Should Nightjar 3.0 hide its classic "Quit app" when `NativeApiVersion >= 1` and use `close_game`?
-8. **Plan wording.** Decision 7 says nightjar-core "builds against `butterpollo-core`". It does only for tests. Fix the plan text and record the `rubylight-native-api` crate choice there.
-9. **Setting catalogue.** The ids above are a proposal, and A5's probe decides the final list and ranges.
-
-## Implementation breakdown (host side)
-
-Five briefs, in order. 2 can run in parallel with 1 (separate worktree), 4 waits for A5's ADLX read/write/journal core, and 5 runs last. Each brief pulls `origin/main` first (Codex works here too), follows `CLAUDE.md`, ends with a regression test per behaviour and commits in small `feat(api): ...` / `test(api): ...` commits.
-
-### Brief 1: core types (implementer, about 60 turns)
-
-- **Owns:** `rust/core/native-api/**` (new), root `Cargo.toml` (members), `Cargo.lock`, `rust/core/Cargo.toml`, `rust/core/src/lib.rs` (re-export only), `rust/core/src/native.rs` (new, OS-independent projections).
-- **Steps:**
-  1. Create `rubylight-native-api` with the modules and shapes in "Where the types live". Use serde only, edition 2021, rust-version 1.80.
-  2. Add one JSON fixture per example in this doc, with round-trip tests. Test that unknown enum values decode to `Unknown` and that requests reject unknown fields.
-  3. In `butterpollo-core`, add `native.rs` with pure functions: `library(apps, scan, current) -> Library` (ids, `game_id`, `revision`, control tiles dropped), `session_view(snapshot, caller) -> Session` (the pre-A4 derivation table and per-caller action rules) and `host_control(&Client) -> bool`.
-- **Acceptance:** `cargo +1.98.1-x86_64-pc-windows-msvc test -p rubylight-native-api -p butterpollo-core --target-dir C:\src\rl-target` passes, run once without `--locked` to update `Cargo.lock`, then with it. `cargo +1.80 check -p rubylight-native-api` passes if that toolchain is installed; otherwise state that it wasn't checked.
-
-### Brief 2: host control permission and console UI (implementer, about 70 turns)
-
-- **Owns:** `rust/core/src/state.rs` (`Client::allows_host_control`), `rust/host/src/web/clients.rs` (accept only bool or null for `host_control`), `rust/web/src/lib/api.ts`, `rust/web/src/components/devices/device.ts`, `rust/web/src/components/devices/DeviceEditor.svelte`, web unit tests, `docs/configuration.md` (one row).
-- **Steps:**
-  1. Read the flag strictly (`true` or `"true"`).
-  2. Pairing and migration never set it.
-  3. Add the checkbox under Other with the label from this doc, off by default. Revoking doesn't disconnect.
-- **Acceptance:**
-  - Rust tests: default off, `perm = u32::MAX` still off, a string `"yes"` is rejected, and revoking keeps the session.
-  - `npm run check`, `node --test "*.test.mjs"` and `npm run build` pass.
-  - A screenshot of the device editor shows the checkbox.
-  - The full `build.ps1` gate passes.
-
-### Brief 3: capabilities, library and session endpoints (implementer, about 100 turns)
-
-- **Owns:** `rust/host/src/native_api.rs` (new: router, raw-body JSON parsing, the error mapper, handlers), `rust/host/src/nvhttp.rs` (merge the router on HTTPS only and add the `NativeApiVersion` field, nothing else), `rust/host/src/library.rs` (cached background scan), `rust/host/src/nvhttp/native_tests.rs` (new).
-- **Coordination:** read-only use of `display_session.rs`, `state.rs` and `core/src/session.rs`. A4 has landed: call `Host::session_snapshot()` and the four actions in `rust/host/src/session_control.rs`; don't edit it.
-- **A4 API for the handlers:** `session_snapshot() -> SessionSnapshot` feeds `native::session_view`. `disconnect_session()`, `end_session()`, `close_game(caller_uuid)` and `resume_session(device_uuid)` return `Result<Outcome, Refusal>`: `Ok(Done)` and `Ok(Unchanged)` both answer 200 with the new Session (the repeat is not an error), `Refusal::NoSession` is `no_session` (409), `Busy` is `session_busy` (409) and `NotOwner` is `not_session_owner` (409). The handler checks permission and host control first and answers with the view's own refusal reason (`session_view` actions) where it differs, for example Disconnect outside `streaming` is `not_streaming`; the actions refuse by state and owner only. `end_session` and `close_game` wait up to 5 s for the stream workers, so run them off the async executor (`spawn_blocking`).
-- **Steps:**
-  1. Implement every non-Radeon row of the endpoint table and wire the actions to `request_stop`, the display release and `stop_app` under `launch_transition`.
-  2. `NativeApiVersion` is `0` for plain HTTP and unpaired requests, `1` for paired HTTPS.
-  3. **Host control check:** read the caller from `h.paired` on every request, not from `session.launch.client`, which is a copy taken at launch. A grant or revoke made in the console must apply to the next request.
-- **Acceptance:** `parity_tests`-style tests, one per row and per error code: an unpaired request gets 403 `not_paired`, Close game without host control gets 403, an action from a non-owner gets 409, Disconnect never stops `current_app`, End keeps it and Close stops it, repeated actions are idempotent, `/applist`, `/cancel` and the other `/serverinfo` fields are byte-identical to before (snapshot), and the library ids are stable across a rename. Then the full `build.ps1` gate.
-
-### Brief 4: Radeon endpoints (implementer, about 90 turns, after A5's core lands)
-
-**Status: done.** The endpoints are in `rust/host/src/native_api/radeon.rs`. The host's side of the session link (which device changed settings, and when they go back) is `rust/host/src/radeon_session.rs`, and `Host::with_session` calls it after every step of the session machine, so every way a session ends restores through one line (End, Close game, grace expiry, stock `/cancel`, a stream that ends with no grace); Disconnect keeps a suspended owner and restores nothing. Unpair and disable have their own hook (`release_device`), and a clean shutdown flushes. Reads, writes and restores go through the A5 worker thread (`rust/windows/src/radeon/worker.rs`), never on the async executor or a stream thread, and a read is cached for one second. The tests are `rust/host/src/nvhttp/native_tests/radeon.rs` (a `RadeonBackend` fake under the real worker). POST `/radeon/restore` follows the table: it needs the owner of a streaming or suspended session, and answers `no_session` otherwise; the restore at session end does not need a request.
-
-- **Owns:** `rust/host/src/native_api/radeon.rs` (new), a `RadeonBackend` trait with a fake for tests, the wiring to A5's ADLX worker and journal (A5 owns `rust/windows/src/radeon*` and the journal format), and the restore hooks on the session-end paths (End, Close, grace expiry, unpair or disable, shutdown, startup recovery).
-- **Steps:**
-  1. Map A5's per-setting probe results onto the five states.
-  2. Write path: validate, journal, apply, roll back on failure, re-read.
-  3. Restore guard: current value equals the written value.
-  4. Loud failures.
-  5. Read the caller from `h.paired` on every request, not from `session.launch.client`, which is a copy taken at launch. A grant or revoke made in the console must apply to the next request.
-- **Acceptance:**
-  - Fake-backend tests for every state, range or type error, driver rejection with rollback, a write without host control or session, and the restore triggers, with no restore at Disconnect.
-  - A crash test (journal on disk, host restarted) restores.
-  - Full `build.ps1` gate.
-  - On this PC, while the user is not gaming: one real read, plus one write and restore on a setting the A5 probe proved, recorded in the A5 matrix.
-
-### Brief 5: compatibility tests and docs (implementer, about 50 turns; runner for the hardware part)
-
-**Status: tests and docs done.** The matrix tests are in `rust/host/src/nvhttp/native_tests/compat.rs` (with the byte-identical `/serverinfo`, `/applist` and `/cancel` snapshots in `native_tests.rs`), and the reference is the "Native API v1" section of `docs/api.md`. This repo has no client-side `/serverinfo` parser, so the "no field means classic grid" test belongs to nightjar-core's pin bump. The pending parts are the hardware acceptance below and CI on main.
-
-- **Owns:** `rust/tests/` interop fixtures for the matrix (stock Moonlight and Nightjar 0.7.x serverinfo/applist/cancel against the new host, 2.6-style serverinfo without the field), `docs/api.md` and `docs/README.md` (links), the `rust/RELEASE_NOTES.md` `## Unreleased` entry, and the A3 row in `docs/rubylight-3.0-plan.md` (status, plus the decision 7 wording from open question 8).
-- **Steps:**
-  1. Add the matrix tests.
-  2. Mark this doc's status "implemented in vX" with anything still awaiting validation.
-  3. Hand the nightjar-core pin-bump checklist (above) to the Nightjar session.
-- **Acceptance:**
-  - The full `build.ps1` gate and CI on main pass.
-  - A stock Moonlight client pairs and streams against an isolated test host (`--config-dir C:\tests\native --port 48123 --bind 127.0.0.1`, `virtual_display_layout = extended`).
-  - `curl` with a paired test certificate gets every GET endpoint back as valid JSON.
+1. **A running game with no session.** The session machine has six states and no extra one for this case. After End session the game keeps running, the host reports `idle` with `game_running: true`, Resume becomes a new `/launch` or `/resume` of that game, and Close game works from there.
+2. **Radeon writes need an owned session.** v1 allows writes only for the owner of a `streaming` or `suspended` session, because the restore is tied to the end of that session. Per-game Radeon profiles cover settings chosen before launch.
+3. **One GPU.** v1 lists only the GPU that encodes the stream.
+4. **Added games only.** v1 lists the games in the host's library; installed games that have not been added are not listed.
+5. **Polling.** Clients poll `/session` and compare `revision`; there is no long poll.
+6. **Covers only.** Artwork is the cover image; hero and logo images are not served.
+7. **Session actions replace Quit.** A client that sees `NativeApiVersion >= 1` offers the native session actions instead of Moonlight's "Quit app". The host keeps serving `/cancel` unchanged for stock Moonlight.
+8. **A separate types crate.** The types live in `rubylight-native-api` rather than `butterpollo-core` or `rubylight-protocol`, for the reasons in [Where the types live](#where-the-types-live).
+9. **Probed settings.** The host's probe of the installed driver decides which Radeon settings are listed and their ranges.

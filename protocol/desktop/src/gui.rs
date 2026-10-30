@@ -22,6 +22,8 @@ pub struct Gui {
     focused: bool,
     /// Screen readers, once attached to the window (a11y.rs).
     a11y: Option<crate::a11y::Accessibility>,
+    /// Whether the coming passes are worth a screen reader's tree (see [`Self::set_readable`]).
+    readable: bool,
 }
 
 /// The system clipboard's text, or None when it holds none.
@@ -168,6 +170,7 @@ impl Gui {
             cursors: HashMap::new(),
             focused: true,
             a11y: None,
+            readable: true,
         }
     }
 
@@ -175,6 +178,12 @@ impl Gui {
     pub fn attach_accessibility(&mut self, window: *mut SDL_Window, wake: crate::hosts::Waker) -> Result<(), String> {
         self.a11y = Some(crate::a11y::Accessibility::attach(window, wake)?);
         Ok(())
+    }
+
+    /// The launcher and a stream's menu are read to screen readers; a stream's frames without its
+    /// menu (the overlay, toasts) build no tree, which would cost every frame at the stream's rate.
+    pub fn set_readable(&mut self, readable: bool) {
+        self.readable = readable;
     }
 
     pub fn push(&mut self, event: Event) {
@@ -282,8 +291,8 @@ impl Gui {
         unsafe { SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h) };
         // The UI zoom multiplies the display scale; egui lays out in points of the product.
         let ppp = scale.pixels_per_point * self.ctx.zoom_factor();
-        if let Some(a11y) = &self.a11y {
-            a11y.begin_pass(&self.ctx, &mut self.events);
+        if let Some(a11y) = &mut self.a11y {
+            a11y.begin_pass(&self.ctx, &mut self.events, self.readable);
         }
         let mut input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(

@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">헤드폰 서라운드</string>
     <string name="stream_audio_next_stream">다음 스트림부터 적용</string>
     <string name="stream_audio_failed">PC 오디오를 변경하지 못했습니다: %1$s</string>
+    <string name="stream_audio_unread">PC의 오디오 설정을 읽을 수 없습니다</string>
 </resources>

@@ -2095,6 +2095,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         if ui.add_enabled(switch.enabled, egui::Checkbox::new(&mut on, label)).changed() { s.set_host_audio(switch.id, on); }
                         if let Some(note) = &switch.note { ui.weak(note); }
                     }
+                    if let Some(problem) = s.host_audio.problem() { ui.weak(problem); }
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
                         if ui.button(tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
                         if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }

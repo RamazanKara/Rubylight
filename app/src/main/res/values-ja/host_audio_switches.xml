@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">ヘッドホンサラウンド</string>
     <string name="stream_audio_next_stream">次のストリームから適用</string>
     <string name="stream_audio_failed">PC の音声を変更できませんでした: %1$s</string>
+    <string name="stream_audio_unread">PCのオーディオ設定を読み取れませんでした</string>
 </resources>

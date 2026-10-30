@@ -664,6 +664,44 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void aFailedAudioReadSaysSoInTheMenu() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options(nativeApiHost(), NvApp.Role.STREAM);
+            state.nightModeOffered = true;
+            state.headphoneSurroundOffered = true;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { });
+            menu.show();
+            assertNull("Nothing while the host has not answered", menu.audioNote());
+
+            // GET /audio failed: no switches, and a line says why.
+            state.hostAudioUnread = true;
+            menu.refresh();
+            assertNull(menu.row(NIGHT_MODE));
+            assertNotNull(menu.audioNote());
+            assertEquals(activity.getString(R.string.stream_audio_unread), menu.audioNote().getText().toString());
+            assertTrue(menu.audioNote().isShown());
+
+            // The next answer that works replaces the line with the switches.
+            state.hostAudioUnread = false;
+            state.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(false, false));
+            menu.refresh();
+            assertNull(menu.audioNote());
+            assertNotNull(menu.row(NIGHT_MODE));
+
+            // Remote Monitor changes nothing on the PC, so it has nothing to say about it either.
+            StreamMenu.Options monitor = options(nativeApiHost(), NvApp.Role.REMOTE_MONITOR);
+            monitor.hostAudioUnread = true;
+            StreamMenu watching = new StreamMenu(activity, () -> monitor, item -> { });
+            watching.show();
+            assertNull(watching.audioNote());
+            menu.sheet().dismiss();
+            watching.sheet().dismiss();
+        }
+    }
+
+    @Test
     public void theAudioSwitchesAppearWhenTheHostAnswersAndShowItsNewState() throws Exception {
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
             Activity activity = controller.get();

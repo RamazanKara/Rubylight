@@ -794,13 +794,6 @@ impl Launcher {
             commands.push(Command::SaveSettings);
         }
         self.sync_look(&ctx);
-        // The PIN screen and the PIN lock page cover the launcher while they are up.
-        if let Some(pin) = &mut self.pin {
-            let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
-            if pin.ui(ui, &pcs, &mut commands) {
-                return commands;
-            }
-        }
         // A check whose page was left is cancelled here. Settings opened over the page does not
         // leave it: Back returns to the page and its check.
         let page = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {
@@ -819,6 +812,14 @@ impl Launcher {
             _ => None,
         });
         self.files.poll(files);
+        // The PIN screen and the PIN lock page cover the launcher while they are up. The polls
+        // above run under them, so a check, transfer or join in flight still ends or is cancelled.
+        if let Some(pin) = &mut self.pin {
+            let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
+            if pin.ui(ui, &pcs, &mut commands) {
+                return commands;
+            }
+        }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
@@ -2586,7 +2587,7 @@ impl Launcher {
             });
             ui.add_enabled_ui(s.microphone, |ui| {
                 setting_row(ui, s, &mut rows, &["mic_echo_cancel"], "Echo cancellation",
-                    "Keeps the stream's sound from the speakers out of the microphone. On Windows, Automatic turns it off when the sound plays through headphones or a headset.",
+                    "Keeps the stream's sound from the speakers out of the microphone. On Windows, Automatic turns it off when the sound plays through headphones or a headset. On Linux it needs PipeWire's or PulseAudio's echo-cancel module.",
                     |ui, s| {
                         egui::ComboBox::from_id_salt("mic-echo-cancel").selected_text(tr(s.mic_echo_cancel.label())).show_ui(ui, |ui| {
                             for mode in crate::config::MicEcho::ALL {
@@ -4831,6 +4832,7 @@ mod tests {
         let store = crate::pin_lock::PinStore::new(&dir, Arc::new(crate::pin_lock::SystemClock));
         store.set_pin(b"1234").unwrap();
         store.set_mode(crate::pin_lock::Mode::App);
+        store.flush();
         f.l.pin = Some(crate::pin_ui::PinLock::with_store(store));
         f.settle();
         assert!(f.l.pin.as_ref().unwrap().app_locked());
@@ -5797,6 +5799,31 @@ mod tests {
         f.l.open(Screen::HostDetails(id));
         f.settle();
         assert!(!shows(&f, "Test cancelled. No host or network settings were changed."), "the page opens fresh");
+    }
+
+    #[test]
+    fn the_pin_screen_does_not_stop_checks_from_being_polled() {
+        let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+        let id = f.hosts.list[0].id;
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        f.settle();
+        // The app locks with the check in flight, and the page under the lock screen is left.
+        let dir = std::env::temp_dir().join(format!("nightjar-ui-pin-poll-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::pin_lock::PinStore::new(&dir, Arc::new(crate::pin_lock::SystemClock));
+        store.set_pin(b"1234").unwrap();
+        store.set_mode(crate::pin_lock::Mode::App);
+        store.flush();
+        f.l.pin = Some(crate::pin_ui::PinLock::with_store(store));
+        f.l.screen = Screen::Hosts;
+        f.l.trail.clear();
+        f.settle();
+        assert!(f.l.pin.as_ref().unwrap().app_locked());
+        assert_eq!(probe.cancels.load(Ordering::SeqCst), 1, "leaving the page cancels its check under the lock too");
+        assert!(!f.l.remote.running());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

@@ -2324,6 +2324,7 @@ impl Streaming {
                     self.exit.get_or_insert(Exit::Terminated(code));
                 }
                 Notice::DecoderFallback(text) => self.show_toast(text),
+                Notice::EchoCancelOff(text) => self.show_toast(text),
                 Notice::PassthroughOpus => self.show_toast(tr("The PC did not offer PCM audio. This stream plays Opus.")),
                 Notice::DecoderFailed(text) => {
                     self.exit.get_or_insert(Exit::Ended(Some(text)));
@@ -3023,6 +3024,9 @@ impl Streaming {
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
         self.cursor.tick(Instant::now());
+        if let Some(Err(error)) = self.microphone.as_mut().map(microphone::Microphone::poll) {
+            self.shared.notify(Notice::MicrophoneFailed(error));
+        }
         if let Some(microphone) = &self.microphone {
             while let Ok(packet) = microphone.packets.try_recv() {
                 if let Err(error) = self.session.send_microphone(&packet) {

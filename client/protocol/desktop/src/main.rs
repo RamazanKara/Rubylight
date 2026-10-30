@@ -532,7 +532,10 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
 impl App {
     fn shutdown(&mut self) {
         // Closing Nightjar is leaving it: a start within the grace time stays unlocked.
-        if let Some(pin) = self.launcher.pin.as_mut() { pin.left(); }
+        if let Some(pin) = self.launcher.pin.as_mut() {
+            pin.left();
+            pin.flush();
+        }
         self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
         if let Some((streaming, _)) = self.streaming.take() {
@@ -955,6 +958,7 @@ impl App {
         let hosts = &self.hosts;
         let pads = &self.pads;
         let updates = &mut self.updates;
+        self.gui.set_readable(true);
         let output = self.gui.run(self.window, self.renderer, |ui| {
             updates.show(ui.ctx());
             commands = launcher.ui(
@@ -1483,11 +1487,12 @@ impl App {
     fn pin_holds(&mut self, host: u64, pending: PinPending) -> bool {
         let Some(pin) = self.launcher.pin.as_mut() else { return false };
         let (uuid, name) = self.hosts.get(host).map_or((String::new(), String::new()), |h| (h.record.unique_id.clone(), h.display_name().to_owned()));
-        if !pin.needs_pin_for_stream(&uuid) {
+        let key = pin_lock::stream_key(&uuid, host);
+        if !pin.needs_pin_for_stream(&key) {
             return false;
         }
         eprintln!("nightjar: the PIN lock asks for the PIN before this start");
-        pin.ask_for_stream(&uuid, &name);
+        pin.ask_for_stream(&key, &name);
         self.pin_pending = Some(pending);
         true
     }
@@ -1992,6 +1997,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     let (anchor, offset) = overlay_anchor(s.overlay_corner);
     let visible = s.overlay_visible;
     let title = format!("{} · {}", s.facts.app_name, s.facts.host_name);
+    // Screen readers get the menu and the Remote Input screen, not every frame of the overlay.
+    gui.set_readable(s.menu_visible || input_only);
     let output = gui.run(window, renderer, |ui| {
         let ctx = ui.ctx().clone();
         if input_only {

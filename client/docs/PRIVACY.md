@@ -49,8 +49,8 @@ Stream content, input and clipboard transfers are between your device and the
 PC you connect to. When you turn on **Send microphone to the PC**, Nightjar asks
 for microphone access and, during a stream, sends your microphone, encrypted, to
 that PC only. It is not recorded or stored on your device, and it stops when you
-mute it in the stream menu or the stream ends. Pairing exchanges identity information with that PC. Host
-discovery also uses your local network.
+mute it in the stream menu or the stream ends. Pairing exchanges identity
+information with that PC. Host discovery also uses your local network.
 
 **Scan QR code** in Add PC asks for camera access only when you tap it. The
 camera reads the pairing code on your PC's screen; no picture is saved or
@@ -71,8 +71,8 @@ to tell you that your PC's host has an update. GitHub receives your public IP
 address. Nothing is installed without your choice.
 
 If you enable **Send hardware metrics to client** on a host that supports it
-(Rubylight), Nightjar can request host CPU usage and available AMD GPU readings, including
-GPU names, utilization, clocks, temperatures, power, fans and VRAM use. This
+(Rubylight 3.0), Nightjar can request host CPU usage and available AMD GPU
+readings, including GPU names, utilization, clocks, temperatures, power, fans and VRAM use. This
 uses the paired streaming HTTPS connection during this device's active video
 stream while its foreground performance overlay is visible. Polling stops
 when the overlay is hidden, the app is paused or in picture in picture, or the
@@ -88,8 +88,8 @@ The app also makes public network checks. It can contact
 `stun.moonlight-stream.org` to find an external network address and
 `android.conntest.moonlight-stream.org` to diagnose connection failures. Those
 servers receive your public IP address and network protocol traffic. They do
-not receive your stream, clipboard or problem reports. Their retention
-practices are not established by this repository.
+not receive your stream, clipboard or problem reports. Their operators'
+retention practices apply.
 
 Opening a help or source link contacts the website you choose to visit. The
 site and your browser apply their own privacy practices.
@@ -127,14 +127,16 @@ latency files, may be backed up or transferred by Android. Client certificates,
 private keys, the client identifier and preferences are excluded. Crash records
 and temporary report files are kept outside Android backup.
 
-Remove a saved PC in Nightjar to remove its saved-host entry, per-PC and per-game settings, hidden-app choices,
-cached app list and artwork. Revoke pairing
-on the PC to remove that device's access there. Clear Nightjar's app storage
+Remove a saved PC in Nightjar to remove its saved-host entry, per-PC and
+per-game settings, hidden-app choices, cached app list and artwork. Revoke
+pairing on the PC to remove that device's access there. Clear Nightjar's app storage
 or uninstall it to remove its local data. Separately delete any exported logs,
 shared reports or Android backups using the app or service holding them.
 
 Nightjar has no developer-hosted user account to delete. For questions about
-this policy, use the contact details on the Nightjar store listing.
+this policy, open an issue in the
+[Nightjar repository](https://github.com/RamazanKara/nightjar/issues) or use
+the contact details on the Nightjar store listing.
 
 ## Nightjar for Windows and Linux
 

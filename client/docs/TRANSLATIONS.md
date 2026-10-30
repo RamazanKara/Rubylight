@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Nightjar ships in 15 languages. English (`values`) is the source; every other language must translate every string before it can ship, because lint treats a missing translation as an error.
+The Android app ships in 15 languages; Nightjar for Windows and Linux in English and German. English (`values`) is the source text. Lint treats a missing translation as an error, except in resource files marked as English and German only, whose strings fall back to English in the other languages until they are translated.
 
 ## Languages
 
@@ -24,7 +24,7 @@ Nightjar ships in 15 languages. English (`values`) is the source; every other la
 | Ukrainian (Українська) | `values-uk` | 23 strings reused unchanged from the Moonlight/Artemis community translation, 56 more adapted from it; the rest machine-assisted | Community review wanted |
 | Vietnamese (Tiếng Việt) | `values-vi` | 61 strings reused unchanged from the Moonlight/Artemis community translation, 18 more adapted from it; the rest machine-assisted | Community review wanted |
 
-Each language has 1,718 strings, counting each plural and string array as one; `python scripts/translation-status.py` prints the current count. "Machine-assisted" means the text was drafted by translation tooling, checked against the rules below and reviewed for terminology, but not yet read by a native speaker. Corrections from native speakers are the most useful contribution for these languages.
+The app has 2,063 translatable strings, counting each plural and string array as one. German translates all of them. The other 13 languages translate 1,975 and show English on the file transfer and co-op screens (`files.xml` and `coop.xml`). `python scripts/translation-status.py` prints the current counts and the missing keys. "Machine-assisted" means the text was drafted by translation tooling, checked against the rules below and reviewed for terminology, but not yet read by a native speaker. Corrections from native speakers are the most useful contribution for these languages.
 
 The reused sentences come from the community translations of [Moonlight Android](https://github.com/moonlight-stream/moonlight-android) and [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) (both GPL-3.0, like Nightjar). A sentence was reused only where its English source was identical to Nightjar's, with the app name replaced; those projects' translations also set the terminology for each language.
 
@@ -37,7 +37,7 @@ You don't need to build the app to translate it.
 - **Fix a string:** find the key in `app/src/main/res/values/` (English) and the same key in `app/src/main/res/values-<language>/`, edit it and open a pull request. Say which screen you looked at if you could.
 - **Review a language:** use Nightjar in that language and report wording that is wrong, unnatural or cut off in an issue titled `Translation (<language>): …`, with a screenshot.
 - **Add a language:** open an issue first. A new language needs all strings translated (see [Adding a language](#adding-a-language)).
-- **Weblate:** a hosted Weblate project is planned; until it exists, use pull requests.
+- **Weblate:** a hosted Weblate project is planned; until then, use pull requests.
 
 Run `python scripts/translation-status.py` to list missing or stale keys per language.
 
@@ -64,9 +64,11 @@ Run `python scripts/translation-status.py` to list missing or stale keys per lan
 2. Add the language to `app/src/main/res/xml/locales_config.xml` (BCP 47 code, for example `pt-BR`), to `language_names` (its own name for itself) and `language_values` in `values/arrays.xml`, to `language_names` in every translated `arrays.xml`, and to `localeFilters` in `app/build.gradle`.
 3. Run `python scripts/generate-settings.py` and the unit tests.
 
-## Weblate setup (owner step)
+## For maintainers
 
-The project owner creates the hosted Weblate project (`nightjar`, free libre hosting) and connects it to this repository; no account exists yet. `.weblate` in the repository root points the `wlc` client at it.
+### Weblate setup
+
+The project owner creates the hosted Weblate project (`nightjar`, libre hosting) and connects it to this repository. `.weblate` in the repository root points the `wlc` client at it.
 
 Strings are split across several files per language, so use one component per file through the **Component discovery** add-on:
 

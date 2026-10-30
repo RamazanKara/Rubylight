@@ -1,42 +1,73 @@
 #!/bin/sh
-# nightjar-usb-helper-version: 1
+# nightjar-usb-helper-version: 2
 # Nightjar's USB forwarding helper (Linux usbip-host). Nightjar runs it only through pkexec, and
 # it checks its own arguments. It binds a device the user attaches to the kernel's usbip-host,
 # hands usbip-host the connection Nightjar serves it on, and gives the device back to its
 # driver afterwards. No usbipd: nothing listens for USB/IP, on the network or on loopback.
 #   install                  writes the polkit policy and the udev rule, then itself
-#   hold BUSID IDENTITY      stdin is one end of a TCP connection Nightjar made on loopback:
-#                            binds, gives usbip-host that connection (usbip_sockfd, as
-#                            usbipd does after an import), prints "bound", and unbinds once
-#                            the connection ended (the attachment ended, or Nightjar quit or
-#                            crashed, which closes Nightjar's end)
+#   hold BUSID IDENTITY      stdin is one end of a TCP connection on 127.0.0.1 whose other end
+#                            belongs to the user who ran pkexec (Nightjar's): binds, gives
+#                            usbip-host that connection (usbip_sockfd, as usbipd does after an
+#                            import), prints "bound", and unbinds once the connection ended
+#                            (the attachment ended, or Nightjar quit or crashed, which closes
+#                            Nightjar's end) or the helper is told to stop (TERM)
 #   bind BUSID IDENTITY      binds
 #   unbind BUSID             unbinds and gives the device back to its driver
 #   auto-release BUSID       udev, on unplug: clears what usbip-host keeps of the port
 # Exit codes: 2 bad arguments, 3 no usbip tool, 4 no usbip_host module, 5 another device at
 # the port, 6 bound but not recorded, 7 setup failed, 8 the old connection did not let go,
-# 9 usbip-host did not take the connection.
+# 9 usbip-host did not take the connection, 10 another program forwards the device already.
 # Ported from Moonlight V+ (qiin2333/moonlight-qt, app/backend/usbforwardingbackend.cpp).
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
+# pkexec keeps the caller's umask; what root creates here is not the caller's to write.
+umask 022
+# Nightjar's end of stderr closes when it quits or crashes; a write to it must not kill the
+# helper before it gave the device back.
+trap '' PIPE
 set -u
 ACTION=${1:-}
 BUSID=${2:-}
 HELPER_FILE=/usr/lib/nightjar/nightjar-usb-helper
 STATE_DIR=/var/lib/nightjar
 STATE_FILE=$STATE_DIR/usb-bindings
+# Ports unplugged while forwarded, waiting for a usbip_host reload.
+PENDING_FILE=$STATE_DIR/usb-reload-pending
+LOCK_FILE=$STATE_DIR/usb.lock
 POLICY_FILE=/usr/share/polkit-1/actions/io.github.ramazankara.nightjar.usb.policy
 UDEV_RULE_FILE=/usr/lib/udev/rules.d/90-nightjar-usb.rules
 SYSFS_USB_DEVICES=/sys/bus/usb/devices
 SYSFS_USBIP_HOST=/sys/module/usbip_host
+USBIP_HOST_DRIVER=/sys/bus/usb/drivers/usbip-host
 DRIVERS_PROBE=/sys/bus/usb/drivers_probe
+PROC_NET_TCP=/proc/net/tcp
 
 case "$ACTION" in install|hold|bind|unbind|auto-release) ;; *) echo "unsupported action" >&2; exit 2;; esac
 if [ "$ACTION" != "install" ]; then
     case "$BUSID" in ''|*[!0-9.-]*) echo "invalid busid" >&2; exit 2;; esac
 fi
-if [ "$ACTION" = "hold" ] && [ ! -S "/proc/$$/fd/0" ]; then
-    echo "stdin is not a socket" >&2; exit 2
+
+# stdin is an established TCP connection with both ends on 127.0.0.1, and both its sockets
+# belong to the user who ran pkexec: another program can't hand a device to the network, or
+# to a connection someone else made.
+check_connection() {
+    OWNER=${PKEXEC_UID:-$(id -ru)}
+    LINK=$(readlink "/proc/$$/fd/0" 2>/dev/null) || return 1
+    case "$LINK" in "socket:["*"]") ;; *) return 1;; esac
+    INODE=${LINK#socket:\[}
+    INODE=${INODE%\]}
+    awk -v inode="$INODE" -v owner="$OWNER" '
+        function loopback(address) { split(address, a, ":"); return a[1] == "0100007F" || a[1] == "7F000001" }
+        NR > 1 { local[NR] = $2; remote[NR] = $3; uid[NR] = $8; ino[NR] = $10; if ($10 == inode && $4 == "01") me = NR }
+        END {
+            if (!me || uid[me] != owner || !loopback(local[me]) || !loopback(remote[me])) exit 1
+            for (i in ino) if (i != me && local[i] == remote[me] && remote[i] == local[me] && uid[i] == owner && ino[i] != 0) exit 0
+            exit 1
+        }' "$PROC_NET_TCP"
+}
+if [ "$ACTION" = "hold" ]; then
+    [ -S "/proc/$$/fd/0" ] || { echo "stdin is not a socket" >&2; exit 2; }
+    check_connection || { echo "stdin is not the caller's loopback connection" >&2; exit 2; }
 fi
 
 # Kills the whole process group (Nightjar starts the helper as its own group) when a step
@@ -85,7 +116,7 @@ if [ "$ACTION" = "install" ]; then
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/nightjar/nightjar-usb-helper</annotate>
   </action>
@@ -97,7 +128,8 @@ POLICY
 # Nightjar USB forwarding: when a forwarded device is unplugged, clear what usbip-host keeps
 # of its port (match_busid), which would otherwise take whatever is plugged in there next.
 # The kernel drops that entry only while the device is present, so after an unplug only a
-# module reload clears it; modprobe -r refuses while another device is still forwarded.
+# module reload clears it, which would drop every other device usbip-host has: the helper
+# reloads only once usbip-host holds no other device, and tries again on the next unbind.
 ACTION=="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", RUN+="/usr/lib/nightjar/nightjar-usb-helper auto-release $kernel"
 RULE
     }
@@ -133,36 +165,79 @@ read_identity_attrs() {
     SERIAL=$(tr -d ' \t\n\r' < "$SYSFS_USB_DEVICES/$BUSID/serial" 2>/dev/null)
     [ -n "$VID" ] && [ -n "$PID" ]
 }
+# Runs a function on the records with the lock held: holds, unbinds and udev run at once.
+locked() {
+    mkdir -p "$STATE_DIR" || return 1
+    ( flock -w 30 9 || { echo "state_locked" >&2; exit 1; }; "$@" ) 9>"$LOCK_FILE"
+}
+# Drops the records of the ports given.
 forget() {
-    mkdir -p "$STATE_DIR"
     [ -f "$STATE_FILE" ] || return 0
-    awk -F'\t' -v b="$1" '$1 != b' "$STATE_FILE" > "$STATE_FILE.new" &&
-        mv "$STATE_FILE.new" "$STATE_FILE"
+    TMP=$(mktemp "$STATE_FILE.XXXXXX") || return 1
+    if awk -F'\t' -v gone=" $* " 'index(gone, " " $1 " ") == 0' "$STATE_FILE" > "$TMP" &&
+       chmod 644 "$TMP" && mv "$TMP" "$STATE_FILE"; then
+        return 0
+    fi
+    rm -f "$TMP"
+    return 1
 }
 # Drops the records of ports gone from sysfs: after a module reload nothing matches them.
 sweep_stale() {
     [ -f "$STATE_FILE" ] || return 0
-    while IFS="$(printf '\t')" read -r b vidpid serial; do
-        [ -n "$b" ] || continue
-        [ -d "$SYSFS_USB_DEVICES/$b" ] || forget "$b"
-    done < "$STATE_FILE"
+    GONE=$(awk -F'\t' '{ print $1 }' "$STATE_FILE" | while read -r b; do
+        [ -n "$b" ] && [ ! -d "$SYSFS_USB_DEVICES/$b" ] && echo "$b"
+    done)
+    [ -z "$GONE" ] || forget $GONE
 }
 record() {
     read_identity_attrs || return 1
-    forget "$BUSID"
+    forget "$BUSID" || return 1
     printf '%s\t%s:%s\t%s\n' "$BUSID" "$VID" "$PID" "$SERIAL" >> "$STATE_FILE" || return 1
     chmod 644 "$STATE_FILE" 2>/dev/null || true
 }
+is_recorded() {
+    awk -F'\t' -v b="$1" '$1 == b { found = 1 } END { exit !found }' "$STATE_FILE" 2>/dev/null
+}
+pending_add() {
+    grep -qxF "$1" "$PENDING_FILE" 2>/dev/null || printf '%s\n' "$1" >> "$PENDING_FILE"
+}
+# Reloads usbip_host for the ports unplugged while forwarded, once it has no other device: a
+# reload drops every device it has, and other programs' exports with them. A device plugged
+# into a waiting port is the one the reload frees, unless it is exported. Postponed, the
+# ports wait for the next unbind or unplug.
+reload_if_free() {
+    [ -s "$PENDING_FILE" ] || return 0
+    for ENTRY in "$USBIP_HOST_DRIVER"/*; do
+        B=${ENTRY##*/}
+        case "$B" in [0-9]*-*) ;; *) continue;; esac
+        if grep -qxF "$B" "$PENDING_FILE" &&
+           [ "$(cat "$SYSFS_USB_DEVICES/$B/usbip_status" 2>/dev/null)" != "2" ]; then
+            continue
+        fi
+        echo "usbip-host has $B: its reload waits" >&2
+        return 0
+    done
+    modprobe -r usbip_host || { echo "usbip_host unload failed" >&2; return 1; }
+    # Unloaded, it matches no port any more.
+    forget $(cat "$PENDING_FILE") && : > "$PENDING_FILE" && sweep_stale
+    modprobe usbip_host || { echo "usbip_host load failed" >&2; return 1; }
+}
+# The device was given back: its record goes, and a postponed reload may run now.
+released() {
+    forget "$1"
+    reload_if_free
+}
+# udev, on unplug: the port joins those waiting for a reload when Nightjar forwarded it.
+unplugged() {
+    if is_recorded "$1"; then pending_add "$1"; fi
+    reload_if_free
+}
 
 if [ "$ACTION" = "auto-release" ]; then
-    # Only ports Nightjar forwarded. The record stays when the reload fails, so that the next
-    # unplug tries again.
-    awk -F'\t' -v b="$BUSID" '$1 == b { found = 1 } END { exit !found }' \
-        "$STATE_FILE" 2>/dev/null || exit 0
-    if modprobe -r usbip_host 2>/dev/null && modprobe usbip_host 2>/dev/null; then
-        forget "$BUSID"
-        sweep_stale
-    fi
+    # Every unplug lands here: only ports Nightjar forwarded, or a reload still waiting.
+    [ -d "$STATE_DIR" ] || exit 0
+    is_recorded "$BUSID" || [ -s "$PENDING_FILE" ] || exit 0
+    locked unplugged "$BUSID"
     exit 0
 fi
 
@@ -178,17 +253,23 @@ bind_device() {
     if [ -z "$EXPECTED" ] || [ "${#EXPECTED}" -gt 512 ]; then
         echo "missing expected identity" >&2; exit 2
     fi
-    case "$EXPECTED" in *[![:print:]]*) echo "invalid identity" >&2; exit 2;; esac
+    # Control characters only: in pkexec's C locale a UTF-8 serial's bytes are not [:print:].
+    case "$EXPECTED" in *[[:cntrl:]]*) echo "invalid identity" >&2; exit 2;; esac
     if ! read_identity_attrs || [ "$VID:$PID:$SERIAL" != "$EXPECTED" ]; then
         echo "device_changed" >&2; exit 5
+    fi
+    # Exported already (by another program, or another attach): binding and handing it a
+    # connection would end that export.
+    if [ "$(cat "$SYSFS_USB_DEVICES/$BUSID/usbip_status" 2>/dev/null)" = "2" ]; then
+        echo "busy" >&2; exit 10
     fi
     OUT=$(usbip bind -b "$BUSID" 2>&1 </dev/null)
     RC=$?
     echo "$OUT" >&2
-    case "$OUT" in *"already bound"*) RC=0;; esac
+    case "$OUT" in *"already bound"*) RC=0;; *) [ $RC -ne 0 ] || BOUND_HERE=1;; esac
     [ $RC -eq 0 ] || exit $RC
     # Bound either way; without the record a replugged port is not guarded.
-    record || { echo "snapshot_failed" >&2; SNAPSHOT_FAILED=1; }
+    locked record || { echo "snapshot_failed" >&2; SNAPSHOT_FAILED=1; }
 }
 
 # usbip-host keeps the connection it was handed, so a connection an interrupted client left behind
@@ -208,35 +289,46 @@ release_active_export() {
     return 1
 }
 
+# Unbinds and gives the device back to its driver; usbip's exit code when it stays bound.
+give_back() {
+    OUT=$(usbip unbind -b "$BUSID" 2>&1 </dev/null)
+    RC=$?
+    echo "$OUT" >&2
+    # Still bound: the record keeps guarding the port.
+    [ $RC -eq 0 ] || return $RC
+    echo "$BUSID" > "$DRIVERS_PROBE" 2>/dev/null || true
+    locked released "$BUSID"
+    return 0
+}
+
 unbind_device() {
     if ! release_active_export; then
         echo "active_connection_stuck" >&2
         exit 8
     fi
-    OUT=$(usbip unbind -b "$BUSID" 2>&1 </dev/null)
-    RC=$?
-    echo "$OUT" >&2
-    # Still bound: the record keeps guarding the port.
-    [ $RC -eq 0 ] || exit $RC
-    echo "$BUSID" > "$DRIVERS_PROBE" 2>/dev/null || true
-    forget "$BUSID"
+    give_back || exit $?
 }
 
 SNAPSHOT_FAILED=0
+BOUND_HERE=0
 case "$ACTION" in
     bind)
         bind_device "$@"
         [ "$SNAPSHOT_FAILED" -eq 0 ] || exit 6
         ;;
     hold)
-        # A Ctrl-C in Nightjar's terminal or a closed session must not skip the unbind.
+        # A Ctrl-C in Nightjar's terminal or a closed session must not skip the unbind; TERM
+        # (logout, kill) ends the export and gives the device back.
+        STOP=0
         trap '' INT HUP
+        trap 'STOP=1' TERM
         bind_device "$@"
         # echo is the shell's own: the write comes from this process, whose fd 0 is the
         # connection, and usbip-host takes it from here (status 2, in use).
         if ! echo 0 > "$SYSFS_USB_DEVICES/$BUSID/usbip_sockfd"; then
             echo "export_failed" >&2
-            unbind_device
+            # Bound by someone else before: theirs to keep.
+            [ "$BOUND_HERE" -eq 0 ] || give_back
             exit 9
         fi
         # usbip-host holds the connection now; this end is never read here.
@@ -244,7 +336,7 @@ case "$ACTION" in
         stop_watchdog
         echo "bound"
         # The export ends when Nightjar's end closes or the device goes away.
-        while [ -d "$SYSFS_USB_DEVICES/$BUSID" ] &&
+        while [ "$STOP" -eq 0 ] && [ -d "$SYSFS_USB_DEVICES/$BUSID" ] &&
               [ "$(cat "$SYSFS_USB_DEVICES/$BUSID/usbip_status" 2>/dev/null)" = "2" ]; do
             sleep 0.5
         done

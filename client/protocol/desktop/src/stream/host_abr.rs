@@ -3,7 +3,41 @@
 //! seconds and shows the bitrate the PC chose, as Moonlight V+ PC does. Rubylight PCs keep this
 //! client's own controller (`bitrate.rs`).
 
+use std::sync::{Arc, Mutex};
+
 use nightjar_core::http::foundation::{AbrAction, AbrConfigured, AbrFeedback, ABR_FEEDBACK_INTERVAL};
+
+/// The hand-off between the thread that asks the PC to turn its controller on and the stream,
+/// which may end while that request is in flight: whichever side comes second turns it off, so
+/// the PC never keeps its controller after the stream.
+#[derive(Clone, Default)]
+pub struct AbrStart(Arc<Mutex<StartState>>);
+
+#[derive(Default, PartialEq, Debug)]
+enum StartState {
+    #[default]
+    Pending,
+    On,
+    Ended,
+}
+
+impl AbrStart {
+    /// The thread: the PC turned its controller on. False when the stream ended meanwhile; the
+    /// thread then turns it off itself.
+    pub fn turned_on(&self) -> bool {
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if *state != StartState::Pending { return false; }
+        *state = StartState::On;
+        true
+    }
+
+    /// The stream ends or stops the controller: true when it is on and the caller turns it off.
+    /// A start still in flight turns it off itself (`turned_on`).
+    pub fn end(&self) -> bool {
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::replace(&mut *state, StartState::Ended) == StartState::On
+    }
+}
 
 pub struct HostAbr {
     /// The bitrate in Kbps the PC last set.
@@ -87,5 +121,20 @@ mod tests {
         assert_eq!(abr.answered(Some(&AbrAction::default())), None, "kept");
         assert_eq!(abr.answered(None), None, "a failed report changes nothing");
         assert_eq!(abr.current_kbps, 28000);
+    }
+
+    #[test]
+    fn whichever_side_comes_second_turns_the_pcs_controller_off() {
+        // The stream ends while the PC turns it on: the stream has nothing to stop, the start does.
+        let start = AbrStart::default();
+        assert!(!start.clone().end(), "nothing is on yet");
+        assert!(!start.turned_on(), "the late start turns it off itself");
+        // The PC turned it on first: the stream turns it off, even before it saw the answer.
+        let start = AbrStart::default();
+        assert!(start.clone().turned_on());
+        assert!(start.end());
+        assert!(!start.end(), "once");
+        // The PC had none, or refused: the start never turned it on, nothing to stop.
+        assert!(!AbrStart::default().end());
     }
 }

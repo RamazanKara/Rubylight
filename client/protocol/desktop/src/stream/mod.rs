@@ -1583,6 +1583,8 @@ pub struct Streaming {
     bitrate_policy: Option<bitrate::Bitrate>,
     /// A Foundation PC's own bitrate controller, on in place of `bitrate_policy`.
     host_abr: Option<host_abr::HostAbr>,
+    /// The request that turns it on, while the stream may end before the PC answers.
+    host_abr_start: Option<host_abr::AbrStart>,
     /// The stream doctor: its report in the stream menu and after the stream, and the bitrate trial.
     doctor: doctor::Doctor,
     /// Rate changes over 0x553C, on a stream that takes them.
@@ -1782,6 +1784,7 @@ impl Streaming {
             adaptive_bitrate: false,
             bitrate_policy: None,
             host_abr: None,
+            host_abr_start: None,
             doctor: doctor::Doctor::default(),
             rate_change,
             quality_mode,
@@ -2660,10 +2663,15 @@ impl Streaming {
 
     /// Asks a Foundation PC to run its own bitrate controller up to the stream's bitrate, as
     /// Moonlight V+ PC's `startSunshineAbr` does. Other PCs answer 404: nothing changes there.
+    /// The start may outlive the stream (only `finish` ends it while in flight: `bitrate_busy` holds
+    /// the setting): its own client is not cancelled by `finish`, and `AbrStart` decides who turns
+    /// the PC's controller off.
     fn start_host_abr(&mut self) {
-        let Some(client) = lock(&self.shared.host_client).clone() else { return };
+        let Some(client) = lock(&self.shared.host_client).as_ref().map(|c| c.detached()) else { return };
         let shared = self.shared.clone();
         let max_kbps = self.facts.bitrate_kbps.max(0) as u32;
+        let start = host_abr::AbrStart::default();
+        self.host_abr_start = Some(start.clone());
         self.bitrate_busy = true;
         std::thread::spawn(move || {
             let result = match client.abr_capabilities() {
@@ -2674,14 +2682,22 @@ impl Streaming {
                 Ok(_) | Err(HttpError::NotFound(_)) => Ok(None),
                 Err(e) => Err(trf("The PC did not start its automatic bitrate: {}", &[&e])),
             };
+            if matches!(result, Ok(Some(_))) && !start.turned_on() {
+                // The stream ended while the PC turned it on: nobody else will turn it off.
+                if let Err(e) = client.configure_abr(&AbrRequest::off()) {
+                    eprintln!("nightjar: the PC's automatic bitrate did not stop: {e}");
+                }
+                return;
+            }
             shared.notify(Notice::HostAbr(result));
         });
     }
 
     /// Turns a Foundation PC's controller off again (V+ PC's `stopSunshineAbr`, 1 s at most).
     fn stop_host_abr(&mut self) {
-        if self.host_abr.take().is_none() { return; }
-        self.adaptive_bitrate = false;
+        if self.host_abr.take().is_some() { self.adaptive_bitrate = false; }
+        // On, though its answer may not have come yet; a start still in flight turns it off itself.
+        if !self.host_abr_start.take().is_some_and(|start| start.end()) { return; }
         if let Some(client) = lock(&self.shared.host_client).clone() {
             if let Err(e) = client.configure_abr(&AbrRequest::off()) {
                 eprintln!("nightjar: the PC's automatic bitrate did not stop: {e}");

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">Mode nuit</string>
+    <string name="stream_headphone_surround">Surround au casque</string>
+    <string name="stream_audio_next_stream">S\'applique au prochain stream</string>
+    <string name="stream_audio_failed">Impossible de modifier le son du PC : %1$s</string>
+</resources>

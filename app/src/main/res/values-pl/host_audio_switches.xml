@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">Tryb nocny</string>
+    <string name="stream_headphone_surround">Dźwięk przestrzenny na słuchawkach</string>
+    <string name="stream_audio_next_stream">Zadziała od następnego streamu</string>
+    <string name="stream_audio_failed">Nie udało się zmienić dźwięku komputera: %1$s</string>
+</resources>

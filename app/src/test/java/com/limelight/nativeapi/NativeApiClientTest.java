@@ -139,6 +139,58 @@ public class NativeApiClientTest {
     }
 
     @Test
+    public void theAudioSwitchesReadTheHostAndAWriteSendsOneChange() throws Exception {
+        transport.reply("pc", "audio", ok(NativeApiFixtures.audioJson(true, false)));
+        NativeAudio audio = client().audio();
+        assertEquals(3, audio.revision);
+        assertTrue(audio.get(NativeCapabilities.NIGHT_MODE).switchable());
+        assertEquals(Boolean.TRUE, audio.get(NativeCapabilities.NIGHT_MODE).value);
+        assertEquals(Boolean.FALSE, audio.get(NativeCapabilities.HEADPHONE_SURROUND).value);
+        assertNull(audio.get("audio.loudness"));
+
+        transport.reply("pc", "audio_write", ok(NativeApiFixtures.audioJson(true, true)));
+        NativeAudio changed = client().writeAudio(NativeCapabilities.HEADPHONE_SURROUND, true);
+        assertEquals(Boolean.TRUE, changed.get(NativeCapabilities.HEADPHONE_SURROUND).value);
+        assertEquals(Arrays.asList("pc|audio", "pc|audio_write"), transport.calls);
+        // The host's AudioWrite: one change, a boolean, nothing else.
+        JSONObject sent = new JSONObject(transport.arguments.get(1));
+        assertEquals(1, sent.length());
+        assertEquals(1, sent.getJSONArray("changes").length());
+        JSONObject change = sent.getJSONArray("changes").getJSONObject(0);
+        assertEquals(2, change.length());
+        assertEquals("audio.headphone_surround", change.getString("id"));
+        assertEquals(Boolean.TRUE, change.get("value"));
+
+        // Without a stream the host lists both, but neither can change.
+        transport.reply("pc", "audio", ok(NativeApiFixtures.AUDIO_WITHOUT_STREAM));
+        NativeAudio idle = client().audio();
+        assertFalse(idle.get(NativeCapabilities.NIGHT_MODE).switchable());
+        assertEquals("no_session", idle.get(NativeCapabilities.NIGHT_MODE).reason);
+
+        transport.reply("pc", "audio_write", "{\"error\":{\"kind\":\"api\",\"message\":\"Not your stream.\","
+                + "\"http_status\":409,\"code\":\"not_session_owner\"}}");
+        try {
+            client().writeAudio(NativeCapabilities.NIGHT_MODE, false);
+            fail();
+        } catch (NativeApiException e) {
+            assertEquals("not_session_owner", e.getCode());
+        }
+    }
+
+    @Test
+    public void anAudioSwitchNeedsTheHostsFeatureAndViewOrLaunch() throws Exception {
+        String features = "\"features\":[\"audio.night_mode\"]";
+        assertTrue(NativeCapabilities.parse(new JSONObject("{\"api_version\":1,\"permissions\":{\"view\":true},"
+                + features + "}")).offersAudio(NativeCapabilities.NIGHT_MODE));
+        assertTrue(NativeCapabilities.parse(new JSONObject("{\"api_version\":1,\"permissions\":{\"launch\":true},"
+                + features + "}")).offersAudio(NativeCapabilities.NIGHT_MODE));
+        assertFalse("listing only", NativeCapabilities.parse(new JSONObject("{\"api_version\":1,"
+                + "\"permissions\":{\"list\":true}," + features + "}")).offersAudio(NativeCapabilities.NIGHT_MODE));
+        assertFalse("not advertised", NativeCapabilities.parse(new JSONObject("{\"api_version\":1,"
+                + "\"permissions\":{\"view\":true}," + features + "}")).offersAudio(NativeCapabilities.HEADPHONE_SURROUND));
+    }
+
+    @Test
     public void resumeIsTheLaunchPathAndNotASessionAction() {
         for (NativeSession.ActionId id : new NativeSession.ActionId[] {NativeSession.ActionId.RESUME,
                 NativeSession.ActionId.UNKNOWN}) {

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">Chế độ ban đêm</string>
+    <string name="stream_headphone_surround">Âm thanh vòm cho tai nghe</string>
+    <string name="stream_audio_next_stream">Áp dụng từ lần stream sau</string>
+    <string name="stream_audio_failed">Không thể thay đổi âm thanh của PC: %1$s</string>
+</resources>

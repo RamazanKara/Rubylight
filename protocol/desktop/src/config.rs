@@ -998,10 +998,36 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
-    // Write and rename, so a crash never leaves half a file.
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, path)
+    write_private(path, text.as_bytes())
+}
+
+/// Writes `bytes` to `path` whole or not at all: a temporary file of its own name, synced to disk,
+/// then renamed over `path`, so neither a crash nor a second writer leaves half a file. On Unix only
+/// the user can read it (0600): the identity holds the client's private key, the PIN lock its hash.
+pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = path.file_name().ok_or_else(|| std::io::Error::other("no file name"))?.to_string_lossy();
+    let temporary = path.with_file_name(format!("{name}.{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let written = (|| {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&temporary)?;
+        // The mode above is masked by the umask; this sets it as asked.
+        #[cfg(unix)]
+        file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written
 }
 
 /// The platform config directory, or `NIGHTJAR_CONFIG_DIR`. Not created here.
@@ -1853,5 +1879,25 @@ mod tests {
         assert!(record.quit_on_leave.is_empty() && !record.quits_on_leave("", 5));
         let old: HostRecord = serde_json::from_str(r#"{"name":"PC"}"#).unwrap();
         assert!(old.quit_on_leave.is_empty());
+    }
+
+    #[test]
+    fn files_are_replaced_whole_and_only_the_user_reads_them() {
+        let dir = std::env::temp_dir().join(format!("nightjar-private-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let store = Store::at(dir.clone()).unwrap();
+        let identity = Identity { unique_id: "id".into(), certificate_pem: "cert".into(), private_key_pem: "key".into() };
+        store.save_identity(&identity).unwrap();
+        store.save_identity(&identity).unwrap();
+        let names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["identity.json"], "no temporary file is left behind");
+        assert!(store.identity().is_some());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join("identity.json")).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "the private key is the user's alone");
+        }
+        std::fs::remove_dir_all(dir).ok();
     }
 }

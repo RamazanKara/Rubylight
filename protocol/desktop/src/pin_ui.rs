@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use egui::{vec2, Align, Key, Layout, RichText, Sense, Ui};
 
-use crate::pin_lock::{Mode, Outcome, PinGate, PinStore, GRACE_CHOICES, MAX_DIGITS, MIN_DIGITS};
+use crate::pin_lock::{Mode, Outcome, PinGate, PinStore, Problem, GRACE_CHOICES, MAX_DIGITS, MIN_DIGITS};
 use crate::strings::{en, tr, trf};
 use crate::theme::*;
 use crate::ui::{primary_button, quiet_button, Command};
@@ -19,8 +19,8 @@ use crate::ui::{primary_button, quiet_button, Command};
 enum Purpose {
     /// The app is locked; the screen covers it and only closing Nightjar gets past it.
     App,
-    /// Starting a stream on the PC `uuid`, called `pc`.
-    Stream { uuid: String, pc: String },
+    /// Starting a stream on the PC with the key `key` (pin_lock::stream_key), called `pc`.
+    Stream { key: String, pc: String },
     /// The current PIN, before the settings page opens or the PIN changes or goes.
     Verify(After),
     Choose,
@@ -121,6 +121,11 @@ impl PinLock {
         self.job.is_some()
     }
 
+    /// Waits for the lock's file to be written: Nightjar is closing.
+    pub fn flush(&self) {
+        self.store.flush();
+    }
+
     /// The window went out of sight, or Nightjar is closing.
     pub fn left(&mut self) {
         self.gate.left(&self.store);
@@ -133,16 +138,17 @@ impl PinLock {
         self.lock_app_if_needed();
     }
 
-    /// Whether starting a stream on `uuid` has to wait for the PIN; a grant is used up here.
-    pub fn needs_pin_for_stream(&mut self, uuid: &str) -> bool {
-        self.gate.needs_pin_for_stream(&self.store, uuid)
+    /// Whether starting a stream under `key` (pin_lock::stream_key) has to wait for the PIN; a
+    /// grant is used up here.
+    pub fn needs_pin_for_stream(&mut self, key: &str) -> bool {
+        self.gate.needs_pin_for_stream(&self.store, key)
     }
 
-    /// Asks for the PIN to start a stream on `uuid` (`pc` names it). Under the app lock its
+    /// Asks for the PIN to start a stream under `key` (`pc` names the PC). Under the app lock its
     /// screen asks already, and unlocking the app lets the start go on.
-    pub fn ask_for_stream(&mut self, uuid: &str, pc: &str) {
+    pub fn ask_for_stream(&mut self, key: &str, pc: &str) {
         if !self.app_locked() {
-            self.pad = Some(Pad::new(Purpose::Stream { uuid: uuid.to_owned(), pc: pc.to_owned() }, &self.store));
+            self.pad = Some(Pad::new(Purpose::Stream { key: key.to_owned(), pc: pc.to_owned() }, &self.store));
         }
     }
 
@@ -160,6 +166,12 @@ impl PinLock {
     /// whether it did. `pcs` are the saved PCs as (unique id, name).
     pub fn ui(&mut self, ui: &mut Ui, pcs: &[(String, String)], commands: &mut Vec<Command>) -> bool {
         self.poll(commands);
+        // A lock file that could not be read, read again and found without the app lock, or
+        // deleted as the lock screen said, opens the app.
+        if self.app_locked() && self.job.is_none() && !self.gate.needs_pin_for_app(&self.store) {
+            self.pad = None;
+            commands.push(Command::PinPassed);
+        }
         if self.pad.is_none() && !self.page {
             return false;
         }
@@ -187,8 +199,8 @@ impl PinLock {
                         self.gate.unlock_app();
                         commands.push(Command::PinPassed);
                     }
-                    Purpose::Stream { uuid, .. } => {
-                        self.gate.grant(&self.store, &uuid);
+                    Purpose::Stream { key, .. } => {
+                        self.gate.grant(&self.store, &key);
                         commands.push(Command::PinPassed);
                     }
                     Purpose::Verify(After::Open) => self.page = true,
@@ -209,6 +221,8 @@ impl PinLock {
                 pad.clear();
                 pad.lock_for(locked_for_ms);
             }
+            // The screen says why (problem_text).
+            Done::Tried(Outcome::Unavailable) => pad.clear(),
             Done::Saved(Ok(())) => {
                 self.pad = None;
                 if self.store.mode() == Mode::Off {
@@ -288,6 +302,10 @@ impl PinLock {
         if self.job.is_some() || pad.locked_until.is_some_and(|t| t > Instant::now()) {
             return;
         }
+        // While the file cannot be used no PIN can match: the screen says why instead.
+        if pad.checks() && self.store.problem().is_some() {
+            return;
+        }
         let full = match &pad.purpose {
             Purpose::Confirm(first) => first.len(),
             Purpose::Choose => MAX_DIGITS,
@@ -327,8 +345,11 @@ impl PinLock {
             Purpose::Choose => (tr("Choose a PIN"), tr("Use 4 to 8 digits").to_owned()),
             Purpose::Confirm(_) => (tr("Confirm your PIN"), tr("Type the same PIN again").to_owned()),
         };
+        let problem = if pad.checks() { self.store.problem() } else { None };
         let status = if self.job.is_some() {
             Some((if pad.checks() { tr("Checking…") } else { tr("Saving…") }.to_owned(), false))
+        } else if let Some(problem) = &problem {
+            Some((problem_text(problem, self.store.path()), true))
         } else if let Some(until) = pad.locked_until {
             let left = until.saturating_duration_since(Instant::now()).as_secs() + 1;
             Some((trf("Too many wrong tries. Try again in {}.", &[&format!("{}:{:02}", left / 60, left % 60)]), true))
@@ -556,6 +577,16 @@ fn dots(ui: &mut Ui, entered: usize, full: usize) {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &said));
 }
 
+/// What the lock screen says while the lock's file cannot be used, with its full path so it can
+/// be found and deleted.
+fn problem_text(problem: &Problem, path: &Path) -> String {
+    let path = path.display().to_string();
+    match problem {
+        Problem::Damaged(_) => trf("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", &[&path]),
+        Problem::Unreadable(why) => trf("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", &[why, &path]),
+    }
+}
+
 fn mode_label(mode: Mode) -> &'static str {
     match mode {
         Mode::Off => en("Off"),
@@ -667,6 +698,24 @@ mod tests {
         assert!(matches!(finish(&mut lock)[..], [Command::PinPassed]));
         assert!(!lock.needs_pin_for_stream("pc-1"), "granted once");
         assert!(lock.needs_pin_for_stream("pc-1"), "and used up");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_damaged_lock_file_is_named_on_the_lock_screen_and_takes_no_tries() {
+        let dir = std::env::temp_dir().join(format!("nightjar-pin-ui-damaged-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pin_lock.json"), "{ not json").unwrap();
+        let mut lock = PinLock::with_store(PinStore::new(&dir, Arc::new(Still(AtomicI64::new(5_000_000)))));
+        assert!(lock.app_locked());
+        let problem = lock.store.problem().expect("damaged");
+        let said = problem_text(&problem, lock.store.path());
+        assert!(said.contains(&dir.join("pin_lock.json").display().to_string()), "the full path: {said}");
+        assert!(said.contains("Delete this file to remove the PIN lock"), "{said}");
+        type_pin(&mut lock, "1234");
+        lock.key(PadKey::Confirm);
+        assert!(lock.job.is_none() && lock.pad.as_ref().unwrap().digits.is_empty(), "no try is made or counted");
         std::fs::remove_dir_all(dir).ok();
     }
 

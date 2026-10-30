@@ -9,7 +9,9 @@
 //! it alone. Only the salted PBKDF2 hash is kept, never the PIN.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -79,6 +81,17 @@ pub mod hasher {
         pbkdf2::verify(ALGORITHM, iterations, &salt, pin, &key).is_ok()
     }
 
+    /// Whether `stored` has the shape [`create`] gives it, so a PIN can match it at all.
+    pub fn well_formed(stored: &str) -> bool {
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let parts: Vec<&str> = stored.split('$').collect();
+        let [version, iterations, salt, key] = parts[..] else { return false };
+        version == VERSION
+            && iterations.parse::<u32>().is_ok_and(|i| (1..=MAX_STORED_ITERATIONS).contains(&i))
+            && b64.decode(salt).is_ok_and(|s| !s.is_empty())
+            && b64.decode(key).is_ok_and(|k| !k.is_empty())
+    }
+
     /// The iteration count that makes one check take about `TARGET_MS` here.
     pub fn calibrate() -> u32 {
         let probe = b"1234";
@@ -124,9 +137,10 @@ pub mod throttle {
         MAX_MS.min(BASE_MS << doublings)
     }
 
-    /// The state seen from boot `boot`: a lock written on another boot is renewed at its step.
-    pub fn on_boot(s: State, now: i64, boot: i64) -> State {
-        if s.lock_boot == boot {
+    /// The state seen from boot `boot`: a lock written on another boot (`same_boot` false) is
+    /// renewed at its step.
+    pub fn on_boot(s: State, now: i64, boot: i64, same_boot: bool) -> State {
+        if same_boot {
             return s;
         }
         let delay = delay_after(s.fails);
@@ -165,11 +179,19 @@ impl Mode {
 pub trait Clock: Send + Sync {
     /// Milliseconds since the computer started, sleep included.
     fn elapsed(&self) -> i64;
-    /// A number that changes on every start.
+    /// A number for this start of the computer.
     fn boot(&self) -> i64;
+    /// Whether `stored`, a [`Self::boot`] saved earlier, was this start of the computer.
+    fn is_this_boot(&self, stored: i64) -> bool {
+        stored == self.boot()
+    }
 }
 
 pub struct SystemClock;
+
+/// How far two estimates of the boot time may lie apart and still be the same start (Windows,
+/// and Linux without a boot id): the wall clock they come from drifts and is set by NTP.
+pub const BOOT_TOLERANCE_MS: i64 = 60_000;
 
 impl Clock for SystemClock {
     fn elapsed(&self) -> i64 {
@@ -177,9 +199,46 @@ impl Clock for SystemClock {
     }
 
     fn boot(&self) -> i64 {
-        let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-        boot_estimate(wall, uptime_ms())
+        system_boot().0
     }
+
+    fn is_this_boot(&self, stored: i64) -> bool {
+        match system_boot() {
+            (id, true) => stored == id,
+            (estimate, false) => same_boot_estimate(stored, estimate),
+        }
+    }
+}
+
+/// This start of the computer, measured once per run so it cannot move while Nightjar runs, and
+/// whether it is an exact id (Linux's boot_id) rather than an estimate of the boot time.
+fn system_boot() -> (i64, bool) {
+    static BOOT: std::sync::OnceLock<(i64, bool)> = std::sync::OnceLock::new();
+    *BOOT.get_or_init(|| {
+        #[cfg(not(windows))]
+        match std::fs::read_to_string("/proc/sys/kernel/random/boot_id") {
+            Ok(id) if !id.trim().is_empty() => return (boot_id_number(id.trim()), true),
+            Ok(_) => eprintln!("nightjar: the kernel's boot id is empty; the PIN lock estimates the boot time instead"),
+            Err(e) => eprintln!("nightjar: the kernel's boot id is unreadable ({e}); the PIN lock estimates the boot time instead"),
+        }
+        let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        (wall - uptime_ms(), false)
+    })
+}
+
+/// Linux's boot id (a UUID) as a number to store.
+#[cfg(not(windows))]
+fn boot_id_number(id: &str) -> i64 {
+    // FNV-1a: stable across runs and builds, unlike the standard hasher.
+    let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    hash as i64
+}
+
+/// Two estimates of the boot time (wall clock minus time since boot) belong to the same start
+/// when they lie within [`BOOT_TOLERANCE_MS`]: clock drift and NTP corrections move the estimate
+/// by seconds, a restart by at least the time the computer ran.
+pub fn same_boot_estimate(stored: i64, now: i64) -> bool {
+    stored.checked_sub(now).and_then(i64::checked_abs).is_some_and(|d| d < BOOT_TOLERANCE_MS)
 }
 
 #[cfg(windows)]
@@ -196,11 +255,6 @@ fn uptime_ms() -> i64 {
         panic!("CLOCK_BOOTTIME unavailable: {}", std::io::Error::last_os_error());
     }
     t.tv_sec as i64 * 1000 + t.tv_nsec as i64 / 1_000_000
-}
-
-/// Boot time in 10 s steps; a clock change moves it, but then the lock is only renewed, never dropped.
-pub fn boot_estimate(wall_clock_ms: i64, elapsed_ms: i64) -> i64 {
-    ((wall_clock_ms - elapsed_ms) as f64 / 10_000.0).round() as i64
 }
 
 /// What is in `pin_lock.json`.
@@ -237,6 +291,14 @@ impl Default for Saved {
     }
 }
 
+impl Saved {
+    /// What the lock holds while its file cannot be used: the app locked, no PIN that matches.
+    /// Kept in memory only, never saved.
+    fn closed() -> Self {
+        Saved { hash: Some(String::new()), mode: Mode::App, grace_min: 0, ..Saved::default() }
+    }
+}
+
 /// The lock's settings as the settings page shows them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct View {
@@ -253,74 +315,148 @@ pub enum Outcome {
     /// `locked_for_ms` is set when this try started a lockout.
     Wrong { locked_for_ms: i64 },
     Locked { locked_for_ms: i64 },
+    /// The lock's file cannot be used ([`PinStore::problem`]); the try was not counted.
+    Unavailable,
 }
 
-/// One try at a time, across every store in the process.
+/// Why the lock's file cannot be used. The lock stays closed meanwhile, and the file is read
+/// again every [`RETRY_MS`], so deleting it, or whatever held it letting go, opens the lock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// Reading it failed in a way that may pass (another program has it open, ...).
+    Unreadable(String),
+    /// It is there but not a lock this module wrote; only deleting it removes the PIN lock.
+    Damaged(String),
+}
+
+/// How often a file with a [`Problem`] is read again.
+pub const RETRY_MS: u64 = 1_000;
+
+/// One reader or writer of the lock's file at a time, across every store in the process: loads,
+/// changes and saves of the file, and each try's count-check-clear, run under it. Only worker
+/// threads take it; the UI thread works on the copy in memory.
 static TRY_LOCK: Mutex<()> = Mutex::new(());
 
-/// The lock's file. Every call reads or writes it, so clones on a worker thread stay in step.
+fn file_lock() -> std::sync::MutexGuard<'static, ()> {
+    TRY_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The lock's state in memory, which every caller reads and changes; the file follows it.
+struct Cache {
+    saved: Saved,
+    problem: Option<Problem>,
+    /// When a file with a problem is read next, and whether that read is queued.
+    retry_at: Instant,
+    reading: bool,
+}
+
+/// Work for the store's file thread.
+enum Job {
+    /// Write what memory holds now (or remove the file when no PIN is set).
+    Save,
+    /// Read a file that had a problem again.
+    Read,
+    /// Answers once the jobs before it are done.
+    Flush(Sender<()>),
+}
+
+/// The lock. Reads and changes work on memory and never wait for the file; a thread of the
+/// store's own writes the file behind them. Tries ([`Self::try_pin`]) and [`Self::set_pin`] are
+/// slow and run on a worker, where they write the file themselves.
 #[derive(Clone)]
 pub struct PinStore {
     path: PathBuf,
     clock: Arc<dyn Clock>,
+    cache: Arc<Mutex<Cache>>,
+    jobs: Sender<Job>,
 }
 
 impl PinStore {
+    /// Reads the file once, here.
     pub fn new(dir: &Path, clock: Arc<dyn Clock>) -> Self {
-        Self { path: dir.join(FILE), clock }
+        let path = dir.join(FILE);
+        let cache = Arc::new(Mutex::new(Cache { saved: Saved::default(), problem: None, retry_at: Instant::now(), reading: false }));
+        {
+            let _file = file_lock();
+            read_into(&path, &cache);
+        }
+        let (jobs, queue) = channel();
+        let (thread_path, thread_cache) = (path.clone(), cache.clone());
+        std::thread::Builder::new()
+            .name("pin-lock-file".into())
+            .spawn(move || file_thread(&thread_path, &thread_cache, &queue))
+            .expect("start the PIN lock's file thread");
+        Self { path, clock, cache, jobs }
     }
 
-    /// The saved state. A file that is there but cannot be read keeps the lock on with no PIN that
-    /// matches (fail closed): deleting the file is the way out, as the settings page says.
-    fn load(&self) -> Saved {
-        let text = match std::fs::read_to_string(&self.path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Saved::default(),
-            Err(e) => return Self::damaged(&self.path, &e.to_string()),
-        };
-        serde_json::from_str(&text).unwrap_or_else(|e| Self::damaged(&self.path, &e.to_string()))
+    fn memory(&self) -> std::sync::MutexGuard<'_, Cache> {
+        self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn damaged(path: &Path, why: &str) -> Saved {
-        eprintln!("nightjar: the PIN lock file {} is unreadable ({why}); the app stays locked until it is deleted", path.display());
-        Saved { hash: Some(String::new()), mode: Mode::App, grace_min: 0, ..Saved::default() }
-    }
-
-    fn save(&self, saved: &Saved) {
-        let result = serde_json::to_string_pretty(saved).map_err(std::io::Error::other).and_then(|text| {
-            let temporary = self.path.with_extension("json.tmp");
-            std::fs::write(&temporary, text)?;
-            std::fs::rename(&temporary, &self.path)
-        });
-        if let Err(e) = result {
-            eprintln!("nightjar: saving the PIN lock failed: {e}");
+    fn queue(&self, job: Job) {
+        if self.jobs.send(job).is_err() {
+            eprintln!("nightjar: the PIN lock's file thread is gone; the change stays in memory only");
         }
     }
 
+    /// The state as memory holds it. A file with a problem is read again, in the background,
+    /// once its retry time has come.
+    fn saved(&self) -> Saved {
+        let mut memory = self.memory();
+        if memory.problem.is_some() && !memory.reading && Instant::now() >= memory.retry_at {
+            memory.reading = true;
+            drop(memory);
+            self.queue(Job::Read);
+            return self.memory().saved.clone();
+        }
+        memory.saved.clone()
+    }
+
+    /// Changes the state and has it written. Refused (and said so) while the file has a problem:
+    /// the closed state in memory is never written over the user's file.
     fn edit(&self, change: impl FnOnce(&mut Saved)) {
-        let mut saved = self.load();
-        change(&mut saved);
-        self.save(&saved);
+        {
+            let mut memory = self.memory();
+            if let Some(problem) = &memory.problem {
+                eprintln!("nightjar: the PIN lock is not changed while its file cannot be used: {problem:?}");
+                return;
+            }
+            change(&mut memory.saved);
+        }
+        self.queue(Job::Save);
+    }
+
+    /// The lock's file, which the lock screen names when it cannot be used.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Why the file cannot be used, if it cannot.
+    pub fn problem(&self) -> Option<Problem> {
+        self.saved();
+        self.memory().problem.clone()
     }
 
     pub fn has_pin(&self) -> bool {
-        self.load().hash.is_some()
+        self.saved().hash.is_some()
     }
 
     /// What the settings page shows, read once.
     pub fn view(&self) -> View {
-        View { has_pin: self.has_pin(), mode: self.mode(), pcs: self.pcs(), grace_minutes: self.grace_minutes() }
+        let saved = self.saved();
+        let has_pin = saved.hash.is_some();
+        View { has_pin, mode: if has_pin { saved.mode } else { Mode::Off }, pcs: saved.pcs, grace_minutes: grace_of(saved.grace_min) }
     }
 
     /// Digits in the PIN, for the dots and the automatic submit; 0 without a PIN.
     pub fn pin_length(&self) -> usize {
-        let saved = self.load();
+        let saved = self.saved();
         if saved.hash.is_some() { saved.length.clamp(MIN_DIGITS, MAX_DIGITS) } else { 0 }
     }
 
     /// Mode in effect: without a PIN nothing is locked, whatever the stored mode says.
     pub fn mode(&self) -> Mode {
-        let saved = self.load();
+        let saved = self.saved();
         if saved.hash.is_some() { saved.mode } else { Mode::Off }
     }
 
@@ -328,24 +464,20 @@ impl PinStore {
         self.edit(|s| s.mode = mode);
     }
 
-    pub fn pcs(&self) -> Vec<String> {
-        self.load().pcs
-    }
-
     pub fn set_pcs(&self, pcs: Vec<String>) {
         self.edit(|s| s.pcs = pcs);
     }
 
     pub fn grace_minutes(&self) -> u32 {
-        let minutes = self.load().grace_min;
-        if GRACE_CHOICES.contains(&minutes) { minutes } else { DEFAULT_GRACE_MINUTES }
+        grace_of(self.saved().grace_min)
     }
 
     pub fn set_grace_minutes(&self, minutes: u32) {
         self.edit(|s| s.grace_min = minutes);
     }
 
-    /// Stores a new PIN under a fresh salt and clears the failure count. Slow: measures the computer.
+    /// Stores a new PIN under a fresh salt and clears the failure count. Slow (measures the
+    /// computer, then writes the file): for a worker thread.
     pub fn set_pin(&self, pin: &[u8]) -> Result<(), String> {
         self.set_pin_with(pin, hasher::calibrate())
     }
@@ -355,21 +487,23 @@ impl PinStore {
             return Err(format!("a PIN has {MIN_DIGITS} to {MAX_DIGITS} digits"));
         }
         let hash = hasher::create(pin, iterations)?;
-        self.edit(|s| {
-            s.hash = Some(hash);
-            s.length = pin.len();
-            (s.fails, s.lock_until, s.lock_boot) = (0, 0, 0);
-        });
-        Ok(())
+        let _file = file_lock();
+        let saved = {
+            let mut memory = self.memory();
+            if memory.problem.is_some() {
+                return Err("the PIN lock's file cannot be used".into());
+            }
+            memory.saved.hash = Some(hash);
+            memory.saved.length = pin.len();
+            (memory.saved.fails, memory.saved.lock_until, memory.saved.lock_boot) = (0, 0, 0);
+            memory.saved.clone()
+        };
+        write_file(&self.path, &saved).map_err(|e| format!("saving the PIN failed: {e}"))
     }
 
     /// Removes the PIN and everything that depended on it.
     pub fn remove_pin(&self) {
-        match std::fs::remove_file(&self.path) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => eprintln!("nightjar: removing the PIN lock failed: {e}"),
-        }
+        self.edit(|s| *s = Saved::default());
     }
 
     fn throttle_state(saved: &Saved) -> throttle::State {
@@ -380,51 +514,78 @@ impl PinStore {
         (saved.fails, saved.lock_until, saved.lock_boot) = (state.fails, state.lock_until, state.lock_boot);
     }
 
-    /// The stored state seen from this boot; a lock renewed for a new boot is saved so its countdown moves on.
-    fn current(&self, now: i64, boot: i64) -> (Saved, throttle::State) {
-        let mut saved = self.load();
-        let stored = Self::throttle_state(&saved);
-        let state = throttle::on_boot(stored, now, boot);
-        if state != stored {
-            Self::put_throttle(&mut saved, state);
-            self.save(&saved);
+    /// The lockout seen from this boot. A lock renewed for a new boot is kept (and written, when
+    /// `write` asks) so its countdown moves on.
+    fn current(&self, memory: &mut Cache, now: i64) -> throttle::State {
+        let stored = Self::throttle_state(&memory.saved);
+        let state = throttle::on_boot(stored, now, self.clock.boot(), self.clock.is_this_boot(stored.lock_boot));
+        if state != stored && memory.problem.is_none() {
+            Self::put_throttle(&mut memory.saved, state);
         }
-        (saved, state)
+        state
     }
 
-    /// Milliseconds until the next try is allowed, 0 when it is.
+    /// Milliseconds until the next try is allowed, 0 when it is. From memory: no waiting.
     pub fn locked_for_ms(&self) -> i64 {
-        let _one = TRY_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = self.clock.elapsed();
-        throttle::remaining_ms(self.current(now, self.clock.boot()).1, now)
+        let (state, renewed) = {
+            let mut memory = self.memory();
+            let before = Self::throttle_state(&memory.saved);
+            let state = self.current(&mut memory, now);
+            (state, Self::throttle_state(&memory.saved) != before)
+        };
+        if renewed {
+            self.queue(Job::Save);
+        }
+        throttle::remaining_ms(state, now)
     }
 
-    /// One try. Refused while locked out; otherwise the failure is written before the PIN is
-    /// checked, so ending the app mid-check cannot get a free guess, and a match clears it again.
-    /// Slow. Load, count and save run under one lock, so two PIN screens cannot both count
-    /// against the same state.
+    /// One try. Refused while locked out or while the file cannot be used (not counted then);
+    /// otherwise the failure is written before the PIN is checked, so ending the app mid-check
+    /// cannot get a free guess, and a match clears it again. Slow: for a worker thread. Count,
+    /// check and clear run under the file lock, so two PIN screens cannot both count against the
+    /// same state.
     pub fn try_pin(&self, pin: &[u8]) -> Outcome {
         self.try_pin_with(pin, hasher::verify)
     }
 
     fn try_pin_with(&self, pin: &[u8], verify: impl FnOnce(&str, &[u8]) -> bool) -> Outcome {
-        let _one = TRY_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _file = file_lock();
+        if self.memory().problem.is_some() {
+            // The worker may wait for the disk: read the file now rather than on the next retry.
+            read_into(&self.path, &self.cache);
+        }
         let now = self.clock.elapsed();
         let boot = self.clock.boot();
-        let (mut saved, state) = self.current(now, boot);
-        let locked = throttle::remaining_ms(state, now);
-        if locked > 0 {
-            return Outcome::Locked { locked_for_ms: locked };
-        }
-        let counted = throttle::failed(state, now, boot);
-        Self::put_throttle(&mut saved, counted);
-        self.save(&saved);
-        if !verify(saved.hash.as_deref().unwrap_or_default(), pin) {
+        let (counted, hash) = {
+            let mut memory = self.memory();
+            if memory.problem.is_some() {
+                return Outcome::Unavailable;
+            }
+            let state = self.current(&mut memory, now);
+            let locked = throttle::remaining_ms(state, now);
+            if locked > 0 {
+                return Outcome::Locked { locked_for_ms: locked };
+            }
+            let counted = throttle::failed(state, now, boot);
+            Self::put_throttle(&mut memory.saved, counted);
+            (counted, memory.saved.hash.clone().unwrap_or_default())
+        };
+        self.write_now();
+        if !verify(&hash, pin) {
             return Outcome::Wrong { locked_for_ms: throttle::remaining_ms(counted, self.clock.elapsed()) };
         }
-        Self::put_throttle(&mut saved, throttle::State::default());
-        self.save(&saved);
+        Self::put_throttle(&mut self.memory().saved, throttle::State::default());
+        self.write_now();
         Outcome::Ok
+    }
+
+    /// Writes memory's state to the file; the caller holds the file lock.
+    fn write_now(&self) {
+        let saved = self.memory().saved.clone();
+        if let Err(e) = write_file(&self.path, &saved) {
+            eprintln!("nightjar: saving the PIN lock failed: {e}");
+        }
     }
 
     /// Remembers when the app was left unlocked, for the "ask again after" time.
@@ -439,10 +600,112 @@ impl PinStore {
     pub fn boot(&self) -> i64 {
         self.clock.boot()
     }
+
+    /// Waits until the file thread has written everything queued before: when Nightjar closes.
+    pub fn flush(&self) {
+        let (done, wait) = channel();
+        self.queue(Job::Flush(done));
+        if wait.recv().is_err() {
+            eprintln!("nightjar: the PIN lock's file thread ended before it wrote everything");
+        }
+    }
+}
+
+fn grace_of(minutes: u32) -> u32 {
+    if GRACE_CHOICES.contains(&minutes) { minutes } else { DEFAULT_GRACE_MINUTES }
+}
+
+/// The store's file thread: saves and reads queued from the UI, coalesced, under the file lock.
+fn file_thread(path: &Path, cache: &Mutex<Cache>, queue: &Receiver<Job>) {
+    while let Ok(first) = queue.recv() {
+        let (mut save, mut read) = (false, false);
+        let mut flushes = Vec::new();
+        for job in std::iter::once(first).chain(queue.try_iter()) {
+            match job {
+                Job::Save => save = true,
+                Job::Read => read = true,
+                Job::Flush(done) => flushes.push(done),
+            }
+        }
+        {
+            let _file = file_lock();
+            if read {
+                read_into(path, cache);
+            }
+            if save {
+                let saved = {
+                    let memory = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    // Never write the closed state over the user's file.
+                    memory.problem.is_none().then(|| memory.saved.clone())
+                };
+                if let Some(saved) = saved {
+                    if let Err(e) = write_file(path, &saved) {
+                        eprintln!("nightjar: saving the PIN lock failed: {e}");
+                    }
+                }
+            }
+        }
+        for done in flushes {
+            let _ = done.send(());
+        }
+    }
+}
+
+/// Reads the file into memory; the caller holds the file lock. A missing file is no lock. A file
+/// that cannot be read, or is not one this module wrote, keeps the lock closed (fail closed)
+/// without touching the file, and is read again after [`RETRY_MS`].
+fn read_into(path: &Path, cache: &Mutex<Cache>) {
+    let read = match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice::<Saved>(&bytes).map_err(|e| Problem::Damaged(e.to_string())).and_then(|saved| match &saved.hash {
+            Some(hash) if !hasher::well_formed(hash) => Err(Problem::Damaged("the stored PIN is not a hash this version wrote".into())),
+            _ => Ok(saved),
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Saved::default()),
+        Err(e) => Err(Problem::Unreadable(e.to_string())),
+    };
+    let mut memory = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    memory.reading = false;
+    memory.retry_at = Instant::now() + Duration::from_millis(RETRY_MS);
+    match read {
+        Ok(saved) => {
+            if memory.problem.take().is_some() {
+                eprintln!("nightjar: the PIN lock file {} is usable again", path.display());
+            }
+            memory.saved = saved;
+        }
+        Err(problem) => {
+            if memory.problem.as_ref() != Some(&problem) {
+                match &problem {
+                    Problem::Unreadable(why) => eprintln!("nightjar: the PIN lock file {} cannot be read now ({why}); the app stays locked and reads it again", path.display()),
+                    Problem::Damaged(why) => eprintln!("nightjar: the PIN lock file {} is damaged ({why}); the app stays locked until it is deleted", path.display()),
+                }
+            }
+            memory.problem = Some(problem);
+            memory.saved = Saved::closed();
+        }
+    }
+}
+
+/// Writes the state, or removes the file when no PIN is set (nothing else is worth keeping then).
+fn write_file(path: &Path, saved: &Saved) -> std::io::Result<()> {
+    if saved.hash.is_none() {
+        return match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    let text = serde_json::to_vec_pretty(saved).map_err(std::io::Error::other)?;
+    crate::config::write_private(path, &text)
 }
 
 /// How long the PIN screen's approval of one PC's stream start stays valid.
 pub const GRANT_MS: i64 = 60_000;
+
+/// The key a stream start on a PC is asked and granted under: its unique id, or, for a PC that
+/// gave none, Nightjar's own id for it, so the right PIN still lets that start through.
+pub fn stream_key(unique_id: &str, host_id: u64) -> String {
+    if unique_id.is_empty() { format!("host:{host_id}") } else { unique_id.to_owned() }
+}
 
 /// Decides when the PIN is asked for: Android's PinGate without its activity bookkeeping. The
 /// window being minimized or hidden is leaving the app.
@@ -457,14 +720,14 @@ pub fn app_needed(pin_set: bool, mode: Mode, unlocked: bool) -> bool {
     pin_set && mode == Mode::App && !unlocked
 }
 
-pub fn stream_needed(pin_set: bool, mode: Mode, pcs: &[String], uuid: &str, unlocked: bool, grant_valid: bool) -> bool {
+pub fn stream_needed(pin_set: bool, mode: Mode, pcs: &[String], key: &str, unlocked: bool, grant_valid: bool) -> bool {
     if app_needed(pin_set, mode, unlocked) {
         return true;
     }
     if !pin_set {
         return false;
     }
-    let asks = mode == Mode::Streams || (mode == Mode::Selected && contains(pcs, uuid));
+    let asks = mode == Mode::Streams || (mode == Mode::Selected && contains(pcs, key));
     asks && !grant_valid
 }
 
@@ -481,10 +744,10 @@ pub fn within_grace(same_boot: bool, left_at: i64, now: i64, grace_minutes: u32)
 impl PinGate {
     /// After a restart the app counts as unlocked if it was left unlocked a moment ago.
     pub fn new(store: &PinStore) -> Self {
-        let saved = store.load();
+        let saved = store.saved();
         let unlocked_app = saved.hash.is_some()
             && saved.mode == Mode::App
-            && within_grace(saved.active_boot == store.boot(), saved.active_at, store.elapsed(), store.grace_minutes());
+            && within_grace(store.clock.is_this_boot(saved.active_boot), saved.active_at, store.elapsed(), grace_of(saved.grace_min));
         Self { unlocked_app, grant: None, left_at: None }
     }
 
@@ -493,21 +756,23 @@ impl PinGate {
         app_needed(store.has_pin(), store.mode(), self.unlocked_app)
     }
 
-    /// Whether starting a stream on `uuid` must first go through the PIN screen. A yes answer
-    /// from the PIN screen ([`Self::grant`]) is used up by the start it was given for.
-    pub fn needs_pin_for_stream(&mut self, store: &PinStore, uuid: &str) -> bool {
+    /// Whether starting a stream under `key` ([`stream_key`]) must first go through the PIN
+    /// screen. A yes answer from the PIN screen ([`Self::grant`]) is used up by the start it was
+    /// given for.
+    pub fn needs_pin_for_stream(&mut self, store: &PinStore, key: &str) -> bool {
         let now = store.elapsed();
-        let granted = self.grant.as_ref().is_some_and(|(pc, at)| !uuid.is_empty() && pc.eq_ignore_ascii_case(uuid) && (0..GRANT_MS).contains(&(now - at)));
-        let needed = stream_needed(store.has_pin(), store.mode(), &store.pcs(), uuid, self.unlocked_app, granted);
+        let granted = self.grant.as_ref().is_some_and(|(pc, at)| !key.is_empty() && pc.eq_ignore_ascii_case(key) && (0..GRANT_MS).contains(&(now - at)));
+        let view = store.view();
+        let needed = stream_needed(view.has_pin, view.mode, &view.pcs, key, self.unlocked_app, granted);
         if !needed && granted {
             self.grant = None;
         }
         needed
     }
 
-    /// The PIN was entered for starting a stream on `uuid`.
-    pub fn grant(&mut self, store: &PinStore, uuid: &str) {
-        self.grant = Some((uuid.to_owned(), store.elapsed()));
+    /// The PIN was entered for starting a stream under `key`.
+    pub fn grant(&mut self, store: &PinStore, key: &str) {
+        self.grant = Some((key.to_owned(), store.elapsed()));
     }
 
     /// The PIN was entered (or has just been set): the app stays open until it is left for the grace time.
@@ -634,8 +899,8 @@ mod tests {
         let hostile = throttle::State { lock_until: i64::MAX, ..locked };
         assert_eq!(throttle::remaining_ms(hostile, 0), throttle::MAX_MS, "never longer than the longest step");
         // A restart renews the lock at its step instead of dropping it.
-        assert_eq!(throttle::on_boot(locked, 5, 2), throttle::State { fails: 5, lock_until: 30_005, lock_boot: 2 });
-        assert_eq!(throttle::on_boot(locked, 5, 1), locked, "same boot: as stored");
+        assert_eq!(throttle::on_boot(locked, 5, 2, false), throttle::State { fails: 5, lock_until: 30_005, lock_boot: 2 });
+        assert_eq!(throttle::on_boot(locked, 5, 1, true), locked, "same boot: as stored");
     }
 
     #[test]
@@ -645,6 +910,7 @@ mod tests {
         store.set_pin_with(b"4321", 1_000).unwrap();
         store.set_mode(Mode::App);
         assert_eq!((store.pin_length(), store.mode()), (4, Mode::App));
+        store.flush();
         let text = std::fs::read_to_string(dir.join(FILE)).unwrap();
         assert!(!text.contains("4321"), "only the hash is saved: {text}");
         for _ in 0..4 {
@@ -675,14 +941,15 @@ mod tests {
     fn a_try_is_counted_before_the_check_runs() {
         let (store, _, dir) = store("counted");
         store.set_pin_with(b"1234", 1_000).unwrap();
+        let on_disk = || serde_json::from_slice::<Saved>(&std::fs::read(dir.join(FILE)).unwrap()).unwrap().fails;
         let fails_during_check = std::cell::Cell::new(0);
         let outcome = store.try_pin_with(b"1234", |hash, pin| {
-            fails_during_check.set(store.load().fails);
+            fails_during_check.set(on_disk());
             hasher::verify(hash, pin)
         });
         assert_eq!(outcome, Outcome::Ok);
         assert_eq!(fails_during_check.get(), 1, "a kill during the check cannot give a free guess");
-        assert_eq!(store.load().fails, 0, "and a match clears it");
+        assert_eq!(on_disk(), 0, "and a match clears it");
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -699,19 +966,123 @@ mod tests {
         store.set_pcs(vec!["UID".into()]);
         store.remove_pin();
         assert!(!store.has_pin());
-        assert_eq!((store.mode(), store.grace_minutes(), store.pcs().len()), (Mode::Off, DEFAULT_GRACE_MINUTES, 0), "everything that depended on it goes");
+        assert_eq!((store.mode(), store.grace_minutes(), store.view().pcs.len()), (Mode::Off, DEFAULT_GRACE_MINUTES, 0), "everything that depended on it goes");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// Has a file with a problem read again on the next call instead of a second later.
+    fn retry_now(store: &PinStore) {
+        store.memory().retry_at = Instant::now();
+    }
+
+    #[test]
+    fn a_damaged_file_keeps_the_app_locked_counts_no_tries_and_is_never_overwritten() {
+        for (n, damaged) in ["{ not json", r#"{"hash":"not a hash","mode":"off"}"#].into_iter().enumerate() {
+            let (_, clock, dir) = store(&format!("damaged{n}"));
+            std::fs::write(dir.join(FILE), damaged).unwrap();
+            let store = PinStore::new(&dir, clock.clone());
+            assert!(matches!(store.problem(), Some(Problem::Damaged(_))), "{damaged}");
+            assert!(store.has_pin() && store.mode() == Mode::App);
+            let gate = PinGate::new(&store);
+            assert!(gate.needs_pin_for_app(&store));
+            for _ in 0..8 {
+                assert_eq!(store.try_pin(b"1234"), Outcome::Unavailable, "no PIN opens it, and no try counts");
+            }
+            assert_eq!(store.locked_for_ms(), 0);
+            store.set_mode(Mode::Off);
+            store.set_grace_minutes(60);
+            store.flush();
+            assert_eq!(std::fs::read_to_string(dir.join(FILE)).unwrap(), damaged, "the closed state is never saved over it");
+            // Deleting it, as the lock screen says, removes the lock without a restart.
+            std::fs::remove_file(dir.join(FILE)).unwrap();
+            retry_now(&store);
+            store.problem();
+            store.flush();
+            assert_eq!(store.problem(), None);
+            assert!(!store.has_pin() && !gate.needs_pin_for_app(&store));
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_now_locks_until_it_can_and_keeps_the_pin() {
+        let (store, clock, dir) = store("unreadable");
+        store.set_pin_with(b"1234", 1_000).unwrap();
+        store.set_mode(Mode::Streams);
+        store.flush();
+        let good = std::fs::read(dir.join(FILE)).unwrap();
+        drop(store);
+        // A read that fails for another reason than a missing file (here: a folder in its place).
+        std::fs::remove_file(dir.join(FILE)).unwrap();
+        std::fs::create_dir(dir.join(FILE)).unwrap();
+        let store = PinStore::new(&dir, clock.clone());
+        assert!(matches!(store.problem(), Some(Problem::Unreadable(_))));
+        assert!(store.has_pin() && store.mode() == Mode::App, "locked meanwhile");
+        store.set_mode(Mode::Off);
+        store.flush();
+        assert!(dir.join(FILE).is_dir(), "nothing was written in its place");
+        // It can be read again: the next read takes it, PIN and all.
+        std::fs::remove_dir(dir.join(FILE)).unwrap();
+        std::fs::write(dir.join(FILE), &good).unwrap();
+        assert_eq!(store.try_pin(b"1234"), Outcome::Ok, "a try reads it again first");
+        assert_eq!((store.problem(), store.mode()), (None, Mode::Streams));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_another_program_holds_is_read_again_not_replaced() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (store, clock, dir) = store("shared");
+        store.set_pin_with(b"1234", 1_000).unwrap();
+        drop(store);
+        let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(dir.join(FILE)).unwrap();
+        let store = PinStore::new(&dir, clock.clone());
+        assert!(matches!(store.problem(), Some(Problem::Unreadable(_))), "a sharing violation is not damage");
+        drop(held);
+        retry_now(&store);
+        store.problem();
+        store.flush();
+        assert_eq!(store.problem(), None);
+        assert_eq!(store.pin_length(), 4);
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
-    fn a_damaged_file_keeps_the_app_locked() {
-        let (store, _, dir) = store("damaged");
-        std::fs::write(dir.join(FILE), "{ not json").unwrap();
-        assert!(store.has_pin() && store.mode() == Mode::App);
-        let gate = PinGate::new(&store);
-        assert!(gate.needs_pin_for_app(&store));
-        assert!(matches!(store.try_pin(b"1234"), Outcome::Wrong { .. }), "no PIN opens it");
+    fn the_ui_never_waits_for_the_file() {
+        let (store, _, dir) = store("nowait");
+        store.set_pin_with(b"1234", 1_000).unwrap();
+        // A try or a write holds the file lock; the UI's calls answer from memory meanwhile.
+        let held = file_lock();
+        let (done, wait) = channel();
+        let ui = store.clone();
+        std::thread::spawn(move || {
+            ui.set_mode(Mode::App);
+            ui.set_grace_minutes(30);
+            let answer = (ui.locked_for_ms(), ui.has_pin(), ui.mode(), ui.view().grace_minutes, ui.problem());
+            let _ = done.send(answer);
+        });
+        let answer = wait.recv_timeout(Duration::from_secs(5)).expect("answered without the file lock");
+        assert_eq!(answer, (0, true, Mode::App, 30, None));
+        drop(held);
+        store.flush();
+        let saved: Saved = serde_json::from_slice(&std::fs::read(dir.join(FILE)).unwrap()).unwrap();
+        assert_eq!((saved.mode, saved.grace_min), (Mode::App, 30), "the file thread wrote it after");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_boot_estimate_survives_clock_drift_but_not_a_restart() {
+        let boot = 1_700_000_000_000;
+        assert!(same_boot_estimate(boot, boot + 59_000), "NTP moved the clock by a minute at most");
+        assert!(same_boot_estimate(boot, boot - 59_000));
+        assert!(!same_boot_estimate(boot, boot + 10 * 60_000), "a restart ten minutes on");
+        assert!(!same_boot_estimate(i64::MIN, 0) && !same_boot_estimate(-1, boot), "nothing stored");
+        let clock = SystemClock;
+        assert!(clock.is_this_boot(clock.boot()), "this run's own boot");
+        assert_eq!(clock.boot(), clock.boot(), "measured once per run");
+        #[cfg(not(windows))]
+        assert_ne!(boot_id_number("a"), boot_id_number("b"));
     }
 
     #[test]
@@ -754,6 +1125,14 @@ mod tests {
         assert!(gate.needs_pin_for_stream(&store, "other"), "for that PC only");
         clock.now.fetch_add(GRANT_MS, Ordering::SeqCst);
         assert!(gate.needs_pin_for_stream(&store, "pc"), "expired");
+        // A PC that gave no unique id is asked and granted under Nightjar's id for it.
+        let (no_id, other) = (stream_key("", 5), stream_key("", 6));
+        assert_eq!(stream_key("UID", 5), "UID");
+        assert!(gate.needs_pin_for_stream(&store, &no_id));
+        gate.grant(&store, &no_id);
+        assert!(gate.needs_pin_for_stream(&store, &other), "not for another PC without one");
+        gate.grant(&store, &no_id);
+        assert!(!gate.needs_pin_for_stream(&store, &no_id), "the right PIN lets it through");
         std::fs::remove_dir_all(dir).ok();
     }
 

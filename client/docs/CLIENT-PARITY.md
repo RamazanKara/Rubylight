@@ -38,13 +38,13 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Screen reader | Yes | Yes | Yes | Android: TalkBack. Desktop: the platform accessibility API (UI Automation on Windows, AT-SPI on Linux). |
 | Languages | Yes | Partial | Partial | Android: 15 languages. Desktop: English and German. |
 | Update check | Yes | Yes | N/A | Android outside Google Play; Windows once per launch. Linux installs updates through its package manager. |
-| Problem reports and crash records | Yes | Partial | Partial | The desktop writes redacted logs to its logs folder; it has no problem-report export. |
+| Problem reports and crash records | Yes | Partial | Partial | The desktop writes redacted logs to its logs folder, and on Windows a minidump for each crash; it has no problem-report export. |
 
 ## Picture
 
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
-| H.264, HEVC and AV1 hardware decoding | Yes | Yes | Partial | Windows: D3D11VA without copies. Linux: VA-API pictures are copied to memory (no dmabuf import). A fallback to software decoding is announced. |
+| H.264, HEVC and AV1 hardware decoding | Yes | Yes | Partial | Windows: D3D11VA, without CPU copies. Linux: VA-API, then V4L2 M2M, then NVDEC; 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without copies, while 10-bit pictures and those drawn by the GPU renderer (HDR, upscaling, 4:4:4) are copied through memory. A fallback to software decoding is announced. |
 | HDR10 | Yes | Yes | Yes | Linux requests an HDR surface from the compositor. |
 | HDR10+ | Yes | No | No | |
 | HLG | Yes | Yes | Yes | The desktop draws HLG through the BT.2100 inverse OETF and OOTF for the display's peak; on Linux for hardware-decoded pictures. |

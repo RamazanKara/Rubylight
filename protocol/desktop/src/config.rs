@@ -29,6 +29,9 @@ pub enum AudioChannels {
     Stereo,
     Surround51,
     Surround71,
+    /// Offered where the output plays it (`stream::offers_714`); asked for only from a PC that
+    /// reports it.
+    Surround714,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

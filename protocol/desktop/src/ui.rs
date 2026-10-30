@@ -2476,11 +2476,15 @@ impl Launcher {
                         AudioChannels::Stereo => tr("Stereo"),
                         AudioChannels::Surround51 => tr("5.1 surround"),
                         AudioChannels::Surround71 => tr("7.1 surround"),
+                        AudioChannels::Surround714 => tr("7.1.4 surround"),
                     })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut s.audio, AudioChannels::Stereo, tr("Stereo"));
                         ui.selectable_value(&mut s.audio, AudioChannels::Surround51, tr("5.1 surround"));
                         ui.selectable_value(&mut s.audio, AudioChannels::Surround71, tr("7.1 surround"));
+                        if crate::stream::offers_714() {
+                            ui.selectable_value(&mut s.audio, AudioChannels::Surround714, tr("7.1.4 surround"));
+                        }
                     })
                     .response
             });

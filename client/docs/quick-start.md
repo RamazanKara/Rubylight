@@ -2,38 +2,51 @@
 
 [Documentation](index.md)
 
+This page takes you from installation to a running stream. The defaults are chosen for the device, so no tuning is needed for the first stream.
+
 You need:
 
-- A PC running a Moonlight-compatible streaming host, such as [Sunshine](https://github.com/LizardByte/Sunshine), [Apollo](https://github.com/ClassicOldSong/Apollo), [Vibepollo](https://github.com/Nonary/Vibepollo) or [Rubylight](https://github.com/RamazanKara/Rubylight).
-- A device for Nightjar: Android 5.0 or newer (phone, tablet, handheld, Android TV or Fire TV), Windows 10 or 11, or a Linux x86-64 system with glibc 2.39 or newer.
-- A network between them. Start on the same local network; connect the PC by Ethernet where you can. To play away from home, see [remote play](remote-setup.md).
+- A PC running a Moonlight-compatible host, such as [Sunshine](https://github.com/LizardByte/Sunshine), [Apollo](https://github.com/ClassicOldSong/Apollo), [Vibepollo](https://github.com/Nonary/Vibepollo) or [Rubylight](https://github.com/RamazanKara/Rubylight).
+- A device for Nightjar: Android 5.0 or newer (phone, tablet, handheld, Android TV or Fire TV), Windows 10 or 11, or x86-64 Linux with glibc 2.39 or newer.
+- A network between them. Start on the same local network, with the PC on Ethernet where possible. To play elsewhere, see [Play away from home](remote-setup.md).
 
 ## Five steps to your first stream
 
-1. **Prepare the PC.** Start the host, open its web UI and check that the game you want is in its app list.
-2. **Install Nightjar.** Download it from the [latest release](../README.md#download). On Android, open the APK and allow installation from the app that opened it. On Windows, run the setup; on Linux, install the `.deb` or `.rpm`, or run the `.AppImage`.
-3. **Find the PC.** Open Nightjar and select the PC it found. If the PC is not listed, choose **Add PC** and enter its local IP address or host name. Use the PC's address, not `127.0.0.1`, which points to this device.
-4. **Pair.** Enter the PIN Nightjar shows in the host's web UI. On a Rubylight PC, **Add PC → Scan QR code** pairs from the code on its **Devices** page instead (desktop: **Paste link**). If the host sets per-device permissions, allow this device to list, view and launch apps, and the input types you use. See [pairing](pairing.md).
-5. **Stream.** Open the PC's library and select a game. Connect a controller, use a mouse and keyboard, or on Android turn on **Settings → Controls → Show on-screen controls**.
+1. **Prepare the PC.** Start the host, open its web UI and check that the game is in its app list.
+2. **Install Nightjar.** Download it from the [latest release](../README.md#download). On Android, open the APK and allow installation from the app that opened it. On Windows, run the setup. On Linux, install the `.deb` or `.rpm`, or run the `.AppImage`.
+3. **Find the PC.** Open Nightjar and select the PC it found. If the PC is not listed, choose **Add PC** and enter its local IP address or host name. Use the PC's own address; `127.0.0.1` refers to this device.
+4. **Pair.** Enter the PIN that Nightjar shows in the host's web UI. On a Rubylight PC you can instead choose **Add PC → Scan QR code** on Android, or **Paste link** on the desktop, with the code on the host's **Devices** page. If the host grants permissions per device, allow this device to list, view and launch apps, and the input types you use. [Pairing and permissions](pairing.md) covers each method.
+5. **Play.** Open the PC's library and select a game. Use a controller, a mouse and keyboard, or on Android turn on **Settings → Controls → Show on-screen controls**.
 
-New installations stream at this device's native resolution and maximum refresh rate, with a bitrate calculated for both and automatic codec selection. A first stream at these values shows what the network and decoder sustain; the [performance overlay](video-and-latency.md#performance-overlay) shows whether it keeps up. PC, game and profile values take priority over the main settings ([which value a stream uses](settings.md#which-value-a-stream-uses)).
+A new installation streams at the device's native resolution and highest refresh rate, with a bitrate calculated for both and the codec chosen automatically. The first stream at these values shows what the network and the decoder sustain; the [performance overlay](video-and-latency.md#performance-overlay) shows whether the stream keeps up. Values set for a PC, a game or a profile take precedence over the main settings; see [which value a stream uses](settings.md#which-value-a-stream-uses).
 
-The first-launch pairing guide can be skipped, and is available later from **Pairing help** on the empty PC list. The **?** button opens the built-in help, which works offline.
+The pairing guide shown on first launch can be skipped and reopened from **Pairing help** on the empty PC list. The **?** button opens the built-in help, which works offline.
 
 ## Your PC library
 
-Each PC is one row with one status line; tapping it opens the library, pairs or wakes the PC. Long-press a PC or game, or use its options button, for its actions; everything else about a PC is in **PC settings…**. The library shows covers with the running game first and follows the host's app order, uses app UUIDs for shortcuts and refreshes artwork when the host changes its artwork version.
+Each PC is one row with a single status line. Selecting it opens the library, starts pairing or wakes the PC, depending on its state. Long-press a PC or game, or use its options button, for its actions; everything else about a PC is under **PC settings…**.
 
-Tablet, foldable, TV and desktop layouts adapt to the current window, preserving library focus on resize and keeping content clear of separating hinges, system bars and cutouts. Wide windows show more columns; short landscape windows use shorter artwork. See [navigation and shortcuts](controls.md#app-navigation).
+The library shows cover art, lists the running game first and otherwise follows the host's app order. Layouts adapt to tablets, foldables, TVs and desktop windows: wide windows show more columns, short landscape windows use shorter artwork, and content stays clear of hinges, system bars and display cutouts. See [app navigation](controls.md#app-navigation) for keys and shortcuts.
 
 ## During a stream
 
-On Android, press **Back** (or swipe back), **Ctrl+Alt+Shift+M** on a keyboard, or **Start+Back+LB+RB** on a controller to open the stream menu; the first stream shows this once. On Windows and Linux, press **Ctrl+Alt+Shift+Tab** or **Start+Back** on a controller. The top row toggles **Keyboard**, **Overlay** and, when the PC offers it, **Microphone**. Below it, **Input**, **Display**, **Quality** and **Host** hold the rest; see [the stream menu](controls.md#the-stream-menu). Host support and permissions decide which items appear.
+Open the stream menu with:
 
-**Disconnect** ends this device's connection and leaves the PC app running. Select the same app to resume. **Quit game**, last in the menu, asks the host to end the game and requires permission and confirmation.
+| Client | Touch or keyboard | Controller |
+| --- | --- | --- |
+| Android | **Back** (or the back gesture), or **Ctrl+Alt+Shift+M** | **Start+Back+LB+RB** |
+| Windows and Linux | **Ctrl+Alt+Shift+Tab** | **Start+Back** |
 
-Clipboard transfer and host-configured commands need a host that supports them, such as Apollo, Vibepollo or Rubylight. Clipboard transfer from the menu is plain text, explicitly initiated in the foreground, and needs an active session plus the corresponding host permission. A Rubylight PC adds clipboard sync, images, files, shared folders and USB devices; see [sharing](sharing.md). Host commands use the host's configured commands and encrypted server-command transport. Device permissions and host frame-limiter status are under **Host**; **Reconnect stream** sits with Disconnect at the bottom.
+The top row toggles **Keyboard**, **Overlay** and, when the PC offers it, **Microphone**. The **Input**, **Display**, **Quality** and **Host** sections hold the rest; [the stream menu](controls.md#the-stream-menu) describes every item. Which items appear depends on the host and the device's permissions.
+
+- **Disconnect** ends this device's connection and leaves the game running on the PC. Select the same game to resume.
+- **Reconnect stream** (desktop: **Reconnect**) restarts the connection to the running game.
+- **Quit game**, last in the menu, asks the host to end the game. It needs the corresponding permission and a confirmation.
+
+Hosts such as Apollo, Vibepollo and Rubylight also accept clipboard text and commands configured on the host, both from the stream menu. A PC whose host supports sharing adds clipboard sync, images, files, shared folders and USB devices; see [sharing](sharing.md).
 
 ## Next
 
-Use [presets and PC profiles](settings.md), set up your [controls](controls.md), or read the [symptom-based fixes](TROUBLESHOOTING.md) if pairing or the stream fails.
+- Choose [presets and per-PC profiles](settings.md).
+- Set up your [controls](controls.md).
+- If pairing or the stream fails, start with [troubleshooting](TROUBLESHOOTING.md).

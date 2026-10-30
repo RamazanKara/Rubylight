@@ -1,66 +1,73 @@
 # Nightjar documentation
 
-Nightjar is a game-streaming client for Android, Android TV, Fire TV, Windows and Linux. It works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host's extensions from what the host reports. These pages describe Nightjar 4.0.
+These pages describe Nightjar 4.0 for Android, Android TV, Fire TV, Windows and Linux. Nightjar works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host extension from the capabilities the host reports.
 
-Throughout the documentation, the **PC** is the computer you stream from and the **host** is the streaming software running on it. **This device** is the one running Nightjar. Settings are named as they appear in the app, with their section: **Settings → Streaming → Recover interrupted streams**.
+Conventions used throughout:
 
-## Get started
+- The **PC** is the computer you stream from; the **host** is the streaming software running on it; **this device** is the one running Nightjar.
+- Settings are named exactly as they appear in the app, with their path: **Settings → Streaming → Recover interrupted streams**.
+- Where a feature depends on the host, the page names the capability it needs and the hosts known to provide it.
 
-| Page | What it covers |
+New to Nightjar? Read the [quick start](quick-start.md), then return here when you want to tune something. [Download Nightjar](../README.md#download).
+
+## User guide
+
+| Page | Contents |
 | --- | --- |
 | [Quick start](quick-start.md) | Installing a host, adding a PC and starting the first stream |
-| [Pairing and permissions](pairing.md) | PIN, one-time PIN and QR pairing, and the per-device permissions a host can set |
-| [Play away from home](remote-setup.md) | Streaming over Tailscale or a forwarded connection, and checking the path |
-| [Features](features.md) | Everything Nightjar does, with a link to each guide |
-
-## Use Nightjar
-
-| Page | What it covers |
-| --- | --- |
-| [Home and the session menu](console.md) | Home, game pages, Join co-op and the Session and graphics menu on Rubylight PCs |
-| [Controls](controls.md) | Controllers, touch, mouse, keyboard, pen, on-screen controls (Android only) and the microphone |
-| [Gamepad navigation](gamepad-navigation.md) | Driving the menus and the PC keyboard with USB and Bluetooth pads |
+| [Pairing and permissions](pairing.md) | PIN, one-time PIN and QR pairing; the per-device permissions a host can set |
+| [Play away from home](remote-setup.md) | Streaming over Tailscale or a forwarded connection, and testing the path |
+| [Home and the session menu](console.md) | Home, game pages, Join co-op, the Session and graphics menu, TV and accessibility |
+| [Controls](controls.md) | Controllers, touch, mouse, keyboard, pen, on-screen controls and the microphone |
+| [Gamepad navigation](gamepad-navigation.md) | Using the menus and the PC keyboard with a controller |
 | [DualSense USB audio and haptics](dualsense-haptics.md) | Waveform haptics and controller audio over USB |
-| [Video and latency](video-and-latency.md) | Codecs, HDR, PyroWave, frame pacing, bitrate, error correction and audio |
-| [Recovery and automatic quality](recovery-and-quality.md) | Recover interrupted streams, network drop tolerance and automatic resolution and frame rate |
-| [Clipboard, files, folders and USB devices](sharing.md) | Sharing with a Rubylight PC |
+| [Video and latency](video-and-latency.md) | Codecs, HDR, PyroWave, refresh rate, scaling, bitrate, error correction and audio |
+| [Recovery and automatic quality](recovery-and-quality.md) | Recovering interrupted streams, riding out network drops, automatic resolution and frame rate |
+| [Clipboard, files, folders and USB devices](sharing.md) | Sharing with a PC whose host supports it |
 | [Launcher integrations](FRONTENDS.md) | Starting games from Beacon, ES-DE, Daijisho, Pegasus and Android TV's home screen |
-| [Desktop client](../protocol/desktop/README.md) | Installing, running and building Nightjar for Windows and Linux |
+| [Nightjar for Windows and Linux](../protocol/desktop/README.md) | Installing, running and building the desktop client |
+| [Features](features.md) | Every feature, with a link to its guide |
 
 ## Reference
 
-| Page | What it covers |
+| Page | Contents |
 | --- | --- |
-| [Settings reference](settings.md) | Every setting on Android and the desktop client, with its default |
-| [Host feature support](PARITY-MATRIX.md) | Each capability and the hosts known to provide it |
-| [Android and desktop](CLIENT-PARITY.md) | The two clients compared feature by feature |
-| [Decoder flags](decoder-flags.md) | The low-latency decoder settings Nightjar applies per chip family |
-| [Device results](devices.md) | Benchmark results from real devices, and how to add yours |
+| [Settings reference](settings.md) | Every setting on Android and the desktop client, with its default and advice |
+| [Host feature support](PARITY-MATRIX.md) | Each host capability and the hosts known to provide it |
+| [Android and desktop compared](CLIENT-PARITY.md) | Feature availability in the two clients |
+| [Decoder flags](decoder-flags.md) | The low-latency decoder settings applied per chip family |
+| [Device results](devices.md) | Decoder benchmark results from real devices, and how to add yours |
 | [Privacy](PRIVACY.md) | What Nightjar stores, what it sends and to whom |
-| [Translations](TRANSLATIONS.md) | Supported languages and how to contribute |
 
 ## Troubleshooting
 
-| Page | What it covers |
+| Page | Contents |
 | --- | --- |
 | [Troubleshooting](TROUBLESHOOTING.md) | Symptoms, causes and fixes, and how to share a problem report |
-| [Stream health](stream-health.md) | Reading "Why did my stream stutter?" and its reversible bitrate trial |
+| [Stream health](stream-health.md) | Reading **Why did my stream stutter?** and its reversible bitrate trial |
 | [FAQ](faq.md) | Short answers to common questions |
 
-## Development
+## Contributing
 
-| Page | What it covers |
+| Page | Contents |
 | --- | --- |
 | [Building](building.md) | Toolchains, tests, signing, the release workflow and the [documentation checks](building.md#documentation-checks) |
+| [Translations](TRANSLATIONS.md) | Supported languages and how to contribute one |
+| [Device results](devices.md#send-results) | Submitting a benchmark from your device |
+
+## Engineering notes
+
+Design notes, measurements and audits for contributors. They describe internals and are not needed to use Nightjar.
+
+| Note | Subject |
+| --- | --- |
 | [Beam racing](beam-racing.md), [early decode](early-decode.md) | Desktop presentation timing |
-| [PyroWave GPU decoding](pyrowave-decode.md), [PyroWave decode stages](pyrowave-decode-stages.md) | The desktop PyroWave decoder and its timing |
-| [Refresh rate switching](expected-refresh-switch.md), [HDR on Android displays](expected-hdr10.md) | How the Android app handles refresh rate votes and HDR requests |
+| [PyroWave GPU decoding](pyrowave-decode.md), [PyroWave decode stages](pyrowave-decode-stages.md) | The desktop PyroWave decoder and its measured stages |
+| [Refresh rate switching](expected-refresh-switch.md), [HDR on Android displays](expected-hdr10.md) | How the Android app requests refresh rates and HDR, and reports refusals |
 | [Client roaming](protocol/client-roaming.md), [host cursor shapes](protocol/cursor-shape.md) | Protocol extensions proposed for Moonlight-compatible hosts |
 | [Android audit, October 2026](android-audit-2026-10.md) | Audit findings and their resolution |
-| [Rename history](RENAME.md) | What changed when the app was renamed to Nightjar, and what kept its old name |
+| [Rename history](RENAME.md) | The renames to Nightjar, and the identifiers that keep their old names |
 | [Demo mode](demo/README.md) | The offline demo fixtures used for screenshots and the promotional video |
-
-[Download Nightjar](../README.md#download)
 
 ## License and credits
 
@@ -71,5 +78,7 @@ Apollo extension behavior draws on [Artemis Android](https://github.com/ClassicO
 The [DualSense waveform extension](dualsense-haptics.md) uses the GPL-3.0-or-later protocol definition from [Nonary/moonlight-common-c](https://github.com/Nonary/moonlight-common-c) and interoperates with Nonary's Vibepollo hosts. DualSense HID report handling is adapted from SDL and retains its original notice in the source.
 
 The optional Vulkan renderer for MediaCodec streams (`app/src/main/jni/vulkan`) is adapted from [MoreOrLessSoftware/moonlight-android](https://github.com/MoreOrLessSoftware/moonlight-android) at commit [3e6665e](https://github.com/MoreOrLessSoftware/moonlight-android/tree/3e6665e7d192ac5e7f639f8f8172cda04701924e) (GPL-3.0).
+
+The desktop client ports the keyboard table, controller mapping, special key combinations, FFmpeg decoder setup, D3D11VA surface handling and default bitrate curve from [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) by Cameron Gutman and contributors (GPL-3.0). Its VRR pacing, tearing presentation and D3D11VA rendering were checked against Nonary's (Chase Payne) moonlight-qt fork (GPL-3.0). Both clients build on [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPL-3.0). The [desktop credits](../protocol/desktop/README.md#credits) list the details and the Figtree font license (SIL OFL 1.1).
 
 Retain the bundled third-party notices when redistributing: [PyroWave, Granite, volk, libadrenotools and renderer credits](../app/src/main/assets/pyrowave_notices.txt), [AMD FSR 1.0 shaders (MIT)](../app/src/main/assets/NOTICE-FSR1.txt), and [Qualcomm SGSR 1 shaders (BSD-3-Clause)](../app/src/main/assets/NOTICE-SGSR1.txt). Native dependencies retain their license notices in the source submodules and vendored source directories. libadrenotools supplies the per-app Vulkan driver loader; it does not replace the Android system driver.

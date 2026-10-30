@@ -2,57 +2,61 @@
 
 [Documentation](index.md)
 
-Pair each Nightjar installation with your PC's streaming host before opening its library. The host recognizes the installation by its client certificate. The steps are the same on Android and on Nightjar for Windows and Linux unless a step names one of them.
+Each Nightjar installation pairs with a PC's host once. Pairing exchanges certificates; afterwards the host recognizes the installation by its client certificate, and Nightjar recognizes the PC by the host's certificate. The steps are the same on Android and on Nightjar for Windows and Linux unless a step names one of them.
+
+| Method | Host support | Who enters what |
+| --- | --- | --- |
+| [PIN](#pin-flow) | Every Moonlight-compatible host | Nightjar shows a PIN; you enter it on the host |
+| [One-time PIN](#host-generated-one-time-pin) | Hosts with one-time PINs, such as Apollo, Vibepollo and Rubylight | The host shows a PIN and passphrase; you enter them in Nightjar |
+| [QR code or pairing link](#pair-with-a-qr-code) | Hosts with QR pairing (Rubylight 3.0) | You scan the host's code, or paste its link |
 
 ## Find the PC
 
-Keep the host running and awake on the same network. Select its discovered card, or choose **Add PC** and enter a hostname, IPv4 address or IPv6 address. A custom HTTP port can be supplied as `hostname:port` or `[IPv6-address]:port`; this is the streaming service's HTTP port, not the port of the host's web UI.
+Keep the host running and the PC awake on the same network. Select the PC Nightjar discovered, or choose **Add PC** and enter a host name, IPv4 address or IPv6 address. A custom port can be given as `hostname:port` or `[IPv6-address]:port`; it is the streaming service's HTTP port, not the port of the host's web UI.
 
-On guest networks, VLANs or VPNs, add the PC manually by its address. Manual entry works over any route that reaches the PC through its firewall.
+Discovery does not cross guest networks, VLANs or VPNs. Add the PC by its address there; manual entry works over any route that reaches the PC through its firewall.
 
 ## PIN flow
 
 1. Select the unpaired PC in Nightjar.
-2. Keep the PIN dialog open in Nightjar.
-3. Enter that PIN in your host's settings or web UI on the PC.
+2. Keep the PIN dialog open.
+3. Enter the PIN in the host's web UI or settings on the PC.
 4. Wait for Nightjar to report success, then open the PC's library.
-5. If your host has per-device permissions, enable this device and set its permissions there.
+5. If the host grants permissions per device, enable this device and set its permissions there.
 
-Cancel a pairing attempt before starting another. If a PIN is rejected, retry with a fresh PIN and finish or cancel any pending request in the host's web UI. A host that refuses pairing during an active game must finish that session first.
+Cancel a pairing attempt before starting another. If the host rejects a PIN, finish or cancel any pending request in the host's web UI and try again with a new PIN. A host that refuses pairing while a game is streaming must end that session first.
 
 ## Host-generated one-time PIN
 
-This needs a host that supports one-time PINs, such as Apollo, Vibepollo or Rubylight. Create a one-time PIN and passphrase in the host's settings or web UI. On Android, long-press the PC and choose **Pair with one-time PIN**; on the desktop, use the PC's options. Enter the four-digit PIN and its passphrase, then pair. The PIN expires after three minutes; the passphrase must contain at least four characters.
-
-This reverses the ordinary flow: you enter the host's PIN in Nightjar. Generate a new one after expiry.
+Create a one-time PIN and passphrase in the host's web UI. In Nightjar, open the PC's options (on Android, long-press the PC) and choose **Pair with one-time PIN**. Enter the four-digit PIN and the passphrase, which has at least four characters. The PIN expires after three minutes; generate a new one after that.
 
 ## Pair with a QR code
 
-This needs a Rubylight host. Its Devices page shows a QR code for each of the PC's network addresses, with a one-time PIN that works once and expires after three minutes.
+A host with QR pairing (Rubylight 3.0) shows a QR code on its **Devices** page for each of the PC's network addresses. The code carries a one-time PIN that works once and expires after three minutes.
 
-- **Android:** choose **Add PC**, tap **Scan QR code** and point the camera at the code. Nightjar asks for the camera only then; without it, type the address instead. The button is missing on devices without a camera.
-- **Windows and Linux:** choose **Copy pairing link** under the code on the PC, then **Paste link** in Nightjar's Add PC dialog, or paste the link in its address field.
+- **Android:** choose **Add PC**, then **Scan QR code**, and point the camera at the code. Nightjar asks for camera access only at this point; without it, enter the address instead. Devices without a camera do not show the button.
+- **Windows and Linux:** choose **Copy pairing link** under the code on the PC, then **Paste link** in Nightjar's **Add PC** dialog, or paste the link into its address field.
 
-Nightjar adds the PC at the code's address and pairs at once. It refuses to pair when the PC presents a certificate other than the one the code names, so a code is only good for the PC that showed it. A failed code is used up: show a new one. A used or expired code, scanned again, says so and asks for a new one rather than for a network check.
+Nightjar adds the PC at the code's address and pairs immediately. It refuses to pair if the PC presents a certificate other than the one named in the code, so a code only pairs with the PC that showed it. A code is consumed by a failed attempt as well as a successful one; scanning a used or expired code again reports that and asks for a new code.
 
 ### Pairing link
 
-The QR code holds one link, and the copied link is the same text:
+The QR code contains a single link; **Copy pairing link** copies the same text:
 
 ```
 rubylight://pair?v=1&host=<address>&port=<http port>&otp=<one-time PIN>&pass=<passphrase>&id=<host uniqueid>&fp=<certificate SHA-256>&name=<host name>
 ```
 
 - `v` is `1`; other versions are refused.
-- `host`, `port`, `otp` and `fp` are required. `port` is the host's HTTP port, 1 to 65535. `fp` is the SHA-256 of the host certificate's DER encoding, as 64 hex digits.
-- `pass`, `id` and `name` may be missing. Keys Nightjar does not know are ignored; a repeated key refuses the link.
+- `host`, `port`, `otp` and `fp` are required. `port` is the host's HTTP port, 1 to 65535. `fp` is the SHA-256 of the host certificate's DER encoding, as 64 hexadecimal digits.
+- `pass`, `id` and `name` are optional. Unknown keys are ignored; a repeated key invalidates the link.
 - Values are percent-encoded UTF-8.
 
-The PIN and passphrase pair like a host-generated one-time PIN. The link is a secret until it expires: anyone who scans it on your network within those three minutes can pair.
+The PIN and passphrase pair exactly like a host-generated one-time PIN. Treat the link as a secret until it expires: anyone on your network who uses it within those three minutes can pair.
 
 ## Per-device permissions
 
-Hosts with per-device permissions, such as Apollo, Vibepollo and Rubylight, set them in the host's settings or web UI, separately for each paired installation. Nightjar shows the permissions the host reports and checks them before protected actions. The host stays in charge of every permission. Hosts that do not report permissions keep their usual behavior.
+Apollo, Vibepollo, Rubylight and other hosts with per-device permissions set them in the host's web UI, separately for each paired installation. Nightjar shows the permissions the host reports and checks them before protected actions; the host remains the authority for every permission. Hosts that do not report permissions behave as usual.
 
 | Permission | What it allows |
 | --- | --- |
@@ -62,24 +66,28 @@ Hosts with per-device permissions, such as Apollo, Vibepollo and Rubylight, set 
 | Controller input | Send gamepad input. |
 | Touch input | Send native multi-touch input. |
 | Pen input | Send native pen input. |
-| Mouse input | Send a physical or emulated mouse, including trackpad/direct mouse touch modes. |
+| Mouse input | Send a physical or emulated mouse, including the trackpad and direct touch modes. |
 | Keyboard input | Send hardware or on-screen keyboard input. |
 | Send clipboard | Send explicitly selected text from this device to the PC. |
 | Read clipboard | Request text from the PC. |
-| Server commands | Send a command configured by the host administrator. |
+| Server commands | Run a command configured by the host's administrator. |
 
-A Rubylight 3.0 PC adds permissions for its extras: **Host control** (close games and change Radeon settings, see [the session menu](console.md#session-and-graphics)), **Upload files** and **Download files**, shared folders, USB forwarding and **Can join co-op games** (see [sharing](sharing.md) and [Join co-op](console.md#join-co-op)). When an action needs one that is missing, Nightjar names it and points to the web UI's Devices page.
+A Rubylight 3.0 host adds permissions for its extensions: **Host control** (closing games and changing Radeon settings, see [the session menu](console.md#session-and-graphics)), **Upload files** and **Download files**, shared folders, USB forwarding, and **Can join co-op games** (see [sharing](sharing.md) and [Join co-op](console.md#join-co-op)). When an action needs a permission the device lacks, Nightjar names it and points to the Devices page of the host's web UI.
 
-Grant list, view, launch and the relevant input permissions for normal play. A view-only device can display video without controlling it. **Remote Monitor** is a view-only role; **Input-only** sends controls without starting video/audio decoders. These entries appear only on hosts that list them (Rubylight and Vibepollo; Apollo lists a Remote Input entry when its input-only mode is on). On other hosts, [Input-only on any PC](controls.md#input-only-on-any-pc) offers Input-only over a small stream; it needs view and input permission.
+For normal play, grant list, view, launch and the input permissions you use. A device with view permission only can watch without controlling.
 
-During a stream, **stream menu → Host → Permissions and frame limits** provides host status and device-permission information. Host application restrictions can further limit an action.
+Hosts that list these roles also offer two restricted ones: **Remote Monitor** watches only, and **Input-only** sends controls without starting the video and audio decoders. Rubylight and Vibepollo list both; Apollo lists a Remote Input entry when its input-only mode is on. On other hosts, [Input-only on any PC](controls.md#input-only-on-any-pc) provides the same through a small stream and needs view and input permissions.
+
+During a stream, **stream menu → Host → Permissions and frame limits** shows the host's status and this device's permissions. The host's per-app restrictions can limit an action further.
 
 ## Identity, updates and removal
 
-Same-install updates keep pairing. Android backups and device transfer exclude the client certificate, private key and installation identity; a restored installation must pair again.
+Updates of the same installation keep its pairing. Android backups and device transfers exclude the client certificate, private key and installation identity, so a restored installation pairs again.
 
-Remove an unwanted PC from Android to clear its saved-host entry, per-PC settings, cached library/artwork and hidden-app choices. Other PCs and the installation's pairing identity are retained. Revoke the device in the host's settings or web UI to remove its host access. Clearing app storage or uninstalling removes the local pairing identity. Launcher entries exported to a folder you selected are separate files and are not removed when deleting a PC.
+**Remove PC** clears the PC's saved entry, per-PC settings, cached library and artwork, and hidden-app choices. Other PCs and this installation's identity are unaffected. To revoke the device's access, remove it in the host's web UI. Clearing app storage or uninstalling removes the installation's identity. Launcher entries exported to a folder are separate files and remain after a PC is removed.
 
 ## Wake a sleeping PC
 
-Pair once while the PC is awake so Nightjar can learn its network adapter's MAC address. Enable Wake-on-LAN in the PC firmware and adapter settings, then tap the offline PC, or choose **Wake PC** from its menu. Waking from sleep, shutdown or another subnet depends on the PC and network. A sent wake packet is not a wake confirmation.
+Pair once while the PC is awake, so Nightjar learns the MAC address of its network adapter. Enable Wake-on-LAN in the PC's firmware and adapter settings. Then select the offline PC, or choose **Wake PC** from its menu (desktop: **Wake up**).
+
+Whether a PC wakes from sleep, from shutdown or from another subnet depends on the PC and the network. A sent wake packet does not confirm that the PC woke; the PC is ready when Nightjar shows it online.

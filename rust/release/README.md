@@ -17,7 +17,7 @@ The tag's run (or the published run) of [`rust-windows.yml`](../../.github/workf
 | Step | Where |
 | --- | --- |
 | Check that the tag matches `Cargo.toml` and that its release notes section is filled in | `tag` job, `notes.py` |
-| Reuse the installer main's run already built and tested for the tagged commit. Only when there is none (the run was cancelled by a later push, or still running): formatting, tests, clippy, the release build, the web console and the package with its installer, from scratch | `tag` job, `windows` job (`rust/build.ps1 -Package`) |
+| Reuse the installer main's run already built and tested for the tagged commit. Only when there is none (the run was cancelled by a later push, or still running): formatting, tests, clippy, the release build, the web console and the package with its installer, from scratch. Tests, clippy and the build run in parallel; signing waits for tests and clippy | `tag` job; `test`, `lint` and `windows` jobs (`rust/build.ps1 -Stage Test`, `-Stage Lint`, `-Stage Build -Package`) |
 | Publish `Rubylight <version>` (a prerelease for `-rc.N`) with three assets: the installer, the portable ZIP and `SHA256SUMS`. The host check adds `VALIDATION.json` and the laptop's smoke test `REAL-CLIENT.json`, five in all. The text is `body.md` with the `## New in rc.N` section; links relative to `rust/` point at the tagged source. A release that already exists is left alone | `publish` job, `notes.py` |
 
 Tag a commit whose main run is green and the release is out in about a minute. A failed run can be re-run from the Actions page. To release again after a fix, bump to the next version.

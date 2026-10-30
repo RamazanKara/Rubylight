@@ -12,7 +12,11 @@ param(
     [switch]$FetchDependencies,
     [switch]$DebugBuild,
     [switch]$SkipTests,
-    [switch]$Package
+    [switch]$Package,
+    # CI runs the stages in parallel jobs: Test (tests), Lint (clippy) and
+    # Build (the release build and -Package). All runs them in order.
+    [ValidateSet('All', 'Test', 'Lint', 'Build')]
+    [string]$Stage = 'All'
 )
 $ErrorActionPreference = 'Stop'
 if ($Package -and $env:RLVD_IDDCX_LIB) {
@@ -63,7 +67,12 @@ if ($FetchDependencies) {
         Assert-NativeExit 'FFmpeg AC3 build'
     }
 }
-if ($FetchDependencies -and !$DriverRoot) {
+$runTests = !$SkipTests -and $Stage -in 'All', 'Test'
+$runLint = !$SkipTests -and $Stage -in 'All', 'Lint'
+$runBuild = $Stage -in 'All', 'Build'
+if ($Package -and !$runBuild) { throw "-Package needs the Build stage, not $Stage" }
+# Only the package carries the drivers.
+if ($FetchDependencies -and !$DriverRoot -and $runBuild) {
     # The gamepad driver (libvirtualgamepad 0.1.0-beta.6, MIT), signed for
     # Vibepollo 2.0.0 by the SignPath Foundation, and nefconc.exe. Upstream
     # archives are unsigned, so take them from the release.
@@ -120,7 +129,7 @@ try {
     # dependency's whole workspace), which keeps its own formatting.
     & cargo $toolchain fmt -- --check
     Assert-NativeExit 'Rust formatting'
-    if (!$SkipTests) {
+    if ($runTests) {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
         & cargo $toolchain test --workspace --locked
         Assert-NativeExit 'Rust tests'
@@ -130,9 +139,12 @@ try {
         # libopus and is run by hand.
         & cargo $toolchain test --workspace --locked -- --ignored ffmpeg:: audio_encoder::tests::ffmpeg_ --skip passthrough_encode_cost
         Assert-NativeExit 'FFmpeg tests'
+    }
+    if ($runLint) {
         & cargo $toolchain clippy --workspace --all-targets --locked -- -D warnings
         Assert-NativeExit 'Rust lint'
     }
+    if (!$runBuild) { return }
     # The host and the packaged performance probes in one build: separate -p
     # builds of the probes unified features differently and rebuilt the
     # workspace crates.

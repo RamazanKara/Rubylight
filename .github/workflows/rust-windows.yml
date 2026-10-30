@@ -82,6 +82,146 @@ jobs:
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           if [ -n "$run" ]; then echo "::notice::reusing the build of $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run"; fi
+  # Tests, clippy and the release build (windows) run in parallel. A signed
+  # release waits for tests and clippy before it asks SignPath, and publish
+  # needs all three.
+  test:
+    needs: tag
+    if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      # No debug info: linking it dominated the test build.
+      CARGO_PROFILE_DEV_DEBUG: 0
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        id: msys
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-nasm
+            make
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # Nothing from these jobs ships, so a signed release's tests and
+      # clippy use the cache too.
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: |
+            ~/AppData/Local/ButterpolloRust/sdk
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.2
+      # Compiled dependencies, one cache per job (rust-cache keys on the job
+      # id); only main saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: '. -> ../../_temp/butterpollo-rust-target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Test Rust
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Stage Test -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
+  # Clippy, the web console and the release tooling tests.
+  lint:
+    needs: tag
+    if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      # No debug info: linking it dominated the test build.
+      CARGO_PROFILE_DEV_DEBUG: 0
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        id: msys
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-nasm
+            make
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # The web console build needs Vite 7's Node.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Check the web console
+        working-directory: rust/web
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node --test "*.test.mjs"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Check release notes tooling
+        run: |
+          python -m unittest discover -s rust/release -p test_release.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s rust/release -p test_gpu_hang.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s rust/release -p test_e2e_result.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s rust/release -p test_timing_report.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s rust/release -p test_cadence_matrix.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # Nothing from these jobs ships, so a signed release's tests and
+      # clippy use the cache too.
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: |
+            ~/AppData/Local/ButterpolloRust/sdk
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.2
+      # Compiled dependencies, one cache per job (rust-cache keys on the job
+      # id); only main saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: '. -> ../../_temp/butterpollo-rust-target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Lint Rust
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Stage Lint -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
+  # The release build and package, and a release's signing.
   windows:
     needs: tag
     if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
@@ -99,9 +239,6 @@ jobs:
       # SignPath Foundation's release policy needs a manual approval for every
       # signing request, so main's pushes and pull requests stay unsigned.
       SIGNPATH_ENABLED: ${{ needs.tag.outputs.sign == 'true' }}
-      # Tests and clippy need no debug info, and linking it dominated the
-      # test build. Release builds keep their own profile.
-      CARGO_PROFILE_DEV_DEBUG: 0
     defaults:
       run:
         shell: pwsh
@@ -140,31 +277,10 @@ jobs:
           if (& $ready) { Get-ChildItem "$kits\Lib\*\um\x64\iddcx" -Directory | ForEach-Object FullName; exit 0 }
           winget install --id Microsoft.WindowsWDK.10.0.26100 --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
           if (!(& $ready)) { throw 'The Windows Driver Kit is still missing after installing it' }
-      # The web console build needs Vite 7's Node.
+      # The package's web console build needs Vite 7's Node.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
-      - name: Check the web console
-        working-directory: rust/web
-        run: |
-          npm ci --no-audit --no-fund
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm run check
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          node --test "*.test.mjs"
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Check release notes tooling
-        run: |
-          python -m unittest discover -s rust/release -p test_release.py -v
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m unittest discover -s rust/release -p test_gpu_hang.py -v
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m unittest discover -s rust/release -p test_e2e_result.py -v
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m unittest discover -s rust/release -p test_timing_report.py -v
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m unittest discover -s rust/release -p test_cadence_matrix.py -v
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       # A signed release is built from this run's checkout and downloads,
       # never from an earlier run's cache.
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
@@ -182,18 +298,35 @@ jobs:
         with:
           workspaces: '. -> ../../_temp/butterpollo-rust-target'
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Test, lint and package Rust
+      - name: Build and package Rust
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
-          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Package -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
+          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Stage Build -Package -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
       # SignPath signs a file only when its version information names
       # Rubylight and the release; every build checks that it would.
       - name: Check release binary metadata
         run: |
           $version = (Select-String -LiteralPath Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           .\rust\release\sign-artifacts.ps1 -Phase CheckMetadata -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -Version $version
+      # Nothing is signed before this commit's tests and clippy pass.
+      - name: Wait for tests and clippy
+        if: env.SIGNPATH_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $jobs = "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/attempts/$env:GITHUB_RUN_ATTEMPT/jobs"
+          while ($true) {
+            $states = gh api $jobs --paginate --jq '.jobs[] | select(.name == "test" or .name == "lint") | "\(.name) \(.status) \(.conclusion)"'
+            if ($LASTEXITCODE) { throw 'Reading the run''s jobs failed' }
+            $states = @($states | Where-Object { $_ })
+            if ($states.Count -ne 2) { throw "Expected the test and lint jobs, found: $states" }
+            $failed = @($states | Where-Object { $_ -match ' completed ' -and $_ -notmatch ' completed success$' })
+            if ($failed) { throw "Not signing: $failed" }
+            if (@($states | Where-Object { $_ -match ' completed success$' }).Count -eq 2) { break }
+            Start-Sleep -Seconds 30
+          }
       - name: Prepare signing
         if: env.SIGNPATH_ENABLED == 'true'
         env:
@@ -310,8 +443,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   publish:
-    needs: [tag, windows]
-    if: ${{ !cancelled() && needs.tag.result == 'success' && (needs.tag.outputs.run || needs.windows.result == 'success') }}
+    needs: [tag, test, lint, windows]
+    if: ${{ !cancelled() && needs.tag.result == 'success' && (needs.tag.outputs.run || (needs.test.result == 'success' && needs.lint.result == 'success' && needs.windows.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

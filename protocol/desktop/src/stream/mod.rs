@@ -22,6 +22,11 @@ mod rate_change;
 pub mod menu_extras;
 mod touch;
 mod upscale;
+pub mod enhance;
+#[cfg(windows)]
+mod amf_scaler;
+#[cfg(windows)]
+pub(crate) mod direct;
 mod phase;
 mod text_field;
 mod clipboard_sync;
@@ -1536,6 +1541,9 @@ pub struct Streaming {
     pub pacer: Pacer,
     pub texture: VideoTexture,
     upscaler: Option<upscale::Upscaler>,
+    /// AI enhancement (`config::Upscaling::Ai`) for the current picture shape and output size.
+    #[cfg(windows)]
+    enhancer: Option<enhance::Enhancer>,
     upscale_failed: bool,
     phase: phase::Phase,
     /// Whether racing the display's beam can work here, once the beam race is on and a picture is
@@ -1761,6 +1769,8 @@ impl Streaming {
             pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog),
             texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear, hdr_stream),
             upscaler: None,
+            #[cfg(windows)]
+            enhancer: None,
             upscale_failed: false,
             phase: phase::Phase::default(),
             race_probe: None,
@@ -3003,6 +3013,76 @@ impl Streaming {
         false
     }
 
+    /// The current picture through AI enhancement at `output`, or None to draw the picture itself:
+    /// a picture it does not read (software-decoded, PyroWave, packed), or the mode failed, which
+    /// is logged and shown once and leaves the stream on bilinear scaling.
+    #[cfg(windows)]
+    fn enhanced(&mut self, renderer: *mut SDL_Renderer, output: (i32, i32)) -> Option<*mut SDL_Texture> {
+        if self.upscale_failed { return None; }
+        let Some(source) = self.texture.enhance_source() else { self.enhancer = None; return None };
+        if output.0 <= 0 || output.1 <= 0 || output.0 > 16384 || output.1 > 16384 { return None; }
+        let key = enhance::Key { source, output, hdr_display: crate::sdl::hdr_available(renderer) };
+        if !self.enhancer.as_ref().is_some_and(|enhancer| enhancer.matches(&key)) {
+            self.enhancer = None;
+            let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+            let made = enhance::stream_probe(device)
+                .and_then(|capability| capability.ok_or_else(|| "this GPU has neither video super resolution nor RTX Video HDR".to_owned()))
+                .and_then(|capability| enhance::Enhancer::new(renderer, key, capability, self.facts.fps.max(1) as u32));
+            match made {
+                Ok(enhancer) => {
+                    eprintln!("nightjar: {} for {}x{} to {}x{}", enhancer.label, source.picture.0, source.picture.1, output.0, output.1);
+                    self.enhancer = Some(enhancer);
+                }
+                Err(error) => return self.enhance_failed(error),
+            }
+        }
+        match self.enhancer.as_mut()?.draw(renderer) {
+            Ok(texture) => Some(texture),
+            Err(error) => self.enhance_failed(error),
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn enhanced(&mut self, _renderer: *mut SDL_Renderer, _output: (i32, i32)) -> Option<*mut SDL_Texture> {
+        None
+    }
+
+    #[cfg(windows)]
+    fn enhance_failed(&mut self, error: String) -> Option<*mut SDL_Texture> {
+        eprintln!("nightjar: AI enhancement failed: {error}; the stream continues with bilinear scaling");
+        self.enhancer = None;
+        self.upscale_failed = true;
+        self.show_toast(tr("AI enhancement is unavailable; using bilinear scaling."));
+        None
+    }
+
+    /// The stats line for the upscaling setting.
+    fn upscaling_line(&self) -> String {
+        if self.settings.upscaling == config::Upscaling::Ai {
+            #[cfg(windows)]
+            if let Some(enhancer) = &self.enhancer { return enhancer.label.clone(); }
+            return if self.upscale_failed { "Bilinear (AI enhancement unavailable)".into() }
+                else if cfg!(windows) { "Bilinear (not a hardware-decoded picture)".into() }
+                else { "Bilinear (AI enhancement needs Direct3D 11)".into() };
+        }
+        if self.upscale_failed { "Bilinear (GPU unavailable)".into() }
+        else if self.texture.is_hdr() { "Bilinear (HDR)".into() }
+        else if self.upscaler.is_some() { self.settings.upscaling.label().into() }
+        else { "Bilinear (no upscale needed)".into() }
+    }
+
+    /// Draws the picture itself into the back buffer (`direct`), or returns false for SDL to draw
+    /// the video texture.
+    #[cfg(windows)]
+    fn draw_direct(&mut self, renderer: *mut SDL_Renderer, dst: &SDL_FRect) -> bool {
+        self.texture.draw_direct(renderer, dst)
+    }
+
+    #[cfg(not(windows))]
+    fn draw_direct(&mut self, _renderer: *mut SDL_Renderer, _dst: &SDL_FRect) -> bool {
+        false
+    }
+
     /// Draws the texture and the overlay and presents. `probe` reads the beam around the present.
     fn render_flip(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), probe: bool) -> Flipped {
         // SAFETY: drawing on a live renderer.
@@ -3016,10 +3096,15 @@ impl Streaming {
                 let mut texture = self.texture.texture;
                 let output = (dst.w as i32, dst.h as i32);
                 let input = self.texture.size();
-                let use_upscaler = self.settings.upscaling != config::Upscaling::Bilinear && !self.upscale_failed
+                let use_upscaler = self.settings.upscaling.is_shader() && !self.upscale_failed
                     && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input
                     && output.0 <= 16384 && output.1 <= 16384;
-                if use_upscaler {
+                // The upscalers and AI enhancement read the video texture.
+                if self.settings.upscaling == config::Upscaling::Ai || use_upscaler { self.texture.materialize(); }
+                if self.settings.upscaling == config::Upscaling::Ai {
+                    self.upscaler = None;
+                    if let Some(enhanced) = self.enhanced(renderer, output) { texture = enhanced; }
+                } else if use_upscaler {
                     if !self.upscaler.as_ref().is_some_and(|u| u.matches(input, output, self.settings.upscaling)) {
                         self.upscaler = upscale::Upscaler::new(renderer, input, output, self.settings.upscaling);
                     }
@@ -3032,7 +3117,10 @@ impl Streaming {
                         }
                     }
                 } else { self.upscaler = None; }
-                SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+                if !(texture == self.texture.texture && self.draw_direct(renderer, &dst)) {
+                    if texture == self.texture.texture { self.texture.materialize(); }
+                    SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+                }
             } else if !self.texture.draw(renderer, &dst) {
                 self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));
             }
@@ -3272,10 +3360,7 @@ impl Streaming {
         ));
         lines.push(("Decoder".into(), lock(&self.shared.decoder_name).clone()));
         if self.settings.upscaling != config::Upscaling::Bilinear {
-            lines.push(("Upscaling".into(), if self.upscale_failed { "Bilinear (GPU unavailable)".into() }
-                else if self.texture.is_hdr() { "Bilinear (HDR)".into() }
-                else if self.upscaler.is_some() { self.settings.upscaling.label().into() }
-                else { "Bilinear (no upscale needed)".into() }));
+            lines.push(("Upscaling".into(), self.upscaling_line()));
         }
         if self.quality_mode != QualityMode::Off { lines.push(("Quality".into(), self.quality_mode.label().into())); }
         lines.push((
@@ -3875,6 +3960,8 @@ impl Streaming {
         unsafe { SDL_ShowCursor() };
         pads.reset();
         self.upscaler = None;
+        #[cfg(windows)]
+        { self.enhancer = None; }
         self.texture.destroy();
         if self.facts.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
             eprintln!("nightjar: decoder {}", lock(&self.shared.decoder_name));

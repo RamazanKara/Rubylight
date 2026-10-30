@@ -1023,7 +1023,18 @@ pub(crate) fn prepare_profile(profile: &Path, installed: bool) -> Result<Option<
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let name = root.file_name().context("profile root has no name")?;
-    let aside = root.with_file_name(format!("{}.untrusted-{seconds}", name.display()));
+    // Another move in the same second took the first name.
+    let aside = (0..100)
+        .map(|n| {
+            let suffix = if n == 0 {
+                String::new()
+            } else {
+                format!("-{n}")
+            };
+            root.with_file_name(format!("{}.untrusted-{seconds}{suffix}", name.display()))
+        })
+        .find(|aside| std::fs::symlink_metadata(aside).is_err())
+        .context("no free name to move the profile to")?;
     line(format!(
         "moving {} to {}: {error:#}",
         root.display(),
@@ -2207,6 +2218,8 @@ mod tests {
         )?;
         assert_eq!(code, 0, "{output}");
         let child_aside = prepare_profile(&profile, false)?.context("the child stayed")?;
+        // A second move, usually within the same second, gets its own name.
+        assert_ne!(child_aside, aside);
         assert!(child_aside.join("config").is_dir());
         assert_eq!(std::fs::read_dir(&root)?.count(), 0);
         // A missing root is made locked down from the start, also for an
@@ -2284,7 +2297,9 @@ mod tests {
                     Duration::from_secs(10),
                 )?;
                 assert_eq!(code, 0, "{output}");
-                Ok(output.replace(&folder.display().to_string(), ""))
+                // icacls aligns its lines with the folder's name.
+                let output = output.replace(&folder.display().to_string(), "");
+                Ok(output.split_whitespace().collect::<Vec<_>>().join(" "))
             };
             assert_eq!(acl(&created)?, acl(&restricted)?);
             system::trusted_tree(&created, &[])?;

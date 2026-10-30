@@ -332,6 +332,31 @@ fn attribute<'a>(sdp: &'a str, name: &str) -> Option<&'a str> {
     sdp.lines().find(|l| l.starts_with(&prefix)).map(|l| l.trim_end())
 }
 
+/// 7.1.4 asks as Moonlight V+ does: 12 channels with mask 0xF63F, in the launch's
+/// `surroundAudioInfo` and the ANNOUNCE.
+#[test]
+fn seven_one_four_is_announced_as_moonlight_v_plus_does() {
+    let config = StreamConfig {
+        audio: AudioConfiguration::SURROUND_714,
+        bitrate_kbps: 50_000,
+        ..Default::default()
+    };
+    assert_eq!(config.audio.surround_audio_info(), 0xF63F_000C);
+    let mut p = params(&config, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_H265);
+    p.high_quality_surround_supported = true;
+    let sdp = generate(&p);
+    for line in [
+        "a=x-nv-audio.surround.numChannels:12",
+        "a=x-nv-audio.surround.channelMask:63039",
+        "a=x-nv-audio.surround.enable:1",
+        "a=x-nv-audio.surround.AudioQuality:1",
+    ] {
+        let name = &line[2..line.rfind(':').unwrap()];
+        assert_eq!(attribute(&sdp.text, name), Some(line), "{}", sdp.text);
+    }
+    assert!(sdp.high_quality_surround_enabled);
+}
+
 #[test]
 fn link_speed_hint_is_sent_for_every_codec_and_only_pyrowave_gets_the_pace() {
     const LINK: &str = "x-ss-video[0].pyrowaveLinkMbps";

@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Estéreo</string>
     <string name="audioconf_51surround">Som surround 5.1</string>
     <string name="audioconf_71surround">Som surround 7.1</string>
+    <string name="audioconf_714surround">Som surround 7.1.4</string>
     <string name="videoformat_auto">Automático (recomendado)</string>
     <string name="videoformat_av1always">Preferir AV1</string>
     <string name="videoformat_hevcalways">Preferir HEVC</string>

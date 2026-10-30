@@ -782,6 +782,9 @@ pub struct Audio {
     /// The passthrough codecs the stream asked for (`passthrough_codecs`).
     passthrough: u8,
     stream: *mut SDL_AudioStream,
+    /// 7.1.4's output instead of `stream`: SDL opens at most 8 channels.
+    #[cfg(windows)]
+    wasapi: Option<super::wasapi::Output>,
     /// The callback's reference to `playout`, released after the stream is destroyed.
     callback: *const Mutex<Playout>,
 }
@@ -797,7 +800,94 @@ impl Audio {
             playout: None,
             passthrough,
             stream: std::ptr::null_mut(),
+            #[cfg(windows)]
+            wasapi: None,
             callback: std::ptr::null(),
+        }
+    }
+
+    /// Where `play` puts what it decoded, locked for the call: the output's lock first, as the
+    /// output holds it while it asks the playout for concealment.
+    fn sink(&self) -> Sink<'_> {
+        #[cfg(windows)]
+        if let Some(output) = &self.wasapi {
+            return Sink::Wasapi(lock(&output.queue));
+        }
+        if self.stream.is_null() {
+            Sink::None
+        } else {
+            Sink::Sdl { stream: self.stream, _locked: StreamLock::new(self.stream) }
+        }
+    }
+
+    /// 7.1.4 through WASAPI (`wasapi`); without an output the stream goes on without sound, as
+    /// it does on SDL.
+    #[cfg(windows)]
+    fn init_wasapi(&mut self, decoder: AudioDecoder, packet_ms: u32) {
+        match super::wasapi::Output::open() {
+            Ok(output) => {
+                let playout = Arc::new(Mutex::new(Playout::new(decoder, packet_ms, output.period_frames)));
+                lock(&output.queue).playout = Some(playout.clone());
+                eprintln!("nightjar: audio: 7.1.4 through WASAPI, {} frames a period", output.period_frames);
+                self.playout = Some(playout);
+                self.wasapi = Some(output);
+            }
+            Err(e) => {
+                eprintln!("nightjar: no 7.1.4 audio output ({e})");
+                self.playout = Some(Arc::new(Mutex::new(Playout::new(decoder, packet_ms, 0))));
+            }
+        }
+    }
+}
+
+/// An audio output, locked (`Audio::sink`).
+enum Sink<'a> {
+    None,
+    Sdl { stream: *mut SDL_AudioStream, _locked: StreamLock },
+    #[cfg(windows)]
+    Wasapi(MutexGuard<'a, super::wasapi::Queue>),
+    #[cfg(not(windows))]
+    #[allow(dead_code)]
+    Unused(std::marker::PhantomData<&'a ()>),
+}
+
+impl Sink<'_> {
+    fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// Bytes waiting for the device.
+    fn queued(&self) -> i32 {
+        match self {
+            // SAFETY: the stream is open until cleanup, which runs on this thread.
+            Self::Sdl { stream, .. } => unsafe { SDL_GetAudioStreamQueued(*stream) }.max(0),
+            #[cfg(windows)]
+            Self::Wasapi(queue) => (queue.pcm.len() * 4) as i32,
+            _ => 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        match self {
+            // SAFETY: as above.
+            Self::Sdl { stream, .. } => {
+                unsafe { SDL_ClearAudioStream(*stream) };
+            }
+            #[cfg(windows)]
+            Self::Wasapi(queue) => queue.pcm.clear(),
+            _ => {}
+        }
+    }
+
+    fn put(&mut self, pcm: &[f32]) {
+        match self {
+            // SAFETY: as above; pcm is valid for the call.
+            Self::Sdl { stream, .. } => {
+                unsafe { SDL_PutAudioStreamData(*stream, pcm.as_ptr().cast::<c_void>(), (pcm.len() * 4) as i32) };
+            }
+            #[cfg(windows)]
+            Self::Wasapi(queue) => queue.pcm.extend(pcm),
+            _ => {}
         }
     }
 }
@@ -867,6 +957,12 @@ impl AudioRenderer for Audio {
             self.shared.notify(Notice::PassthroughOpus);
         }
         let channels = decoder.channels();
+        #[cfg(windows)]
+        if channels == super::wasapi::CHANNELS {
+            self.init_wasapi(decoder, setup.packet_duration_ms);
+            self.shared.counters.audio_channels.store(channels as u64, Ordering::Relaxed);
+            return Ok(());
+        }
         let spec = SDL_AudioSpec {
             format: SDL_AUDIO_F32,
             channels: channels as i32,
@@ -917,14 +1013,12 @@ impl AudioRenderer for Audio {
         let Some(playout) = self.playout.as_ref() else {
             return;
         };
-        let stream = self.stream;
-        // The stream's lock first, as SDL takes it before calling `conceal`.
-        let _locked = StreamLock::new(stream);
+        // The output's lock first, as SDL takes it before calling `conceal`.
+        let mut sink = self.sink();
         let mut playout = lock(playout);
         let channels = playout.channels();
         let bytes_per_sample = 4 * channels as i32;
-        // SAFETY: as above.
-        let queued = if stream.is_null() { 0 } else { unsafe { SDL_GetAudioStreamQueued(stream) }.max(0) };
+        let queued = sink.queued();
         let fed = playout.packet(packet, (queued / bytes_per_sample) as usize);
         let counters = &self.shared.counters;
         let bytes_per_us = 48.0 * f64::from(bytes_per_sample) / 1000.0;
@@ -950,16 +1044,18 @@ impl AudioRenderer for Audio {
         }
         if routed {
             playout.stop();
-            if !stream.is_null() { unsafe { SDL_ClearAudioStream(stream) }; }
+            sink.clear();
             counters.audio_queued_us.store(0, Ordering::Relaxed);
             return;
         }
-        if stream.is_null() { return; }
-        // SAFETY: the stream is open and locked; pcm is valid for the call.
-        unsafe { SDL_PutAudioStreamData(stream, pcm.as_ptr().cast::<c_void>(), (pcm.len() * 4) as i32) };
+        if sink.is_none() { return; }
+        sink.put(pcm);
     }
 
     fn cleanup(&mut self) {
+        // Joins the render thread, which then holds no reference to the playout.
+        #[cfg(windows)]
+        drop(self.wasapi.take());
         if !self.stream.is_null() {
             // SAFETY: opened in init, destroyed once; the callback cannot run after this.
             unsafe { SDL_DestroyAudioStream(self.stream) };

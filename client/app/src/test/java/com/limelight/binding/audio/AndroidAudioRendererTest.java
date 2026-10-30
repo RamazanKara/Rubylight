@@ -50,6 +50,18 @@ public class AndroidAudioRendererTest {
         }
     }
 
+    @Test public void headsetMixKeepsTheHeightsOfSevenOneFourOnTheirSides() {
+        // TFL TFR TBL TBR follow the 7.1 bed.
+        short[][] heights = {{707, 0}, {0, 707}, {707, 0}, {0, 707}};
+        for (int height = 0; height < 4; height++) {
+            short[] input = new short[12];
+            input[8 + height] = 1000;
+            short[] stereo = new short[2];
+            AndroidAudioRenderer.downmixStereo(input, input.length, 12, stereo);
+            assertArrayEquals(heights[height], stereo);
+        }
+    }
+
     private static final class ScriptedRenderer extends AndroidAudioRenderer {
         private final int[] results;
         private int nextResult;

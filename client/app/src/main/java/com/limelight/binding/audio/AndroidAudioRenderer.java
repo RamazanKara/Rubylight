@@ -162,6 +162,14 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 // in 5.0, so just hardcode the constant so we can work on Lollipop.
                 channelConfig = 0x000018fc; // AudioFormat.CHANNEL_OUT_7POINT1_SURROUND
                 break;
+            case Surround714.CHANNELS:
+                // 7.1.4 in the decoder's order FL FR C LFE RL RR SL SR TFL TFR TBL TBR; Android 12L+.
+                channelConfig = Surround714.channelMask();
+                if (channelConfig == 0) {
+                    LimeLog.severe("7.1.4 needs Android 12L or later");
+                    return -1;
+                }
+                break;
             default:
                 LimeLog.severe("Decoder returned unhandled channel count");
                 return -1;

@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">立体声</string>
     <string name="audioconf_51surround">5.1 环绕声</string>
     <string name="audioconf_71surround">7.1 环绕声</string>
+    <string name="audioconf_714surround">7.1.4 环绕声</string>
     <string name="videoformat_auto">自动（推荐）</string>
     <string name="videoformat_av1always">首选 AV1</string>
     <string name="videoformat_hevcalways">首选 HEVC</string>

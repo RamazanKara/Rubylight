@@ -41,6 +41,8 @@ pub mod pyrowave_mode;
 mod stage_times;
 #[cfg(windows)]
 mod d3d11;
+#[cfg(windows)]
+mod wasapi;
 pub mod gpu_planes;
 mod pyrowave_sdk;
 #[cfg(unix)]
@@ -1082,16 +1084,51 @@ fn asks_replace(plan: &LaunchPlan, role: AppRole, error: &nightjar_core::http::E
     !plan.resume && !plan.confirm_replace && role == AppRole::Stream && nightjar_core::http::asks_to_confirm_replace(error)
 }
 
+/// Whether this PC's default output plays 7.1.4 (12 channels or more): only Windows, through
+/// WASAPI; SDL opens at most 8 channels, so Linux stays at 7.1.
+pub fn plays_714() -> bool {
+    #[cfg(windows)]
+    return wasapi::plays_714();
+    #[cfg(not(windows))]
+    false
+}
+
+/// [`plays_714`] for the audio setting, which asks every frame it is shown.
+pub fn offers_714() -> bool {
+    #[cfg(windows)]
+    return wasapi::offered();
+    #[cfg(not(windows))]
+    false
+}
+
+/// What the stream asks the PC for. 7.1.4 needs a PC that reports it in serverinfo
+/// (`AudioLayouts`, which Rubylight sends while it streams 7.1.4) and an output that plays it;
+/// otherwise 7.1, as a PC without 7.1.4 may answer 12 channels with no sound at all. Foundation
+/// Sunshine isn't told apart from stock Sunshine (Moonlight V+ asks every PC), so it gets 7.1.
+fn audio_configuration(choice: AudioChannels, host_714: bool, output_714: bool) -> AudioConfiguration {
+    match choice {
+        AudioChannels::Stereo => AudioConfiguration::STEREO,
+        AudioChannels::Surround51 => AudioConfiguration::SURROUND_51,
+        AudioChannels::Surround71 => AudioConfiguration::SURROUND_71,
+        AudioChannels::Surround714 if host_714 && output_714 => AudioConfiguration::SURROUND_714,
+        AudioChannels::Surround714 => {
+            let why = if host_714 { "this output doesn't play 12 channels" } else { "the PC doesn't report 7.1.4" };
+            eprintln!("nightjar: audio: {why}; asking for 7.1");
+            AudioConfiguration::SURROUND_71
+        }
+    }
+}
+
 fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     let settings = &plan.settings;
     let role = plan.app.role(plan.small_stream_input_only);
     let (width, height, fps, bitrate) = stream_mode(settings, plan.display);
     let bitrate = capped_bitrate(bitrate, plan.bitrate_limit_kbps);
-    let audio = match settings.audio {
-        AudioChannels::Stereo => AudioConfiguration::STEREO,
-        AudioChannels::Surround51 => AudioConfiguration::SURROUND_51,
-        AudioChannels::Surround71 => AudioConfiguration::SURROUND_71,
-    };
+    let audio = audio_configuration(
+        settings.audio,
+        plan.info.capabilities.has(Feature::Surround714),
+        settings.audio == AudioChannels::Surround714 && plays_714(),
+    );
     let ri_key: [u8; 16] = random_bytes();
     let key_id_bytes: [u8; 4] = random_bytes();
     let ri_key_id = i32::from_be_bytes(key_id_bytes) & 0x7FFF_FFFF;
@@ -4961,5 +4998,42 @@ mod replace_tests {
                 Ok(_) => panic!("the launch failed"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod audio_tests {
+    use super::*;
+
+    fn reports_714(xml: &str) -> bool {
+        ServerInfo::parse(xml, 47989).expect("the answer parses").capabilities.has(Feature::Surround714)
+    }
+
+    #[test]
+    fn only_a_pc_that_reports_7_1_4_is_asked_for_it() {
+        let rubylight = include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+        let rubylight_without = include_str!("../../../../app/src/test/resources/protocol/rubylight-30-refused-serverinfo.xml");
+        // Foundation Sunshine's serverinfo reads as stock Sunshine's.
+        let sunshine = include_str!("../../../../app/src/test/resources/protocol/sunshine-serverinfo.xml");
+        assert!(reports_714(rubylight));
+        assert!(!reports_714(rubylight_without), "Rubylight with 7.1.4 off");
+        assert!(!reports_714(sunshine));
+
+        let asked = |host: &str, output: bool| audio_configuration(AudioChannels::Surround714, reports_714(host), output);
+        assert_eq!(asked(rubylight, true), AudioConfiguration::SURROUND_714);
+        assert_eq!(asked(sunshine, true), AudioConfiguration::SURROUND_71);
+        assert_eq!(asked(rubylight_without, true), AudioConfiguration::SURROUND_71);
+        // An output that plays fewer than 12 channels gets 7.1 from every PC.
+        assert_eq!(asked(rubylight, false), AudioConfiguration::SURROUND_71);
+        // The other choices are asked of every PC as picked.
+        assert_eq!(audio_configuration(AudioChannels::Surround71, false, false), AudioConfiguration::SURROUND_71);
+        assert_eq!(audio_configuration(AudioChannels::Surround51, false, false), AudioConfiguration::SURROUND_51);
+        assert_eq!(audio_configuration(AudioChannels::Stereo, true, true), AudioConfiguration::STEREO);
+    }
+
+    #[test]
+    fn the_7_1_4_choice_round_trips_through_the_settings_file() {
+        let saved = serde_json::to_string(&AudioChannels::Surround714).unwrap();
+        assert_eq!(serde_json::from_str::<AudioChannels>(&saved).unwrap(), AudioChannels::Surround714);
     }
 }

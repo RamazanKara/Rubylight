@@ -30,8 +30,10 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=fmtp:97 surround-params=88001456723\r\n\
              a=x-rl-video.hdrFormats:15\r\n\
              a=x-rl-audio.codecs:3\r\n\
-             a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
-             a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
+             a=x-rl-audio.layout714:12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=x-rl-audio.layout714Hq:12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
              a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
@@ -82,8 +84,10 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-video.packed444LayeredModes:10\r\n\
              a=x-rl-video.hdrFormats:15\r\n\
              a=x-rl-audio.codecs:3\r\n\
-             a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
-             a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
+             a=x-rl-audio.layout714:12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=x-rl-audio.layout714Hq:12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
              a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
@@ -230,7 +234,9 @@ async fn hlg_on_pyrowave_is_offered_and_sends_the_hdr_mode_message() -> Result<(
     h.finish().await
 }
 
-/// A default host offers 7.1.4, so a client that asks for 12 channels streams with them.
+/// A default host offers 7.1.4, so a client that asks for 12 channels streams with them. The
+/// ANNOUNCE is Moonlight V+'s (`AUDIO_CONFIGURATION_714_SURROUND`, mask 0xF63F), and the
+/// layout is the one DESCRIBE's `surround-params=12,8,4,...` named.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_default_host_streams_the_7_1_4_a_client_asks_for() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
@@ -239,10 +245,12 @@ async fn a_default_host_streams_the_7_1_4_a_client_asks_for() -> Result<()> {
         .play_announcing(
             &launch,
             0,
-            "a=x-nv-audio.surround.numChannels:12\r\na=x-nv-audio.surround.channelMask:185919\r\n",
+            "a=x-nv-audio.surround.numChannels:12\r\na=x-nv-audio.surround.channelMask:63039\r\n",
         )
         .await?;
     assert_eq!(session.config.audio_channels, 12);
+    let layout = butterpollo_core::audio::OpusLayout::select(12, false, None)?;
+    assert_eq!((layout.streams, layout.coupled), (8, 4));
     h.end(&session, client).await?;
     h.finish().await
 }

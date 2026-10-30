@@ -217,10 +217,10 @@ mod imp {
             channels: i32,
             streams: i32,
             coupled: i32,
-            mapping: &[u8; 8],
+            mapping: &[u8; 12],
         ) -> Result<Self, i32> {
             let mut error = 0;
-            // SAFETY: mapping holds at least `channels` (at most 8) entries.
+            // SAFETY: mapping holds at least `channels` (at most 12) entries.
             let decoder = unsafe {
                 ffi::opus_multistream_decoder_create(
                     48000,
@@ -337,7 +337,7 @@ mod imp {
             _channels: i32,
             _streams: i32,
             _coupled: i32,
-            _mapping: &[u8; 8],
+            _mapping: &[u8; 12],
         ) -> Result<Self, i32> {
             Err(-1)
         }

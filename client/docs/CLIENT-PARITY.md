@@ -86,6 +86,7 @@ Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTe
 | Feature | Android | Windows | Linux | Evidence and notes |
 | --- | --- | --- | --- | --- |
 | Stereo, 5.1, 7.1 and loss concealment | Done | Done | Done | |
+| 7.1.4 (12 channels) | Done | Done | Missing | Offered where the output has 12 channels, asked of a Rubylight PC that reports 7.1.4. Windows plays it through WASAPI; SDL, and so Linux, opens at most 8 channels. |
 | Audio passthrough | Tested | Tested | Done | Retroid, 2026-10-28: PCM stereo from the PC to the AAudio output. Windows, 2026-10-27 and 2026-10-28: PCM stereo and 5.1. Desktop asks for PCM only. Dolby Digital to a TV: rc.4 T8 (log part). |
 | Microphone | Tested | Done | Done | Retroid, 2026-10-28: the PC received the voice. |
 | Echo cancellation, noise suppression, gain, mute button | Tested | Missing | Missing | Retroid, 2026-10-28: automatic echo cancellation follows a headphone plug, 400 % and 25 % gain differ by 24 dB at the PC without clipping, a missing effect is named, and the mute button mutes and keeps its place. Remote Monitor without the microphone: rc.4 R12. |

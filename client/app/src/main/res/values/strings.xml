@@ -281,6 +281,7 @@
     <string name="audioconf_stereo">Stereo</string>
     <string name="audioconf_51surround">5.1 Surround Sound</string>
     <string name="audioconf_71surround">7.1 Surround Sound</string>
+    <string name="audioconf_714surround">7.1.4 Surround Sound</string>
 
     <string name="videoformat_auto">Automatic (recommended)</string>
     <string name="videoformat_av1always">Prefer AV1</string>

@@ -70,6 +70,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Stereo", "Stereo"),
     ("5.1 surround", "5.1-Surround"),
     ("7.1 surround", "7.1-Surround"),
+    ("7.1.4 surround", "7.1.4-Surround"),
     ("Test speed", "Geschwindigkeit testen"),
     ("confirmed", "bestätigt"),
     ("best available", "beste verfügbare"),

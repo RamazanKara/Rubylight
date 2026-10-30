@@ -140,9 +140,9 @@ pub fn pq_nits(code: f64) -> f64 {
     10000.0 * ((p - 0.8359375).max(0.0) / (18.8515625 - 18.6875 * p)).powf(1.0 / 0.1593017578125)
 }
 
-pub use super::hlg::{hlg_display, HlgDisplay};
+pub use super::hlg::hlg_display;
 #[cfg(test)]
-pub use super::hlg::hlg_nits;
+pub use super::hlg::{hlg_nits, HlgDisplay};
 
 /// The peak in nits of a maxRGB histogram over PQ codes: the top of the bin under which all but
 /// `ABOVE_PEAK` of the samples lie. None for an empty histogram.

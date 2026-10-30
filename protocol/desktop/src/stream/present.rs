@@ -890,6 +890,8 @@ impl VideoTexture {
         let importer = self.importer.as_mut().expect("made above");
         // SAFETY: on the renderer's thread, with its live texture.
         unsafe { importer.import(renderer, self.texture, export, info.width as u32, info.height as u32) }
+    }
+
     /// Puts a held decoder picture into the video texture, for what reads the texture (the
     /// upscalers, AI enhancement, SDL's drawing). Nothing to do when the picture was copied.
     #[cfg(windows)]

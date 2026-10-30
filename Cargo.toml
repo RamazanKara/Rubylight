@@ -46,6 +46,13 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# Every test host makes an RSA-2048 identity; unoptimized, its prime search
+# took about 2 s of each reconnect test.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

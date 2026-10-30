@@ -124,27 +124,24 @@ try {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
         & cargo $toolchain test --workspace --locked
         Assert-NativeExit 'Rust tests'
-        # The encode-cost benchmark also needs libopus and is run by hand.
-        & cargo $toolchain test -p butterpollo-windows --locked -- --ignored ffmpeg:: --skip passthrough_encode_cost
-        Assert-NativeExit 'FFmpeg AC3 tests'
-        & cargo $toolchain test -p butterpollo --locked -- --ignored audio_encoder::tests::ffmpeg_
-        Assert-NativeExit 'FFmpeg ANNOUNCE tests'
+        # The ignored FFmpeg AC3 and ANNOUNCE tests. --workspace like the run
+        # above reuses its build: -p would unify features differently and
+        # rebuild the workspace crates. The encode-cost benchmark also needs
+        # libopus and is run by hand.
+        & cargo $toolchain test --workspace --locked -- --ignored ffmpeg:: audio_encoder::tests::ffmpeg_ --skip passthrough_encode_cost
+        Assert-NativeExit 'FFmpeg tests'
         & cargo $toolchain clippy --workspace --all-targets --locked -- -D warnings
         Assert-NativeExit 'Rust lint'
     }
-    $buildArgs = @('build', '--workspace', '--locked')
+    # The host and the packaged performance probes in one build: separate -p
+    # builds of the probes unified features differently and rebuilt the
+    # workspace crates.
+    $buildArgs = @('build', '--workspace', '--locked', '--lib', '--bins',
+        '--example', 'performance', '--example', 'protocol_performance', '--example', 'video_packet_performance')
     $profile = 'debug'
     if (!$DebugBuild) { $buildArgs += '--release'; $profile = 'release' }
     & cargo $toolchain @buildArgs
     Assert-NativeExit 'Rust host build'
-    $probeArgs = @('build', '-p', 'butterpollo-windows', '--example', 'performance', '--locked')
-    if (!$DebugBuild) { $probeArgs += '--release' }
-    & cargo $toolchain @probeArgs
-    Assert-NativeExit 'Rust performance probe build'
-    $protocolArgs = @('build', '-p', 'butterpollo-core', '--example', 'protocol_performance', '--example', 'video_packet_performance', '--locked')
-    if (!$DebugBuild) { $protocolArgs += '--release' }
-    & cargo $toolchain @protocolArgs
-    Assert-NativeExit 'Rust protocol performance probe build'
     $output = Join-Path $TargetDirectory $profile
     $runtimeDlls = @('libopus-0.dll','libpyrowave-shared-1.dll') + $ffmpegDlls
     Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" 'libopus-0.dll') -Destination $output

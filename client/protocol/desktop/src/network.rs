@@ -188,7 +188,8 @@ fn medium_of_sysfs(has_device: bool, has_wireless_dir: bool, devtype: Option<&st
 /// or PPP interface, an MTU under 1500, an OpenVPN TAP address (00:FF:...), a ZeroTier adapter or
 /// "VPN" in the name. A route over one streams as remote with 1024 byte packets, as Android does
 /// for a VPN network: a WireGuard or Tailscale tunnel (MTU 1420 or 1280) would fragment every
-/// 1392 byte packet.
+/// 1392 byte packet. Unlike Moonlight's, the MTU rule leaves Ethernet and Wi-Fi out: a PPPoE
+/// LAN (MTU 1492) is still local, and its packets fit.
 ///
 /// Windows: `if_type` is the IANA ifType, 53 (IF_TYPE_PROP_VIRTUAL: WireGuardNT, Wintun-based
 /// VPNs such as Tailscale, OpenVPN's tap-windows6), 131 (IF_TYPE_TUNNEL) or 23 (IF_TYPE_PPP);
@@ -196,7 +197,7 @@ fn medium_of_sysfs(has_device: bool, has_wireless_dir: bool, devtype: Option<&st
 #[cfg_attr(not(windows), allow(dead_code))]
 fn vpn_of_if_row(if_type: u32, mtu: u32, mac: &[u8], alias: &str) -> bool {
     matches!(if_type, 23 | 53 | 131)
-        || (mtu != 0 && mtu < 1500)
+        || (!matches!(if_type, 6 | 71) && mtu != 0 && mtu < 1500)
         || mac.starts_with(&[0x00, 0xFF])
         || alias.starts_with("ZeroTier")
         || alias.contains("VPN")
@@ -204,11 +205,12 @@ fn vpn_of_if_row(if_type: u32, mtu: u32, mac: &[u8], alias: &str) -> bool {
 
 /// Linux, the same heuristics from sysfs: `arphrd` 65534 (ARPHRD_NONE: tun, WireGuard), 512
 /// (PPP) or a tunnel type (768 IPIP, 769 IP6 tunnel, 776 SIT, 778 GRE); IFF_POINTOPOINT (0x10)
-/// in `flags`, which catches OpenVPN; `mac` as sysfs writes it (`00:ff:...`).
+/// in `flags`, which catches OpenVPN; `mac` as sysfs writes it (`00:ff:...`). The MTU rule skips
+/// ARPHRD_ETHER (1), which is Ethernet and Wi-Fi.
 #[cfg_attr(windows, allow(dead_code))]
 fn vpn_of_sysfs(arphrd: Option<u32>, mtu: Option<u32>, flags: Option<u32>, mac: Option<&str>, name: &str) -> bool {
     matches!(arphrd, Some(512 | 768 | 769 | 776 | 778 | 65534))
-        || mtu.is_some_and(|mtu| mtu != 0 && mtu < 1500)
+        || (arphrd != Some(1) && mtu.is_some_and(|mtu| mtu != 0 && mtu < 1500))
         || flags.is_some_and(|flags| flags & 0x10 != 0)
         || mac.is_some_and(|mac| mac.to_ascii_lowercase().starts_with("00:ff"))
         || name.contains("VPN")
@@ -607,8 +609,8 @@ mod tests {
         assert!(vpn_of_if_row(53, 1500, &[], "Tailscale"));
         assert!(vpn_of_if_row(131, 1500, &[], "Teredo"));
         assert!(vpn_of_if_row(23, 1500, &[], "Dial-up"));
-        // A smaller MTU, OpenVPN's TAP address, ZeroTier and a VPN by name.
-        assert!(vpn_of_if_row(6, 1400, &nic, "Ethernet 3"));
+        // A smaller MTU on another kind of adapter, OpenVPN's TAP address, ZeroTier and a VPN by name.
+        assert!(vpn_of_if_row(1, 1400, &[], "Contoso Secure Client"));
         assert!(vpn_of_if_row(6, 1500, &[0x00, 0xFF, 1, 2, 3, 4], "Ethernet 4"));
         assert!(vpn_of_if_row(6, 1500, &nic, "ZeroTier One [abcdef]"));
         assert!(vpn_of_if_row(6, 1500, &nic, "Contoso VPN"));
@@ -619,6 +621,9 @@ mod tests {
         assert!(!vpn_of_if_row(24, u32::MAX, &[], "Loopback Pseudo-Interface 1"));
         assert!(!vpn_of_if_row(6, 9000, &nic, "Ethernet"), "jumbo frames");
         assert!(!vpn_of_if_row(6, 0, &nic, "Ethernet"), "an unknown MTU");
+        // The review's regression: a PPPoE LAN's 1492 MTU on Ethernet or Wi-Fi is no VPN.
+        assert!(!vpn_of_if_row(6, 1492, &nic, "Ethernet"));
+        assert!(!vpn_of_if_row(71, 1492, &nic, "Wi-Fi"));
     }
 
     #[test]
@@ -627,7 +632,7 @@ mod tests {
         assert!(vpn_of_sysfs(Some(65534), Some(1420), Some(0x1091), None, "wg0"));
         assert!(vpn_of_sysfs(Some(65534), Some(1500), Some(0x1091), None, "tun0"));
         assert!(vpn_of_sysfs(Some(512), Some(1500), None, None, "ppp0"));
-        assert!(vpn_of_sysfs(Some(1), Some(1400), Some(0x1003), Some("2c:f0:5d:01:02:03"), "eth1"));
+        assert!(vpn_of_sysfs(Some(65535), Some(1400), Some(0x1003), None, "vti0"));
         assert!(vpn_of_sysfs(Some(1), Some(1500), Some(0x1013), Some("2c:f0:5d:01:02:03"), "eth1"), "IFF_POINTOPOINT");
         assert!(vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("00:FF:12:34:56:78"), "tap0"));
         // Ethernet, Wi-Fi and loopback are not.
@@ -635,6 +640,9 @@ mod tests {
         assert!(!vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("2c:f0:5d:01:02:04"), "wlp2s0"));
         assert!(!vpn_of_sysfs(Some(772), Some(65536), Some(0x9), Some("00:00:00:00:00:00"), "lo"));
         assert!(!vpn_of_sysfs(None, None, None, None, "eth0"), "nothing readable");
+        // The review's regression: a PPPoE LAN's 1492 MTU on Ethernet or Wi-Fi is no VPN.
+        assert!(!vpn_of_sysfs(Some(1), Some(1492), Some(0x1003), Some("2c:f0:5d:01:02:03"), "enp3s0"));
+        assert!(!vpn_of_sysfs(Some(1), Some(1492), Some(0x1003), Some("2c:f0:5d:01:02:04"), "wlp2s0"));
     }
 
     #[test]

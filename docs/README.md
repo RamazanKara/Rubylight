@@ -2,65 +2,72 @@
 
 [Rubylight](../README.md) · [Download 3.0.0](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0) · [Release notes](../rust/RELEASE_NOTES.md)
 
-Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play from. These guides take you from a first desktop stream to HDR, virtual displays and the Radeon frame pipeline.
+Rubylight runs on a Windows PC with an AMD Radeon GPU; a Moonlight-compatible client runs on the device you play from. Rubylight 3.x supports AMD Radeon GPUs with a working AMF encoder on Windows 10 and 11. NVIDIA and Intel GPUs use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
 
-**Rubylight 3.0 needs an AMD Radeon GPU** with a working AMF encoder, on Windows 10 or 11. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). The [3.0 roadmap](rubylight-3.0-plan.md) shows how the release was planned and what comes next.
+New to Rubylight? [Install it](getting-started.md#install-or-run-portable), [open the console](getting-started.md#open-the-console) and [pair a device](getting-started.md#pair-moonlight-and-start-desktop), then start **Desktop** at 1080p60 in SDR.
 
-**New here?** [Install Rubylight](getting-started.md#install-or-run-portable), [open the console](getting-started.md#open-the-console), then [pair Moonlight and launch Desktop](getting-started.md#pair-moonlight-and-start-desktop). Start at 1080p60 in SDR so you can check the picture, sound and controls before tuning the stream.
-
-## Start streaming
-
-| I want to… | Start here |
-| --- | --- |
-| **Get my first stream running** | [Getting started](getting-started.md): what you need, installer or portable setup, pairing and a first desktop stream. |
-| Bring my settings or update an existing host | [Import a profile](getting-started.md#bring-an-existing-profile) · [Upgrade safely](getting-started.md#upgrading) |
-| Choose a codec, enable HDR or try PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video settings](configuration.md#capture-and-video) |
-| Stream Dolby Vision, HDR10+ or HLG to a TV | [Capture and video settings](configuration.md#capture-and-video): what each format needs from the device, and the HDR switches. |
-| Send PCM or Dolby Digital to a receiver, or use 7.1.4, night mode or headphone surround | [PCM and Dolby Digital audio](configuration.md#pcm-and-dolby-digital-audio) · [Surround, night mode and headphone surround](configuration.md#surround-night-mode-and-headphone-surround) |
-| Let the host adjust bitrate after video packet loss | [Host bitrate adaptation](configuration.md#host-bitrate-adaptation): optional, off by default, and separate from client bitrate control. |
-| Stream the game's sound without other applications | [Game-only audio](configuration.md#game-only-audio): supported Windows versions, verified launches and silence on capture failure. |
-| Let a device play while someone keeps using the PC | [Background streaming](configuration.md#background-streaming): how [Nucleus Co-op](nucleus-coop.md) runs it and its limits; or [a Hyper-V VM](configuration.md#background-streaming-from-a-hyper-v-vm) with full input. |
-| Play a game together on one PC from several devices | [Nucleus Co-op](nucleus-coop.md): the install, handlers, “Can join co-op games” and joining from Nightjar. |
-| Give each device its own display or cap a game's frame rate | [Displays and RTSS](configuration.md#displays-and-rtss) · [Settings for one app or device](configuration.md#settings-for-one-app-or-device) |
-| Let a device close games or change Radeon settings, and see what each session action does | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) · [A Radeon profile for each game](configuration.md#radeon-settings-per-game) |
-| Keep the stream from stalling on a slow link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Stream presets](configuration.md#stream-presets) |
-| Send frames earlier, or record where each frame's time goes | [Slice delivery](b2-slice-delivery.md) · [Timing record](timing-record.md) |
-| Set up a controller or use my client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
-| Open a menu in the stream to disconnect or close the game | [Couch menu](configuration.md#couch-menu): L3+R3, Ctrl+Alt+Backspace or the top-left corner, and how to change them. |
-| Share the clipboard, folders or files with a device | [Clipboard, files and USB](configuration.md#clipboard-files-and-usb) · [Shared folders](configuration.md#shared-folders) · [File transfer](configuration.md#file-transfer) · [Privacy](privacy.md#your-own-devices) |
-| Use a USB device plugged into my client on the PC | [USB forwarding](usb-forwarding.md): setup, which devices forward, detaching. |
-| Stream to a Samsung TV or a browser | [WebRTC server](webrtc.md): setup, pairing, what streams, and the protocol extensions for client authors. |
-| Launch Steam games from Steam Deck with MoonDeck | [MoonDeck setup](configuration.md#moondeck) |
-| Tell another service when apps start or devices pair | [Webhooks](webhooks.md): signed events, verifying them and the replay window. |
-| Understand an away-from-home Tailscale connection | [Remote connection route](network-path.md): paired route diagnostics and what an unknown result means. |
-| **Fix a stream that will not start or feels wrong** | [Troubleshooting](troubleshooting.md): pairing, black screens, HDR colour, audio, controllers and smoothness. |
-
-The full [configuration guide](configuration.md) starts with the [defaults in 3.0.0](configuration.md#defaults-in-300) and ends with [every setting](configuration.md#all-settings), its key and its default. If a problem needs a bug report, [collect the logs and stream details](troubleshooting.md#logs-and-a-useful-report) so someone else can reproduce it.
-
-## Understand Rubylight
+## Guides
 
 | Guide | What it covers |
 | --- | --- |
-| [Architecture](architecture.md) | What is written in Rust, where compute fits, frame ownership, native HDR and PyroWave. |
-| [Performance](performance.md) | The 3.0 results, comparisons under gaming load, the meaning of each measurement and links to recorded runs. |
-| [3.0 roadmap](rubylight-3.0-plan.md) | What 3.0 contains, what is done and what is next. |
-| [Features](features.md) | Everything Rubylight does: video, capture, displays, input, library, console and clients. |
-| [Release notes](../rust/RELEASE_NOTES.md) | Changes in every Windows release, from the first release candidate to the latest release. |
-| [Privacy](privacy.md) | Every connection Rubylight makes, what it sends and how to turn it off. |
-| [Code signing policy](code-signing-policy.md) | Who signs releases, what is signed, and how to check a download. |
+| [Getting started](getting-started.md) | Requirements, installer or portable package, the console, pairing, choosing a stream format, importing a profile and upgrading. |
+| [Configuration](configuration.md) | Every feature's settings by topic, followed by every configuration key with its default. |
+| [Troubleshooting](troubleshooting.md) | Pairing, black pictures, HDR, audio, controllers, smoothness, updates, and what to include in a report. |
+| [Features](features.md) | Everything the host does, by area. |
+| [Performance](performance.md) | The measured results, what each metric means, and links to every recorded run. |
+| [Hardware matrix](hardware-matrix.md) | What we have tested on each GPU generation, Windows version, feature and client, with the evidence. |
+| [Privacy](privacy.md) | Every connection Rubylight makes, what it sends, and how to turn it off. |
 
-## Build and integrate
+## By task
+
+| I want to… | Read |
+| --- | --- |
+| Bring my settings from Apollo or Vibepollo, or update the host | [Import a profile](getting-started.md#bring-an-existing-profile) · [Upgrading](getting-started.md#upgrading) |
+| Choose a codec, turn on HDR or use PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video](configuration.md#capture-and-video) |
+| Stream Dolby Vision, HDR10+ or HLG to a TV | [Capture and video](configuration.md#capture-and-video) |
+| Send PCM or Dolby Digital to a receiver, or use 7.1.4, night mode or headphone surround | [PCM and Dolby Digital audio](configuration.md#pcm-and-dolby-digital-audio) · [Surround, night mode and headphone surround](configuration.md#surround-night-mode-and-headphone-surround) |
+| Stream only the game's sound | [Game-only audio](configuration.md#game-only-audio) |
+| Give each device its own display, or cap a game's frame rate | [Displays and RTSS](configuration.md#displays-and-rtss) · [Settings for one app or device](configuration.md#settings-for-one-app-or-device) |
+| Keep the stream steady on a slow or lossy link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Host bitrate adaptation](configuration.md#host-bitrate-adaptation) · [Stream presets](configuration.md#stream-presets) |
+| Let a device play while someone else uses the PC, or play together on one PC | [Background streaming](configuration.md#background-streaming) · [Nucleus Co-op](nucleus-coop.md) |
+| Let a device close games or change Radeon settings | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) · [Radeon settings per game](configuration.md#radeon-settings-per-game) |
+| Set up a controller or use the client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
+| Open a menu inside the stream | [Couch menu](configuration.md#couch-menu) |
+| Share the clipboard, files, folders or USB devices with a device | [Clipboard, files and USB](configuration.md#clipboard-files-and-usb) · [USB forwarding](usb-forwarding.md) |
+| Stream to a browser or a Samsung TV | [WebRTC server](webrtc.md) |
+| Launch Steam games from a Steam Deck with MoonDeck | [MoonDeck](configuration.md#moondeck) |
+| Check a remote Tailscale route | [Remote connection route](network-path.md) |
+| Report a problem | [Logs and a useful report](troubleshooting.md#logs-and-a-useful-report) |
+
+## Reference for integrators and client authors
 
 | Reference | What it covers |
 | --- | --- |
-| [Build guide](building.md) | Windows toolchain, pinned dependencies, packaging and CI. |
-| [Developer guide](../rust/README.md) | Workspace layout, isolated profiles, validation tools and native integration work. |
-| [HTTP API](api.md) | Authentication, CSRF, permissions and the current Rust endpoints, plus a [short reference for the paired-client native API](api.md#native-api-v1-paired-clients). |
-| [Native API v1](native-api.md) | The paired-client API behind Nightjar: capabilities, library, session actions and Radeon settings. The design and contract. |
-| [Control messages](control-messages.md) | Rubylight's own client-to-host messages (phase lock, display luminance, mid-stream resolution change) and how a client finds out the host takes them. |
-| [Hardware metrics](hardware-metrics.md) | Client overlay telemetry: discovery, paired-client authentication, JSON readings, units, polling and errors. |
-| [Hardware matrix](hardware-matrix.md) | What we have tested, with the evidence, and what is supported or unsupported, per GPU generation, Windows version, feature and client, plus the Radeon settings probes per GPU and driver. |
-| [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and licensing. |
-| [Detailed performance record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, rejected experiments and reproduction instructions. |
+| [HTTP API](api.md) | The console API: authentication, CSRF, permissions and endpoints. |
+| [Native API v1](native-api.md) | The paired-client API used by Nightjar: capabilities, library, session actions, Radeon settings, files and USB. |
+| [Control messages](control-messages.md) | Rubylight's client-to-host control messages and how a client discovers them. |
+| [Hardware metrics](hardware-metrics.md) | CPU and GPU readings for client overlays. |
+| [Webhooks](webhooks.md) | Signed event notifications to your own services. |
+| [Timing record](timing-record.md) | The per-frame CSV record of capture, encode, send and client times. |
 
-The [70-second product film](media/demo.mp4) shows the console, pairing and the measured results. The [project history](butterpollo-cpp.md) (the C++ fork that came before the Rust host) and [archived C++ references](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/README.md) cover the earlier implementation.
+## Internals
+
+| Document | What it covers |
+| --- | --- |
+| [Architecture](architecture.md) | The crates, the frame path from capture to packet, compute queues, HDR and PyroWave. |
+| [Build guide](building.md) | Toolchain, pinned dependencies, packaging, the web console and the website. |
+| [Developer guide](../rust/README.md) | Workspace layout, isolated profiles, running the host from source and validation tools. |
+| [Slice delivery](b2-slice-delivery.md) | Sending each AMF slice as it is encoded. |
+| [Racing the beam with PyroWave](beam-racing-pyrowave.md) | How the host and Nightjar draw a PyroWave frame before all of it has arrived. |
+| [Measurement record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, reverted experiments and reproduction steps. |
+| [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and their licences. |
+| [Code signing policy](code-signing-policy.md) · [Release signing](code-signing.md) | Who signs releases and what is signed; the maintainer's SignPath setup. |
+
+## Project records
+
+Design notes and audits kept for reference. They describe the state on the date they were written and are not published on the website.
+
+- [3.0 plan](rubylight-3.0-plan.md) and its status table.
+- Designs: [couch menu](couch-menu-design.md), [encoder focus](encoder-focus-design.md), [Wake-on-LAN, sleep and couch audio](wake-and-audio-design.md), [WebRTC server](webrtc-design.md).
+- Audits: [streaming stability, October 18](stability-audit-2026-10-18.md), [PyroWave and D3D12, October 18](pyrowave-d3d12-audit-2026-10-18.md), [bug hunt, October 28](bug-hunt-2026-10-28.md).
+- [Project history](butterpollo-cpp.md): the C++ fork that preceded the Rust host, and the [archived C++ references](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/README.md).

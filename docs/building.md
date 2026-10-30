@@ -1,8 +1,8 @@
 # Build Rubylight
 
-[Docs](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md)
+[Documentation](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md)
 
-The current Windows host, service, launcher and installer are built with Rust. Use [rust/build.ps1](../rust/build.ps1) for the complete build and package; [.github/workflows/rust-windows.yml](../.github/workflows/rust-windows.yml) records the CI environment. The [Rust developer guide](../rust/README.md) describes the workspace and implementation.
+The Windows host, service, launcher and installer are built with Rust. Use [rust/build.ps1](../rust/build.ps1) for the complete build and package; [.github/workflows/rust-windows.yml](../.github/workflows/rust-windows.yml) records the CI environment. The [Rust developer guide](../rust/README.md) describes the workspace and implementation.
 
 To install a release and start streaming, use [Getting started](getting-started.md). The [archived C++ build guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/building-cpp.md) covers the earlier CMake host, whose sources live at the 2.0.0-rc.23 tag.
 

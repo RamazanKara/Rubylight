@@ -1,12 +1,12 @@
 # HTTP API
 
-[Docs](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md)
+[Documentation](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md)
 
 Rubylight's Windows Rust host serves its administration API at `https://localhost:47990/api`. The console uses the same API. Changing the base `port` setting moves the console to `port + 1`.
 
-This guide covers the current Rust implementation: routing, authentication and token scopes in [web.rs](../rust/host/src/web.rs), and the handlers for each area in [web/](../rust/host/src/web). Moonlight pairing, app discovery and streaming use separate protocol endpoints in [nvhttp.rs](../rust/host/src/nvhttp.rs). The [historical C++ API guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/api-cpp.md) is kept at the 2.0.0-rc.23 tag as a migration reference.
+This guide covers the Rust implementation: routing, authentication and token scopes in [web.rs](../rust/host/src/web.rs), and the handlers for each area in [web/](../rust/host/src/web). Moonlight pairing, app discovery and streaming use separate protocol endpoints in [nvhttp.rs](../rust/host/src/nvhttp.rs). The [historical C++ API guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/api-cpp.md) is kept at the 2.0.0-rc.23 tag as a migration reference.
 
-Paired clients use a separate API on the streaming HTTPS port: [Native API v1](native-api.md) (`/api/native/v1`, new in 3.0) covers the game library, session state and actions, and Radeon settings. It authenticates with the client certificate it paired with, so none of the methods below apply to it.
+Paired clients use a separate API on the streaming HTTPS port: [Native API v1](native-api.md) (`/api/native/v1`, Rubylight 3.0 and later) covers the game library, session state and actions, and Radeon settings. It authenticates with the client certificate it paired with, so none of the methods below apply to it.
 
 For client overlay telemetry, see [Hardware metrics](hardware-metrics.md). Its `/api/hardware-metrics` endpoint uses the streaming HTTPS port and the paired client's TLS certificate; the administration authentication methods below do not apply to it.
 
@@ -124,7 +124,7 @@ For exact request fields beyond this overview, follow [the API router](../rust/h
 
 ## Native API v1 (paired clients)
 
-New in 3.0. Nightjar and other paired clients use `/api/native/v1` on the streaming HTTPS port (`HttpsPort` from `/serverinfo`, normally 47984). The administration methods above do not apply to it: no Basic auth, cookies or API tokens, and nothing on plain HTTP or the console port. [Native API v1](native-api.md) is the design and contract; this section is the short reference for using it. Where the two differ, the host code in [native_api.rs](../rust/host/src/native_api.rs) and [native_api/radeon.rs](../rust/host/src/native_api/radeon.rs) is right.
+Rubylight 3.0 and later. Nightjar and other paired clients use `/api/native/v1` on the streaming HTTPS port (`HttpsPort` from `/serverinfo`, normally 47984). The administration methods above do not apply to it: no Basic auth, cookies or API tokens, and nothing on plain HTTP or the console port. [Native API v1](native-api.md) is the design and contract; this section is the short reference for using it. Where the two differ, the host code in [native_api.rs](../rust/host/src/native_api.rs) and [native_api/radeon.rs](../rust/host/src/native_api/radeon.rs) is right.
 
 ### Authentication
 

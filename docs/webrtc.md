@@ -39,8 +39,6 @@ The app then holds a client ID and a secret, and signs in on its own from then o
 
 ### Stream in the console
 
-<a id="stream-in-the-console-experimental"></a>
-
 The console's **Stream** page plays a game from this PC in the browser tab, with no app and no pairing: H.264 at 1920×1080 and 60 fps, stereo sound, keyboard and mouse.
 
 1. Turn on the WebRTC server (see above) and restart Rubylight.

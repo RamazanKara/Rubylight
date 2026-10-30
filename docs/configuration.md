@@ -1,18 +1,67 @@
 # Configuration
 
-[Docs](README.md) · [Getting started](getting-started.md) · [Troubleshooting](troubleshooting.md)
+[Documentation](README.md) · [Getting started](getting-started.md) · [Troubleshooting](troubleshooting.md)
 
-Configure the host in the Rubylight console, normally at **https://localhost:47990**. Open **Settings**, which groups its controls into General, Streaming, Display & HDR, Audio & controls, Games & automation, and Network & access, and search by a setting's name or configuration key. Resolution, stream frame rate, bitrate and codec are normally chosen in the client.
+Rubylight is configured in its web console, at **https://localhost:47990** on the host PC. The client chooses the resolution, frame rate, bitrate, codec and HDR of each stream; the host's settings decide how it captures, encodes, paces and delivers what the client asks for. The defaults suit a typical setup, and upgrades keep the values you have saved.
 
-The **Settings** home shows the ten settings most people change: the host name, **Allow pairing**, the stream preset, the virtual display and its layout, **Stream audio**, the device microphone, controllers, closing the app when the last device disconnects, and automatic updates. Every other setting is one click away in its category, and [All settings](#all-settings) lists each one with its key and default.
+This guide covers each feature's settings by topic. [All settings](#all-settings) at the end lists every setting in the console with its configuration key and default.
 
-Start with the defaults below. Settings imported from an older installation keep their saved values; upgrading does not reset them to these defaults.
+| Area | Sections |
+| --- | --- |
+| Basics | [How configuration works](#how-configuration-works) · [Defaults in 3.0.0](#defaults-in-300) · [Stream presets](#stream-presets) |
+| Picture and displays | [Capture and video](#capture-and-video) · [Displays and RTSS](#displays-and-rtss) |
+| Network | [Lower bitrate when the link cannot carry it](#lower-bitrate-when-the-link-cannot-carry-it) · [Host bitrate adaptation](#host-bitrate-adaptation) · [Error correction chosen by the device](#error-correction-chosen-by-the-device) · [Roaming](#roaming) |
+| Sound | [Game-only audio](#game-only-audio) · [PCM and Dolby Digital audio](#pcm-and-dolby-digital-audio) · [Surround, night mode and headphone surround](#surround-night-mode-and-headphone-surround) |
+| Input | [Keyboard, touch, pen and cursor](#keyboard-touch-pen-and-cursor) · [Controllers](#controllers) · [MoonDeck](#moondeck) · [Couch menu](#couch-menu) |
+| Games | [Close apps on disconnect](#close-apps-on-disconnect) · [Playnite launch focus](#playnite-launch-focus) · [Radeon settings per game](#radeon-settings-per-game) · [Managed game files](#managed-game-files) · [Neural Rendering](#neural-rendering) · [Background streaming](#background-streaming) |
+| Apps and devices | [Settings for one app or device](#settings-for-one-app-or-device) · [Host control, session actions and Radeon settings](#host-control-session-actions-and-radeon-settings) |
+| Sharing and browsers | [Clipboard, files and USB](#clipboard-files-and-usb) · [File transfer](#file-transfer) · [Shared folders](#shared-folders) · [WebRTC server](#webrtc-server) |
+| Running the host | [Multiple instances](#multiple-instances) · [Updates](#updates) |
+| Reference | [All settings](#all-settings) · [Further reference](#further-reference) |
 
-## Find and review settings
+## How configuration works
+
+The **Settings** page shows the ten settings most people change, in five sections: **This PC** (host name and **Allow pairing**), **Picture** (stream preset, virtual display, and what your monitors do while you stream), **Sound and controls** (stream audio, the device microphone and controllers), **Games** (closing the app when the last device disconnects) and **Updates** (installing updates automatically).
+
+**All settings**, under **Advanced** in the sidebar, has every setting in six tabs: **General**, **Streaming**, **Display & HDR**, **Audio & controls**, **Games & automation**, and **Network & access**. Groups that matter only for troubleshooting (Capture troubleshooting, AMD AMF, RTSS, Ports and addresses, Console, Debug switches) start collapsed, and **Show config keys** shows each setting's configuration key. Paths in this guide name the page, the tab and the setting, such as **All settings → Streaming → Capture method**.
+
+A game in **Games** and a device in **Devices** can override many of these settings for themselves; see [Settings for one app or device](#settings-for-one-app-or-device). Resolution, frame rate, bitrate, codec and HDR are requested by the client for each stream.
+
+### Find and review settings
 
 Search includes settings hidden by another choice, advanced options and configuration keys. Each hidden result explains when it applies. For example, search `amd_quality` to change AMD quality while keeping **Encoder → Automatic**; the value applies whenever Automatic selects AMF. Changing the encoder is not required just to find its options.
 
-Use **Review changes** to see pending edits across all categories, including settings hidden after another edit. If saving is blocked by an invalid value, **Review errors** opens the fields to correct. Switching categories or clearing search keeps your edits. **Reset to default** removes the saved override when you save; **Undo** restores the value from before the edit.
+Use **Review changes** to see pending edits across all tabs, including settings hidden after another edit. If saving is blocked by an invalid value, **Review errors** opens the fields to correct. Switching tabs or clearing the search keeps your edits. **Reset to default** removes the saved override when you save; **Undo** restores the value from before the edit.
+
+### Save, reconnect and restart
+
+Select **Save changes** to write the configuration. Changing a control or switching tabs does not save it. Saved stream settings are read when a new stream starts; an existing stream generally keeps its current configuration.
+
+The console shows **“Saved. Some changes apply after the host restarts.”** Startup settings, including network listeners and advertised codec capabilities, need a restart. Use **Restart now** after disconnecting: restarting the host disconnects active streams.
+
+For file-based configuration, the file is still named `sunshine.conf` for compatibility:
+
+| Installation | Default profile folder |
+| --- | --- |
+| Windows service | `%ProgramData%\Butterpollo\config` |
+| Portable host | A `config` folder beside the executable if there is one, otherwise `%LocalAppData%\ButterpolloRust\config` |
+| Explicit profile | Folder passed to `butterpollo.exe --config-dir <folder>` |
+
+The format is `key = value`, one setting per line. Stop the host before editing files directly, then start it again to load them. Prefer the console for ordinary changes; old or unknown keys are kept in the file even when the host does not use them.
+
+### Settings outside the console
+
+These keys are read from the configuration file (`sunshine.conf` in the profile folder) and from device and app overrides, but have no field in the console:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `audio_night_mode`, `audio_headphone_surround` | `false` | See [Surround, night mode and headphone surround](#surround-night-mode-and-headphone-surround). |
+| `couch_menu` and the `couch_menu_*` keys | `true`, and the values under [Couch menu](#couch-menu) | How the couch menu opens. |
+| `video_slice_delivery` | `off` | Sends H.264 and HEVC P-frames in 2 or 4 FEC blocks as their slices leave the encoder. See [Capture and video](#capture-and-video). |
+| `webrtc_pacing`, `webrtc_rtx` | `true` | Send pacing and retransmission for the WebRTC server. |
+| `webrtc_loss_permille` | `0` | Drops WebRTC video packets on purpose, in thousandths, for tests. Leave it at 0. |
+
+Webhooks have their own console page; see [Webhooks](webhooks.md).
 
 ## Defaults in 3.0.0
 
@@ -29,7 +78,7 @@ Each default below is what a fresh 3.0.0 install uses, checked against the host 
 | Encoder — `encoder` | `auto` | AMD AMF for H.264, HEVC and AV1, and PyroWave's own encoder for PyroWave. There is no other encoder and no fallback, so a failure is reported instead of hidden. |
 | Stream preset — `stream_preset` | `balanced` | Balanced is every default in this table. See [Stream presets](#stream-presets). |
 | Usage — `amd_usage` | `ultralowlatency` | AMD's lowest-latency profile; the driver also turns on its internal low-latency mode, and the lowest latency for AV1. The other profiles queue frames. |
-| Quality preset — `amd_quality` | `speed` | The lowest encode time. With these two defaults the 3.0.0-rc.2 host encoded 1080p AV1 in 5.89 ms ([October 26](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)). |
+| Quality preset — `amd_quality` | `speed` | The lowest encode time. With these two defaults the encode stage of a 1080p60 AV1 stream took a median 2.26 ms, and the whole path from capture to the client's present 5.89 ms, on loopback ([October 26](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)). |
 | Long-term reference frames — `amd_ltr_frames` | `4` | A device that lost frames recovers from a reference it still has, on H.264, HEVC and AV1, and the host sends a keyframe only where that would be smaller. Over the measured gaps that sent 0.86 to 0.92 of the keyframe bytes ([October 28](../rust/PERFORMANCE.md#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default)). |
 | Maximum frame size — `amd_max_frame_size` | `auto` | Keeps every frame inside what error correction can still protect, and encodes a scene cut that comes out too large again as a keyframe. Lost scene cuts went from 16 and 15 to 0 and 0, and freezes from 15 to 0 ([October 28](../rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes)). |
 | Encoder focus — `encoder_focus` | `off` | Favouring still areas makes scene cuts larger, so it is a choice for text-heavy desktops, not a default. See [Encoder focus](#encoder-focus). |
@@ -97,9 +146,27 @@ Each default below is what a fresh 3.0.0 install uses, checked against the host 
 
 These are defaults for **unset** keys, not a list of values you must copy into a configuration file.
 
-Under **Settings → Video → Advanced**, a collapsed **Capture troubleshooting** group holds the capture options that matter only when a capture or encoder problem needs isolating: `capture_poll_interval_us`, `capture_predictive_poll`, `wgc_slot_aligned_publish`, `wgc_direct_encoder_input`, `gpu_compute_conversion` and `idd_push_fence_ring`. **Use the launch frame rate** (`limit_framerate`) and **Follow client size and frame rate changes** (`stream_reconfigure`) are also under Advanced, as they matter only to Artemis's Warp frame pacing and to Rubylight clients. `minimum_fps_target` is **Still-picture resend rate**: how often an unchanged picture is sent again, not a floor on a game's frame rate.
+Under **All settings → Streaming**, the collapsed **Capture troubleshooting** group holds the capture options that matter only when a capture or encoder problem needs isolating: `capture_poll_interval_us`, `capture_predictive_poll`, `wgc_slot_aligned_publish`, `wgc_direct_encoder_input`, `gpu_compute_conversion` and `idd_push_fence_ring`. **Use the launch frame rate** (`limit_framerate`) and **Follow client size and frame rate changes** (`stream_reconfigure`), in the **Frame pacing** group, matter only to Artemis's Warp frame pacing and to Rubylight clients. `minimum_fps_target` is **Still-picture resend rate**: how often an unchanged picture is sent again, not a floor on a game's frame rate.
 
 When several bitrate and pacing controllers are on, **Adapt bitrate on the host** (`host_adaptive_bitrate`) wins over **Lower the bitrate when the link cannot carry it** (`link_rate_adaptation`), and a device that sets its own bitrate takes over from both. A manual **Pacing rate** (`pacing_max_bitrate_kbps`) turns off **Adaptive packet pacing** and **Slow down after video loss**; **Adapt bitrate on the host** turns off both of those too, and **Adaptive packet pacing** turns off **Slow down after video loss**.
+
+## Stream presets
+
+`stream_preset` names a set of defaults for three AMD encoder settings: Lowest latency (`lowest_latency`), Balanced (`balanced`, the default) and Reference quality (`reference`). A preset only fills the covered settings that nobody set. A value in the settings file, in a device's overrides or in an app's overrides always wins, so you can pick a preset and still change one setting by hand. The preset's values are not written to the file; changing or clearing the preset changes the ones you did not set. Saving a covered setting in the console stores it, even if it equals the preset's value, so it stays when you pick another preset.
+
+| Setting | Lowest latency | Balanced | Reference quality |
+| --- | --- | --- | --- |
+| `amd_max_frame_size` | `1` (one frame's share of the bitrate) | `auto` | `0` (driver default, no limit) |
+| `amd_quality` | `speed` | `speed` | `speed` |
+| `amd_preanalysis` | `false` | `false` | `false` |
+
+- **Lowest latency** limits every frame, recovery keyframes included, to one frame's share of the bitrate. In [the October 7, 2026 recovery run](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) a one-frame cap cut the largest 4K40 HEVC recovery frame by 66% with the same steady frame sizes and encode time. It names the cheapest quality preset and pre-analysis off as well, which are the defaults, so it changes nothing there. A value you set for either still applies and adds its measured cost (1.0 ms for HEVC and 12 ms for AV1 per 4K60 frame for the quality preset; 25 ms against 5-6 ms for pre-analysis).
+- **Reference quality** removes the size limit on recovery keyframes (`amd_max_frame_size=0`, the driver default). We have not measured a picture quality gain from that, so the preset claims none. What we measured is the cap itself: in the same recovery run a one-frame cap cut the largest 4K40 HEVC recovery frame by 66% and the encoded payload from 64 to 51 Mbps in the 63 Mbps run. Without the cap, recovery keyframes are larger on the wire, so use it on a fast, steady link. That run measured HEVC; H.264 with a one-frame cap was not measured separately (H.264 and AV1 were only checked at a two-frame cap, for compatibility). Pre-analysis, the quality presets and the quality rate-control modes stay off: the measurements show no consistent picture gain for their encode time. Packed 4:4:4 is not part of any preset: on a Radeon 780M (8-bit HEVC) it improved still text and UI above about 5 Mbit/s of actual bitrate, but scrolling at 5 Mbit/s was 0.8 dB worse and the first frame was worse below 20 Mbit/s; it added 1.2 to 2.1 ms of encode time and 0.7 to 1.2 ms of hardware decode, and was worse at 2 Mbit/s, so it stays the separate **Full chroma** choice ([measurements](../rust/PERFORMANCE.md#october-23-420-against-packed-444-on-text-and-ui-and-afmf-capture-b3-b7-measured-on-the-780m)).
+- **Why no preset sets `amd_rc`.** Setting it makes the encoder require that mode and fail loudly if it is unavailable. Constant bitrate is not a quality setting either: in the [AMF quality sweep](../rust/PERFORMANCE_WORK.md#amf-settings-per-codec-quality-at-a-given-bitrate) it scored slightly higher on the first clip only because it spends more of the budget, the 99th-percentile frame grew by 30-67%, and the 48 HDR encodes found no reason to change the rate control. Rate control stays at the default in every preset.
+
+The console shows the selector under **Streaming** and, below it, which covered settings have a value of their own ("Custom"), including one equal to the preset's. Settings the preset covers show its values as their defaults, and Reset returns to them. A name the host does not know still loads, and the host uses Balanced; the console shows the stored name with an error instead of showing Balanced.
+
+A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (an app's settings for the device, then app, then device, then host; see [one game on one device](#one-game-on-one-device)), and it fills only the three settings that no layer set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has a **Stream preset** control for the device's own name; the app editor sets it through the app's overrides, and for one device in its **Per device** panel.
 
 ## Capture and video
 
@@ -107,7 +174,7 @@ When several bitrate and pacing controllers are on, **Adapt bitrate on the host*
 
 **Keep Capture method on Automatic and compute conversion enabled** for normal use. On supported AMD hardware, the compute path lets capture and colour conversion run alongside graphics work. Unsupported textures can fall back to the graphics path. The internal `wgc_compute_copy` switch also defaults to `true`; it is primarily useful for controlled troubleshooting.
 
-**Frames from Rubylight's display driver.** On a virtual display Rubylight created, Automatic captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, so neither WGC nor Desktop Duplication runs, and on AMD the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`). To select it explicitly, choose **Settings → Video → Capture method → Direct driver push** (`capture = idd-push`). It applies to Rubylight's own virtual displays and falls back to WGC when unavailable, including on a physical monitor. Choosing WGC or Desktop Duplication explicitly requests those methods. The stream captures with WGC instead, and the stream card says why, when the driver is not installed, when another stream with different capture settings already captures that display, or when the display's frame push failed twice before delivering a picture. A display that failed is tried again once it is recreated or renders on another GPU. Save and end all streams using the display before starting a new session to compare capture methods; simultaneous streams may share an already-open capture.
+**Frames from Rubylight's display driver.** On a virtual display Rubylight created, Automatic captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, so neither WGC nor Desktop Duplication runs, and on AMD the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`). To select it explicitly, set **All settings → Streaming → Capture method** to **Direct driver push** (`capture = idd-push`). It applies to Rubylight's own virtual displays and falls back to WGC when unavailable, including on a physical monitor. Choosing WGC or Desktop Duplication explicitly requests those methods. The stream captures with WGC instead, and the stream card says why, when the driver is not installed, when another stream with different capture settings already captures that display, or when the display's frame push failed twice before delivering a picture. A display that failed is tried again once it is recreated or renders on another GPU. Save and end all streams using the display before starting a new session to compare capture methods; simultaneous streams may share an already-open capture.
 
 **GPU fence transport** (`idd_push_fence_ring`, default `true`) is the transport for direct driver push on AMD with compute conversion and in-place capture enabled. It uses D3D12-owned shared textures and GPU fences while the display driver continues using D3D11. Set it to `false` to use the keyed-mutex ring instead. It requires a compatible Rubylight display driver; missing support, failed setup or failed synchronization uses the keyed-mutex ring and shows a warning. A rejected fence transport stays rejected through capture restarts on that display. Recreate the virtual display or restart the host to retry. Save and end all streams using the display before changing it. WGC and Desktop Duplication remain available. This option does not require the new native D3D12 IddCx swap-chain API.
 
@@ -115,7 +182,7 @@ When several bitrate and pacing controllers are on, **Adapt bitrate on the host*
 
 The installed service runs WGC through a helper in the signed-in user's session. WGC can fall back to DDX when unavailable. Selecting a particular capture method is useful when investigating a problem; check **Logs** to see which path actually opened.
 
-H.264, HEVC and AV1 depend on the encoder and client. For `hevc_mode` and `av1_mode`, the choices are `0` Automatic, `1` Off, `2` SDR only and `3` SDR and HDR. Restart after changing advertised codec support. AMD's encoder makes 4:2:0 only, so stock Moonlight gets 4:4:4 from an AMD host through PyroWave alone. For full chroma over HEVC or AV1, turn on **Full chroma** (`experimental_packed_444`, off by default) under Video → Codecs (an advanced setting), restart the host, and turn on the matching option in Nightjar 0.7.18 or newer. The host then packs each 4:4:4 frame into an ordinary 4:2:0 picture and Nightjar puts it back together; stock Moonlight never sees the packed layout.
+H.264, HEVC and AV1 depend on the encoder and client. For `hevc_mode` and `av1_mode`, the choices are `0` Automatic, `1` Off, `2` SDR only and `3` SDR and HDR. Restart after changing advertised codec support. AMD's encoder makes 4:2:0 only, so stock Moonlight gets 4:4:4 from an AMD host through PyroWave alone. For full chroma over HEVC or AV1, turn on **Full chroma** (`experimental_packed_444`, off by default) under **All settings → Streaming → Codecs**, restart the host, and turn on the matching option in Nightjar. The host then packs each 4:4:4 frame into an ordinary 4:2:0 picture and Nightjar puts it back together; stock Moonlight never sees the packed layout.
 
 For **native HDR**, enable HDR in the client and use an HDR-capable display and encoder path. Leave **Display HDR** on Automatic so Rubylight can set the source display appropriately. **10-bit SDR instead of HDR** (`prefer_sdr_10bit`, default `false`) deliberately keeps the stream in SDR; leave it off when you want HDR. A client can also ask for 10-bit SDR itself: when it negotiates a 10-bit format (`dynamicRangeMode=1`) and sends `hdrMode=0` (on /launch or /resume), Rubylight streams 10-bit SDR and leaves the display in SDR, whatever this option says. Without `hdrMode`, or with `hdrMode=1`, a 10-bit format stays HDR unless `prefer_sdr_10bit` is on.
 
@@ -179,7 +246,7 @@ The [current default-quality results](../rust/PERFORMANCE_WORK.md#current-amf-de
 
 <a id="encoder-focus"></a>**Encoder focus (`encoder_focus`) is off unless you choose it.** A scene cut on a frame with a focus map comes out about twice the size of the same cut without one, which is why it is a choice and not a default. `static` (Still areas) attaches an AMF ROI map that gives blocks which stayed still for a few frames, such as text and HUDs, more bits than moving ones; `centre` (Still areas and centre) also favors the middle of the screen and the cursor. The stream stays a normal H.264, HEVC or AV1 stream for every client. It runs only on codecs the startup encoder check verified on this GPU (the host log's `encoder focus check:` line); otherwise the stream shows the `encoder_focus` warning and focus stays off. There is no automatic value. App and device overrides work as for the other encoder keys. Design and measurement plan: [docs/encoder-focus-design.md](encoder-focus-design.md).
 
-**AMF automatically sizes recovery frames to packet pacing.** In **Settings → Encoders → AMD AMF**, the advanced controls below use the stream's encoder bitrate and frame rate. Peak bitrate and VBV remain at driver defaults; maximum frame size defaults to `auto` when unset. Existing explicit settings, including `0` and the previous `2` default when saved explicitly, are preserved. Reconnect after saving. Initial values appear in the `AMF encoder settings` log line; each recovery picture reports its submitted cap after runtime adjustments.
+**AMF automatically sizes recovery frames to packet pacing.** In the **AMD AMF** group of **All settings → Streaming**, the controls below use the stream's encoder bitrate and frame rate. Peak bitrate and VBV remain at driver defaults; maximum frame size defaults to `auto` when unset. Existing explicit settings, including `0` and the previous `2` default when saved explicitly, are preserved. Reconnect after saving. Initial values appear in the `AMF encoder settings` log line; each recovery picture reports its submitted cap after runtime adjustments.
 
 | Key | Values | Meaning |
 | --- | --- | --- |
@@ -197,6 +264,31 @@ These are encoder bit budgets, not extra queued frames or packet-pacing settings
 
 Frame-size limits are best-effort: encoded frames can exceed them. If the driver rejects, ignores or clamps a requested cap during setup or a runtime update, the stream continues with its effective limit and reports an `encoder_frame_size` warning. Explicit peak-bitrate and VBV requests still report an AMF setting error if unsupported. Malformed or out-of-range values remain invalid. Explicit positive frame limits scale with host bitrate adjustments; Automatic recomputes from pacing, and `0` adds no frame-cap request even if the driver has a nonzero default. These settings affect AMD AMF only.
 
+## Displays and RTSS
+
+Under **All settings → Display & HDR**, select a physical display, or a virtual display for each device or one shared by all devices. **Exclusive** (`virtual_display_layout`, the default) switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.
+
+A Remote Monitor follows the layout while it streams: exclusive turns the other displays off and makes it primary, the primary layouts make it primary, and it keeps the place the remote monitor layout gives it. Choose Extended to use a remote monitor beside your own. A layout you pick for a device under Devices overrides the host setting, and the host never replaces it. A device without one of its own keeps the layout you leave a stream's display in, such as Windows' "Show only on 2", and uses it from the next stream; set it back to the host setting to forget that. A layout changed through the clients update API (`/api/clients/update`) counts as set by you; send `virtual_display_layout_set_by_user: true` to mark one without changing it.
+
+**Windows HDR Calibration on virtual displays** (`virtual_display_hdr_calibration`, default `false`) gives an HDR stream's new virtual display the profile the Windows HDR Calibration app made for your HDR monitor (the primary one first), and gives the display its own profile back after the stream. It is off by default because the profile describes that monitor, not the device you stream to. A profile chosen for the device (`hdr_profile`) comes first; with none found, the host log says so and the stream stays uncalibrated.
+
+Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_refresh_rate_option`). Virtual refresh follows the frame-limiting policy unless a manual or device display mode overrides it. To leave a **physical** monitor's resolution, refresh and HDR unchanged, select Disabled for `dd_configuration_option`.
+
+A device's **Display mode** (`display_mode`, `WIDTHxHEIGHTxREFRESH`) sets its virtual display's resolution and refresh while the stream keeps the size and frame rate the client asks for, so a game can render at 1440p on a 4K stream. To pick just the resolution from Windows instead, leave the display mode empty and turn on **Devices → (device) → Remember the resolution I pick** (`remember_display_mode`): change the stream's virtual display resolution in Windows display settings during a stream, and when the device's last stream disconnects Rubylight keeps it (`remembered_resolution`), puts it back if the stream resumes, and creates the display at it from the next stream ([#36](https://github.com/RamazanKara/Rubylight/issues/36)). The Windows display scale you set on that display during the stream is kept the same way (`remembered_scale`, in percent, for example 200) and applied after the display is at its mode, so a 1440p display comes back at 200% too. A **Virtual display scale** set in the host settings (`dd_virtual_display_scale`, a percentage or Recommended) wins over a kept scale, and a scale the device asks for at launch (`rlDisplayScale`, Nightjar's **PC display scaling**) wins over both: then that scale is applied and no scale is kept. A scale the device asks for at launch that is too large for the display's resolution is lowered to the largest Windows offers there, with a warning, and one Windows refuses is a warning too: the stream goes on at the scale Windows shows. The device's **Display scale** set in the console is applied as set. A scale Windows refuses is logged as a warning and the stream goes on at the scale Windows shows, and only a scale Windows actually shows is kept. What is kept is the scale the display shows at the end, and Windows derives it from the recommended scale for the resolution, so a resolution change on its own (a game going exclusive fullscreen, say) can also be kept as a changed scale. The scale is put back when a paused stream resumes, so a change made at the PC while it was paused is not kept. The refresh is not kept: the stream's rate always wins, so the refresh follows the stream and **Virtual display refresh** as usual, including VRR's 1000 Hz, and a refresh Windows refuses falls back at the kept resolution. It applies to a device's own virtual display, not a shared one. Nothing is kept from a stream whose resolution Windows did not take, since the display then shows Windows' choice rather than yours. Turning the option off forgets the kept resolution and scale.
+
+**Rotate the display** (`dd_rotation_option`, default `disabled`) gives the streamed display the device's portrait or landscape shape. Set it in **All settings → Display & HDR** or for one device under **Devices → (device) → Display overrides**. **Match the device** (`auto`) makes a device's own virtual display in the stream's shape, so a phone streaming in portrait gets a portrait display; a virtual display is never turned, since a turned one would reach the encoder sideways. A monitor gets the stream's mode in the shape it shows, then turns to the stream's shape. When the device turns during the stream and asks for the turned size (Nightjar's Orientation → Rotate), the virtual display changes shape or the monitor turns, off the stream loop; a display that cannot follow logs a warning and the stream's picture is scaled to the new size. **Choose below** (`manual`) turns the display to **Rotation** (`dd_manual_rotation`: `0`, `90`, `180` or `270` degrees clockwise); a virtual display is made in the turned shape instead. A monitor is turned back when the stream ends, and after a crash when the host next starts. A monitor another stream is using keeps its rotation. A turned monitor needs Windows Graphics Capture: Desktop Duplication refuses it with an error. A device's own **Display scale** (`dd_virtual_display_scale` in its overrides) also scales a monitor and is put back the same way; the host-wide Virtual display scale sets only virtual displays.
+
+A disconnect leaves the app running but restores its displays by default: `dd_config_revert_on_disconnect=true`, after `dd_config_revert_delay` (default `3000` ms). Exclusive layouts always use that delay, including profiles that explicitly turn restoration off, so the physical monitors do not stay disabled while nobody is streaming. Other layouts can still be kept for reconnection by turning restoration off; `dd_paused_virtual_display_timeout_secs` then controls their lifetime (default `7200` seconds; `0` keeps them until the app closes). Restoration waits for the last stream using a layout. If that layout disabled an original display, the original layout is restored even after a Win+P change; other layouts preserve later user changes. A failed restoration remains in the recovery journal and the next stream retains its original baseline. A device remembers eligible layout changes only at its last stream's disconnect; later local changes during the pause do not become its streaming default. A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Help & diagnostics** provides display restoration and saved-baseline controls.
+
+**Virtual display → Default (by Windows version)** leaves the choice to the host: one virtual display per device on Windows 11 23H2 or later, none on earlier Windows. **Activate a virtual display** (`dd_activate_virtual_display`) is shown while Virtual display is unset or Off, or while it is on. It gives streams a virtual display when the mode is off, and it also overrides a device's or app's own Off. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
+
+Under **All settings → Streaming**, in the **Frame limiter** and **RTSS** groups:
+
+- Keep **Limiter** on Automatic, or select RTSS. Set **RTSS folder** (`rtss_install_path`) only if detection fails; an empty value searches Program Files.
+- Rubylight starts RTSS when a limit is needed and restores the previous limit after disconnect. If RTSS requires administrator access, the installed service can use the signed-in administrator's token; otherwise start RTSS with the required access yourself.
+- **Frame limit** (`frame_limiter_fps_limit`) defaults to `0`, meaning the stream rate. RTSS preserves fractional rates such as 59.94 FPS.
+- **Virtual display refresh** offers 2× (`legacy`), 4× (`enabled`), 1000 Hz (`vrr`) or Off (`disabled`). Turning **Limit every stream** off does not disable the automatic virtual-display limit. Choose **Limiter → None** (`frame_limiter_provider = none`) to disable all limiting.
+
 ## Lower bitrate when the link cannot carry it
 
 `link_rate_adaptation = true` (the default) lowers the encoder bitrate when the network cannot carry the stream, for example 150 Mbps requested on a 100 Mbps link. It acts only on loss that error correction cannot repair, so a link that carries the stream sees no change at all: no bitrate change, no pacing change, and no reaction to round-trip time alone.
@@ -207,14 +299,12 @@ Frame-size limits are best-effort: encoded frames can exceed them. If the driver
 - **Coming back.** After two seconds the host raises the bitrate in steps of 12.5% (5% close to the rate that failed), and each step is confirmed after two seconds without evidence. A step that fails goes back to the last good rate and the next try waits twice as long, up to eight seconds. When steps keep failing at the same rate (a link with a fixed limit), the wait under that rate doubles up to 30 seconds and probes stay under 90% of it, so a fixed link pays about one failed probe every 45 seconds instead of one every 9. Probes are sent, and steps confirmed, only while the picture moves. After ten seconds at the requested bitrate the stream is back to normal.
 - **What you see.** The first cut writes a WARN line to the host log (`the network to this device cannot carry the stream; lowering the video bitrate`, with the evidence and the old and new bitrate), later changes are INFO lines with `link_rate_change`, and the console's stream card shows "Bitrate limited by the network" with the current and requested bitrate while the stream is below the requested rate. The session API has a `link_rate` object (`state`, `ceiling_kbps`, `current_kbps`, `delivered_kbps`, `steps_down`, `probes`) and the five-second `stream timings` line carries the same as `link_*` fields. The `link_rate` object also has `bad_kbps` (the rate that last failed), `encoder_floor_kbps` and `last_change_ms_ago`. The warning gives the lowest bitrate of the episode ("as low as"), the card the current one. If even the lowest bitrate the host uses cannot be carried, the warning says so and tells you to check the network path.
 - **An encoder that will not go lower.** Some encoders stay above the bitrate they are asked for on some pictures (H.264 on AMD sends about 14 Mbps on noisy content at 1080p60 and about 5 Mbps on milder content). When the stream stays more than 20% above the new target in two rounds, the host takes what the encoder sends as its floor, stops cutting below it, says so in the warning and on the card, and probes upward from there instead of cutting down to 2 Mbps.
-- **PyroWave.** PyroWave streams have it too; through 3.0.0-rc.5 they did not, and a 200 Mbps PyroWave stream to a phone on 5 GHz Wi-Fi lost about a quarter of its packets for the whole stream without any reaction. Only a lost coarse block loses a PyroWave picture: detail blocks carry no parity while the picture moves, so a lost detail packet blurs part of one picture and counts only toward the loss share. Its keyframe requests count for nothing (every picture is intra), so it is judged by its FEC status alone. The cuts stop at PyroWave's severe-loss floor for the stream (the table above, 187 Mbps at 1080p60) instead of 2 Mbps, and when even that is too much the warning says to use HEVC or AV1 for the device. A stream at or below its floor (200 Mbps at 1080p120 is under the 373 Mbps floor) has nothing to cut: it keeps its bitrate and gets that warning once, saying this link loses PyroWave at that rate. A PyroWave client that sends no FEC status gets no reaction at all. The ceiling is the requested bitrate up to 2 Gbps (500 Mbps for the other codecs).
+- **PyroWave.** PyroWave streams have it too. Only a lost coarse block loses a PyroWave picture: detail blocks carry no parity while the picture moves, so a lost detail packet blurs part of one picture and counts only toward the loss share. Its keyframe requests count for nothing (every picture is intra), so it is judged by its FEC status alone. The cuts stop at PyroWave's severe-loss floor for the stream (the table above, 187 Mbps at 1080p60) instead of 2 Mbps, and when even that is too much the warning says to use HEVC or AV1 for the device. A stream at or below its floor (200 Mbps at 1080p120 is under the 373 Mbps floor) has nothing to cut: it keeps its bitrate and gets that warning once, saying this link loses PyroWave at that rate. A PyroWave client that sends no FEC status gets no reaction at all. The ceiling is the requested bitrate up to 2 Gbps (500 Mbps for the other codecs).
 - **When it is off.** `link_rate_adaptation = false`, `host_adaptive_bitrate = true` (which controls the bitrate itself), and a session in which the client has set the bitrate through `/bitrate` (Nightjar's Automatic bitrate does).
 
 ## Host bitrate adaptation
 
-Available in Rubylight 2.2.16 and later.
-
-**Settings → Video → Adapt bitrate on the host** enables
+**All settings → Streaming → Adapt bitrate on the host** enables
 `host_adaptive_bitrate = true` for the next connection. It is off by default.
 For H.264, HEVC, AV1 and PyroWave, the host reduces the video budget when a Moonlight
 client reports loss, or when sustained traffic shows a rising control RTT.
@@ -261,10 +351,9 @@ A device that supports it (Nightjar) chooses its own share of error-correction p
 
 ## Game-only audio
 
-Available in Rubylight 2.2.16 and later; it uses the normal audio stream and does
-not require a Rubylight-specific client.
+Game-only audio uses the normal audio stream and works with every client.
 
-**Settings → Audio → Audio to stream** defaults to **System audio**, which keeps
+**All settings → Audio & controls → Audio to stream** defaults to **System audio**, which keeps
 the existing playback-device capture and routing. Select **Game only**
 (`audio_capture_mode = game`) to capture the launched game's process tree using
 [Windows application loopback](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
@@ -331,128 +420,9 @@ Two sound options work on the host's audio before it is encoded, and change noth
 
 Both can be set per device or app in their overrides, and switched during a stream from the couch menu or a native client. They are not in the console's settings.
 
-## Background streaming
-
-Background streaming lets a device play while someone keeps using the PC, for
-example a child gaming on a tablet while a parent works at the desk
-([#43](https://github.com/RamazanKara/Rubylight/issues/43)). Turn on
-**Devices → (device) → Play in the background** for every stream of that
-device (`background_stream`), or **Library → (app) → Behavior → Stream in the
-background** for one app (`background-stream`). Either one is enough; it applies
-from the next launch.
-
-Nucleus Co-op runs every background stream: the game runs as a
-[Nucleus Co-op](nucleus-coop.md) instance whose window is captured on its own,
-away from the PC's monitors. There is no mode to choose; a `background_mode`
-line an earlier build wrote reads as Nucleus Co-op. A background launch
-Nucleus Co-op cannot run, such as a game with anti-cheat, is refused with the
-reason and never streams the PC's monitors instead.
-
-A background stream:
-
-- **Leaves the PC's displays alone.** The PC's monitors, layout and primary
-  display stay as they are, and the PC user keeps the keyboard and mouse
-  focus.
-- **Accepts only controllers from the device.** Its keyboard, mouse, touch and
-  pen would type and click into whatever the PC user has focused, so they are
-  off, as is the clipboard. The virtual controllers work as usual.
-- **Streams only the game's sound** ([Game-only audio](#game-only-audio)), so the
-  PC user's calls and music stay private. The game is still audible on the
-  PC's speakers unless you route it to another playback device.
-
-A game needs no handler from Nucleus Co-op's handler hub for this: without
-one, the host writes its own one-player handler. The app's command must be the
-game's .exe or a Steam link; a Steam game starts with its Steam app id, so it
-doesn't restart through Steam. Other launchers' links, launchers' .exe files,
-games with anti-cheat and games on a network share are refused, and some games
-pause anyway when their window is not
-in front ([Games without a handler](nucleus-coop.md#games-without-a-handler)).
-Co-op still needs a hub handler. Nucleus Co-op needs the host running as the
-Windows service and an administrator account signed in on the PC;
-[Nucleus Co-op](nucleus-coop.md) has the install, the limits, and co-op for
-several devices at once. Two settings under
-**Settings → General → Background streaming** shape it:
-**Nucleus Co-op folder** (`nucleus_path`, empty: the host's own copy, which it
-downloads on first use) and **Co-op players** (`nucleus_coop_players`, default
-`4`; the game's handler and the free controller slots can allow fewer). Which
-devices may join a co-op game is the per-device **Can join co-op games**
-(`coop_join`); a device that may launch apps may join until you take it away.
-
-### Background streaming from a Hyper-V VM
-
-When the device needs keyboard, mouse or focus-dependent games, run Rubylight
-inside a Windows 11 virtual machine instead. Hyper-V GPU partitioning (GPU-PV)
-shares the host's Radeon with the VM, and AMF encoding works there, so the VM
-is an ordinary Rubylight host with its own session, input and focus while
-the PC user keeps the physical desktop.
-
-1. On the host (Windows 10/11 Pro or Enterprise), enable Hyper-V and reboot:
-   `Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All`.
-2. Create a Generation 2 VM with Windows 11, turn off checkpoints and dynamic
-   memory, and give it at least 4 cores and 8 GB.
-3. With the VM off, add a GPU partition from an elevated PowerShell:
-
-   ```powershell
-   $vm = "Rubylight"
-   Add-VMGpuPartitionAdapter -VMName $vm
-   Set-VMGpuPartitionAdapter -VMName $vm -MinPartitionVRAM 80000000 -MaxPartitionVRAM 100000000 -OptimalPartitionVRAM 100000000 -MinPartitionEncode 80000000 -MaxPartitionEncode 100000000 -OptimalPartitionEncode 100000000 -MinPartitionDecode 80000000 -MaxPartitionDecode 100000000 -OptimalPartitionDecode 100000000 -MinPartitionCompute 80000000 -MaxPartitionCompute 100000000 -OptimalPartitionCompute 100000000
-   Set-VM -VMName $vm -GuestControlledCacheTypes $true -LowMemoryMappedIoSpace 1GB -HighMemoryMappedIoSpace 32GB
-   ```
-
-4. Copy the host's AMD driver into the VM: the `C:\Windows\System32\DriverStore\FileRepository\u0*.inf_amd64_*`
-   folders of the installed Radeon driver go to
-   `C:\Windows\System32\HostDriverStore\FileRepository\` in the guest, and
-   the `amd*` DLLs from the host's `C:\Windows\System32` (including
-   `amfrt64.dll`) go to the guest's `C:\Windows\System32`. Do not install
-   Adrenalin in the guest. Repeat this after every host driver update.
-5. Start the VM, install Rubylight in it and pair the device with the VM's IP
-   address. Use an external virtual switch so the device reaches the VM
-   directly. Rubylight's virtual display gives the VM a screen to capture.
-
-Games with anti-cheat that refuses virtual machines will not start in the VM.
-
-## Displays and RTSS
-
-Under **Settings → Display**, select a physical display or choose a virtual display per device/shared by all devices. **Exclusive** (`virtual_display_layout`, the default) switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.
-
-A Remote Monitor follows the layout while it streams: exclusive turns the other displays off and makes it primary, the primary layouts make it primary, and it keeps the place the remote monitor layout gives it. Choose Extended to use a remote monitor beside your own. A layout you pick for a device under Devices overrides the host setting, and the host never replaces it. A device without one of its own keeps the layout you leave a stream's display in, such as Windows' "Show only on 2", and uses it from the next stream; set it back to the host setting to forget that. A layout changed through the clients update API (`/api/clients/update`) counts as set by you; send `virtual_display_layout_set_by_user: true` to mark one without changing it.
-
-**Windows HDR Calibration on virtual displays** (`virtual_display_hdr_calibration`, default `false`) gives an HDR stream's new virtual display the profile the Windows HDR Calibration app made for your HDR monitor (the primary one first), and gives the display its own profile back after the stream. It is off by default because the profile describes that monitor, not the device you stream to. A profile chosen for the device (`hdr_profile`) comes first; with none found, the host log says so and the stream stays uncalibrated.
-
-Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_refresh_rate_option`). Virtual refresh follows the frame-limiting policy unless a manual or device display mode overrides it. To leave a **physical** monitor's resolution, refresh and HDR unchanged, select Disabled for `dd_configuration_option`.
-
-A device's **Display mode** (`display_mode`, `WIDTHxHEIGHTxREFRESH`) sets its virtual display's resolution and refresh while the stream keeps the size and frame rate the client asks for, so a game can render at 1440p on a 4K stream. To pick just the resolution from Windows instead, leave the display mode empty and turn on **Devices → (device) → Remember the resolution I pick** (`remember_display_mode`): change the stream's virtual display resolution in Windows display settings during a stream, and when the device's last stream disconnects Rubylight keeps it (`remembered_resolution`), puts it back if the stream resumes, and creates the display at it from the next stream ([#36](https://github.com/RamazanKara/Rubylight/issues/36)). The Windows display scale you set on that display during the stream is kept the same way (`remembered_scale`, in percent, for example 200) and applied after the display is at its mode, so a 1440p display comes back at 200% too. A **Virtual display scale** set in the host settings (`dd_virtual_display_scale`, a percentage or Recommended) wins over a kept scale, and a scale the device asks for at launch (`rlDisplayScale`, Nightjar's **PC display scaling**) wins over both: then that scale is applied and no scale is kept. A scale the device asks for at launch that is too large for the display's resolution is lowered to the largest Windows offers there, with a warning, and one Windows refuses is a warning too: the stream goes on at the scale Windows shows. The device's **Display scale** set in the console is applied as set. A scale Windows refuses is logged as a warning and the stream goes on at the scale Windows shows, and only a scale Windows actually shows is kept. What is kept is the scale the display shows at the end, and Windows derives it from the recommended scale for the resolution, so a resolution change on its own (a game going exclusive fullscreen, say) can also be kept as a changed scale. The scale is put back when a paused stream resumes, so a change made at the PC while it was paused is not kept. The refresh is not kept: the stream's rate always wins, so the refresh follows the stream and **Virtual display refresh** as usual, including VRR's 1000 Hz, and a refresh Windows refuses falls back at the kept resolution. It applies to a device's own virtual display, not a shared one. Nothing is kept from a stream whose resolution Windows did not take, since the display then shows Windows' choice rather than yours. Turning the option off forgets the kept resolution and scale.
-
-**Rotate the display** (`dd_rotation_option`, default `disabled`) gives the streamed display the device's portrait or landscape shape. Set it in Settings → Display or for one device under **Devices → (device) → Display overrides**. **Match the device** (`auto`) makes a device's own virtual display in the stream's shape, so a phone streaming in portrait gets a portrait display; a virtual display is never turned, since a turned one would reach the encoder sideways. A monitor gets the stream's mode in the shape it shows, then turns to the stream's shape. When the device turns during the stream and asks for the turned size (Nightjar's Orientation → Rotate), the virtual display changes shape or the monitor turns, off the stream loop; a display that cannot follow logs a warning and the stream's picture is scaled to the new size. **Choose below** (`manual`) turns the display to **Rotation** (`dd_manual_rotation`: `0`, `90`, `180` or `270` degrees clockwise); a virtual display is made in the turned shape instead. A monitor is turned back when the stream ends, and after a crash when the host next starts. A monitor another stream is using keeps its rotation. A turned monitor needs Windows Graphics Capture: Desktop Duplication refuses it with an error. A device's own **Display scale** (`dd_virtual_display_scale` in its overrides) also scales a monitor and is put back the same way; the host-wide Virtual display scale sets only virtual displays.
-
-A disconnect leaves the app running but restores its displays by default: `dd_config_revert_on_disconnect=true`, after `dd_config_revert_delay` (default `3000` ms). Exclusive layouts always use that delay, including profiles that explicitly turn restoration off, so the physical monitors do not stay disabled while nobody is streaming. Other layouts can still be kept for reconnection by turning restoration off; `dd_paused_virtual_display_timeout_secs` then controls their lifetime (default `7200` seconds; `0` keeps them until the app closes). Restoration waits for the last stream using a layout. If that layout disabled an original display, the original layout is restored even after a Win+P change; other layouts preserve later user changes. A failed restoration remains in the recovery journal and the next stream retains its original baseline. A device remembers eligible layout changes only at its last stream's disconnect; later local changes during the pause do not become its streaming default. A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Help & diagnostics** provides display restoration and saved-baseline controls.
-
-**Virtual display → Default (by Windows version)** leaves the choice to the host: one virtual display per device on Windows 11 23H2 or later, none on earlier Windows. **Activate a virtual display** (`dd_activate_virtual_display`) is shown while Virtual display is unset or Off, or while it is on. It gives streams a virtual display when the mode is off, and it also overrides a device's or app's own Off. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
-
-Under **Settings → Frame limiting**:
-
-- Keep **Limiter** on Automatic, or select RTSS. Set **RTSS folder** (`rtss_install_path`) only if detection fails; an empty value searches Program Files.
-- Rubylight starts RTSS when a limit is needed and restores the previous limit after disconnect. If RTSS requires administrator access, the installed service can use the signed-in administrator's token; otherwise start RTSS with the required access yourself.
-- **Frame limit** (`frame_limiter_fps_limit`) defaults to `0`, meaning the stream rate. RTSS preserves fractional rates such as 59.94 FPS.
-- **Virtual display refresh** offers 2× (`legacy`), 4× (`enabled`), 1000 Hz (`vrr`) or Off (`disabled`). Turning **Limit every stream** off does not disable the automatic virtual-display limit. Choose **Limiter → None** (`frame_limiter_provider = none`) to disable all limiting.
-
-## Close apps on disconnect
-
-**Settings → Library → Close the app when the last device disconnects** (`terminate_on_pause`, default `false`) closes the running app after its last streaming device leaves. When off, the app stays running so a device can reconnect. Input-only connections do not keep the app running. The setting takes effect the next time an app starts, including apps started before Windows sign-in.
-
-Each app's **Behavior → Close the app when the last device disconnects** offers **Use global default**, **On** and **Off**. Existing explicit choices, including imported choices, still override the global setting; select **Use global default** to make such an app follow it again. Apps without a saved choice follow the global default, including newly added and automatically synced games.
-
-Closing an app runs its normal shutdown and cleanup; unsaved progress may be lost. This setting controls what happens when a device disconnects. Ending the stream when a game exits remains governed by app process tracking, **Keep the stream when a launcher exits within 5 seconds** and **Wait for every process the app starts**.
-
-## Playnite launch focus
-
-When launching a Playnite game or fullscreen menu, Rubylight can bring its window to the front so controller input reaches it. Under **Settings → Library → Advanced → Playnite launch focus**, **Confirm game focus** (`playnite_focus_attempts`, default `3`) sets the number of successful focus confirmations. Rubylight checks once a second, for at most **Stop focusing after** (`playnite_focus_timeout_secs`, default `15` seconds).
-
-If launch keeps interrupting a window you are using on the host, enable **Stop after the first focus confirmation** (`playnite_focus_exit_on_first`, default `false`) or set either numeric limit to `0` to disable focus management. Stopping early lets a launcher or splash screen take focus back; increase the timeout when a slow launch otherwise leaves the game behind another window. Save and launch again to apply these settings.
-
 ## Keyboard, touch, pen and cursor
 
-Under **Settings → Input**:
+Under **All settings → Audio & controls**:
 
 - **Keyboard follows text fields** (`keyboard_follows_focus`, default `true`) opens the device's keyboard when a text field on the PC gets the focus and hides it after, on devices that support it. **Send the text around the cursor** (`text_input_surrounding_text`, default `false`) gives the device's keyboard the text around the cursor for its suggestions; it never sends text from password fields.
 - **Keyboard layout** (`keyboard_layout`, default `client`) turns the device's keys into scan codes with the layout the device reports; `us` uses US English, or enter a Windows layout id.
@@ -461,17 +431,17 @@ Under **Settings → Input**:
 
 ## Controllers
 
-**Settings → Input → Controller type** controls which virtual controller games see. Standard profiles use the VHF gamepad driver included in the installer. Composite DualSense waveform haptics and native Steam Deck controllers use the optional usbip-win2 driver, bundled in the installer as **Steam Deck and DualSense USB audio and haptics**.
+**All settings → Audio & controls → Controller type** controls which virtual controller games see. Standard profiles use the VHF gamepad driver included in the installer. Composite DualSense waveform haptics and native Steam Deck controllers use the optional usbip-win2 driver, bundled in the installer as **Steam Deck and DualSense USB audio and haptics**.
 
 `gamepad = auto` matches each client's controller. PlayStation clients get a DualSense, the only pad with adaptive triggers; it also carries motion, battery, touchpad, lightbar and rumble. A game's trigger effects reach the player only if the client forwards them to a real DualSense. Nintendo clients get a Switch Pro. Other clients get an Xbox Series pad, or a DualSense when they have motion sensors or a touchpad and `motion_as_ds4` or `touchpad_as_ds4` is enabled. Both preferences default to enabled, so a Steam Deck reporting motion gets a DualSense.
 
 `vhf_xbox`, `vhf_xbox_one`, `vhf_ds4`, `vhf_ds5` and `vhf_switch` give every client that pad: `vhf_ds5` a DualSense, `vhf_ds4` a DualShock 4 without adaptive triggers. Logs name the profile for each connected controller.
 
-Earlier releases also offered Xbox 360 (`x360`) and DualShock 4 (`ds4`) through ViGEmBus. Since rc.25 Rubylight changes those settings to `vhf_xbox_one` and `vhf_ds4` when it loads them, in the host configuration, app and device overrides, and configurations imported from Sunshine, Apollo or Vibepollo. An installed ViGEmBus is no longer used and can be uninstalled.
+Earlier releases also offered Xbox 360 (`x360`) and DualShock 4 (`ds4`) through ViGEmBus. Rubylight changes those settings to `vhf_xbox_one` and `vhf_ds4` when it loads them, in the host configuration, app and device overrides, and configurations imported from Sunshine, Apollo or Vibepollo. An installed ViGEmBus is no longer used and can be uninstalled.
 
 ### DualSense waveform haptics
 
-With a waveform-capable client and usbip-win2 installed on the host, Automatic can expose a DualSense with its matching USB audio endpoint. **DualSense with waveform haptics (USB/IP)** (`gamepad = usbip_ds5`) explicitly requires this mode. Games can then send their native actuator waveforms alongside ordinary rumble and adaptive triggers. See [setup and current limitations](dualsense-haptics.md). Available in Rubylight 2.2.15 and later.
+With a waveform-capable client and usbip-win2 installed on the host, Automatic can expose a DualSense with its matching USB audio endpoint. **DualSense with waveform haptics (USB/IP)** (`gamepad = usbip_ds5`) explicitly requires this mode. Games can then send their native actuator waveforms alongside ordinary rumble and adaptive triggers. See [setup and current limitations](dualsense-haptics.md).
 
 **Haptics from game audio** (`audio_haptics`, off by default) feeds such a client's DualSense waveform haptics made from the game's bass and impacts while the game sends it none, with `audio_haptics_strength` (0 to 200 %), `audio_haptics_curve` (`linear`, `soft`, `punchy`) and `audio_haptics_gate` (-80 to -10 dBFS). It needs no USB/IP and stops as soon as the game vibrates the controller itself. See [haptics from game audio](dualsense-haptics.md#haptics-from-game-audio).
 
@@ -479,8 +449,8 @@ With a waveform-capable client and usbip-win2 installed on the host, Automatic c
 
 A Steam Deck can reach the host as a **real Steam Deck controller**: Rubylight serves the Deck's own USB controller (Valve 28de:1205) over USB/IP on the host's loopback address, and [usbip-win2](https://github.com/vadimgrn/usbip-win2) attaches it with its signed driver, so Windows sees a Steam Deck plugged into a USB port. Steam on the host then recognises a Steam Deck and applies the Deck's Steam Input layout, with both trackpads, the gyro, the back grips (L4, R4, L5, R5), the Steam and "…" buttons and rumble. Games see whatever Steam Input makes of it, as on a Deck.
 
-- **Settings → Input → Steam Deck and back grips → Steam Deck controller** (`steam_deck_controller`): **Automatic** (`auto`, the default) attaches a Steam Deck when usbip-win2 is installed and Steam is running on the host when the controller connects; **Steam Deck** (`steam_deck`) attaches one whenever usbip-win2 is installed, even without Steam, where only SDL-based games see it; **Virtual pad** (`virtual_pad`) always uses the virtual DualSense or Xbox pad below.
-- **Install USB audio and haptics support on the host.** Rubylight 2.2.15 and later bundle usbip-win2 0.9.8.1 under **Steam Deck and DualSense USB audio and haptics**; select the optional component when convenient to reconnect USB devices. Older packages need usbip-win2 from its [releases](https://github.com/vadimgrn/usbip-win2/releases) (Windows 10 1903 or later). Setup can reconnect USB hubs and require a restart. Rubylight finds `usbip.exe` through its registered installation, `C:\Program Files\USBip`, or `PATH`. Nothing listens beyond `127.0.0.1`.
+- **All settings → Audio & controls → Steam Deck and back grips → Steam Deck controller** (`steam_deck_controller`): **Automatic** (`auto`, the default) attaches a Steam Deck when usbip-win2 is installed and Steam is running on the host when the controller connects; **Steam Deck** (`steam_deck`) attaches one whenever usbip-win2 is installed, even without Steam, where only SDL-based games see it; **Virtual pad** (`virtual_pad`) always uses the virtual DualSense or Xbox pad below.
+- **Install USB audio and haptics support on the host.** The installer bundles usbip-win2 0.9.8.1 as the optional **Install USB audio and haptics support** component; install it when reconnecting USB devices is convenient. Setup can reconnect USB hubs and require a restart. Rubylight finds `usbip.exe` through its registered installation, `C:\Program Files\USBip`, or `PATH`. Nothing listens beyond `127.0.0.1`.
 - If usbip-win2 is missing or the attach fails, the Deck falls back to the virtual pad, and the stream card says why when **Steam Deck** was chosen or an attach failed.
 
 Moonlight passes on the Deck's own controls only when Steam Input is off for Moonlight on the Deck. With it on, Steam on the Deck turns the controls into a virtual pad first: the host still gets a Steam Deck with the buttons, sticks and triggers, but no gyro, trackpads or back grips, because Moonlight never receives them. On the Deck, open Moonlight's controller settings in Steam, choose to disable Steam Input, and reconnect. If the paired device's name says Steam Deck (SteamOS calls it `steamdeck`) and its controller arrives without a gyro, the stream card says this.
@@ -491,7 +461,7 @@ With the virtual pad (no usbip-win2, or **Virtual pad**), Moonlight's Steam cont
 
 - **Gyro and accelerometer** are the pad's motion sensors.
 - **Trackpads** share the pad's one touch surface: the left trackpad is its left half and the right trackpad its right half. Clicking the right trackpad is the touchpad click.
-- **Back grips** (L4, R4, L5, R5): the virtual pads have no back buttons, so each grip presses what **Settings → Input → Steam Deck and back grips** sets for it: a face button, bumper, a fully pulled trigger, a stick click, Back, Start, Guide, a d-pad direction, the touchpad click or Share/Mute (`back_grip_l4`, `back_grip_r4`, `back_grip_l5`, `back_grip_r5`; values `a`, `b`, `x`, `y`, `lb`, `rb`, `lt`, `rt`, `l3`, `r3`, `back`, `start`, `guide`, `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right`, `touchpad`, `misc`). They default to nothing, and pressing an unmapped grip shows a hint on the stream card. The same settings map an Xbox Elite's paddles (P1 is R4, P3 is L4, P2 is R5, P4 is L5) and a DualSense Edge's back buttons.
+- **Back grips** (L4, R4, L5, R5): the virtual pads have no back buttons, so each grip presses what **All settings → Audio & controls → Steam Deck and back grips** sets for it: a face button, bumper, a fully pulled trigger, a stick click, Back, Start, Guide, a d-pad direction, the touchpad click or Share/Mute (`back_grip_l4`, `back_grip_r4`, `back_grip_l5`, `back_grip_r5`; values `a`, `b`, `x`, `y`, `lb`, `rb`, `lt`, `rt`, `l3`, `r3`, `back`, `start`, `guide`, `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right`, `touchpad`, `misc`). They default to nothing, and pressing an unmapped grip shows a hint on the stream card. The same settings map an Xbox Elite's paddles (P1 is R4, P3 is L4, P2 is R5, P4 is L5) and a DualSense Edge's back buttons.
 - **Steam and "…" buttons** become the PS button and the DualSense's mute button (the touchpad click on a DualShock 4), when Steam on the Deck lets them through to Moonlight.
 - **Rumble and battery level** are passed on.
 
@@ -502,7 +472,7 @@ Setting `motion_as_ds4` and `touchpad_as_ds4` both off keeps a Deck's virtual pa
 [MoonDeck](https://github.com/FrogTheFrog/moondeck) works with Rubylight. It launches Steam games from the Steam Deck through Moonlight, with [MoonDeck Buddy](https://github.com/FrogTheFrog/moondeck-buddy) managing Steam on the host. You only need one host app for MoonDeck; you do not need to add each Steam game to Rubylight.
 
 1. Install MoonDeck on the Steam Deck and [MoonDeck Buddy on the Windows host](https://github.com/FrogTheFrog/moondeck-buddy/wiki/Buddy-installation-guide). Keep Buddy running, pair it through MoonDeck's settings, and [pair Moonlight with Rubylight](getting-started.md#pair-moonlight-and-start-desktop).
-2. In Rubylight's **Games & apps**, add an app with **Name** set to `MoonDeckStream` and **Command** pointing to `"<BuddyInstallDirectory>\bin\MoonDeckStream.exe"`. Replace `<BuddyInstallDirectory>` with Buddy's actual installation folder and keep the quotes around the path.
+2. In Rubylight's **Games**, choose **Add manually** and add an app with **Name** set to `MoonDeckStream` and **Command** pointing to `"<BuddyInstallDirectory>\bin\MoonDeckStream.exe"`. Replace `<BuddyInstallDirectory>` with Buddy's actual installation folder and keep the quotes around the path.
 3. Under the app's **Behavior**, turn off **Keep the stream when a launcher exits within 5 seconds** (`auto-detach`) and save. **Wait for every process the app starts** (`wait-all`) can stay enabled. These correspond to the options in MoonDeck's [host setup guide](https://github.com/FrogTheFrog/moondeck-buddy/wiki/Sunshine-setup).
 4. In Buddy's `settings.json`, next to its executable on Windows, set `sunshine_apps_filepath` to the full path of Rubylight's `apps.json`, then restart Buddy. For a standard installed service, the JSON entry is `"sunshine_apps_filepath": "C:\\ProgramData\\Butterpollo\\config\\apps.json"`. For a portable or custom profile, use `apps.json` in the [active profile folder](getting-started.md#bring-an-existing-profile), unless `file_apps` points elsewhere. Buddy's automatic lookup looks for Sunshine and can otherwise find the wrong installation or no app list. See **Sunshine apps filepath** in [Buddy configuration](https://github.com/FrogTheFrog/moondeck-buddy/wiki/Buddy-configuration).
 5. Select the Rubylight host in MoonDeck and use `MoonDeckStream` as its host app. The name must match the app saved in Rubylight.
@@ -520,8 +490,6 @@ For **host-side Steam Input with the Deck's own controls**, follow the [Steam De
 If controls do nothing, check the paired device's **Controllers** permission under **Devices** and the console's stream warnings. Keyboard and mouse mappings also need their respective device permissions. See [input troubleshooting](troubleshooting.md#a-controller-or-other-input-does-nothing) for permissions and the VHF gamepad driver.
 
 ## Couch menu
-
-<a id="couch-menu-experimental"></a>
 
 The couch menu is a host menu drawn into the stream, so any Moonlight client can reach it ([design](couch-menu-design.md)). It opens by holding L3+R3 on a controller, pressing Ctrl+Alt+Backspace, or holding the top-left corner. These settings, set in the configuration file or a device's or app's overrides, choose how it opens:
 
@@ -556,27 +524,23 @@ The menu offers Back to game, Disconnect (the game keeps running), End session a
 
 Input-only sessions and the read-back encode path (`wgc_direct_encoder_input = false`) have no picture the host draws on, so the menu stays closed there and the host log says why; so does a stream too small for the panel.
 
-## Stream presets
+## Close apps on disconnect
 
-`stream_preset` names a set of defaults for three AMD encoder settings: Lowest latency (`lowest_latency`), Balanced (`balanced`, the default) and Reference quality (`reference`). A preset only fills the covered settings that nobody set. A value in the settings file, in a device's overrides or in an app's overrides always wins, so you can pick a preset and still change one setting by hand. The preset's values are not written to the file; changing or clearing the preset changes the ones you did not set. Saving a covered setting in the console stores it, even if it equals the preset's value, so it stays when you pick another preset.
+**Settings → Games → Close the app when the last device disconnects** (`terminate_on_pause`, default `false`) closes the running app after its last streaming device leaves. When off, the app stays running so a device can reconnect. Input-only connections do not keep the app running. The setting takes effect the next time an app starts, including apps started before Windows sign-in.
 
-| Setting | Lowest latency | Balanced | Reference quality |
-| --- | --- | --- | --- |
-| `amd_max_frame_size` | `1` (one frame's share of the bitrate) | `auto` | `0` (driver default, no limit) |
-| `amd_quality` | `speed` | `speed` | `speed` |
-| `amd_preanalysis` | `false` | `false` | `false` |
+Each app's **Behavior → Close the app when the last device disconnects** offers **Use global default**, **On** and **Off**. Existing explicit choices, including imported choices, still override the global setting; select **Use global default** to make such an app follow it again. Apps without a saved choice follow the global default, including newly added and automatically synced games.
 
-- **Lowest latency** limits every frame, recovery keyframes included, to one frame's share of the bitrate. In [the October 7, 2026 recovery run](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) a one-frame cap cut the largest 4K40 HEVC recovery frame by 66% with the same steady frame sizes and encode time. It names the cheapest quality preset and pre-analysis off as well, which are the defaults, so it changes nothing there. A value you set for either still applies and adds its measured cost (1.0 ms for HEVC and 12 ms for AV1 per 4K60 frame for the quality preset; 25 ms against 5-6 ms for pre-analysis).
-- **Reference quality** removes the size limit on recovery keyframes (`amd_max_frame_size=0`, the driver default). We have not measured a picture quality gain from that, so the preset claims none. What we measured is the cap itself: in the same recovery run a one-frame cap cut the largest 4K40 HEVC recovery frame by 66% and the encoded payload from 64 to 51 Mbps in the 63 Mbps run. Without the cap, recovery keyframes are larger on the wire, so use it on a fast, steady link. That run measured HEVC; H.264 with a one-frame cap was not measured separately (H.264 and AV1 were only checked at a two-frame cap, for compatibility). Pre-analysis, the quality presets and the quality rate-control modes stay off: the measurements show no consistent picture gain for their encode time. Packed 4:4:4 is not part of any preset: on a Radeon 780M (8-bit HEVC) it improved still text and UI above about 5 Mbit/s of actual bitrate, but scrolling at 5 Mbit/s was 0.8 dB worse and the first frame was worse below 20 Mbit/s; it added 1.2 to 2.1 ms of encode time and 0.7 to 1.2 ms of hardware decode, and was worse at 2 Mbit/s, so it stays the separate **Full chroma** choice ([measurements](../rust/PERFORMANCE.md#october-23-420-against-packed-444-on-text-and-ui-and-afmf-capture-b3-b7-measured-on-the-780m)).
-- **Why no preset sets `amd_rc`.** Setting it makes the encoder require that mode and fail loudly if it is unavailable. Constant bitrate is not a quality setting either: in the [AMF quality sweep](../rust/PERFORMANCE_WORK.md#amf-settings-per-codec-quality-at-a-given-bitrate) it scored slightly higher on the first clip only because it spends more of the budget, the 99th-percentile frame grew by 30-67%, and the 48 HDR encodes found no reason to change the rate control. Rate control stays at the default in every preset.
+Closing an app runs its normal shutdown and cleanup; unsaved progress may be lost. This setting controls what happens when a device disconnects. Ending the stream when a game exits remains governed by app process tracking, **Keep the stream when a launcher exits within 5 seconds** and **Wait for every process the app starts**.
 
-The console shows the selector under **Streaming** and, below it, which covered settings have a value of their own ("Custom"), including one equal to the preset's. Settings the preset covers show its values as their defaults, and Reset returns to them. A name the host does not know still loads, and the host uses Balanced; the console shows the stored name with an error instead of showing Balanced.
+## Playnite launch focus
 
-A device or an app can name its own preset with `stream_preset` in its overrides (`config_overrides` for a device, `config-overrides` for an app). The most specific name wins (an app's settings for the device, then app, then device, then host; see [one game on one device](#one-game-on-one-device)), and it fills only the three settings that no layer set: an explicit value of the host, the device or the app is never replaced by a preset. The host refuses to save a device or app preset name it does not know, or one that is not text. The device editor has a **Stream preset** control for the device's own name; the app editor sets it through the app's overrides, and for one device in its **Per device** panel.
+When launching a Playnite game or fullscreen menu, Rubylight can bring its window to the front so controller input reaches it. Under **All settings → Games & automation → Playnite launch focus**, **Confirm game focus** (`playnite_focus_attempts`, default `3`) sets the number of successful focus confirmations. Rubylight checks once a second, for at most **Stop focusing after** (`playnite_focus_timeout_secs`, default `15` seconds).
+
+If launch keeps interrupting a window you are using on the host, enable **Stop after the first focus confirmation** (`playnite_focus_exit_on_first`, default `false`) or set either numeric limit to `0` to disable focus management. Stopping early lets a launcher or splash screen take focus back; increase the timeout when a slow launch otherwise leaves the game behind another window. Save and launch again to apply these settings.
 
 ## Radeon settings per game
 
-An app can ask for Radeon driver settings while it runs. In **Games & apps**, the **Radeon** panel of the app editor picks a profile:
+An app can ask for Radeon driver settings while it runs. On the app's page in **Games**, the **Radeon** panel picks a profile:
 
 | Profile | Writes |
 |---|---|
@@ -589,7 +553,7 @@ The table is `rust/core/src/radeon_profiles.json`. The app stores the choice as 
 
 ## Managed game files
 
-Some games and mods keep a frame limit or similar setting in an `.ini` file of their own: OptiScaler's `FramerateLimit`, for example. An app can have the host set such keys for a stream and put them back when the session ends. In **Games & apps**, the app editor's **Managed game files** panel lists them as rows of file, section, key and value. A device can have its own rows in the **Per device** panel ([one game on one device](#one-game-on-one-device)).
+Some games and mods keep a frame limit or similar setting in an `.ini` file of their own: OptiScaler's `FramerateLimit`, for example. An app can have the host set such keys for a stream and put them back when the session ends. On the app's page in **Games**, the **Managed game files** panel lists them as rows of file, section, key and value. A device can have its own rows in the **Per device** panel ([one game on one device](#one-game-on-one-device)).
 
 The app stores them in `game-files`, a list of up to 32 entries:
 
@@ -644,9 +608,100 @@ It refuses:
 
 The host checks the files when the app is saved and again at every launch. While it reads and writes a file, it holds the folders from the app's folder down to the file open, so none can be swapped for a link meanwhile. A file is written to a temporary file beside it and swapped in, so the game never reads a half-written file, and the file keeps its permissions and attributes. A read-only file is not changed.
 
+## Neural Rendering
+
+**Neural Rendering** is a switch on a game's page in **Games**. It installs a third-party neural upscaling mod into the game's folder, for games with DLSS, FSR or XeSS, and removes it again. It is off for every game.
+
+- **Requirements.** Radeon graphics with RDNA 3 or RDNA 4 and 12 or more compute units, on the GPU Rubylight streams with, and AMD Software 26.9.1 or newer. Elsewhere the switch says why it is unavailable.
+- **First use.** A notice explains that the mod is not made or endorsed by AMD or NVIDIA and that an online game may still treat a mod as cheating; **Cancel** is the default. The switch turns on only while nothing is streaming.
+- **Download.** The host downloads one pinned release of the mod from its authors' GitHub release, about 1 GB (88 s on our PC), and checks it against the pinned and the published checksums. It never updates the mod by itself. [Privacy](privacy.md#third-party-services) lists what GitHub receives.
+- **Refused games.** Games with a known anti-cheat in their install, games Steam lists Valve Anti-Cheat for, and games that already carry another upscaler mod.
+- **Where it goes.** The mod goes beside the game's own program, never a launcher's. When the host cannot tell which program is the game, the page asks for the game's `.exe`.
+- **Removal.** Turning the switch off, or deleting or uninstalling the game, removes only the files Rubylight put there. A folder on a drive that is not connected is retried every 10 minutes.
+
+## Background streaming
+
+Background streaming lets a device play while someone keeps using the PC, for
+example a child gaming on a tablet while a parent works at the desk
+([#43](https://github.com/RamazanKara/Rubylight/issues/43)). Turn on
+**Devices → (device) → Play in the background** for every stream of that
+device (`background_stream`), or **Library → (app) → Behavior → Stream in the
+background** for one app (`background-stream`). Either one is enough; it applies
+from the next launch.
+
+Nucleus Co-op runs every background stream: the game runs as a
+[Nucleus Co-op](nucleus-coop.md) instance whose window is captured on its own,
+away from the PC's monitors. There is no mode to choose; a `background_mode`
+line an earlier build wrote reads as Nucleus Co-op. A background launch
+Nucleus Co-op cannot run, such as a game with anti-cheat, is refused with the
+reason and never streams the PC's monitors instead.
+
+A background stream:
+
+- **Leaves the PC's displays alone.** The PC's monitors, layout and primary
+  display stay as they are, and the PC user keeps the keyboard and mouse
+  focus.
+- **Accepts only controllers from the device.** Its keyboard, mouse, touch and
+  pen would type and click into whatever the PC user has focused, so they are
+  off, as is the clipboard. The virtual controllers work as usual.
+- **Streams only the game's sound** ([Game-only audio](#game-only-audio)), so the
+  PC user's calls and music stay private. The game is still audible on the
+  PC's speakers unless you route it to another playback device.
+
+A game needs no handler from Nucleus Co-op's handler hub for this: without
+one, the host writes its own one-player handler. The app's command must be the
+game's .exe or a Steam link; a Steam game starts with its Steam app id, so it
+doesn't restart through Steam. Other launchers' links, launchers' .exe files,
+games with anti-cheat and games on a network share are refused, and some games
+pause anyway when their window is not
+in front ([Games without a handler](nucleus-coop.md#games-without-a-handler)).
+Co-op still needs a hub handler. Nucleus Co-op needs the host running as the
+Windows service and an administrator account signed in on the PC;
+[Nucleus Co-op](nucleus-coop.md) has the install, the limits, and co-op for
+several devices at once. Two settings under
+**All settings → General → Background streaming** shape it:
+**Nucleus Co-op folder** (`nucleus_path`, empty: the host's own copy, which it
+downloads on first use) and **Co-op players** (`nucleus_coop_players`, default
+`4`; the game's handler and the free controller slots can allow fewer). Which
+devices may join a co-op game is the per-device **Can join co-op games**
+(`coop_join`); a device that may launch apps may join until you take it away.
+
+### Background streaming from a Hyper-V VM
+
+When the device needs keyboard, mouse or focus-dependent games, run Rubylight
+inside a Windows 11 virtual machine instead. Hyper-V GPU partitioning (GPU-PV)
+shares the host's Radeon with the VM, and AMF encoding works there, so the VM
+is an ordinary Rubylight host with its own session, input and focus while
+the PC user keeps the physical desktop.
+
+1. On the host (Windows 10/11 Pro or Enterprise), enable Hyper-V and reboot:
+   `Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All`.
+2. Create a Generation 2 VM with Windows 11, turn off checkpoints and dynamic
+   memory, and give it at least 4 cores and 8 GB.
+3. With the VM off, add a GPU partition from an elevated PowerShell:
+
+   ```powershell
+   $vm = "Rubylight"
+   Add-VMGpuPartitionAdapter -VMName $vm
+   Set-VMGpuPartitionAdapter -VMName $vm -MinPartitionVRAM 80000000 -MaxPartitionVRAM 100000000 -OptimalPartitionVRAM 100000000 -MinPartitionEncode 80000000 -MaxPartitionEncode 100000000 -OptimalPartitionEncode 100000000 -MinPartitionDecode 80000000 -MaxPartitionDecode 100000000 -OptimalPartitionDecode 100000000 -MinPartitionCompute 80000000 -MaxPartitionCompute 100000000 -OptimalPartitionCompute 100000000
+   Set-VM -VMName $vm -GuestControlledCacheTypes $true -LowMemoryMappedIoSpace 1GB -HighMemoryMappedIoSpace 32GB
+   ```
+
+4. Copy the host's AMD driver into the VM: the `C:\Windows\System32\DriverStore\FileRepository\u0*.inf_amd64_*`
+   folders of the installed Radeon driver go to
+   `C:\Windows\System32\HostDriverStore\FileRepository\` in the guest, and
+   the `amd*` DLLs from the host's `C:\Windows\System32` (including
+   `amfrt64.dll`) go to the guest's `C:\Windows\System32`. Do not install
+   Adrenalin in the guest. Repeat this after every host driver update.
+5. Start the VM, install Rubylight in it and pair the device with the VM's IP
+   address. Use an external virtual switch so the device reaches the VM
+   directly. Rubylight's virtual display gives the VM a screen to capture.
+
+Games with anti-cheat that refuses virtual machines will not start in the VM.
+
 ## Settings for one app or device
 
-Edit an app in **Games & apps** or a paired device in **Devices** to set its display, HDR and other overrides. Leave an override unset to inherit the host configuration.
+Open an app in **Games** or a paired device in **Devices** to set its display, HDR and other overrides. Leave an override unset to inherit the host configuration.
 
 For general configuration overrides, Rubylight applies **host settings → device overrides → app overrides → the app's overrides for that device**. Only supported stream, input, display and encoder keys are accepted; host-wide network, identity and path settings cannot be overridden per stream.
 
@@ -654,7 +709,7 @@ Display selection has dedicated rules: a device's explicit virtual-display mode 
 
 ### One game on one device
 
-An app can have settings of its own for one paired device, such as a 60 fps frame limit on the TV and 120 on a handheld. In **Games & apps**, the app editor's **Per device** panel adds a paired device and sets its **Stream preset**, **Frame limit** (`frame_limiter_fps_limit`, 0 for the stream's frame rate), **Radeon preset** and [managed game files](#managed-game-files). "Same as the game" leaves the app's own setting in place.
+An app can have settings of its own for one paired device, such as a 60 fps frame limit on the TV and 120 on a handheld. On the app's page in **Games**, the **Per device** panel adds a paired device and sets its **Stream preset**, **Frame limit** (`frame_limiter_fps_limit`, 0 for the stream's frame rate), **Radeon preset** and [managed game files](#managed-game-files). "Same as the game" leaves the app's own setting in place.
 
 The app stores them in `device-overrides`, an object keyed by the device's id (its uuid in `GET /api/clients/list`). Each block holds the app's own keys for that device: `config-overrides`, `radeon-profile` with `radeon-settings`, and `game-files`.
 
@@ -692,7 +747,7 @@ A client can choose, for one stream, what the PC's displays do. [Nightjar](https
 | `exclusive` | A virtual display, and the PC's other displays switch off for the stream. |
 | `extended_primary` | A virtual display beside the PC's displays, made the primary display so games open on it. |
 | `extended` | A virtual display beside the PC's displays; the primary display stays as it is. |
-| `extended_isolated`, `extended_primary_isolated` | The isolated layouts of **Settings → Display**. |
+| `extended_isolated`, `extended_primary_isolated` | The isolated layouts of **Virtual display layout**. |
 | `physical` | No virtual display; the stream shows the physical display the host and app settings select. |
 | missing, `default` or anything else | The host decides from its settings, as for an older client. |
 
@@ -700,7 +755,7 @@ The choice comes before the host, device and app settings for virtual display mo
 
 ## Host control, session actions and Radeon settings
 
-These are new in 3.0. A paired client such as [Nightjar](https://github.com/RamazanKara/nightjar) 0.8.0 or newer uses them through the [native API](native-api.md). Stock Moonlight and Artemis do not use them and keep working as before.
+A paired client such as [Nightjar](https://github.com/RamazanKara/nightjar) uses these through the [native API](native-api.md). Stock Moonlight and Artemis do not use them and keep working as before.
 
 ### Host control for a device
 
@@ -714,7 +769,7 @@ These are new in 3.0. A paired client such as [Nightjar](https://github.com/Rama
 
 **Sleep PC** (`allow_sleep`, off for every device) is set in **Devices → device → Custom permissions → Other**. It lets that device put this PC to sleep through Vibepollo's `/power-actions/v1` requests while nothing is streaming or running: a single-use token valid for 30 s, then the suspend once the answer is sent and the connection closed. It needs a PC with S1, S2 or S3 sleep, as most desktops have. Windows has no call to enter Modern Standby, so on a PC with only Modern Standby the host advertises no Sleep PC, refuses the request, and the console shows why instead of the setting; the host log says so at startup and names the sleep states the PC reports. The console grants it as `true`; a device imported from Vibepollo with `allow_sleep: true` keeps it.
 
-**Sleep after idle** (`sleep_after_idle_minutes`, under **Settings → General → Power**, default `0`, off) puts the PC to sleep when nobody has streamed or used it for that many minutes, 5 to 1440. **Sleep with a suspended stream** (`sleep_while_suspended`, default `false`) also lets it sleep while a stream is suspended or an app launched from a device still runs. A paired device can wake the PC again with Wake-on-LAN; [Privacy](privacy.md#your-own-devices) lists what it reads for that.
+**Sleep after idle** (`sleep_after_idle_minutes`, under **All settings → General → Power**, default `0`, off) puts the PC to sleep when nobody has streamed or used it for that many minutes, 5 to 1440. **Sleep with a suspended stream** (`sleep_while_suspended`, default `false`) also lets it sleep while a stream is suspended or an app launched from a device still runs. A paired device can wake the PC again with Wake-on-LAN; [Privacy](privacy.md#your-own-devices) lists what it reads for that.
 
 ### Session actions
 
@@ -748,25 +803,36 @@ Every change is written to a journal on disk before it is applied, and put back 
 
 It is not put back at Disconnect: a suspended session keeps its settings until it resumes or ends. If you changed a setting on the PC in the meantime, your change stays and the host forgets its own. A restore that fails is logged and retried at the next start. Which settings each driver accepted is recorded for the RX 7900 XT in the [hardware matrix](hardware-matrix.md). The request and response shapes are in [native-api.md](native-api.md#radeon-state-and-writes).
 
-## Save, reconnect and restart
+## Clipboard, files and USB
 
-Select **Save changes** to write the configuration. Edits are not saved merely by changing a control or switching categories. Saved stream settings are read when a new stream starts; an existing stream generally keeps its current configuration.
+Each of these needs a permission you give a device on **Devices**; pairing never grants them, and **Full control** leaves the file, folder and USB ones as they are.
 
-The console shows **“Saved. Some changes apply after the host restarts.”** Startup settings, including network listeners and advertised codec capabilities, need a restart. Use **Restart now** after disconnecting: restarting the host disconnects active streams.
+- **Clipboard.** A device with the clipboard permissions copies text to and from this PC, and images too while **Copy images** (`clipboard_image`, default `true`) is on, up to **Largest image** (`clipboard_image_max_mb`, `16` MiB as PNG) in each direction. Background streams have no clipboard.
+- **Files and shared folders.** See [File transfer](#file-transfer) and [Shared folders](#shared-folders) below.
+- **USB devices.** **USB forwarding** (`usb_forwarding`, default `false`, under **All settings → General → USB devices**) lets devices with **USB devices** attach the USB devices plugged into them to this PC during a stream, up to **USB devices at once** (`usb_max_devices`, default `4`). It needs usbip-win2 on the host; [USB forwarding](usb-forwarding.md) has the setup.
 
-For file-based configuration, the file is still named `sunshine.conf` for compatibility:
+[Privacy](privacy.md#your-own-devices) describes what each permission lets a device read or change.
 
-| Installation | Default profile folder |
-| --- | --- |
-| Windows service | `%ProgramData%\Butterpollo\config` |
-| Portable host | Existing `config` folder beside the executable (2.2.6 or later); otherwise `%LocalAppData%\ButterpolloRust\config` |
-| Explicit profile | Folder passed to `butterpollo.exe --config-dir <folder>` |
+## File transfer
 
-The format is `key = value`, one setting per line. Stop the host before editing files directly, then start it again to load them. Prefer the console for ordinary changes; old or unknown keys can be preserved without being implemented by the Rust host.
+Off by default. With **File transfer** (`file_transfer`) on, paired devices can send files to this PC and download them again over the streaming HTTPS port ([Native API, Files](native-api.md#files)). Each device also needs **Upload files** or **Download files** under its permissions on **Devices**; no device has them until you tick them, and **Full control** leaves them as they are. Files are written as the Windows user who is signed in; with nobody signed in, transfers are refused.
+
+| Key | Default | What it means |
+| --- | --- | --- |
+| `file_transfer` | `false` | Turns file transfer on. Applies to the next request. |
+| `file_transfer_dir` | empty | The folder uploads go to and downloads come from, as an absolute path. Empty means `Downloads\Rubylight` of the signed-in user. |
+| `file_transfer_max_mb` | `4096` | The largest upload in MiB, refused before it starts. |
+| `file_transfer_stream_mbps` | `50` | While a stream runs or starts, all uploads and downloads together move at this many Mbit/s. `0` lets them run at full speed. Applies to running transfers within a second. |
+
+## Shared folders
+
+None by default. **Shared folders** (`shared_folders`, under **All settings → Network & access**) lists folders of this PC that paired devices may browse, download from and upload to over the streaming HTTPS port ([Native API, Shared folders](native-api.md#shared-folders)). **Add folder** adds a row with a name, which devices show, and a path, typed or picked with **Browse**. The path must be a folder on a drive of this PC, such as `D:\Games`: a network share, a relative path, `.` or `..` is refused. The console shows what is wrong beside the field (no name, two folders with one name, a path the host refuses) and saves nothing until it is fixed.
+
+Each folder gets an id when it is first saved, from its name and four random letters, such as `games-k2fq`; devices' grants name it. Renaming a folder or changing its path keeps the id, and so what devices may do with it; a folder removed and added again gets a new id, so it is shared with no device until you share it again. The setting is stored as a JSON list such as `[{"id": "games", "name": "Games", "path": "D:\\Games"}]`, where `id` is 1 to 64 letters, digits, `-` or `_`; to edit it by hand, keep each id. A list that isn't valid is reported in the log and shares nothing, and the console says it can't read it.
+
+A device sees a folder only once you share it with that device: on **Devices**, open the device's **Settings**, then **Shared folders**, and choose **Read** (browse and download) or **Read and write** (also upload) for each folder. **Full control** and the file transfer permissions don't share any folder. A grant for a folder no longer shared is listed as no longer shared, and **No access** removes it. Taking a folder away from a device, or write access to it, disconnects it and ends its running transfers. File transfer doesn't need to be on, but its size limit and speed while streaming apply. Files are read and written as the Windows user who is signed in, only inside each folder: links and junctions inside it are neither listed nor followed.
 
 ## WebRTC server
-
-<a id="webrtc-server-experimental"></a>
 
 Off by default. With **WebRTC server** (`webrtc_server`) on, Rubylight listens for TVs and browsers that speak the Moonlight WebRTC protocol (version 2). They can find the PC, pair, sign in, list its apps and stream. [WebRTC server](webrtc.md) has the setup, what streams and the protocol extensions for client authors.
 
@@ -782,39 +848,6 @@ Off by default. With **WebRTC server** (`webrtc_server`) on, Rubylight listens f
 - If another program holds the port, the console shows a `webrtc_server` warning, the log has the error and the server does not run. The port never moves on its own.
 - `--bind` applies to both the WebSocket and the discovery socket. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so TCP 8000, UDP 8000 and UDP 8001 (or the ports you chose) need no extra rule.
 
-## Clipboard, files and USB
-
-Each of these needs a permission you give a device on **Devices**; pairing never grants them, and **Full control** leaves the file, folder and USB ones as they are.
-
-- **Clipboard.** A device with the clipboard permissions copies text to and from this PC, and images too while **Copy images** (`clipboard_image`, default `true`) is on, up to **Largest image** (`clipboard_image_max_mb`, `16` MiB as PNG) in each direction. Background streams have no clipboard.
-- **Files and shared folders.** See [File transfer](#file-transfer) and [Shared folders](#shared-folders) below.
-- **USB devices.** **USB forwarding** (`usb_forwarding`, default `false`, under **Settings → General → USB devices**) lets devices with **USB devices** attach the USB devices plugged into them to this PC during a stream, up to **USB devices at once** (`usb_max_devices`, default `4`). It needs usbip-win2 on the host; [USB forwarding](usb-forwarding.md) has the setup.
-
-[Privacy](privacy.md#your-own-devices) describes what each permission lets a device read or change.
-
-## File transfer
-
-<a id="file-transfer-experimental"></a>
-
-Off by default. With **File transfer** (`file_transfer`) on, paired devices can send files to this PC and download them again over the streaming HTTPS port ([Native API, Files](native-api.md#files)). Each device also needs **Upload files** or **Download files** under its permissions on **Devices**; no device has them until you tick them, and **Full control** leaves them as they are. Files are written as the Windows user who is signed in; with nobody signed in, transfers are refused.
-
-| Key | Default | What it means |
-| --- | --- | --- |
-| `file_transfer` | `false` | Turns file transfer on. Applies to the next request. |
-| `file_transfer_dir` | empty | The folder uploads go to and downloads come from, as an absolute path. Empty means `Downloads\Rubylight` of the signed-in user. |
-| `file_transfer_max_mb` | `4096` | The largest upload in MiB, refused before it starts. |
-| `file_transfer_stream_mbps` | `50` | While a stream runs or starts, all uploads and downloads together move at this many Mbit/s. `0` lets them run at full speed. Applies to running transfers within a second. |
-
-## Shared folders
-
-<a id="shared-folders-experimental"></a>
-
-None by default. **Shared folders** (`shared_folders`, under **Settings, Network**) lists folders of this PC that paired devices may browse, download from and upload to over the streaming HTTPS port ([Native API, Shared folders](native-api.md#shared-folders)). **Add folder** adds a row with a name, which devices show, and a path, typed or picked with **Browse**. The path must be a folder on a drive of this PC, such as `D:\Games`: a network share, a relative path, `.` or `..` is refused. The console shows what is wrong beside the field (no name, two folders with one name, a path the host refuses) and saves nothing until it is fixed.
-
-Each folder gets an id when it is first saved, from its name and four random letters, such as `games-k2fq`; devices' grants name it. Renaming a folder or changing its path keeps the id, and so what devices may do with it; a folder removed and added again gets a new id, so it is shared with no device until you share it again. The setting is stored as a JSON list such as `[{"id": "games", "name": "Games", "path": "D:\\Games"}]`, where `id` is 1 to 64 letters, digits, `-` or `_`; to edit it by hand, keep each id. A list that isn't valid is reported in the log and shares nothing, and the console says it can't read it.
-
-A device sees a folder only once you share it with that device: on **Devices**, open the device's **Settings**, then **Shared folders**, and choose **Read** (browse and download) or **Read and write** (also upload) for each folder. **Full control** and the file transfer permissions don't share any folder. A grant for a folder no longer shared is listed as no longer shared, and **No access** removes it. Taking a folder away from a device, or write access to it, disconnects it and ends its running transfers. File transfer doesn't need to be on, but its size limit and speed while streaming apply. Files are read and written as the Windows user who is signed in, only inside each folder: links and junctions inside it are neither listed nor followed.
-
 ## Multiple instances
 
 Give each instance its own profile folder and base port. An explicit `--config-dir` takes precedence over the portable defaults. From the extracted package, run these commands in separate PowerShell windows, one in each intended Windows session:
@@ -826,31 +859,17 @@ Give each instance its own profile folder and base port. An explicit `--config-d
 
 The consoles are at **https://localhost:48124** and **https://localhost:48324**. These base ports also keep the instances' streaming ports separate from each other and from the default installed host. To make the port choice persist when using **Start Rubylight.exe**, save `port = 48123` or `port = 48323` in the corresponding profile's `sunshine.conf`. The launcher accepts `--config-dir`; `--port` is a host option.
 
-For copied portable packages, create a separate `config` folder beside each copy of `butterpollo.exe` and set a different `port` in each folder's `sunshine.conf` before launching. Automatic selection of this adjacent folder requires [2.2.6 or later](../rust/RELEASE_NOTES.md#new-in-226); older packages need an explicit `--config-dir`. Without an adjacent folder or explicit path, copies running as the same account share the per-user default, including SYSTEM's systemprofile location. Start with fresh profiles for independent identities and pair each instance separately; copying a populated profile also copies its identity and paired devices.
+For copied portable packages, create a separate `config` folder beside each copy of `butterpollo.exe` and set a different `port` in each folder's `sunshine.conf` before launching. Without an adjacent folder or explicit path, copies running as the same account share the per-user default, including SYSTEM's systemprofile location. Start with fresh profiles for independent identities and pair each instance separately; copying a populated profile also copies its identity and paired devices.
 
-For multiseat use, launch each process in its intended Windows session through your multiseat software, using that session's SYSTEM token if required by your setup. The installer continues to manage one Windows service. Separate-profile startup has been smoke-tested with two simultaneous hosts; simultaneous streaming from different Windows users still needs validation.
+For multiseat use, launch each process in its intended Windows session through your multiseat software, using that session's SYSTEM token if required by your setup. The installer continues to manage one Windows service. Separate-profile startup has been smoke-tested with two simultaneous hosts.
 
 ## Updates
 
-Automatic **checking** is enabled; automatic **installation** is not. Use **Help & diagnostics → Updates** to check manually or start an offered update. Enable **Include pre-releases** if you want release candidates.
+Automatic **checking** is on; automatic **installation** is not. **Help → Updates** checks on request and starts an offered update. **Include pre-releases** (**All settings → General → Updates**) also offers release candidates.
 
 If you opt into **Install updates automatically**, the installed Windows service waits for one minute without active streams, pending connections, remote-monitor sessions or running host apps. The updater validates the selected installer against the release's size and SHA-256. Portable installations use the release download page instead.
 
 Set `update_check_interval = 0` to disable scheduled checks; manual checks remain available.
-
-## Settings outside the console
-
-These keys are read from the configuration file (`sunshine.conf` in the profile folder) and from device and app overrides, but have no field in the console:
-
-| Key | Default | What it does |
-| --- | --- | --- |
-| `audio_night_mode`, `audio_headphone_surround` | `false` | See [Surround, night mode and headphone surround](#surround-night-mode-and-headphone-surround). |
-| `couch_menu` and the `couch_menu_*` keys | `true`, and the values under [Couch menu](#couch-menu) | How the couch menu opens. |
-| `video_slice_delivery` | `off` | Sends H.264 and HEVC P-frames in 2 or 4 FEC blocks as their slices leave the encoder. See [Capture and video](#capture-and-video). |
-| `webrtc_pacing`, `webrtc_rtx` | `true` | Send pacing and retransmission for the WebRTC server. |
-| `webrtc_loss_permille` | `0` | Drops WebRTC video packets on purpose, in thousandths, for tests. Leave it at 0. |
-
-Webhooks have their own console page; see [Webhooks](webhooks.md).
 
 ## All settings
 

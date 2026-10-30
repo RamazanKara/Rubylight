@@ -1,10 +1,12 @@
 # USB forwarding
 
+[Documentation](README.md) · [Clipboard, files and USB](configuration.md#clipboard-files-and-usb) · [DualSense haptics](dualsense-haptics.md)
+
 A USB device plugged into the client, such as a flash drive, a USB gamepad or a dongle, can be attached to the host PC during a stream, as if it were plugged into the PC. The client serves the device over USB/IP inside a TLS tunnel on the stream's HTTPS port; on the host, [usbip-win2](https://github.com/vadimgrn/usbip-win2) attaches it. No USB/IP port is open to the network: the host relays the tunnel to the driver on 127.0.0.1. The protocol is in [native-api.md](native-api.md#usb-forwarding) and [control-messages.md](control-messages.md#0x553a-usb-forwarding).
 
 ## Setup
 
-1. **On the host:** install usbip-win2 (the installer's optional **Steam Deck and DualSense USB audio and haptics** component, or its own release). Turn on **Settings → General → USB devices → USB forwarding** (`usb_forwarding`, off by default). **USB devices at once** (`usb_max_devices`, 1 to 16, default 4) limits how many devices this PC takes from all clients at the same time.
+1. **On the host:** install usbip-win2 (the installer's optional **Steam Deck and DualSense USB audio and haptics** component, or its own release). Turn on **All settings → General → USB devices → USB forwarding** (`usb_forwarding`, off by default). **USB devices at once** (`usb_max_devices`, 1 to 16, default 4) limits how many devices this PC takes from all clients at the same time.
 2. **For each client:** open the device under **Devices** in the console and tick **USB devices** under its permissions. Taking the permission away disconnects a streaming device, which detaches its USB devices.
 3. **On Nightjar for Windows or Linux:** turn on **USB forwarding** in the settings. During a stream, the stream controls list the USB devices plugged in here (hubs left out), each with Attach or the reason it can't be forwarded.
 

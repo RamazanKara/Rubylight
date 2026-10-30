@@ -1,214 +1,145 @@
-<h1 align="center"><a href="docs/features.md#everything-it-does-in-30"><b>Rubylight 3.0: see what's new</b></a></h1>
-
 <p align="center">
   <img src="docs/media/banner.svg" width="900" alt="Rubylight: Written in Rust. Built for Radeon. Made for Moonlight.">
-</p>
-
-<h3 align="center">The game-streaming host built for Radeon.</h3>
-
-<p align="center">
-  Play your PC games on your TV, laptop, phone, handheld, Steam Deck or Xbox.<br>
-  HDR, full-colour 4:4:4 and up to 240 fps, straight from your AMD GPU. Free and open source.
-</p>
-
-<p align="center">
-  Rubylight is a Moonlight host written in Rust and built around AMD's encoder, compute queues and its own display driver.<br>
-  On an RX 7900 XT a frame takes a median <b>5.89 ms</b> from capture to the client's screen (AV1 1080p60, loopback, October 26),<br>
-  and in our lossy-link test scene cuts went from <b>15 freezes to none</b> (HEVC 1440p60, October 28).
 </p>
 
 <p align="center">
   <a href="https://github.com/RamazanKara/Rubylight/releases"><img src="https://img.shields.io/github/v/release/RamazanKara/Rubylight?include_prereleases&label=release&color=c41242" alt="Latest release"></a>
   <a href="https://github.com/RamazanKara/Rubylight/releases"><img src="https://img.shields.io/github/downloads/RamazanKara/Rubylight/total?color=c41242" alt="Downloads"></a>
-  <a href="https://github.com/RamazanKara/Rubylight/stargazers"><img src="https://img.shields.io/github/stars/RamazanKara/Rubylight?color=c41242" alt="Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-c41242" alt="GPL-3.0"></a>
 </p>
 
-<div align="center">
+# Rubylight
 
-**[Download 3.0.0](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md)
+Rubylight is a game-streaming host for Windows PCs with AMD Radeon graphics. It streams the desktop and your games to Moonlight-compatible clients on TVs, laptops, phones, handhelds, the Steam Deck and browsers. The host is written in Rust and built around AMD's AMF hardware encoder, D3D12 compute queues and its own virtual display driver. It speaks the Moonlight protocol, so Moonlight, Artemis, [Nightjar](https://github.com/RamazanKara/nightjar) and other Sunshine-compatible clients connect unchanged, and an Apollo or Vibepollo installation carries over with its settings, paired devices and games. Rubylight was called Butterpollo until October 2026.
 
-<sub>Windows 10 and 11 · Any AMD Radeon with AMF · Formerly Butterpollo</sub>
-
-</div>
+**[Download 3.0.0](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
 
 <p align="center">
-  <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" width="800" alt="Meet Rubylight: follow a frame from your game to Moonlight, see measured Radeon performance, and get started."></a>
+  <img src="docs/media/showcase/console-home.png" width="800" alt="The Rubylight console's Home page: Ready to play, the host name and paired devices, the running app and the first games of the library.">
 </p>
 
-<p align="center"><a href="docs/media/demo.mp4">Watch the 70-second film →</a></p>
+## Key capabilities
 
-## Why Radeon owners choose Rubylight
+- **An AMD-native pipeline.** AMF encodes H.264, HEVC and AV1 in 8 and 10-bit; colour conversion and scaling run on D3D12 compute queues beside the game; Rubylight's virtual display driver hands each frame to the encoder without a desktop capture. On an RX 7900 XT the median time from capture to the client's present is 5.89 ms (AV1 1080p60, loopback).
+- **A display for each device.** Every client gets a virtual display at its own resolution, refresh rate and HDR mode, and your monitor layout comes back when the stream ends. Physical displays stream through Windows Graphics Capture or Desktop Duplication, including the sign-in screen.
+- **HDR and full colour.** HDR10 on HEVC and AV1, with HDR10+, Dolby Vision (HEVC profiles 8.1 and 8.4, AV1 10.1) and HLG for devices that request them. Full-resolution 4:4:4 colour through the PyroWave wavelet codec, or packed into ordinary HEVC and AV1 pictures for Nightjar.
+- **A stream that holds on real networks.** The bitrate follows what the link delivers, Wi-Fi clients are paced from the first frame, a lost frame is repaired from a picture the client still holds, and a scene cut too large to protect is encoded again as a keyframe.
+- **VRR-aware capture.** Under variable refresh the host waits for the game's next picture when it is close, so the encoder gets a fresh frame.
+- **Your game library.** Installed games from Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox, and Playnite, join the library with their covers. Each game can carry its own stream, display, input, Radeon and frame-limit settings, applied at launch and restored afterwards.
+- **Radeon settings with restore.** Per-game Radeon profiles (Anti-Lag, Radeon Chill, frame caps and more), and live changes from a device you allow, put back when the session ends.
+- **Play together.** Split-screen co-op and background streams through Nucleus Co-op: each device plays its own instance with its own picture, sound and controller.
+- **Sound and input.** PCM up to 7.1.4, Dolby Digital and Dolby Digital Plus for receivers, the client's microphone on the PC, DualSense haptics and adaptive triggers, Switch Pro, Xbox and Steam Deck controllers, touch and pen.
+- **More than a picture.** Clipboard, file transfer, shared folders and USB devices forwarded from the client, each enabled per device. A WebRTC server streams to browsers and Samsung Tizen TVs.
 
-- **The spiritual successor to AMD Link.** Your Radeon PC on every screen in the house, with your game library and Radeon controls in your hand, on the open Moonlight ecosystem.
-- **Built around AMD, top to bottom.** AMF drives the encoder directly, D3D12 compute queues prepare every frame beside your game, and Rubylight's own display driver hands each frame straight to the encoder.
-- **Full colour, crisp text.** HEVC and AV1 in 10-bit HDR, plus full-colour 4:4:4 through PyroWave and packed full chroma.
-- **Your whole library, one click away.** Scan Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox PC games, with covers, and stream any of them from the couch.
-- **Radeon settings that follow the game.** Anti-Lag, frame caps and filtering per game and per device, put back exactly as they were when you stop.
-- **Measured, in the open.** Every stage of every frame is timed, and every number comes with its run, its method and its raw results.
-- **Set up in minutes.** One installer, your monitors back after every stream, and your Apollo or Vibepollo setup carried over.
+[Everything Rubylight does](docs/features.md)
 
-## A console you'll enjoy
+## Measured performance
 
-<!-- showcase -->
+All figures are our own runs on an RX 7900 XT (Windows 11 25H2). Each row links to the method, the build and the raw results.
 
-**Home** walks you through three steps, pair, see your games, play, and then shows the live stream, running co-op games and your game shelf. **Games** lists every launcher in one place, **Devices** handles pairing and permissions, and **Settings** shows the ten settings most people change, with search for every other one. **Help** reads the host log and explains what went wrong.
-
-## Install. Pair. Play.
-
-1. **Install.** Run **`rubylight-setup-3.0.0.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0). It sets up the service, the virtual display driver and controller support in one pass, ready to stream right away. A portable ZIP is there too.
-2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
-3. **Pair and play.** In [Nightjar](https://github.com/RamazanKara/nightjar), scan the QR code on the console's Home page. In Moonlight or any other compatible client, select your PC and enter its PIN on the console's **Devices** page. Then pick **Desktop** or a game and play.
-
-**Coming from Apollo or Vibepollo?** Rubylight brings over your settings, paired devices, app library and covers, so every client keeps working on day one. Updates keep everything too, on the schedule you choose.
-
-[Full setup guide →](docs/getting-started.md)
-
-## Your whole library
-
-| Feature | What it does |
-| --- | --- |
-| **Every launcher in one scan** | **Games & apps → Add games** finds what is installed from Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, and Microsoft Store and Xbox PC games. Search, filter by launcher, tick what you want, done. |
-| **Covers included** | Each game arrives with its cover from the launcher. Pick your own any time. |
-| **Steam, always in sync** | Steam games sync on demand and every 30 seconds, and a stream ends cleanly when the game exits. |
-| **Playnite** | Your Playnite library syncs too, launches through Playnite with the stream's settings, and Playnite Fullscreen is one tap away. |
-| **Anything else** | Add a program, a script, a URL or a document, with preparation and undo commands, a working folder and start before sign-in. |
-| **Settings per game** | Each app can carry its own stream, display, input and encoder settings, its own Radeon profile, RTSS frame limits and Lossless Scaling profile, all applied at launch and removed at the end. |
-| **Launcher hints** | When a launcher waits for an update or a sign-in, the session says so and your client can show it. |
-
-## Measured
-
-Recorded on an RX 7900 XT. Each row links to its method, build and raw results in [rust/PERFORMANCE.md](rust/PERFORMANCE.md).
-
-| Result | Measured |
+| Result | Conditions |
 | :-- | :-- |
-| **5.89 ms** | median from capture to client present, loopback, AV1 1080p60 (H.264 6.92 ms, HEVC 8.37 ms, PyroWave 11.14 ms), from the frame timing record of 3.0.0-rc.2 ([timing record](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)) |
-| **42 ms against 96 ms** | mean picture age under game-like GPU load, Rubylight 2.0.0-rc.2 against Vibepollo 2.0, HEVC 10-bit HDR 1080p60 at 20 Mbps, Desktop Duplication, a 120 Hz virtual display, three runs each, same PC and settings ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
-| **0.25 ms** | median age of the picture at the encoder with VRR, against 4.68 ms without VRR-aware capture, for a 120 Hz game in a 60 fps stream, p95 2.34 ms since 3.0.0-rc.3 ([VRR](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [p95](rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures), [method](rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr)) |
-| **4× cleaner Wi-Fi** | unrecoverable frames per run from 61 to 15.7 on 2.4 GHz with Wi-Fi pacing, HEVC 1080p60 at 47 Mbit/s, and the same 4.7 ms median on 5 GHz ([Wi-Fi pacing](rust/PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop)) |
-| **1.17 % and 1.08 %** | of frames lost in two runs when 75 Mbps is asked of a 50 Mbit/s link, against 6.7 % before link adaptation's 3.0 fixes ([link adaptation](rust/PERFORMANCE.md#october-24-a-lossless-standing-queue-link-fix-delay-signal), [before](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
-| **15 freezes to 0** | after scene cuts in 45 s, HEVC 1440p60 at 250 Mbps with 0.3 % random loss, with oversize scene cuts encoded again as keyframes; lost cuts 16 and 15 to 0 and 0 ([scene cuts](rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes)) |
-| **0.86 to 0.92** | of the keyframe bytes sent for recovery on H.264, HEVC and AV1 with long-term references, over gaps of 1 to 130 lost frames ([recovery](rust/PERFORMANCE.md#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default)) |
-| **17 ms** | median glass to glass in a browser over WebRTC, AV1 1080p60, with 4K120 in HEVC and AV1 ([WebRTC](rust/PERFORMANCE.md#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b)) |
+| **5.89 ms** median, capture to client present | AV1 1080p60, loopback, per-frame timing record; H.264 6.92 ms, HEVC 8.37 ms, PyroWave 11.14 ms ([run](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)) |
+| **42 ms against 96 ms** mean picture age under GPU load | Rubylight 2.0.0-rc.2 against Vibepollo 2.0, HEVC 10-bit HDR 1080p60 at 20 Mbps, Desktop Duplication, same PC and settings, three runs each ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
+| **0.25 ms** median picture age at the encoder | VRR, a 120 Hz game in a 60 fps stream; 4.68 ms without VRR-aware capture ([run](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [method](rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr)) |
+| **15 to 0** freezes after scene cuts | HEVC 1440p60 at 250 Mbps with 0.3 % random loss, 45 s, two runs per arm ([run](rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes)) |
+| **61 to 15.7** unrecoverable frames per run on 2.4 GHz Wi-Fi | Wi-Fi pacing from the first frame, HEVC 1080p60 at 47 Mbit/s, three runs per arm; unchanged 4.7 ms median on 5 GHz ([run](rust/PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop)) |
+| **1.17 % and 1.08 %** of frames lost | 75 Mbps requested over a 50 Mbit/s link with link-rate adaptation, against 6.7 % before its 3.0 fixes ([run](rust/PERFORMANCE.md#october-24-a-lossless-standing-queue-link-fix-delay-signal), [before](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
+| **17 ms** median glass to glass in a browser | WebRTC, AV1 1080p60 ([run](rust/PERFORMANCE.md#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b)) |
 
-<p align="center">
-  <a href="docs/performance.md"><img src="docs/media/gaming-latency.svg" width="800" alt="Picture age under GPU load, HEVC and AV1 HDR at 120 fps on an RX 7900 XT: Rubylight 2.2.9 averages 14.34 and 13.65 ms against 26.96 and 24.53 ms for Vibepollo 2.0."></a>
-</p>
+The [performance overview](docs/performance.md) explains each metric. The [measurement record](rust/PERFORMANCE.md) has every run, including changes that measured worse and were reverted.
 
-The [performance guide](docs/performance.md) explains each metric and links every run.
+## System requirements
 
-## Everything it does
-
-**New in 3.0**
-
-| Feature | What it does |
+| | Requirement |
 | --- | --- |
-| **Dolby Vision, HDR10+ and HLG** | HDR streams carry per-scene brightness data, so a TV follows each scene. Dolby Vision on HEVC (8.1, 8.4) and AV1 (10.1), and HLG for screens that show only HLG, for devices that ask for them. [More](docs/configuration.md#capture-and-video) |
-| **No freeze after a scene cut** | A scene cut too large to protect is encoded again as a keyframe that fits, and recovery keyframes keep their full error correction. |
-| **Faster recovery on every codec** | A short loss on H.264, HEVC or AV1 is repaired from a picture the device still has, for every client. |
-| **Error correction the device chooses** | Nightjar picks its own share of recovery packets and can test the link before its first bitrate. Bitrate and frame rate change mid-stream. [More](docs/configuration.md#error-correction-chosen-by-the-device) |
-| **Roaming** | A phone moving from Wi-Fi to mobile data keeps its stream. [More](docs/configuration.md#roaming) |
-| **Split-screen co-op** | A game Nucleus Co-op supports gets a "(Co-op)" entry: each player streams their own copy with their own picture, sound and controller. [More](docs/nucleus-coop.md) |
-| **Sound for your receiver** | PCM up to 7.1.4, Dolby Digital and Dolby Digital Plus, plus 7.1.4 surround, night mode, headphone surround and haptics from game audio. [More](docs/configuration.md#pcm-and-dolby-digital-audio) |
-| **Clipboard, folders, files and USB** | Text and images copied on either side, shared folders, file transfer, and USB devices from the client attached to the PC, each for the devices you allow. [More](docs/configuration.md#clipboard-files-and-usb) |
-| **The couch menu** | Hold L3+R3, press Ctrl+Alt+Backspace or hold the top-left corner for Back to game, Disconnect, End session and Close game, in any Moonlight client. [More](docs/configuration.md#couch-menu) |
-| **Keyboard and touch** | The device's keyboard opens when a text field on the PC gets the focus; device layouts, a device-drawn cursor, touch as a mouse or trackpad, and display rotation. [More](docs/configuration.md#keyboard-touch-pen-and-cursor) |
-| **A simpler console** | Home, Games and ten settings up front, QR pairing, Help that explains the host log, and frame rates for every stage of the pipeline. |
+| **Operating system** | Windows 10 or Windows 11, x64. Virtual displays need Windows 11 23H2 or later; earlier versions stream a physical display. |
+| **Graphics** | An AMD Radeon GPU with a working AMF video encoder, and AMD Software. The host probes each codec at startup and offers only what the driver encodes: AV1 needs a VCN 4.0 or 5.0 engine (RX 7000 and RX 9000 series, Radeon 780M and 890M). The RX 6300, 6400 and 6500 have no video encoder. |
+| **NVIDIA or Intel** | Rubylight 3.x supports AMD only. NVIDIA and Intel GPUs use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). |
+| **Network** | A local network or your own VPN; wired Ethernet for the host is recommended. PyroWave needs a fast local network: about 400 Mbps for 1080p60. |
+| **Client** | Any Moonlight-compatible client; see [Compatibility](#compatibility). |
 
-**Speed**
+The [hardware matrix](docs/hardware-matrix.md) lists what we have tested on each GPU generation, Windows version and client, and the evidence for each entry.
 
-| Feature | What it does |
+## Install
+
+Download from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0):
+
+| Package | Use |
 | --- | --- |
-| **Native AMD encoding** | AMF encodes H.264, HEVC and AV1 with defaults tuned by measurement. A dropped frame is repaired with a small recovery frame, keeping the stream smooth. |
-| **Radeon compute pipeline** | Copies, colour conversion and scaling run on D3D12 compute queues, so your game and your stream share the GPU gracefully. [How it works](docs/architecture.md) |
-| **PyroWave, 4:4:4 HDR** | A wavelet codec for full-colour HDR on a fast local network, paced to each client's link. |
-| **Full chroma** | Rubylight packs each 4:4:4 frame into an ordinary HEVC or AV1 picture for crisp text and UI from AMD's hardware encoder, unpacked by Nightjar. 10-bit SDR is there for clients that ask. [More](docs/configuration.md#capture-and-video) |
-| **VRR-aware capture** | With variable refresh, the host catches the game's next frame when it is close, so the picture reaches the encoder fresh, up to 1000 Hz. [Numbers](docs/performance.md#vrr-capture-age) |
-| **Link-rate adaptation** | The host matches the bitrate to what the link delivers, probes back up and returns to your rate as soon as the link allows. Clients can show each change. [More](docs/configuration.md#lower-bitrate-when-the-link-cannot-carry-it) |
-| **Wi-Fi pacing** | Clients on Wi-Fi or cellular get adaptive packet pacing from the first frame, faster while the link is clean. |
-| **Stream presets** | Lowest latency, Balanced or Reference quality, set once or per device or app. [More](docs/configuration.md#stream-presets) |
-| **Beam racing and slice delivery** | PyroWave frames arrive in display order and H.264 and HEVC frames leave the host slice by slice, so a client draws the top of the picture while the bottom is still on the wire. [Numbers](rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
-| **Frame timing record** | One CSV row per frame with capture, convert, encode, send and client times on one clock. [More](docs/timing-record.md) |
+| `rubylight-setup-3.0.0.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and migrates a detected Apollo or Vibepollo installation. |
+| `rubylight-3.0.0-windows-x64.zip` | Portable. Extract and run `Start Rubylight.exe`; streams a physical display unless the drivers are installed separately. |
 
-**Displays**
+Updates are offered in the console and can install automatically while nothing is streaming. Settings and paired devices are kept across updates. See [Getting started](docs/getting-started.md#install-or-run-portable) for installer options and [Upgrading](docs/getting-started.md#upgrading).
 
-| Feature | What it does |
-| --- | --- |
-| **A screen for every device** | Rubylight's own virtual display driver gives each client its exact resolution, refresh rate and HDR, and your monitors come back when you disconnect. |
-| **Two clients at once** | Each device gets its own virtual display. |
-| **Background streaming** | A device plays its own copy of the game while someone keeps using the PC, with only the game's sound and the device's controllers. Your displays stay as they are. [More](docs/configuration.md#background-streaming) |
-| **Co-op on one PC** | Several devices play the same game together through Nucleus Co-op, each in its own instance with its own controller, joined from Nightjar or any Moonlight client. [More](docs/nucleus-coop.md) |
-| **Every capture path** | Physical displays stream through Windows Graphics Capture or Desktop Duplication, and the lock screen streams too, so you can sign in from the couch. Headless PCs and VMs work as well. |
+## Quick start
 
-**Control from the couch**
+1. Install Rubylight and open **https://localhost:47990** on the PC. Create the console account.
+2. Pair a device. In Nightjar, scan the QR code on the console's **Devices** page (also shown on Home until the first device is paired). In Moonlight, select the PC, then enter the PIN Moonlight shows on the console's **Devices** page.
+3. Start **Desktop** at 1080p60 with HDR off. When picture, sound and input work, raise the resolution, frame rate and bitrate, and turn on HDR.
 
-| Feature | What it does |
-| --- | --- |
-| **Radeon settings with restore** | A device with host control tunes Anti-Lag, Radeon Chill and more during a stream, and every change is put back when the session ends. [More](docs/configuration.md#radeon-settings-with-restore) |
-| **A Radeon profile for each game** | Competitive, Smoothness, Quality or your own list, written when the game starts and restored when it ends, even after a crash. [More](docs/configuration.md#radeon-settings-per-game) |
-| **Session actions** | Disconnect keeps the game running, End session stops the stream and keeps the game, Close game quits it too. [More](docs/configuration.md#session-actions) |
-| **Native API** | Clients browse your library with covers, follow the session and drive the Radeon controls. [Contract](docs/native-api.md) |
-| **Live GPU readings** | Clients can show the PC's CPU load and the Radeon's usage, temperatures, power, clocks and VRAM in their overlay. [Protocol](docs/hardware-metrics.md) |
-| **WebRTC server** | Pair a Samsung Tizen TV or a browser with a PIN and stream H.264, HEVC or AV1, with HDR, surround, gamepads, keyboard and mouse. [More](docs/webrtc.md) |
-| **Stream in the console** | Play a game in a browser tab from the console's Stream page, signed in instead of paired: H.264 1080p60, stereo, keyboard and mouse. [More](docs/webrtc.md#stream-in-the-console) |
-| **Sleep PC** | A device you allow puts the PC to sleep while nothing is streaming, with the same requests as Vibepollo, on a PC with S1, S2 or S3 sleep. |
-| **File transfer** | Devices you allow send files to the PC and fetch them back, into your Downloads\Rubylight or a folder you choose, paced while a stream runs. [More](docs/configuration.md#file-transfer) |
+The [getting started guide](docs/getting-started.md) covers each step, choosing a stream format and importing an existing profile.
 
-**Controllers and audio**
+## Compatibility
 
-| Feature | What it does |
-| --- | --- |
-| **The right pad for every client** | DualSense with adaptive triggers and haptics, Switch Pro, Xbox Series, and a real Steam Deck controller with trackpads, gyro and back grips. |
-| **Touch, pen, keyboard and mouse** | Everything a client sends, on a signed driver from the installer. |
-| **Sound both ways** | Surround audio, game-only audio, and your client's microphone on the PC for voice chat. |
+**Moonlight protocol.** Rubylight implements the same Moonlight protocol as Sunshine and keeps its protocol version, so stock clients work without changes. Additions such as PyroWave, packed 4:4:4, HDR10+, Dolby Vision, device-chosen error correction and the [native API](docs/native-api.md) are negotiated: a client receives them only when it asks.
 
-Also built in: a tray icon with notifications, automatic updates verified by SHA-256, separate instances with their own profiles, and a support bundle in one click.
+| Client | Platforms | What it adds |
+| --- | --- | --- |
+| [Moonlight](https://moonlight-stream.org) | Windows, macOS, Linux, Android, iOS, Apple TV, and community ports such as Xbox | The standard client: H.264, HEVC and AV1, SDR and HDR, as the device decodes them |
+| [Artemis](https://github.com/ClassicOldSong/moonlight-android) | Android | Apollo's Android client; virtual displays matched to the device |
+| [Nightjar](https://github.com/RamazanKara/nightjar) | Android, Android TV, Fire TV, Windows, Linux | Rubylight's client: PyroWave and packed 4:4:4, QR pairing, the game library, Radeon controls, error correction and pacing chosen by the device |
+| [Nonary's Moonlight](https://github.com/Nonary/moonlight-qt) | Desktop (a Moonlight-Qt fork) | PyroWave |
+| Browsers and Samsung Tizen TVs | WebRTC | H.264, HEVC and AV1 with HDR, surround and gamepads, paired with a PIN ([WebRTC](docs/webrtc.md)) |
 
-[All features →](docs/features.md)
+**Migrating.** The installer and the portable launcher import an Apollo or Vibepollo profile: settings, paired devices, the host identity, the console sign-in, apps and covers. Existing clients keep working without pairing again. See [Bring an existing profile](docs/getting-started.md#bring-an-existing-profile).
 
-## Every Radeon, every client
+## The console
 
-**GPUs.** Any AMD Radeon with AMF, on Windows 10 or 11: desktops, laptops and handhelds. Users stream daily on RDNA 2, 3 and 4, from the RX 6800 XT, 6900 XT, 7900 XT and 7900 XTX to the 9070 and 9070 XT, plus Radeon 890M handhelds. The [hardware matrix](docs/hardware-matrix.md) lists each GPU generation, Windows version, feature and client with the evidence behind it.
+The web console runs on the host at https://localhost:47990. **Home** shows the host's state and the running stream, **Games** the library, **Devices** pairing and permissions, **Settings** the ten settings most people change, with every other setting under **All settings**. **Help** checks the host, restores displays and explains errors from the host log.
 
-**Clients.** Rubylight speaks the Moonlight protocol, so Moonlight, Artemis and every other Sunshine-compatible client works out of the box.
-
-| Client | Highlights |
-| --- | --- |
-| **Moonlight PC** (Windows, macOS, Linux, Steam Deck) | H.264, HEVC and AV1, SDR and HDR, up to 240 fps |
-| **Moonlight and Artemis on Android** | Native resolution at 120 Hz with HDR, on a virtual display that matches the phone |
-| **Moonlight for Xbox** | 4K 120 Hz HDR on your TV |
-| **[Nightjar](https://github.com/RamazanKara/nightjar)** for Android, plus Windows and Linux | PyroWave and full chroma, your library and the Radeon controls on your phone |
-| **[Nonary's Moonlight](https://github.com/Nonary/moonlight-qt)** | PyroWave and 1000 Hz VRR on a PC |
-| **Samsung Tizen TVs and browsers** | WebRTC streams with HDR, surround and gamepads |
-| **iOS, Apple TV, Switch** | Everything the device can decode |
-
-[Pick the right client and stream format →](docs/getting-started.md#choose-your-stream-format)
-
-## What users say
-
-> Switched to PyroWave on RC19. I honestly see no difference between host and client. Amazing work!
->
-> **u/ChartFlashy6299** on Reddit
-
-> Running pretty good so far, no framedrops, no stutter, and a good migration from Vibepollo. And I love that it is written in Rust!
->
-> **u/almosgeci** on Reddit
-
-<sub>Quotes from Reddit, lightly edited for typos and length. Some predate the rename from Butterpollo.</sub>
+<table>
+  <tr>
+    <td><img src="docs/media/showcase/console-games.png" alt="Games: the library with covers from Steam and other launchers, each with Launch on PC."></td>
+    <td><img src="docs/media/showcase/console-all-settings.png" alt="All settings: six tabs from General to Network and access, with a search field and one line of explanation per setting."></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/showcase/console-help.png" alt="Help: restart or quit the host, save and restore the display layout, return the Windows session to the console."></td>
+    <td>The <a href="docs/configuration.md">configuration guide</a> covers every setting by topic and lists each configuration key with its default.</td>
+  </tr>
+</table>
 
 ## Documentation
 
-| I want to… | Read |
+| Topic | Guide |
 | --- | --- |
-| Get my first stream running | [Getting started](docs/getting-started.md) |
-| Set up displays, HDR, frame limits or controllers | [Configuration](docs/configuration.md) |
-| Sort out pairing, the picture, colours or smoothness | [Troubleshooting](docs/troubleshooting.md) |
-| See everything it does and how fast | [Features](docs/features.md) · [Performance](docs/performance.md) · [Architecture](docs/architecture.md) |
-| Look up my GPU, Windows version or client | [Hardware matrix](docs/hardware-matrix.md) |
-| Build or integrate Rubylight | [Build guide](docs/building.md) · [Developer guide](rust/README.md) · [HTTP API](docs/api.md) · [Native API](docs/native-api.md) |
-| See how 3.0 was planned | [3.0 roadmap](docs/rubylight-3.0-plan.md) |
+| Install, pair and start the first stream | [Getting started](docs/getting-started.md) |
+| Displays, HDR, codecs, audio, controllers, per-game settings, every configuration key | [Configuration](docs/configuration.md) |
+| Pairing, picture, colour, smoothness and update problems | [Troubleshooting](docs/troubleshooting.md) |
+| What Rubylight does | [Features](docs/features.md) |
+| How fast it is, and how we measure | [Performance](docs/performance.md) · [Measurement record](rust/PERFORMANCE.md) |
+| What has been tested on which hardware | [Hardware matrix](docs/hardware-matrix.md) |
+| How the host works | [Architecture](docs/architecture.md) |
+| What Rubylight sends over the network | [Privacy](docs/privacy.md) |
+| Integrating with Rubylight | [HTTP API](docs/api.md) · [Native API](docs/native-api.md) · [Webhooks](docs/webhooks.md) |
 
-[Release notes](rust/RELEASE_NOTES.md) · Have feedback? [Open an issue](https://github.com/RamazanKara/Rubylight/issues/new/choose) with the support bundle from the console. If Rubylight makes your couch better, a ⭐ helps other Radeon owners find it, and [sponsoring](https://github.com/sponsors/RamazanKara) pays for a code signing certificate ([#55](https://github.com/RamazanKara/Rubylight/issues/55)).
+The [documentation index](docs/README.md) lists every guide and reference.
+
+## Building from source
+
+The host builds with Rust 1.98.1 (GNU target), MSYS2 and, for the display driver, Visual Studio with the Windows Driver Kit. From a Visual Studio x64 developer PowerShell:
+
+```powershell
+git clone https://github.com/RamazanKara/Rubylight.git
+cd Rubylight
+.\rust\build.ps1 -FetchDependencies -Package
+```
+
+The [build guide](docs/building.md) lists the prerequisites, options and outputs; the [developer guide](rust/README.md) describes the crates and how to run the host from source.
+
+## Support
+
+Report problems in [GitHub issues](https://github.com/RamazanKara/Rubylight/issues/new/choose) and attach the support bundle from the console's **Help** page. [Sponsorship](https://github.com/sponsors/RamazanKara) goes towards a code signing certificate ([#55](https://github.com/RamazanKara/Rubylight/issues/55)).
 
 ## Credits and license
 

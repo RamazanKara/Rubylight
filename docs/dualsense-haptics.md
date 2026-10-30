@@ -1,14 +1,16 @@
 # DualSense waveform haptics
 
+[Documentation](README.md) · [Controllers](configuration.md#controllers) · [USB forwarding](usb-forwarding.md)
+
 Rubylight can expose a composite DualSense controller on the Windows host, including its USB audio endpoint. Games write their native haptic audio to that endpoint; Rubylight forwards the two actuator channels using Nonary's Moonlight PCM extension. Ordinary rumble, adaptive triggers, lightbar, motion, touchpad and battery reports remain available.
 
-Waveform haptics and the bundled USB/IP installer are available in Rubylight 2.2.15 and later. Controller speaker/headset audio, microphone input and controller preparation/continuity are available in Rubylight 2.2.16; the additional client audio paths require a matching client such as Nightjar. A client that only implements Nonary's waveform extension can still receive haptics.
+Controller speaker and headset audio, microphone input and controller preparation need a matching client such as Nightjar. A client that only implements Nonary's waveform extension still receives haptics.
 
 ## Setup
 
-1. In the Windows installer, select **Install USB audio and haptics support** on the **Steam Deck and DualSense USB audio and haptics** page. Rubylight 2.2.15 and later bundle the signed usbip-win2 0.9.8.1 installer; it is optional and off by default. Setup remembers your choice for updates and reuses an existing shared USB/IP installation. Installing it can reconnect USB devices and require a Windows restart; setup never restarts Windows automatically. For an older Rubylight package, install [usbip-win2](https://github.com/vadimgrn/usbip-win2/releases) separately.
+1. In the Windows installer, select **Install USB audio and haptics support** on the **Steam Deck and DualSense USB audio and haptics** page. Setup bundles the signed usbip-win2 0.9.8.1 installer; it is optional and off by default. Setup remembers your choice for updates and reuses an existing shared USB/IP installation. Installing it can reconnect USB devices and require a Windows restart; setup never restarts Windows automatically.
 2. Use a client that implements Nonary's PCM haptics extension. For [Nightjar](https://github.com/RamazanKara/nightjar/blob/main/docs/dualsense-haptics.md), connect a DualSense or DualSense Edge by USB and enable **USB DualSense driver** and **USB DualSense audio and haptics** under **Settings → Controls** before reconnecting.
-3. Leave **Settings → Input → Controller type** on **Automatic**, or choose **DualSense with waveform haptics (USB/IP)**. The same choice is available in an app's controller override.
+3. Leave **All settings → Audio & controls → Controller type** on **Automatic**, or choose **DualSense with waveform haptics (USB/IP)**. The same choice is available in an app's controller override.
 4. With Nightjar, controllers that are ready when the connection starts are attached before Rubylight launches the game. With other clients, connect to Desktop first and wait for the controller/audio device before starting the game. Disable host-side Steam Input for games that need native DualSense effects. For Steam gyro aiming and radial menus, enable Steam Input and configure those in the game’s controller layout; Rubylight forwards the controller motion and touchpad input.
 
 Automatic selects the composite controller only when the chosen profile is DualSense and the client controller advertises waveform playback. If USB/IP is unavailable or fails to attach, Automatic keeps the VHF controller and shows a warning; native waveform haptics are unavailable in that fallback. The explicit USB/IP choice requires usbip-win2 and reports an error if it cannot attach.
@@ -27,9 +29,7 @@ With [Game-only audio](configuration.md#game-only-audio), dedicated USB speaker 
 
 ## Haptics from game audio
 
-<a id="haptics-from-game-audio-experimental"></a>
-
-Most games send a DualSense rumble at best and often nothing. With **Settings → Input → Controllers → Haptics from game audio** (`audio_haptics`, off by default) the host makes waveform haptics from the stream's own sound for each client DualSense that has waveform haptics but gets none from the game:
+Most games send a DualSense rumble at best and often nothing. With **All settings → Audio & controls → Haptics from game audio** (`audio_haptics`, off by default) the host makes waveform haptics from the stream's own sound for each client DualSense that has waveform haptics but gets none from the game:
 
 - The bass below 150 Hz drives the left and right actuators from the left and right channels; in 5.1 and 7.1 the LFE drives both, and the rear and side channels add to their side.
 - Sharp transients such as shots and impacts add a short 100 Hz thump on their side, as strong as the transient, even when they carry no bass.

@@ -82,7 +82,7 @@ Source: [cursor upload and native assertion](../rust/windows/src/compute.rs),
 
 At October 17, 22:17 UTC, an installed 2.5.5 session stalled after approximately
 16 minutes of 4K119.88 HEVC HDR streaming. It used the display driver's standard
-keyed-mutex ring, D3D12 AMF input and the RX 7900 XT. Experimental fence transport
+keyed-mutex ring, D3D12 AMF input and the RX 7900 XT. The opt-in fence transport
 was off. Before the stall, the log reported approximately 120 FPS,
 0.3 ms conversion and 6 ms encoding.
 
@@ -157,8 +157,8 @@ and possible causes that have not been reproduced.
   thread scheduling remains enabled; process-wide high CPU priority is no
   longer requested by the host or capture helper.
 
-The existing keyframe-loss pacing guard was already enabled. Experimental
-host-adaptive pacing remains opt-in. Capture recovery already waits for
+The existing keyframe-loss pacing guard was already enabled. Host-adaptive
+pacing remains opt-in. Capture recovery already waits for
 encoder consumers before reopening, and native GPU resource destruction
 already occurs outside the capture-state lock; those paths were not replaced.
 

@@ -38,6 +38,7 @@ mod gpu_color;
 pub mod gpu_priority;
 pub mod gpu_probe;
 pub mod hdr_profile;
+pub mod hip;
 pub mod hotkey;
 pub mod image;
 pub mod input;

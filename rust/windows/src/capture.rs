@@ -272,6 +272,55 @@ pub fn stream_adapter(display: Option<&str>, adapter_name: &str, pnp_id: &str) -
         }
     }
 }
+/// The GPU a stream of `display` captures and encodes on, by name and LUID:
+/// the one the Graphics card setting names or [`stream_adapter`] pins,
+/// otherwise the one that drives the display (the primary when it is gone),
+/// and with no display connected the one [`headless_gpu`] names.
+pub fn stream_gpu(display: &str, adapter_name: &str, pnp_id: &str) -> Result<(String, (u32, i32))> {
+    let gpus = gpus()?;
+    let (name, pnp_id) = stream_adapter(Some(display), adapter_name, pnp_id);
+    if let Some(gpu) = select_gpu(&gpus, &name, &pnp_id)? {
+        return Ok((gpu.name.clone(), gpu.luid));
+    }
+    let choices = displays()?;
+    let Some(shown) =
+        select_display(&choices, display).or_else(|_| select_display(&choices, ""))?
+    else {
+        let gpu = headless_gpu(&gpus)?;
+        return Ok((gpu.name.clone(), gpu.luid));
+    };
+    // SAFETY: The factory and adapter are live COM objects, and GetDesc1 returns an owned
+    // descriptor.
+    let desc = unsafe {
+        let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
+        factory.EnumAdapters1(shown.adapter_index)?.GetDesc1()?
+    };
+    Ok((
+        from_wide(&desc.Description),
+        (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart),
+    ))
+}
+/// The GPU a stream encodes on while no display is connected, as on a
+/// headless host or one whose monitor is off: the AMD GPU
+/// [`amd_gpu::pinned`] chooses, else the only AMD GPU. With several AMD GPUs
+/// and none chosen, or none at all, which one would stream is unknown.
+fn headless_gpu(gpus: &[Gpu]) -> Result<&Gpu> {
+    let adapters: Vec<(u32, u64)> = gpus
+        .iter()
+        .map(|gpu| (gpu.vendor, gpu.dedicated_memory))
+        .collect();
+    if let Some(index) = amd_gpu::pinned(&adapters, None) {
+        return Ok(&gpus[index]);
+    }
+    let mut amd = gpus.iter().filter(|gpu| amd_gpu::is_amd(gpu.vendor));
+    match (amd.next(), amd.next()) {
+        (Some(gpu), None) => Ok(gpu),
+        (Some(_), Some(_)) => bail!(
+            "no display is connected, and of this PC's AMD GPUs none is chosen: choose one in the Graphics card setting"
+        ),
+        (None, _) => bail!("no display is connected, and this PC has no AMD GPU"),
+    }
+}
 /// The PCI vendor of the GPU that drives `name` (the primary if it is gone).
 fn display_vendor(name: &str) -> Option<u32> {
     let choices = displays().ok()?;

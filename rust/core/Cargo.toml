@@ -42,6 +42,8 @@ embed-resource = "3.0.12"
 # Property tests over the decoders of peer input (src/fuzz.rs).
 proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3.23"
+# Release archives for the neural rendering package checks (src/neural).
+zip = { version = "4.6", default-features = false }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
 [lints]

@@ -361,6 +361,10 @@ pub async fn maintain(
             if crate::updater::check_due(&h) {
                 maintenance::trigger_update(&h, false);
             }
+            if crate::neural::removal_due(&h) {
+                let h = h.clone();
+                tokio::task::spawn_blocking(move || crate::neural::remove_pending(&h));
+            }
         }
         crate::updater::poll(&h);
         start_deferred(&h);

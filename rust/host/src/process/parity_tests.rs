@@ -30,6 +30,28 @@ fn background_mode_survives_a_deferred_launch() {
     }
 }
 
+/// A launch checks Neural Rendering's files first and fails loudly when they
+/// are gone or the switch is busy with the game.
+#[test]
+fn a_launch_fails_when_neural_rendering_is_broken_or_busy() {
+    let fixture = Fixture::new();
+    // In the temp folder, under `%LOCALAPPDATA%`: other games' anti-cheat
+    // there (BattlEye's own folder) doesn't refuse this one.
+    let folder = fixture.host.directory.join("Game");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("Game.exe"), "MZ").unwrap();
+    let app: App = serde_json::from_value(json!({"name": "Game", "uuid": "game",
+        crate::neural::KEY: {"exe": folder.join("Game.exe")}}))
+    .unwrap();
+    let launch =
+        || launch_with_environment(&fixture.host, &app, &HashMap::new(), Ok(BTreeMap::new()));
+    let error = format!("{:#}", launch().err().unwrap());
+    assert!(error.contains("files are gone"), "{error}");
+    crate::neural::start_job(&fixture.host, "game", "remove", "remove").unwrap();
+    let error = format!("{:#}", launch().err().unwrap());
+    assert!(error.contains("busy"), "{error}");
+}
+
 #[test]
 fn background_controller_environment_wins_over_saved_environment() {
     let fixture = Fixture::new();

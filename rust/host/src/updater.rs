@@ -207,7 +207,7 @@ fn next_check(h: &Shared) -> Option<u64> {
 }
 
 /// A client is streaming or about to; a game left running does not count.
-fn streaming(h: &Shared) -> bool {
+pub fn streaming(h: &Shared) -> bool {
     let sessions = h.sessions.lock().unwrap();
     !sessions.active.is_empty() || !sessions.pending.is_empty()
 }

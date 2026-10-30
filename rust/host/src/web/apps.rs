@@ -40,6 +40,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let uuid = app.extra["uuid"].clone();
             let mut apps = h.apps.write().unwrap();
             let mut next = apps.clone();
+            crate::neural::keep_key(
+                next.iter().find(|a| a.extra.get("uuid") == Some(&uuid)),
+                &mut app,
+            );
             // Only a sync stamps an app. A synced app saved here becomes the user's, so no sync
             // renames or removes it again.
             app.extra.remove(butterpollo_core::library::SYNCED_BY);
@@ -375,14 +379,23 @@ pub(super) async fn icon(h: &Shared, id: &str) -> Response {
     StatusCode::NOT_FOUND.into_response()
 }
 
-pub(super) fn purge_autosync(h: &Shared) -> Response {
-    let mut removed = 0;
-    match crate::steam::update_apps(h, |apps| {
-        removed = butterpollo_core::playnite::purge(apps);
-        removed > 0
-    }) {
-        Ok(_) => Json(json!({"status":true,"removed":removed})).into_response(),
-        Err(err) => error(StatusCode::INTERNAL_SERVER_ERROR, &format!("{err:#}")),
+/// Blocks a worker, not the web server: a game it drops loses Neural
+/// Rendering, which runs a helper process for each.
+pub(super) async fn purge_autosync(h: &Shared) -> Response {
+    let h = h.clone();
+    let purged = tokio::task::spawn_blocking(move || {
+        let mut removed = 0;
+        crate::steam::update_apps(&h, |apps| {
+            removed = butterpollo_core::playnite::purge(apps);
+            removed > 0
+        })
+        .map(|_| removed)
+    })
+    .await;
+    match purged {
+        Ok(Ok(removed)) => Json(json!({"status":true,"removed":removed})).into_response(),
+        Ok(Err(err)) => error(StatusCode::INTERNAL_SERVER_ERROR, &format!("{err:#}")),
+        Err(err) => error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
     }
 }
 
@@ -414,13 +427,29 @@ pub(super) async fn cover(h: &Shared, path: &str) -> Response {
 }
 
 fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
+    let matches = |a: &App| {
+        a.extra.get("uuid").and_then(Value::as_str) == Some(id) || a.id().to_string() == id
+    };
+    // Before the apps are locked: the removal runs a helper process.
+    let doomed: Vec<App> = h
+        .apps
+        .read()
+        .unwrap()
+        .iter()
+        .filter(|a| matches(a))
+        .cloned()
+        .collect();
+    // Each holds the app's Neural Rendering slot until it is gone.
+    let mut removing = Vec::new();
+    for app in &doomed {
+        removing.push(crate::neural::before_delete(h, app)?);
+    }
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();
     let before = next.len();
     let mut deleted = vec![];
     next.retain(|a| {
-        let keep =
-            a.extra.get("uuid").and_then(Value::as_str) != Some(id) && a.id().to_string() != id;
+        let keep = !matches(a);
         if !keep {
             deleted.push(serde_json::to_value(a));
         }
@@ -802,5 +831,37 @@ mod tests {
             f.host.app_document.read().unwrap()["launcher-dismissed"],
             json!(["steam:620"])
         );
+    }
+
+    /// Purging synced apps waits on a worker, so the web server answers
+    /// meanwhile: a game it drops loses Neural Rendering through a helper
+    /// process, which can take minutes.
+    #[tokio::test(flavor = "current_thread")]
+    async fn purging_synced_apps_never_blocks_the_web_server() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let f = Fixture::new();
+        let h = f.host.clone();
+        // The apps held elsewhere for a while, as a slow removal holds the purge.
+        let (held, holding) = std::sync::mpsc::channel();
+        let reader = h.clone();
+        let holder = std::thread::spawn(move || {
+            let _apps = reader.apps.read().unwrap();
+            held.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        });
+        holding.recv().unwrap();
+        let answered = std::sync::Arc::new(AtomicBool::new(false));
+        let other = answered.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            other.store(true, Ordering::SeqCst);
+        });
+        let response = super::purge_autosync(&h).await;
+        assert!(
+            answered.load(Ordering::SeqCst),
+            "nothing else ran during the purge"
+        );
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        holder.join().unwrap();
     }
 }

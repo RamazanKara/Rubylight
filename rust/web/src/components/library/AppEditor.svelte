@@ -19,6 +19,7 @@
   import GameFiles from './GameFiles.svelte';
   import DeviceOverrides from './DeviceOverrides.svelte';
   import PlayTogether from './PlayTogether.svelte';
+  import NeuralRendering from './NeuralRendering.svelte';
   import { api, type App, type SessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { guardNavigation, link, navigate } from '../../lib/router.svelte';
@@ -371,6 +372,10 @@
     <Panel collapsible title="Lossless Scaling" description="Upscaling and frame generation by Lossless Scaling while the app runs.">
       <LosslessSettings {draft} />
     </Panel>
+
+    {#if draft.saved.uuid}
+      <NeuralRendering uuid={draft.saved.uuid} />
+    {/if}
 
     <footer class="bar">
       <Button type="submit" variant="primary" busy={saving} disabled={!draft.changed || draft.invalid}>Save</Button>

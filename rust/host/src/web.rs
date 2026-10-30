@@ -10,6 +10,7 @@ mod config;
 mod displays;
 mod logs;
 mod maintenance;
+mod neural;
 #[cfg(test)]
 mod parity_tests;
 mod power;
@@ -831,6 +832,9 @@ pub(crate) async fn api(
     if path == "/api/coop" || path.starts_with("/api/coop/") {
         return coop::handle(&h, &method, path, &data).await;
     }
+    if path == "/api/neural" || path.starts_with("/api/neural/") {
+        return neural::handle(&h, &method, path, &uri, &data).await;
+    }
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
     }
@@ -861,7 +865,7 @@ pub(crate) async fn api(
         return apps::icon(&h, id).await;
     }
     if method == Method::POST && path == "/api/apps/purge_autosync" {
-        return apps::purge_autosync(&h);
+        return apps::purge_autosync(&h).await;
     }
     if method == Method::GET && path == "/api/logs/export_crash" {
         return logs::export_crash(&h).await;
@@ -1206,6 +1210,7 @@ pub(crate) async fn api(
     .unwrap_or_else(|e| Err(e.into()));
     match result {
         Ok(v) => Json(v).into_response(),
+        Err(e) if e.is::<crate::neural::Busy>() => error(StatusCode::CONFLICT, &e.to_string()),
         Err(e) => error(StatusCode::BAD_REQUEST, &e.to_string()),
     }
 }

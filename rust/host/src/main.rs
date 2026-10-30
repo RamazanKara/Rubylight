@@ -14,6 +14,7 @@ mod mic;
 mod native_api;
 mod network;
 mod network_path;
+mod neural;
 mod nucleus;
 mod nvhttp;
 mod playnite;
@@ -125,6 +126,13 @@ struct Args {
     /// One Radeon read or write in a fresh process: stdin carries the request, stdout the answer.
     #[arg(long, hide = true)]
     radeon_helper: bool,
+    /// Print the GPUs the AMD compute runtime finds, for Neural Rendering.
+    #[arg(long, hide = true)]
+    neural_probe: bool,
+    /// One Neural Rendering request on a game folder, as the signed-in user:
+    /// stdin carries the request, stdout the answer.
+    #[arg(long, hide = true)]
+    neural_folder: bool,
     /// Seconds since the last input in this session, as the exit code (the
     /// host runs it in the signed-in user's session).
     #[arg(long, hide = true)]
@@ -150,6 +158,12 @@ fn main() -> Result<()> {
     }
     if args.radeon_helper {
         std::process::exit(butterpollo_windows::radeon::helper::run());
+    }
+    if args.neural_probe {
+        std::process::exit(neural::probe_main());
+    }
+    if args.neural_folder {
+        std::process::exit(neural::folder::helper());
     }
     if args.idle_seconds {
         std::process::exit(wake::idle_seconds_exit_code());

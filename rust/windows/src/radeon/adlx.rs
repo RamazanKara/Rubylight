@@ -1064,6 +1064,18 @@ pub fn gpus() -> Result<Vec<super::control::GpuInfo>> {
         .collect())
 }
 
+/// AMD Software's version (`26.10.1`) as ADLX reports it
+/// (`IADLXGPU2::AMDSoftwareVersion`), from the first GPU that has one; never
+/// the driver's own version. None when no GPU reports it.
+pub fn amd_software_version() -> Result<Option<String>> {
+    let session = Session::open()?;
+    Ok(session.gpus.iter().find_map(|(_, gpu)| {
+        driver_info(gpu)
+            .amd_software_version
+            .filter(|version| !version.trim().is_empty())
+    }))
+}
+
 /// Reads and writes through ADLX. Every call opens its own session, so nothing is held between
 /// calls and the host's telemetry keeps its own ADLX.
 pub struct AdlxBackend;

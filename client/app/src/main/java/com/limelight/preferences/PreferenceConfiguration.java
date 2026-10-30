@@ -623,8 +623,9 @@ public class PreferenceConfiguration {
     /**
      * The default the bitrate setting shows and stores for these settings, with {@code res},
      * {@code fps} and {@code codec} in place of the saved ones when not null: PyroWave's own
-     * (intra-only, it breaks up at the conventional default) while PyroWave is the chosen codec. A
-     * stream still starts at the default for the codec it negotiates.
+     * (intra-only, it breaks up at the conventional default) while PyroWave is the chosen codec,
+     * for a link not known yet. A stream still starts at the default for the codec it negotiates
+     * and the link it finds.
      */
     static int getShownDefaultBitrate(SharedPreferences prefs, String res, String fps, String codec) {
         if (res == null) res = prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION);
@@ -632,9 +633,25 @@ public class PreferenceConfiguration {
         if (codec == null) codec = prefs.getString(VIDEO_FORMAT_PREF_STRING, DEFAULT_VIDEO_FORMAT);
         if ("forcepyrowave".equals(codec)) {
             return PyroWaveBitrateFloor.defaultKbps(getWidthFromResolutionString(res),
-                    getHeightFromResolutionString(res), Integer.parseInt(fps));
+                    getHeightFromResolutionString(res), Integer.parseInt(fps), 0);
         }
         return getDefaultBitrate(res, fps);
+    }
+
+    /**
+     * PyroWave's minimum for the saved resolution and frame rate when PyroWave is the chosen codec
+     * and the bitrate the user picked is below it, else 0. A chosen bitrate is kept as it is; the
+     * bitrate setting warns instead (the automatic one never goes below the minimum).
+     */
+    static int pyroWaveMinimumAboveChosenKbps(SharedPreferences prefs) {
+        if (!"forcepyrowave".equals(prefs.getString(VIDEO_FORMAT_PREF_STRING, DEFAULT_VIDEO_FORMAT)) ||
+                !isBitrateUserSet(prefs)) {
+            return 0;
+        }
+        String res = prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION);
+        int minimum = PyroWaveBitrateFloor.minimumKbps(getWidthFromResolutionString(res),
+                getHeightFromResolutionString(res), Integer.parseInt(prefs.getString(FPS_PREF_STRING, DEFAULT_FPS)));
+        return prefs.getInt(BITRATE_PREF_STRING, 0) < minimum ? minimum : 0;
     }
 
     private static FormatOption getVideoFormatValue(Context context) {

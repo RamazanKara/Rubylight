@@ -264,7 +264,8 @@ def generate():
             default = f"Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS)"
         elif key == "seekbar_bitrate_kbps":
             default = ("Calculated for the native resolution and screen maximum FPS; with PyroWave, PyroWave's own "
-                       "(about 400 Mbps at 1080p60, never below its minimum); follows changes until bitrate is chosen explicitly")
+                       "(about 400 Mbps at 1080p60, at most 900 Mbps or 90% of a known wired link, never below its minimum); "
+                       "follows changes until bitrate is chosen explicitly")
         elif key == "checkbox_small_icon_mode":
             threshold = re.search(r"smallestScreenWidthDp < (\d+)", config)[1]
             default = f"On below {threshold} dp smallest screen width; Off on TVs and larger screens"

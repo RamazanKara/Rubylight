@@ -333,7 +333,7 @@
     <string name="stream_bitrate_invalid">Introduce una tasa de bits de 0,5 a 2000 Mbps</string>
     <string name="stream_bitrate_applied">El servidor ha aplicado %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps está por debajo del mínimo de PyroWave de %2$d Mbps a %3$d×%4$d y %5$d FPS. La imagen se verá rota.</string>
-    <string name="stream_pyrowave_bitrate_raised">Tu bitrate de %1$.1f Mbps está por debajo del mínimo de PyroWave, así que esta transmisión usa %2$.1f Mbps.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">Por debajo del mínimo de PyroWave de %1$d Mbps a %2$d×%3$d, %4$d FPS: la imagen se romperá.</string>
     <string name="stream_enabled">Activado</string>
     <string name="stream_disabled">Desactivado</string>
     <string name="stream_limiter_status">Límite de fotogramas del servidor: %1$s\nLímite automático de pantalla: %2$s\nObjetivo: %3$s</string>

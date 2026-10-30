@@ -333,7 +333,7 @@
     <string name="stream_bitrate_invalid">Введіть бітрейт від 0,5 до 2000 Мбіт/с</string>
     <string name="stream_bitrate_applied">Хост застосував %1$.1f Мбіт/с</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Мбіт/с нижче мінімуму PyroWave у %2$d Мбіт/с для %3$d×%4$d, %5$d FPS. Зображення розсипатиметься.</string>
-    <string name="stream_pyrowave_bitrate_raised">Ваш бітрейт %1$.1f Мбіт/с нижчий за мінімум PyroWave, тому цей потік використовує %2$.1f Мбіт/с.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">Нижче мінімуму PyroWave %1$d Мбіт/с для %2$d×%3$d, %4$d FPS: зображення розсипатиметься.</string>
     <string name="stream_enabled">Увімкнено</string>
     <string name="stream_disabled">Вимкнено</string>
     <string name="stream_limiter_status">Обмеження кадрів хоста: %1$s\nАвтообмеження дисплея: %2$s\nЦіль: %3$s</string>

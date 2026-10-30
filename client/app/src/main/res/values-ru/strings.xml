@@ -333,7 +333,7 @@
     <string name="stream_bitrate_invalid">Введите битрейт от 0,5 до 2000 Мбит/с</string>
     <string name="stream_bitrate_applied">Хост применил %1$.1f Мбит/с</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Мбит/с ниже минимума PyroWave в %2$d Мбит/с для %3$d×%4$d, %5$d FPS. Изображение будет рассыпаться.</string>
-    <string name="stream_pyrowave_bitrate_raised">Ваш битрейт %1$.1f Мбит/с ниже минимума PyroWave, поэтому этот поток использует %2$.1f Мбит/с.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">Ниже минимума PyroWave %1$d Мбит/с для %2$d×%3$d, %4$d FPS: изображение будет рассыпаться.</string>
     <string name="stream_enabled">Вкл.</string>
     <string name="stream_disabled">Выкл.</string>
     <string name="stream_limiter_status">Ограничение кадров на хосте: %1$s\nАвтоограничение дисплея: %2$s\nЦель: %3$s</string>

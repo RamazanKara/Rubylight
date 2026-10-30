@@ -1,3 +1,0 @@
-## en
-- Desktop (Windows): with Variable refresh rate on (the default), a fullscreen stream on a display that keeps its own refresh rate now switches to V-Sync instead of tearing, when the stream runs below about 70% of the display's rate (measured with a 60 fps stream on a 120 Hz laptop panel). The stats overlay says so on the Pacing line. Faster streams on such a display still tear: turn Variable refresh rate off there. With V-Sync off in the settings the stream stays immediate.
-- Desktop: exclusive fullscreen with Variable refresh rate on now asks for the display's highest refresh rate at the stream's resolution instead of the stream's frame rate.

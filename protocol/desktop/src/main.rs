@@ -8,16 +8,21 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod a11y;
 mod autostream;
 mod cli;
 mod clipboard;
 mod config;
+#[cfg(windows)]
+mod crash_dump;
 mod console;
 mod coop_page;
 mod folders_page;
 mod controller_audio;
 mod controller_mouse;
+mod dmabuf;
 mod gamepad;
+mod glyphs;
 mod gui;
 mod host_page;
 mod hosts;
@@ -25,8 +30,11 @@ mod keymap;
 mod logfile;
 mod logpipe;
 mod media;
+mod nav_repeat;
 mod network;
 mod network_test;
+mod pin_lock;
+mod pin_ui;
 mod radeon;
 mod sdl;
 mod session_page;
@@ -38,12 +46,16 @@ mod theme;
 mod timing_csv;
 mod ui;
 mod usb;
+#[cfg(target_os = "linux")]
+mod usb_linux;
 // Windows reads its drivers here; the parsing is tested everywhere.
 #[cfg(any(windows, test))]
 mod usb_winusb;
 // build.rs uses the parser; here only its tests do.
 #[cfg_attr(not(test), allow(dead_code))]
 mod version_name;
+mod update_check;
+mod window_place;
 mod wol;
 
 /// The release version: the `versionName` of the Android app, embedded by build.rs.
@@ -141,12 +153,17 @@ struct App {
     screenshot_dir: PathBuf,
     screenshot_requested: bool,
     stick_held: [bool; 4],
+    nav_repeat: nav_repeat::NavRepeat,
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
     /// The 4:4:4 and 10-bit decoder check for a decoder, done at the first launch that asks: the
     /// decoder and the renderer stay the same while Nightjar runs.
     color_probed: Option<(Hardware, (u32, String))>,
+    /// The stream start that waits for the PIN screen.
+    pin_pending: Option<PinPending>,
+    /// This launch's update check (Windows); command-line and test streams make none.
+    updates: update_check::Updates,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -179,6 +196,31 @@ fn mode_pixels(w: i32, h: i32, pixel_density: f32) -> (u32, u32) {
     let density = if pixel_density > 0.0 { pixel_density } else { 1.0 };
     let pixels = |points: i32| (points.max(0) as f32 * density).round() as u32;
     (pixels(w), pixels(h))
+}
+
+/// The refresh rate exclusive fullscreen asks the display for. With VRR the display's top rate
+/// (`modes`: the refresh rates of its fullscreen modes), whatever the desktop runs at: the mode
+/// closest to it at the stream's size is that size's fastest, the panel follows the frames up to
+/// it, and a mode at the stream's rate would cap the range (a 60 fps stream would put a 240 Hz
+/// panel at 60 Hz). Without VRR the stream's rate, so each frame gets whole refreshes.
+fn fullscreen_refresh_hz(vrr: bool, modes: &[f32], stream_fps: i32) -> f32 {
+    let top = modes.iter().copied().fold(0.0, f32::max);
+    if vrr && top > 0.0 { top } else { stream_fps as f32 }
+}
+
+/// The refresh rates of a display's fullscreen modes, empty when SDL has none.
+fn mode_refresh_rates(id: SDL_DisplayID) -> Vec<f32> {
+    let mut count = 0;
+    // SAFETY: SDL allocates the list of mode pointers, which is read here and then freed.
+    unsafe {
+        let modes = SDL_GetFullscreenDisplayModes(id, &mut count);
+        if modes.is_null() {
+            return Vec::new();
+        }
+        let rates = (0..count.max(0) as usize).filter_map(|i| (*modes.add(i)).as_ref().map(|mode| mode.refresh_rate)).collect();
+        SDL_free(modes.cast());
+        rates
+    }
 }
 
 /// What the display reported, for the log: the stream's "native" resolution comes from it.
@@ -241,6 +283,11 @@ fn main() {
     // After the package check, which must not write to the user's log.
     logpipe::start();
     let _log = logpipe::Guard;
+    #[cfg(windows)]
+    match logfile::logs_dir() {
+        Ok(dir) => crash_dump::install(&dir),
+        Err(e) => eprintln!("nightjar: crash dumps off: no logs folder: {e}"),
+    }
     let error_box = cli::shows_error_box(launch.as_ref());
     if let Err(e) = run(launch) {
         eprintln!("nightjar: {e}");
@@ -280,6 +327,10 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         sdl::set_hint(SDL_HINT_RENDER_DRIVER, c"direct3d11");
         sdl::set_hint(SDL_HINT_RENDER_DIRECT3D_THREADSAFE, c"1");
     }
+    // VAAPI pictures reach the OpenGL renderer as EGL images (`dmabuf`), which needs an EGL
+    // context on X11 as well (Wayland's always is), as moonlight-qt forces it.
+    #[cfg(unix)]
+    sdl::set_hint(SDL_HINT_VIDEO_FORCE_EGL, c"1");
     // Keep Alt+Tab and the Windows key for the host while the keyboard is grabbed.
     sdl::set_hint(SDL_HINT_ALLOW_ALT_TAB_WHILE_GRABBED, c"0");
     sdl::set_hint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, c"0");
@@ -313,6 +364,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
             return Err(format!("No window: {}", sdl::error()));
         }
         SDL_SetWindowMinimumSize(window, 720, 480);
+        window_place::apply(window, store.window_placement().as_ref());
         let renderer =
             sdl::create_renderer(window, gpu);
         if renderer.is_null() {
@@ -321,10 +373,10 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         SDL_SetRenderVSync(renderer, 1);
         (window, renderer, SDL_RegisterEvents(1))
     };
+    // Windows windows take the executable's icon (build.rs) in every size the shell asks for.
+    #[cfg(not(windows))]
     sdl::set_icon(window, &theme::logo_rgba(64), 64);
     sdl::exclude_from_capture_if_asked(window);
-    // SAFETY: a live window.
-    unsafe { SDL_ShowWindow(window) };
 
     let waker: hosts::Waker = Arc::new(move || {
         // SAFETY: SDL_PushEvent is thread-safe; the event is plain data.
@@ -335,11 +387,18 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         }
     });
 
-    let gui = Gui::new();
+    let mut gui = Gui::new();
+    // Before the window shows: UI Automation's adapter has to be on it from the start.
+    if let Err(e) = gui.attach_accessibility(window, waker.clone()) {
+        eprintln!("nightjar: screen readers cannot read this window: {e}");
+    }
+    // SAFETY: a live window.
+    unsafe { SDL_ShowWindow(window) };
     theme::apply(&gui.ctx);
     let display = display_of(window);
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
+    launcher.pin = Some(pin_ui::PinLock::open(store.dir()));
     launcher.favourites = store.favourites();
     launcher.system_languages = sdl::preferred_languages();
     #[cfg(windows)]
@@ -396,6 +455,10 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let mut pads = Gamepads::default();
     pads.mappings = mappings;
     pads.configure(&settings);
+    let updates = update_check::Updates::start(
+        settings.check_updates && cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none(),
+        waker.clone(),
+    );
     let mut app = App {
         window,
         renderer,
@@ -423,10 +486,13 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         screenshot_dir,
         screenshot_requested: false,
         stick_held: [false; 4],
+        nav_repeat: nav_repeat::NavRepeat::default(),
         running: true,
         autostream: autostream::Autostream::from_env(),
+        updates,
         cli,
         color_probed: None,
+        pin_pending: None,
     };
     match identity {
         Some(identity) => {
@@ -465,15 +531,22 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
 
 impl App {
     fn shutdown(&mut self) {
+        // Closing Nightjar is leaving it: a start within the grace time stays unlocked.
+        if let Some(pin) = self.launcher.pin.as_mut() {
+            pin.left();
+            pin.flush();
+        }
         self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
-        if let Some((streaming, _)) = self.streaming.take() {
-            streaming.finish(self.window, &mut self.pads);
-        }
+        // The PC's automatic bitrate goes off after the window has gone, not with the process.
+        let abr_stop = self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads));
         if let Some(c) = &self.connecting {
             c.cancel();
         }
         let _ = self.store.save_hosts(&self.hosts.records());
+        if let Some(placement) = window_place::current(self.window, self.store.window_placement().as_ref()) {
+            if let Err(e) = self.store.save_window_placement(&placement) { eprintln!("nightjar: window place not saved: {e}"); }
+        }
         self.pads.close_all();
         self.gui.destroy();
         // SAFETY: tearing down what run() created.
@@ -482,6 +555,7 @@ impl App {
             SDL_DestroyWindow(self.window);
             SDL_Quit();
         }
+        if let Some(stop) = abr_stop { stop.wait(); }
     }
 
     /// Drops the saved library of a PC that is unpaired or removed.
@@ -545,7 +619,13 @@ impl App {
                         for e in gui::tap(key) {
                             self.gui.push(e);
                         }
+                        if matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight) {
+                            self.nav_repeat.hold(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button), key, Instant::now());
+                        }
                     }
+                }
+                SDL_EVENT_GAMEPAD_BUTTON_UP => {
+                    self.nav_repeat.release(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button));
                 }
                 SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     let a = event.gaxis;
@@ -560,15 +640,64 @@ impl App {
                         for e in gui::tap(key) {
                             self.gui.push(e);
                         }
+                        self.nav_repeat.hold(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0), key, Instant::now());
                     }
                     self.stick_held[slot] = i32::from(a.value).abs() > 12000 && (held || self.stick_held[slot]);
+                    if !self.stick_held[slot] {
+                        self.nav_repeat.release(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0));
+                    }
                 }
                 _ => {}
             }
         }
     }
 
+    /// Steps a held D-pad direction or stick again (nav_repeat.rs). A hold whose release went to
+    /// the stream, or whose controller left, is checked against the controller and dropped.
+    /// True when it stepped.
+    fn repeat_navigation(&mut self) -> bool {
+        if self.launcher.screen == Screen::Controllers && self.launcher.controller_test {
+            self.nav_repeat.clear();
+            return false;
+        }
+        let keys = self.nav_repeat.due(Instant::now(), |pad, input| {
+            // SAFETY: SDL gamepad queries on the main thread; a null gamepad has left.
+            unsafe {
+                let gamepad = SDL_GetGamepadFromID(SDL_JoystickID(pad));
+                if gamepad.is_null() {
+                    return false;
+                }
+                match input {
+                    nav_repeat::Input::Button(button) => SDL_GetGamepadButton(gamepad, SDL_GamepadButton(i32::from(button))),
+                    nav_repeat::Input::Axis(axis, positive) => {
+                        let value = i32::from(SDL_GetGamepadAxis(gamepad, SDL_GamepadAxis(i32::from(axis))));
+                        if positive { value > 12000 } else { value < -12000 }
+                    }
+                }
+            }
+        });
+        for key in &keys {
+            for e in gui::tap(*key) {
+                self.gui.push(e);
+            }
+        }
+        !keys.is_empty()
+    }
+
+    /// Minimizing or hiding the window is leaving Nightjar for the PIN lock's grace time.
+    fn track_visibility(&mut self, event: &SDL_Event) {
+        // SAFETY: reading the event type.
+        let kind = SDL_EventType(unsafe { event.r#type });
+        let Some(pin) = self.launcher.pin.as_mut() else { return };
+        match kind {
+            SDL_EVENT_WINDOW_MINIMIZED | SDL_EVENT_WINDOW_HIDDEN => pin.left(),
+            SDL_EVENT_WINDOW_RESTORED | SDL_EVENT_WINDOW_SHOWN => pin.returned(),
+            _ => {}
+        }
+    }
+
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
+        self.track_visibility(event);
         let scale = Scale::of(self.window);
         // SAFETY: union members read by event type.
         unsafe {
@@ -582,7 +711,7 @@ impl App {
                 SDL_EVENT_GAMEPAD_REMOVED => {
                     self.pads.removed(event.gdevice.which);
                 }
-                SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
+                SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     if self.launcher.screen != Screen::Controllers || !self.launcher.controller_test { self.navigate(event); }
                 }
                 SDL_EVENT_KEY_DOWN if event.key.scancode == SDL_SCANCODE_F12 => {
@@ -604,8 +733,11 @@ impl App {
         let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || self.launcher.remote.running() || self.launcher.files.busy()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
-            || self.identity.is_some() || self.autostream.is_some();
+            || self.identity.is_some() || self.autostream.is_some()
+            || self.launcher.pin.as_ref().is_some_and(pin_ui::PinLock::busy);
         let timeout = if busy { 16 } else { 250 };
+        // A held direction wakes the loop for its next step.
+        let timeout = self.nav_repeat.next(Instant::now()).map_or(timeout, |next| timeout.min(next.as_millis().min(250) as i32 + 1));
         // SAFETY: event polling on the main thread.
         unsafe {
             let mut event: SDL_Event = std::mem::zeroed();
@@ -619,6 +751,7 @@ impl App {
         if !self.running {
             return;
         }
+        self.repeat_navigation();
         let test_events: Vec<_> = self.network_test.as_ref().map(|test| test.events.try_iter().collect()).unwrap_or_default();
         for event in test_events {
             match event {
@@ -824,7 +957,10 @@ impl App {
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
         let pads = &self.pads;
+        let updates = &mut self.updates;
+        self.gui.set_readable(true);
         let output = self.gui.run(self.window, self.renderer, |ui| {
+            updates.show(ui.ctx());
             commands = launcher.ui(
                 ui,
                 View {
@@ -870,6 +1006,18 @@ impl App {
 
     fn command(&mut self, command: Command) {
         match command {
+            Command::PinPassed => match self.pin_pending.take() {
+                Some(PinPending::Launch { host, app, resume, small, from }) => self.launch(host, app, resume, small, from),
+                Some(PinPending::QuitAndLaunch { host, app, named }) => self.command(Command::QuitAndLaunch { host, app, named }),
+                None => {}
+            },
+            Command::PinCancelled => {
+                eprintln!("nightjar: stream start cancelled at the PIN");
+                if let Some(PinPending::Launch { from: LaunchFrom::CommandLine, .. }) = self.pin_pending.take() {
+                    if let Some(cli) = self.cli.as_mut() { cli.cancel(); }
+                }
+            }
+            Command::Quit => self.running = false,
             Command::Launch { host, app, resume } => self.launch(host, app, resume, false, LaunchFrom::Launcher),
             Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, true, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
@@ -887,6 +1035,10 @@ impl App {
             }
             Command::ControlAction { host, app } => self.hosts.control_action(host, app),
             Command::QuitAndLaunch { host, app, named } => {
+                // Quitting the running game is part of this start: the PIN comes first.
+                if self.pin_holds(host, PinPending::QuitAndLaunch { host, app, named }) {
+                    return;
+                }
                 // The PC may run another app than the prompt named: look again before closing anything.
                 let now = self.hosts.get(host).and_then(|h| h.running_app());
                 match console::recheck_running(named, now) {
@@ -943,6 +1095,12 @@ impl App {
             Command::SleepOffer { host, ask } => self.hosts.sleep_offer(host, ask),
             Command::Sleep { host, ask, token, at } => self.hosts.sleep(host, ask, token, at),
             Command::Rename { host, alias } => rename_host(&mut self.hosts, &self.store, host, &alias),
+            Command::PinAddress { host, address } => {
+                if self.hosts.pin_address(host, address.as_deref()) {
+                    save_hosts(&self.store, &self.hosts);
+                    self.hosts.poll_one(host);
+                }
+            }
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {
                     self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi));
@@ -999,13 +1157,13 @@ impl App {
                 if self.launcher.screen == Screen::HostSettings(id) { self.command(Command::SaveHostSettings(id)); }
                 let Some(host) = self.hosts.get(id) else { return; };
                 let Some(identity) = self.hosts.identity() else { return; };
-                let client = match hosts::client_for(identity, &host.record, &host.record.address) {
+                let client = match hosts::client_for(identity, &host.record, host.connect_address()) {
                     Ok(client) => client,
                     Err(error) => { self.launcher.message(tr("Network test unavailable"), error); return; }
                 };
                 let settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
                 let (_, _, fps, bitrate) = stream::stream_mode(&settings, display_of(self.window));
-                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), host.record.address.clone(), (bitrate, fps), calibrate, self.waker.clone()));
+                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), host.connect_address().to_owned(), (bitrate, fps), calibrate, self.waker.clone()));
                 self.launcher.dialog = Dialog::NetworkTest { stage: if calibrate { tr("Preparing frame-shaped UDP probes") } else { tr("Receiving 32 MiB from the PC") }.into() };
             }
             Command::CancelNetworkTest => { self.network_test = None; self.launcher.dialog = Dialog::None; }
@@ -1171,6 +1329,17 @@ impl App {
         }
     }
 
+    /// Whether VAAPI pictures go to the renderer as DMA-BUFs (`dmabuf`): its OpenGL renderer on
+    /// EGL, unless `NIGHTJAR_DMABUF=0`.
+    fn dmabuf_import(&self) -> bool {
+        #[cfg(unix)]
+        {
+            dmabuf::enabled_by_environment(std::env::var_os("NIGHTJAR_DMABUF").as_deref()) && dmabuf::renderer_imports(self.renderer)
+        }
+        #[cfg(not(unix))]
+        false
+    }
+
     /// Resends the wake packets while the PC stays away, and ends the wait when it answers or the
     /// time is up.
     fn wake_step(&mut self) {
@@ -1282,7 +1451,7 @@ impl App {
             host: cli.host_seen(&self.hosts),
             message,
             busy: self.streaming.is_some() || self.connecting.is_some() || self.network_launch.is_some(),
-            confirming: self.pending_replace.is_some(),
+            confirming: self.pending_replace.is_some() || self.pin_pending.is_some(),
         };
         match cli.next(&seen) {
             cli::Step::Wait => {}
@@ -1305,8 +1474,27 @@ impl App {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), if small { ", input only through a small stream" } else { "" });
         if busy { return; }
+        // The quit-and-start prompt's start was let through with its quit.
+        if from != LaunchFrom::Replace && self.pin_holds(host_id, PinPending::Launch { host: host_id, app: app_id, resume, small, from }) {
+            return;
+        }
         self.network_launch = Some((host_id, app_id, resume, small));
         self.network_query = Some(network::query(self.waker.clone()));
+    }
+
+    /// Whether the PIN lock holds a stream start on `host` back; it then asks for the PIN and
+    /// keeps `pending` until the PIN screen answers (Command::PinPassed or PinCancelled).
+    fn pin_holds(&mut self, host: u64, pending: PinPending) -> bool {
+        let Some(pin) = self.launcher.pin.as_mut() else { return false };
+        let (uuid, name) = self.hosts.get(host).map_or((String::new(), String::new()), |h| (h.record.unique_id.clone(), h.display_name().to_owned()));
+        let key = pin_lock::stream_key(&uuid, host);
+        if !pin.needs_pin_for_stream(&key) {
+            return false;
+        }
+        eprintln!("nightjar: the PIN lock asks for the PIN before this start");
+        pin.ask_for_stream(&key, &name);
+        self.pin_pending = Some(pending);
+        true
     }
 
     fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool) {
@@ -1416,7 +1604,7 @@ impl App {
         let (pacing, vrr) = pacing(&settings, self.launcher.tearing_supported);
         let plan = LaunchPlan {
             host_id,
-            record: host.record.clone(),
+            record: host.connect_record(),
             host_name: host.display_name().to_owned(),
             info,
             native: host.native.capabilities.clone(),
@@ -1427,6 +1615,7 @@ impl App {
             identity,
             display,
             hardware: self.hardware(&settings),
+            dmabuf: self.dmabuf_import(),
             gpu_decoder,
             packed_modes,
             color_decodable,
@@ -1440,7 +1629,9 @@ impl App {
             bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,
             recovery: None,
+            video_shown: false,
             confirm_replace: false,
+            display_luminance: sdl::launch_luminance(self.renderer),
         };
         self.cancelled = false;
         self.connecting = Some(Connecting::start(plan, self.waker.clone()));
@@ -1473,7 +1664,7 @@ impl App {
                         id,
                         facts.width,
                         facts.height,
-                        facts.fps as f32,
+                        fullscreen_refresh_hz(connecting.vrr(), &mode_refresh_rates(id), facts.fps),
                         true,
                         &mut mode,
                     ) {
@@ -1543,7 +1734,7 @@ impl App {
             return;
         };
         let host = streaming.host_id;
-        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable() {
+        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started()) {
             // SAFETY: the window lives as long as the app.
             let away = unsafe { SDL_GetWindowFlags(self.window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
             streaming.reconnect_plan(!matches!(exit, Exit::Reconnect), away)
@@ -1556,6 +1747,7 @@ impl App {
                 Exit::User => "left by the user".to_owned(),
                 Exit::CloseWindow => "window closed".to_owned(),
                 Exit::Reconnect => "reconnecting".to_owned(),
+                Exit::NetworkReturned => "the network is back where the connection cannot carry on, reconnecting".to_owned(),
                 Exit::Terminated(code) => format!("host or transport error {code}"),
                 Exit::Ended(None) => "ended by the PC".to_owned(),
                 Exit::Ended(Some(m)) => m.clone(),
@@ -1589,6 +1781,8 @@ impl App {
             Exit::CloseWindow => { self.running = false; None }
             Exit::User | Exit::Reconnect | Exit::Ended(None) => None,
             Exit::Terminated(code) => stream::termination_text(code),
+            // Not reconnecting after all (minimized since the network came back): the connection is lost.
+            Exit::NetworkReturned => stream::termination_text(nightjar_core::session::error::FAILED),
             Exit::Ended(Some(message)) => Some(message),
         };
         if let Some((title, body)) = stream::doctor::after_stream(ended, health).filter(|_| self.running) {
@@ -1607,7 +1801,9 @@ impl App {
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
-        streaming.drain_notices(&mut self.pads);
+        // SAFETY: the window lives as long as the app.
+        let away = unsafe { SDL_GetWindowFlags(window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
+        streaming.drain_notices(&mut self.pads, away);
         streaming.follow_text_field(window);
         streaming.pump();
         streaming.follow_display(display);
@@ -1621,6 +1817,8 @@ impl App {
             match streaming.wait() {
                 stream::Wait::Now => {}
                 stream::Wait::For(duration) => {
+                    // A held direction in the stream menu wakes the loop for its next step.
+                    let duration = self.nav_repeat.next(Instant::now()).map_or(duration, |next| duration.min(next + Duration::from_millis(1)));
                     if duration > Duration::from_micros(1500) {
                         let ms = (duration.as_micros() / 1000).saturating_sub(1).max(1) as i32;
                         if SDL_WaitEventTimeout(&mut event, ms) {
@@ -1635,9 +1833,21 @@ impl App {
                 self.dispatch_stream_event(&event);
             }
         }
+        // A held D-pad or stick steps the stream menu again, as in the launcher.
+        if self.streaming.as_ref().is_some_and(|(s, _)| s.menu_visible) {
+            if self.repeat_navigation() {
+                if let Some((s, _)) = self.streaming.as_mut() {
+                    s.needs_redraw = true;
+                }
+            }
+        } else {
+            self.nav_repeat.clear();
+        }
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
+        #[cfg(windows)]
+        streaming.pump_touchpad(window);
         streaming.pump();
         if streaming.session_page_requested {
             let link = self.launcher.network.description(&self.launcher.profiles.home_wifi);
@@ -1654,7 +1864,8 @@ impl App {
             }
         }
         if let Some((_, at)) = &streaming.toast {
-            if at.elapsed() > Duration::from_secs(4) {
+            // The lost-network notice stays until a network returns.
+            if at.elapsed() > Duration::from_secs(4) && !streaming.network_lost {
                 streaming.toast = None;
                 streaming.needs_redraw = true;
             }
@@ -1700,6 +1911,7 @@ impl App {
     }
 
     fn dispatch_stream_event(&mut self, event: &SDL_Event) {
+        self.track_visibility(event);
         // SAFETY: reading the event type.
         let kind = SDL_EventType(unsafe { event.r#type });
         if kind.0 == self.wake_event {
@@ -1786,6 +1998,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     let (anchor, offset) = overlay_anchor(s.overlay_corner);
     let visible = s.overlay_visible;
     let title = format!("{} · {}", s.facts.app_name, s.facts.host_name);
+    // Screen readers get the menu and the Remote Input screen, not every frame of the overlay.
+    gui.set_readable(s.menu_visible || input_only);
     let output = gui.run(window, renderer, |ui| {
         let ctx = ui.ctx().clone();
         if input_only {
@@ -1871,6 +2085,18 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         let mut muted = s.microphone_muted;
                         if ui.checkbox(&mut muted, tr("Mute microphone")).changed() { s.mute_microphone(muted, pads); }
                     }
+                    if s.controller_mouse_offered(pads) {
+                        let mut mouse = pads.mouse_active();
+                        if ui.checkbox(&mut mouse, tr("Controller mouse")).changed() { s.toggle_controller_mouse(pads); }
+                    }
+                    // The PC's night mode and headphone surround, as it answered when the menu opened.
+                    for switch in s.host_audio.switches() {
+                        let mut on = switch.on;
+                        let label = stream::menu_extras::audio_label(switch.id);
+                        if ui.add_enabled(switch.enabled, egui::Checkbox::new(&mut on, label)).changed() { s.set_host_audio(switch.id, on); }
+                        if let Some(note) = &switch.note { ui.weak(note); }
+                    }
+                    if let Some(problem) = s.host_audio.problem() { ui.weak(problem); }
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
                         if ui.button(tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
                         if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
@@ -1897,17 +2123,13 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 s.enable_adaptive_bitrate(enabled);
                             }
                         }
-                        if controls.http_bitrate {
-                            ui.horizontal(|ui| {
-                                ui.add_enabled_ui(!s.adaptive_bitrate && !s.bitrate_busy, |ui| theme::step_value(ui, &mut s.bitrate_kbps, 1..=2_000_000, 1000.0, |d| d.speed(100).suffix(" kbps")));
-                                if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
-                                    s.set_bitrate();
-                                }
-                            });
+                        if controls.http_bitrate && stream::menu_extras::bitrate_slider(ui, &mut s.bitrate_kbps, !s.adaptive_bitrate && !s.bitrate_busy) {
+                            s.set_bitrate();
                         }
                     }
                     if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
-                        let mut apply = false;
+                        let busy = rates.menu_busy();
+                        let mut apply = stream::menu_extras::bitrate_slider(ui, &mut rates.menu_kbps, !busy);
                         egui::CollapsingHeader::new(tr("Change bitrate / frame rate")).id_salt("rate-change").show(ui, |ui| {
                             let busy = rates.menu_busy();
                             ui.add_enabled_ui(!busy, |ui| {
@@ -1915,7 +2137,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
                                     theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
                                 });
-                                apply = ui.button(tr("Apply bitrate and frame rate")).clicked();
+                                apply |= ui.button(tr("Apply bitrate and frame rate")).clicked();
                             });
                             if busy { ui.label(tr("Waiting for the PC…")); }
                         });
@@ -2040,8 +2262,11 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                     if ui.button(tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
                     if ui.button(tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
-                    ui.label(tr("Ctrl+Alt+Shift+Tab or Start+Select opens this menu."));
+                    let style = glyphs::Style::of(pads);
+                    ui.label(trf("Ctrl+Alt+Shift+Tab or {} opens this menu.", &[&style.chord(&[style.start(), style.select()])]));
                 });
+        } else {
+            s.settle_bitrate_slider(&ctx);
         }
         if visible {
             egui::Area::new(egui::Id::unique("overlay"))
@@ -2165,6 +2390,12 @@ fn remove_host(
     }
     hosts.remove(id);
     save_hosts(store, hosts);
+}
+
+/// A stream start the PIN lock holds until the PIN is entered.
+enum PinPending {
+    Launch { host: u64, app: i32, resume: bool, small: bool, from: LaunchFrom },
+    QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
 }
 
 /// What asked for a launch. The log names it, so it shows what had the PC start or replace a game.
@@ -2294,6 +2525,15 @@ mod tests {
 
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn exclusive_fullscreen_keeps_a_vrr_panels_top_refresh() {
+        // A 240 Hz panel whose desktop runs at 120 Hz.
+        let modes = [240.0, 165.0, 144.0, 120.0, 60.0, 120.0, 60.0];
+        assert_eq!(fullscreen_refresh_hz(true, &modes, 60), 240.0, "a 60 fps stream gets the 240 Hz mode, not the desktop's 120");
+        assert_eq!(fullscreen_refresh_hz(false, &modes, 60), 60.0, "without VRR a mode at the stream's rate");
+        assert_eq!(fullscreen_refresh_hz(true, &[], 120), 120.0, "no modes known");
+    }
 
     #[test]
     fn native_resolution_is_the_display_in_pixels_at_any_scaling() {

@@ -1,40 +1,59 @@
 package com.limelight.nvstream;
 
 /**
- * The lowest bitrate PyroWave still holds together at, from its author's objective bitrate
- * regression (Themaister/pyrowave, eval-results/pyrowave_regression_results.h, MIT). PyroWave is
- * intra-only, so below this every frame visibly falls apart instead of just softening.
+ * PyroWave's bitrates, equal to nightjar-policy's pyrowave module through the shared traces.
  *
- * The floor is the regression's lowest level, 30 dB PSNR-HVS-M-H at a viewing distance of twice the
- * screen height. The regression covers 720p to 4K pixel counts; sizes outside use the nearest end.
+ * The floor is the host's severe-detail-loss floor (pyrowave::minimum_kbps in Rubylight's
+ * rust/core/src/pyrowave.rs): 2.5 bits per pixel per frame below 1080 lines and 1.5 from 1080 up,
+ * the same for SDR and HDR, 4:2:0 and 4:4:4, measured on representative pictures. The host lowers
+ * PyroWave no further and warns below it. PyroWave is intra-only, so below this every frame
+ * visibly falls apart instead of just softening.
  */
 public final class PyroWaveBitrateFloor {
-    private static final int MIN_PIXELS = 1280 * 720;
-    private static final int MAX_PIXELS = 3840 * 2160;
-
-    // Bytes per frame as a polynomial in sqrt(megapixels) - 2: the 30 dB, height factor 2.00 rows.
-    private static final double[] YUV420 = {309.25055550415766, 8.351816219985253, -9.905584693249878,
-            172.18790660175173, -64.17408945040484, -201.4015992260083, 46.22089684565188, 105.90424439986334};
-    private static final double[] YUV444 = {330.65932695689867, -12.487508056245487, 13.060737308248315,
-            139.64851902220505, -97.97414051841574, -112.81552415088743, 57.365194646059074, 57.19110311397152};
-
-    // The author allows 1.2x for HDR10.
-    private static final double HDR_FACTOR = 1.2;
+    /** The highest bitrate a stream may ask for (StreamConfiguration.MAX_BITRATE_KBPS). */
+    private static final int MAX_KBPS = 2_000_000;
 
     private PyroWaveBitrateFloor() {
     }
 
-    /** The floor in Kbps, rounded up to a whole Mbps. */
-    public static int minimumKbps(int width, int height, int fps, boolean yuv444, boolean hdr) {
-        long pixels = Math.min(Math.max((long) width * height, MIN_PIXELS), MAX_PIXELS);
-        double x = Math.sqrt(pixels * 1e-6) - 2.0;
-        double[] coefficients = yuv444 ? YUV444 : YUV420;
-        double estimate = 0, power = 1;
-        for (double coefficient : coefficients) {
-            estimate += power * coefficient;
-            power *= x;
-        }
-        double mbps = estimate * 8e-3 * Math.max(fps, 1) * (hdr ? HDR_FACTOR : 1);
-        return (int) Math.ceil(mbps) * 1000;
+    /** The floor in Kbps. */
+    public static int minimumKbps(int width, int height, int fps) {
+        return bitrateKbps(width, height, fps, height < 1080 ? 25 : 15);
+    }
+
+    /**
+     * The default's ceiling when the client does not know its link: 900 Mbps, so a first stream
+     * fits ordinary gigabit Ethernet and Wi-Fi.
+     */
+    public static final int UNKNOWN_LINK_DEFAULT_CAP_KBPS = 900_000;
+
+    /**
+     * The bitrate a PyroWave stream starts at when the user has not chosen one: the host's
+     * clean-picture target (pyrowave::recommended_kbps), 5 bits per pixel per frame below 1080 lines
+     * and 3.2 from 1080 up, which is about 280 Mbps at 720p60 and 400 Mbps at 1080p60, the starting
+     * points the client docs give. It stays within 90% of the client's link ({@code linkMbps}, its
+     * wired port speed toward the host, the pyrowaveLinkMbps hint) or, with the link unknown (0),
+     * {@link #UNKNOWN_LINK_DEFAULT_CAP_KBPS}, but never below {@link #minimumKbps}; and no more than
+     * a stream may ask for.
+     */
+    public static int defaultKbps(int width, int height, int fps, int linkMbps) {
+        int clean = bitrateKbps(width, height, fps, height < 1080 ? 50 : 32);
+        int cap = linkMbps > 0 ? (int) Math.min(linkMbps * 900L, Integer.MAX_VALUE) : UNKNOWN_LINK_DEFAULT_CAP_KBPS;
+        return Math.min(Math.max(Math.min(clean, cap), minimumKbps(width, height, fps)), MAX_KBPS);
+    }
+
+    /**
+     * The bitrate a PyroWave stream starts at: {@link #defaultKbps} when the bitrate is automatic,
+     * else the chosen one as it is, whatever the link, also below {@link #minimumKbps} (the bitrate
+     * setting warns about that).
+     */
+    public static int startKbps(int configured, boolean automatic, int width, int height, int fps, int linkMbps) {
+        return automatic ? defaultKbps(width, height, fps, linkMbps) : configured;
+    }
+
+    // The host's arithmetic at a whole frame rate: tenths of a bit per pixel per frame, rounded up.
+    private static int bitrateKbps(int width, int height, int fps, int bppTenths) {
+        long bits = (long) Math.max(width, 0) * Math.max(height, 0) * Math.max(fps, 0) * bppTenths;
+        return (int) Math.min((bits + 9_999) / 10_000, Integer.MAX_VALUE);
     }
 }

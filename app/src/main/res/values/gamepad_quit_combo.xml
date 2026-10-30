@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Controller quit combo</string>
+    <string name="summary_list_gamepad_quit_combo">Hold these buttons to leave the stream; it ends once they are all let go. Off leaves it to the stream menu, which Start+Select+LB+RB opens. Applies to the next stream.</string>
+    <string name="gamepad_quit_combo_off">Off</string>
+    <string name="stream_controller_mouse">Controller mouse</string>
+    <string-array name="gamepad_quit_combo_names" translatable="false">
+        <item>@string/gamepad_quit_combo_off</item>
+        <item>Select+LB+RB+Y</item>
+        <item>Start+LB+RB+A</item>
+        <item>Start+LB+RB+B</item>
+        <item>LB+RB+X+Y</item>
+        <item>LB+RB+A+B</item>
+    </string-array>
+    <string-array name="gamepad_quit_combo_values" translatable="false">
+        <item>off</item>
+        <item>select_lb_rb_y</item>
+        <item>start_lb_rb_a</item>
+        <item>start_lb_rb_b</item>
+        <item>lb_rb_x_y</item>
+        <item>lb_rb_a_b</item>
+    </string-array>
+</resources>

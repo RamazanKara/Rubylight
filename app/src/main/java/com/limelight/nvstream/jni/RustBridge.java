@@ -81,10 +81,10 @@ final class RustBridge {
                                       boolean clientWireless, int networkGracePeriodMs, boolean packed444,
                                       int packed444Modes, boolean remoteMonitor, boolean unbatchedInput,
                                       boolean networkPriority, boolean roaming, boolean roamingMetered,
-                                      int audioPassthrough, int hdrFormat);
+                                      int audioPassthrough, int hdrFormat, int videoFecPercentage);
     static native void stopConnection();
     static native void interruptConnection();
-    static native boolean networkChanged(boolean metered);
+    static native int networkChanged(boolean metered);
     static native void sendMouseMove(short deltaX, short deltaY);
     static native void sendMousePosition(short x, short y, short referenceWidth, short referenceHeight);
     static native void sendMouseMoveAsMousePosition(short deltaX, short deltaY, short referenceWidth, short referenceHeight);
@@ -106,6 +106,7 @@ final class RustBridge {
     static native long audioConcealer();
     static native int getPendingVideoFrames();
     static native long getEstimatedRttInfo();
+    static native long getWireBytesReceived();
     static native boolean reportFrameSlack(long slackNs, long periodNs);
     static native void flushPhaseLockReport();
     static native int getPhaseLockLeadUs();

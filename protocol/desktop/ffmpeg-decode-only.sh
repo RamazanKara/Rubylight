@@ -4,9 +4,11 @@
 #   protocol/desktop/ffmpeg-decode-only.sh <ffmpeg source dir> <prefix>
 #
 # Windows: run it in an MSYS2 UCRT64 shell (gcc, make, nasm, pkgconf, mingw-w64-ucrt-x86_64-dav1d).
-# Linux: gcc, make, nasm, pkg-config, libdav1d-dev and libva-dev (Debian and Ubuntu names).
+# Linux: gcc, make, nasm, pkg-config, libdav1d-dev, libva-dev and libffmpeg-nvenc-dev (Debian and
+# Ubuntu names; nv-codec-headers elsewhere).
 # The result is libavcodec and libavutil only, with the H.264, HEVC and AV1 decoders, their
-# hardware paths (D3D11VA and DXVA2 on Windows, VAAPI on Linux) and dav1d: no encoders, muxers,
+# hardware paths (D3D11VA and DXVA2 on Windows; VAAPI, NVDEC and the V4L2 memory-to-memory
+# decoders on Linux) and dav1d: no encoders, muxers,
 # filters, swscale, swresample, or programs. It has the same sonames as the distributions'
 # FFmpeg 8, so `NIGHTJAR_FFMPEG_DIR=<prefix>` builds nightjar against it. On Windows, Opus (and its
 # header) is copied into the prefix next to it. On Linux the libraries get the run path $ORIGIN, so
@@ -23,9 +25,17 @@ if [[ $(uname -s) == Linux ]]; then
   # The libraries get the run path $ORIGIN from LD_RUN_PATH (the linker uses it when no -rpath is
   # given; configure and make would expand a $ORIGIN in the flags).
   export LD_RUN_PATH='$ORIGIN'
+  # The hardware decoders moonlight-qt and Moonlight V+ try on Linux: VAAPI, then the V4L2
+  # memory-to-memory decoders of ARM handhelds and boards (H.264 and HEVC), then NVDEC. NVDEC
+  # needs only the ffnvcodec headers at build time and loads the NVIDIA driver's libraries when it
+  # runs, so nothing nonfree is linked and machines without NVIDIA lose nothing.
   platform=(
     --enable-vaapi
     --enable-hwaccel=h264_vaapi,hevc_vaapi,av1_vaapi
+    --enable-v4l2-m2m
+    --enable-decoder=h264_v4l2m2m,hevc_v4l2m2m
+    --enable-ffnvcodec --enable-cuda --enable-nvdec
+    --enable-hwaccel=h264_nvdec,hevc_nvdec,av1_nvdec
   )
 else
   linux=

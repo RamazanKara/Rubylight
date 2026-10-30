@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Nightjar</vendor>
+  <vendor_url>https://github.com/RamazanKara/nightjar</vendor_url>
+  <action id="io.github.ramazankara.nightjar.usb">
+    <description>Forward a USB device to the PC with Nightjar</description>
+    <message>Authentication is required to forward a USB device to the PC you stream from</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/nightjar/nightjar-usb-helper</annotate>
+  </action>
+</policyconfig>

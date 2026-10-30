@@ -1,9 +1,11 @@
 package com.limelight.preferences;
 
+import com.limelight.ui.Haptics;
 import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.button.MaterialButton;
 import android.content.Context;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.preference.DialogPreference;
 import android.util.AttributeSet;
 import android.util.TypedValue;
@@ -46,6 +48,10 @@ public class SeekBarPreference extends DialogPreference
     private int currentValue;
     // Value shown in the open dialog; persisted only when the user confirms
     private int dialogValue;
+    // A fast drag crosses a value every frame, and some vendors play the tick hard enough that
+    // 60-144 a second buzzes: the slider ticks at most once per SLIDER_TICK_MS.
+    static final long SLIDER_TICK_MS = 30;
+    private long lastSliderTick = -SLIDER_TICK_MS;
 
     public SeekBarPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -152,6 +158,23 @@ public class SeekBarPreference extends DialogPreference
         }
     }
 
+    /** A button's new value, with the slider's step tick when it changes anything. */
+    private void stepTo(View button, int value) {
+        if (value != dialogValue) Haptics.perform(button, Haptics.Kind.STEP);
+        showDialogValue(value);
+    }
+
+    /** The slider dragged to a value at uptime {@code now}: shows it, ticking at most once per SLIDER_TICK_MS. */
+    void slideTo(View slider, int value, long now) {
+        // A tick per value the user sees change, not per slider position (a log scale has 1000).
+        if (value != dialogValue && now - lastSliderTick >= SLIDER_TICK_MS) {
+            lastSliderTick = now;
+            Haptics.perform(slider, Haptics.Kind.STEP);
+        }
+        dialogValue = value;
+        valueText.setText(formatValue(dialogValue));
+    }
+
     private Button smallButton(String label) {
         Button button = new MaterialButton(context, null, androidx.appcompat.R.attr.borderlessButtonStyle);
         button.setText(label);
@@ -189,11 +212,11 @@ public class SeekBarPreference extends DialogPreference
         Button minus = smallButton("−");
         minus.setTextSize(22);
         minus.setContentDescription(context.getString(R.string.seekbar_decrease));
-        minus.setOnClickListener(v -> showDialogValue(nudge(dialogValue, false, logScale, stepSize, minValue, maxValue)));
+        minus.setOnClickListener(v -> stepTo(v, nudge(dialogValue, false, logScale, stepSize, minValue, maxValue)));
         Button plus = smallButton("+");
         plus.setTextSize(22);
         plus.setContentDescription(context.getString(R.string.seekbar_increase));
-        plus.setOnClickListener(v -> showDialogValue(nudge(dialogValue, true, logScale, stepSize, minValue, maxValue)));
+        plus.setOnClickListener(v -> stepTo(v, nudge(dialogValue, true, logScale, stepSize, minValue, maxValue)));
 
         seekBar = new SeekBar(context);
         seekBar.setMinimumHeight(dp(48));
@@ -202,8 +225,7 @@ public class SeekBarPreference extends DialogPreference
             @Override
             public void onProgressChanged(SeekBar seekBar, int position, boolean fromUser) {
                 if (fromUser) {
-                    dialogValue = positionToValue(position);
-                    valueText.setText(formatValue(dialogValue));
+                    slideTo(seekBar, positionToValue(position), SystemClock.uptimeMillis());
                 }
             }
 
@@ -237,7 +259,7 @@ public class SeekBarPreference extends DialogPreference
                 }
                 final int preset = clamp(presets[i], minValue, maxValue);
                 Button button = smallButton(formatNumber(preset));
-                button.setOnClickListener(v -> showDialogValue(preset));
+                button.setOnClickListener(v -> stepTo(v, preset));
                 row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
             }
         }

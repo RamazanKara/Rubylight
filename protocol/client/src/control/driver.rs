@@ -434,6 +434,9 @@ struct ControlSocket {
     marking: Option<Marking>,
     /// The QoS marking is on, for a socket the control thread moves to.
     marked: bool,
+    /// Windows' marking: the qWAVE flow each socket joins at its first send. None elsewhere,
+    /// once the marking is off, or when qWAVE refused (said once).
+    flow: Option<priority::ControlFlow>,
     send_failures: SendFailures,
     warn: Warn,
 }
@@ -518,6 +521,9 @@ impl ControlSocket {
     /// Moves to `socket` ([`ControlHandle::move_to`]), marked as the old one was. Datagrams
     /// still on their way to the old socket are lost, as on a real network change.
     fn replace(&mut self, socket: UdpSocket) {
+        if let Some(flow) = &mut self.flow {
+            flow.remove();
+        }
         if self.marked {
             let ipv6 = socket.local_addr().is_ok_and(|a| a.is_ipv6());
             if let Err(e) = priority::mark_control_socket(&socket, ipv6, true) {
@@ -543,6 +549,7 @@ impl rusty_enet::Socket for ControlSocket {
                 let ipv6 = marking.ipv6;
                 self.marking = None;
                 self.marked = false;
+                self.flow = None;
                 self.warn
                     .say("No answer to the first control connects; sending without QoS marking");
                 if let Err(e) = priority::mark_control_socket(&self.socket, ipv6, false) {
@@ -551,6 +558,12 @@ impl rusty_enet::Socket for ControlSocket {
                 }
             } else {
                 marking.unanswered += 1;
+            }
+        }
+        if let Some(flow) = &mut self.flow {
+            if let Err(e) = flow.add(&self.socket, address) {
+                self.warn
+                    .say(&format!("Could not mark the control socket for QoS: {e}"));
             }
         }
         let result = rusty_enet::Socket::send(&mut self.socket, address, buffer);
@@ -725,6 +738,7 @@ pub fn connect(
         last_receive: None,
         marking: Some(marking),
         marked: true,
+        flow: priority::open_control_flow(|m| config.warn.say(m)),
         send_failures: SendFailures::default(),
         warn: config.warn.clone(),
     };
@@ -1120,6 +1134,7 @@ mod tests {
             last_receive: None,
             marked: marking.is_some(),
             marking,
+            flow: None,
             send_failures: SendFailures::default(),
             warn: Warn::new({
                 let warnings = warnings.clone();

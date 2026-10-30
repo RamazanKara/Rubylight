@@ -8,6 +8,7 @@
 //! host has no native API at all (an older Rubylight, Sunshine, Apollo).
 
 use super::coop::{Coop, CoopJoined, JoinRequest};
+use super::native_api::audio::{Audio, AudioWrite};
 use super::native_api::capabilities::Capabilities;
 use super::native_api::error::{ApiError, ErrorBody};
 use super::native_api::library::Library;
@@ -242,6 +243,21 @@ impl HostClient {
             MAX_JSON_BYTES,
             ACTION_READ_TIMEOUT,
         )
+    }
+
+    /// Night mode and headphone surround of this device's stream. Only when the capabilities
+    /// list `audio.night_mode` or `audio.headphone_surround`; without a stream both settings are
+    /// `temporarily_unavailable`.
+    pub fn audio(&self) -> Result<Audio, Error> {
+        self.native("audio", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Changes them for this device's own stream from its next audio packet; nothing is saved.
+    /// Needs View or Launch, not Host control.
+    pub fn write_audio(&self, write: &AudioWrite) -> Result<Audio, Error> {
+        let body = serde_json::to_vec(write)
+            .map_err(|e| Error::InvalidArgument(format!("audio write: {e}")))?;
+        self.native("audio/settings", Some(&body), MAX_JSON_BYTES, READ_TIMEOUT)
     }
 }
 

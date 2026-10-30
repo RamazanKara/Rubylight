@@ -24,6 +24,34 @@ pub mod magic {
     pub const CONTROLLER_TOUCH: u32 = 0x5500_0005;
     pub const CONTROLLER_MOTION: u32 = 0x5500_0006;
     pub const CONTROLLER_BATTERY: u32 = 0x5500_0007;
+    /// Foundation Sunshine's laptop touchpad packets (Moonlight V+'s moonlight-common-c).
+    pub const TOUCHPAD: u32 = 0x5500_0009;
+    pub const TOUCHPAD_FRAME: u32 = 0x5500_000A;
+}
+
+/// Laptop touchpad packets (`SS_TOUCHPAD_*`): x and y are on the touchpad's own surface, 0-1.
+pub mod touchpad {
+    /// `LI_TOUCHPAD_BUTTON_PRIMARY`: the touchpad's click is down.
+    pub const BUTTON_PRIMARY: u8 = 0x01;
+    /// Contacts in one frame packet.
+    pub const MAX_FRAME_CONTACTS: usize = 5;
+    /// `LI_ROT_UNKNOWN`.
+    pub const ROTATION_UNKNOWN: u16 = 0xFFFF;
+}
+
+/// One contact of a touchpad frame packet.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TouchpadContact {
+    pub event: u8,
+    pub pointer_id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub pressure: f32,
+}
+
+/// moonlight-common-c's `normalizedFloatToUint16`.
+fn unit_u16(value: f32) -> u16 {
+    (value.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16
 }
 
 /// `LI_TOUCH_EVENT_*`, for touch, pen and controller touch events.
@@ -205,6 +233,30 @@ pub enum InputEvent {
         state: u8,
         percentage: u8,
     },
+    /// One laptop touchpad contact (`LiSendTouchpadEvent`).
+    Touchpad {
+        event: u8,
+        buttons: u8,
+        rotation: u16,
+        pointer_id: u32,
+        width_mm: u16,
+        height_mm: u16,
+        x: f32,
+        y: f32,
+        pressure: f32,
+        contact_major: f32,
+        contact_minor: f32,
+    },
+    /// The contacts of one laptop touchpad frame (`LiSendTouchpadFrameEvent`); `count` of
+    /// `contacts` are used, the rest go as zeros.
+    TouchpadFrame {
+        count: u8,
+        buttons: u8,
+        rotation: u16,
+        width_mm: u16,
+        height_mm: u16,
+        contacts: [TouchpadContact; touchpad::MAX_FRAME_CONTACTS],
+    },
 }
 
 impl InputEvent {
@@ -231,6 +283,8 @@ impl InputEvent {
             Self::ControllerTouch { .. } => magic::CONTROLLER_TOUCH,
             Self::ControllerMotion { .. } => magic::CONTROLLER_MOTION,
             Self::ControllerBattery { .. } => magic::CONTROLLER_BATTERY,
+            Self::Touchpad { .. } => magic::TOUCHPAD,
+            Self::TouchpadFrame { .. } => magic::TOUCHPAD_FRAME,
         }
     }
 
@@ -392,6 +446,49 @@ impl InputEvent {
             } => {
                 out.extend_from_slice(&[number, state, percentage, 0]);
             }
+            Self::Touchpad {
+                event,
+                buttons,
+                rotation,
+                pointer_id,
+                width_mm,
+                height_mm,
+                x,
+                y,
+                pressure,
+                contact_major,
+                contact_minor,
+            } => {
+                out.extend_from_slice(&[event, buttons]);
+                le16(&mut out, rotation);
+                out.extend_from_slice(&pointer_id.to_le_bytes());
+                le16(&mut out, width_mm);
+                le16(&mut out, height_mm);
+                for v in [x, y, pressure, contact_major, contact_minor] {
+                    float(&mut out, v);
+                }
+            }
+            Self::TouchpadFrame {
+                count,
+                buttons,
+                rotation,
+                width_mm,
+                height_mm,
+                contacts,
+            } => {
+                out.extend_from_slice(&[count, buttons]);
+                le16(&mut out, rotation);
+                le16(&mut out, width_mm);
+                le16(&mut out, height_mm);
+                for (i, c) in contacts.iter().enumerate() {
+                    let c = if i < usize::from(count) { *c } else { TouchpadContact::default() };
+                    out.extend_from_slice(&[c.event, 0]);
+                    le16(&mut out, unit_u16(c.pressure));
+                    out.extend_from_slice(&c.pointer_id.to_le_bytes());
+                    le16(&mut out, unit_u16(c.x));
+                    le16(&mut out, unit_u16(c.y));
+                }
+            }
         }
         let size = (out.len() - 4) as u32;
         out[..4].copy_from_slice(&size.to_be_bytes());
@@ -409,7 +506,9 @@ impl InputEvent {
             | Self::MouseButton { .. }
             | Self::Scroll { .. }
             | Self::HScroll { .. } => channel::MOUSE,
-            Self::Touch { .. } => channel::TOUCH,
+            Self::Touch { .. } | Self::Touchpad { .. } | Self::TouchpadFrame { .. } => {
+                channel::TOUCH
+            }
             Self::Pen { .. } => channel::PEN,
             Self::Controller { number, .. } => {
                 channel::GAMEPAD_BASE + (number % u16::from(MAX_CONTROLLERS)) as u8
@@ -760,6 +859,52 @@ mod tests {
                 size - 4
             );
         }
+    }
+
+    /// SS_TOUCHPAD_PACKET and SS_TOUCHPAD_FRAME_PACKET of Moonlight V+'s moonlight-common-c
+    /// (`Input.h`, `LiSendTouchpadEvent`, `LiSendTouchpadFrameEvent`), field by field.
+    #[test]
+    fn touchpad_packets_match_v_plus_input_h() {
+        let single = InputEvent::Touchpad {
+            event: touch_event::MOVE,
+            buttons: touchpad::BUTTON_PRIMARY,
+            rotation: touchpad::ROTATION_UNKNOWN,
+            pointer_id: 0x0102_0304,
+            width_mm: 105,
+            height_mm: 70,
+            x: 0.25,
+            y: 0.5,
+            pressure: 1.0,
+            contact_major: 0.0,
+            contact_minor: 0.0,
+        }
+        .encode(true);
+        let mut expected = vec![0, 0, 0, 36, 0x09, 0, 0, 0x55, 3, 1, 0xFF, 0xFF, 4, 3, 2, 1, 105, 0, 70, 0];
+        for v in [0.25f32, 0.5, 1.0, 0.0, 0.0] {
+            expected.extend_from_slice(&v.to_le_bytes());
+        }
+        assert_eq!(single, expected);
+
+        let mut contacts = [TouchpadContact::default(); touchpad::MAX_FRAME_CONTACTS];
+        contacts[0] = TouchpadContact { event: touch_event::DOWN, pointer_id: 7, x: 0.0, y: 1.0, pressure: 0.5 };
+        contacts[1] = TouchpadContact { event: touch_event::UP, pointer_id: 9, x: 2.0, y: -1.0, pressure: 0.0 };
+        // A contact past `count` goes as zeros whatever it holds.
+        contacts[2] = TouchpadContact { event: touch_event::MOVE, pointer_id: 11, x: 0.5, y: 0.5, pressure: 0.5 };
+        let frame = InputEvent::TouchpadFrame {
+            count: 2,
+            buttons: 0,
+            rotation: touchpad::ROTATION_UNKNOWN,
+            width_mm: 105,
+            height_mm: 70,
+            contacts,
+        }
+        .encode(true);
+        let mut expected = vec![0, 0, 0, 72, 0x0A, 0, 0, 0x55, 2, 0, 0xFF, 0xFF, 105, 0, 70, 0];
+        expected.extend_from_slice(&[1, 0, 0x00, 0x80, 7, 0, 0, 0, 0, 0, 0xFF, 0xFF]);
+        expected.extend_from_slice(&[2, 0, 0, 0, 9, 0, 0, 0, 0xFF, 0xFF, 0, 0]);
+        expected.extend_from_slice(&[0; 36]);
+        assert_eq!(frame, expected);
+        assert_eq!(frame.len(), 76);
     }
 
     #[test]

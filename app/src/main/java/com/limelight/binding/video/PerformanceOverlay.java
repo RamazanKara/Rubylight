@@ -49,6 +49,14 @@ public final class PerformanceOverlay {
         return elapsedNs > 0 ? (float) (bytes * 8000.0 / elapsedNs) : -1;
     }
 
+    /** "On the wire: 53.0 Mbps with FEC and audio", or null before it was measured. */
+    @SuppressWarnings("deprecation")
+    static String wireText(Context context, float wireMbps) {
+        if (!available(wireMbps)) return null;
+        Locale locale = context.getResources().getConfiguration().locale;
+        return context.getString(R.string.stats_wire, measurement(locale, wireMbps, "%.1f"));
+    }
+
     /**
      * The debug overlay's frame pacing lines, as Moonlight V+'s jitter monitor shows them
      * (qiin2333/moonlight-vplus, GPL-3.0): average present interval, jitter and judder, the share
@@ -83,16 +91,31 @@ public final class PerformanceOverlay {
      * hostMs by the send, and do not rename the line. A report's present to sent (hostToNetworkMs,
      * -1 without reports) gets its own line below under its own label.
      */
-    @SuppressWarnings("deprecation")
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
                                                float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
                                                float hostMs, float hostToNetworkMs, float decodeMs, float displayMs,
                                                boolean submissionOnly) {
+        return statisticsText(context, stream, shownFps, receivedFps, videoMbps, -1, frameLossPercent, networkMs,
+                varianceMs, hostMs, hostToNetworkMs, decodeMs, displayMs, submissionOnly);
+    }
+
+    /**
+     * The statistics lines with the stream's bandwidth on the wire (wireMbps: every video and audio
+     * datagram, FEC parity included, -1 before it was measured) on its own line after the video
+     * payload, as Moonlight V+ shows its bandwidth.
+     */
+    @SuppressWarnings("deprecation")
+    public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
+                                               float videoMbps, float wireMbps, float frameLossPercent, float networkMs,
+                                               float varianceMs, float hostMs, float hostToNetworkMs, float decodeMs,
+                                               float displayMs, boolean submissionOnly) {
         Locale locale = context.getResources().getConfiguration().locale;
         String frames = context.getString(R.string.stats_frame_rates,
                 measurement(locale, shownFps, "%.1f"), measurement(locale, receivedFps, "%.1f"));
         String throughput = context.getString(R.string.stats_throughput,
                 measurement(locale, videoMbps, "%.1f"), measurement(locale, frameLossPercent, "%.2f"));
+        String wire = wireText(context, wireMbps);
+        if (wire != null) throughput += "\n" + wire;
         String network = context.getString(R.string.stats_network,
                 measurement(locale, networkMs, "%.0f"), measurement(locale, varianceMs, "%.0f"));
         String host = context.getString(R.string.stats_host, measurement(locale, hostMs, "%.1f"));
@@ -165,6 +188,11 @@ public final class PerformanceOverlay {
     /** The FPS the overlays show: frames submitted for display, which needs no render callbacks. */
     public static float renderedFps(float[] rates) {
         return rates[FrameLatencyStats.RENDERED_STAGE];
+    }
+
+    /** The compositor-confirmed FPS, -1 when the device does not report it. */
+    public static float presentedFps(float[] rates) {
+        return rates[FrameLatencyStats.PRESENTED_STAGE];
     }
 
     /**

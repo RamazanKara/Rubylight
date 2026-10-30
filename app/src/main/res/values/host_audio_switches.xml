@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The host's night mode and headphone surround in the stream menu (Rubylight's native API /audio). -->
+    <string name="stream_night_mode">Night mode</string>
+    <string name="stream_headphone_surround">Headphone surround</string>
+    <string name="stream_audio_next_stream">Applies next stream</string>
+    <string name="stream_audio_failed">Could not change the PC\'s audio: %1$s</string>
+    <string name="stream_audio_unread">The PC\'s audio settings could not be read</string>
+</resources>

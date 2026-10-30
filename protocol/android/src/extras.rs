@@ -49,6 +49,17 @@ pub fn audio_passthrough(codecs: i32) -> u8 {
     (codecs & 0xFF) as u8 & (CODEC_PCM | CODEC_AC3 | CODEC_EAC3)
 }
 
+/// `FecChoice.summaryPercentage()` back as the choice: -2 (or less) the host's own, -1 automatic,
+/// else a fixed share, at most 100 as Foundation Sunshine takes it.
+pub fn video_fec(percentage: i32) -> rubylight_protocol::fec_report::FecChoice {
+    use rubylight_protocol::fec_report::FecChoice;
+    match percentage {
+        ..=-2 => FecChoice::Host,
+        -1 => FecChoice::Auto,
+        _ => FecChoice::Fixed(percentage.min(100) as u8),
+    }
+}
+
 /// `STREAM_CFG_LOCAL`, `STREAM_CFG_REMOTE`, `STREAM_CFG_AUTO`.
 pub fn location(streaming_remotely: i32) -> Location {
     match streaming_remotely {
@@ -376,6 +387,16 @@ mod tests {
     }
 
     #[test]
+    fn the_video_fec_choice_comes_back_from_its_summary_percentage() {
+        use rubylight_protocol::fec_report::FecChoice;
+        for choice in [FecChoice::Host, FecChoice::Auto, FecChoice::Fixed(0), FecChoice::Fixed(30), FecChoice::Fixed(100)] {
+            assert_eq!(video_fec(choice.summary_percentage()), choice);
+        }
+        assert_eq!(video_fec(i32::MIN), FecChoice::Host);
+        assert_eq!(video_fec(255), FecChoice::Fixed(100));
+    }
+
+    #[test]
     fn the_roaming_settings_reach_the_session_with_platform_hints() {
         for (enabled, metered) in [(true, false), (true, true), (false, false), (false, true)] {
             assert_eq!(
@@ -457,6 +478,13 @@ mod tests {
             Some(AudioConfiguration::SURROUND_51)
         );
         assert_eq!(audio_configuration_from_int(0x0003_0200), None);
+        // 7.1.4's mask sets the sign bit, as Java's MoonBridge.AUDIO_CONFIGURATION_714_SURROUND.
+        let seven_one_four = audio_configuration_to_int(AudioConfiguration::SURROUND_714);
+        assert_eq!(seven_one_four as u32, 0xF63F_0CCA);
+        assert_eq!(
+            audio_configuration_from_int(seven_one_four),
+            Some(AudioConfiguration::SURROUND_714)
+        );
     }
 
     #[test]

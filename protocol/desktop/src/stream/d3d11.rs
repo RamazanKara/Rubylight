@@ -326,7 +326,7 @@ pub struct Packed {
     height: i32,
 }
 
-unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core::Result<ID3DBlob> {
+pub(crate) unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core::Result<ID3DBlob> {
     let mut code = None;
     let mut errors: Option<ID3DBlob> = None;
     let result = D3DCompile(
@@ -668,7 +668,7 @@ mod tests {
             let (_planes, info) = picture(kind, width, height, code);
             let layout = media::PlanarLayout::of(&info).unwrap();
             // The presenter's constants for an SDR picture.
-            let pixels = draw_on_warp(&info, &crate::stream::present::planar_parameters(&info, layout, false, 1.0));
+            let pixels = draw_on_warp(&info, &crate::stream::present::planar_parameters(&info, layout, false, 1.0, 1.0));
             for y in 0..height {
                 for x in 0..width {
                     let (cx, cy) = if layout.chroma444 { (x, y) } else { (x / 2, y / 2) };
@@ -683,6 +683,30 @@ mod tests {
                 assert!(red[0] > 0.98 && red[1] < 0.01 && red[2] < 0.01, "kind {kind}: red came out {red:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_software_decoded_hlg_picture_is_drawn_as_hlg_not_pq() {
+        // 10-bit 4:2:0 BT.2020 limited, the HLG transfer: grey at 75% (reference white, luma 721).
+        let (_planes, mut info) = picture(media::FRAME_YUV420P10, 4, 2, |plane, _, _| if plane == 0 { 721 } else { 512 });
+        info.color_space = 9;
+        info.color_trc = 18;
+        let layout = media::PlanarLayout::of(&info).unwrap();
+        // An HDR display with SDR white at 2.5 x 80 nits and a 1000-nit peak (headroom 5): 1.0 is
+        // 200 nits, and BT.2100's 1000-nit display puts it at 203 nits; read as PQ it would be 983.
+        let pixels = draw_on_warp(&info, &crate::stream::present::planar_parameters(&info, layout, true, 2.5, 5.0));
+        let display = super::super::direct::HlgDisplay { peak: 1000.0, gamma: 1.2, white: 200.0 };
+        let nits = super::super::direct::hlg_nits([0.75; 3], display)[1] as f32;
+        assert_close(pixels[0], [nits / 200.0; 3], "HLG reference white");
+        // A 400-nit display (headroom 2) takes its own peak and the lower gamma BT.2100 gives it.
+        let pixels = draw_on_warp(&info, &crate::stream::present::planar_parameters(&info, layout, true, 2.5, 2.0));
+        let display = super::super::direct::hlg_display(2.0, 200.0);
+        let nits = super::super::direct::hlg_nits([0.75; 3], display)[1] as f32;
+        assert_close(pixels[0], [nits / 200.0; 3], "HLG reference white on a 400-nit display");
+        // An SDR output: the 1000-nit reference display, reference white at SDR white (1.0).
+        let pixels = draw_on_warp(&info, &crate::stream::present::planar_parameters(&info, layout, true, 1.0, 1.0));
+        let nits = super::super::direct::hlg_nits([0.75; 3], super::super::direct::hlg_display(1.0, 80.0))[1] as f32;
+        assert_close(pixels[0], [nits / 203.0; 3], "HLG reference white on an SDR output");
     }
 
     #[test]

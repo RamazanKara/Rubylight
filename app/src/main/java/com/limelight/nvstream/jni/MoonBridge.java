@@ -16,6 +16,8 @@ public class MoonBridge {
     public static final AudioConfiguration AUDIO_CONFIGURATION_STEREO = new AudioConfiguration(2, 0x3);
     public static final AudioConfiguration AUDIO_CONFIGURATION_51_SURROUND = new AudioConfiguration(6, 0x3F);
     public static final AudioConfiguration AUDIO_CONFIGURATION_71_SURROUND = new AudioConfiguration(8, 0x63F);
+    // Moonlight V+'s 7.1.4 (AUDIO_CONFIGURATION_714_SURROUND), which Foundation Sunshine and Rubylight hosts stream.
+    public static final AudioConfiguration AUDIO_CONFIGURATION_714_SURROUND = new AudioConfiguration(12, 0xF63F);
 
     public static final int VIDEO_FORMAT_H264 = 0x0001;
     public static final int VIDEO_FORMAT_H264_HIGH8_444 = 0x0004;
@@ -533,6 +535,7 @@ public class MoonBridge {
     private static volatile boolean roamingRequested = true;
     private static volatile boolean roamingMeteredRequested;
     private static volatile int audioPassthroughRequested;
+    private static volatile int videoFecRequested = -2;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
@@ -561,12 +564,20 @@ public class MoonBridge {
         return rustStream;
     }
 
+    /** networkChanged: the stream's connection goes on (same address, or no route yet). */
+    public static final int NETWORK_CARRIES_ON = 0;
+    /** networkChanged: a roam started, the stream moves onto the new network. */
+    public static final int NETWORK_ROAMED = 1;
+    /** networkChanged: the route toward the PC left the stream's address; it cannot carry on. */
+    public static final int NETWORK_CANNOT_CONTINUE = 2;
+
     /**
      * The default network changed while a stream runs; metered is the new network's
-     * !NET_CAPABILITY_NOT_METERED. Returns whether a roam started; false on the C engine.
+     * !NET_CAPABILITY_NOT_METERED. Returns what it means for the stream (NETWORK_*). The C
+     * engine cannot tell: it carries on, and its own timeout decides.
      */
-    public static boolean networkChanged(boolean metered) {
-        return rustStream && RustBridge.networkChanged(metered);
+    public static int networkChanged(boolean metered) {
+        return rustStream ? RustBridge.networkChanged(metered) : NETWORK_CARRIES_ON;
     }
 
     public static void requestPacked444(boolean requested) {
@@ -579,6 +590,15 @@ public class MoonBridge {
      */
     public static void requestHdrFormat(int format) {
         hdrFormatRequested = format;
+    }
+
+    /**
+     * Call before startConnection(): the video FEC the next stream asks a Foundation Sunshine host
+     * for in its ANNOUNCE (FecChoice.summaryPercentage(): -2 host, -1 automatic, 0-100 fixed).
+     * Rubylight hosts take the choice at launch; other hosts ignore it.
+     */
+    public static void requestVideoFec(int percentage) {
+        videoFecRequested = Math.max(-2, Math.min(percentage, 100));
     }
 
     /** The HDR format this stream's ANNOUNCE asked for, 0 for stock (and before the ANNOUNCE). */
@@ -650,14 +670,14 @@ public class MoonBridge {
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
-                    audioPassthroughRequested, hdrFormatRequested);
+                    audioPassthroughRequested, hdrFormatRequested, videoFecRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,
                 supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                 colorSpace, colorRange, unbatchedInput, networkPriority, hostFeatures, inputOnly,
                 remoteMonitor, enableMic, hapticsPcm, pyrowaveLinkMbps, pyrowavePaceMbps,
-                clientWireless, hdrFormatRequested);
+                clientWireless, hdrFormatRequested, videoFecRequested);
     }
     private static native int cStartConnection(String address, String appVersion, String gfeVersion,
                                                String rtspSessionUrl, int serverCodecModeSupport,
@@ -672,7 +692,7 @@ public class MoonBridge {
                                                boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                                boolean hapticsPcm,
                                                int pyrowaveLinkMbps, int pyrowavePaceMbps,
-                                               boolean clientWireless, int hdrFormat);
+                                               boolean clientWireless, int hdrFormat, int videoFecPercentage);
 
     /** Call before startConnection(); 0 keeps the native 10 second control timeout. */
     public static void setNetworkGracePeriodMs(int gracePeriodMs) {
@@ -841,6 +861,13 @@ public class MoonBridge {
     }
     private static native void cFlushPhaseLockReport();
 
+    // Bytes of every video and audio datagram received this stream, FEC parity included: the
+    // stream's bandwidth on the wire (Moonlight V+'s LiGetRTPVideoBytesReceived, with audio).
+    public static long getWireBytesReceived() {
+        return rustStream ? RustBridge.getWireBytesReceived() : cGetWireBytesReceived();
+    }
+    private static native long cGetWireBytesReceived();
+
     // Early edge of the last phase-lock report in microseconds before the latch, or
     // Integer.MIN_VALUE before the first one.
     public static int getPhaseLockLeadUs() {
@@ -996,6 +1023,9 @@ public class MoonBridge {
     public static final int CONTROL_MESSAGE_KEYBOARD_LAYOUT = 0x553E;
     // Moonlight V+'s clipboard sync, which Rubylight hosts offer to launches that ask for it.
     public static final int CONTROL_MESSAGE_CLIPBOARD_SYNC = 0x5508;
+    // Moonlight V+'s FEC summary, which android_control.c sends to Foundation Sunshine hosts that
+    // offer FEC control in DESCRIBE (no a=x-rl-control entry).
+    public static final int CONTROL_MESSAGE_FEC_SUMMARY = 0x5510;
 
     // Asks the host to send its cursor image and leave it out of the video (true), or to stop
     // (false). Only call when hostSupportsControlMessage(CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST).

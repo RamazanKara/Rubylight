@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">스테레오</string>
     <string name="audioconf_51surround">5.1 서라운드 사운드</string>
     <string name="audioconf_71surround">7.1 서라운드 사운드</string>
+    <string name="audioconf_714surround">7.1.4 서라운드 사운드</string>
     <string name="videoformat_auto">자동(권장)</string>
     <string name="videoformat_av1always">AV1 우선</string>
     <string name="videoformat_hevcalways">HEVC 우선</string>
@@ -270,13 +271,16 @@
     <string name="title_virtual_display">호스트 가상 디스플레이</string>
     <string name="summary_virtual_display">PC에 스트림과 일치하는 디스플레이를 요청합니다. 끄면 PC 자체 디스플레이 설정에 따라 결정됩니다.</string>
     <string name="title_vrr">적응형 주사율(ARR / VRR)</string>
-    <string name="summary_vrr">적응형 주사율을 지원하는 Android 16 화면에서는 Android가 주사율을 스트림에 맞추고, 다른 화면은 최고 주사율로 작동합니다. VRR을 지원하는 호스트에도 설정에 따라 VRR 사용을 요청합니다. 이 옵션이 켜져 있으면 프레임 페이싱과 낮은 주사율 설정은 적용되지 않습니다.</string>
+    <string name="summary_vrr">적응형 주사율을 지원하는 Android 16 화면에서는 Android가 주사율을 스트림에 맞추고, 다른 화면은 최고 주사율로 작동하며, Rubylight PC에서는 게임의 프레임 속도가 최고 주사율에서 끊겨 보이고 화면이 꺼지지 않고 전환할 수 있을 때만 맞는 낮은 주사율로 전환합니다. VRR을 지원하는 호스트에도 설정에 따라 VRR 사용을 요청합니다. 이 옵션이 켜져 있으면 프레임 페이싱과 낮은 주사율 설정은 적용되지 않습니다.</string>
     <string name="title_host_frame_times">PC의 프레임 타이밍으로 표시</string>
     <string name="summary_host_frame_times">각 프레임을 몇 밀리초 동안 붙잡아 네트워크가 전달한 시점이 아니라 게임이 그린 시점에 표시합니다. 특히 가변 주사율에서 흔들림을 줄입니다. 프레임 페이싱을 대신합니다. PyroWave에서는 사용되지 않습니다.</string>
     <string name="title_content_rate_frame_rate">화면을 게임의 프레임 속도에 맞추기</string>
     <string name="summary_content_rate_frame_rate">게임이 실제로 실행되는 프레임 속도를 Android에 알려, 일치하는 모드가 있는 화면이 화면이 꺼지지 않고 해당 모드로 전환할 수 있게 합니다. 프레임 타이밍을 보내는 PC와 ‘낮은 주사율 허용’이 필요하며, 2초에 한 번까지만 변경합니다. PyroWave와 적응형 주사율에서는 사용되지 않습니다.</string>
     <string name="title_virtual_display_scale">PC 렌더링 해상도</string>
     <string name="summary_virtual_display_scale">PC가 렌더링하는 해상도를 스트림 해상도의 백분율로 정합니다. 전송되는 영상 크기는 바뀌지 않습니다. 더 적은 픽셀을 보내고 이 기기에서 업스케일하려면 스트림 해상도를 낮추세요.</string>
+    <string name="title_virtual_display_dpi">PC 디스플레이 배율</string>
+    <string name="summary_virtual_display_dpi">가상 디스플레이의 텍스트와 인터페이스 크기입니다. Rubylight PC에서 적용됩니다.</string>
+    <string name="virtual_display_dpi_pc_own">PC 설정 그대로</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">아직 데이터 없음</string>
     <string name="title_export_latency_csv">지연 시간 CSV 내보내기</string>
@@ -328,7 +332,7 @@
     <string name="stream_bitrate_help">이 세션의 Mbps를 설정합니다.\n\'기기가 비트레이트 제어\'가 꺼집니다.</string>
     <string name="stream_bitrate_invalid">0.5~2000 Mbps 사이의 비트레이트를 입력하세요</string>
     <string name="stream_bitrate_applied">호스트가 %1$.1f Mbps를 적용했습니다</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps는 %3$d×%4$d, %5$d FPS에서 PyroWave 최솟값 %2$d Mbps보다 낮습니다. 화면이 깨집니다.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">%2$d×%3$d, %4$d FPS에서 PyroWave 최솟값 %1$d Mbps보다 낮습니다. 화면이 깨집니다.</string>
     <string name="stream_enabled">사용</string>
     <string name="stream_disabled">사용 안함</string>
     <string name="stream_limiter_status">호스트 프레임 제한: %1$s\n자동 디스플레이 제한: %2$s\n목표: %3$s</string>

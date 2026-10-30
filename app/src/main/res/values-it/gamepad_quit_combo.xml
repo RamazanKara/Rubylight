@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Combinazione per uscire con il controller</string>
+    <string name="summary_list_gamepad_quit_combo">Tieni premuti questi pulsanti per uscire dallo stream; termina quando li rilasci tutti. Disattivato lo lascia al menu dello stream, che si apre con Start+Select+LB+RB. Vale dal prossimo stream.</string>
+    <string name="gamepad_quit_combo_off">Disattivato</string>
+    <string name="stream_controller_mouse">Mouse con il controller</string>
+</resources>

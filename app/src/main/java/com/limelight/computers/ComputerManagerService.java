@@ -36,6 +36,8 @@ import com.limelight.nvstream.wol.WakeTargetsPoll;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.HostStreamProfile;
 import com.limelight.utils.CacheHelper;
+import com.limelight.utils.FrontendExportStore;
+import com.limelight.utils.FrontendSync;
 import com.limelight.utils.NetHelper;
 import com.limelight.utils.RedactedLog;
 import com.limelight.utils.ServerHelper;
@@ -153,17 +155,13 @@ public class ComputerManagerService extends Service {
                 }
 
                 if (existingComputer == null) {
-                    try {
-                        // If the active address is a site-local address (RFC 1918),
-                        // then use STUN to populate the external address field if
-                        // it's not set already.
-                        if (details.remoteAddress == null) {
-                            InetAddress addr = InetAddress.getByName(details.activeAddress.address);
-                            if (addr.isSiteLocalAddress()) {
-                                populateExternalAddress(details);
-                            }
-                        }
-                    } catch (UnknownHostException ignored) {}
+                    // If the active address is a site-local address (RFC 1918),
+                    // then use STUN to populate the external address field if
+                    // it's not set already.
+                    if (details.remoteAddress == null &&
+                            isSiteLocalHost(details.activeAddress.address, InetAddress::getByName)) {
+                        populateExternalAddress(details);
+                    }
                 }
             }
 
@@ -194,8 +192,10 @@ public class ComputerManagerService extends Service {
                 ComputerManagerListener currentListener = listener;
                 if ((!newPc || details.state == ComputerDetails.State.ONLINE) && currentListener != null) {
                     if (newPc) {
-                        // A rediscovered PC keeps the user's name from the first update on.
+                        // A rediscovered PC keeps the user's name and pinned address from the first update on.
                         details.alias = HostNames.get(this, details.uuid);
+                        details.pinnedAddress = PinnedAddresses.get(this, details.uuid);
+                        if (details.pinnedAddress != null) details.activeAddress = details.pinnedAddress;
                     }
                     currentListener.notifyComputerUpdated(details);
                 }
@@ -331,6 +331,10 @@ public class ComputerManagerService extends Service {
             ComputerManagerService.this.renameComputer(uuid, alias);
         }
 
+        public void pinAddress(String uuid, ComputerDetails.AddressTuple address) {
+            ComputerManagerService.this.pinAddress(uuid, address);
+        }
+
         public void stopPolling() {
             // Just call the unbind handler to cleanup
             ComputerManagerService.this.onUnbind(null);
@@ -401,28 +405,55 @@ public class ComputerManagerService extends Service {
         return false;
     }
 
+    interface HostResolver {
+        InetAddress resolve(String host) throws UnknownHostException;
+    }
+
+    /**
+     * Whether {@code host} is on the local network. A PC added by name ("gamepc.lan") is resolved:
+     * this runs on the poll thread, and a name left unclassified never gets a STUN remote address.
+     */
+    static boolean isSiteLocalHost(String host, HostResolver resolver) {
+        try {
+            return resolver.resolve(host).isSiteLocalAddress();
+        } catch (UnknownHostException e) {
+            return false;
+        }
+    }
+
     private void populateExternalAddress(ComputerDetails details) {
+        boolean activeNetworkIsVpn = NetHelper.isActiveNetworkVpn(this);
+        if (activeNetworkIsVpn && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            // STUN must use an underlying LAN, not the VPN's public endpoint. Only the STUN socket
+            // goes there (as Moonlight V+ does): binding the process would move a running stream's
+            // sockets off the VPN for the length of the query.
+            Network lan = stunNetwork((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE));
+            if (lan == null) {
+                LimeLog.info("STUN: no non-VPN network to ask on");
+                return;
+            }
+            try {
+                String stunResolvedAddress = StunClient.query("stun.moonlight-stream.org", 3478, 3000,
+                        lan::getAllByName, lan::bindSocket);
+                if (stunResolvedAddress != null) {
+                    details.remoteAddress = new ComputerDetails.AddressTuple(stunResolvedAddress, details.guessExternalPort());
+                } else {
+                    LimeLog.info("STUN: no answer on the non-VPN network");
+                }
+            } catch (IOException e) {
+                LimeLog.warning("STUN on the non-VPN network failed: " + e);
+            }
+            return;
+        }
+
+        // Without a VPN the default network is the LAN. Android 5.0 has no
+        // Network.bindSocket(DatagramSocket): there the process is bound for the query.
         boolean boundToNetwork = false;
-        ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         defaultNetworkLock.lock();
         try {
-            boolean activeNetworkIsVpn = NetHelper.isActiveNetworkVpn(this);
             if (activeNetworkIsVpn) {
-                // STUN must use an underlying LAN, not the VPN's public endpoint.
-                for (Network net : connMgr.getAllNetworks()) {
-                    NetworkCapabilities netCaps = connMgr.getNetworkCapabilities(net);
-                    if (netCaps != null && !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
-                            !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            boundToNetwork = connMgr.bindProcessToNetwork(net);
-                        } else {
-                            boundToNetwork = ConnectivityManager.setProcessDefaultNetwork(net);
-                        }
-                        if (boundToNetwork) {
-                            break;
-                        }
-                    }
-                }
+                Network lan = stunNetwork((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE));
+                boundToNetwork = lan != null && ConnectivityManager.setProcessDefaultNetwork(lan);
             }
 
             if (!activeNetworkIsVpn || boundToNetwork) {
@@ -434,16 +465,24 @@ public class ComputerManagerService extends Service {
         } finally {
             try {
                 if (boundToNetwork) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        connMgr.bindProcessToNetwork(null);
-                    } else {
-                        ConnectivityManager.setProcessDefaultNetwork(null);
-                    }
+                    ConnectivityManager.setProcessDefaultNetwork(null);
                 }
             } finally {
                 defaultNetworkLock.unlock();
             }
         }
+    }
+
+    /** The first network that is neither a VPN nor cellular, for STUN behind a VPN. */
+    private static Network stunNetwork(ConnectivityManager connMgr) {
+        for (Network net : connMgr.getAllNetworks()) {
+            NetworkCapabilities netCaps = connMgr.getNetworkCapabilities(net);
+            if (netCaps != null && !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                    !netCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                return net;
+            }
+        }
+        return null;
     }
 
     private MdnsDiscoveryListener createDiscoveryListener() {
@@ -494,8 +533,10 @@ public class ComputerManagerService extends Service {
     }
 
     private void addTuple(ComputerDetails details) {
-        // The user's name for the PC is stored beside the database, not in it.
+        // The user's name and pinned address for the PC are stored beside the database, not in it.
         details.alias = HostNames.get(this, details.uuid);
+        details.pinnedAddress = PinnedAddresses.get(this, details.uuid);
+        if (details.pinnedAddress != null) details.activeAddress = details.pinnedAddress;
         synchronized (pollingTuples) {
             for (PollingTuple tuple : pollingTuples) {
                 // Check if this is the same computer
@@ -563,6 +604,24 @@ public class ComputerManagerService extends Service {
         }
     }
 
+    /**
+     * Pins the PC to one of its known addresses, which then is the only one polled and streamed to, or
+     * brings back the automatic pick ({@code address} null), as Moonlight V+ PC's address pinning.
+     */
+    public void pinAddress(String uuid, ComputerDetails.AddressTuple address) {
+        PinnedAddresses.set(this, uuid, address);
+        synchronized (pollingTuples) {
+            for (PollingTuple tuple : pollingTuples) {
+                if (uuid.equals(tuple.computer.uuid)) {
+                    tuple.computer.pinnedAddress = address;
+                    if (address != null) {
+                        tuple.computer.activeAddress = address;
+                    }
+                }
+            }
+        }
+    }
+
     public void renameComputer(String uuid, String alias) {
         HostNames.set(this, uuid, alias);
         synchronized (pollingTuples) {
@@ -608,12 +667,14 @@ public class ComputerManagerService extends Service {
                 com.limelight.nativeapi.ConsoleRepository.forgetHost(this, computer.uuid);
                 HostNotices.forget(this, computer.uuid);
                 HostNames.forget(this, computer.uuid);
+                PinnedAddresses.set(this, computer.uuid, null);
             }
             com.limelight.preferences.AppQuitOnLeave.forget(this, computer.uuid);
             com.limelight.preferences.AppStreamSettings.forget(this, computer.uuid);
             com.limelight.preferences.AutoBitrateChoice.forget(this, computer.uuid);
             getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE)
                     .edit().remove(computer.uuid).apply();
+            FrontendExportStore.forgetHost(this, computer.uuid);
             CacheHelper.deleteCacheFile(getCacheDir(), "applist", computer.uuid);
             new DiskAssetLoader(this).deleteAssetsForComputer(computer.uuid);
 
@@ -728,6 +789,14 @@ public class ComputerManagerService extends Service {
     }
 
     private ComputerDetails parallelPollPc(ComputerDetails details) throws InterruptedException {
+        // A pinned PC is polled, and so streamed to, only at the address the user chose.
+        if (details.pinnedAddress != null) {
+            ComputerDetails polled = tryPollIp(details, details.pinnedAddress);
+            if (polled != null) {
+                polled.activeAddress = details.pinnedAddress;
+            }
+            return polled;
+        }
         ParallelPollTuple localInfo = new ParallelPollTuple(details.localAddress, details);
         ParallelPollTuple manualInfo = new ParallelPollTuple(details.manualAddress, details);
         ParallelPollTuple remoteInfo = new ParallelPollTuple(details.remoteAddress, details);
@@ -1070,6 +1139,8 @@ public class ComputerManagerService extends Service {
                                 if (currentListener != null && isCurrentWorker()) {
                                     currentListener.notifyAppListUpdated(computer, true);
                                 }
+                                // Launcher exports follow added, renamed and removed games.
+                                FrontendSync.appListChanged(ComputerManagerService.this, computer);
                             }
                             else if (appList.isEmpty()) {
                                 LimeLog.warning("Null app list received from "+computer.uuid);

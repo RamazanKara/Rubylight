@@ -142,11 +142,56 @@ pub fn is_nat64(address: IpAddr) -> bool {
     is_nat64_with(&v6, &candidates)
 }
 
+/// A media socket's receive buffer: the size asked for and the size the OS granted. Linux caps
+/// it at `net.core.rmem_max` (often 208 KiB) without an error, so only reading it back tells.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReceiveBuffer {
+    pub asked: usize,
+    pub granted: usize,
+}
+
+impl ReceiveBuffer {
+    /// The OS granted less than asked: a burst beyond it is lost before it is read.
+    pub fn short(&self) -> bool {
+        self.granted < self.asked
+    }
+
+    /// The log line for a socket that carries `what`; a short one says how to raise the cap.
+    pub fn describe(&self, what: &str) -> String {
+        let kib = |bytes: usize| bytes.div_ceil(1024);
+        if !self.short() {
+            return format!("{what} receive buffer: {} KiB, as asked", kib(self.granted));
+        }
+        let raise = if cfg!(any(target_os = "linux", target_os = "android")) {
+            format!(" (the system's cap: raise it with `sudo sysctl -w net.core.rmem_max={}`)", self.asked)
+        } else {
+            String::new()
+        };
+        format!(
+            "{what} receive buffer: the system granted {} KiB of the {} KiB asked{raise}",
+            kib(self.granted),
+            kib(self.asked)
+        )
+    }
+}
+
+/// The usable size of `socket`'s receive buffer. Linux reports twice the size asked for (the
+/// kernel doubles it for its bookkeeping, socket(7)), so it is halved there.
+fn granted_receive_buffer(socket: &Socket) -> io::Result<usize> {
+    let size = socket.recv_buffer_size()?;
+    Ok(if cfg!(any(target_os = "linux", target_os = "android")) {
+        size / 2
+    } else {
+        size
+    })
+}
+
 /// A UDP socket bound to `local` (with its IPv6 scope) on an ephemeral port, with the
 /// receive buffer stepped down from `buffer_size` until the OS accepts it (0 keeps the
 /// default). `qos` sets the queue priority as moonlight-common-c's `setSocketQos` does
 /// (`network_priority` is "prioritize stream traffic"). A kernel that refuses it is not an
-/// error, the same as there, but `warn` hears about it.
+/// error, the same as there, but `warn` hears about it, and about a receive buffer smaller than
+/// asked ([`ReceiveBuffer::short`]).
 pub fn bind_udp(
     local: SocketAddr,
     buffer_size: usize,
@@ -154,6 +199,24 @@ pub fn bind_udp(
     network_priority: bool,
     warn: impl Fn(&str),
 ) -> io::Result<UdpSocket> {
+    let (socket, buffer) = bind_udp_sized(local, buffer_size, qos, network_priority, &warn)?;
+    if let Some(buffer) = buffer.filter(ReceiveBuffer::short) {
+        warn(&buffer.describe(&format!("{qos:?}")));
+    }
+    Ok(socket)
+}
+
+static TOS_REFUSED: AtomicBool = AtomicBool::new(false);
+
+/// [`bind_udp`], returning the receive buffer the OS granted instead of warning about it (None
+/// with `buffer_size` 0, or when it cannot be read back, which `warn` hears).
+pub fn bind_udp_sized(
+    local: SocketAddr,
+    buffer_size: usize,
+    qos: Qos,
+    network_priority: bool,
+    warn: impl Fn(&str),
+) -> io::Result<(UdpSocket, Option<ReceiveBuffer>)> {
     let address = with_port(local, 0);
     let socket = Socket::new(
         Domain::for_address(address),
@@ -161,6 +224,15 @@ pub fn bind_udp(
         Some(Protocol::UDP),
     )?;
     socket.bind(&address.into())?;
+    // Before the priority: on Linux, IP_TOS resets SO_PRIORITY.
+    if let Err(e) = priority::mark_media_socket(&socket, qos, address.is_ipv6()) {
+        // Once per process: a network or OS that refuses it refuses it for every socket.
+        if !TOS_REFUSED.swap(true, Ordering::Relaxed) {
+            warn(&format!(
+                "Could not mark the {qos:?} socket's DSCP, sending unmarked: {e}"
+            ));
+        }
+    }
     if let Err(e) = priority::prioritize_socket(&socket, qos, network_priority) {
         warn(&format!("Could not set the {qos:?} socket priority: {e}"));
     }
@@ -175,9 +247,19 @@ pub fn bind_udp(
             size - RCV_BUFFER_SIZE_STEP
         };
     }
+    let buffer = match buffer_size {
+        0 => None,
+        asked => match granted_receive_buffer(&socket) {
+            Ok(granted) => Some(ReceiveBuffer { asked, granted }),
+            Err(e) => {
+                warn(&format!("Could not read the {qos:?} receive buffer size back: {e}"));
+                None
+            }
+        },
+    };
     let socket: UdpSocket = socket.into();
     socket.set_read_timeout(Some(UDP_RECV_POLL_TIMEOUT))?;
-    Ok(socket)
+    Ok((socket, buffer))
 }
 
 /// One receive: `Ok(None)` on the poll timeout. ICMP port-unreachable reports (a ping sent
@@ -459,6 +541,22 @@ mod tests {
         assert_eq!(read_priority(&bind(Qos::BestEffort, true)), 6);
     }
 
+    // Moonlight V+'s DSCP marking, and the priority it must not reset (IP_TOS does on Linux).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn media_sockets_are_marked_and_keep_their_priority() {
+        use crate::priority::tests::{read_option, read_priority};
+        let bind = |qos| bind_udp((Ipv4Addr::LOCALHOST, 0).into(), 0, qos, false, |_| {}).unwrap();
+        let audio = bind(Qos::Audio);
+        assert_eq!(read_option(&audio, libc::IPPROTO_IP, libc::IP_TOS), 0xB8);
+        assert_eq!(read_priority(&audio), 6);
+        let video = bind(Qos::Video);
+        assert_eq!(read_option(&video, libc::IPPROTO_IP, libc::IP_TOS), 0x88);
+        assert_eq!(read_priority(&video), 5);
+        let plain = bind(Qos::BestEffort);
+        assert_eq!(read_option(&plain, libc::IPPROTO_IP, libc::IP_TOS), 0);
+    }
+
     #[test]
     fn a_pinger_survives_a_closed_port_and_stops_without_waiting_out_the_interval() {
         // Nothing listens: on loopback the sends draw ICMP port unreachable.
@@ -592,6 +690,61 @@ mod tests {
             (address.segments()[0] & 0xffc0 == 0xfe80 && flags & UNUSABLE == 0)
                 .then(|| std::net::SocketAddrV6::new(address, 0, 0, index))
         })
+    }
+
+    #[test]
+    fn the_granted_receive_buffer_is_read_back() {
+        let asked = 1 << 20;
+        let bind = |size| {
+            bind_udp_sized(
+                (Ipv4Addr::LOCALHOST, 0).into(),
+                size,
+                Qos::BestEffort,
+                false,
+                |m: &str| panic!("{m}"),
+            )
+            .unwrap()
+            .1
+        };
+        let buffer = bind(asked).expect("a size was asked for");
+        assert_eq!(buffer.asked, asked);
+        // Linux grants up to net.core.rmem_max, silently; Windows what was asked.
+        #[cfg(target_os = "linux")]
+        let expected = std::fs::read_to_string("/proc/sys/net/core/rmem_max")
+            .unwrap()
+            .trim()
+            .parse::<usize>()
+            .unwrap()
+            .min(asked);
+        #[cfg(not(target_os = "linux"))]
+        let expected = asked;
+        assert_eq!(buffer.granted, expected);
+        assert_eq!(bind(0), None, "the default is not read");
+    }
+
+    #[test]
+    fn a_short_receive_buffer_says_how_much_and_how_to_raise_it() {
+        let full = ReceiveBuffer {
+            asked: 4 << 20,
+            granted: 4 << 20,
+        };
+        assert!(!full.short());
+        assert_eq!(full.describe("Video"), "Video receive buffer: 4096 KiB, as asked");
+        let capped = ReceiveBuffer {
+            asked: 4 << 20,
+            granted: 212_992,
+        };
+        assert!(capped.short());
+        let text = capped.describe("Video");
+        assert!(
+            text.starts_with("Video receive buffer: the system granted 208 KiB of the 4096 KiB asked"),
+            "{text}"
+        );
+        assert_eq!(
+            text.contains("sudo sysctl -w net.core.rmem_max=4194304"),
+            cfg!(any(target_os = "linux", target_os = "android")),
+            "{text}"
+        );
     }
 
     #[test]

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Комбінація виходу на контролері</string>
+    <string name="summary_list_gamepad_quit_combo">Утримуйте ці кнопки, щоб вийти з трансляції; вона завершиться, коли всі буде відпущено. «Вимк.» залишає це меню трансляції, яке відкриває Start+Select+LB+RB. З наступної трансляції.</string>
+    <string name="gamepad_quit_combo_off">Вимк.</string>
+    <string name="stream_controller_mouse">Миша з контролера</string>
+</resources>

@@ -4,7 +4,7 @@
 //! [`Event`]; the UI thread owns the list.
 
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -128,9 +128,41 @@ pub struct Host {
     info_seq: u64,
     /// Until then the PC is polled every second (see `RECHECK_WINDOW`).
     recheck_until: Option<Instant>,
+    /// The remote address, when the last poll reached the PC only there (this device is away
+    /// from the PC's network). Never saved: the address the PC is stored under stays its own.
+    via_remote: Option<String>,
+    /// Whether a paired Sunshine-family PC has Foundation Sunshine's bandwidth test, asked once
+    /// (`/api/network/capabilities`); None until it answered.
+    foundation_probe: Option<bool>,
+    probing_foundation: bool,
 }
 
 impl Host {
+    /// The address requests and streams go to: the remote address while only it answers,
+    /// else the PC's own.
+    pub fn connect_address(&self) -> &str {
+        match self.via_remote.as_deref() {
+            Some(remote) if self.record.pinned_address.is_none() => remote,
+            _ => &self.record.address,
+        }
+    }
+
+    /// Whether Test speed runs here: Rubylight's PyroWave test, or Foundation Sunshine's where
+    /// the PC said it has one. Stock Sunshine, Apollo and Vibepollo have neither.
+    pub fn bandwidth_test(&self) -> bool {
+        self.info.as_ref().is_some_and(|i| {
+            i.capabilities.has(Feature::PyroWaveBandwidthProbe)
+                || (crate::network_test::has_foundation_probe(i) && self.foundation_probe == Some(true))
+        })
+    }
+
+    /// The record with [`Host::connect_address`] as its address, for a request or a stream.
+    pub fn connect_record(&self) -> HostRecord {
+        let mut record = self.record.clone();
+        record.address = self.connect_address().to_owned();
+        record
+    }
+
     /// How long to leave the PC alone between polls at `now`.
     fn poll_interval(&self, now: Instant) -> Duration {
         if self.recheck_until.is_some_and(|until| now < until) {
@@ -251,6 +283,18 @@ pub enum Event {
         addresses: Vec<IpAddr>,
         port: u16,
     },
+    /// Whether the PC `unique_id` has Foundation Sunshine's bandwidth test; None when the
+    /// question did not get through.
+    FoundationProbe {
+        id: u64,
+        unique_id: String,
+        found: Option<bool>,
+    },
+    /// This device's WAN address from STUN, the remote address of a PC found on the LAN.
+    Remote {
+        id: u64,
+        result: std::io::Result<Option<Ipv4Addr>>,
+    },
     Paired {
         id: u64,
         request: u64,
@@ -318,6 +362,8 @@ pub struct Hosts {
     pairing_generation: u64,
     /// Hosts whose live library changed since the last `take_library_saves`.
     library_saves: Vec<u64>,
+    /// STUN for the remote address of PCs found on the LAN; off in tests, which stay offline.
+    stun: bool,
     _mdns: Option<mdns_sd::ServiceDaemon>,
 }
 
@@ -541,6 +587,7 @@ impl Hosts {
     pub fn new(records: Vec<HostRecord>, waker: Waker) -> Self {
         let mut hosts = Self::without_discovery(records, waker);
         hosts._mdns = hosts.start_discovery();
+        hosts.stun = true;
         hosts
     }
 
@@ -556,6 +603,7 @@ impl Hosts {
             pairing: None,
             pairing_generation: 0,
             library_saves: Vec::new(),
+            stun: false,
             _mdns: None,
         };
         for record in records {
@@ -594,6 +642,9 @@ impl Hosts {
             poll_seq: 0,
             info_seq: 0,
             recheck_until: None,
+            via_remote: None,
+            foundation_probe: None,
+            probing_foundation: false,
         });
         id
     }
@@ -686,8 +737,29 @@ impl Hosts {
             manual: true,
             ..Default::default()
         });
+        // A PC added by its LAN address gets this network's WAN address too (Moonlight V+ PC).
+        if address.parse::<Ipv4Addr>().is_ok_and(|a| a.is_private()) {
+            self.find_remote_address(id);
+        }
         self.poll_one(id);
         id
+    }
+
+    /// Asks STUN for this device's WAN address, which reaches a PC on its LAN from outside it
+    /// once the router forwards the PC's ports (`LiFindExternalAddressIP4`, as Moonlight V+ PC
+    /// does for a PC found by mDNS or added by a private IPv4 address).
+    fn find_remote_address(&self, id: u64) {
+        if !self.stun {
+            return;
+        }
+        self.spawn("stun", move || {
+            let result = nightjar_core::stun::find_external_ipv4(
+                nightjar_core::stun::MOONLIGHT_STUN_SERVER,
+                nightjar_core::stun::MOONLIGHT_STUN_PORT,
+                nightjar_core::stun::STUN_TIMEOUT,
+            );
+            Some(Event::Remote { id, result })
+        });
     }
 
     /// Names a PC on this device only. The PC's own name (or nothing) brings its name back.
@@ -699,6 +771,30 @@ impl Hosts {
         let own = given == host.record.name || given == host.record.address;
         host.record.set_alias(if own { "" } else { alias });
         crate::logfile::add_secrets(&host.record);
+        true
+    }
+
+    /// Pins the PC to one of its known addresses (`Some`), which then is the only one polled and
+    /// streamed to, or brings back the automatic pick (`None`), as Moonlight V+ PC's
+    /// `pinAddress` and `resetToAutomaticAddress`. False for an unknown PC or address.
+    pub fn pin_address(&mut self, id: u64, address: Option<&str>) -> bool {
+        let Some(host) = self.get_mut(id) else {
+            return false;
+        };
+        let record = &mut host.record;
+        match address {
+            None => record.pinned_address = None,
+            Some(address) => {
+                if record.address != address {
+                    let Some(at) = record.other_addresses.iter().position(|a| a == address) else {
+                        return false;
+                    };
+                    let old = std::mem::replace(&mut record.address, record.other_addresses.remove(at));
+                    record.other_addresses.push(old);
+                }
+                record.pinned_address = Some(address.to_owned());
+            }
+        }
         true
     }
 
@@ -743,10 +839,8 @@ impl Hosts {
         let record = host.record.clone();
         let likely_online = host.reach == Reach::Online;
         self.spawn("serverinfo", move || {
-            let mut addresses = vec![record.address.clone()];
-            addresses.extend(record.other_addresses.iter().cloned());
             let mut last_error = String::from(en("No address"));
-            for address in addresses {
+            for address in poll_addresses(&record) {
                 let result = client_for(&identity, &record, &address)
                     .and_then(|c| c.server_info(likely_online).map_err(|e| describe(&e)));
                 match result {
@@ -796,7 +890,7 @@ impl Hosts {
         let Some(host) = self.get(id) else {
             return;
         };
-        let mut record = host.record.clone();
+        let mut record = host.connect_record();
         record.server_certificate = None;
         let client = match client_for(&identity, &record, &record.address) {
             Ok(client) => Arc::new(client),
@@ -853,7 +947,7 @@ impl Hosts {
         work: impl FnOnce(&HostClient) -> Result<SleepStep, String> + Send + 'static,
     ) {
         let Some(host) = self.get(id) else { return };
-        let record = host.record.clone();
+        let record = host.connect_record();
         let name = host.display_name().to_owned();
         let identity = self.identity.clone();
         self.spawn("sleep", move || {
@@ -874,7 +968,7 @@ impl Hosts {
         let Some(host) = self.get(id) else {
             return Ok(());
         };
-        let record = host.record.clone();
+        let record = host.connect_record();
         self.spawn("unpair", move || {
             let result = client_for(&identity, &record, &record.address)
                 .map_err(|_| UNPAIR_FAILED.to_string())
@@ -906,7 +1000,7 @@ impl Hosts {
             return;
         }
         host.apps = Apps::Loading;
-        let record = host.record.clone();
+        let record = host.connect_record();
         let capabilities = host
             .info
             .as_ref()
@@ -945,7 +1039,7 @@ impl Hosts {
         }
         host.native_seq += 1;
         let (epoch, seq) = (host.native_epoch, host.native_seq);
-        let record = host.record.clone();
+        let record = host.connect_record();
         self.spawn("native-api", move || {
             let result = client_for(&identity, &record, &record.address).and_then(|client| {
                 let (capabilities, library) = if full {
@@ -992,7 +1086,7 @@ impl Hosts {
             return;
         }
         host.native.acting = true;
-        let record = host.record.clone();
+        let record = host.connect_record();
         self.spawn("session-action", move || {
             let result = client_for(&identity, &record, &record.address).and_then(|client| {
                 client.session_action(action).map(Box::new).map_err(|e| describe(&e))
@@ -1042,7 +1136,7 @@ impl Hosts {
         host.art.insert(app, Art::Loading);
         host.art_versions.insert(app, version.to_owned());
         let version = version.to_owned();
-        let record = host.record.clone();
+        let record = host.connect_record();
         let cache = store.art_path(&record.unique_id, app, &version);
         self.spawn("boxart", move || {
             let bytes = std::fs::read(&cache).ok().or_else(|| {
@@ -1078,7 +1172,7 @@ impl Hosts {
         let Some(host) = self.get(id) else {
             return;
         };
-        let record = host.record.clone();
+        let record = host.connect_record();
         self.spawn("cancel", move || {
             let result = client_for(&identity, &record, &record.address).and_then(|c| match c.cancel() {
                 Ok(true) => Ok(()),
@@ -1104,7 +1198,7 @@ impl Hosts {
             ..Default::default()
         };
         let control = app.control;
-        let record = host.record.clone();
+        let record = host.connect_record();
         self.spawn("host-action", move || {
             let result = client_for(&identity, &record, &record.address).and_then(|client| {
                 let info = client.server_info_https().map_err(|e| describe(&e))?;
@@ -1151,12 +1245,27 @@ impl Hosts {
                     }
                     changed |= self.apply_info(id, address, result);
                     self.follow_native(id);
+                    self.check_foundation_probe(id);
+                }
+                Event::FoundationProbe { id, unique_id, found } => {
+                    if let Some(host) = self.get_mut(id) {
+                        host.probing_foundation = false;
+                        // Another PC answers at this address by now: the answer is not its.
+                        if host.record.unique_id == unique_id {
+                            host.foundation_probe = found;
+                        }
+                    }
                 }
                 Event::Discovered {
                     name,
                     addresses,
                     port,
-                } => self.apply_discovery(name, addresses, port),
+                } => changed |= self.apply_discovery(name, addresses, port),
+                Event::Remote { id, result } => match result {
+                    Ok(Some(address)) => changed |= self.apply_remote_address(id, address),
+                    Ok(None) => eprintln!("nightjar: STUN: no answer, the PC has no remote address yet"),
+                    Err(e) => eprintln!("nightjar: STUN failed: {e}"),
+                },
                 Event::Paired { id, request, result } => {
                     if request != self.pairing_generation {
                         continue;
@@ -1301,6 +1410,48 @@ impl Hosts {
         }
     }
 
+    /// Asks a paired Sunshine-family PC once whether it has Foundation Sunshine's bandwidth test,
+    /// so Test speed is offered only where it runs. A request that did not get through is asked
+    /// again after the next poll.
+    fn check_foundation_probe(&mut self, id: u64) {
+        let Some(identity) = self.identity.clone() else { return };
+        let Some(host) = self.get_mut(id) else { return };
+        let candidate = host.info.as_ref().is_some_and(|i| {
+            !i.capabilities.has(Feature::PyroWaveBandwidthProbe) && crate::network_test::has_foundation_probe(i)
+        });
+        if host.reach != Reach::Online || !candidate || host.foundation_probe.is_some() || host.probing_foundation {
+            return;
+        }
+        host.probing_foundation = true;
+        let record = host.connect_record();
+        self.spawn("network-capabilities", move || {
+            let found = match client_for(&identity, &record, &record.address).map(|c| c.network_capabilities()) {
+                Ok(Ok(capabilities)) => match capabilities.probe_bytes() {
+                    Ok(_) => Some(true),
+                    Err(e) => {
+                        eprintln!("nightjar: the PC's bandwidth test is not offered: {e}");
+                        Some(false)
+                    }
+                },
+                Ok(Err(nightjar_core::http::Error::Io(e))) => {
+                    eprintln!("nightjar: could not ask the PC for its bandwidth test: {e}");
+                    None
+                }
+                Ok(Err(nightjar_core::http::Error::Cancelled)) => None,
+                // 404 and the like: stock Sunshine, Apollo or Vibepollo.
+                Ok(Err(e)) => {
+                    eprintln!("nightjar: the PC has no bandwidth test of its own: {e}");
+                    Some(false)
+                }
+                Err(e) => {
+                    eprintln!("nightjar: could not ask the PC for its bandwidth test: {e}");
+                    None
+                }
+            };
+            Some(Event::FoundationProbe { id, unique_id: record.unique_id, found })
+        });
+    }
+
     fn apply_info(&mut self, id: u64, address: String, result: Result<Box<ServerInfo>, String>) -> bool {
         let mut changed = false;
         let Some(index) = self.list.iter().position(|h| h.id == id) else {
@@ -1343,6 +1494,9 @@ impl Hosts {
                         kept.other_addresses.push(a);
                     }
                 }
+                if kept.remote_address.is_none() {
+                    kept.remote_address = dropped.remote_address;
+                }
                 let keep_id = self.list[keep].id;
                 self.list.remove(drop);
                 changed = true;
@@ -1362,10 +1516,19 @@ impl Hosts {
             Ok(info) => {
                 host.reach = Reach::Online;
                 host.error = None;
-                if host.record.address != address {
+                // The remote address answers only when none of the PC's own did: requests go
+                // there for now, but the PC stays under its own, so the next poll at home finds
+                // it on the LAN again rather than through the router.
+                let remote = host.record.remote_address.as_deref() == Some(address.as_str());
+                host.via_remote = (remote && host.record.address != address && host.record.pinned_address.is_none())
+                    .then(|| address.clone());
+                // A pinned PC keeps its address: an answer from another one was still in flight
+                // when the user pinned it.
+                if !remote && host.record.address != address && host.record.pinned_address.is_none() {
                     let old = std::mem::replace(&mut host.record.address, address.clone());
                     host.record.other_addresses.retain(|a| *a != address);
-                    if !host.record.other_addresses.contains(&old) {
+                    // An older build kept the remote address as the PC's own: it stays the remote one.
+                    if !host.record.other_addresses.contains(&old) && host.record.remote_address.as_ref() != Some(&old) {
                         host.record.other_addresses.push(old);
                     }
                     changed = true;
@@ -1377,6 +1540,7 @@ impl Hosts {
                     }
                     host.native = Native::default();
                     host.native_epoch += 1;
+                    host.foundation_probe = None;
                 }
                 if host.record.unique_id != info.unique_id || host.record.name != info.hostname {
                     host.record.unique_id = info.unique_id.clone();
@@ -1390,6 +1554,13 @@ impl Hosts {
                 if host.record.mac.is_none() && info.mac_address.is_some() {
                     host.record.mac = info.mac_address.clone();
                     changed = true;
+                }
+                // The PC's own ExternalIP replaces a STUN answer (Moonlight V+ PC's NvComputer).
+                if let Some(external) = info.external_ip.as_deref().and_then(public_ipv4) {
+                    if host.record.remote_address.as_deref() != Some(external.as_str()) {
+                        host.record.remote_address = Some(external);
+                        changed = true;
+                    }
                 }
                 // The host forgot this client: drop the pin so the user can pair again.
                 if !info.paired && host.record.server_certificate.is_some() {
@@ -1414,9 +1585,10 @@ impl Hosts {
         changed
     }
 
-    fn apply_discovery(&mut self, name: String, addresses: Vec<IpAddr>, port: u16) {
+    /// Takes in an mDNS sighting. True when a listed PC's stored address changed.
+    fn apply_discovery(&mut self, name: String, addresses: Vec<IpAddr>, port: u16) -> bool {
         let Some(first) = addresses.first() else {
-            return;
+            return false;
         };
         let texts: Vec<String> = addresses.iter().map(IpAddr::to_string).collect();
         if let Some(host) = self.list.iter_mut().find(|h| {
@@ -1426,7 +1598,16 @@ impl Hosts {
                 host.record.name = name;
                 crate::logfile::add_secrets(&host.record);
             }
-            return;
+            // Seen on this network: its own address reaches it again, not the router's.
+            host.via_remote = None;
+            let record = &mut host.record;
+            if record.pinned_address.is_none() && record.remote_address.as_ref() == Some(&record.address) {
+                if let Some(at) = record.other_addresses.iter().position(|a| texts.contains(a)) {
+                    record.address = record.other_addresses.remove(at);
+                    return true;
+                }
+            }
+            return false;
         }
         let id = self.insert(HostRecord {
             name,
@@ -1435,10 +1616,57 @@ impl Hosts {
             http_port: if port == 0 { DEFAULT_HTTP_PORT } else { port },
             ..Default::default()
         });
+        if first.is_ipv4() {
+            self.find_remote_address(id);
+        }
         self.poll_one(id);
+        false
+    }
+
+    /// Takes a STUN answer as the PC's remote address. The PC's own ExternalIP, once it has
+    /// answered with one, stays.
+    fn apply_remote_address(&mut self, id: u64, address: Ipv4Addr) -> bool {
+        let Some(host) = self.get_mut(id) else { return false };
+        if host.info.as_ref().and_then(|i| i.external_ip.as_deref()).and_then(public_ipv4).is_some() {
+            return false;
+        }
+        let address = address.to_string();
+        if host.record.remote_address.as_deref() == Some(address.as_str()) {
+            return false;
+        }
+        host.record.remote_address = Some(address);
+        crate::logfile::add_secrets(&host.record);
+        true
     }
 }
 
+/// The addresses a poll tries in turn: the last that answered, the others, then the remote one,
+/// which stays last even where it is listed among the others (a hairpin NAT answers there at
+/// home too).
+fn poll_addresses(record: &HostRecord) -> Vec<String> {
+    if let Some(pinned) = &record.pinned_address {
+        return vec![pinned.clone()];
+    }
+    let remote = record.remote_address.as_ref();
+    let mut addresses: Vec<String> = std::iter::once(&record.address)
+        .chain(&record.other_addresses)
+        .filter(|a| Some(*a) != remote)
+        .cloned()
+        .collect();
+    addresses.extend(remote.cloned());
+    addresses
+}
+
+/// `text` as an IPv4 address that a PC outside this network can be reached at.
+fn public_ipv4(text: &str) -> Option<String> {
+    let address: Ipv4Addr = text.trim().parse().ok()?;
+    let local = address.is_private() || address.is_loopback() || address.is_link_local() || address.is_unspecified()
+        || address.is_broadcast() || address.is_multicast() || address.is_documentation();
+    (!local).then(|| address.to_string())
+}
+
+/// The addresses a poll tries, in order: only the pinned one when the user pinned the PC
+/// ([`Hosts::pin_address`]), otherwise the last that answered, then the others it was known by.
 fn completed_action(control: AppControl, error: &nightjar_core::http::Error) -> bool {
     let nightjar_core::http::Error::Status { code: 410, message } = error else { return false; };
     let message = message.trim().trim_end_matches('.');
@@ -1568,6 +1796,128 @@ pub(crate) mod tests {
         assert_eq!(gated(&fresh), [false; 3], "offered by capability, never by an old read");
     }
 
+    // A PC's remote address: its own ExternalIP, else this device's STUN answer, tried last.
+    #[test]
+    fn the_remote_address_is_the_pcs_external_ip_else_stun() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        send(&mut hosts, Event::Remote { id, result: Ok(Some(Ipv4Addr::new(93, 184, 216, 34))) });
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("93.184.216.34"));
+        let record = &hosts.list[0].record;
+        assert_eq!(poll_addresses(record), ["192.0.2.1", "93.184.216.34"], "after the LAN address");
+
+        let external = |ip: &str| {
+            let mut info = native_info();
+            info.external_ip = Some(ip.into());
+            info
+        };
+        info_lands(&mut hosts, id, external("10.0.0.5"));
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("93.184.216.34"), "a private ExternalIP is no remote address");
+        info_lands(&mut hosts, id, external("151.101.1.1"));
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("151.101.1.1"), "the PC's own replaces STUN's");
+        send(&mut hosts, Event::Remote { id, result: Ok(Some(Ipv4Addr::new(93, 184, 216, 34))) });
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("151.101.1.1"), "and stays over a later STUN answer");
+        send(&mut hosts, Event::Remote { id, result: Err(std::io::Error::other("unreachable")) });
+        assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("151.101.1.1"));
+    }
+
+    // A poll lists each address once; only a public IPv4 ExternalIP becomes the remote address.
+    #[test]
+    fn the_remote_address_is_listed_once_and_only_public() {
+        let mut record = paired_record("uid");
+        record.other_addresses = vec!["fe80::1".into()];
+        record.remote_address = Some("fe80::1".into());
+        assert_eq!(poll_addresses(&record), ["192.0.2.1", "fe80::1"], "listed once");
+        assert_eq!(public_ipv4(" 151.101.1.1 "), Some("151.101.1.1".into()));
+        for local in ["192.168.1.2", "10.1.1.1", "172.16.0.1", "127.0.0.1", "169.254.1.1", "0.0.0.0", "198.51.100.1", "x"] {
+            assert_eq!(public_ipv4(local), None, "{local}");
+        }
+    }
+
+    // Away from home only the remote address answers: requests go there, but the PC keeps its
+    // LAN address, so a hairpin NAT at home does not turn home streams into internet ones.
+    #[test]
+    fn the_remote_address_reaches_the_pc_but_never_becomes_its_own() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        send(&mut hosts, Event::Remote { id, result: Ok(Some(Ipv4Addr::new(93, 184, 216, 34))) });
+        let answer = |hosts: &mut Hosts, address: &str| {
+            let seq = hosts.get(id).unwrap().info_seq + 1;
+            send(hosts, Event::Info { id, seq, address: address.into(), result: Ok(Box::new(native_info())) });
+        };
+        answer(&mut hosts, "93.184.216.34");
+        let host = hosts.get(id).unwrap();
+        assert_eq!(host.record.address, "192.0.2.1", "the remote address is not promoted");
+        assert_eq!(host.connect_address(), "93.184.216.34", "but requests and streams go there");
+        assert_eq!(host.connect_record().address, "93.184.216.34");
+        assert_eq!(poll_addresses(&host.record), ["192.0.2.1", "93.184.216.34"], "the LAN is tried first again");
+
+        answer(&mut hosts, "192.0.2.1");
+        let host = hosts.get(id).unwrap();
+        assert_eq!(host.record.address, "192.0.2.1");
+        assert_eq!(host.connect_address(), "192.0.2.1", "back home the LAN is the primary");
+
+        // Pinned, the pinned address is the only one used.
+        answer(&mut hosts, "93.184.216.34");
+        assert!(hosts.pin_address(id, Some("192.0.2.1")));
+        assert_eq!(hosts.get(id).unwrap().connect_address(), "192.0.2.1");
+        assert_eq!(poll_addresses(&hosts.get(id).unwrap().record), ["192.0.2.1"]);
+    }
+
+    // A record an older build saved with the remote address as its own: the LAN answers first
+    // and takes its place back, and an mDNS sighting does so at once.
+    #[test]
+    fn the_lan_address_comes_back_from_a_saved_remote_one() {
+        let mut record = paired_record("uid");
+        record.address = "93.184.216.34".into();
+        record.other_addresses = vec!["192.0.2.1".into()];
+        record.remote_address = Some("93.184.216.34".into());
+        assert_eq!(poll_addresses(&record), ["192.0.2.1", "93.184.216.34"], "the remote address goes last");
+
+        let mut hosts = Hosts::without_discovery(vec![record.clone()], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        send(&mut hosts, Event::Info { id, seq: 1, address: "192.0.2.1".into(), result: Ok(Box::new(native_info())) });
+        let host = hosts.get(id).unwrap();
+        assert_eq!(host.record.address, "192.0.2.1");
+        assert!(host.record.other_addresses.is_empty(), "the remote address stays only the remote one");
+        assert_eq!(host.record.remote_address.as_deref(), Some("93.184.216.34"));
+
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        assert!(hosts.apply_discovery("PC".into(), vec!["192.0.2.1".parse().unwrap()], 0));
+        assert_eq!(hosts.list[0].record.address, "192.0.2.1");
+        assert_eq!(hosts.list[0].connect_address(), "192.0.2.1");
+    }
+
+    // Test speed goes to a Sunshine-family PC only once it said it has Foundation's test; stock
+    // Sunshine, Apollo and Vibepollo do not. Rubylight keeps its own test without asking.
+    #[test]
+    fn the_bandwidth_test_is_offered_only_where_the_pc_has_one() {
+        let sunshine = |unique_id: &str| {
+            let xml = format!("<root status_code=\"200\"><uniqueid>{unique_id}</uniqueid><state>SUNSHINE_SERVER_FREE</state>\
+                <PairStatus>1</PairStatus><appversion>7.1.431.-1</appversion><SunshineVersion>2025.1</SunshineVersion></root>");
+            ServerInfo::parse(&xml, 47989).unwrap()
+        };
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        info_lands(&mut hosts, id, sunshine("uid"));
+        assert!(!hosts.list[0].bandwidth_test(), "not before the PC answered");
+        send(&mut hosts, Event::FoundationProbe { id, unique_id: "uid".into(), found: Some(false) });
+        assert!(!hosts.list[0].bandwidth_test(), "stock Sunshine");
+        hosts.list[0].foundation_probe = None;
+        send(&mut hosts, Event::FoundationProbe { id, unique_id: "other".into(), found: Some(true) });
+        assert!(!hosts.list[0].bandwidth_test(), "another PC's answer");
+        send(&mut hosts, Event::FoundationProbe { id, unique_id: "uid".into(), found: Some(true) });
+        assert!(hosts.list[0].bandwidth_test(), "Foundation Sunshine");
+        info_lands(&mut hosts, id, sunshine("another-pc-uid"));
+        assert_eq!(hosts.list[0].foundation_probe, None, "another PC at this address is asked again");
+
+        let rubylight = "<root status_code=\"200\"><uniqueid>uid</uniqueid><state>SUNSHINE_SERVER_FREE</state><PairStatus>1</PairStatus>\
+            <RustHostVersion>3.0.0</RustHostVersion><PyroWaveBandwidthProbeBytes>33554432</PyroWaveBandwidthProbeBytes></root>";
+        info_lands(&mut hosts, id, ServerInfo::parse(rubylight, 47989).unwrap());
+        assert_eq!(hosts.list[0].foundation_probe, None);
+        assert!(hosts.list[0].bandwidth_test(), "Rubylight's PyroWave test, without asking");
+    }
+
     fn paired_record(unique_id: &str) -> HostRecord {
         HostRecord {
             pace: None,
@@ -1578,6 +1928,8 @@ pub(crate) mod tests {
             http_port: 0,
             https_port: 0,
             other_addresses: Vec::new(),
+            pinned_address: None,
+            remote_address: None,
             server_certificate: Some("pem".into()),
             mac: None,
             wake_macs: Vec::new(),
@@ -1625,6 +1977,27 @@ pub(crate) mod tests {
     fn send(hosts: &mut Hosts, event: Event) {
         hosts.sender.send(event).unwrap();
         hosts.drain(&egui::Context::default());
+    }
+
+    #[test]
+    fn a_pinned_address_wins_until_the_pin_is_removed() {
+        let record = HostRecord { other_addresses: vec!["10.0.0.5".into(), "fd00::5".into()], ..paired_record("uid") };
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        assert_eq!(poll_addresses(&hosts.list[0].record), ["192.0.2.1", "10.0.0.5", "fd00::5"], "automatic: last that answered first");
+        assert!(!hosts.pin_address(id, Some("198.51.100.9")), "only a known address is pinned");
+        assert!(hosts.pin_address(id, Some("fd00::5")));
+        let pinned = &hosts.list[0].record;
+        assert_eq!((pinned.address.as_str(), pinned.pinned_address.as_deref()), ("fd00::5", Some("fd00::5")), "streams go to it");
+        assert_eq!(poll_addresses(pinned), ["fd00::5"], "the only address polled");
+        // An answer from the old address, still in flight when the user pinned, keeps the pin.
+        let seq = hosts.get(id).unwrap().info_seq + 1;
+        send(&mut hosts, Event::Info { id, seq, address: "192.0.2.1".into(), result: Ok(Box::new(native_info())) });
+        assert_eq!(hosts.list[0].record.address, "fd00::5");
+        assert!(hosts.pin_address(id, None));
+        let automatic = &hosts.list[0].record;
+        assert_eq!(automatic.pinned_address, None);
+        assert_eq!(poll_addresses(automatic), ["fd00::5", "10.0.0.5", "192.0.2.1"], "back to the automatic pick");
     }
 
     #[test]

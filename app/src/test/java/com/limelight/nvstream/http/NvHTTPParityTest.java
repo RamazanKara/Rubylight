@@ -655,6 +655,31 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void displayLuminanceGoesToOtherHostsAtLaunchAndToRubylightByControlMessage() throws Exception {
+        com.limelight.utils.HdrBrightness luminance =
+                com.limelight.utils.HdrBrightness.create(1000.125f, 0.0004f, 600.25f);
+        for (String server : new String[] {"sunshine-serverinfo.xml", "vibepollo-serverinfo.xml",
+                "apollo-serverinfo.xml", "butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml"}) {
+            ConnectionContext context = context(server);
+            // Unknown luminance sends nothing, so the host picks its own fallback.
+            assertNull(server, query(context, true).queryParameter("maxBrightness"));
+            context.streamConfig = new StreamConfiguration.Builder()
+                    .setResolution(1968, 2184).setRefreshRate(120).setLaunchRefreshRate(120)
+                    .setClientRefreshRateX100(11988).setVirtualDisplay(true, 100)
+                    .setDisplayLuminance(luminance).build();
+            HttpUrl query = query(context, true);
+            if (context.hostCaps.family() == HostCapabilities.Family.RUBYLIGHT) {
+                assertNull(server, query.queryParameter("maxBrightness"));
+                continue;
+            }
+            // Float precision both ways, whatever the locale.
+            assertEquals(server, 1000.125f, Float.parseFloat(query.queryParameter("maxBrightness")), 0f);
+            assertEquals(server, 0.0004f, Float.parseFloat(query.queryParameter("minBrightness")), 0f);
+            assertEquals(server, 600.25f, Float.parseFloat(query.queryParameter("maxAverageBrightness")), 0f);
+        }
+    }
+
+    @Test
     public void onlyARubylightHostHearsWhetherTheLaunchConfirmsTheReplace() throws Exception {
         for (String server : new String[] {"butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml"}) {
             ConnectionContext context = context(server);
@@ -716,6 +741,16 @@ public class NvHTTPParityTest {
         }
     }
 
+    // Foundation Sunshine takes V+'s x-ml-video.fecPercentage: -2 its own, -1 automatic, 0-100.
+    @Test
+    public void theFecChoiceIsVPlusFecPercentageForFoundation() {
+        assertEquals(-2, FecChoice.HOST.summaryPercentage());
+        assertEquals(-1, FecChoice.AUTO.summaryPercentage());
+        assertEquals(0, FecChoice.fixed(0).summaryPercentage());
+        assertEquals(20, FecChoice.fixed(20).summaryPercentage());
+        assertEquals(100, FecChoice.fixed(255).summaryPercentage());
+    }
+
     // 80 % of the measured link, never above the setting and never below 2 Mbit/s unless the
     // setting itself is lower.
     @Test
@@ -752,6 +787,46 @@ public class NvHTTPParityTest {
         assertEquals("1968x2184x144", query.queryParameter("mode"));
         assertEquals("150", query.queryParameter("scaleFactor"));
         assertNull(query.queryParameter("hdrMode"));
+    }
+
+    @Test
+    public void displayScaleGoesWhenChosenWithOrWithoutTheVirtualDisplaySwitch() throws Exception {
+        // The host makes a virtual display of its own by default (per_client), so "Host virtual
+        // display" off does not mean a physical display; the host ignores the scale on one.
+        for (boolean virtualDisplay : new boolean[] {false, true}) {
+            for (int dpi : new int[] {0, 200}) {
+                ConnectionContext context = context("rubylight-serverinfo.xml");
+                context.hostCaps = TestHosts.rubylightWithDisplayScale();
+                context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                        .setVirtualDisplay(virtualDisplay, 100).setVirtualDisplayDpi(dpi).build();
+                String query = NvHTTP.getLaunchQuery(context, 42, false);
+                String expected = dpi != 0 ? "200" : null;
+                assertEquals(virtualDisplay + "/" + dpi, expected, query(context, false).queryParameter("rlDisplayScale"));
+                if (expected != null) {
+                    // The same order as the shared Rust LaunchRequest; the render resolution stays 100 %.
+                    assertTrue(query, query.contains(virtualDisplay ?
+                            "&virtualDisplay=1&scaleFactor=100&rlDisplayScale=200&" : "&rlDisplayScale=200&"));
+                    assertEquals(query, virtualDisplay, query.contains("virtualDisplay"));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void hostsWithoutDisplayScaleVersionGetNoDisplayScale() throws Exception {
+        // Older Rubylight hosts (2.6.x, 3.0.0-rc.5) ignore rlDisplayScale, so a chosen scale would silently do nothing.
+        ConnectionContext context = context("rubylight-serverinfo.xml");
+        assertEquals(HostCapabilities.Availability.unsupported(HostCapabilities.Reason.UPDATE_HOST),
+                context.hostCaps.availability(HostCapabilities.Feature.DISPLAY_SCALE));
+        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                .setVirtualDisplay(true, 100).setVirtualDisplayDpi(200).build();
+        HttpUrl query = query(context, false);
+        assertEquals("1", query.queryParameter("virtualDisplay"));
+        assertNull(query.queryParameter("rlDisplayScale"));
+        ConnectionContext apollo = context("apollo-serverinfo.xml");
+        apollo.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                .setVirtualDisplay(true, 100).setVirtualDisplayDpi(200).build();
+        assertNull(query(apollo, false).queryParameter("rlDisplayScale"));
     }
 
     @Test
@@ -927,6 +1002,17 @@ public class NvHTTPParityTest {
         assertEquals("1", query.queryParameter("gcpersist"));
         assertEquals("00000000000000000000000000000000", query.queryParameter("rikey"));
         assertEquals("-123", query.queryParameter("rikeyid"));
+    }
+
+    @Test
+    public void sevenOneFourSurroundAudioInfoIsSentUnsigned() throws Exception {
+        // 0xF63F << 16 | 12 is negative as a Java int; hosts read the query as an unsigned number.
+        ConnectionContext context = context("rubylight-30-serverinfo.xml");
+        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(60)
+                .setAudioConfiguration(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(12, 0xF63F))
+                .build();
+        HttpUrl query = query(context, false);
+        assertEquals("4131323916", query.queryParameter("surroundAudioInfo"));
     }
 
     @Test

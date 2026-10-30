@@ -218,10 +218,14 @@ pub fn apply(ctx: &egui::Context) {
         .get(&FontFamily::Proportional)
         .cloned()
         .unwrap_or_default();
+    // Hack, egui's monospace font, comes last for the PlayStation button symbols (glyphs.rs)
+    // that neither Figtree nor egui's proportional fonts draw.
     let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
     proportional.insert(0, "figtree".into());
+    proportional.push("Hack".into());
     let mut bold = vec!["figtree-semibold".to_owned()];
     bold.extend(fallback);
+    bold.push("Hack".into());
     fonts.families.insert(FontFamily::Name("semibold".into()), bold);
     ctx.set_fonts(fonts);
     set_look(ctx, high_contrast(), false);
@@ -281,6 +285,11 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
         // High contrast outlines every control, so a button reads as one without its fill.
         w.bg_stroke = if high { Stroke::new(1.5, *OUTLINE_VARIANT) } else { Stroke::NONE };
         w.expansion = 0.0;
+    }
+    // A check box or radio draws its box in `bg_fill` (buttons use `weak_bg_fill`): on a window,
+    // whose fill is SURFACE_HIGH too, an unchecked box would vanish. High contrast outlines it.
+    if !high {
+        v.widgets.inactive.bg_fill = *OUTLINE_VARIANT;
     }
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, *OUTLINE_VARIANT);
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, *ON_SURFACE_VARIANT);
@@ -623,6 +632,27 @@ mod tests {
         assert_eq!(CONTROL_HEIGHT, 44.0);
     }
 
+    #[test]
+    fn an_unchecked_box_shows_on_a_window_and_on_a_page() {
+        let ctx = egui::Context::default();
+        own_palette();
+        for high in [false, true] {
+            set_look(&ctx, high, false);
+            let v = ctx.global_style().visuals.clone();
+            let box_ = &v.widgets.inactive;
+            if high {
+                assert!(box_.bg_stroke.width > 0.0, "high contrast outlines the box");
+            } else {
+                for ground in [v.window_fill, v.panel_fill] {
+                    let ratio = contrast(box_.bg_fill, ground);
+                    assert!(ratio >= 1.3, "box on {ground:?} is {ratio:.2}:1");
+                }
+                // Buttons keep their own fill.
+                assert_eq!(box_.weak_bg_fill, color(false, SURFACE_HIGH));
+            }
+        }
+    }
+
     /// `top` (maybe translucent) painted over the opaque `ground`, as egui blends it.
     fn over(top: Color32, ground: Color32) -> Color32 {
         let keep = u32::from(255 - top.a());
@@ -699,5 +729,29 @@ mod tests {
         // The bird's body, just below the centre.
         let body = at(33, 40);
         assert!(body[0] < 80, "bird pixels are dark: {body:?}");
+    }
+
+    /// build.rs embeds this file as nightjar.exe's icon; the shell picks the size it needs from
+    /// small taskbar and title bar icons up to Explorer's extra large view.
+    #[test]
+    fn windows_icon_has_every_shell_size() {
+        let ico = include_bytes!("../packaging/icons/nightjar.ico");
+        let u16_at = |i: usize| u16::from_le_bytes([ico[i], ico[i + 1]]);
+        let u32_at = |i: usize| u32::from_le_bytes([ico[i], ico[i + 1], ico[i + 2], ico[i + 3]]) as usize;
+        assert_eq!((u16_at(0), u16_at(2)), (0, 1), "an icon directory");
+        let mut sizes = Vec::new();
+        for entry in 0..usize::from(u16_at(4)) {
+            let at = 6 + entry * 16;
+            // A side of 0 means 256.
+            let side = |byte: u8| if byte == 0 { 256 } else { usize::from(byte) };
+            let (width, height) = (side(ico[at]), side(ico[at + 1]));
+            assert_eq!(width, height, "square images");
+            assert_eq!(u16_at(at + 6), 32, "{width} px has an alpha channel");
+            assert!(u32_at(at + 12) + u32_at(at + 8) <= ico.len(), "{width} px lies inside the file");
+            sizes.push(width);
+        }
+        for size in [16, 20, 24, 32, 40, 48, 64, 128, 256] {
+            assert!(sizes.contains(&size), "{size} px missing from {sizes:?}");
+        }
     }
 }

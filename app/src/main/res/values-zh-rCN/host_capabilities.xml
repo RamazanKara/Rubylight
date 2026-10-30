@@ -7,6 +7,7 @@
     <string name="host_feature_virtual_display">虚拟显示器</string>
     <string name="host_feature_virtual_display_hdr">HDR 虚拟显示器</string>
     <string name="host_feature_display_modes">电脑显示模式</string>
+    <string name="host_feature_display_scale">电脑显示缩放</string>
     <string name="host_feature_fractional_refresh">小数刷新率</string>
     <string name="host_feature_vrr">主机端 VRR</string>
     <string name="host_feature_runtime_bitrate">串流期间更改码率</string>

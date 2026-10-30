@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Stereo</string>
     <string name="audioconf_51surround">5.1 Çevresel Ses</string>
     <string name="audioconf_71surround">7.1 Çevresel Ses</string>
+    <string name="audioconf_714surround">7.1.4 Çevresel Ses</string>
     <string name="videoformat_auto">Otomatik (önerilen)</string>
     <string name="videoformat_av1always">AV1 tercih et</string>
     <string name="videoformat_hevcalways">HEVC tercih et</string>
@@ -270,13 +271,16 @@
     <string name="title_virtual_display">Ana bilgisayar sanal ekranı</string>
     <string name="summary_virtual_display">Bilgisayardan yayınla eşleşen bir ekran ister. Kapalı: bilgisayarın kendi ekran ayarları belirler.</string>
     <string name="title_vrr">Uyarlanabilir yenileme (ARR / VRR)</string>
-    <string name="summary_vrr">Uyarlanabilir yenileme destekleyen Android 16 ekranlarında Android, yenileme hızını yayına uydurur; diğer ekranlar en yüksek hızlarında çalışır. VRR destekleyen ana bilgisayarlardan da ayarlarına bağlı olarak onu kullanmaları istenir. Bu açıkken kare zamanlama ve daha düşük yenileme hızı uygulanmaz.</string>
+    <string name="summary_vrr">Uyarlanabilir yenileme destekleyen Android 16 ekranlarında Android, yenileme hızını yayına uydurur; diğer ekranlar en yüksek hızlarında çalışır; Rubylight yüklü bir bilgisayarla, yalnızca oyunun kare hızı orada takılacaksa ve kararmadan geçebiliyorlarsa uygun daha düşük bir hıza geçerler. VRR destekleyen ana bilgisayarlardan da ayarlarına bağlı olarak onu kullanmaları istenir. Bu açıkken kare zamanlama ve daha düşük yenileme hızı uygulanmaz.</string>
     <string name="title_host_frame_times">Kareleri bilgisayarın zamanlamasıyla göster</string>
     <string name="summary_host_frame_times">Her kareyi birkaç milisaniye tutar; böylece kare ağın ulaştırdığı anda değil, oyunun çizdiği anda görünür. Özellikle uyarlanabilir yenileme hızında dalgalanmayı azaltır. Kare zamanlamasının yerini alır. PyroWave ile kullanılmaz.</string>
     <string name="title_content_rate_frame_rate">Ekranı oyunun kare hızına uydur</string>
     <string name="summary_content_rate_frame_rate">Android’e oyunun gerçekte hangi kare hızında çalıştığını bildirir; böylece uygun moda sahip bir ekran, kararmadan o moda geçebilir. Kare zamanlarını gönderen bir bilgisayar ve «Daha düşük yenileme hızına izin ver» gerekir; en fazla 2 saniyede bir değişir. PyroWave ve uyarlanabilir yenileme ile kullanılmaz.</string>
     <string name="title_virtual_display_scale">Bilgisayarın işleme çözünürlüğü</string>
     <string name="summary_virtual_display_scale">Bilgisayarın işlediği çözünürlüğün yayın çözünürlüğüne oranı (yüzde). İletilen videonun boyutu değişmez. Daha az piksel gönderip bu cihazda büyütmek için yayın çözünürlüğünü düşürün.</string>
+    <string name="title_virtual_display_dpi">Bilgisayar ekran ölçeği</string>
+    <string name="summary_virtual_display_dpi">Sanal ekrandaki metin ve arayüz boyutu, Rubylight bilgisayarlarda.</string>
+    <string name="virtual_display_dpi_pc_own">Bilgisayardaki gibi</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">henüz veri yok</string>
     <string name="title_export_latency_csv">Gecikme CSV’sini dışa aktar</string>
@@ -328,7 +332,7 @@
     <string name="stream_bitrate_help">Bu oturum için Mbps değerini ayarlayın.\nBu, “Bit hızını cihaz yönetir” seçeneğini kapatır.</string>
     <string name="stream_bitrate_invalid">0.5 ile 2000 Mbps arasında bir bit hızı girin</string>
     <string name="stream_bitrate_applied">Ana bilgisayar %1$.1f Mbps uyguladı</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps, %3$d×%4$d ve %5$d FPS için PyroWave alt sınırı olan %2$d Mbps değerinin altında. Görüntü bozulacak.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">%2$d×%3$d, %4$d FPS için PyroWave alt sınırı olan %1$d Mbps’nin altında: görüntü bozulacak.</string>
     <string name="stream_enabled">Açık</string>
     <string name="stream_disabled">Kapalı</string>
     <string name="stream_limiter_status">Ana bilgisayar kare sınırı: %1$s\nOtomatik ekran sınırı: %2$s\nHedef: %3$s</string>

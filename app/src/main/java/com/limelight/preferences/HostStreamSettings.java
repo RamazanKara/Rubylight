@@ -57,6 +57,7 @@ import com.google.android.material.slider.Slider;
 import com.limelight.utils.FrontendExporter;
 import com.limelight.utils.FrontendLauncher;
 import com.limelight.utils.FrontendExportStore;
+import com.limelight.utils.FrontendSync;
 import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.HostDetailsDialog;
 import com.limelight.utils.PyroWaveBandwidthTest;
@@ -305,6 +306,8 @@ public class HostStreamSettings extends NightjarActivity {
     private PreferenceConfiguration baseConfig() {
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
         applyWithScreen(below.values, config);
+        // A layer's bitrate is chosen, as when the stream starts (readPreferences with layers).
+        config.automaticBitrate &= !below.bitrateLayered;
         return config;
     }
 
@@ -545,17 +548,41 @@ public class HostStreamSettings extends NightjarActivity {
             chooseFrontendFolder();
             return;
         }
+        if (store.failed()) {
+            new NavigationDialogBuilder(this)
+                    .setTitle(exportLauncher.label)
+                    .setMessage(R.string.frontend_sync_failed_message)
+                    .setPositiveButton(R.string.frontend_export_pick, (dialog, which) -> chooseFrontendFolder())
+                    .setNeutralButton(R.string.frontend_sync_stop, (dialog, which) -> stopFrontendSync(store))
+                    .setNegativeButton(android.R.string.cancel, null).show();
+            return;
+        }
         new NavigationDialogBuilder(this)
-                .setTitle(exportLauncher.label)
+                .setTitle(getString(R.string.frontend_sync_title, exportLauncher.label))
                 .setItems(new String[] {getString(R.string.frontend_export_update),
-                        getString(R.string.frontend_export_pick), getString(R.string.frontend_setup_title)},
+                        getString(R.string.frontend_export_pick), getString(R.string.frontend_setup_title),
+                        getString(R.string.frontend_sync_stop)},
                         (dialog, which) -> {
                             if (which == 0) {
                                 exportRomsTree = store.romsTree();
                                 runFrontendExport(store.esdeTree());
                             } else if (which == 1) chooseFrontendFolder();
-                            else showFrontendSetup(null);
+                            else if (which == 2) showFrontendSetup(null);
+                            else stopFrontendSync(store);
                         }).show();
+    }
+
+    /** The files stay in the launcher; Nightjar just stops updating them. */
+    private void stopFrontendSync(FrontendExportStore store) {
+        store.forget();
+        refreshActions();
+    }
+
+    private void refreshActions() {
+        SettingsFragment fragment = (SettingsFragment) getFragmentManager().findFragmentById(R.id.host_profile_settings);
+        if (fragment != null && fragment.activity != null) {
+            fragment.showActions();
+        }
     }
 
     private void chooseFrontendFolder() {
@@ -645,13 +672,24 @@ public class HostStreamSettings extends NightjarActivity {
             boolean succeeded = false;
             try {
                 FrontendExporter exporter = new FrontendExporter(HostStreamSettings.this, target);
+                exporter.downloadMissingCovers(new IdentityManager(HostStreamSettings.this).getUniqueId());
                 java.util.List<com.limelight.nvstream.http.NvApp> apps = exporter.loadApps();
                 if (apps.isEmpty()) message = getString(R.string.frontend_export_no_apps);
                 else {
-                    int count = exporter.export(apps, romsTree, esdeTree);
-                    store.save(romsTree, esdeTree);
+                    int count;
+                    boolean lasting = FrontendSync.hasAccess(HostStreamSettings.this, romsTree) &&
+                            (esdeTree == null || FrontendSync.hasAccess(HostStreamSettings.this, esdeTree));
+                    synchronized (FrontendSync.EXPORT_LOCK) {
+                        java.util.Map<String, String> covers = store.covers(esdeTree);
+                        count = exporter.export(apps, romsTree, esdeTree, covers);
+                        store.save(romsTree, esdeTree, FrontendSync.fingerprint(target.name, apps), covers);
+                        // A provider that granted only this visit: the export worked, syncing can't.
+                        if (!lasting) store.markFailed(romsTree, esdeTree);
+                    }
                     succeeded = true;
-                    message = getResources().getQuantityString(R.plurals.frontend_export_done, count, count);
+                    message = getResources().getQuantityString(R.plurals.frontend_export_done, count, count) +
+                            "\n" + getString(lasting ? R.string.frontend_sync_note : R.string.frontend_sync_unavailable,
+                            getString(R.string.app_name));
                 }
             } catch (IOException | RuntimeException e) {
                 LimeLog.warning("Frontend export failed: " + e);
@@ -662,6 +700,7 @@ public class HostStreamSettings extends NightjarActivity {
             runOnUiThread(() -> {
                 exportRunning = false;
                 if (isFinishing() || isDestroyed()) return;
+                refreshActions();
                 exportLauncher = launcher;
                 if (success) showFrontendSetup(result);
                 else new NavigationDialogBuilder(this).setTitle(launcher.label).setMessage(result)
@@ -716,6 +755,7 @@ public class HostStreamSettings extends NightjarActivity {
     private PreferenceConfiguration effective() {
         PreferenceConfiguration config = baseConfig();
         applyWithScreen(overrides, config);
+        config.automaticBitrate &= overrides.bitrate == null;
         return config;
     }
 
@@ -773,7 +813,9 @@ public class HostStreamSettings extends NightjarActivity {
             // A profile serves every PC, so it leaves host displays alone; a game has no display mode of its own.
             boolean displayModes = pc && gate(HostCapabilities.Feature.HOST_DISPLAY_MODES).isVisible();
             boolean virtualDisplay = activity.mode != Mode.PROFILE && gate(HostCapabilities.Feature.VIRTUAL_DISPLAY).isVisible();
-            if (displayModes || virtualDisplay) {
+            // Sent with or without the virtual display switch: the host makes one of its own by default.
+            boolean displayScale = activity.mode != Mode.PROFILE && gate(HostCapabilities.Feature.DISPLAY_SCALE).isVisible();
+            if (displayModes || virtualDisplay || displayScale) {
                 PreferenceCategory display = category(screen, R.string.pc_settings_display);
                 if (displayModes) {
                     // Saved separately, so the display choice also applies when profile edits are discarded.
@@ -782,6 +824,9 @@ public class HostStreamSettings extends NightjarActivity {
                 if (virtualDisplay) {
                     row(display, "virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
                     row(display, "scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
+                }
+                if (displayScale) {
+                    row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
                 }
             }
             Preference footer = new Preference(activity);
@@ -864,7 +909,7 @@ public class HostStreamSettings extends NightjarActivity {
                     .setSummary(R.string.pc_settings_details_summary);
             if (!unpaired) {
                 row(host, "frontend_export", R.string.frontend_export_menu, screen::startFrontendExport)
-                        .setSummary(R.string.pc_settings_export_summary);
+                        .setSummary(exportSummary(pc));
                 if (screen.canPinShortcuts()) {
                     row(host, "shortcut", R.string.pc_settings_shortcut, screen::pinShortcut)
                             .setSummary(R.string.pc_settings_shortcut_summary);
@@ -879,6 +924,23 @@ public class HostStreamSettings extends NightjarActivity {
                 row(host, "unpair", R.string.pcview_menu_unpair_pc, () -> screen.hostActions.confirmUnpair(screen.computer));
             }
             row(host, "remove", R.string.pcview_menu_delete_pc, () -> screen.hostActions.confirmRemove(screen.computer));
+        }
+
+        /** Which launchers are kept in sync, and first any whose folder was lost. */
+        private String exportSummary(ComputerDetails pc) {
+            java.util.List<String> synced = new java.util.ArrayList<>();
+            java.util.List<String> failed = new java.util.ArrayList<>();
+            for (FrontendLauncher launcher : FrontendExportStore.exported(activity, pc.uuid)) {
+                boolean lost = new FrontendExportStore(activity, pc.uuid, launcher).failed();
+                (lost ? failed : synced).add(launcher.label);
+            }
+            if (!failed.isEmpty()) {
+                return getString(R.string.frontend_sync_failed_summary, android.text.TextUtils.join(", ", failed));
+            }
+            if (!synced.isEmpty()) {
+                return getString(R.string.frontend_sync_summary, android.text.TextUtils.join(", ", synced));
+            }
+            return getString(R.string.pc_settings_export_summary);
         }
 
         private String onOff(boolean value) {
@@ -924,6 +986,10 @@ public class HostStreamSettings extends NightjarActivity {
         private String refreshText(PreferenceConfiguration config) {
             return HostStreamProfile.formatRefreshRate(config.launchRefreshRateX100 == 0 ?
                     config.fps * 100 : config.launchRefreshRateX100) + " " + getString(R.string.fps_suffix_fps);
+        }
+
+        private String displayScaleText(int percent) {
+            return percent == 0 ? getString(R.string.virtual_display_dpi_pc_own) : percent + "%";
         }
 
         private String upscalingText(PreferenceConfiguration config) {
@@ -975,8 +1041,11 @@ public class HostStreamSettings extends NightjarActivity {
             findPreference("resolution").setSummary(summary(HostStreamProfile.Field.RESOLUTION, own.nativeResolution != null, resolutionText(config)) +
                     "\n" + getString(R.string.summary_resolution_list));
             findPreference("refresh").setSummary(summary(HostStreamProfile.Field.REFRESH, own.refreshRateX100 != null, refreshText(config)));
-            findPreference("bitrate").setSummary(summary(HostStreamProfile.Field.BITRATE, own.bitrate != null,
-                    HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps"));
+            String bitrate = summary(HostStreamProfile.Field.BITRATE, own.bitrate != null,
+                    HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps");
+            // The same warning as the main settings, for the codec, size and bitrate this layer streams.
+            String warning = PreferenceConfiguration.pyroWaveBelowMinimumWarning(activity, config);
+            findPreference("bitrate").setSummary(warning == null ? bitrate : bitrate + "\n" + warning);
             String[] codecs = getResources().getStringArray(R.array.host_profile_codecs);
             String codec = summary(HostStreamProfile.Field.CODEC, own.codec != null, codecs[config.videoFormat.ordinal()]);
             if (config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE &&
@@ -999,10 +1068,15 @@ public class HostStreamSettings extends NightjarActivity {
                     "\n" + getString(R.string.summary_vrr));
             Preference virtual = findPreference("virtual");
             Preference scale = findPreference("scale");
+            Preference dpi = findPreference("dpi");
             if (virtual != null) {
                 virtual.setSummary(summary(HostStreamProfile.Field.VIRTUAL_DISPLAY, switchOverride("virtual") != null, onOff(switchValue(config, "virtual"))));
                 scale.setSummary(summary(HostStreamProfile.Field.RENDER_SCALE, own.renderScale != null, config.virtualDisplayScale + "%") +
                         "\n" + getString(R.string.summary_virtual_display_scale));
+            }
+            if (dpi != null) {
+                dpi.setSummary(summary(HostStreamProfile.Field.DISPLAY_SCALE, own.displayScale != null,
+                        displayScaleText(config.virtualDisplayDpi)) + "\n" + getString(R.string.summary_virtual_display_dpi));
             }
             Preference preset = findPreference("preset");
             if (preset != null) {
@@ -1025,6 +1099,9 @@ public class HostStreamSettings extends NightjarActivity {
                 }
                 applyGate(virtual, HostCapabilities.Feature.VIRTUAL_DISPLAY);
                 applyGate(scale, HostCapabilities.Feature.VIRTUAL_DISPLAY);
+            }
+            if (dpi != null) {
+                applyGate(dpi, HostCapabilities.Feature.DISPLAY_SCALE);
             }
             if (display != null) {
                 display.setSummary(getString(displayChoice.label) + "\n" + getString(R.string.settings_profile_display_immediate));
@@ -1090,6 +1167,23 @@ public class HostStreamSettings extends NightjarActivity {
             new NavigationDialogBuilder(activity).setTitle(R.string.title_frame_pacing)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         activity.overrides.pacing = which == 0 ? null : values[which - 1];
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
+        private void showDisplayScale() {
+            int[] values = PreferenceConfiguration.VIRTUAL_DISPLAY_DPI_VALUES;
+            CharSequence[] items = new CharSequence[values.length + 1];
+            items[0] = sameAs(displayScaleText(activity.global.virtualDisplayDpi));
+            int checked = 0;
+            for (int i = 0; i < values.length; i++) {
+                items[i + 1] = displayScaleText(values[i]);
+                if (activity.overrides.displayScale != null && activity.overrides.displayScale == values[i]) checked = i + 1;
+            }
+            new NavigationDialogBuilder(activity).setTitle(R.string.title_virtual_display_dpi)
+                    .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                        activity.overrides.displayScale = which == 0 ? null : values[which - 1];
                         updateSummaries();
                         dialog.dismiss();
                     }).setNegativeButton(android.R.string.cancel, null).show();

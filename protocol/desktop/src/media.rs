@@ -39,6 +39,9 @@ pub const FRAME_WAVELET: c_int = 5;
 pub const FRAME_YUV444P: c_int = 6;
 pub const FRAME_YUV420P10: c_int = 7;
 pub const FRAME_YUV444P10: c_int = 8;
+/// A VAAPI surface exported as DMA-BUFs for the presenter to import (`crate::dmabuf`), Linux only.
+#[cfg(unix)]
+pub const FRAME_DMABUF: c_int = 9;
 
 /// The shape of a planar picture's textures: R8 planes, or R16 for 10-bit, with half-size chroma
 /// (rounded up, as FFmpeg's) unless the picture is 4:4:4.
@@ -60,6 +63,19 @@ impl PlanarLayout {
             _ => return None,
         };
         (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444, ten_bit })
+    }
+
+    /// The 4:2:0 layout an NV12 or P010 picture in memory is drawn in by the plane shader: the
+    /// upload splits its interleaved chroma into two planes and moves P010's high-bit samples to
+    /// the low bits (`planes_gpu`), so it reads as `FRAME_YUV420P` or `FRAME_YUV420P10`.
+    #[cfg(unix)]
+    pub fn of_semi_planar(info: &FrameInfo) -> Option<Self> {
+        let ten_bit = match info.kind {
+            FRAME_NV12 => false,
+            FRAME_P010 => true,
+            _ => return None,
+        };
+        (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444: false, ten_bit })
     }
 
     pub fn plane_size(&self, plane: usize) -> (u32, u32) {
@@ -98,15 +114,69 @@ pub enum Codec {
 pub enum Hardware {
     None,
     D3d11(*mut c_void),
+    /// On Linux this stands for the whole `order`: VAAPI first.
     Vaapi,
+    /// NVDEC, with CUDA frames copied to memory for the presenter.
+    Cuda,
+    /// The V4L2 memory-to-memory decoders of ARM handhelds and boards (H.264 and HEVC).
+    V4l2m2m,
 }
 
 // The renderer keeps the device alive until the decoder has stopped; FFmpeg owns a COM reference.
 unsafe impl Send for Hardware {}
 
+impl Hardware {
+    /// The backends to try, in turn, for this choice. On Linux that is moonlight-qt's and Moonlight
+    /// V+'s order: the first-tier hwaccel (VAAPI), then the hardware decoders outside FFmpeg's
+    /// hwaccels (V4L2 M2M), then the second tier (NVDEC); software decoding comes after them all.
+    pub fn order(self) -> Vec<Self> {
+        match self {
+            Self::None => Vec::new(),
+            Self::Vaapi => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
+            other => vec![other],
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "software",
+            Self::D3d11(_) => "D3D11VA",
+            Self::Vaapi => "VAAPI",
+            Self::Cuda => "NVDEC",
+            Self::V4l2m2m => "V4L2 M2M",
+        }
+    }
+}
+
+/// Opens the first backend of `order` that opens; `failed` hears about each one that did not, and
+/// the error names them all.
+fn first_opened<T>(
+    order: Vec<Hardware>,
+    mut open: impl FnMut(Hardware) -> Result<T, String>,
+    mut failed: impl FnMut(Hardware, &str),
+) -> Result<T, String> {
+    let mut errors = Vec::new();
+    for backend in order {
+        match open(backend) {
+            Ok(opened) => return Ok(opened),
+            Err(error) => {
+                failed(backend, &error);
+                errors.push(format!("{}: {error}", backend.label()));
+            }
+        }
+    }
+    if errors.is_empty() {
+        return Err("no hardware decoder".into());
+    }
+    Err(errors.join("; "))
+}
+
 struct Format {
     hardware: AVPixelFormat,
     required: bool,
+    /// D3D11VA: make the decoder's textures readable by shaders (`stream::direct`).
+    #[cfg(windows)]
+    bind_textures: bool,
 }
 
 unsafe extern "C" fn select_format(
@@ -117,6 +187,12 @@ unsafe extern "C" fn select_format(
     let mut next = formats;
     while *next != AV_PIX_FMT_NONE {
         if *next == wanted.hardware {
+            #[cfg(windows)]
+            if wanted.bind_textures && *next == AV_PIX_FMT_D3D11 {
+                if let Err(reason) = bind_frames(context, *next) {
+                    eprintln!("nightjar: the decoder's textures cannot be made readable ({reason}); its pictures are copied instead");
+                }
+            }
             return *next;
         }
         next = next.add(1);
@@ -134,6 +210,35 @@ unsafe extern "C" fn select_format(
         }
     }
     AV_PIX_FMT_NONE
+}
+
+/// Makes the decoder's frames context with shader-readable textures, as Moonlight V+ PC does
+/// (d3d11va.cpp, prepareDecoderContextInGetFormat), so `stream::direct` reads its slices in place.
+/// On failure the context is left to FFmpeg's default.
+#[cfg(windows)]
+unsafe fn bind_frames(context: *mut AVCodecContext, format: AVPixelFormat) -> Result<(), String> {
+    unsafe extern "C" {
+        fn av_hwframe_ctx_init(reference: *mut AVBufferRef) -> c_int;
+    }
+    let context = &mut *context;
+    av_buffer_unref(&mut context.hw_frames_ctx);
+    let status = avcodec_get_hw_frames_parameters(context, context.hw_device_ctx, format, &mut context.hw_frames_ctx);
+    if status < 0 {
+        return Err(format!("frames parameters: {}", error(status)));
+    }
+    let frames = &mut *(*context.hw_frames_ctx).data.cast::<AVHWFramesContext>();
+    let d3d = &mut *frames.hwctx.cast::<AVD3D11VAFramesContext>();
+    d3d.BindFlags |= windows::Win32::Graphics::Direct3D11::D3D11_BIND_SHADER_RESOURCE.0 as u32;
+    // ff_decode_get_hw_frames_ctx adds these 3 to the minimum FFmpeg asks for.
+    if frames.initial_pool_size != 0 {
+        frames.initial_pool_size += 3;
+    }
+    let status = av_hwframe_ctx_init(context.hw_frames_ctx);
+    if status < 0 {
+        av_buffer_unref(&mut context.hw_frames_ctx);
+        return Err(format!("frames context: {}", error(status)));
+    }
+    Ok(())
 }
 
 fn error(code: i32) -> String {
@@ -156,6 +261,15 @@ pub struct VideoDecoder {
     pool_size: usize,
     _format: Box<Format>,
     pub name: String,
+    /// The backend this decoder opened with.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub hardware: Hardware,
+    /// HEVC access units go to FFmpeg without the last shard's zero padding (`access_unit`).
+    trims_padding: bool,
+    /// VAAPI pictures go to the presenter as DMA-BUFs until the flag says the presenter cannot
+    /// import them (`export_dmabuf`).
+    #[cfg(unix)]
+    dmabuf: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// The size of the pooled packet buffers for a packet of `needed` bytes with its padding: a
@@ -163,6 +277,16 @@ pub struct VideoDecoder {
 /// for each one.
 fn packet_buffer_size(needed: usize) -> usize {
     (needed + needed / 4).next_multiple_of(64 * 1024)
+}
+
+/// An Annex B access unit without the zero bytes after its last NAL unit (trailing_zero_8bits,
+/// here the last shard's padding, which no NAL unit ends with). FFmpeg's HEVC decoder reads a
+/// Dolby Vision RPU, the access unit's last NAL unit, up to the packet's end, and fails on every
+/// frame whose RPU the padding follows (FFmpeg 8.1: "Error parsing DOVI NAL unit"). All zeros stay
+/// as they are: an empty packet would start draining the decoder.
+fn access_unit(data: &[u8]) -> &[u8] {
+    let end = data.iter().rposition(|&byte| byte != 0).map_or(data.len(), |last| last + 1);
+    &data[..end]
 }
 
 // An AVCodecContext moves between threads but is only accessed by its decoder thread.
@@ -175,6 +299,17 @@ pub enum Received {
 }
 
 impl VideoDecoder {
+    /// Opens the first backend of `hardware.order()` that opens, logging each that does not
+    /// (`failed`); the error names every one.
+    pub fn open_first(
+        codec: Codec,
+        hardware: Hardware,
+        require_hardware: bool,
+        failed: impl FnMut(Hardware, &str),
+    ) -> Result<Self, String> {
+        first_opened(hardware.order(), |backend| Self::open(codec, backend, 1, require_hardware), failed)
+    }
+
     pub fn open(
         codec: Codec,
         hardware: Hardware,
@@ -187,7 +322,19 @@ impl VideoDecoder {
                 Codec::Hevc => AV_CODEC_ID_HEVC,
                 Codec::Av1 => AV_CODEC_ID_AV1,
             };
-            let mut found = if codec == Codec::Av1 && hardware != Hardware::None {
+            let mut found = if hardware == Hardware::V4l2m2m {
+                // The V4L2 M2M decoders are decoders of their own, not hwaccels of FFmpeg's.
+                let name = match codec {
+                    Codec::H264 => c"h264_v4l2m2m",
+                    Codec::Hevc => c"hevc_v4l2m2m",
+                    Codec::Av1 => c"av1_v4l2m2m",
+                };
+                let found = avcodec_find_decoder_by_name(name.as_ptr());
+                if found.is_null() {
+                    return Err(format!("this FFmpeg has no {} decoder", name.to_string_lossy()));
+                }
+                found
+            } else if codec == Codec::Av1 && hardware != Hardware::None {
                 avcodec_find_decoder_by_name(c"av1".as_ptr())
             } else {
                 ptr::null()
@@ -206,24 +353,32 @@ impl VideoDecoder {
                 _format: Box::new(Format {
                     hardware: AV_PIX_FMT_NONE,
                     required: require_hardware,
+                    #[cfg(windows)]
+                    bind_textures: false,
                 }),
                 name: CStr::from_ptr((*found).name).to_string_lossy().into_owned(),
+                hardware,
+                trims_padding: codec == Codec::Hevc,
+                #[cfg(unix)]
+                dmabuf: None,
             };
             if video.context.is_null() || video.packet.is_null() {
                 return Err("Could not allocate the video decoder.".into());
             }
             let context = &mut *video.context;
             context.opaque = (&mut *video._format as *mut Format).cast();
-            if hardware != Hardware::None {
-                let kind = match hardware {
-                    Hardware::D3d11(_) => AV_HWDEVICE_TYPE_D3D11VA,
-                    _ => AV_HWDEVICE_TYPE_VAAPI,
-                };
+            let device_type = match hardware {
+                Hardware::D3d11(_) => Some(AV_HWDEVICE_TYPE_D3D11VA),
+                Hardware::Vaapi => Some(AV_HWDEVICE_TYPE_VAAPI),
+                Hardware::Cuda => Some(AV_HWDEVICE_TYPE_CUDA),
+                Hardware::None | Hardware::V4l2m2m => None,
+            };
+            if let Some(kind) = device_type {
                 let mut index = 0;
                 loop {
                     let config = avcodec_get_hw_config(found, index);
                     if config.is_null() {
-                        return Err(format!("{} has no support for {hardware:?}.", video.name));
+                        return Err(format!("{} has no {} support in this FFmpeg", video.name, hardware.label()));
                     }
                     if (*config).device_type == kind
                         && (*config).methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as i32 != 0
@@ -257,9 +412,10 @@ impl VideoDecoder {
                                 .cast::<ID3D10Multithread>()
                                 .map_err(|e| format!("D3D11 multithread protection: {e}"))?
                                 .SetMultithreadProtected(true);
+                            video._format.bind_textures = crate::stream::direct::bind_decoder_textures(device);
                             let status = av_hwdevice_ctx_init(reference);
                             if status < 0 {
-                                return Err(format!("D3D11VA: {}", error(status)));
+                                return Err(error(status));
                             }
                         }
                         #[cfg(not(windows))]
@@ -268,7 +424,7 @@ impl VideoDecoder {
                             return Err("D3D11VA is only available on Windows.".into());
                         }
                     }
-                    Hardware::Vaapi => {
+                    Hardware::Vaapi | Hardware::Cuda => {
                         let status = av_hwdevice_ctx_create(
                             &mut context.hw_device_ctx,
                             kind,
@@ -277,10 +433,10 @@ impl VideoDecoder {
                             0,
                         );
                         if status < 0 {
-                            return Err(format!("VAAPI: {}", error(status)));
+                            return Err(format!("no device: {}", error(status)));
                         }
                     }
-                    Hardware::None => unreachable!(),
+                    Hardware::None | Hardware::V4l2m2m => unreachable!(),
                 }
                 context.get_format = Some(select_format);
                 context.extra_hw_frames = 6;
@@ -305,13 +461,26 @@ impl VideoDecoder {
             video.name.push_str(match hardware {
                 Hardware::D3d11(_) => " d3d11va",
                 Hardware::Vaapi => " vaapi",
-                Hardware::None => "",
+                Hardware::Cuda => " nvdec",
+                Hardware::None | Hardware::V4l2m2m => "",
             });
             Ok(video)
         }
     }
 
+    /// Hands VAAPI pictures to the presenter as DMA-BUFs instead of CPU mappings, and says whether
+    /// it does: only a VAAPI decoder on Linux.
+    pub fn export_dmabuf(&mut self) -> bool {
+        #[cfg(unix)]
+        if self.hardware == Hardware::Vaapi {
+            self.dmabuf = Some(Default::default());
+            return true;
+        }
+        false
+    }
+
     pub fn send(&mut self, data: &[u8], pts: i64) -> i32 {
+        let data = if self.trims_padding { access_unit(data) } else { data };
         let Ok(length) = i32::try_from(data.len()) else {
             return -1;
         };
@@ -352,7 +521,8 @@ impl VideoDecoder {
             let Some(raw) = NonNull::new(av_frame_alloc()) else {
                 return Received::Error;
             };
-            let frame = Frame { raw, wavelet: false };
+            #[allow(unused_mut)]
+            let mut frame = Frame::new(raw);
             let status = avcodec_receive_frame(self.context, raw.as_ptr());
             if status == -11 || status == -541478725 {
                 return Received::None;
@@ -360,20 +530,30 @@ impl VideoDecoder {
             if status < 0 {
                 return Received::Error;
             }
-            if (*raw.as_ptr()).format == AV_PIX_FMT_VAAPI {
+            let format = (*raw.as_ptr()).format;
+            if format == AV_PIX_FMT_VAAPI {
+                #[cfg(unix)]
+                if let Some(decline) = self.dmabuf.as_ref().filter(|d| !d.load(std::sync::atomic::Ordering::Relaxed)) {
+                    match crate::dmabuf::export(raw.as_ptr(), decline) {
+                        Ok(export) => {
+                            frame.dmabuf = Some(Box::new(export));
+                            return Received::Frame(frame);
+                        }
+                        Err(error) => {
+                            eprintln!("nightjar: VAAPI pictures cannot be exported as DMA-BUFs ({error}); mapping them to memory instead");
+                            decline.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+                return frame.map_to_memory().map_or(Received::Error, Received::Frame);
+            }
+            if format == AV_PIX_FMT_CUDA {
+                // NVDEC's pictures are in CUDA memory, which only CUDA itself can read: copied out.
                 let Some(memory) = NonNull::new(av_frame_alloc()) else {
                     return Received::Error;
                 };
-                let memory = Frame { raw: memory, wavelet: false };
-                // Mapped for reading, not transferred: the driver's copy of the surface goes to
-                // the presenter's texture upload as it is, where a transfer copies it once more
-                // into a new frame first. The mapping holds the surface until the picture is
-                // dropped, as a D3D11 picture does.
-                if av_hwframe_map(
-                    memory.raw.as_ptr(),
-                    raw.as_ptr(),
-                    AV_HWFRAME_MAP_READ as c_int,
-                ) < 0
+                let memory = Frame::new(memory);
+                if av_hwframe_transfer_data(memory.raw.as_ptr(), raw.as_ptr(), 0) < 0
                     || av_frame_copy_props(memory.raw.as_ptr(), raw.as_ptr()) < 0
                 {
                     return Received::Error;
@@ -398,15 +578,57 @@ impl Drop for VideoDecoder {
 pub struct Frame {
     pub(crate) raw: NonNull<AVFrame>,
     wavelet: bool,
+    /// The VAAPI surface's DMA-BUFs, for a presenter that imports them.
+    #[cfg(unix)]
+    dmabuf: Option<Box<crate::dmabuf::Export>>,
 }
 
 // An owned AVFrame reference can be handed from the decoder to the renderer.
 unsafe impl Send for Frame {}
 
 impl Frame {
+    fn new(raw: NonNull<AVFrame>) -> Self {
+        Self {
+            raw,
+            wavelet: false,
+            #[cfg(unix)]
+            dmabuf: None,
+        }
+    }
+
+    /// Another reference to the same picture (its surface, for a hardware one), without the
+    /// export: what keeps an imported surface from going back to the decoder while it is shown.
+    pub fn reference(&self) -> Option<Self> {
+        // SAFETY: a live frame; the clone is a new reference to its buffers.
+        let mut frame = Self::new(NonNull::new(unsafe { av_frame_clone(self.raw.as_ptr()) })?);
+        frame.wavelet = self.wavelet;
+        Some(frame)
+    }
+
+    /// A VAAPI picture mapped for reading, not transferred: the driver's copy of the surface goes
+    /// to the presenter's texture upload as it is, where a transfer copies it once more into a new
+    /// frame first. The mapping holds the surface until the picture is dropped, as a D3D11
+    /// picture does.
+    pub fn map_to_memory(&self) -> Option<Self> {
+        // SAFETY: a live frame; the mapping is a new frame of its own.
+        unsafe {
+            let memory = Self::new(NonNull::new(av_frame_alloc())?);
+            (av_hwframe_map(memory.raw.as_ptr(), self.raw.as_ptr(), AV_HWFRAME_MAP_READ as c_int) >= 0
+                && av_frame_copy_props(memory.raw.as_ptr(), self.raw.as_ptr()) >= 0)
+                .then_some(memory)
+        }
+    }
+
+    /// The exported DMA-BUFs of a `FRAME_DMABUF` picture.
+    #[cfg(unix)]
+    pub fn dmabuf(&self) -> Option<&crate::dmabuf::Export> {
+        self.dmabuf.as_deref()
+    }
+
     pub fn wavelet(width: usize, height: usize) -> Result<Self, String> {
         unsafe {
-            let mut frame = Self { raw: NonNull::new(av_frame_alloc()).ok_or("Could not allocate wavelet frame")?, wavelet: true };
+            let mut frame = Self::new(NonNull::new(av_frame_alloc()).ok_or("Could not allocate wavelet frame")?);
+            frame.wavelet = true;
             let raw = frame.raw.as_mut();
             raw.width = width as i32;
             raw.height = height as i32;
@@ -440,6 +662,15 @@ impl Frame {
                         _ => (4, 0),
                     }
                 }
+                #[cfg(unix)]
+                AV_PIX_FMT_VAAPI if self.dmabuf.is_some() => {
+                    let sw_format = if frame.hw_frames_ctx.is_null() {
+                        AV_PIX_FMT_NONE
+                    } else {
+                        (*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>())).sw_format
+                    };
+                    (FRAME_DMABUF, i32::from(sw_format == AV_PIX_FMT_P010LE))
+                }
                 _ => (4, 0),
             } };
             FrameInfo {
@@ -468,8 +699,8 @@ impl Frame {
         }
     }
 
+    #[cfg(windows)]
     pub fn copy_to_d3d11(&self, texture: *mut c_void, width: i32, height: i32) -> bool {
-        #[cfg(windows)]
         unsafe {
             use windows::core::Interface;
             use windows::Win32::Graphics::Direct3D11::{
@@ -514,10 +745,124 @@ impl Frame {
             (d3d.unlock.unwrap())(d3d.lock_ctx);
             true
         }
-        #[cfg(not(windows))]
-        {
-            let _ = (texture, width, height);
-            false
+    }
+}
+
+/// A D3D11VA picture: the decoder's texture array and the picture's slice in it.
+#[cfg(windows)]
+pub struct D3d11Surface {
+    pub texture: *mut c_void,
+    pub slice: u32,
+    /// The textures were made with `D3D11_BIND_SHADER_RESOURCE` (`bind_frames`).
+    pub readable: bool,
+}
+
+#[cfg(windows)]
+impl Frame {
+    pub fn d3d11_surface(&self) -> Option<D3d11Surface> {
+        // SAFETY: The fields of the live AVFrame and its frames context.
+        unsafe {
+            let frame = self.raw.as_ref();
+            if frame.format != AV_PIX_FMT_D3D11 || frame.hw_frames_ctx.is_null() || frame.data[0].is_null() {
+                return None;
+            }
+            let frames = &*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>());
+            let d3d = &*frames.hwctx.cast::<AVD3D11VAFramesContext>();
+            let readable = d3d.BindFlags & windows::Win32::Graphics::Direct3D11::D3D11_BIND_SHADER_RESOURCE.0 as u32 != 0;
+            Some(D3d11Surface { texture: frame.data[0].cast(), slice: frame.data[1] as usize as u32, readable })
+        }
+    }
+
+    /// Runs `f` under the D3D11VA device's lock, which FFmpeg holds while it decodes.
+    pub fn with_decoder_lock(&self, f: &mut dyn FnMut()) {
+        // SAFETY: The device context of the live frame's frames context.
+        unsafe {
+            let frame = self.raw.as_ref();
+            if frame.hw_frames_ctx.is_null() {
+                return f();
+            }
+            let frames = &*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>());
+            let d3d = &*((*frames.device_ctx).hwctx.cast::<AVD3D11VADeviceContext>());
+            match (d3d.lock, d3d.unlock) {
+                (Some(lock), Some(unlock)) => {
+                    lock(d3d.lock_ctx);
+                    f();
+                    unlock(d3d.lock_ctx);
+                }
+                _ => f(),
+            }
+        }
+    }
+
+    /// The frame's HDR10+ (SMPTE ST 2094-40) scene peak in nits: the largest MaxSCL of its first
+    /// processing window, as libplacebo maps it (`10000 * maxscl`). None without HDR10+ or when
+    /// the peak is 0.
+    pub fn hdr10_plus_peak(&self) -> Option<f32> {
+        // SAFETY: Side data of the live AVFrame, sized as FFmpeg made it.
+        unsafe {
+            let side = av_frame_get_side_data(self.raw.as_ptr(), AV_FRAME_DATA_DYNAMIC_HDR_PLUS);
+            if side.is_null() || (*side).size < std::mem::size_of::<AVDynamicHDRPlus>() {
+                return None;
+            }
+            let metadata = &*(*side).data.cast::<AVDynamicHDRPlus>();
+            if metadata.num_windows == 0 {
+                return None;
+            }
+            let peak = metadata.params[0]
+                .maxscl
+                .iter()
+                .filter(|r| r.den != 0)
+                .map(|r| 10000.0 * f64::from(r.num) / f64::from(r.den))
+                .fold(0.0, f64::max);
+            (peak > 0.0).then_some(peak as f32)
+        }
+    }
+
+    /// What the frame's Dolby Vision RPU says, from the metadata FFmpeg's HEVC, AV1 and dav1d
+    /// decoders attach to every frame with an RPU (`AV_FRAME_DATA_DOVI_METADATA`). None without one.
+    pub fn dolby_vision(&self) -> Option<DolbyVision> {
+        // SAFETY: Side data of the live AVFrame, sized as FFmpeg made it; the offsets are FFmpeg's
+        // and checked against that size.
+        unsafe {
+            let side = av_frame_get_side_data(self.raw.as_ptr(), AV_FRAME_DATA_DOVI_METADATA);
+            if side.is_null() || (*side).size < std::mem::size_of::<AVDOVIMetadata>() {
+                return None;
+            }
+            let metadata = &*(*side).data.cast::<AVDOVIMetadata>();
+            let within = |offset: usize, size: usize| offset.checked_add(size).is_some_and(|end| end <= (*side).size);
+            if !within(metadata.header_offset, std::mem::size_of::<AVDOVIRpuDataHeader>())
+                || !within(metadata.color_offset, std::mem::size_of::<AVDOVIColorMetadata>())
+            {
+                return None;
+            }
+            let header = &*(*side).data.add(metadata.header_offset).cast::<AVDOVIRpuDataHeader>();
+            let color = &*(*side).data.add(metadata.color_offset).cast::<AVDOVIColorMetadata>();
+            let level1 = av_dovi_find_level(metadata, 1);
+            let max_pq = if level1.is_null() { None } else { Some((*level1).__bindgen_anon_1.l1.max_pq) };
+            Some(DolbyVision::of(header.vdr_rpu_profile, header.bl_video_full_range_flag, max_pq, color.source_max_pq))
+        }
+    }
+}
+
+/// The parts of a Dolby Vision RPU the tone map takes.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DolbyVision {
+    /// The frame's peak in nits: L1's maximum PQ, else the source display's maximum.
+    pub peak: Option<f32>,
+    /// Profile 5: IPT pictures without an HDR10 base layer (FFmpeg's `ff_dovi_guess_profile_hevc`:
+    /// RPU profile 0 with a full-range base layer).
+    pub ipt: bool,
+}
+
+#[cfg(windows)]
+impl DolbyVision {
+    /// From the RPU's profile and base-layer range, and its L1 and source maximum in 12-bit PQ.
+    pub fn of(vdr_rpu_profile: u8, full_range_base: u8, l1_max_pq: Option<u16>, source_max_pq: u16) -> Self {
+        let nits = |pq: u16| (pq > 0).then(|| crate::stream::direct::pq_nits(f64::from(pq.min(4095)) / 4095.0) as f32);
+        Self {
+            peak: l1_max_pq.and_then(nits).or_else(|| nits(source_max_pq)),
+            ipt: vdr_rpu_profile == 0 && full_range_base != 0,
         }
     }
 }
@@ -577,7 +922,8 @@ unsafe impl Send for OpusDecoder {}
 
 impl OpusDecoder {
     pub fn new(channels: u8, streams: u8, coupled: u8, mapping: &[u8]) -> Result<Self, i32> {
-        if !(1..=8).contains(&channels) || mapping.len() < usize::from(channels) {
+        // Up to 7.1.4's 12 channels.
+        if !(1..=12).contains(&channels) || mapping.len() < usize::from(channels) {
             return Err(-1);
         }
         let mut error = 0;
@@ -705,6 +1051,37 @@ mod tests {
     }
 
     #[test]
+    fn access_units_lose_only_their_trailing_zeros() {
+        assert_eq!(access_unit(&[0, 0, 0, 1, 0x7c, 0x01, 0x80, 0, 0, 0]), &[0, 0, 0, 1, 0x7c, 0x01, 0x80]);
+        assert_eq!(access_unit(&[0, 0, 1, 2]), &[0, 0, 1, 2]);
+        assert_eq!(access_unit(&[0, 0]), &[0, 0]);
+        assert_eq!(access_unit(&[]), &[] as &[u8]);
+    }
+
+    /// A Rubylight host's profile 8.1 RPU (the host's `dovi::tests::GOLDEN`, read back by dovi_tool)
+    /// after an HEVC Main10 picture and the last shard's padding: FFmpeg reads it, L1 peak and all.
+    #[cfg(windows)]
+    #[test]
+    fn a_padded_hevc_frame_keeps_its_dolby_vision_rpu() {
+        const RPU: &str = concat!(
+            "000000017c0119080908406136506f003ff801ffc00fffd0000008000006800000400000340000030200",
+            "000301a2566000035ea2566f9fceb1c256644ca00000100000030080000003008000000301c362243018",
+            "60a5e308e0514000001a63e5affff000000300000300000300060207d80e15103008005dc32000c02b23",
+            "8008008008008004000120c07d00064064001680d76703ed80",
+        );
+        let mut frame = include_bytes!("../../../app/src/main/assets/packed444/hevc-10.bin").to_vec();
+        frame.extend((0..RPU.len()).step_by(2).map(|at| u8::from_str_radix(&RPU[at..at + 2], 16).unwrap()));
+        frame.extend([0; 300]);
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        assert_eq!(decoder.send(&frame, 1), 0);
+        let Received::Frame(picture) = decoder.receive() else { panic!("no decoded frame") };
+        let rpu = picture.dolby_vision().expect("the RPU's metadata on the picture");
+        // L1 maximum PQ 3000 of 4095.
+        let peak = crate::stream::direct::pq_nits(3000.0 / 4095.0) as f32;
+        assert!((rpu.peak.unwrap() - peak).abs() < 1.0, "{:?} against {peak}", rpu.peak);
+    }
+
+    #[test]
     fn software_decodes_444_fixtures_with_full_chroma_and_10_bit_as_planar_kinds() {
         let source = include_bytes!("../tests/fixtures/yuv444-8.yuv");
         for (codec, bytes) in [
@@ -786,6 +1163,48 @@ mod tests {
         }
     }
 
+    /// The fixtures' RPUs are the Rubylight host's (`rust/core/src/dovi.rs`, profiles 8.1 and
+    /// 10.1): L1 maximum 3079 (1000 nits), source display 0.005 to 4000 nits.
+    #[cfg(windows)]
+    #[test]
+    fn a_dolby_vision_rpu_reaches_the_frame_as_its_peak() {
+        let hevc = include_bytes!("../../../app/src/main/assets/packed444/hevc-10.bin").as_slice();
+        let av1 = include_bytes!("../../../app/src/main/assets/packed444/av1-10.bin").as_slice();
+        // Profile 8.1: the RPU NAL unit ends the access unit. Profile 10.1: the metadata OBU
+        // follows the temporal delimiter.
+        let mut hevc_dv = hevc.to_vec();
+        hevc_dv.extend_from_slice(include_bytes!("../tests/fixtures/dovi-81-rpu.bin"));
+        assert_eq!(&av1[..2], &[0x12, 0], "the AV1 fixture starts with a temporal delimiter");
+        let av1_dv = [&av1[..2], include_bytes!("../tests/fixtures/dovi-101-rpu.bin"), &av1[2..]].concat();
+        for (codec, plain, with_rpu) in [(Codec::Hevc, hevc, hevc_dv.as_slice()), (Codec::Av1, av1, av1_dv.as_slice())] {
+            let decode = |bytes: &[u8]| {
+                let mut decoder = VideoDecoder::open(codec, Hardware::None, 1, false).unwrap();
+                assert_eq!(decoder.send(bytes, 1), 0, "{codec:?}");
+                let Received::Frame(frame) = decoder.receive() else { panic!("{codec:?}: no decoded frame") };
+                frame.dolby_vision()
+            };
+            assert_eq!(decode(plain), None, "{codec:?} without an RPU");
+            let rpu = decode(with_rpu).unwrap_or_else(|| panic!("{codec:?}: no Dolby Vision metadata"));
+            assert!(!rpu.ipt, "{codec:?}: an HDR10 base layer");
+            let peak = rpu.peak.unwrap();
+            assert!((peak - 1000.0).abs() < 2.0, "{codec:?}: L1's 1000 nits, not the source's 4000: {peak}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_dolby_vision_peak_comes_from_l1_else_the_source_display_and_profile_5_is_ipt() {
+        let peak = |l1, source| DolbyVision::of(1, 0, l1, source).peak;
+        assert!((peak(Some(3079), 3696).unwrap() - 1000.0).abs() < 2.0);
+        assert!((peak(None, 3696).unwrap() - 4000.0).abs() < 10.0, "no L1: the source display's maximum");
+        assert!((peak(Some(0), 3079).unwrap() - 1000.0).abs() < 2.0, "an empty L1 is no peak");
+        assert_eq!(peak(None, 0), None);
+        assert!((peak(Some(u16::MAX), 0).unwrap() - 10000.0).abs() < 1.0, "codes past 12 bits are the top");
+        // ff_dovi_guess_profile_hevc: RPU profile 0 with a full-range base layer is profile 5.
+        assert!(DolbyVision::of(0, 1, Some(3079), 0).ipt);
+        assert!(!DolbyVision::of(1, 1, Some(3079), 0).ipt && !DolbyVision::of(0, 0, Some(3079), 0).ipt);
+    }
+
     #[test]
     fn packet_buffers_leave_room_to_grow_in_whole_64_kib() {
         assert_eq!(packet_buffer_size(1), 64 * 1024);
@@ -798,8 +1217,69 @@ mod tests {
     }
 
     #[test]
+    fn linux_tries_vaapi_then_v4l2_m2m_then_nvdec_and_other_choices_alone() {
+        assert_eq!(Hardware::Vaapi.order(), [Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda]);
+        assert!(Hardware::None.order().is_empty());
+        let device = ptr::dangling_mut::<c_void>();
+        assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);
+        assert_eq!(Hardware::Cuda.order(), [Hardware::Cuda]);
+    }
+
+    #[test]
+    fn the_first_backend_that_opens_is_used_and_each_one_before_it_is_logged_once() {
+        let mut logged = Vec::new();
+        let mut tried = Vec::new();
+        let opened = first_opened(
+            Hardware::Vaapi.order(),
+            |backend| {
+                tried.push(backend);
+                if backend == Hardware::V4l2m2m { Ok("v4l2") } else { Err(format!("no {}", backend.label())) }
+            },
+            |backend, error| logged.push(format!("{} {error}", backend.label())),
+        );
+        assert_eq!(opened, Ok("v4l2"));
+        assert_eq!(tried, [Hardware::Vaapi, Hardware::V4l2m2m], "NVDEC is not tried once one opened");
+        assert_eq!(logged, ["VAAPI no VAAPI"]);
+
+        logged.clear();
+        let failed: Result<(), String> = first_opened(Hardware::Vaapi.order(), |_| Err("gone".into()), |backend, _| logged.push(backend.label().into()));
+        assert_eq!(failed.unwrap_err(), "VAAPI: gone; V4L2 M2M: gone; NVDEC: gone");
+        assert_eq!(logged, ["VAAPI", "V4L2 M2M", "NVDEC"]);
+        let none: Result<(), String> = first_opened(Vec::new(), |_| Ok(()), |_, _| panic!("nothing was tried"));
+        assert!(none.is_err());
+    }
+
+    #[test]
+    fn a_held_reference_keeps_the_picture_and_a_software_picture_does_not_map() {
+        let fixture = include_bytes!("../../../app/src/main/assets/packed444/hevc-8.bin").as_slice();
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        assert_eq!(decoder.hardware, Hardware::None);
+        assert!(!decoder.export_dmabuf(), "only a VAAPI decoder exports");
+        assert_eq!(decoder.send(fixture, 42), 0);
+        let Received::Frame(frame) = decoder.receive() else { panic!("no decoded frame") };
+        let held = frame.reference().expect("a reference");
+        let info = frame.info();
+        drop(frame);
+        let kept = held.info();
+        assert_eq!((kept.pts, kept.width, kept.data[0]), (42, info.width, info.data[0]), "the reference is the same picture");
+        assert!(held.map_to_memory().is_none(), "only hardware pictures map");
+    }
+
+    #[test]
     fn invalid_opus_mapping_is_rejected_before_ffi() {
-        assert!(OpusDecoder::new(9, 1, 0, &[0; 9]).is_err());
+        assert!(OpusDecoder::new(13, 1, 0, &[0; 13]).is_err());
+        assert!(OpusDecoder::new(12, 8, 4, &[0; 11]).is_err());
         assert!(OpusDecoder::new(2, 1, 1, &[0]).is_err());
+    }
+
+    /// 7.1.4 in Foundation Sunshine's layouts opens a decoder.
+    #[test]
+    fn seven_one_four_opens_an_opus_decoder() {
+        use rubylight_protocol::audio_ext::{LAYOUT_714, LAYOUT_714_HQ};
+        for layout in [LAYOUT_714, LAYOUT_714_HQ] {
+            let decoder =
+                OpusDecoder::new(12, layout.streams, layout.coupled, &layout.mapping).unwrap();
+            assert_eq!(decoder.channels, 12);
+        }
     }
 }

@@ -55,8 +55,19 @@ float3 linearRgb(float3 samples) {
         rgb = saturate(rgb);
         return lerp(pow((rgb + 0.055) / 1.055, 2.4), rgb / 12.92, step(rgb, 0.04045));
     }
-    float3 p = pow(saturate(rgb), 32.0 / 2523.0);
-    rgb = pow(max(p - 3424.0 / 4096.0, 0) / max(2413.0 / 128.0 - 2392.0 / 128.0 * p, 0.000001), 16384.0 / 2610.0) * (125 / sdrWhite);
+    if ((flags & 128) != 0) {
+        // HLG (the planes entry only, for planar and NV12/P010 pictures): BT.2100's inverse OETF,
+        // then the OOTF of the display it is drawn for, whose peak in nits and system gamma come
+        // as floats in `level` and `operation` (hlg.rs `hlg_display`), in units of 10000 nits
+        // like PQ below.
+        float3 scene = saturate(rgb);
+        scene = scene <= 0.5 ? scene * scene / 3 : (exp((scene - 0.55991073) / 0.17883277) + 0.28466892) / 12;
+        float luma = dot(scene, float3(0.2627, 0.6780, 0.0593));
+        rgb = (luma > 0 ? asfloat(level) / 10000 * pow(luma, asfloat(operation) - 1) * scene : 0) * (125 / sdrWhite);
+    } else {
+        float3 p = pow(saturate(rgb), 32.0 / 2523.0);
+        rgb = pow(max(p - 3424.0 / 4096.0, 0) / max(2413.0 / 128.0 - 2392.0 / 128.0 * p, 0.000001), 16384.0 / 2610.0) * (125 / sdrWhite);
+    }
     return float3(dot(rgb, float3(1.660491, -0.587641, -0.072850)),
                   dot(rgb, float3(-0.124550, 1.132900, -0.008349)),
                   dot(rgb, float3(-0.018151, -0.100579, 1.118730)));

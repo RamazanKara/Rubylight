@@ -76,9 +76,35 @@ impl Toward {
 /// connection: a PC on the same Ethernet segment is wired even when Wi-Fi is the default route.
 /// Blocks on name lookup. Errs with why the caller must fall back to the internet connection.
 pub fn toward(host: &str) -> Result<Toward, Fallback> {
-    let ip = (host, 0).to_socket_addrs().ok().and_then(|mut found| found.next()).ok_or(Fallback::Resolve)?.ip();
-    let (medium, link_mbps) = interface_toward(ip).ok_or(Fallback::Route)?;
-    Toward::of(medium, link_mbps).ok_or(Fallback::NotTelling)
+    route(host).toward
+}
+
+/// The route to one host, from one lookup: [`toward`]'s answer, and whether its interface is a
+/// VPN ([`vpn_of_if_row`], [`vpn_of_sysfs`]). False when the route could not be read.
+pub struct Route {
+    pub toward: Result<Toward, Fallback>,
+    pub vpn: bool,
+}
+
+/// Blocks on name lookup, as [`toward`] does.
+pub fn route(host: &str) -> Route {
+    let Some(ip) = (host, 0).to_socket_addrs().ok().and_then(|mut found| found.next()).map(|a| a.ip()) else {
+        return Route { toward: Err(Fallback::Resolve), vpn: false };
+    };
+    match interface_toward(ip) {
+        Some(interface) => Route {
+            toward: Toward::of(interface.medium, interface.link_mbps).ok_or(Fallback::NotTelling),
+            vpn: interface.vpn,
+        },
+        None => Route { toward: Err(Fallback::Route), vpn: false },
+    }
+}
+
+/// What one lookup of the interface toward a host found.
+struct Interface {
+    medium: Medium,
+    link_mbps: u32,
+    vpn: bool,
 }
 
 /// Why `toward` has no answer.
@@ -157,6 +183,39 @@ fn medium_of_sysfs(has_device: bool, has_wireless_dir: bool, devtype: Option<&st
     }
 }
 
+/// Moonlight's VPN heuristics for the interface toward the PC (moonlight-qt's
+/// `NvComputer::getActiveAddressReachability`, as Moonlight V+ PC keeps them): a virtual, tunnel
+/// or PPP interface, an MTU under 1500, an OpenVPN TAP address (00:FF:...), a ZeroTier adapter or
+/// "VPN" in the name. A route over one streams as remote with 1024 byte packets, as Android does
+/// for a VPN network: a WireGuard or Tailscale tunnel (MTU 1420 or 1280) would fragment every
+/// 1392 byte packet. Unlike Moonlight's, the MTU rule leaves Ethernet and Wi-Fi out: a PPPoE
+/// LAN (MTU 1492) is still local, and its packets fit.
+///
+/// Windows: `if_type` is the IANA ifType, 53 (IF_TYPE_PROP_VIRTUAL: WireGuardNT, Wintun-based
+/// VPNs such as Tailscale, OpenVPN's tap-windows6), 131 (IF_TYPE_TUNNEL) or 23 (IF_TYPE_PPP);
+/// `alias` is the name the user sees.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn vpn_of_if_row(if_type: u32, mtu: u32, mac: &[u8], alias: &str) -> bool {
+    matches!(if_type, 23 | 53 | 131)
+        || (!matches!(if_type, 6 | 71) && mtu != 0 && mtu < 1500)
+        || mac.starts_with(&[0x00, 0xFF])
+        || alias.starts_with("ZeroTier")
+        || alias.contains("VPN")
+}
+
+/// Linux, the same heuristics from sysfs: `arphrd` 65534 (ARPHRD_NONE: tun, WireGuard), 512
+/// (PPP) or a tunnel type (768 IPIP, 769 IP6 tunnel, 776 SIT, 778 GRE); IFF_POINTOPOINT (0x10)
+/// in `flags`, which catches OpenVPN; `mac` as sysfs writes it (`00:ff:...`). The MTU rule skips
+/// ARPHRD_ETHER (1), which is Ethernet and Wi-Fi.
+#[cfg_attr(windows, allow(dead_code))]
+fn vpn_of_sysfs(arphrd: Option<u32>, mtu: Option<u32>, flags: Option<u32>, mac: Option<&str>, name: &str) -> bool {
+    matches!(arphrd, Some(512 | 768 | 769 | 776 | 778 | 65534))
+        || (arphrd != Some(1) && mtu.is_some_and(|mtu| mtu != 0 && mtu < 1500))
+        || flags.is_some_and(|flags| flags & 0x10 != 0)
+        || mac.is_some_and(|mac| mac.to_ascii_lowercase().starts_with("00:ff"))
+        || name.contains("VPN")
+}
+
 /// The interface name from one line of `ip -o route get`: `... dev eth0 src ...`.
 #[cfg_attr(windows, allow(dead_code))]
 fn parse_route_dev(output: &str) -> Option<&str> {
@@ -168,7 +227,7 @@ fn parse_route_dev(output: &str) -> Option<&str> {
 }
 
 #[cfg(windows)]
-fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
+fn interface_toward(ip: IpAddr) -> Option<Interface> {
     use windows::Win32::NetworkManagement::IpHelper::{GetBestInterfaceEx, GetIfEntry2, MIB_IF_ROW2};
     use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
     let mut index = 0u32;
@@ -196,11 +255,18 @@ fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
     let mbps = if row.ReceiveLinkSpeed == u64::MAX { 0 } else { (row.ReceiveLinkSpeed / 1_000_000).min(u32::MAX as u64) as u32 };
     // Bit 0 of InterfaceAndOperStatusFlags is HardwareInterface.
     let hardware = row.InterfaceAndOperStatusFlags._bitfield & 1 != 0;
-    Some((medium_of_if_type(row.Type, hardware), mbps))
+    let mac = &row.PhysicalAddress[..(row.PhysicalAddressLength as usize).min(row.PhysicalAddress.len())];
+    let alias_len = row.Alias.iter().position(|c| *c == 0).unwrap_or(row.Alias.len());
+    let alias = String::from_utf16_lossy(&row.Alias[..alias_len]);
+    Some(Interface {
+        medium: medium_of_if_type(row.Type, hardware),
+        link_mbps: mbps,
+        vpn: vpn_of_if_row(row.Type, row.Mtu, mac, &alias),
+    })
 }
 
 #[cfg(not(windows))]
-fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
+fn interface_toward(ip: IpAddr) -> Option<Interface> {
     let output = std::process::Command::new("ip").args(["-o", "route", "get", &ip.to_string()]).output().ok()?;
     if !output.status.success() { return None; }
     let text = String::from_utf8_lossy(&output.stdout);
@@ -215,7 +281,11 @@ fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
     let medium = medium_of_sysfs(exists("device"), exists("wireless"), devtype.as_deref(), arphrd);
     // "-1" is what a port without a speed reports.
     let mbps = read("speed").and_then(|t| t.trim().parse::<i64>().ok()).filter(|n| *n > 0).map_or(0, |n| n.min(u32::MAX as i64) as u32);
-    Some((medium, mbps))
+    let mtu = read("mtu").and_then(|t| t.trim().parse::<u32>().ok());
+    let flags = read("flags").and_then(|t| u32::from_str_radix(t.trim().trim_start_matches("0x"), 16).ok());
+    let mac = read("address");
+    let vpn = vpn_of_sysfs(arphrd, mtu, flags, mac.as_deref().map(str::trim), name);
+    Some(Interface { medium, link_mbps: mbps, vpn })
 }
 
 /// Client roaming: one look at the network the stream runs on. The route toward the host (the
@@ -251,20 +321,37 @@ impl LinkWatch {
 
     /// `None`: no route toward the host. Returns whether the new network is metered when the
     /// network changed since the last look.
+    #[cfg(test)]
     pub fn observe(&mut self, link: Option<Link>) -> Option<bool> {
+        match self.event(link)? {
+            LinkEvent::Changed { metered, .. } => Some(metered),
+            LinkEvent::Lost => None,
+        }
+    }
+
+    /// The same look as an event: the route going away once, or a change (after a loss or not).
+    pub fn event(&mut self, link: Option<Link>) -> Option<LinkEvent> {
         let Some(link) = link else {
-            self.lost = true;
-            return None;
+            return (!std::mem::replace(&mut self.lost, true)).then_some(LinkEvent::Lost);
         };
         if !self.lost && link.same_network(&self.current) {
             self.current.metered = link.metered;
             return None;
         }
-        self.lost = false;
+        let after_loss = std::mem::take(&mut self.lost);
         let metered = link.metered;
         self.current = link;
-        Some(metered)
+        Some(LinkEvent::Changed { metered, after_loss })
     }
+}
+
+/// What the network watcher saw toward the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkEvent {
+    /// The route toward the host went away: the stream cannot reach the PC.
+    Lost,
+    /// A different network, or one back after the route was gone (`after_loss`).
+    Changed { metered: bool, after_loss: bool },
 }
 
 /// The local address the system routes traffic for `remote` from. Connecting a UDP socket
@@ -287,9 +374,9 @@ fn link(remote: SocketAddr) -> Result<Option<Link>, String> {
 /// How often the watcher looks, as often as the engine's own route poll.
 const LOOK_EVERY: Duration = Duration::from_secs(1);
 
-/// Client roaming's network watcher: looks at the link toward the host once a second on its own
-/// thread, off the frame path, and hands each change to `on_change` with whether the new network
-/// is metered. It stops when dropped, or when `on_change` returns false.
+/// The stream's network watcher: looks at the link toward the host once a second on its own
+/// thread, off the frame path, and hands each event to `on_change` (a change says whether the new
+/// network is metered). It stops when dropped, or when `on_change` returns false.
 pub struct RoamWatch {
     _stop: Sender<()>,
 }
@@ -297,7 +384,7 @@ pub struct RoamWatch {
 impl RoamWatch {
     /// Errs with why when the network cannot be read now, so the caller does not wait for hints
     /// that never come.
-    pub fn start(remote: SocketAddr, on_change: impl Fn(bool) -> bool + Send + 'static) -> Result<RoamWatch, String> {
+    pub fn start(remote: SocketAddr, on_change: impl Fn(LinkEvent) -> bool + Send + 'static) -> Result<RoamWatch, String> {
         let start = link(remote)?.ok_or("no route toward the PC")?;
         Self::spawn(start, move || link(remote), on_change)
     }
@@ -306,7 +393,7 @@ impl RoamWatch {
     fn spawn(
         start: Link,
         mut look: impl FnMut() -> Result<Option<Link>, String> + Send + 'static,
-        on_change: impl Fn(bool) -> bool + Send + 'static,
+        on_change: impl Fn(LinkEvent) -> bool + Send + 'static,
     ) -> Result<RoamWatch, String> {
         let (stop, stopped) = channel::<()>();
         std::thread::Builder::new()
@@ -326,8 +413,8 @@ impl RoamWatch {
                         }
                     };
                     unreadable = false;
-                    if let Some(metered) = watch.observe(look) {
-                        if !on_change(metered) { return; }
+                    if let Some(event) = watch.event(look) {
+                        if !on_change(event) { return; }
                     }
                 }
             })
@@ -515,6 +602,50 @@ mod tests {
     }
 
     #[test]
+    fn windows_vpn_interfaces_are_told_apart() {
+        let nic = [0x2c, 0xf0, 0x5d, 1, 2, 3];
+        // WireGuardNT and Wintun (Tailscale) are IF_TYPE_PROP_VIRTUAL; tunnels and PPP count too.
+        assert!(vpn_of_if_row(53, 1420, &[], "WireGuard Tunnel"));
+        assert!(vpn_of_if_row(53, 1500, &[], "Tailscale"));
+        assert!(vpn_of_if_row(131, 1500, &[], "Teredo"));
+        assert!(vpn_of_if_row(23, 1500, &[], "Dial-up"));
+        // A smaller MTU on another kind of adapter, OpenVPN's TAP address, ZeroTier and a VPN by name.
+        assert!(vpn_of_if_row(1, 1400, &[], "Contoso Secure Client"));
+        assert!(vpn_of_if_row(6, 1500, &[0x00, 0xFF, 1, 2, 3, 4], "Ethernet 4"));
+        assert!(vpn_of_if_row(6, 1500, &nic, "ZeroTier One [abcdef]"));
+        assert!(vpn_of_if_row(6, 1500, &nic, "Contoso VPN"));
+        // Ethernet, Wi-Fi and Hyper-V's virtual switch are not; nor is loopback's all-ones MTU.
+        assert!(!vpn_of_if_row(6, 1500, &nic, "Ethernet"));
+        assert!(!vpn_of_if_row(71, 1500, &nic, "Wi-Fi"));
+        assert!(!vpn_of_if_row(6, 1500, &[0x00, 0x15, 0x5d, 1, 2, 3], "vEthernet (Default Switch)"));
+        assert!(!vpn_of_if_row(24, u32::MAX, &[], "Loopback Pseudo-Interface 1"));
+        assert!(!vpn_of_if_row(6, 9000, &nic, "Ethernet"), "jumbo frames");
+        assert!(!vpn_of_if_row(6, 0, &nic, "Ethernet"), "an unknown MTU");
+        // The review's regression: a PPPoE LAN's 1492 MTU on Ethernet or Wi-Fi is no VPN.
+        assert!(!vpn_of_if_row(6, 1492, &nic, "Ethernet"));
+        assert!(!vpn_of_if_row(71, 1492, &nic, "Wi-Fi"));
+    }
+
+    #[test]
+    fn linux_vpn_interfaces_are_told_apart() {
+        // wg0 and tailscale0 are ARPHRD_NONE with a small MTU; tun0 of OpenVPN is point to point.
+        assert!(vpn_of_sysfs(Some(65534), Some(1420), Some(0x1091), None, "wg0"));
+        assert!(vpn_of_sysfs(Some(65534), Some(1500), Some(0x1091), None, "tun0"));
+        assert!(vpn_of_sysfs(Some(512), Some(1500), None, None, "ppp0"));
+        assert!(vpn_of_sysfs(Some(65535), Some(1400), Some(0x1003), None, "vti0"));
+        assert!(vpn_of_sysfs(Some(1), Some(1500), Some(0x1013), Some("2c:f0:5d:01:02:03"), "eth1"), "IFF_POINTOPOINT");
+        assert!(vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("00:FF:12:34:56:78"), "tap0"));
+        // Ethernet, Wi-Fi and loopback are not.
+        assert!(!vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("2c:f0:5d:01:02:03"), "enp3s0"));
+        assert!(!vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("2c:f0:5d:01:02:04"), "wlp2s0"));
+        assert!(!vpn_of_sysfs(Some(772), Some(65536), Some(0x9), Some("00:00:00:00:00:00"), "lo"));
+        assert!(!vpn_of_sysfs(None, None, None, None, "eth0"), "nothing readable");
+        // The review's regression: a PPPoE LAN's 1492 MTU on Ethernet or Wi-Fi is no VPN.
+        assert!(!vpn_of_sysfs(Some(1), Some(1492), Some(0x1003), Some("2c:f0:5d:01:02:03"), "enp3s0"));
+        assert!(!vpn_of_sysfs(Some(1), Some(1492), Some(0x1003), Some("2c:f0:5d:01:02:04"), "wlp2s0"));
+    }
+
+    #[test]
     fn route_lookup_output_names_the_interface() {
         assert_eq!(parse_route_dev("192.168.1.9 dev wlp3s0 src 192.168.1.20 uid 1000"), Some("wlp3s0"));
         assert_eq!(parse_route_dev("10.0.0.1 via 10.0.0.254 dev eth0 src 10.0.0.2\n"), Some("eth0"));
@@ -570,6 +701,20 @@ mod tests {
         assert_eq!(watch.observe(None), None);
         assert_eq!(watch.observe(Some(home.clone())), Some(false));
         assert_eq!(watch.observe(Some(home)), None);
+    }
+
+    // A Wi-Fi blip: the route goes (said once), comes back on the same network (a return the
+    // stream may not roam onto), then a new network without a loss first is no return.
+    #[test]
+    fn a_lost_route_is_said_once_and_its_return_is_marked() {
+        let home = link([192, 168, 1, 20], Some("home"), false);
+        let mut watch = LinkWatch::new(home.clone());
+        assert_eq!(watch.event(None), Some(LinkEvent::Lost));
+        assert_eq!(watch.event(None), None);
+        assert_eq!(watch.event(Some(home.clone())), Some(LinkEvent::Changed { metered: false, after_loss: true }));
+        assert_eq!(watch.event(Some(home)), None);
+        let hotspot = link([172, 20, 10, 2], Some("phone"), true);
+        assert_eq!(watch.event(Some(hotspot)), Some(LinkEvent::Changed { metered: true, after_loss: false }));
     }
 
     #[test]

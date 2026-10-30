@@ -18,12 +18,74 @@ pub trait Clipboard {
     /// The text, empty while there is none.
     fn text(&self) -> Result<String, String>;
     fn set_text(&mut self, text: &str) -> Result<(), String>;
+    /// Whether it holds copied files, which sync cannot carry: the PC's copies do not replace
+    /// them, and they are not sent as their paths. Moonlight V+'s `hasFileReferences`
+    /// (https://github.com/qiin2333/moonlight-qt, GPL-3.0).
+    fn holds_files(&self) -> bool;
+}
+
+/// Whether a `text/uri-list` names a file here; web addresses do not count.
+#[cfg(any(not(windows), test))]
+fn names_local_files(uri_list: &str) -> bool {
+    uri_list
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .any(|line| line.get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:")))
 }
 
 /// SDL's clipboard. Main thread.
 pub struct Sdl;
 
 impl Clipboard for Sdl {
+    #[cfg(windows)]
+    fn holds_files(&self) -> bool {
+        use windows::core::w;
+        use windows::Win32::System::DataExchange::{IsClipboardFormatAvailable, RegisterClipboardFormatW};
+        // Explorer's copied files, and the formats of files that other apps only promise
+        // (Outlook attachments, files inside a zip), as V+ looks for them.
+        const CF_HDROP: u32 = 15;
+        let promised = [
+            w!("FileGroupDescriptorW"),
+            w!("FileGroupDescriptor"),
+            w!("FileContents"),
+            w!("FileNameW"),
+            w!("Shell IDList Array"),
+        ];
+        // SAFETY: queries that leave the clipboard closed; the names are NUL-terminated.
+        unsafe {
+            IsClipboardFormatAvailable(CF_HDROP).is_ok()
+                || promised.into_iter().any(|name| {
+                    let format = RegisterClipboardFormatW(name);
+                    format != 0 && IsClipboardFormatAvailable(format).is_ok()
+                })
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn holds_files(&self) -> bool {
+        use sdl3_sys::everything::*;
+        // GNOME's and KDE's file managers put both on the clipboard.
+        // SAFETY: NUL-terminated MIME types; SDL returns a buffer of `size` bytes we free.
+        unsafe {
+            if SDL_HasClipboardData(c"x-special/gnome-copied-files".as_ptr()) {
+                return true;
+            }
+            if !SDL_HasClipboardData(c"text/uri-list".as_ptr()) {
+                return false;
+            }
+            let mut size = 0;
+            let data = SDL_GetClipboardData(c"text/uri-list".as_ptr(), &mut size);
+            if data.is_null() {
+                eprintln!("nightjar: clipboard sync: could not read the clipboard's files, keeping them: {}", crate::sdl::error());
+                return true;
+            }
+            let list = String::from_utf8_lossy(std::slice::from_raw_parts(data.cast::<u8>(), size)).into_owned();
+            SDL_free(data);
+            names_local_files(&list)
+        }
+    }
+
     fn text(&self) -> Result<String, String> {
         use sdl3_sys::everything::*;
         // SAFETY: SDL returns a NUL-terminated buffer we free, or null on failure.
@@ -96,6 +158,10 @@ impl<C: Clipboard> Sync<C> {
 
     /// The clipboard here changed.
     pub fn changed(&mut self, now: Instant) -> Step {
+        if self.clipboard.holds_files() {
+            eprintln!("nightjar: clipboard sync: copied files stay here; not synced");
+            return Step::default();
+        }
         let text = match self.clipboard.text() {
             Ok(text) => text,
             Err(error) => {
@@ -119,6 +185,10 @@ impl<C: Clipboard> Sync<C> {
     pub fn received(&mut self, frame: Frame, now: Instant) -> Step {
         let refused = match self.rules.received(frame, now) {
             Received::Apply(ClipboardItem::Text(text)) => {
+                if self.clipboard.holds_files() {
+                    eprintln!("nightjar: clipboard sync: kept the files copied here instead of the PC's text");
+                    return Step::default();
+                }
                 return match self.clipboard.set_text(&text) {
                     Ok(()) => Step::default(),
                     Err(error) => {
@@ -161,9 +231,13 @@ mod tests {
         fail_read: bool,
         fail_write: bool,
         writes: u32,
+        files: bool,
     }
 
     impl Clipboard for &mut Fake {
+        fn holds_files(&self) -> bool {
+            self.files
+        }
         fn text(&self) -> Result<String, String> {
             if self.fail_read { Err("locked".into()) } else { Ok(self.text.clone()) }
         }
@@ -217,6 +291,32 @@ mod tests {
         frame(sync.changed(now));
         assert_eq!(sync.received(mine, now), Step::default());
         assert_eq!((sync.clipboard.text.as_str(), sync.clipboard.writes), ("newer", 1));
+    }
+
+    #[test]
+    fn files_copied_here_are_not_replaced_by_the_pcs_text_nor_sent_as_paths() {
+        let mut fake = Fake { text: "/home/me/report.pdf".into(), files: true, ..Fake::default() };
+        let (mut sync, _) = Sync::start(&mut fake);
+        let now = Instant::now();
+        assert_eq!(sync.received(from_pc(7, "from the pc"), now), Step::default());
+        assert_eq!((sync.clipboard.text.as_str(), sync.clipboard.writes), ("/home/me/report.pdf", 0));
+        sync.clipboard.text = "/home/me/other.pdf".into();
+        assert_eq!(sync.changed(now), Step::default());
+        // Text copied here again syncs both ways.
+        sync.clipboard.files = false;
+        sync.clipboard.text = "words".into();
+        frame(sync.changed(now));
+        assert_eq!(sync.received(from_pc(8, "the pc's words"), now), Step::default());
+        assert_eq!((sync.clipboard.text.as_str(), sync.clipboard.writes), ("the pc's words", 1));
+    }
+
+    #[test]
+    fn only_file_addresses_count_as_files() {
+        assert!(names_local_files("file:///home/me/a.txt\r\nfile:///home/me/b.txt\r\n"));
+        assert!(names_local_files("# a comment\nhttps://example.com/\nFILE:///tmp/x\n"));
+        assert!(!names_local_files("https://example.com/picture.png\n"));
+        assert!(!names_local_files("# file:///commented\n"));
+        assert!(!names_local_files(""));
     }
 
     #[test]

@@ -14,17 +14,37 @@ fn main() {
     println!("cargo:rustc-env=NIGHTJAR_VERSION={version}");
     println!("cargo:rerun-if-env-changed=NIGHTJAR_FFMPEG_DIR");
     let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    if windows {
+        // packaging/icons/nightjar.ico (packaging/make-icons.py) becomes icon resource 1 of
+        // nightjar.exe: Explorer, the taskbar, pins and the window (SDL takes the executable's
+        // first icon) show it. Without windres (MSYS2 binutils) or rc.exe the build fails rather
+        // than ship an exe with no icon at all.
+        // packaging/nightjar.exe.manifest becomes manifest resource 1 (RT_MANIFEST is 24) in the
+        // same script; tests/manifest.rs reads it back from the built exe.
+        let icon = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/icons/nightjar.ico");
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/nightjar.exe.manifest");
+        println!("cargo:rerun-if-changed={}", icon.display());
+        println!("cargo:rerun-if-changed={}", manifest.display());
+        let rc = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("nightjar.rc");
+        let path = icon.display().to_string().replace('\\', "/");
+        let manifest_path = manifest.display().to_string().replace('\\', "/");
+        std::fs::write(&rc, format!("1 ICON \"{path}\"\n1 24 \"{manifest_path}\"\n"))
+            .unwrap_or_else(|e| panic!("write {}: {e}", rc.display()));
+        embed_resource::compile_for(&rc, ["nightjar"], embed_resource::NONE)
+            .manifest_required()
+            .unwrap_or_else(|e| panic!("embed the icon and manifest (needs windres or rc.exe on PATH): {e}"));
+    }
     let prefix = std::env::var("NIGHTJAR_FFMPEG_DIR")
         .ok()
         .or_else(|| windows.then(|| r"C:\msys64\ucrt64".to_owned()));
     let mut bindings = bindgen::Builder::default()
         .header_contents("nightjar-media.h", if windows {
-            "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n#include <libavutil/hwcontext_d3d11va.h>\n"
+            "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n#include <libavutil/hwcontext_d3d11va.h>\n#include <libavutil/hdr_dynamic_metadata.h>\n#include <libavutil/dovi_meta.h>\n"
         } else {
             "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n"
         })
         .allowlist_type("AV.*|RcOverride|UINT")
-        .allowlist_function("avcodec_.*|av_packet_.*|av_frame_.*|av_hwdevice_.*|av_hwframe_map|av_pix_fmt_desc_get|av_get_pix_fmt_name|av_strerror|av_buffer_unref|av_buffer_pool_.*|av_dict_set|av_dict_free")
+        .allowlist_function("avcodec_.*|av_packet_.*|av_frame_.*|av_hwdevice_.*|av_hwframe_map|av_hwframe_transfer_data|av_pix_fmt_desc_get|av_get_pix_fmt_name|av_strerror|av_buffer_unref|av_buffer_pool_.*|av_dict_set|av_dict_free|av_dovi_find_level")
         .allowlist_var("AV_.*|FF_THREAD_SLICE")
         .allowlist_recursively(false)
         .blocklist_type("ID3D.*")

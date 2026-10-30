@@ -3,8 +3,9 @@
 //! second with the host and display p95 times collected here; the stream menu shows its report
 //! and offers the trial, and the launcher shows the report after a stream that had findings.
 
+use nightjar_core::session::ReceiveBuffer;
 use nightjar_policy::health::{BitrateTrial, Finding, Report, StreamHealth, TrialOffer, TrialRefused};
-use nightjar_policy::stats::{RecentP95, Stats};
+use nightjar_policy::stats::{LateFrames, RecentP95, Stats};
 
 use crate::strings::{tr, trf};
 
@@ -18,9 +19,19 @@ pub struct Doctor {
     sent: RecentP95,
     /// Decoded to shown: the pacer's hold and the present.
     display: RecentP95,
+    /// Frames that arrived late against the host's clock, this tick.
+    late: LateFrames,
+    /// The video socket's receive buffer, as asked and as the OS granted it.
+    pub receive_buffer: Option<ReceiveBuffer>,
 }
 
 impl Doctor {
+    /// A decoded frame: its RTP timestamp, the frame header's host processing time (0.1 ms, 0
+    /// unknown) and when its first packet arrived (session clock), at the stream's frame rate.
+    pub fn arrived(&mut self, rtp: u32, host_latency: u16, receive_us: u64, fps: u32) {
+        self.late.push(rtp, u32::from(host_latency) * 100, receive_us, fps);
+    }
+
     /// A picture was shown: its header's processing time (100 us units, 0 when the host sends
     /// none) and its display wait from `ready_us` to `presented_us` (session clock).
     pub fn shown(&mut self, host_latency: u16, ready_us: u64, presented_us: u64) {
@@ -45,6 +56,7 @@ impl Doctor {
         let (sent, header) = (self.sent.tick(), self.header.tick());
         tick.host_p95_ms = if tick.host_includes_send { sent } else { header };
         tick.display_p95_ms = self.display.tick();
+        tick.late_frames = Some(self.late.tick());
     }
 
     pub fn add(&mut self, tick: &Stats) {
@@ -53,6 +65,20 @@ impl Doctor {
 
     pub fn report(&mut self, now_ms: u64) -> Report {
         self.health.report(now_ms)
+    }
+
+    /// The note under the report when the OS granted the video socket a smaller receive buffer
+    /// than asked: a burst beyond it is lost before it is read, and shows as frame loss. Linux
+    /// caps it at `net.core.rmem_max` without an error; the note gives the command that raises it.
+    pub fn receive_buffer_hint(&self) -> Option<String> {
+        let buffer = self.receive_buffer.filter(ReceiveBuffer::short)?;
+        let (granted, asked) = (buffer.granted.div_ceil(1024), buffer.asked.div_ceil(1024));
+        Some(if cfg!(target_os = "linux") {
+            trf("Receive buffer: the system granted {} KiB of the {} KiB asked for, so a burst of video can be lost before it is read. Raise the limit with:
+sudo sysctl -w net.core.rmem_max={}", &[&granted, &asked, &buffer.asked])
+        } else {
+            trf("Receive buffer: the system granted {} KiB of the {} KiB asked for, so a burst of video can be lost before it is read.", &[&granted, &asked])
+        })
     }
 }
 
@@ -99,6 +125,7 @@ pub fn report_text(report: &Report) -> String {
             Finding::Host => text.push_str(tr("Host: the slower processing samples exceeded the frame interval. Compare game/GPU load and a lower game frame limit. This measurement includes more than encoding.")),
             Finding::Presentation => text.push_str(tr("Presentation: frames were released faster than they were shown, with long display waits. Compare frame-pacing modes and the screen refresh rate.")),
             Finding::Heat => text.push_str(tr("Temperature: this device reported high thermal pressure. Lower frame rate/resolution or disable expensive client processing; allow the device to cool.")),
+            Finding::Bursts => text.push_str(&trf("Bursts: in {} of the last {} seconds, the network held frames back and delivered several at once, although the host sent them on time; a cable or a less busy 5 or 6 GHz Wi-Fi channel helps.", &[&report.late_samples, &report.samples])),
             Finding::Periodic => text.push_str(&trf("Repeating stalls: {} network stalls in the last 20 minutes started about every {}. A steady rhythm like this usually comes from background Wi-Fi scans on this device or on the PC. To reduce them:\n• Connect this device or the PC by cable.\n• Stop tools that scan for Wi-Fi networks or nearby devices while streaming.", &[&report.stalls, &period(report.stall_period_ms)])),
         }
     }
@@ -151,11 +178,12 @@ pub fn after_stream(ended: Option<String>, health: Option<String>) -> Option<(&'
 pub fn log_line(report: &Report) -> String {
     let findings: Vec<&str> = report.findings.iter().map(|finding| finding.name()).collect();
     format!(
-        "{} over {} samples, worst loss {:.1} %, decode {:.1} ms, host p95 {:.1} ms{}, display p95 {:.1} ms, {} stalls{}",
+        "{} over {} samples, worst loss {:.1} %, decode {:.1} ms, host p95 {:.1} ms{}, display p95 {:.1} ms, {} stalls{}, late frames in {} samples",
         if findings.is_empty() { "no findings".to_owned() } else { findings.join(",") },
         report.samples, report.worst_loss_percent, report.worst_decode_ms, report.worst_host_p95_ms,
         if report.host_includes_send { " (to network)" } else { "" }, report.worst_display_p95_ms, report.stalls,
         if report.stall_period_ms > 0 { format!(" every {} ms", report.stall_period_ms) } else { String::new() },
+        report.late_samples,
     )
 }
 
@@ -282,6 +310,21 @@ mod tests {
         assert!(text.contains("Frame loss: 6.0 %\nDecode: 2.0 ms\nHost processing p95: no data yet ms"), "{text}");
         assert_eq!(summary(&report).as_deref(), Some(text.as_str()));
         assert!(log_line(&report).starts_with("NETWORK over 5 samples, worst loss 6.0 %"));
+    }
+
+    #[test]
+    fn a_short_receive_buffer_gets_a_note_with_the_way_to_raise_it() {
+        set(Lang::En);
+        let mut doctor = Doctor::default();
+        assert_eq!(doctor.receive_buffer_hint(), None, "nothing known");
+        doctor.receive_buffer = Some(ReceiveBuffer { asked: 4 << 20, granted: 4 << 20 });
+        assert_eq!(doctor.receive_buffer_hint(), None, "granted as asked");
+        doctor.receive_buffer = Some(ReceiveBuffer { asked: 4 << 20, granted: 212_992 });
+        let hint = doctor.receive_buffer_hint().expect("a capped buffer");
+        assert!(hint.starts_with("Receive buffer: the system granted 208 KiB of the 4096 KiB asked for"), "{hint}");
+        assert_eq!(hint.contains("sudo sysctl -w net.core.rmem_max=4194304"), cfg!(target_os = "linux"), "{hint}");
+        set(Lang::De);
+        assert_ne!(doctor.receive_buffer_hint().unwrap(), hint, "the note has a German text");
     }
 
     #[test]

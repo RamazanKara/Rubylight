@@ -11,16 +11,29 @@ pub mod color_probe;
 pub mod pipeline;
 mod playout;
 pub mod present;
+mod hlg;
 mod microphone;
+#[cfg(windows)]
+mod voice_capture;
 mod cursor;
 mod bitrate;
+pub mod host_abr;
 pub mod doctor;
 pub mod overlay;
 mod recovery;
 mod quality;
 mod rate_change;
+pub mod menu_extras;
 mod touch;
+/// Precision touchpad passthrough is Windows only; its frame logic is tested everywhere.
+#[cfg(any(windows, test))]
+mod touchpad;
 mod upscale;
+pub mod enhance;
+#[cfg(windows)]
+mod amf_scaler;
+#[cfg(windows)]
+pub(crate) mod direct;
 mod phase;
 mod text_field;
 mod clipboard_sync;
@@ -33,6 +46,8 @@ pub mod pyrowave_mode;
 mod stage_times;
 #[cfg(windows)]
 mod d3d11;
+#[cfg(windows)]
+mod wasapi;
 pub mod gpu_planes;
 mod pyrowave_sdk;
 #[cfg(unix)]
@@ -47,10 +62,11 @@ use std::time::{Duration, Instant};
 
 use nightjar_core::color;
 use nightjar_core::control::{ClientMessage, ControlEvent};
-use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, NativeCapabilities, ServerInfo};
+use nightjar_core::http::foundation::AbrRequest;
+use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, Error as HttpError, LaunchRequest, NativeCapabilities, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
-use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
+use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkChange, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
 use nightjar_policy::health::TrialOffer;
 use nightjar_policy::overlay::{HardwareAnswer, HardwarePoll};
 use nightjar_policy::stats::Stats;
@@ -95,6 +111,8 @@ pub struct LaunchPlan {
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
     pub hardware: Hardware,
+    /// VAAPI pictures go to the renderer as DMA-BUFs (`crate::dmabuf`), not through memory.
+    pub dmabuf: bool,
     /// The renderer's Direct3D 11 device when PyroWave decodes on the GPU (`pyrowave_decoder`).
     pub gpu_decoder: Option<pipeline::GpuDevice>,
     pub packed_modes: u8,
@@ -113,8 +131,13 @@ pub struct LaunchPlan {
     pub pace: Option<crate::config::PaceCalibration>,
     pub host_link_mbps: u32,
     pub recovery: Option<recovery::Backoff>,
+    /// An earlier connection of this automatic reconnect chain showed video: a reconnect that has
+    /// no picture yet when it drops again still reconnects ([`Streaming::video_started`]).
+    pub video_shown: bool,
     /// The user confirmed closing the running app for this launch (`rlConfirmReplace`).
     pub confirm_replace: bool,
+    /// The display's luminance for hosts other than Rubylight (`sdl::launch_luminance`).
+    pub display_luminance: Option<nightjar_core::http::DisplayLuminance>,
 }
 
 /// The stream's negotiated shape.
@@ -224,7 +247,9 @@ fn random_bytes<const N: usize>() -> [u8; N] {
     out
 }
 
-/// The stream's resolution, rate and bitrate from the settings and display.
+/// The stream's resolution, rate and bitrate from the settings and display. The bitrate is the one
+/// for the chosen codec (`start_bitrate`), PyroWave's own while PyroWave is chosen, as the settings
+/// show it; a launch decides by what it offers the PC (`offers_pyrowave`).
 pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32) {
     let (mut w, mut h) = if settings.width == 0 || settings.height == 0 {
         (display.width, display.height)
@@ -238,15 +263,42 @@ pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32
     } else {
         settings.fps
     };
-    let bitrate = if settings.bitrate_kbps == 0 {
+    (w, h, fps, start_bitrate(settings, w, h, fps, settings.codec.is_pyrowave(), 0))
+}
+
+/// The bitrate a stream starts at: the chosen one, or the default for its size and frame rate. A
+/// PyroWave stream (intra-only, it breaks up at the conventional default) starts at PyroWave's own
+/// default instead, within `link_mbps` (the wired link toward the PC, 0 when unknown as in the
+/// settings), or at the chosen one raised to PyroWave's floor (`nightjar_policy::pyrowave`).
+fn start_bitrate(settings: &Settings, w: u32, h: u32, fps: u32, pyrowave: bool, link_mbps: u32) -> u32 {
+    if pyrowave {
+        nightjar_policy::pyrowave::start_kbps(settings.bitrate_kbps, settings.bitrate_kbps == 0, w, h, fps, link_mbps)
+    } else if settings.bitrate_kbps == 0 {
         config::default_bitrate_kbps(w, h, fps)
     } else {
         settings.bitrate_kbps
-    };
-    let bitrate = if matches!(settings.codec, CodecPreference::PyroWave | CodecPreference::PyroWave444) {
-        bitrate.max(pyrowave::minimum_bitrate(w, h, fps, settings.codec == CodecPreference::PyroWave444, settings.hdr))
-    } else { bitrate };
-    (w, h, fps, bitrate)
+    }
+}
+
+/// Whether a launch that offers `offered` streams PyroWave: the handshake picks it first when the
+/// PC (`scm`, the trusted codec support) encodes a PyroWave format offered
+/// (`Describe::select_video_format`). Whatever the codec choice, so a PyroWave choice the PC
+/// lacks starts at the conventional bitrate.
+fn offers_pyrowave(offered: u32, scm: u32) -> bool {
+    [(SCM_PYROWAVE, VIDEO_FORMAT_PYROWAVE), (SCM_PYROWAVE_444, VIDEO_FORMAT_PYROWAVE_444),
+        (SCM_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10), (SCM_PYROWAVE_MAIN10_444, VIDEO_FORMAT_PYROWAVE_MAIN10_444)]
+        .iter()
+        .any(|&(host, client)| scm & host != 0 && offered & client != 0)
+}
+
+/// The bitrate setting's warning when PyroWave is chosen and the chosen bitrate is below its
+/// minimum for the stream's `w`x`h` at `fps`, naming the minimum. The bitrate is kept as chosen;
+/// the automatic one never goes below the minimum.
+pub fn pyrowave_bitrate_warning(settings: &Settings, w: u32, h: u32, fps: u32) -> Option<String> {
+    let minimum = nightjar_policy::pyrowave::minimum_kbps(w, h, fps);
+    (settings.codec.is_pyrowave() && settings.bitrate_kbps != 0 && settings.bitrate_kbps < minimum).then(|| {
+        trf("Below PyroWave’s minimum of {} Mbps at {}x{}, {} fps: the picture will break up.", &[&minimum.div_ceil(1000), &w, &h, &fps])
+    })
 }
 
 /// With the link test switched on (`link_probe`, off by default because it measured worse), a new
@@ -337,6 +389,66 @@ fn offered_formats(settings: &Settings, scm: u32, decodable: &(u32, String)) -> 
 /// what saying nothing does.
 fn launches_ten_bit_sdr(settings: &Settings, offer: &color::Offer) -> bool {
     !settings.hdr && offer.formats & VIDEO_FORMAT_MASK_10BIT != 0
+}
+
+/// The HDR format beyond stock HDR10 to ask a Rubylight host for (one `rubylight_protocol::hdr`
+/// bit, 0 for stock HDR10), as Android's HdrFormatPolicy picks it. Dolby Vision where the client
+/// reads its RPUs (`reads_dolby_vision`: the Windows draw pass, whose tone map takes each frame's
+/// peak from them): profile 10.1 on AV1 Main10 before 8.1 on HEVC Main10, as the handshake takes
+/// AV1 first, both with the HDR10 base layer every other path shows as HDR10. Not with packed
+/// full chroma, which draws PQ only. Never HLG: Android asks for it only on a display without
+/// HDR10, and every desktop HDR output takes PQ. A host that lists no formats (every other
+/// host, `host_formats` -1) gets 0, and the ANNOUNCE asks only for what the stream's DESCRIBE
+/// offers for its codec (`sdp::announced_hdr_format`).
+fn hdr_format(hdr: bool, host_formats: i32, formats: u32, packed444: bool, reads_dolby_vision: bool) -> u8 {
+    use rubylight_protocol::hdr;
+    if !hdr || host_formats <= 0 || packed444 || !reads_dolby_vision {
+        return 0;
+    }
+    let host = host_formats as u8;
+    if host & hdr::DV_101 != 0 && formats & VIDEO_FORMAT_AV1_MAIN10 != 0 {
+        hdr::DV_101
+    } else if host & hdr::DV_81 != 0 && formats & VIDEO_FORMAT_H265_MAIN10 != 0 {
+        hdr::DV_81
+    } else {
+        0
+    }
+}
+
+/// The Windows draw pass reads Dolby Vision RPUs for its tone map, unless `NIGHTJAR_D3D11_PASS=0`
+/// leaves the pictures to SDL. Nothing else does.
+#[cfg(windows)]
+fn reads_dolby_vision() -> bool {
+    direct::enabled()
+}
+
+#[cfg(not(windows))]
+fn reads_dolby_vision() -> bool {
+    false
+}
+
+/// `hdr_format`, or the bit `NIGHTJAR_HDR_FORMAT` asks for instead (tests: HLG, which desktop never
+/// picks itself), said in the log when it is not stock HDR10.
+fn asked_hdr_format(picked: u8) -> u8 {
+    let format = match hint_env("NIGHTJAR_HDR_FORMAT") {
+        Some(bit) => {
+            let bit = u8::try_from(bit).unwrap_or(0);
+            eprintln!("nightjar: NIGHTJAR_HDR_FORMAT asks the host for HDR format {bit} (picked: {picked})");
+            bit
+        }
+        None => picked,
+    };
+    let name = match format {
+        rubylight_protocol::hdr::DV_101 => "Dolby Vision profile 10.1",
+        rubylight_protocol::hdr::DV_81 => "Dolby Vision profile 8.1",
+        rubylight_protocol::hdr::DV_84 => "Dolby Vision profile 8.4",
+        rubylight_protocol::hdr::HLG => "HLG",
+        _ => "",
+    };
+    if !name.is_empty() {
+        eprintln!("nightjar: asking the host for {name} where the stream's codec takes it");
+    }
+    format
 }
 
 fn refusal_text(refusal: &color::Refusal) -> String {
@@ -513,6 +625,9 @@ impl Connecting {
         }
     }
 
+    /// The stream presents for a VRR display (the setting is on and the swap chain tears).
+    pub fn vrr(&self) -> bool { self.plan.vrr }
+
     /// Ok(Some) once streaming, Err on failure.
     pub fn poll(&mut self) -> Result<Option<(Session, Facts)>, ConnectFailed> {
         let expired = self.plan.recovery.as_ref().is_some_and(|r| r.remaining(recovery::now_ms()) == 0);
@@ -591,6 +706,8 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
                 if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
                 std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
             }
+            let port = if plan.record.http_port == 0 { nightjar_core::http::DEFAULT_HTTP_PORT } else { plan.record.http_port };
+            wait_for_route(&plan.record.address, port, recovery.remaining(recovery::now_ms()), interrupt)?;
         }
         match connect(plan, shared.clone(), interrupt) {
             Err(error) if error.retryable && plan.recovery.is_some() && !interrupt.is_interrupted() => {
@@ -599,6 +716,59 @@ fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: 
             }
             result => return result,
         }
+    }
+}
+
+/// Before a recovery attempt: returns once the PC is reachable, or when the recovery window ends
+/// (the attempt then fails and the budget says so), Err when cancelled. A network is often back
+/// before its address toward the PC (DHCP), so the attempt waits for a route instead of failing
+/// at once and backing off.
+fn wait_for_route(address: &str, port: u16, remaining_ms: u64, interrupt: &Interrupt) -> Result<(), ConnectError> {
+    let started = Instant::now();
+    let mut wait = recovery::RouteWait::new(recovery::now_ms() + remaining_ms);
+    loop {
+        if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
+        let checked = Instant::now();
+        let problem = route_problem(address, port);
+        match wait.next(recovery::now_ms(), problem.is_none()) {
+            Some(0) => {
+                if wait.unreachable_checks() > 0 {
+                    eprintln!("nightjar: recovery: the PC is reachable again after {} ms", started.elapsed().as_millis());
+                }
+                return Ok(());
+            }
+            None => {
+                eprintln!("nightjar: recovery: the PC stayed unreachable until the recovery window ended: {}",
+                    problem.unwrap_or_default());
+                return Ok(());
+            }
+            Some(delay) => {
+                if wait.unreachable_checks() == 1 {
+                    eprintln!("nightjar: recovery: no route to the PC yet ({}), checking every {} ms",
+                        problem.unwrap_or_default(), recovery::ROUTE_RETRY_MS);
+                }
+                let until = checked + Duration::from_millis(delay);
+                while Instant::now() < until {
+                    if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
+                    std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
+                }
+            }
+        }
+    }
+}
+
+/// Why there is no route toward the PC's HTTP port yet ([`recovery::route_missing`], or the
+/// name does not resolve), or None to go on with the attempt: an answer, refused included, and
+/// also a check that timed out or failed otherwise.
+fn route_problem(address: &str, port: u16) -> Option<String> {
+    let remote = match (address, port).to_socket_addrs().map(|mut found| found.next()) {
+        Ok(Some(remote)) => remote,
+        Ok(None) => return Some(format!("{address} did not resolve")),
+        Err(error) => return Some(error.to_string()),
+    };
+    match std::net::TcpStream::connect_timeout(&remote, Duration::from_millis(recovery::ROUTE_PROBE_TIMEOUT_MS)) {
+        Err(error) if recovery::route_missing(&error) => Some(error.to_string()),
+        _ => None,
     }
 }
 
@@ -653,6 +823,37 @@ fn race_line(frames: u64, slices: u64, unordered: u64) -> String {
         line.push_str(" (the host is not sending the row order)");
     }
     line
+}
+
+/// Whether a stream runs the display check for VRR: every VRR stream (`vrr`: the setting is on and
+/// the swap chain tears) that presents with tearing and would pace otherwise without VRR
+/// (`fallback`), unless `NIGHTJAR_VRR_CHECK` (`forced`) says off. The VRR setting is on by default,
+/// and without the check a fixed refresh display tears.
+fn checks_display_for_vrr(vrr: bool, pacing: PacingMode, fallback: PacingMode, forced: Option<bool>) -> bool {
+    vrr && pacing != PacingMode::Vsync && fallback != pacing && forced != Some(false)
+}
+
+/// Whether the stream reads the scan line around its presents, and the topic of its log lines:
+/// for the beam race, for the VRR display check, and for `NIGHTJAR_VRR_SYNC=scan`, which waits on
+/// the beam. None for every other stream.
+fn display_probe(beam_race: bool, vrr: &present::VrrPacing) -> Option<&'static str> {
+    if beam_race {
+        Some("beam race")
+    } else if vrr.check || vrr.sync == present::VrrSync::Scan {
+        Some("display check")
+    } else {
+        None
+    }
+}
+
+/// The overlay's pacing, which says why a VRR stream waits for the refresh (or tears without
+/// V-Sync) when the display check changed it.
+fn pacing_label(mode: PacingMode, fell_back: bool) -> &'static str {
+    match mode {
+        PacingMode::Vsync if fell_back => "V-Sync: this display does not refresh on present",
+        PacingMode::Immediate if fell_back => "Immediate: this display does not refresh on present",
+        mode => mode.label(),
+    }
 }
 
 /// What early decode does on a stream. `NoRecords` is the failure the earlier measurements
@@ -845,6 +1046,18 @@ fn location_override() -> Location {
     }
 }
 
+/// The location and video packet size for a route to the PC: `Auto` over a VPN
+/// ([`crate::network::route`]) streams as remote with 1024 byte packets, whatever the PC's
+/// address, as Android does for a VPN network and Moonlight V+ PC for its `RI_VPN`: a tunnel's
+/// smaller MTU (WireGuard's 1420) would fragment every 1392 byte packet. Otherwise 1392, and the
+/// engine decides `Auto` from the address.
+fn location_for_route(location: Location, vpn: bool) -> (Location, i32) {
+    match location {
+        Location::Auto if vpn => (Location::Remote, 1024),
+        location => (location, 1392),
+    }
+}
+
 /// The engine's session flags for this role and these settings. A Remote Monitor session is
 /// view-only: the engine starts no input stream and does not wiggle the host's mouse.
 /// `watching` says the network watcher runs and feeds `Session::network_changed`.
@@ -871,27 +1084,38 @@ fn roaming_config(settings: &Settings, watching: bool) -> RoamingConfig {
     }
 }
 
-/// Client roaming's network watcher toward the PC, feeding the stream through `Notice`s, or None
-/// with why on stderr.
+/// Over the frozen picture while the stream's network is gone; the second when a reconnect follows.
+const NETWORK_LOST: &str = en("Network lost.");
+const NETWORK_LOST_RECONNECTING: &str = en("Network lost. Reconnecting as soon as it is back…");
+
+/// The stream's network watcher toward the PC, feeding the stream through `Notice`s, or None
+/// with why on stderr. It runs for every stream: a lost route that comes back where the
+/// connection cannot carry on reconnects at once; with client roaming its changes are also the
+/// session's hints.
 fn roam_watch(settings: &Settings, address: &str, shared: &Arc<Shared>) -> Option<crate::network::RoamWatch> {
-    if !settings.client_roaming { return None; }
+    let unwatched = if !settings.client_roaming || settings.roaming_metered { "" } else { " and roaming is off" };
     let Some(remote) = (address, 47989).to_socket_addrs().ok().and_then(|mut found| found.next()) else {
-        eprintln!("nightjar: roaming: {address} did not resolve, network changes go unwatched{}",
-            if settings.roaming_metered { "" } else { " and roaming is off" });
+        eprintln!("nightjar: roaming: {address} did not resolve, network changes go unwatched{unwatched}");
         return None;
     };
     let shared = Arc::downgrade(shared);
-    let on_change = move |metered| shared.upgrade().map(|s| s.notify(Notice::NetworkChanged(NetworkHint { metered }))).is_some();
+    let on_change = move |event| {
+        let notice = match event {
+            crate::network::LinkEvent::Lost => Notice::NetworkLost,
+            crate::network::LinkEvent::Changed { metered, after_loss } => Notice::NetworkChanged(NetworkHint { metered }, after_loss),
+        };
+        shared.upgrade().map(|s| s.notify(notice)).is_some()
+    };
     crate::network::RoamWatch::start(remote, on_change)
-        .map_err(|e| eprintln!("nightjar: roaming: network changes go unwatched{}: {e}",
-            if settings.roaming_metered { "" } else { " and roaming is off" }))
+        .map_err(|e| eprintln!("nightjar: roaming: network changes go unwatched{unwatched}: {e}"))
         .ok()
 }
 
-/// Keeps the watcher for the stream only when the host roams; otherwise its hints go nowhere, so
-/// it stops instead of looking at the network every second.
-fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>, host_roaming: bool) {
-    *lock(&shared.roam_watch) = watch.filter(|_| host_roaming);
+/// Keeps the watcher for the stream. The session roams on its changes only when the host roams
+/// and client roaming is on, and tells on every stream whether a lost network's return lets the
+/// connection carry on.
+fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>) {
+    *lock(&shared.roam_watch) = watch;
 }
 
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
@@ -925,22 +1149,86 @@ fn reconnects_automatically(auto_reconnect: bool, away: bool, role: AppRole) -> 
     auto_reconnect && !away && role == AppRole::Stream
 }
 
+/// The plan that reconnects a dropped stream of `role` that `plan` started, on its own, or None
+/// when it waits for the user ([`reconnects_automatically`]) or there is nothing to rejoin. Its
+/// budget renews after `connected_ms` of a stable stream; `retry_now`: the first attempt starts
+/// without its delay (it still spends one). `had_video`: the dropped stream or an earlier one of its
+/// chain showed video, which the next connection carries.
+fn automatic_rejoin(plan: &LaunchPlan, role: AppRole, auto_reconnect: bool, away: bool, connected_ms: u64, retry_now: bool, had_video: bool) -> Option<LaunchPlan> {
+    if !reconnects_automatically(auto_reconnect, away, role) { return None; }
+    let mut plan = rejoin(plan.clone(), role)?;
+    plan.video_shown |= had_video;
+    let recovery = plan.recovery.get_or_insert_with(Default::default);
+    recovery.reset_after(connected_ms);
+    if retry_now { recovery.retry_now(); }
+    Some(plan)
+}
+
+/// The lost-network notice: it promises a reconnect only when one will follow (`on_its_own`: a
+/// dropped stream reconnects by itself, so the connection's timeout or a return it cannot carry
+/// on over recovers it), not where a network drop tolerance holds the connection instead.
+fn lost_notice(settings: &Settings, on_its_own: bool) -> &'static str {
+    if on_its_own && settings.network_grace_ms <= recovery::PEER_TIMEOUT_MS { NETWORK_LOST_RECONNECTING } else { NETWORK_LOST }
+}
+
+/// A network is back after the route was gone: whether the stream ends now to reconnect at once.
+/// Only when the session says its connection cannot carry on (another address, not roamed): it
+/// would only time out. Roamed, or the same address back, or no route yet, the stream goes on.
+fn reconnects_on_return(change: NetworkChange, metered: bool, settings: &Settings, on_its_own: bool) -> bool {
+    on_its_own && recovery::reconnects_at_once(change == NetworkChange::CannotContinue, metered,
+        settings.roaming_metered, settings.auto_reconnect, settings.network_grace_ms)
+}
+
 /// Whether a refused launch of `plan` is the PC's prompt to close the running app, which the
 /// user answers. A launch that already confirmed is not asked again, nor is a resume.
 fn asks_replace(plan: &LaunchPlan, role: AppRole, error: &nightjar_core::http::Error) -> bool {
     !plan.resume && !plan.confirm_replace && role == AppRole::Stream && nightjar_core::http::asks_to_confirm_replace(error)
 }
 
-fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
-    let settings = &plan.settings;
-    let role = plan.app.role(plan.small_stream_input_only);
-    let (width, height, fps, bitrate) = stream_mode(settings, plan.display);
-    let bitrate = capped_bitrate(bitrate, plan.bitrate_limit_kbps);
-    let audio = match settings.audio {
+/// Whether this PC's default output plays 7.1.4 (12 channels or more): only Windows, through
+/// WASAPI; SDL opens at most 8 channels, so Linux stays at 7.1.
+pub fn plays_714() -> bool {
+    #[cfg(windows)]
+    return wasapi::plays_714();
+    #[cfg(not(windows))]
+    false
+}
+
+/// [`plays_714`] for the audio setting, which asks every frame it is shown.
+pub fn offers_714() -> bool {
+    #[cfg(windows)]
+    return wasapi::offered();
+    #[cfg(not(windows))]
+    false
+}
+
+/// What the stream asks the PC for. 7.1.4 needs a PC that reports it in serverinfo
+/// (`AudioLayouts`, which Rubylight sends while it streams 7.1.4) and an output that plays it;
+/// otherwise 7.1, as a PC without 7.1.4 may answer 12 channels with no sound at all. Foundation
+/// Sunshine isn't told apart from stock Sunshine (Moonlight V+ asks every PC), so it gets 7.1.
+fn audio_configuration(choice: AudioChannels, host_714: bool, output_714: bool) -> AudioConfiguration {
+    match choice {
         AudioChannels::Stereo => AudioConfiguration::STEREO,
         AudioChannels::Surround51 => AudioConfiguration::SURROUND_51,
         AudioChannels::Surround71 => AudioConfiguration::SURROUND_71,
-    };
+        AudioChannels::Surround714 if host_714 && output_714 => AudioConfiguration::SURROUND_714,
+        AudioChannels::Surround714 => {
+            let why = if host_714 { "this output doesn't play 12 channels" } else { "the PC doesn't report 7.1.4" };
+            eprintln!("nightjar: audio: {why}; asking for 7.1");
+            AudioConfiguration::SURROUND_71
+        }
+    }
+}
+
+fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
+    let settings = &plan.settings;
+    let role = plan.app.role(plan.small_stream_input_only);
+    let (width, height, fps, _) = stream_mode(settings, plan.display);
+    let audio = audio_configuration(
+        settings.audio,
+        plan.info.capabilities.has(Feature::Surround714),
+        settings.audio == AudioChannels::Surround714 && plays_714(),
+    );
     let ri_key: [u8; 16] = random_bytes();
     let key_id_bytes: [u8; 4] = random_bytes();
     let ri_key_id = i32::from_be_bytes(key_id_bytes) & 0x7FFF_FFFF;
@@ -966,12 +1254,14 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         } else { String::new() },
         virtual_display: settings.virtual_display,
         virtual_display_scale: settings.virtual_display_scale,
+        virtual_display_dpi: settings.virtual_display_dpi,
         host_display: settings.host_display.into(),
         fec: Some(settings.error_correction.into()),
         small_stream_input_only: plan.small_stream_input_only,
         // The host lists 0x553C in DESCRIBE only when asked.
         rate_change: rate_change::asked_at_launch(role),
         clipboard_sync: settings.clipboard_sync && role != AppRole::RemoteMonitor,
+        display_luminance: plan.display_luminance,
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -1009,6 +1299,43 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
     let offer = offered_formats(settings, scm, &plan.color_decodable);
     request.ten_bit_sdr = launches_ten_bit_sdr(settings, &offer);
+    // The interface the system sends this host's traffic over decides, not the internet
+    // connection; the connection is the fallback when that lookup tells nothing. Looked up before
+    // the launch: PyroWave's default bitrate stays within this link.
+    let route = crate::network::route(&plan.record.address);
+    let toward = route.toward;
+    let network = plan.network.toward(toward);
+    let family = plan.info.capabilities.family();
+    let client_wireless = tells_host_wireless(settings.tell_host_wireless, family, network.wireless());
+    let routed_link_mbps = network.wired_link_mbps();
+    if network.wireless() && !client_wireless {
+        let why = if settings.tell_host_wireless { "the PC is not a Rubylight host" } else { "it is turned off in the settings" };
+        eprintln!("nightjar: not telling the PC the route is wireless: {why}");
+    }
+    eprintln!(
+        "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
+        if network.wireless() { "wireless" } else { "wired or unknown" },
+        match toward {
+            Ok(_) => "from the route".to_string(),
+            Err(why) => format!("from the internet connection, {why}"),
+        },
+    );
+    let measured_pace = plan.pace.as_ref().map_or(0, |pace| pace.for_network(&network, plan.host_link_mbps));
+    let LinkHints { link_mbps, sent_link_mbps, pace_mbps } = link_hints(
+        settings.tell_host_link_speed,
+        routed_link_mbps,
+        hint_env("NIGHTJAR_PYROWAVE_LINK_MBPS"),
+        measured_pace,
+        hint_env("NIGHTJAR_PYROWAVE_PACE_MBPS"),
+    );
+    if link_mbps > 0 && sent_link_mbps == 0 {
+        eprintln!("nightjar: not telling the PC the link speed ({link_mbps} Mbps): it is turned off in the settings");
+    }
+    let pyrowave = offers_pyrowave(offer.formats, scm);
+    let bitrate = capped_bitrate(start_bitrate(settings, width, height, fps, pyrowave, link_mbps), plan.bitrate_limit_kbps);
+    if pyrowave && settings.bitrate_kbps == 0 {
+        eprintln!("nightjar: PyroWave: starting at {bitrate} kbps, its default for {width}x{height} at {fps} fps and a {link_mbps} Mbps link");
+    }
     let bitrate = if probes_first_bitrate(settings, plan.resume, &plan.info) {
         match client.probe_link(&plan.info) {
             Ok(mbps) => {
@@ -1053,36 +1380,6 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     if interrupt.is_interrupted() {
         return Err("Cancelled.".into());
     }
-    // The interface the system sends this host's traffic over decides, not the internet
-    // connection; the connection is the fallback when that lookup tells nothing.
-    let toward = crate::network::toward(&plan.record.address);
-    let network = plan.network.toward(toward);
-    let family = plan.info.capabilities.family();
-    let client_wireless = tells_host_wireless(settings.tell_host_wireless, family, network.wireless());
-    let routed_link_mbps = network.wired_link_mbps();
-    if network.wireless() && !client_wireless {
-        let why = if settings.tell_host_wireless { "the PC is not a Rubylight host" } else { "it is turned off in the settings" };
-        eprintln!("nightjar: not telling the PC the route is wireless: {why}");
-    }
-    eprintln!(
-        "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
-        if network.wireless() { "wireless" } else { "wired or unknown" },
-        match toward {
-            Ok(_) => "from the route".to_string(),
-            Err(why) => format!("from the internet connection, {why}"),
-        },
-    );
-    let measured_pace = plan.pace.as_ref().map_or(0, |pace| pace.for_network(&network, plan.host_link_mbps));
-    let LinkHints { link_mbps, sent_link_mbps, pace_mbps } = link_hints(
-        settings.tell_host_link_speed,
-        routed_link_mbps,
-        hint_env("NIGHTJAR_PYROWAVE_LINK_MBPS"),
-        measured_pace,
-        hint_env("NIGHTJAR_PYROWAVE_PACE_MBPS"),
-    );
-    if link_mbps > 0 && sent_link_mbps == 0 {
-        eprintln!("nightjar: not telling the PC the link speed ({link_mbps} Mbps): it is turned off in the settings");
-    }
     let beam = beam_race(settings.beam_race, link_mbps, plan.gpu_decoder.is_some());
     match beam {
         BeamRace::NotWired => eprintln!("{BEAM_RACE_NOT_WIRED}"),
@@ -1091,6 +1388,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         BeamRace::Off => {}
     }
     let race_ask = race_request(beam, early_decode(settings.early_decode), height);
+    let (location, packet_size) = location_for_route(location_override(), route.vpn);
+    if route.vpn && location == Location::Remote {
+        eprintln!("nightjar: the route to the PC is a VPN: streaming as remote with {packet_size} byte packets");
+    }
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -1098,7 +1399,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         height: height as i32,
         fps: fps as i32,
         bitrate_kbps: bitrate as i32,
-        packet_size: 1392,
+        packet_size,
         audio,
         supported_video_formats: offer.formats,
         experimental_packed_444: settings.experimental_packed_444,
@@ -1119,6 +1420,14 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         remote_input_aes_iv: iv,
         video_capabilities: 0,
         audio_capabilities: CAPABILITY_DIRECT_SUBMIT,
+        video_fec: settings.error_correction.into(),
+        hdr_format: asked_hdr_format(hdr_format(
+            settings.hdr,
+            plan.info.capabilities.evidence().map_or(-1, |evidence| evidence.hdr_formats),
+            offer.formats,
+            settings.experimental_packed_444,
+            reads_dolby_vision(),
+        )),
         ..Default::default()
     };
     let host = HostInfo {
@@ -1140,15 +1449,15 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let passthrough = stream.audio_passthrough;
     let session = Session::start(
         &host,
-        session_config(settings, role, stream, location_override(), watch.is_some()),
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
+        session_config(settings, role, stream, location, watch.is_some() && settings.client_roaming),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
         Arc::new(pipeline::Events::new(shared)),
         interrupt,
     )
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false })?;
     let outcome = session.outcome();
-    keep_roam_watch(&roam_shared, watch, outcome.host_roaming);
+    keep_roam_watch(&roam_shared, watch);
     let mut facts = Facts {
         role,
         width: outcome.config.width,
@@ -1230,11 +1539,20 @@ pub enum Exit {
     Terminated(i32),
     /// The host ended it or the connection failed; Some carries the message.
     Ended(Option<String>),
+    /// A lost network came back where the connection cannot carry on: reconnect at once.
+    NetworkReturned,
 }
 
 impl Exit {
-    pub fn retryable(&self) -> bool {
-        matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
+    /// Whether the stream reconnects on its own after this exit. Only once its video started
+    /// (`video_started`, [`recovery::recovers_termination`]): a stream that never showed a picture
+    /// failed to start, and its error shows at once instead of after a minute of retries.
+    pub fn retryable(&self, video_started: bool) -> bool {
+        match self {
+            Self::NetworkReturned => video_started,
+            Self::Terminated(code) => recovery::recovers_termination(*code, video_started),
+            _ => false,
+        }
     }
 }
 
@@ -1378,10 +1696,20 @@ pub struct Streaming {
     pub pacer: Pacer,
     pub texture: VideoTexture,
     upscaler: Option<upscale::Upscaler>,
+    /// AI enhancement (`config::Upscaling::Ai`) for the current picture shape and output size.
+    #[cfg(windows)]
+    enhancer: Option<enhance::Enhancer>,
     upscale_failed: bool,
     phase: phase::Phase,
-    /// Whether racing the display's beam can work here, once the beam race is on and a picture is shown.
+    /// Whether racing the display's beam can work here, once the beam race is on and a picture is
+    /// shown; on a VRR stream that tears, whether the display refreshes on present (`sync_vrr`).
     race_probe: Option<race_probe::RaceProbe>,
+    /// The display check for VRR: the stream presents with tearing, and a display found to scan
+    /// at its own rate gets the pacing it would have without VRR (off under `NIGHTJAR_VRR_CHECK=0`,
+    /// for measurement runs); and `NIGHTJAR_VRR_SYNC` on a VRR stream.
+    vrr: present::VrrPacing,
+    /// Presents `VrrSync::Scan` held for a scan under way, and how long in all (ns).
+    scan_waits: (u32, u64),
     /// The picture on the display's beam, while racing it is possible (see `sync_race`).
     race_scan: Option<race::Scan>,
     /// The frame in flight under the raced presenter, and what it plans from.
@@ -1410,6 +1738,10 @@ pub struct Streaming {
     pipeline_rates: Option<PipelineRatesReport>,
     pub exit: Option<Exit>,
     pub toast: Option<(String, Instant)>,
+    /// The route toward the PC is gone: the lost-network notice stays until one returns.
+    pub network_lost: bool,
+    /// The next automatic reconnect starts without its delay (a network came back).
+    retry_now: bool,
     pub host_id: u64,
     settings: Settings,
     plan: LaunchPlan,
@@ -1430,11 +1762,19 @@ pub struct Streaming {
     last_command: Option<Instant>,
     audio_status: ([u8; 16], Instant),
     controller_mouse_active: bool,
+    /// The PC's night mode and headphone surround switches in the stream controls.
+    pub host_audio: menu_extras::HostAudio,
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
     pub bitrate_kbps: u32,
     pub adaptive_bitrate: bool,
     bitrate_policy: Option<bitrate::Bitrate>,
+    /// A Foundation PC's own bitrate controller, on in place of `bitrate_policy`.
+    host_abr: Option<host_abr::HostAbr>,
+    /// The request that turns it on, while the stream may end before the PC answers.
+    host_abr_start: Option<host_abr::AbrStart>,
+    /// The request that turns it off, while it may still be in flight.
+    host_abr_stop: Option<host_abr::AbrStop>,
     /// The stream doctor: its report in the stream menu and after the stream, and the bitrate trial.
     doctor: doctor::Doctor,
     /// Rate changes over 0x553C, on a stream that takes them.
@@ -1465,6 +1805,8 @@ pub struct Streaming {
     keys_down: HashSet<u16>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
+    #[cfg(windows)]
+    touchpad: touchpad::Touchpad,
     captured: bool,
     absolute: bool,
     relative_remainder: (f32, f32),
@@ -1476,6 +1818,7 @@ pub struct Streaming {
     window: Window,
     last_counters: (u64, u64, u64, u64, u64, u64, u64),
     last_video_bytes: u64,
+    last_wire_bytes: u64,
     host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
@@ -1517,6 +1860,7 @@ impl Streaming {
         } else {
             0
         };
+        crate::sdl::alt_f4_to_host(true);
         if facts.host_timing {
             let _ = session.send(ClientMessage::HostTimingRequest(HostTimingRequest { enabled: true }));
         }
@@ -1535,7 +1879,7 @@ impl Streaming {
         let settings = connecting.settings.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
-                match microphone::Microphone::open(connecting.shared.clone()) {
+                match microphone::Microphone::open(connecting.shared.clone(), settings.mic_echo_cancel) {
                     Ok(microphone) => Some(microphone),
                     Err(error) => {
                         connecting.shared.notify(Notice::MicrophoneFailed(error));
@@ -1572,18 +1916,36 @@ impl Streaming {
         let usb = if settings.usb_forwarding && usb_refused.is_none() { lock(&connecting.shared.host_client).clone() } else { None }
             .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
         let hdr_stream = present::hdr_negotiated(settings.hdr, facts.format);
+        let vrr_fallback = present::without_vrr(&settings);
+        let stream_fps = u32::try_from(facts.fps).unwrap_or(0);
+        if settings.frame_pacing != config::FramePacing::Latency {
+            eprintln!("nightjar: frame pacing {:?} without VRR at {stream_fps} fps", settings.frame_pacing);
+        }
+        let vrr_check = checks_display_for_vrr(connecting.plan.vrr, connecting.pacing, vrr_fallback, env_flag("NIGHTJAR_VRR_CHECK"));
+        let vrr_sync = if connecting.plan.vrr { present::VrrSync::parse(std::env::var("NIGHTJAR_VRR_SYNC").ok().as_deref()) } else { present::VrrSync::Off };
+        if vrr_sync != present::VrrSync::Off { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
+        if vrr_sync == present::VrrSync::Scan && !vrr_check {
+            eprintln!("nightjar: VRR sync scan reads the scan line; the display check's verdict changes no pacing on this stream");
+        }
+        let mut doctor = doctor::Doctor::default();
+        doctor.receive_buffer = session.video_receive_buffer();
         let mut streaming = Self {
             usb,
             usb_refused,
             session,
             shared: connecting.shared,
             facts,
-            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog),
+            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog).with_frame_pacing(settings.frame_pacing, stream_fps),
             texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear, hdr_stream),
             upscaler: None,
+            #[cfg(windows)]
+            enhancer: None,
             upscale_failed: false,
             phase: phase::Phase::default(),
             race_probe: None,
+            // The sync interval as `App::begin_stream` set it.
+            vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing),
+            scan_waits: (0, 0),
             race_scan: None,
             racer: race::Racer::default(),
             predictor: None,
@@ -1602,6 +1964,8 @@ impl Streaming {
             pipeline_rates: None,
             exit: None,
             toast: None,
+            network_lost: false,
+            retry_now: false,
             host_id: connecting.host_id,
             absolute: settings.mouse_mode == MouseMode::Absolute,
             settings,
@@ -1616,12 +1980,16 @@ impl Streaming {
             last_command: None,
             audio_status: ([0; 16], Instant::now() - Duration::from_secs(1)),
             controller_mouse_active: false,
+            host_audio: Default::default(),
             pending_command: None,
             bitrate_busy: false,
             bitrate_kbps,
             adaptive_bitrate: false,
             bitrate_policy: None,
-            doctor: doctor::Doctor::default(),
+            host_abr: None,
+            host_abr_start: None,
+            host_abr_stop: None,
+            doctor,
             rate_change,
             quality_mode,
             quality_policy,
@@ -1646,6 +2014,8 @@ impl Streaming {
             keys_down: HashSet::new(),
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
+            #[cfg(windows)]
+            touchpad: touchpad::Touchpad::default(),
             captured: false,
             relative_remainder: (0.0, 0.0),
             offset: ClockOffset::default(),
@@ -1655,6 +2025,7 @@ impl Streaming {
             window: Window::default(),
             last_counters: (0, 0, 0, 0, 0, 0, 0),
             last_video_bytes: 0,
+            last_wire_bytes: 0,
             host_average: HostAverage::default(),
             last_early: (0, 0),
             last_video: (0, 0),
@@ -1740,20 +2111,65 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
+    /// The route toward the PC went away: a frozen picture is never silent. The notice stays
+    /// until a network returns; `away`: the window is minimized or hidden.
+    fn network_lost(&mut self, away: bool) {
+        eprintln!("nightjar: the stream's network was lost");
+        self.network_lost = true;
+        self.show_toast(tr(lost_notice(&self.settings, self.reconnects_on_its_own(away))));
+    }
+
+    /// A network is back after the route was gone; `change`: what it means for the session
+    /// ([`reconnects_on_return`]).
+    fn network_returned(&mut self, change: NetworkChange, metered: bool, away: bool) {
+        if !std::mem::take(&mut self.network_lost) { return; }
+        if self.toast.as_ref().is_some_and(|(text, _)| *text == tr(NETWORK_LOST) || *text == tr(NETWORK_LOST_RECONNECTING)) {
+            self.toast = None;
+            self.needs_redraw = true;
+        }
+        if change != NetworkChange::CannotContinue || self.exit.is_some() { return; }
+        if !reconnects_on_return(change, metered, &self.settings, self.reconnects_on_its_own(away)) {
+            eprintln!("nightjar: the network is back on another address the stream did not roam to; \
+                its connection times out");
+            return;
+        }
+        eprintln!("nightjar: the network is back on another address the stream did not roam to: reconnecting now");
+        self.retry_now = true;
+        self.exit = Some(Exit::NetworkReturned);
+    }
+
+    /// Whether a dropped stream would reconnect on its own now: its video started ([`Exit::retryable`])
+    /// and [`automatic_rejoin`] has a plan with an attempt left in its budget. Spends nothing.
+    fn reconnects_on_its_own(&self, away: bool) -> bool {
+        self.video_started() && automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false, true)
+            .and_then(|plan| plan.recovery)
+            .is_some_and(|budget| budget.allows_attempt(recovery::now_ms()))
+    }
+
+    /// Whether video started: this connection showed a picture, or an earlier one of its automatic
+    /// reconnect chain did ([`LaunchPlan::video_shown`]). A reconnect after a real drop that has no
+    /// picture yet when it drops again keeps reconnecting until its budget is spent; a stream that
+    /// never showed video does not reconnect (Moonlight V+ PC 6792aeed).
+    pub fn video_started(&self) -> bool {
+        self.first_frame || self.plan.video_shown
+    }
+
+    fn connected_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
     /// The plan that starts the stream again; `automatic` after a drop, `away` while the window is
     /// minimized or hidden.
     pub fn reconnect_plan(&self, automatic: bool, away: bool) -> Option<LaunchPlan> {
-        if automatic && !reconnects_automatically(self.settings.auto_reconnect, away, self.facts.role) {
-            return None;
-        }
-        let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
-        plan.microphone_muted = self.microphone_muted;
-        if automatic {
-            let recovery = plan.recovery.get_or_insert_with(Default::default);
-            recovery.reset_after(self.started.elapsed().as_millis() as u64);
+        let mut plan = if automatic {
+            automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), self.retry_now, self.video_started())?
         } else {
+            let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
             plan.recovery = None;
-        }
+            plan.video_shown = false;
+            plan
+        };
+        plan.microphone_muted = self.microphone_muted;
         Some(plan)
     }
 
@@ -1901,7 +2317,7 @@ impl Streaming {
         if !permitted || self.microphone_muted || controller_route {
             self.microphone = None;
         } else if self.microphone.is_none() && self.session.microphone_available() {
-            match microphone::Microphone::open(self.shared.clone()) {
+            match microphone::Microphone::open(self.shared.clone(), self.settings.mic_echo_cancel) {
                 Ok(microphone) => self.microphone = Some(microphone),
                 Err(error) => { self.microphone_muted = true; self.show_toast(error); }
             }
@@ -1974,7 +2390,8 @@ impl Streaming {
 
     /// Handles queued notices from the session threads. Control events that need the
     /// controllers are applied to `pads`.
-    pub fn drain_notices(&mut self, pads: &mut Gamepads) {
+    /// `away`: the window is minimized or hidden.
+    pub fn drain_notices(&mut self, pads: &mut Gamepads, away: bool) {
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
         for notice in notices {
             match notice {
@@ -1982,6 +2399,7 @@ impl Streaming {
                     self.exit.get_or_insert(Exit::Terminated(code));
                 }
                 Notice::DecoderFallback(text) => self.show_toast(text),
+                Notice::EchoCancelOff(text) => self.show_toast(text),
                 Notice::PassthroughOpus => self.show_toast(tr("The PC did not offer PCM audio. This stream plays Opus.")),
                 Notice::DecoderFailed(text) => {
                     self.exit.get_or_insert(Exit::Ended(Some(text)));
@@ -2033,9 +2451,19 @@ impl Streaming {
                         self.show_toast(error);
                     }
                 }
-                Notice::NetworkChanged(hint) => {
-                    self.session.network_changed(hint);
+                Notice::HostAudio(answer) => {
+                    if let Err(error) = self.host_audio.answered(answer) {
+                        self.show_toast(error);
+                    }
+                    self.needs_redraw = true;
                 }
+                Notice::NetworkChanged(hint, after_loss) => {
+                    // A session without roaming (off, or a host that does not roam) never roams,
+                    // but still says whether its connection carries on.
+                    let change = self.session.network_changed(hint);
+                    if after_loss { self.network_returned(change, hint.metered, away); }
+                }
+                Notice::NetworkLost => self.network_lost(away),
                 Notice::AdaptiveBitrate(result) => {
                     self.bitrate_busy = false;
                     match result {
@@ -2051,6 +2479,30 @@ impl Streaming {
                             self.adaptive_bitrate = false;
                             self.show_toast(error);
                         }
+                    }
+                }
+                Notice::HostAbr(result) => {
+                    self.bitrate_busy = false;
+                    match result {
+                        Ok(Some(configured)) => {
+                            let abr = host_abr::HostAbr::new(&configured, self.facts.bitrate_kbps.max(0) as u32,
+                                self.started.elapsed().as_millis() as u64);
+                            eprintln!("nightjar: the PC's automatic bitrate is on: {} kbps, at most {} kbps",
+                                abr.current_kbps, configured.max_bitrate);
+                            self.facts.bitrate_kbps = abr.current_kbps as i32;
+                            self.bitrate_kbps = abr.current_kbps;
+                            self.host_abr = Some(abr);
+                            self.adaptive_bitrate = true;
+                        }
+                        Ok(None) => eprintln!("nightjar: the PC has no automatic bitrate"),
+                        Err(error) => self.show_toast(error),
+                    }
+                }
+                Notice::HostAbrAction(action) => {
+                    if let Some(kbps) = self.host_abr.as_mut().and_then(|abr| abr.answered(action.as_ref())) {
+                        if let Some(action) = &action { eprintln!("nightjar: the PC set {kbps} kbps: {}", action.reason); }
+                        self.facts.bitrate_kbps = kbps as i32;
+                        self.bitrate_kbps = kbps;
                     }
                 }
                 Notice::Bitrate { requested, result } => {
@@ -2408,8 +2860,13 @@ impl Streaming {
             return;
         }
         self.bitrate_policy = None;
+        self.stop_host_abr();
         self.adaptive_bitrate = enabled && self.facts.runtime_bitrate && self.facts.role == AppRole::Stream;
-        if !self.adaptive_bitrate { return; }
+        if !self.adaptive_bitrate {
+            // A PC without Rubylight's runtime bitrate may run its own controller (Foundation).
+            if enabled && self.facts.role == AppRole::Stream { self.start_host_abr(); }
+            return;
+        }
         self.doctor.trial.clear();
         let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
         let shared = self.shared.clone();
@@ -2427,6 +2884,56 @@ impl Streaming {
         });
     }
 
+    /// Asks a Foundation PC to run its own bitrate controller up to the stream's bitrate, as
+    /// Moonlight V+ PC's `startSunshineAbr` does. Other PCs answer 404: nothing changes there.
+    /// The start may outlive the stream (only `finish` ends it while in flight: `bitrate_busy` holds
+    /// the setting): its own client is not cancelled by `finish`, and `AbrStart` decides who turns
+    /// the PC's controller off.
+    fn start_host_abr(&mut self) {
+        let Some(client) = lock(&self.shared.host_client).as_ref().map(|c| c.detached()) else { return };
+        let shared = self.shared.clone();
+        let max_kbps = self.facts.bitrate_kbps.max(0) as u32;
+        let start = host_abr::AbrStart::default();
+        self.host_abr_start = Some(start.clone());
+        self.bitrate_busy = true;
+        let stopping = self.host_abr_stop.take();
+        std::thread::spawn(move || {
+            // An off sent just before must not land after this on.
+            if let Some(stop) = stopping { stop.wait(); }
+            let result = match client.abr_capabilities() {
+                Ok(caps) if caps.supported => client
+                    .configure_abr(&AbrRequest::balanced_up_to(max_kbps))
+                    .map(Some)
+                    .map_err(|e| trf("The PC did not start its automatic bitrate: {}", &[&e])),
+                Ok(_) | Err(HttpError::NotFound(_)) => Ok(None),
+                Err(e) => Err(trf("The PC did not start its automatic bitrate: {}", &[&e])),
+            };
+            if matches!(result, Ok(Some(_))) && !start.turned_on() {
+                // The stream ended while the PC turned it on: nobody else will turn it off.
+                if let Err(e) = client.configure_abr(&AbrRequest::off()) {
+                    eprintln!("nightjar: the PC's automatic bitrate did not stop: {e}");
+                }
+                return;
+            }
+            shared.notify(Notice::HostAbr(result));
+        });
+    }
+
+    /// Turns a Foundation PC's controller off again (V+ PC's `stopSunshineAbr`), on its own
+    /// thread and client: `finish` cancels the stream's requests right after, and a dead network
+    /// would hold the window for the request's timeouts.
+    fn stop_host_abr(&mut self) {
+        if self.host_abr.take().is_some() { self.adaptive_bitrate = false; }
+        // On, though its answer may not have come yet; a start still in flight turns it off itself.
+        if !self.host_abr_start.take().is_some_and(|start| start.end()) { return; }
+        let Some(client) = lock(&self.shared.host_client).as_ref().map(|c| c.detached()) else { return };
+        self.host_abr_stop = Some(host_abr::AbrStop::spawn(move || {
+            if let Err(e) = client.configure_abr(&AbrRequest::off()) {
+                eprintln!("nightjar: the PC's automatic bitrate did not stop: {e}");
+            }
+        }));
+    }
+
     /// The trial the doctor offers with this report: none while automatic bitrate or quality owns
     /// the bitrate, the host cannot change it mid-stream or another bitrate request runs.
     fn trial_offer(&self, report: &nightjar_policy::health::Report) -> TrialOffer {
@@ -2439,6 +2946,10 @@ impl Streaming {
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         let offer = self.trial_offer(&report);
         let mut text = doctor::report_text(&report);
+        if let Some(hint) = self.doctor.receive_buffer_hint() {
+            text.push_str("\n\n");
+            text.push_str(&hint);
+        }
         if offer != TrialOffer::None {
             text.push_str("\n\n");
             text.push_str(doctor::trial_help());
@@ -2483,7 +2994,10 @@ impl Streaming {
         if self.facts.role == AppRole::InputOnly { return None; }
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         eprintln!("nightjar: stream health: {}", doctor::log_line(&report));
-        doctor::summary(&report)
+        doctor::summary(&report).map(|summary| match self.doctor.receive_buffer_hint() {
+            Some(hint) => format!("{summary}\n\n{hint}"),
+            None => summary,
+        })
     }
 
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
@@ -2492,7 +3006,9 @@ impl Streaming {
             return;
         }
         self.menu_visible = !self.menu_visible;
-        if !self.menu_visible {
+        if self.menu_visible {
+            self.refresh_host_audio();
+        } else {
             self.session_page = None;
             // The menu's own text field takes no more text once it closes.
             // SAFETY: a live window on the main thread.
@@ -2588,6 +3104,10 @@ impl Streaming {
 
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
+        self.cursor.tick(Instant::now());
+        if let Some(Err(error)) = self.microphone.as_mut().map(microphone::Microphone::poll) {
+            self.shared.notify(Notice::MicrophoneFailed(error));
+        }
         if let Some(microphone) = &self.microphone {
             while let Ok(packet) = microphone.packets.try_recv() {
                 if let Err(error) = self.session.send_microphone(&packet) {
@@ -2618,6 +3138,7 @@ impl Streaming {
                 }
             }
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
+            self.doctor.arrived(decoded.rtp, decoded.host_latency, decoded.receive_us, self.facts.fps.max(0) as u32);
             self.pacer.accept(decoded);
         }
         self.observe_slices(slices);
@@ -2640,7 +3161,7 @@ impl Streaming {
             (Some(picture), Some(slice)) => Some(picture.min(slice)),
             (picture, slice) => picture.or(slice),
         };
-        match due {
+        let wait = match due {
             Some(due) => {
                 let now = session::now_us();
                 if due <= now {
@@ -2650,6 +3171,11 @@ impl Streaming {
                 }
             }
             None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
+        };
+        // A hide from the PC waiting out its delay wakes the loop when due.
+        match (wait, self.cursor.hide_in(Instant::now())) {
+            (Wait::For(wait), Some(hide)) => Wait::For(wait.min(hide)),
+            (wait, _) => wait,
         }
     }
 
@@ -2679,6 +3205,41 @@ impl Streaming {
             }
             _ => {}
         }
+    }
+
+    /// Turns a VRR stream to the pacing it would have without VRR once the display check finds the
+    /// display scanning at its own rate (`present::VrrPacing`), and gives the renderer the sync
+    /// interval the pacing and `NIGHTJAR_VRR_SYNC` ask for.
+    fn sync_vrr(&mut self, renderer: *mut SDL_Renderer) {
+        let before = self.pacer.mode;
+        let probe = self.race_probe.as_ref();
+        let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict));
+        if self.pacer.mode != before {
+            eprintln!("nightjar: pacing: {}, this display does not refresh on present (display check: {})",
+                self.pacer.mode.label(), probe.map_or(String::new(), race_probe::RaceProbe::line));
+        }
+        if let Some(interval) = interval {
+            // SAFETY: the live renderer belongs to the presenting thread.
+            if !unsafe { SDL_SetRenderVSync(renderer, interval) } {
+                eprintln!("nightjar: pacing: could not set the sync interval to {interval}: {}", crate::sdl::error());
+            }
+        }
+    }
+
+    /// `VrrSync::Scan`: while the beam is in the picture's rows, waits for it to leave the last one,
+    /// so the present shows its picture whole. Returns how long it waited (ns).
+    fn wait_out_scan(&mut self) -> u64 {
+        // The tearing modes that present whole pictures; the beam race times its own presents.
+        if self.vrr.sync != present::VrrSync::Scan || !matches!(self.pacer.mode, PacingMode::Immediate | PacingMode::HostTimes) { return 0; }
+        let Some(probe) = &self.race_probe else { return 0 };
+        let (Some(beam), Some(sample)) = (probe.beam(), probe.before()) else { return 0 };
+        let Some(left) = beam.scan_left_ns(&sample) else { return 0 };
+        // Spinning: the wait is under one scan (4.2 ms at 240 Hz), shorter than a sleep can be exact.
+        let until = Instant::now() + Duration::from_nanos(left);
+        while Instant::now() < until { std::hint::spin_loop(); }
+        self.scan_waits.0 += 1;
+        self.scan_waits.1 += left;
+        left
     }
 
     /// Takes the slices the decoder finished since the last call into the racer.
@@ -2727,6 +3288,76 @@ impl Streaming {
         false
     }
 
+    /// The current picture through AI enhancement at `output`, or None to draw the picture itself:
+    /// a picture it does not read (software-decoded, PyroWave, packed), or the mode failed, which
+    /// is logged and shown once and leaves the stream on bilinear scaling.
+    #[cfg(windows)]
+    fn enhanced(&mut self, renderer: *mut SDL_Renderer, output: (i32, i32)) -> Option<*mut SDL_Texture> {
+        if self.upscale_failed { return None; }
+        let Some(source) = self.texture.enhance_source() else { self.enhancer = None; return None };
+        if output.0 <= 0 || output.1 <= 0 || output.0 > 16384 || output.1 > 16384 { return None; }
+        let key = enhance::Key { source, output, hdr_display: crate::sdl::hdr_available(renderer) };
+        if !self.enhancer.as_ref().is_some_and(|enhancer| enhancer.matches(&key)) {
+            self.enhancer = None;
+            let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+            let made = enhance::stream_probe(device)
+                .and_then(|capability| capability.ok_or_else(|| "this GPU has neither video super resolution nor RTX Video HDR".to_owned()))
+                .and_then(|capability| enhance::Enhancer::new(renderer, key, capability, self.facts.fps.max(1) as u32));
+            match made {
+                Ok(enhancer) => {
+                    eprintln!("nightjar: {} for {}x{} to {}x{}", enhancer.label, source.picture.0, source.picture.1, output.0, output.1);
+                    self.enhancer = Some(enhancer);
+                }
+                Err(error) => return self.enhance_failed(error),
+            }
+        }
+        match self.enhancer.as_mut()?.draw(renderer) {
+            Ok(texture) => Some(texture),
+            Err(error) => self.enhance_failed(error),
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn enhanced(&mut self, _renderer: *mut SDL_Renderer, _output: (i32, i32)) -> Option<*mut SDL_Texture> {
+        None
+    }
+
+    #[cfg(windows)]
+    fn enhance_failed(&mut self, error: String) -> Option<*mut SDL_Texture> {
+        eprintln!("nightjar: AI enhancement failed: {error}; the stream continues with bilinear scaling");
+        self.enhancer = None;
+        self.upscale_failed = true;
+        self.show_toast(tr("AI enhancement is unavailable; using bilinear scaling."));
+        None
+    }
+
+    /// The stats line for the upscaling setting.
+    fn upscaling_line(&self) -> String {
+        if self.settings.upscaling == config::Upscaling::Ai {
+            #[cfg(windows)]
+            if let Some(enhancer) = &self.enhancer { return enhancer.label.clone(); }
+            return if self.upscale_failed { "Bilinear (AI enhancement unavailable)".into() }
+                else if cfg!(windows) { "Bilinear (not a hardware-decoded picture)".into() }
+                else { "Bilinear (AI enhancement needs Direct3D 11)".into() };
+        }
+        if self.upscale_failed { "Bilinear (GPU unavailable)".into() }
+        else if self.texture.is_hdr() { "Bilinear (HDR)".into() }
+        else if self.upscaler.is_some() { self.settings.upscaling.label().into() }
+        else { "Bilinear (no upscale needed)".into() }
+    }
+
+    /// Draws the picture itself into the back buffer (`direct`), or returns false for SDL to draw
+    /// the video texture.
+    #[cfg(windows)]
+    fn draw_direct(&mut self, renderer: *mut SDL_Renderer, dst: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
+        self.texture.draw_direct(renderer, dst, texture)
+    }
+
+    #[cfg(not(windows))]
+    fn draw_direct(&mut self, _renderer: *mut SDL_Renderer, _dst: &SDL_FRect, _texture: *mut SDL_Texture) -> bool {
+        false
+    }
+
     /// Draws the texture and the overlay and presents. `probe` reads the beam around the present.
     fn render_flip(&mut self, renderer: *mut SDL_Renderer, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), probe: bool) -> Flipped {
         // SAFETY: drawing on a live renderer.
@@ -2740,10 +3371,17 @@ impl Streaming {
                 let mut texture = self.texture.texture;
                 let output = (dst.w as i32, dst.h as i32);
                 let input = self.texture.size();
-                let use_upscaler = self.settings.upscaling != config::Upscaling::Bilinear && !self.upscale_failed
+                let use_upscaler = self.settings.upscaling.is_shader() && !self.upscale_failed
                     && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input
                     && output.0 <= 16384 && output.1 <= 16384;
-                if use_upscaler {
+                if self.settings.upscaling == config::Upscaling::Ai {
+                    // AI enhancement reads the YUV picture in the video texture.
+                    self.texture.copy_held();
+                    self.upscaler = None;
+                    if let Some(enhanced) = self.enhanced(renderer, output) { texture = enhanced; }
+                } else if use_upscaler {
+                    // The upscalers read the picture as SDL would draw it.
+                    texture = self.texture.sdl_texture(renderer);
                     if !self.upscaler.as_ref().is_some_and(|u| u.matches(input, output, self.settings.upscaling)) {
                         self.upscaler = upscale::Upscaler::new(renderer, input, output, self.settings.upscaling);
                     }
@@ -2756,16 +3394,21 @@ impl Streaming {
                         }
                     }
                 } else { self.upscaler = None; }
-                SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+                if !self.draw_direct(renderer, &dst, texture) {
+                    if texture == self.texture.texture { texture = self.texture.sdl_texture(renderer); }
+                    SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+                }
             } else if !self.texture.draw(renderer, &dst) {
                 self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));
             }
         }
         draw_overlay(self, renderer);
-        // The beam race probe reads the scan line around the present (nothing when the race is off).
-        if self.facts.beam_race && probe && self.race_probe.is_none() {
-            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps)));
+        // The display probe reads the scan line around the present (nothing with the beam race off,
+        // no VRR check and no VRR sync on the scan).
+        if let (Some(topic), true, true) = (display_probe(self.facts.beam_race, &self.vrr), probe, self.race_probe.is_none()) {
+            self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps), topic));
         }
+        if probe { self.wait_out_scan(); }
         let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
@@ -2786,12 +3429,13 @@ impl Streaming {
         renderer: *mut SDL_Renderer,
         mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
     ) -> bool {
-        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
+        if self.texture.needs_hdr_output() && !crate::sdl::hdr_available(renderer) {
             self.texture.destroy();
             self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
             self.needs_redraw = true;
         }
         self.sync_race(renderer);
+        self.sync_vrr(renderer);
         // The slices of a frame still being received go out ahead of the beam.
         let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
         let now = session::now_us();
@@ -2993,10 +3637,7 @@ impl Streaming {
         ));
         lines.push(("Decoder".into(), lock(&self.shared.decoder_name).clone()));
         if self.settings.upscaling != config::Upscaling::Bilinear {
-            lines.push(("Upscaling".into(), if self.upscale_failed { "Bilinear (GPU unavailable)".into() }
-                else if self.texture.is_hdr() { "Bilinear (HDR)".into() }
-                else if self.upscaler.is_some() { self.settings.upscaling.label().into() }
-                else { "Bilinear (no upscale needed)".into() }));
+            lines.push(("Upscaling".into(), self.upscaling_line()));
         }
         if self.quality_mode != QualityMode::Off { lines.push(("Quality".into(), self.quality_mode.label().into())); }
         lines.push((
@@ -3041,7 +3682,7 @@ impl Streaming {
         if let Some(reason) = self.facts.beam_race_off {
             lines.push(("Beam race".into(), reason.into()));
         }
-        if let Some(probe) = &self.race_probe {
+        if let (true, Some(probe)) = (self.facts.beam_race, &self.race_probe) {
             lines.push(("Beam race".into(), probe.line()));
         }
         if self.facts.beam_race {
@@ -3055,7 +3696,13 @@ impl Streaming {
             "Render".into(),
             format!("{:.2} ms", avg(w.render_us as f64, w.shown) / 1000.0),
         ));
-        let mut pacing = self.pacer.mode.label().to_owned();
+        let mut pacing = pacing_label(self.pacer.mode, self.vrr.fell_back).to_owned();
+        if self.vrr.sync != present::VrrSync::Off && self.pacer.mode != PacingMode::Vsync {
+            pacing.push_str(&format!(", VRR sync {}", self.vrr.sync.label()));
+            if self.scan_waits.0 > 0 {
+                pacing.push_str(&format!(" ({} waits, {:.2} ms each)", self.scan_waits.0, self.scan_waits.1 as f64 / f64::from(self.scan_waits.0) / 1e6));
+            }
+        }
         if self.pacer.mode == PacingMode::HostTimes {
             if let Some(delay) = self.pacer.clock.delay_us() {
                 pacing.push_str(&format!(
@@ -3116,10 +3763,14 @@ impl Streaming {
             lines.push(("Notice".into(), link_notice_line(notice)));
         }
         let video_bytes = c.video_bytes.load(Ordering::Relaxed);
+        let wire_bytes = self.session.wire_bytes();
         let measures = overlay::Measures {
             rendered_fps: (w.shown > 0 || received > 0).then(|| (f64::from(w.shown) / secs) as f32),
             received_fps: (received > 0).then(|| (received as f64 / secs) as f32),
             video_mbps: (received > 0).then(|| overlay::video_mbps(video_bytes.saturating_sub(self.last_video_bytes), secs)).flatten(),
+            wire_mbps: (wire_bytes > self.last_wire_bytes)
+                .then(|| overlay::video_mbps(wire_bytes - self.last_wire_bytes, secs))
+                .flatten(),
             loss_percent: (completed + drops > 0).then_some(loss as f32),
             network_ms: stats.rtt.map(|(rtt, _)| (rtt.as_secs_f64() * 1000.0) as f32),
             variance_ms: stats.rtt.map(|(_, var)| (var.as_secs_f64() * 1000.0) as f32),
@@ -3129,6 +3780,8 @@ impl Streaming {
             render_ms: (w.shown > 0).then(|| (avg(w.render_us as f64, w.shown) / 1000.0) as f32),
         };
         self.last_video_bytes = video_bytes;
+        self.last_wire_bytes = wire_bytes;
+        lines.extend(overlay::wire(&measures));
         let mut statistics = overlay::statistics(&lines[0].1, &measures);
         let now_ms = self.started.elapsed().as_millis() as u64;
         let wanted = self.overlay_visible && self.overlay_mode != OverlayMode::Compact && self.facts.role != AppRole::InputOnly;
@@ -3168,6 +3821,19 @@ impl Streaming {
             ..Default::default()
         };
         self.doctor.timings(&mut tick);
+        let client = self.host_abr.is_some().then(|| lock(&self.shared.host_client).clone()).flatten();
+        if let (Some(abr), Some(client)) = (&mut self.host_abr, client) {
+            abr.add(completed, drops, decoded);
+            let rtt_ms = stats.rtt.map(|(rtt, _)| rtt.as_secs_f64() * 1000.0);
+            if let Some(feedback) = abr.due(tick.now_ms, rtt_ms) {
+                let shared = self.shared.clone();
+                std::thread::spawn(move || {
+                    let action = client.abr_feedback(&feedback)
+                        .map_err(|e| eprintln!("nightjar: the PC's automatic bitrate report failed: {e}")).ok();
+                    shared.notify(Notice::HostAbrAction(action));
+                });
+            }
+        }
         // As on Android: no samples for input-only, or while a manual bitrate change or trial runs.
         if self.facts.role != AppRole::InputOnly && !(self.bitrate_busy && !self.adaptive_bitrate) {
             self.doctor.add(&tick);
@@ -3270,6 +3936,10 @@ impl Streaming {
         // SAFETY: union members read by event type.
         unsafe {
             let kind = SDL_EventType(event.r#type);
+            #[cfg(windows)]
+            if self.touchpad_swallows(event) {
+                return;
+            }
             match kind {
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
                     self.exit = Some(Exit::CloseWindow);
@@ -3425,7 +4095,7 @@ impl Streaming {
                     match action {
                         Some(Action::Quit) => self.exit = Some(Exit::User),
                         Some(Action::Menu) => self.toggle_menu(window, pads),
-                        Some(Action::Mouse(active)) => self.show_toast(if active { tr("Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad.") } else { tr("Controller mouse disabled.") }),
+                        Some(Action::Mouse(active)) => self.show_toast(menu_extras::mouse_toast(pads, active, true)),
                         None => {}
                     }
                 }
@@ -3563,9 +4233,11 @@ impl Streaming {
         });
     }
 
-    /// Ends the stream: releases input, stops the session.
-    pub fn finish(mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+    /// Ends the stream: releases input, stops the session. Returns the request that turns the
+    /// PC's automatic bitrate off while it runs on; one closing Nightjar waits for it.
+    pub fn finish(mut self, window: *mut SDL_Window, pads: &mut Gamepads) -> Option<host_abr::AbrStop> {
         self.microphone = None;
+        self.stop_host_abr();
         if let Some(client) = &*lock(&self.shared.host_client) {
             client.cancel_pending_requests();
         }
@@ -3574,6 +4246,7 @@ impl Streaming {
         self.text_field.stop(window);
         self.set_capture(window, false);
         self.cursor.clear();
+        crate::sdl::alt_f4_to_host(false);
         for controller in 0..16 {
             if self.audio_status.0[usize::from(controller)] != 0 {
                 let _ = self.session.send(ClientMessage::ControllerAudioStatus { controller, flags: 0 });
@@ -3583,6 +4256,8 @@ impl Streaming {
         unsafe { SDL_ShowCursor() };
         pads.reset();
         self.upscaler = None;
+        #[cfg(windows)]
+        { self.enhancer = None; }
         self.texture.destroy();
         if self.facts.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
             eprintln!("nightjar: decoder {}", lock(&self.shared.decoder_name));
@@ -3610,8 +4285,14 @@ impl Streaming {
             eprintln!("nightjar: beam race: frames not raced: {} with under 1 ms to gain, {} not in slices, {} with the first slice missed",
                 skipped[0], skipped[1], skipped[2]);
         }
+        if self.vrr.sync == present::VrrSync::Scan {
+            let (waits, ns) = self.scan_waits;
+            eprintln!("nightjar: VRR sync scan: {waits} presents waited for a scan under way, {:.2} ms each",
+                if waits > 0 { ns as f64 / f64::from(waits) / 1e6 } else { 0.0 });
+        }
         lock(&self.shared.roam_watch).take();
         self.session.stop();
+        self.host_abr_stop.take()
     }
 }
 
@@ -3674,6 +4355,32 @@ fn bitrate_automatic(adaptive_bitrate: bool, quality_mode: QualityMode, rate_cha
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Desktop never asked for an HDR format, so no host sent it Dolby Vision RPUs and the draw
+    /// pass's RPU peak was unreachable. It asks as Android does, and stock hosts see nothing new.
+    #[test]
+    fn hdr_streams_ask_a_rubylight_host_for_dolby_vision_where_the_rpus_are_read() {
+        use rubylight_protocol::hdr::{ALL, DV_101, DV_81, DV_84, HLG, PQ};
+        let both = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10;
+        let hevc = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
+        let host = i32::from(ALL);
+        // AV1 first, as the handshake takes it, then HEVC; each only where the host offers it.
+        assert_eq!(hdr_format(true, host, both, false, true), DV_101);
+        assert_eq!(hdr_format(true, host, hevc, false, true), DV_81);
+        assert_eq!(hdr_format(true, i32::from(PQ | HLG | DV_81), both, false, true), DV_81);
+        // Never profile 8.4 (an HLG base layer) nor HLG: every desktop HDR output takes PQ.
+        assert_eq!(hdr_format(true, i32::from(PQ | HLG | DV_84), both, false, true), 0);
+        // Stock HDR10 for a stock host (no HdrFormats: -1), an SDR stream, packed full chroma,
+        // 8-bit formats only, and where nothing reads the RPUs (Linux, SDL drawing on Windows).
+        assert_eq!(hdr_format(true, -1, both, false, true), 0);
+        assert_eq!(hdr_format(true, 0, both, false, true), 0);
+        assert_eq!(hdr_format(false, host, both, false, true), 0);
+        assert_eq!(hdr_format(true, host, both, true, true), 0);
+        assert_eq!(hdr_format(true, host, VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8, false, true), 0);
+        assert_eq!(hdr_format(true, host, both, false, false), 0);
+        #[cfg(not(windows))]
+        assert!(!reads_dolby_vision(), "only the Windows draw pass reads them");
+    }
 
     #[test]
     fn the_doctor_offers_no_trial_while_the_client_hint_steers_the_bitrate() {
@@ -3765,7 +4472,7 @@ mod tests {
     fn a_lost_or_reset_render_device_ends_the_stream_saying_why() {
         for kind in [SDL_EVENT_RENDER_DEVICE_RESET, SDL_EVENT_RENDER_DEVICE_LOST] {
             let reason = render_device_ended(kind).expect("ends the stream");
-            assert!(!Exit::Ended(Some(reason.into())).retryable(), "{reason}");
+            assert!(!Exit::Ended(Some(reason.into())).retryable(true), "{reason}");
         }
         assert_eq!(render_device_ended(SDL_EVENT_RENDER_TARGETS_RESET), None);
     }
@@ -3807,16 +4514,55 @@ mod tests {
     }
 
     #[test]
-    fn the_roaming_watcher_stops_when_the_host_does_not_roam() {
+    fn every_tearing_vrr_stream_checks_its_display_not_only_the_beam_race() {
+        let checks = |settings: &Settings, tearing: bool, forced: Option<bool>| {
+            let (pacing, vrr) = present::pacing(settings, tearing);
+            checks_display_for_vrr(vrr, pacing, present::without_vrr(settings), forced)
+        };
+        // The default settings: VRR on, the swap chain tears, Immediate.
+        assert!(checks(&Settings::default(), true, None), "a fixed refresh display would tear on every present unchecked");
+        let host_times = Settings { present_at_host_times: true, ..Default::default() };
+        assert!(checks(&host_times, true, None));
+        assert!(checks(&Settings { vsync: false, ..host_times.clone() }, true, None), "host times turn immediate");
+        // Nothing to check: V-Sync already waits, VRR is off, the chain cannot tear, or V-Sync is
+        // off in the settings and the stream is immediate already.
+        assert!(!checks(&Settings::default(), false, None));
+        let off = Settings { vrr: false, vsync: false, ..Default::default() };
+        assert_eq!(present::pacing(&off, true).0, PacingMode::Immediate);
+        assert!(!checks(&off, true, None), "tearing asked for without VRR is the user's choice");
+        assert!(!checks(&Settings { vsync: false, ..Default::default() }, true, None), "V-Sync off: immediate either way");
+        assert!(!checks(&Settings::default(), true, Some(false)), "NIGHTJAR_VRR_CHECK=0");
+        assert!(checks(&Settings::default(), true, Some(true)));
+    }
+
+    #[test]
+    fn the_scan_line_is_read_for_the_beam_race_the_display_check_and_vrr_sync_scan() {
+        use present::{VrrPacing, VrrSync};
+        let vrr = |check, sync| VrrPacing::new(check, PacingMode::Vsync, sync, PacingMode::Immediate);
+        assert_eq!(display_probe(false, &vrr(true, VrrSync::Off)), Some("display check"), "every VRR stream that tears");
+        assert_eq!(display_probe(true, &vrr(true, VrrSync::Off)), Some("beam race"));
+        assert_eq!(display_probe(true, &vrr(false, VrrSync::Off)), Some("beam race"));
+        // NIGHTJAR_VRR_SYNC=scan waits on the beam, so it reads the scan line with the check off.
+        assert_eq!(display_probe(false, &vrr(false, VrrSync::Scan)), Some("display check"));
+        assert_eq!(display_probe(false, &vrr(false, VrrSync::Present1)), None, "present1 reads no beam");
+        assert_eq!(display_probe(false, &vrr(false, VrrSync::Off)), None, "a default stream without VRR does none of it");
+    }
+
+    #[test]
+    fn the_pacing_line_says_why_a_vrr_stream_waits_for_the_refresh() {
+        assert_eq!(pacing_label(PacingMode::Vsync, true), "V-Sync: this display does not refresh on present");
+        assert_eq!(pacing_label(PacingMode::Vsync, false), "V-Sync", "V-Sync the settings asked for");
+        assert_eq!(pacing_label(PacingMode::Immediate, true), "Immediate: this display does not refresh on present", "V-Sync off in the settings");
+        assert_eq!(pacing_label(PacingMode::Immediate, false), "Immediate");
+    }
+
+    #[test]
+    fn the_network_watcher_runs_for_the_stream_and_stops_with_it() {
         use std::sync::mpsc::RecvTimeoutError;
         let shared = Shared::new(Arc::new(|| {}), 8);
+        // Kept whether the host roams or not: a lost network's return reconnects every stream.
         let (watch, ended) = crate::network::RoamWatch::idle();
-        keep_roam_watch(&shared, Some(watch), false);
-        assert!(lock(&shared.roam_watch).is_none());
-        assert_eq!(ended.recv_timeout(Duration::from_secs(5)), Err(RecvTimeoutError::Disconnected), "the thread ended");
-        // A roaming host keeps it running for the stream.
-        let (watch, ended) = crate::network::RoamWatch::idle();
-        keep_roam_watch(&shared, Some(watch), true);
+        keep_roam_watch(&shared, Some(watch));
         assert!(lock(&shared.roam_watch).is_some());
         assert_eq!(ended.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
         lock(&shared.roam_watch).take();
@@ -3949,12 +4695,86 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(stream_mode(&settings, display()), (1920, 1080, 60, 30000));
+        // PyroWave chosen: a chosen bitrate stays, below its floor too (the settings warn), and the
+        // automatic one is PyroWave's default (what the settings show).
         let mut settings = Settings { codec: CodecPreference::PyroWave444, ..settings };
-        assert_eq!(stream_mode(&settings, display()).3, 151_000);
+        assert_eq!(stream_mode(&settings, display()).3, 30000);
         settings.bitrate_kbps = 0;
-        assert_eq!(stream_mode(&settings, display()).3, 151_000);
+        assert_eq!(stream_mode(&settings, display()).3, 398_132);
+        settings.bitrate_kbps = 250_000;
+        assert_eq!(stream_mode(&settings, display()).3, 250_000);
         settings.bitrate_kbps = 2_000_000;
         assert_eq!(stream_mode(&settings, display()).3, 2_000_000);
+    }
+
+    // User report: PyroWave started at the H.264 default (20 Mbps at 1080p60), far below its floor,
+    // because the automatic bitrate did not know the codec.
+    #[test]
+    fn a_pyrowave_stream_at_the_automatic_bitrate_starts_at_pyrowaves_default() {
+        let auto = Settings::default();
+        // With the link unknown the default stays within 900 Mbps, unless the floor is higher.
+        for (w, h, fps, kbps) in [(1920, 1080, 60, 398_132), (2560, 1440, 120, 900_000), (3840, 2160, 60, 900_000), (3840, 2160, 120, 1_492_992)] {
+            assert_eq!(start_bitrate(&auto, w, h, fps, true, 0), kbps, "{w}x{h}@{fps}");
+            assert_eq!(start_bitrate(&auto, w, h, fps, false, 0), config::default_bitrate_kbps(w, h, fps));
+            assert!(kbps >= nightjar_policy::pyrowave::minimum_kbps(w, h, fps));
+            // The settings show the same for PyroWave chosen.
+            let chosen = Settings { width: w, height: h, fps, codec: CodecPreference::PyroWave, ..Default::default() };
+            assert_eq!(stream_mode(&chosen, display()).3, kbps);
+        }
+        // Chosen bitrates stay as they are, whatever the link, also below the floor (the settings warn).
+        let chosen = |kbps| Settings { bitrate_kbps: kbps, ..Default::default() };
+        assert_eq!(start_bitrate(&chosen(300_000), 1920, 1080, 60, true, 0), 300_000);
+        assert_eq!(start_bitrate(&chosen(900_000), 3840, 2160, 60, true, 0), 900_000);
+        assert_eq!(start_bitrate(&chosen(1_500_000), 3840, 2160, 60, true, 1000), 1_500_000);
+        assert_eq!(start_bitrate(&chosen(20_000), 1920, 1080, 60, true, 0), 20_000);
+        assert_eq!(start_bitrate(&chosen(20_000), 1920, 1080, 60, false, 0), 20_000);
+    }
+
+    // A default over gigabit broke a first PyroWave stream on ordinary Ethernet and Wi-Fi: the
+    // default stays within 90% of a known wired link, never below the floor.
+    #[test]
+    fn pyrowaves_default_stays_within_the_wired_link() {
+        let auto = Settings::default();
+        assert_eq!(start_bitrate(&auto, 3840, 2160, 60, true, 1000), 900_000);
+        assert_eq!(start_bitrate(&auto, 3840, 2160, 60, true, 2500), 1_592_525);
+        assert_eq!(start_bitrate(&auto, 2560, 1440, 120, true, 2500), 1_415_578);
+        assert_eq!(start_bitrate(&auto, 1920, 1080, 60, true, 100), 186_624);
+        assert_eq!(start_bitrate(&auto, 1920, 1080, 60, false, 100), config::default_bitrate_kbps(1920, 1080, 60));
+        // 10G gets the full clean target at 4K60, 1G about 900 Mbps at 1440p120, unknown 900.
+        assert_eq!(start_bitrate(&auto, 3840, 2160, 60, true, 10_000), 1_592_525);
+        assert_eq!(start_bitrate(&auto, 2560, 1440, 120, true, 1000), 900_000);
+        assert_eq!(start_bitrate(&auto, 2560, 1440, 120, true, 0), 900_000);
+    }
+
+    // The bitrate follows what the launch offers the PC, not the codec choice alone: a PyroWave
+    // choice the PC lacks streams HEVC at the conventional default, and any offer the PC can answer
+    // with PyroWave starts at PyroWave's (the automatic choice included, should it offer PyroWave).
+    #[test]
+    fn the_launch_starts_pyrowave_bitrates_only_when_the_offer_streams_pyrowave() {
+        let with = SCM_H264 | SCM_HEVC | SCM_PYROWAVE;
+        let offered = |codec, scm| offered_formats(&Settings { codec, ..Default::default() }, scm, &decodes_all()).formats;
+        assert!(offers_pyrowave(offered(CodecPreference::PyroWave, with), with));
+        assert!(offers_pyrowave(offered(CodecPreference::PyroWave444, SCM_H264 | SCM_PYROWAVE_444), SCM_H264 | SCM_PYROWAVE_444));
+        assert!(!offers_pyrowave(offered(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC), SCM_H264 | SCM_HEVC), "the PC has no PyroWave");
+        assert!(!offers_pyrowave(offered(CodecPreference::PyroWave, 0), 0), "no trusted codec support: the handshake never picks PyroWave");
+        assert!(!offers_pyrowave(offered(CodecPreference::Auto, with), with), "automatic offers HEVC and H.264 only");
+        assert!(offers_pyrowave(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_PYROWAVE, with), "an automatic offer that has PyroWave");
+        assert_eq!(start_bitrate(&Settings::default(), 1920, 1080, 60, offers_pyrowave(VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE, with), 0), 398_132);
+    }
+
+    // A chosen bitrate below PyroWave's minimum is kept; the bitrate setting warns, naming the
+    // minimum for the mode.
+    #[test]
+    fn a_chosen_bitrate_below_pyrowaves_minimum_is_warned_in_the_settings() {
+        let low = Settings { codec: CodecPreference::PyroWave, bitrate_kbps: 20_000, ..Default::default() };
+        assert_eq!(pyrowave_bitrate_warning(&low, 1920, 1080, 60).as_deref(),
+            Some("Below PyroWave’s minimum of 187 Mbps at 1920x1080, 60 fps: the picture will break up."));
+        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || pyrowave_bitrate_warning(&low, 1920, 1080, 60));
+        assert_eq!(german.as_deref(), Some("Unter dem PyroWave-Minimum von 187 Mbit/s bei 1920x1080, 60 fps: Das Bild wird zerfallen."));
+        assert_eq!(pyrowave_bitrate_warning(&Settings { bitrate_kbps: 186_624, ..low.clone() }, 1920, 1080, 60), None);
+        assert_eq!(pyrowave_bitrate_warning(&Settings { bitrate_kbps: 0, ..low.clone() }, 1920, 1080, 60), None, "automatic");
+        assert_eq!(pyrowave_bitrate_warning(&Settings { codec: CodecPreference::Hevc, ..low.clone() }, 1920, 1080, 60), None);
+        assert!(pyrowave_bitrate_warning(&Settings { codec: CodecPreference::PyroWave444, ..low }, 1920, 1080, 60).is_some());
     }
 
     #[test]
@@ -4272,6 +5092,7 @@ mod replace_tests {
             identity: Arc::new(ClientIdentity::generate().expect("an identity")),
             display: Display { width: 1920, height: 1080, refresh_hz: 60.0 },
             hardware: Hardware::None,
+            dmabuf: false,
             gpu_decoder: None,
             packed_modes: 0,
             color_decodable: (0, String::new()),
@@ -4285,8 +5106,112 @@ mod replace_tests {
             pace: None,
             host_link_mbps: 0,
             recovery: None,
+            video_shown: false,
             confirm_replace: false,
+            display_luminance: None,
         }
+    }
+
+    // The review's regression: video showed, the network dropped, and the first reconnect had no
+    // picture yet when it dropped too. The chain carries its video, so the next attempt follows
+    // within the budget; a chain that never showed video still stops at once.
+    #[test]
+    fn a_reconnect_without_a_picture_yet_keeps_the_chain_going_after_a_real_drop() {
+        use nightjar_core::session::error;
+        let plan = launch_plan();
+        let first = automatic_rejoin(&plan, AppRole::Stream, true, false, 60_000, false, true).expect("a plan");
+        assert!(first.video_shown, "the drop came after video");
+        // Attempt 1 connects but shows nothing before it drops: no picture of its own.
+        let second = automatic_rejoin(&first, AppRole::Stream, true, false, 5_000, false, false).expect("a plan");
+        assert!(second.video_shown, "still the chain of a stream that had video");
+        assert!(Exit::Terminated(error::NO_VIDEO_TRAFFIC).retryable(first.video_shown));
+        // Never any video: nothing to carry.
+        let never = automatic_rejoin(&plan, AppRole::Stream, true, false, 5_000, false, false).expect("a plan");
+        assert!(!never.video_shown);
+        assert!(!Exit::Terminated(error::NO_VIDEO_TRAFFIC).retryable(never.video_shown));
+    }
+
+    // The review's regression: roamed is false, but the same address came back (DHCP gave it
+    // again) or there is no route yet. The connection resumes in place, so the stream goes on;
+    // only a return it cannot carry on over reconnects, with the desktop's default settings too.
+    #[test]
+    fn only_a_network_back_the_connection_cannot_carry_on_over_reconnects_at_once() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.network_grace_ms, 3000, "below the connection's own timeout: no tolerance");
+        assert!(!reconnects_on_return(NetworkChange::CarriesOn, false, &defaults, true));
+        assert!(!reconnects_on_return(NetworkChange::Roamed, false, &defaults, true));
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, true));
+        // Not when it would not reconnect on its own (minimized, not a game stream, budget used).
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, false));
+        // Mobile data only with "Continue on mobile data".
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, true, &defaults, true));
+        let mobile = Settings { roaming_metered: true, ..Settings::default() };
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, true, &mobile, true));
+        // A tolerance above the timeout holds the connection and decides; so does the user.
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &tolerant, true));
+        let manual = Settings { auto_reconnect: false, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &manual, true));
+        // The exit it takes reconnects, once the stream had video.
+        assert!(Exit::NetworkReturned.retryable(true));
+        assert!(!Exit::NetworkReturned.retryable(false));
+    }
+
+    #[test]
+    fn a_vpn_route_streams_as_remote_with_small_packets() {
+        assert_eq!(location_for_route(Location::Auto, true), (Location::Remote, 1024));
+        assert_eq!(location_for_route(Location::Auto, false), (Location::Auto, 1392));
+        // NIGHTJAR_STREAM_LOCATION decides over the route.
+        assert_eq!(location_for_route(Location::Local, true), (Location::Local, 1392));
+        assert_eq!(location_for_route(Location::Remote, false), (Location::Remote, 1392));
+    }
+
+    // A blocked media port: the stream never shows a picture and its error shows at once, not after
+    // five reconnects and a minute (Moonlight V+ PC 6792aeed).
+    #[test]
+    fn a_stream_that_never_showed_video_does_not_reconnect() {
+        use nightjar_core::session::error;
+        for code in [error::NO_VIDEO_TRAFFIC, error::NO_VIDEO_FRAME, -1, 10054] {
+            assert!(!Exit::Terminated(code).retryable(false), "{code}");
+            assert!(Exit::Terminated(code).retryable(true), "{code}");
+        }
+        assert!(!Exit::Terminated(error::GRACEFUL).retryable(true));
+        assert!(!Exit::Reconnect.retryable(true), "the user's own reconnect is not an automatic one");
+    }
+
+    #[test]
+    fn the_lost_network_notice_promises_a_reconnect_only_when_one_follows() {
+        let defaults = Settings::default();
+        assert_eq!(lost_notice(&defaults, true), NETWORK_LOST_RECONNECTING);
+        assert_eq!(lost_notice(&defaults, false), NETWORK_LOST);
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert_eq!(lost_notice(&tolerant, true), NETWORK_LOST);
+    }
+
+    #[test]
+    fn a_network_return_rejoins_without_the_first_delay_and_only_on_its_own() {
+        let mut plan = launch_plan();
+        plan.app.control = nightjar_core::http::AppControl::None;
+        let now = recovery::now_ms();
+        let mut rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).expect("a plan");
+        assert!(rejoined.resume);
+        let budget = rejoined.recovery.as_mut().expect("a budget");
+        assert!(budget.allows_attempt(now));
+        assert_eq!(budget.next_delay(now), Some(0), "no delay, but it spends an attempt");
+        assert_eq!(budget.attempts(), 1);
+        // Without retry_now the usual first delay.
+        let mut usual = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, false, true).unwrap().recovery.unwrap();
+        assert_eq!(usual.next_delay(now), Some(1000));
+        // Minimized, off, or a stream that is not a game: the user decides.
+        assert!(automatic_rejoin(&plan, AppRole::Stream, true, true, 0, true, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::Stream, false, false, 0, true, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::RemoteMonitor, true, false, 0, true, true).is_none());
+        // A used-up budget allows no attempt, so the notice promises none.
+        let mut spent = recovery::Backoff::default();
+        while spent.next_delay(now).is_some() {}
+        plan.recovery = Some(spent);
+        let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).unwrap();
+        assert!(!rejoined.recovery.unwrap().allows_attempt(now));
     }
 
     #[test]
@@ -4352,5 +5277,42 @@ mod replace_tests {
                 Ok(_) => panic!("the launch failed"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod audio_tests {
+    use super::*;
+
+    fn reports_714(xml: &str) -> bool {
+        ServerInfo::parse(xml, 47989).expect("the answer parses").capabilities.has(Feature::Surround714)
+    }
+
+    #[test]
+    fn only_a_pc_that_reports_7_1_4_is_asked_for_it() {
+        let rubylight = include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+        let rubylight_without = include_str!("../../../../app/src/test/resources/protocol/rubylight-30-refused-serverinfo.xml");
+        // Foundation Sunshine's serverinfo reads as stock Sunshine's.
+        let sunshine = include_str!("../../../../app/src/test/resources/protocol/sunshine-serverinfo.xml");
+        assert!(reports_714(rubylight));
+        assert!(!reports_714(rubylight_without), "Rubylight with 7.1.4 off");
+        assert!(!reports_714(sunshine));
+
+        let asked = |host: &str, output: bool| audio_configuration(AudioChannels::Surround714, reports_714(host), output);
+        assert_eq!(asked(rubylight, true), AudioConfiguration::SURROUND_714);
+        assert_eq!(asked(sunshine, true), AudioConfiguration::SURROUND_71);
+        assert_eq!(asked(rubylight_without, true), AudioConfiguration::SURROUND_71);
+        // An output that plays fewer than 12 channels gets 7.1 from every PC.
+        assert_eq!(asked(rubylight, false), AudioConfiguration::SURROUND_71);
+        // The other choices are asked of every PC as picked.
+        assert_eq!(audio_configuration(AudioChannels::Surround71, false, false), AudioConfiguration::SURROUND_71);
+        assert_eq!(audio_configuration(AudioChannels::Surround51, false, false), AudioConfiguration::SURROUND_51);
+        assert_eq!(audio_configuration(AudioChannels::Stereo, true, true), AudioConfiguration::STEREO);
+    }
+
+    #[test]
+    fn the_7_1_4_choice_round_trips_through_the_settings_file() {
+        let saved = serde_json::to_string(&AudioChannels::Surround714).unwrap();
+        assert_eq!(serde_json::from_str::<AudioChannels>(&saved).unwrap(), AudioChannels::Surround714);
     }
 }

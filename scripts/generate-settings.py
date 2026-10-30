@@ -21,6 +21,7 @@ ADVICE = {
     "list_fps": "Raise for smoother motion on a fast screen. Open the list and choose Show all frame rates to include rates the screen may not support (possible stutter; compare rendered FPS in the overlay), or Show supported frame rates only to go back. Stored as `checkbox_unlock_fps`. The screen's own refresh rate is added as Screen refresh rate. Changing resolution or FPS preserves an explicitly chosen bitrate.",
     "stream_profiles": "Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings).",
     "list_mobile_bitrate_kbps": "Choose a cap for streams that start on mobile data or on Wi-Fi that Android marks as metered, such as a phone's hotspot. It caps the bitrate from every layer, including profiles, PC and game values; Off uses the same bitrate on every network. Read once at stream start. See [named profiles](#named-profiles-and-game-settings).",
+    "list_gamepad_quit_combo": "Off by default: Start+Select+LB+RB opens the stream menu, where Disconnect leaves. Choose a combination to leave the stream straight from the controller, for example on a TV; the stream ends once every button of it is let go, so none stays held on the PC. Pick one a game doesn't use. The stream menu's Controller mouse switch turns the controller mouse on or off whether or not holding Start does.",
     "checkbox_auto_bitrate": "Off by default. Lowers the bitrate when the connection, decoder or device heat can't keep up and raises it again when things recover, never above Video bitrate and never below a built-in floor (2 Mbps, or more for large streams). The host's own adjustment stands down while it runs. This is the default for every PC; the stream menu's Automatic bitrate saves a choice for one PC, and changing this switch makes every PC follow it again. Needs a host that supports runtime bitrate changes (currently Rubylight).",
     "checkbox_vulkan_render": "Presents H.264, HEVC and AV1 through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. It adds a render pass, so some latency, and needs Android 10 and a GPU with Vulkan 1.1. If it cannot be used (PyroWave, Android 9 or older, no Vulkan support, 4:4:4 video, or it fails to start) the stream uses direct output and a message says why. While it is on, client-side upscaling is off. If it stops working during a stream, the stream ends with a message that names it; turn this switch off to go back. Leave it off unless you need such an overlay.",
     "seekbar_bitrate_kbps": "Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments.",
@@ -39,6 +40,7 @@ ADVICE = {
     "checkbox_virtual_display": "Enable to request a host display matching the stream. Requires host support and a ready display driver.",
     "host_display_location": "Explains where the mode is set: open the PC's menu, choose a mode and confirm Save display mode. Keep PC display primary preserves the monitor's primary role; make virtual display primary moves it to the stream. Saved separately per PC.",
     "seekbar_virtual_display_scale": "Change the PC's render resolution relative to the stream. Desktop text size stays as set on the host.",
+    "list_virtual_display_dpi": "Raise for larger text and interface on the virtual display, for example on a small screen; the resolution does not change. PC's own keeps the scale set on the PC. Rubylight PCs read it; other hosts ignore it.",
     "checkbox_yuv444": "Enable for colored text and desktop detail when both ends support it. Otherwise 4:2:0 is used; HDR takes priority.",
     "checkbox_stretch_video": "How the stream fills a screen of another shape: Fit shows all of it with bars, Fill (crop) fills the screen and cuts off the edges that do not fit, Stretch fills it and distorts shapes, 1:1 pixels shows the stream at its own size, centred. The key is the older Stretch switch, still written (on only for Stretch) so older versions behave sensibly; the mode itself is stored as `video_scaling`. Also in the stream menu. See [video scaling](video-and-latency.md#video-scaling).",
     "video_alignment": "Top places a Fit or 1:1 picture at the top of the screen, leaving the space below for the soft keyboard or the lower half of a half-folded phone. No effect on Fill and Stretch, which cover the whole screen.",
@@ -74,6 +76,8 @@ ADVICE = {
     "keyboard_shortcuts_editor": "Create, edit or delete up to 32 named keyboard chords for the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts).",
     "checkbox_back_as_meta": "Enable to send the Windows key from a physical keyboard's Back key. Android's Back gesture and TV remotes keep their local navigation; the controller menu chord remains available. See [keyboard options](controls.md#keyboard-options).",
     "checkbox_back_opens_menu": "Enable for a handheld's dedicated physical Back key, such as on AYN Thor, to open the stream menu instead of being forwarded as a controller button. Off preserves its existing mapping. Select/Start, mouse right-click and Keyboard Back sends Windows key keep their behavior. Applies from the next stream.",
+    "checkbox_back_as_guide": "Enable so Back on a handheld's built-in controls sends Guide (Home/PS), for handhelds such as the Retroid Pocket whose system button acts as Back: the built-in pad's Back when it has its own Select, a built-in Back key and a Back the firmware injects. External controllers and pads whose Select or Start is Back keep it. Physical Back opens stream menu takes priority; Android's Back gesture and the controller menu chord still open the stream menu. Android only: desktop controllers report a real Guide button. Applies from the next stream.",
+    "checkbox_capture_system_keys": "On by default. Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, and an external keyboard's Back key (the Esc key of many Android keyboards) sends Esc on Android 10 and newer; a built-in keyboard's Back stays Back. Android hands Alt+Tab and the Windows key to apps only on Android 16 QPR2 and newer (keyboard capture) and on many Samsung devices; elsewhere, and for Home, power and volume, Android keeps them. Keyboard Back sends Windows key and Physical Back opens stream menu take priority for keyboard Back. Ctrl+Alt+Shift+M and Android's Back gesture open the stream menu. Matches desktop's Send system keys. Applies from the next stream.",
     "checkbox_right_alt_as_meta": "Enable on a Mac host so Right Alt acts as Command (the Windows key). Left Alt is unchanged; leave off if you type with AltGr.",
     "checkbox_keyboard_follows_text_fields": "Opens the on-screen keyboard when a text field in the stream gets focus, with the field's type (numbers, no suggestions for passwords), and closes it when the field loses focus. Needs a host that sends text field notices; an attached hardware keyboard keeps typing instead.",
     "checkbox_clipboard_sync": "Off by default. Turn on to share copied text both ways while streaming. Android lets the app read the clipboard only while the stream is in front, so copies made in other apps go when you return. Needs a host that offers clipboard sync and lets this device read and write its clipboard. It carries text only: copy a PC image from the stream menu, and send large copies with Send clipboard to host.",
@@ -155,7 +159,7 @@ ADVICE = {
     "low_latency_customize": "Opens or closes the individual switches under Low-latency decoding: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Decoder performance hints and HEVC low-latency flags. Settings search finds them while it is closed.",
     "checkbox_tell_host_wireless": "On by default. Tells a Rubylight PC when this device streams over Wi-Fi, so it paces the stream for Wi-Fi from the start. Other PCs are not told.",
     "checkbox_tell_host_link_speed": "On by default. Tells a Rubylight PC this device's wired port speed, so it never sends faster than the port can take. Other PCs are not told.",
-    "list_fec_choice": "PC's setting by default: a Rubylight PC adds the recovery data its own settings call for. Automatic asks it to follow the losses this device reports; 10, 20, 30 or 50 % fixes the share. Other PCs use their own setting either way.",
+    "list_fec_choice": "PC's setting by default: the PC adds the recovery data its own settings call for. Automatic asks it to follow the losses this device reports; 10, 20, 30 or 50 % fixes the share. Rubylight and Foundation Sunshine PCs take this choice; other PCs use their own setting either way.",
     "checkbox_link_probe": "Off by default. A new stream at the automatic bitrate first times a short download from a Rubylight PC that offers it and starts at no more than 80 % of the result (never below 2 Mbit/s). Resumes, a bitrate you set and PyroWave are not tested. Off because it started streams lower, with more loss and freezes, in our measurement.",
     "pin_lock": "Off until a PIN is set. Asks for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar's app data in Android's settings, which also removes paired PCs.",
 }
@@ -178,7 +182,10 @@ def generate():
 
     preferences = ET.parse(RES / "xml/preferences.xml").getroot()
     nodes = {node.get(ANDROID + "key"): node for category in preferences for node in category}
-    if set(nodes) != set(ADVICE):
+    # The overview's rows beside the sections: Presets (its own table below) and Profiles under it.
+    overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
+    profiles = next(node for node in overview if node.get(ANDROID + "key") == "stream_profiles")
+    if set(nodes) | {"stream_profiles"} != set(ADVICE):
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes)}")
     categories = {category.get(ANDROID + "key"): category for category in preferences}
     tiers = ET.parse(RES / "values/settings_tiers.xml").getroot()
@@ -189,9 +196,8 @@ def generate():
         if len(keys) > 8 or set(keys) - set(nodes):
             raise ValueError(f"Review the main rows of {section}: at most 8, all in preferences.xml")
     # Sections: the overview rows (preferences_root.xml) and the groups each one shows (StreamSettings.SECTIONS).
-    overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
     section_titles = {node.get(ANDROID + "key"): resolve(node.get(ANDROID + "title"))
-                      for node in overview if not node.tag.endswith("PresetPreference")}
+                      for node in overview if not node.tag.endswith("PresetPreference") and node is not profiles}
     settings_java = (JAVA / "preferences/StreamSettings.java").read_text(encoding="utf-8")
     sections = {}
     for name, members in re.findall(r'SECTIONS\.put\("(\w+)", new String\[\] \{([^}]*)\}\);', settings_java):
@@ -257,7 +263,9 @@ def generate():
         elif key == "list_fps":
             default = f"Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS)"
         elif key == "seekbar_bitrate_kbps":
-            default = "Calculated for the native resolution and screen maximum FPS; follows changes until bitrate is chosen explicitly"
+            default = ("Calculated for the native resolution and screen maximum FPS; with PyroWave, PyroWave's own "
+                       "(about 400 Mbps at 1080p60, at most 900 Mbps or 90% of a known wired link, never below its minimum); "
+                       "follows changes until bitrate is chosen explicitly")
         elif key == "checkbox_small_icon_mode":
             threshold = re.search(r"smallestScreenWidthDp < (\d+)", config)[1]
             default = f"On below {threshold} dp smallest screen width; Off on TVs and larger screens"
@@ -330,14 +338,17 @@ def generate():
               "| --- | --- | --- |",
               "| Video resolution | This screen's resolution | This screen's resolution |",
               f"| Video frame rate | Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS) | 30 FPS |",
-              "| Video bitrate | Default for that resolution and frame rate | Default for that resolution and frame rate |",
+              "| Video bitrate | Default for that resolution, frame rate and codec | Default for that resolution, frame rate and codec |",
               "| Adaptive refresh (ARR / VRR) | Off | Off |",
               "| Client-side upscaling | Off | Off |",
               "| Frame pacing | Lowest latency | Balanced with FPS limit |",
               "| Allow lower refresh rate | Off | On |",
               "| Decoder performance hints | On | Off |",
               f"| {resolve('@string/title_gpu_max_clocks')} | Unchanged | Off |",
-              "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", ""]
+              "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", "",
+              "## Profiles", "",
+              f"{resolve(profiles.get(ANDROID + 'title'))} (`stream_profiles`), under the presets on the Settings overview: "
+              + ADVICE["stream_profiles"], ""]
     return "\n".join(lines)
 
 

@@ -24,6 +24,18 @@ import static org.junit.Assert.*;
         shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class AndroidAudioRendererTest {
+    @Test public void onlyJitterGapsGrowTheAAudioReserve() {
+        // nativeAudioStats: 6 underruns, 2 of them jitter gaps, 4 stalls. Growing on every underrun took
+        // the Retroid's reserve to its 32 ms limit on Wi-Fi stalls it never covered.
+        int[] stats = new int[13];
+        stats[6] = 6;
+        stats[AndroidAudioRenderer.STAT_JITTER_GAPS] = 2;
+        stats[AndroidAudioRenderer.STAT_STALLS] = 4;
+        assertEquals(11, AndroidAudioRenderer.STAT_JITTER_GAPS);
+        assertEquals(12, AndroidAudioRenderer.STAT_STALLS);
+        assertEquals(2, AndroidAudioRenderer.reserveStarvations(stats));
+    }
+
     @Test public void headsetMixKeepsLeftRightAndCenterInTheirCorrectChannels() {
         for (int channels : new int[] {6, 8}) {
             short[][] expected = {{1000, 0}, {0, 1000}, {707, 707}, {0, 0},
@@ -35,6 +47,18 @@ public class AndroidAudioRendererTest {
                 AndroidAudioRenderer.downmixStereo(input, input.length, channels, stereo);
                 assertArrayEquals(expected[channel], stereo);
             }
+        }
+    }
+
+    @Test public void headsetMixKeepsTheHeightsOfSevenOneFourOnTheirSides() {
+        // TFL TFR TBL TBR follow the 7.1 bed.
+        short[][] heights = {{707, 0}, {0, 707}, {707, 0}, {0, 707}};
+        for (int height = 0; height < 4; height++) {
+            short[] input = new short[12];
+            input[8 + height] = 1000;
+            short[] stereo = new short[2];
+            AndroidAudioRenderer.downmixStereo(input, input.length, 12, stereo);
+            assertArrayEquals(heights[height], stereo);
         }
     }
 

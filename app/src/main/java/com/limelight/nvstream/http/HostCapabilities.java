@@ -43,6 +43,8 @@ public final class HostCapabilities {
         VIRTUAL_DISPLAY(R.string.host_feature_virtual_display),
         VIRTUAL_DISPLAY_HDR(R.string.host_feature_virtual_display_hdr),
         HOST_DISPLAY_MODES(R.string.host_feature_display_modes),
+        /** The device sets its virtual display's Windows scale (rlDisplayScale, DisplayScaleVersion); older hosts ignore it. */
+        DISPLAY_SCALE(R.string.host_feature_display_scale),
         FRACTIONAL_REFRESH(R.string.host_feature_fractional_refresh),
         HOST_VRR(R.string.host_feature_vrr),
         RUNTIME_BITRATE(R.string.host_feature_runtime_bitrate),
@@ -572,6 +574,8 @@ public final class HostCapabilities {
         int keyboardLayoutVersion = -1;
         int penBarrelRollVersion = -1;
         int pipelineRatesVersion = -1;
+        /** -1 without DisplayScaleVersion: the host ignores rlDisplayScale. */
+        int displayScaleVersion = -1;
         /** usb, clipboard.image and folders in the native features, and this device's usb and shared_folders. */
         boolean usbOffered;
         boolean usbPermission;
@@ -679,6 +683,9 @@ public final class HostCapabilities {
                         break;
                     case "PipelineRatesVersion":
                         evidence.pipelineRatesVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "DisplayScaleVersion":
+                        evidence.displayScaleVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "NativeApiVersion":
                         evidence.nativeApiVersion = (int) unsigned(parser.nextText(), 0xFFFF);
@@ -797,6 +804,10 @@ public final class HostCapabilities {
                     if (!versionAtLeast(parseRubylightVersion(rustHostVersion), HOST_DISPLAY_MODES_VERSION)) {
                         return Availability.unsupported(Reason.UPDATE_HOST);
                     }
+                    return virtualDisplay();
+                case DISPLAY_SCALE:
+                    if (rustHostVersion == null) return absent(false);
+                    if (displayScaleVersion < 1) return Availability.unsupported(Reason.UPDATE_HOST);
                     return virtualDisplay();
                 case FRACTIONAL_REFRESH:
                     // Rubylight, Apollo and Vibepollo read "59.94"; Sunshine truncates it to 59.
@@ -977,7 +988,8 @@ public final class HostCapabilities {
                     .put("audioLayouts", audioLayouts).put("textInputVersion", textInputVersion)
                     .put("keyboardLayoutVersion", keyboardLayoutVersion)
                     .put("penBarrelRollVersion", penBarrelRollVersion)
-                    .put("pipelineRatesVersion", pipelineRatesVersion).put("usbOffered", usbOffered)
+                    .put("pipelineRatesVersion", pipelineRatesVersion)
+                    .put("displayScaleVersion", displayScaleVersion).put("usbOffered", usbOffered)
                     .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
                     .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission)
                     .put("coopOffered", coopOffered);
@@ -1030,6 +1042,7 @@ public final class HostCapabilities {
             evidence.keyboardLayoutVersion = object.optInt("keyboardLayoutVersion", -1);
             evidence.penBarrelRollVersion = object.optInt("penBarrelRollVersion", -1);
             evidence.pipelineRatesVersion = object.optInt("pipelineRatesVersion", -1);
+            evidence.displayScaleVersion = object.optInt("displayScaleVersion", -1);
             evidence.usbOffered = object.optBoolean("usbOffered", false);
             evidence.usbPermission = object.optBoolean("usbPermission", false);
             evidence.imageClipboardOffered = object.optBoolean("imageClipboardOffered", false);
@@ -1077,7 +1090,8 @@ public final class HostCapabilities {
                     audioCodecs == that.audioCodecs && audioLayouts == that.audioLayouts &&
                     textInputVersion == that.textInputVersion && keyboardLayoutVersion == that.keyboardLayoutVersion &&
                     penBarrelRollVersion == that.penBarrelRollVersion &&
-                    pipelineRatesVersion == that.pipelineRatesVersion && usbOffered == that.usbOffered &&
+                    pipelineRatesVersion == that.pipelineRatesVersion && displayScaleVersion == that.displayScaleVersion &&
+                    usbOffered == that.usbOffered &&
                     usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
                     foldersOffered == that.foldersOffered && folderPermission == that.folderPermission &&
                     coopOffered == that.coopOffered;
@@ -1092,8 +1106,8 @@ public final class HostCapabilities {
                     nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
-                    penBarrelRollVersion, pipelineRatesVersion, usbOffered, usbPermission, imageClipboardOffered,
-                    foldersOffered, folderPermission, coopOffered);
+                    penBarrelRollVersion, pipelineRatesVersion, displayScaleVersion, usbOffered, usbPermission,
+                    imageClipboardOffered, foldersOffered, folderPermission, coopOffered);
         }
     }
 }

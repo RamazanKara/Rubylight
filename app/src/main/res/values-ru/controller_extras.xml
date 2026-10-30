@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Перемещение мыши с фиксированным шагом</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">В режиме мыши на контроллере удерживайте X при движении стика, чтобы указатель смещался на фиксированное число пикселей. Нажмите Y, чтобы удвоить шаг: от 1 до 128 пикселей, затем снова 1.</string>
     <string name="stream_mouse_step">Шаг мыши: %1$d пкс</string>
+    <string name="title_checkbox_capture_system_keys">Отправлять системные клавиши</string>
+    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, клавиша Windows и подобные уходят на ПК, пока ввод захвачен, как и клавиша «Назад», которая на многих клавиатурах для Android стоит вместо Esc. Alt+Tab и клавишу Windows Android отдаёт приложению только начиная с Android 16 QPR2 (декабрь 2025) и на многих устройствах Samsung; в остальных случаях оставляет себе. «Домой», питание и громкость всегда остаются за Android. Меню потока открывается сочетанием Ctrl+Alt+Shift+M либо жестом или кнопкой «Назад» Android. Со следующего потока.</string>
     <string name="title_checkbox_back_as_meta">«Назад» на клавиатуре как клавиша Windows</string>
     <string name="summary_checkbox_back_as_meta">Клавиша «Назад» на физической клавиатуре отправляет клавишу Windows (Command на Mac). Меню трансляции открывается сочетанием Ctrl+Alt+Shift+M, жестом или кнопкой «Назад» Android либо комбинацией кнопок контроллера.</string>
     <string name="title_checkbox_right_alt_as_meta">Правый Alt как Command</string>

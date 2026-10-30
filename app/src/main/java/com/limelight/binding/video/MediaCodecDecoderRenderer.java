@@ -243,6 +243,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private long bitrateWindowStartNs;
     private long bitrateWindowStartBytes;
     private volatile float receivedVideoMbps = -1;
+    // Every video and audio datagram received, FEC parity included, over the same window.
+    private long wireWindowStartBytes = -1;
+    private volatile float wireMbps = -1;
 
     private final PyroWaveDecoderRenderer pyroWaveRenderer = new PyroWaveDecoderRenderer();
     private volatile int pyroWaveHdrFailure;
@@ -258,6 +261,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile float pyroWaveLossPercent = -1;
     private volatile float pyroWaveQueueDelayMs = -1;
     private final QueueDelayTracker queueDelay = new QueueDelayTracker();
+    /** Frames that arrived late against the host's clock, for the stream doctor's BURSTS vote. */
+    private final com.limelight.utils.LateFrames lateFrames = new com.limelight.utils.LateFrames();
     private volatile float queueDelayMs = -1;
     // Precise decode time: drives adaptive bitrate and quality, the stream doctor and the health dot.
     private volatile float decodeTimeMs = -1;
@@ -319,11 +324,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         public void run() {
             long nowNs = System.nanoTime();
             long bytes = receivedVideoBytes.get();
+            long wireBytes = MoonBridge.getWireBytesReceived();
             if (bitrateWindowStartNs != 0) {
                 receivedVideoMbps = PerformanceOverlay.videoMbps(bytes - bitrateWindowStartBytes, nowNs - bitrateWindowStartNs);
+                wireMbps = wireWindowStartBytes >= 0 && wireBytes >= wireWindowStartBytes
+                        ? PerformanceOverlay.videoMbps(wireBytes - wireWindowStartBytes, nowNs - bitrateWindowStartNs) : -1;
             }
             bitrateWindowStartNs = nowNs;
             bitrateWindowStartBytes = bytes;
+            wireWindowStartBytes = wireBytes;
             thermalLevel = thermalMonitor.level();
             // Forced max clocks on a hot phone only bring on harder throttling.
             if (thermalLevel == ThermalMonitor.HOT && pyroWaveRenderer.hasMaxClocks()) {
@@ -501,6 +510,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return text.toString();
     }
 
+    /** Whether this connection's video started: a frame reached the decoder. */
+    public boolean hasReceivedVideo() {
+        return lastVideoFrameTimeMs != 0;
+    }
+
     public boolean hasRecentVideoFrames(long nowMs) {
         return lastVideoFrameTimeMs != 0 && nowMs - lastVideoFrameTimeMs < 2000;
     }
@@ -535,7 +549,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
                 jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
-                hostReports);
+                hostReports, lateFrames.tick());
+    }
+
+    /**
+     * A health sample that did not run (stream in the background, a host action, the last sample
+     * still running) ends its tick all the same: its late frames must not count in the next sample.
+     */
+    public void skipHealthSample() {
+        lateFrames.tick();
     }
 
     public LatencyProbe getLatencyProbe() {
@@ -1020,6 +1042,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /** The rate the game presents at in millihertz once steady (see HostFrameClock); else 0. */
     public int getContentRateMilliHz() {
         return hostFrameClock.contentRateMilliHz();
+    }
+
+    /** The overlay's received, rendered and compositor-confirmed FPS (-1 when unreported) now. */
+    public float[] getFrameRates() {
+        return frameLatencyStats.getFrameRates(System.nanoTime());
     }
 
     public com.limelight.nvstream.DecodeTiming takeDecodeTiming(int fps) {
@@ -4159,9 +4186,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 video.append(" 10-bit");
             }
             Locale locale = context.getResources().getConfiguration().locale;
+            String wire = PerformanceOverlay.wireText(context, wireMbps);
             String network = context.getString(R.string.stats_throughput,
                     PerformanceOverlay.measurement(locale, receivedVideoMbps, "%.1f"),
                     PerformanceOverlay.measurement(locale, fps.lossPercent, "%.2f")) + '\n' +
+                    (wire != null ? wire + '\n' : "") +
                     context.getString(R.string.stats_network,
                             PerformanceOverlay.measurement(locale, networkMs, "%.0f"),
                             PerformanceOverlay.measurement(locale, varianceMs, "%.0f"));
@@ -4197,7 +4226,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             double[][] timings = latencySummary;
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
                     PerformanceOverlay.statisticsText(context, stream, PerformanceOverlay.renderedFps(frameRates),
-                            frameRates[0], receivedVideoMbps, fps.lossPercent,
+                            frameRates[0], receivedVideoMbps, wireMbps, fps.lossPercent,
                             networkMs, varianceMs, shownHostProcessingMs,
                             PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
                             frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
@@ -4258,6 +4287,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         if (frameNumber != lastFrameNumber) {
             queueDelay.onFrame(receiveTimeUs, presentationTimeUs, frameHostProcessingLatency * 100L);
+            lateFrames.push(presentationTimeUs, frameHostProcessingLatency * 100L, receiveTimeUs, (streamFrameRateMilliHz + 500) / 1000);
         }
         lastFrameNumber = frameNumber;
 
@@ -4805,6 +4835,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         RendererException(MediaCodecDecoderRenderer renderer, Exception e) {
             super(e);
             this.text = generateText(renderer, e);
+        }
+
+        // Logs and crash reporters read getMessage() and the cause, not toString() (from V+ fefc9db).
+        @Override
+        public String getMessage() {
+            return text;
         }
 
         public String toString() {

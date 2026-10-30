@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">Nachtmodus</string>
+    <string name="stream_headphone_surround">Kopfhörer-Surround</string>
+    <string name="stream_audio_next_stream">Gilt ab dem nächsten Stream</string>
+    <string name="stream_audio_failed">Der Ton des PCs ließ sich nicht ändern: %1$s</string>
+    <string name="stream_audio_unread">Die Toneinstellungen des PCs ließen sich nicht lesen</string>
+</resources>

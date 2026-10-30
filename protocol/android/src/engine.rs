@@ -10,7 +10,7 @@ use nightjar_core::control::clipboard_sync::{ClipboardItem, ClipboardSync, Local
 use nightjar_core::control::ClientMessage;
 use nightjar_core::rtsp::MicrophoneState;
 use nightjar_core::sdp::{self, StreamConfig};
-use nightjar_core::session::{HostInfo, Interrupt, NetworkHint, Session, SessionConfig};
+use nightjar_core::session::{HostInfo, Interrupt, NetworkChange, NetworkHint, Session, SessionConfig};
 use rubylight_protocol::clipboard_sync::{Frame, CLIPBOARD_SYNC_MESSAGE_TYPE};
 use rubylight_protocol::control::ClockSyncReply;
 use rubylight_protocol::present_clock::{Grid, GridSchedule, PresentClock, Schedule, Settings};
@@ -114,10 +114,12 @@ pub fn send(message: ClientMessage) -> bool {
     with_session(false, |s| s.send(message).is_ok())
 }
 
-/// The default network changed (`RustBridge.networkChanged`): whether a roam started.
-/// False without a stream.
-pub fn network_changed(metered: bool) -> bool {
-    with_session(false, |s| s.network_changed(NetworkHint { metered }))
+/// The default network changed (`RustBridge.networkChanged`): what it means for the stream.
+/// Carries on without a stream: nothing to reconnect.
+pub fn network_changed(metered: bool) -> NetworkChange {
+    with_session(NetworkChange::CarriesOn, |s| {
+        s.network_changed(NetworkHint { metered })
+    })
 }
 
 /// What `MoonBridge.startConnection` passes, minus what only the C engine uses.
@@ -675,8 +677,8 @@ mod tests {
         let _serial = lock(&ENGINE_TESTS);
         stop();
         // The network callback can fire after the stream ended; it must not panic or roam.
-        assert!(!network_changed(false));
-        assert!(!network_changed(true));
+        assert_eq!(network_changed(false), NetworkChange::CarriesOn);
+        assert_eq!(network_changed(true), NetworkChange::CarriesOn);
     }
 
     #[test]

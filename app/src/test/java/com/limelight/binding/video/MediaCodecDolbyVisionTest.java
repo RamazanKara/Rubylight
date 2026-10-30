@@ -10,6 +10,7 @@ import android.media.MediaFormat;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -39,6 +40,7 @@ public class MediaCodecDolbyVisionTest {
     @Before
     public void setUp() {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        MediaCodecHelper.forgetCodecList();
         ShadowMediaCodecList.addCodec(decoder("c2.mtk.avc.decoder", "video/avc", CodecProfileLevel.AVCProfileHigh));
         ShadowMediaCodecList.addCodec(decoder("c2.mtk.hevc.decoder", "video/hevc", CodecProfileLevel.HEVCProfileMain10));
         ShadowMediaCodecList.addCodec(decoder("c2.mtk.av1.decoder", "video/av01", CodecProfileLevel.AV1ProfileMain10));
@@ -46,6 +48,11 @@ public class MediaCodecDolbyVisionTest {
                 CodecProfileLevel.DolbyVisionProfileDvheSt));
         ShadowMediaCodecList.addCodec(decoder(PROFILE_10, HdrFormatPolicy.MIME_DOLBY_VISION,
                 CodecProfileLevel.DolbyVisionProfileDvav110));
+    }
+
+    @After
+    public void tearDown() {
+        MediaCodecHelper.forgetCodecList();
     }
 
     private static MediaCodecInfo decoder(String name, String mime, int profile) {

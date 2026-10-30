@@ -4,6 +4,7 @@ import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
+import com.limelight.utils.HdrBrightness;
 
 public class StreamConfiguration {
     public static final int INVALID_APP_ID = 0;
@@ -24,6 +25,8 @@ public class StreamConfiguration {
     private int clientRefreshRateX100;
     private boolean virtualDisplay;
     private int virtualDisplayScale = 100;
+    // The virtual display's Windows scale (rlDisplayScale); 0 keeps the PC's own.
+    private int virtualDisplayDpi;
     private boolean vrr;
     // Asks a Rubylight PC for clipboard sync (0x5508).
     private boolean clipboardSync;
@@ -32,9 +35,14 @@ public class StreamConfiguration {
     // The video FEC to ask a PC that lets the client choose; null sends nothing.
     private FecChoice fecChoice;
     private boolean rateChange;
+    private HdrBrightness displayLuminance;
     private int bitrate;
     // The bitrate is the automatic one: a new stream may time the link and start lower.
     private boolean probeFirstBitrate;
+    // The user did not choose the bitrate, so a PyroWave stream starts at PyroWave's own default.
+    private boolean automaticBitrate;
+    // This client's cap on the bitrate (the mobile data limit), 0 for none; PyroWave's start stays under it.
+    private int bitrateLimitKbps;
     private boolean sops;
     private boolean enableAdaptiveResolution;
     private boolean playLocalAudio;
@@ -111,6 +119,18 @@ public class StreamConfiguration {
             return this;
         }
 
+        /** The bitrate above is the automatic one for a conventional codec; PyroWave starts at its own. */
+        public StreamConfiguration.Builder setAutomaticBitrate(boolean automatic) {
+            config.automaticBitrate = automatic;
+            return this;
+        }
+
+        /** This client's cap on the bitrate, 0 for none: PyroWave's default or floor never starts above it. */
+        public StreamConfiguration.Builder setBitrateLimit(int kbps) {
+            config.bitrateLimitKbps = kbps;
+            return this;
+        }
+
         public StreamConfiguration.Builder setFecChoice(FecChoice choice) {
             config.fecChoice = choice;
             return this;
@@ -119,6 +139,12 @@ public class StreamConfiguration {
         /** Asks for mid-stream rate changes (0x553C), which only the Rust engine sends. */
         public StreamConfiguration.Builder setRateChange(boolean rateChange) {
             config.rateChange = rateChange;
+            return this;
+        }
+
+        /** The output's luminance for hosts that read it at launch; null leaves it to the host. */
+        public StreamConfiguration.Builder setDisplayLuminance(HdrBrightness luminance) {
+            config.displayLuminance = luminance;
             return this;
         }
 
@@ -170,6 +196,11 @@ public class StreamConfiguration {
         public StreamConfiguration.Builder setVirtualDisplay(boolean enabled, int scale) {
             config.virtualDisplay = enabled;
             config.virtualDisplayScale = scale;
+            return this;
+        }
+
+        public StreamConfiguration.Builder setVirtualDisplayDpi(int percent) {
+            config.virtualDisplayDpi = percent;
             return this;
         }
 
@@ -269,12 +300,24 @@ public class StreamConfiguration {
         return probeFirstBitrate;
     }
 
+    public boolean isAutomaticBitrate() {
+        return automaticBitrate;
+    }
+
+    public int getBitrateLimitKbps() {
+        return bitrateLimitKbps;
+    }
+
     public FecChoice getFecChoice() {
         return fecChoice;
     }
 
     public boolean getRateChange() {
         return rateChange;
+    }
+
+    public HdrBrightness getDisplayLuminance() {
+        return displayLuminance;
     }
 
     public int getMaxPacketSize() {
@@ -312,6 +355,11 @@ public class StreamConfiguration {
     public MoonBridge.AudioConfiguration getAudioConfiguration() {
         return audioConfiguration;
     }
+
+    /** The audio this host is asked for once its serverinfo is read (Surround714.forHost). */
+    public void setHostAudioConfiguration(MoonBridge.AudioConfiguration audioConfig) {
+        this.audioConfiguration = audioConfig;
+    }
     
     public int getSupportedVideoFormats() {
         return supportedVideoFormats;
@@ -343,6 +391,10 @@ public class StreamConfiguration {
 
     public int getVirtualDisplayScale() {
         return virtualDisplayScale;
+    }
+
+    public int getVirtualDisplayDpi() {
+        return virtualDisplayDpi;
     }
 
     public boolean getVrr() {

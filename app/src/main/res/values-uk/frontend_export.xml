@@ -25,4 +25,12 @@
     <string name="frontend_setup_esde">Перезапустіть ES-DE, щоб завантажити систему Nightjar. Якщо ви пропустили папку налаштувань, виберіть її під час наступного експорту, щоб додати систему та кешовані обкладинки.</string>
     <string name="frontend_setup_daijisho">Створіть платформу для файлів .art в експортованій папці butterpollo. Додайте програвач Android з аргументами intent нижче та проскануйте папку.</string>
     <string name="frontend_setup_pegasus">Використовуйте експортовану папку butterpollo і файли .art. Укажіть команду запуску нижче в метаданих колекції.</string>
+    <string name="frontend_sync_title">%1$s · Синхронізується</string>
+    <string name="frontend_sync_stop">Зупинити синхронізацію</string>
+    <string name="frontend_sync_summary">Синхронізується: %1$s</string>
+    <string name="frontend_sync_note">%1$s оновлює цю папку, коли змінюються ігри на ПК.</string>
+    <string name="frontend_sync_failed">Ігри %1$s для %2$s більше не синхронізуються: папка недоступна. Виберіть її знову в налаштуваннях ПК.</string>
+    <string name="frontend_sync_failed_message">Папка недоступна, тому ці ігри більше не синхронізуються. Виберіть її знову або зупиніть синхронізацію.</string>
+    <string name="frontend_sync_failed_summary">Синхронізацію зупинено, папка недоступна: %1$s</string>
+    <string name="frontend_sync_unavailable">%1$s не може синхронізувати цю папку: доступ до неї дозволено лише цього разу. Виберіть папку на пристрої або SD-картці, щоб вона залишалася актуальною.</string>
 </resources>

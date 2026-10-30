@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_list_gamepad_quit_combo">Kombinacja wyjścia na kontrolerze</string>
+    <string name="summary_list_gamepad_quit_combo">Przytrzymaj te przyciski, aby opuścić strumień; kończy się po puszczeniu wszystkich. Wyłączone zostawia to menu strumienia, które otwiera Start+Select+LB+RB. Od następnego strumienia.</string>
+    <string name="gamepad_quit_combo_off">Wyłączone</string>
+    <string name="stream_controller_mouse">Mysz z kontrolera</string>
+</resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Fehlerkorrektur</string>
-    <string name="summary_fec_choice">Wie viele Wiederherstellungsdaten ein Rubylight-PC dem Video hinzufügt. Automatisch richtet sich nach den Verlusten dieses Geräts. Andere PCs nutzen ihre eigene Einstellung.</string>
+    <string name="summary_fec_choice">Wie viele Wiederherstellungsdaten der PC dem Video hinzufügt. Automatisch richtet sich nach den Verlusten dieses Geräts. PCs, die diese Wahl nicht übernehmen, nutzen ihre eigene Einstellung.</string>
     <string name="fec_choice_host">Einstellung des PCs</string>
     <string name="fec_choice_auto">Automatisch</string>
     <string name="title_link_probe">Verbindungstest vor der ersten Bitrate</string>

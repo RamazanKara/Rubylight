@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Korekcja błędów</string>
-    <string name="summary_fec_choice">Ile danych naprawczych komputer z Rubylight dodaje do obrazu. Automatycznie dopasowuje się do strat tego urządzenia. Inne komputery używają własnych ustawień.</string>
+    <string name="summary_fec_choice">Ile danych naprawczych komputer dodaje do obrazu. Automatycznie dopasowuje się do strat tego urządzenia. Komputery, które nie obsługują tego wyboru, używają własnych ustawień.</string>
     <string name="fec_choice_host">Ustawienie komputera</string>
     <string name="fec_choice_auto">Automatycznie</string>
     <string name="title_link_probe">Test łącza przed pierwszą przepływnością</string>

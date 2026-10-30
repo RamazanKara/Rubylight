@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Corrección de errores</string>
-    <string name="summary_fec_choice">Cuántos datos de recuperación añade un PC con Rubylight al vídeo. Automático se ajusta a las pérdidas de este dispositivo. Otros PC usan su propia configuración.</string>
+    <string name="summary_fec_choice">Cuántos datos de recuperación añade el PC al vídeo. Automático se ajusta a las pérdidas de este dispositivo. Los PC que no admiten esta opción usan su propia configuración.</string>
     <string name="fec_choice_host">Configuración del PC</string>
     <string name="fec_choice_auto">Automático</string>
     <string name="title_link_probe">Prueba de conexión antes de la primera tasa de bits</string>

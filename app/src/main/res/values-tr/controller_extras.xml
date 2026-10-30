@@ -6,6 +6,8 @@
     <string name="title_checkbox_mouse_emulation_fixed_step">Sabit adımlı fare hareketi</string>
     <string name="summary_checkbox_mouse_emulation_fixed_step">Kumandayla fare modunda, imleci her seferinde sabit sayıda piksel hareket ettirmek için çubuğu hareket ettirirken X’e basılı tutun. Adımı iki katına çıkarmak için Y’ye basın; 1’den 128 piksele kadar çıkar, sonra yeniden 1 olur.</string>
     <string name="stream_mouse_step">Fare adımı: %1$d px</string>
+    <string name="title_checkbox_capture_system_keys">Sistem tuşlarını gönder</string>
+    <string name="summary_checkbox_capture_system_keys">Giriş yakalanırken Esc, Alt+Tab, Windows tuşu ve benzerleri PC’ye gider; birçok Android klavyesinde Esc yerine bulunan Geri tuşu da Esc olarak gider. Android, Alt+Tab ve Windows tuşunu yalnızca Android 16 QPR2 (Aralık 2025) ve sonrasında ve birçok Samsung cihazında uygulamaya bırakır; diğerlerinde kendisi kullanır. Ana ekran, güç ve ses tuşları her zaman Android’de kalır. Yayın menüsünü Ctrl+Alt+Shift+M ya da Android’in Geri hareketi veya düğmesiyle açın. Sonraki yayında uygulanır.</string>
     <string name="title_checkbox_back_as_meta">Klavyedeki Geri tuşu Windows tuşu gönderir</string>
     <string name="summary_checkbox_back_as_meta">Fiziksel klavyedeki Geri tuşu Windows tuşunu (Mac’te Command) gönderir. Yayın menüsünü Ctrl+Alt+Shift+M, Android’in Geri hareketi veya düğmesi ya da kumanda tuş kombinasyonuyla açın.</string>
     <string name="title_checkbox_right_alt_as_meta">Sağ Alt Command olarak</string>

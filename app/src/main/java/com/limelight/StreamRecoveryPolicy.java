@@ -25,6 +25,11 @@ final class StreamRecoveryPolicy {
         return DELAYS_MS[attempts++];
     }
 
+    /** Whether nextDelay would allow an attempt now, spending none. */
+    boolean allowsAttempt(long now, long connectedAt) {
+        return new StreamRecoveryPolicy(attempts, startedAt).nextDelay(now, connectedAt) >= 0;
+    }
+
     void resetAfterStableConnection(long now, long connectedAt) {
         // Briefly starting a stream must not give a flapping connection an unlimited budget.
         if (connectedAt >= 0 && now - connectedAt >= STABLE_MS) {
@@ -45,6 +50,16 @@ final class StreamRecoveryPolicy {
 
     int attempts() { return attempts; }
     long startedAt() { return startedAt; }
+
+    /**
+     * Whether a stream that ended with {@code code} reconnects on its own: a transient failure of a
+     * connection whose video started. One that never had video failed to start (most often a
+     * firewall on the media ports); retrying would hide why for up to a minute. Ported from
+     * Moonlight V+ PC (qiin2333/moonlight-qt 6792aeed).
+     */
+    static boolean recoversTermination(int code, boolean videoStarted) {
+        return videoStarted && transientTermination(code);
+    }
 
     static boolean transientTermination(int code) {
         // Native media timeouts and explicit transport errors. In particular, graceful (0),

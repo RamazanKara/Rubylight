@@ -29,6 +29,9 @@ pub enum AudioChannels {
     Stereo,
     Surround51,
     Surround71,
+    /// Offered where the output plays it (`stream::offers_714`); asked for only from a PC that
+    /// reports it.
+    Surround714,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +74,24 @@ pub enum AnalogScrolling {
     Left,
 }
 
+/// The controller chord that leaves the stream (V+ PC's gamepad quit combo, ported as is). The
+/// alternatives are for controllers or games where Start+Select+LB+RB is taken.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GamepadQuitCombo {
+    #[default]
+    StartSelectLbRb,
+    SelectLbRbY,
+    StartLbRbA,
+    StartLbRbB,
+    LbRbXY,
+    LbRbAB,
+}
+
+impl GamepadQuitCombo {
+    /// Their names follow the connected controller (`glyphs::Style::quit_combo`).
+    pub const ALL: [Self; 6] = [Self::StartSelectLbRb, Self::SelectLbRbY, Self::StartLbRbA, Self::StartLbRbB, Self::LbRbXY, Self::LbRbAB];
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecoderPreference {
     Auto,
@@ -98,6 +119,66 @@ impl PyroWaveDecoder {
     }
 }
 
+/// Frame pacing without VRR, Android's `frame_pacing` (`FramePacingPolicy`): how decoded pictures
+/// wait for the display. `stream::present` applies it; with VRR it does not apply, as on Android.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FramePacing {
+    /// The pacing before this setting: the newest picture at each refresh, or each picture at once
+    /// with V-Sync off. Adds no delay.
+    #[default]
+    Latency,
+    /// V-Sync whatever the V-Sync setting says: the newest picture at each refresh, no tearing.
+    Balanced,
+    /// V-Sync, and no more pictures a second than the stream's frame rate: a picture that comes
+    /// early waits for its slot (at most one frame) instead of replacing the one before it.
+    CapFps,
+    /// V-Sync, every picture in turn, one a refresh: a picture is skipped only once it is more
+    /// than a frame old and a newer one is due.
+    Smoothness,
+}
+
+impl FramePacing {
+    pub const ALL: [Self; 4] = [Self::Latency, Self::Balanced, Self::CapFps, Self::Smoothness];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Latency => en("Lowest latency"),
+            Self::Balanced => en("Balanced"),
+            Self::CapFps => en("Balanced with FPS limit"),
+            Self::Smoothness => en("Smoothest video (more delay)"),
+        }
+    }
+
+    /// Every mode but `Latency` waits for the refresh.
+    pub fn forces_vsync(self) -> bool {
+        self != Self::Latency
+    }
+}
+
+/// Microphone echo cancellation, Android's `list_mic_echo_cancel` (`MicProcessing.Echo`):
+/// automatic leaves it off only when this device plays through headphones or a headset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MicEcho {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl MicEcho {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::On, Self::Off];
+
+    pub fn label(self) -> &'static str {
+        match self { Self::Auto => en("Automatic"), Self::On => en("On"), Self::Off => en("Off") }
+    }
+
+    /// Whether echo cancellation runs: `private_output` is a playback device that keeps the
+    /// stream's sound out of the microphone (headphones, a headset), when that is known.
+    pub fn wanted(self, private_output: bool) -> bool {
+        self == Self::On || (self == Self::Auto && !private_output)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QualityMode {
     #[default]
@@ -113,11 +194,19 @@ pub enum Upscaling {
     Bilinear,
     Fsr1,
     Sgsr1,
+    /// The GPU vendor's video super resolution and, on NVIDIA, RTX Video HDR (`stream::enhance`);
+    /// offered only where the probe finds them (Direct3D 11).
+    Ai,
 }
 
 impl Upscaling {
     pub fn label(self) -> &'static str {
-        match self { Self::Bilinear => "Bilinear", Self::Fsr1 => "FSR 1", Self::Sgsr1 => "SGSR 1" }
+        match self { Self::Bilinear => "Bilinear", Self::Fsr1 => "FSR 1", Self::Sgsr1 => "SGSR 1", Self::Ai => en("AI enhancement") }
+    }
+
+    /// The shader upscalers (`stream::upscale`), which take the sharpness setting.
+    pub fn is_shader(self) -> bool {
+        matches!(self, Self::Fsr1 | Self::Sgsr1)
     }
 }
 
@@ -172,6 +261,8 @@ pub struct Settings {
     pub present_at_host_times: bool,
     /// Without VRR: wait for the display's refresh (no tearing).
     pub vsync: bool,
+    /// Without VRR: how pictures wait for the display (Android's `frame_pacing`).
+    pub frame_pacing: FramePacing,
     /// The performance overlay is on (Android's `checkbox_enable_perf_overlay`), showing
     /// `overlay_mode` in the `overlay_position` corner. The stream menu and its shortcut change
     /// these and keep them.
@@ -181,6 +272,9 @@ pub struct Settings {
     pub mouse_mode: MouseMode,
     pub mouse_speed: u32,
     pub mouse_nav_buttons: bool,
+    /// Windows: a precision touchpad's fingers go to a PC that takes touchpad contacts
+    /// (Foundation Sunshine) instead of the pointer Windows makes of them.
+    pub native_touchpad: bool,
     pub right_alt_as_meta: bool,
     /// Send Alt+Tab, the Windows key and similar to the host while the stream has focus.
     pub capture_system_keys: bool,
@@ -190,6 +284,7 @@ pub struct Settings {
     pub controller_motion: bool,
     pub controller_audio: bool,
     pub back_opens_menu: bool,
+    pub gamepad_quit_combo: GamepadQuitCombo,
     pub controller_mouse: bool,
     pub analog_scrolling: AnalogScrolling,
     pub mouse_fixed_step: bool,
@@ -218,6 +313,8 @@ pub struct Settings {
     /// better on every leg, docs/pyrowave-decode.md) or on the CPU.
     pub pyrowave_decoder: PyroWaveDecoder,
     pub microphone: bool,
+    /// Echo cancellation on the microphone (`stream::microphone`), automatic by default.
+    pub mic_echo_cancel: MicEcho,
     pub cursor_shapes: bool,
     pub network_grace_ms: u32,
     /// Client roaming (Experimental): keep the stream when this device changes networks, with a
@@ -258,6 +355,11 @@ pub struct Settings {
     /// offered up to 300 %.
     #[serde(deserialize_with = "render_scale")]
     pub virtual_display_scale: u32,
+    /// "PC display scaling": the Windows scale (text and interface size) of the virtual
+    /// display, in percent (`rlDisplayScale`); 0 keeps the PC's own setting. A saved scale
+    /// Windows does not offer reads as 0, as on Android: the PC would refuse the launch.
+    #[serde(deserialize_with = "display_scale")]
+    pub virtual_display_dpi: u32,
     pub host_display: HostDisplay,
     /// The video FEC asked for at launch from a PC that lets the client choose it.
     pub error_correction: ErrorCorrection,
@@ -284,6 +386,8 @@ pub struct Settings {
     pub high_contrast: bool,
     pub reduce_motion: ReduceMotion,
     pub language: Language,
+    /// Windows: look for a newer stable release once per launch (update_check.rs).
+    pub check_updates: bool,
 }
 
 /// The launcher's sizes in percent, smallest first (the same steps as Nightjar Android).
@@ -408,8 +512,9 @@ impl From<HostDisplay> for nightjar_core::http::HostDisplay {
     }
 }
 
-/// The video FEC this client asks for (`rlFecPercentage`): the PC's own, automatic from this
-/// device's loss reports, or a fixed share. Other PCs keep their own.
+/// The video FEC this client asks for (`rlFecPercentage` from Rubylight, `x-ml-video.fecPercentage`
+/// from Foundation Sunshine, at most 100 %): the PC's own, automatic from this device's loss
+/// reports, or a fixed share. Other PCs keep their own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ErrorCorrection {
     #[default]
@@ -438,6 +543,15 @@ pub const RENDER_SCALE: std::ops::RangeInclusive<u32> = 50..=200;
 
 fn render_scale<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
     Ok(u32::deserialize(deserializer)?.clamp(*RENDER_SCALE.start(), *RENDER_SCALE.end()))
+}
+
+/// The Windows scales "PC display scaling" offers in percent; 0 keeps the PC's own
+/// (`rlDisplayScale`, Android's `VIRTUAL_DISPLAY_DPI_VALUES`).
+pub const DISPLAY_SCALES: [u32; 13] = [0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
+
+fn display_scale<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+    let percent = u32::deserialize(deserializer)?;
+    Ok(if DISPLAY_SCALES.contains(&percent) { percent } else { 0 })
 }
 
 impl Settings {
@@ -475,12 +589,14 @@ impl Default for Settings {
             vrr: true,
             present_at_host_times: false,
             vsync: true,
+            frame_pacing: FramePacing::Latency,
             overlay: false,
             overlay_mode: OverlayMode::Compact,
             overlay_position: OverlayCorner::TopLeft,
             mouse_mode: MouseMode::Capture,
             mouse_speed: 100,
             mouse_nav_buttons: true,
+            native_touchpad: false,
             right_alt_as_meta: false,
             capture_system_keys: true,
             controllers: true,
@@ -488,6 +604,7 @@ impl Default for Settings {
             controller_motion: true,
             controller_audio: false,
             back_opens_menu: false,
+            gamepad_quit_combo: GamepadQuitCombo::StartSelectLbRb,
             controller_mouse: true,
             analog_scrolling: AnalogScrolling::Right,
             mouse_fixed_step: false,
@@ -500,6 +617,7 @@ impl Default for Settings {
             beam_race_margin_ms: 0,
             pyrowave_decoder: PyroWaveDecoder::default(),
             microphone: false,
+            mic_echo_cancel: MicEcho::Auto,
             cursor_shapes: true,
             network_grace_ms: 3000,
             client_roaming: true,
@@ -514,6 +632,7 @@ impl Default for Settings {
             auto_reconnect_default_on: true,
             virtual_display: false,
             virtual_display_scale: 100,
+            virtual_display_dpi: 0,
             host_display: HostDisplay::HostDefault,
             error_correction: ErrorCorrection::Host,
             link_probe: false,
@@ -527,6 +646,7 @@ impl Default for Settings {
             high_contrast: false,
             reduce_motion: ReduceMotion::System,
             language: Language::System,
+            check_updates: true,
         }
     }
 }
@@ -576,6 +696,13 @@ pub struct HostRecord {
     pub http_port: u16,
     pub https_port: u16,
     pub other_addresses: Vec<String>,
+    /// The known address the user chose to always connect through, or None for the automatic
+    /// pick (`address` first, then `other_addresses`), as Moonlight V+ PC's `pinnedAddress`.
+    pub pinned_address: Option<String>,
+    /// The WAN address that reaches the PC from outside its network, tried after the others
+    /// (Moonlight's remote address): the PC's own `ExternalIP`, else this device's STUN answer
+    /// when the PC was found on the LAN.
+    pub remote_address: Option<String>,
     /// The certificate pinned at pairing (PEM); None while unpaired.
     pub server_certificate: Option<String>,
     pub mac: Option<String>,
@@ -871,10 +998,36 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
-    // Write and rename, so a crash never leaves half a file.
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, path)
+    write_private(path, text.as_bytes())
+}
+
+/// Writes `bytes` to `path` whole or not at all: a temporary file of its own name, synced to disk,
+/// then renamed over `path`, so neither a crash nor a second writer leaves half a file. On Unix only
+/// the user can read it (0600): the identity holds the client's private key, the PIN lock its hash.
+pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = path.file_name().ok_or_else(|| std::io::Error::other("no file name"))?.to_string_lossy();
+    let temporary = path.with_file_name(format!("{name}.{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let written = (|| {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&temporary)?;
+        // The mode above is masked by the umask; this sets it as asked.
+        #[cfg(unix)]
+        file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written
 }
 
 /// The platform config directory, or `NIGHTJAR_CONFIG_DIR`. Not created here.
@@ -934,6 +1087,14 @@ impl Store {
             eprintln!("nightjar: ignoring {}: {e}", path.display());
             crate::shortcuts::Shortcuts::default()
         })
+    }
+
+    pub fn window_placement(&self) -> Option<crate::window_place::Placement> {
+        read_json(&self.dir.join("window.json"))
+    }
+
+    pub fn save_window_placement(&self, placement: &crate::window_place::Placement) -> std::io::Result<()> {
+        write_json(&self.dir.join("window.json"), placement)
     }
 
     pub fn save_shortcuts(&self, shortcuts: &crate::shortcuts::Shortcuts) -> std::io::Result<()> {
@@ -1554,6 +1715,22 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_pc_display_scaling_windows_does_not_offer_keeps_the_pcs_own() {
+        let dir = std::env::temp_dir().join(format!("nightjar-display-scale-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        for (saved, read) in [(175, 175), (500, 500), (0, 0), (275, 0), (600, 0), (99, 0)] {
+            std::fs::write(dir.join("settings.json"), format!(r#"{{"virtual_display_dpi": {saved}}}"#)).unwrap();
+            assert_eq!(store.settings().virtual_display_dpi, read, "settings.json at {saved} %");
+            let own: Overrides = serde_json::from_str(&format!(r#"{{"virtual_display_dpi": {saved}}}"#)).unwrap();
+            assert_eq!(own.apply(&Settings::default()).virtual_display_dpi, read, "an override at {saved} %");
+        }
+        // Files from before the setting keep the PC's own scale and the render resolution apart.
+        std::fs::write(dir.join("settings.json"), r#"{"virtual_display_scale": 150}"#).unwrap();
+        assert_eq!((store.settings().virtual_display_dpi, store.settings().virtual_display_scale), (0, 150));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn clipboard_sync_is_off_by_default_and_in_old_files() {
         assert!(!Settings::default().clipboard_sync);
         assert!(!serde_json::from_str::<Settings>("{}").unwrap().clipboard_sync);
@@ -1702,5 +1879,25 @@ mod tests {
         assert!(record.quit_on_leave.is_empty() && !record.quits_on_leave("", 5));
         let old: HostRecord = serde_json::from_str(r#"{"name":"PC"}"#).unwrap();
         assert!(old.quit_on_leave.is_empty());
+    }
+
+    #[test]
+    fn files_are_replaced_whole_and_only_the_user_reads_them() {
+        let dir = std::env::temp_dir().join(format!("nightjar-private-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let store = Store::at(dir.clone()).unwrap();
+        let identity = Identity { unique_id: "id".into(), certificate_pem: "cert".into(), private_key_pem: "key".into() };
+        store.save_identity(&identity).unwrap();
+        store.save_identity(&identity).unwrap();
+        let names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["identity.json"], "no temporary file is left behind");
+        assert!(store.identity().is_some());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join("identity.json")).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "the private key is the user's alone");
+        }
+        std::fs::remove_dir_all(dir).ok();
     }
 }

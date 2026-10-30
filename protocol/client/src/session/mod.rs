@@ -15,19 +15,20 @@
 mod audio;
 mod net;
 mod roam;
+mod trace;
 mod usb;
 mod video;
 
 use std::io;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub use audio::AUDIO_QUEUE_BOUND;
-pub use net::{is_nat64_with, is_private};
-pub use roam::{NetworkHint, RoamingConfig};
+pub use net::{is_nat64_with, is_private, ReceiveBuffer};
+pub use roam::{NetworkChange, NetworkHint, RoamingConfig};
 pub use video::DECODE_UNIT_QUEUE_BOUND;
 
 use crate::audio::{AudioConfig, AudioEncryption, AudioReceiver, AudioStats};
@@ -332,6 +333,9 @@ pub(crate) struct Shared {
     start_gate: Mutex<StartGate>,
     /// "Prioritize stream traffic" ([`SessionConfig::network_priority`]).
     network_priority: bool,
+    /// Bytes of every video and audio datagram received, FEC parity included: what the stream
+    /// takes on the wire ([`Session::wire_bytes`]).
+    wire_bytes: AtomicU64,
 }
 
 enum StartGate {
@@ -347,7 +351,13 @@ impl Shared {
             terminated: AtomicBool::new(false),
             start_gate: Mutex::new(StartGate::Starting(None)),
             network_priority,
+            wire_bytes: AtomicU64::new(0),
         }
+    }
+
+    /// Counts a received video or audio datagram toward [`Session::wire_bytes`].
+    pub(crate) fn received(&self, bytes: usize) {
+        self.wire_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
     /// Reports a termination once, on its own thread, unless the session is stopping. While
@@ -439,12 +449,16 @@ struct Microphone {
 struct Parts {
     shared: Arc<Shared>,
     remote: Option<SocketAddr>,
+    /// The local address toward the host when the session started.
+    local: Option<SocketAddr>,
     outcome: Option<RtspOutcome>,
     audio_socket: Option<UdpSocket>,
     audio_pinger: Option<net::Pinger>,
     /// An input-only session's video pings, with no receive side behind them.
     video_pinger: Option<net::Pinger>,
     video_shared: Option<Arc<video::VideoShared>>,
+    /// The video socket's receive buffer, as asked and as granted.
+    video_receive_buffer: Option<net::ReceiveBuffer>,
     audio_shared: Arc<audio::AudioShared>,
     control: Option<ControlHandle>,
     control_thread: Option<JoinHandle<driver::Outcome>>,
@@ -539,11 +553,13 @@ impl Session {
         let mut parts = Parts {
             shared: Arc::new(Shared::new(listener.clone(), config.network_priority)),
             remote: None,
+            local: None,
             outcome: None,
             audio_socket: None,
             audio_pinger: None,
             video_pinger: None,
             video_shared: None,
+            video_receive_buffer: None,
             audio_shared: Arc::new(audio::AudioShared::default()),
             control: None,
             control_thread: None,
@@ -597,6 +613,18 @@ impl Session {
             .outcome
             .as_ref()
             .expect("a started session has negotiated")
+    }
+
+    /// The video socket's receive buffer as asked and as the OS granted it; None without video
+    /// or when the size could not be read back.
+    pub fn video_receive_buffer(&self) -> Option<ReceiveBuffer> {
+        self.parts.video_receive_buffer
+    }
+
+    /// Bytes of video and audio datagrams received so far, FEC parity included: the stream's
+    /// bandwidth on the wire, as Moonlight V+'s `LiGetRTPVideoBytesReceived` with audio added.
+    pub fn wire_bytes(&self) -> u64 {
+        self.parts.shared.wire_bytes.load(Ordering::Relaxed)
     }
 
     /// `LiGetPendingAudioDuration`: the milliseconds of audio queued for the renderer, counted
@@ -679,12 +707,27 @@ impl Session {
     /// local address toward the host changed; with the same address nothing moves, and a host
     /// that went silent starts its own attempt. On a metered network without
     /// [`RoamingConfig::metered`] roaming holds off and the network grace period decides.
-    /// Returns whether a roam started: false without roaming on both sides.
-    pub fn network_changed(&self, hint: NetworkHint) -> bool {
-        self.parts
-            .roamer
-            .as_ref()
-            .is_some_and(|roamer| roamer.network_changed(hint))
+    /// Returns whether a roam started, else whether the stream's connection carries on: without
+    /// roaming on both sides it does while the route toward the host leaves from the address
+    /// the session started on, or there is no route yet.
+    pub fn network_changed(&self, hint: NetworkHint) -> NetworkChange {
+        if let Some(roamer) = &self.parts.roamer {
+            return roamer.network_changed(hint);
+        }
+        match self.parts.remote {
+            Some(remote) => self.network_changed_on(net::local_address_toward(remote)),
+            None => NetworkChange::CarriesOn,
+        }
+    }
+
+    /// [`Session::network_changed`] without roaming, with the route toward the host given:
+    /// for tests of a route that leaves from another address than the session started on.
+    #[doc(hidden)]
+    pub fn network_changed_on(&self, route: io::Result<SocketAddr>) -> NetworkChange {
+        match self.parts.local {
+            Some(local) => NetworkChange::standing(local, route),
+            None => NetworkChange::CarriesOn,
+        }
     }
 
     /// Simulates a roam (nightjar-cli's `--roam-at`): moves the control and media sockets to
@@ -868,6 +911,7 @@ fn start(
     let local = net::local_address_toward(net::with_port(remote, rtsp_port))
         .map_err(|e| fail(Stage::NameResolution, io_code(&e), e.to_string()))?;
     parts.remote = Some(remote);
+    parts.local = Some(local);
     listener.stage_complete(Stage::NameResolution);
     decide_location(config.location, remote.ip(), &mut config.stream);
 
@@ -987,6 +1031,7 @@ fn start(
     listener.stage_starting(Stage::ControlStreamStart);
     let options = SessionOptions {
         reference_frame_invalidation: outcome.reference_frame_invalidation_enabled(),
+        fec_summaries: outcome.fec_summaries,
     };
     let (client, control) =
         driver::connect(driver_config, caps, &stream.remote_input_aes_key, options).map_err(
@@ -1086,10 +1131,17 @@ fn start(
         if let Err(code) = decoder.setup(&setup) {
             return Err(video_fail(code, "the video decoder setup failed".into()));
         }
-        let socket = match net::bind_udp(local, video_buffer, Qos::Video, config.network_priority, |m| {
+        let socket = match net::bind_udp_sized(local, video_buffer, Qos::Video, config.network_priority, |m| {
             listener.warn(m)
         }) {
-            Ok(socket) => socket,
+            Ok((socket, buffer)) => {
+                if let Some(buffer) = buffer {
+                    let text = buffer.describe("Video");
+                    if buffer.short() { listener.warn(&text) } else { listener.log(&text) }
+                }
+                parts.video_receive_buffer = buffer;
+                socket
+            }
             Err(e) => {
                 decoder.cleanup();
                 return Err(video_fail(io_code(&e), e.to_string()));

@@ -7,6 +7,7 @@ import android.view.View;
 
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.TestHosts;
@@ -314,6 +315,20 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void aConnectedControllerGetsTheControllerMouseSwitch() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse("No controller, no switch", items(StreamMenu.mainPage(options)).contains(CONTROLLER_MOUSE));
+        options.controllerMouseAvailable = true;
+        assertEquals(Arrays.asList(TOUCH_MODE, CONTROLLER_MOUSE, ONSCREEN_CONTROLS, KEYBOARD_KEYS),
+                sections(StreamMenu.mainPage(options)).get(StreamMenu.Section.INPUT));
+        assertEquals(Boolean.FALSE, entry(StreamMenu.mainPage(options), CONTROLLER_MOUSE).checked);
+        options.controllerMouseOn = true;
+        assertEquals(Boolean.TRUE, entry(StreamMenu.mainPage(options), CONTROLLER_MOUSE).checked);
+        options.canSendInput = false;
+        assertFalse("Watching only: nothing to steer", items(StreamMenu.mainPage(options)).contains(CONTROLLER_MOUSE));
+    }
+
+    @Test
     public void deviceStateAddsAndRemovesItsOwnItems() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.mouseConnected = true;
@@ -380,11 +395,18 @@ public class StreamMenuTest {
             withControl.hostMenu = true;
             withControl.usbForwarding = true;
             withControl.imageClipboard = true;
+            withControl.nightModeOffered = withControl.headphoneSurroundOffered = true;
+            try {
+                withControl.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(true, false));
+            } catch (org.json.JSONException e) {
+                throw new AssertionError(e);
+            }
             reachable.addAll(items(StreamMenu.mainPage(withControl)));
             reachable.addAll(items(StreamMenu.nativePage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.micButtonAvailable = options.mouseConnected = options.onscreenControls = options.gameControls = true;
+            options.controllerMouseAvailable = true;
             options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));
@@ -600,6 +622,117 @@ public class StreamMenuTest {
             menu.row(KEYBOARD).performClick();
             menu.row(DISCONNECT).performClick();
             assertEquals(Arrays.asList(OVERLAY, KEYBOARD, DISCONNECT), chosen);
+        }
+    }
+
+    @Test
+    public void theHostsAudioSwitchesShowOnlyWhenOfferedAndChangeableNow() throws Exception {
+        StreamMenu.Options options = options(nativeApiHost(), NvApp.Role.STREAM);
+        options.nightModeOffered = true;
+        options.headphoneSurroundOffered = true;
+        // Until the host answers there is nothing to show.
+        assertFalse(items(StreamMenu.mainPage(options)).contains(NIGHT_MODE));
+        options.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(true, false));
+        List<StreamMenu.Entry> entries = StreamMenu.mainPage(options);
+        List<StreamMenu.Item> quick = sections(entries).get(StreamMenu.Section.QUICK);
+        assertEquals(Arrays.asList(NIGHT_MODE, HEADPHONE_SURROUND), quick.subList(quick.size() - 2, quick.size()));
+        for (StreamMenu.Entry entry : entries) {
+            if (entry.item == NIGHT_MODE) assertEquals("the host's state", Boolean.TRUE, entry.checked);
+            if (entry.item == HEADPHONE_SURROUND) assertEquals(Boolean.FALSE, entry.checked);
+            if (entry.item == NIGHT_MODE || entry.item == HEADPHONE_SURROUND) assertTrue(entry.keepsMenuOpen());
+        }
+
+        // Not offered (the host lacks the feature or this device the permission): no switch, whatever it answered.
+        options.headphoneSurroundOffered = false;
+        assertFalse(items(StreamMenu.mainPage(options)).contains(HEADPHONE_SURROUND));
+        assertTrue(items(StreamMenu.mainPage(options)).contains(NIGHT_MODE));
+        // An answer without the setting leaves it out too.
+        options.headphoneSurroundOffered = true;
+        options.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(false, null));
+        assertFalse(items(StreamMenu.mainPage(options)).contains(HEADPHONE_SURROUND));
+        // Without a stream the host can't change either.
+        options.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.AUDIO_WITHOUT_STREAM);
+        assertFalse(items(StreamMenu.mainPage(options)).contains(NIGHT_MODE));
+        assertFalse(items(StreamMenu.mainPage(options)).contains(HEADPHONE_SURROUND));
+        // Remote Monitor changes nothing on the PC.
+        StreamMenu.Options monitor = options(nativeApiHost(), NvApp.Role.REMOTE_MONITOR);
+        monitor.nightModeOffered = true;
+        monitor.headphoneSurroundOffered = true;
+        monitor.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(true, true));
+        assertFalse(items(StreamMenu.mainPage(monitor)).contains(NIGHT_MODE));
+        assertFalse(items(StreamMenu.mainPage(monitor)).contains(HEADPHONE_SURROUND));
+    }
+
+    @Test
+    public void aFailedAudioReadSaysSoInTheMenu() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options(nativeApiHost(), NvApp.Role.STREAM);
+            state.nightModeOffered = true;
+            state.headphoneSurroundOffered = true;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { });
+            menu.show();
+            assertNull("Nothing while the host has not answered", menu.audioNote());
+
+            // GET /audio failed: no switches, and a line says why.
+            state.hostAudioUnread = true;
+            menu.refresh();
+            assertNull(menu.row(NIGHT_MODE));
+            assertNotNull(menu.audioNote());
+            assertEquals(activity.getString(R.string.stream_audio_unread), menu.audioNote().getText().toString());
+            assertTrue(menu.audioNote().isShown());
+
+            // The next answer that works replaces the line with the switches.
+            state.hostAudioUnread = false;
+            state.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(false, false));
+            menu.refresh();
+            assertNull(menu.audioNote());
+            assertNotNull(menu.row(NIGHT_MODE));
+
+            // Remote Monitor changes nothing on the PC, so it has nothing to say about it either.
+            StreamMenu.Options monitor = options(nativeApiHost(), NvApp.Role.REMOTE_MONITOR);
+            monitor.hostAudioUnread = true;
+            StreamMenu watching = new StreamMenu(activity, () -> monitor, item -> { });
+            watching.show();
+            assertNull(watching.audioNote());
+            menu.sheet().dismiss();
+            watching.sheet().dismiss();
+        }
+    }
+
+    @Test
+    public void theAudioSwitchesAppearWhenTheHostAnswersAndShowItsNewState() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options(nativeApiHost(), NvApp.Role.STREAM);
+            state.nightModeOffered = true;
+            state.headphoneSurroundOffered = true;
+            List<StreamMenu.Item> chosen = new ArrayList<>();
+            StreamMenu menu = new StreamMenu(activity, () -> state, chosen::add);
+            menu.show();
+            assertNull(menu.row(NIGHT_MODE));
+
+            // GET /audio answers after the menu opened.
+            state.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(false, false));
+            menu.refresh();
+            MaterialButton night = menu.row(NIGHT_MODE);
+            assertEquals(activity.getString(R.string.stream_night_mode), night.getText().toString());
+            assertTrue(night.isCheckable());
+            assertFalse(night.isChecked());
+            assertNotNull(menu.row(HEADPHONE_SURROUND));
+
+            // The switch asks; until the host answers it shows the host's state, then the new one in place.
+            night.performClick();
+            assertEquals(Arrays.asList(NIGHT_MODE), chosen);
+            assertTrue(menu.sheet().isShowing());
+            assertFalse(menu.row(NIGHT_MODE).isChecked());
+            state.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(true, false));
+            menu.refresh();
+            assertTrue(menu.row(NIGHT_MODE).isChecked());
+            assertSame("The row is updated, not rebuilt", night, menu.row(NIGHT_MODE));
+            menu.sheet().dismiss();
         }
     }
 

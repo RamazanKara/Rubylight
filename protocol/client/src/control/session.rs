@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use rubylight_protocol::control::ClockSyncRequest;
-use rubylight_protocol::fec_report::FecTally;
+use rubylight_protocol::fec_report::{FecSummaryTally, FecTally};
 
 use super::events::{self, ConnectionStatus, ControlEvent, HdrMetadata};
 use super::messages::{ClientMessage, FrameFecStatus};
@@ -22,6 +22,7 @@ const CONN_IMMEDIATE_POOR_LOSS_RATE: u32 = 30;
 const CONN_CONSECUTIVE_POOR_LOSS_RATE: u32 = 15;
 const CONN_OKAY_LOSS_RATE: u32 = 5;
 const CONN_STATUS_SAMPLE_PERIOD: Duration = Duration::from_millis(3000);
+const FEC_SUMMARY_INTERVAL: Duration = Duration::from_millis(1000);
 
 /// A sealed datagram for ENet.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +60,9 @@ pub struct SessionOptions {
     /// Report lost frames with reference frame invalidation instead of IDR requests, and
     /// acknowledge long-term reference frames to Sunshine hosts.
     pub reference_frame_invalidation: bool,
+    /// Send Foundation Sunshine's once-a-second 0x5510 FEC summary
+    /// (`RtspOutcome::fec_summaries`).
+    pub fec_summaries: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -81,6 +85,14 @@ impl FecReports {
     }
 }
 
+/// Foundation Sunshine's 0x5510 summaries, ported from V+'s ControlStream.c: blocks are counted
+/// at their first final status, and every second on the ping's tick, the first one at once.
+#[derive(Default)]
+struct FecSummaries {
+    tally: FecSummaryTally,
+    last: Option<Instant>,
+}
+
 /// The encrypted control stream of one connection.
 pub struct ControlSession {
     caps: HostCapabilities,
@@ -97,6 +109,7 @@ pub struct ControlSession {
     reference_frames: VecDeque<ReferenceFrameControl>,
     fec_statuses: VecDeque<FrameFecStatus>,
     fec_reports: FecReports,
+    fec_summaries: FecSummaries,
     next_ping: Option<Instant>,
 
     last_good_frame: u32,
@@ -133,6 +146,7 @@ impl ControlSession {
             reference_frames: VecDeque::new(),
             fec_statuses: VecDeque::new(),
             fec_reports: FecReports::default(),
+            fec_summaries: FecSummaries::default(),
             next_ping: None,
             last_good_frame: 0,
             last_seen_frame: 0,
@@ -355,6 +369,15 @@ impl ControlSession {
 
     /// Queues a per-frame FEC report for the next ping (Sunshine only, best effort).
     pub fn frame_fec_status(&mut self, status: FrameFecStatus) {
+        // V+ counts the block toward its 0x5510 summary from the same final status.
+        if self.options.fec_summaries {
+            self.fec_summaries.tally.block(
+                status.frame_index,
+                status.multi_fec_block_index,
+                status.total_data_packets,
+                status.received_data_packets,
+            );
+        }
         if self.caps.is_sunshine() && self.fec_statuses.len() < FEC_STATUS_QUEUE_BOUND {
             self.fec_statuses.push_back(status);
         }
@@ -363,6 +386,14 @@ impl ControlSession {
     /// Counts a finished video FEC block toward the next 0x5539 report, for a host that
     /// announced it.
     pub fn fec_block(&mut self, block: FecBlock, now: Instant) {
+        // A block that completed without a final status (no recovery needed) counts toward the
+        // 0x5510 summary whole; a recovered or given-up one already counted at its status.
+        if self.options.fec_summaries && !block.unrecovered {
+            let data = u16::try_from(block.data_shards).unwrap_or(0);
+            self.fec_summaries
+                .tally
+                .block(block.frame, block.block_index, data, data);
+        }
         if !self.started
             || !self.caps.sunshine_extensions()
             || !self.caps.supports_control_message(ptype::FEC_REPORT)
@@ -381,6 +412,22 @@ impl ControlSession {
         let now_ms = self.fec_reports.ms(now);
         if let Some(report) = self.fec_reports.tally.take(now_ms) {
             self.queue(&ClientMessage::FecReport(report));
+        }
+    }
+
+    /// Queues the 0x5510 summary once a second (see [`FecSummaryTally::take`]).
+    fn flush_fec_summary(&mut self, now: Instant) {
+        if !self.options.fec_summaries
+            || self
+                .fec_summaries
+                .last
+                .is_some_and(|last| now.saturating_duration_since(last) < FEC_SUMMARY_INTERVAL)
+        {
+            return;
+        }
+        self.fec_summaries.last = Some(now);
+        if let Some(summary) = self.fec_summaries.tally.take() {
+            self.queue(&ClientMessage::FecSummary(summary));
         }
     }
 
@@ -437,6 +484,8 @@ impl ControlSession {
         let next_ping = self.next_ping.get_or_insert(now);
         if now >= *next_ping {
             *next_ping = now + PERIODIC_PING_INTERVAL;
+            // V+ sends its summary ahead of the per-frame statuses.
+            self.flush_fec_summary(now);
             while let Some(status) = self.fec_statuses.pop_front() {
                 self.queue(&ClientMessage::FrameFecStatus(status));
             }
@@ -617,6 +666,7 @@ mod tests {
     fn rfi_batches_ranges_and_idr_supersedes_them() {
         let mut s = session(SessionOptions {
             reference_frame_invalidation: true,
+            ..Default::default()
         });
         let t0 = Instant::now();
         s.start(t0);
@@ -780,6 +830,91 @@ mod tests {
         s.fec_block(block(3, true), t0);
         s.poll(t0 + Duration::from_secs(1));
         assert!(host_reads(&mut s).iter().all(|m| m.2 != 0x5539));
+    }
+
+    /// A final FEC status of block `block` of `frame`: `data` data shards, `received` arrived.
+    fn final_status(frame: u32, block: u8, data: u16, received: u16) -> FrameFecStatus {
+        FrameFecStatus {
+            frame_index: frame,
+            total_data_packets: data,
+            received_data_packets: received,
+            multi_fec_block_index: block,
+            multi_fec_block_count: 2,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_fec_summary_goes_once_a_second_in_v_plus_form() {
+        // A Foundation Sunshine host: no a=x-rl-control, FEC control from DESCRIBE.
+        let foundation = HostCapabilities {
+            control_messages: vec![],
+            ..rubylight()
+        };
+        let mut s = ControlSession::new(
+            foundation,
+            &KEY,
+            SessionOptions {
+                fec_summaries: true,
+                ..Default::default()
+            },
+        );
+        let summaries = |s: &mut ControlSession| -> Vec<(u8, Delivery, Vec<u8>)> {
+            host_reads(s)
+                .into_iter()
+                .filter(|m| m.2 == 0x5510)
+                .map(|m| (m.0, m.1, m.3))
+                .collect()
+        };
+        let t0 = Instant::now();
+        s.start(t0);
+        // The first tick closes an empty second: sequence 1 is used but nothing goes out.
+        s.poll(t0);
+        assert!(summaries(&mut s).is_empty());
+        // Recovered: the final status counts, the completion after it is the same block.
+        s.frame_fec_status(final_status(7, 0, 10, 8));
+        let mut done = block(2, false);
+        done.frame = 7;
+        s.fec_block(done, t0);
+        // Clean: no status, the completion counts whole.
+        done.block_index = 1;
+        s.fec_block(done, t0);
+        // Given up: counted at its status, never again at the completion.
+        s.frame_fec_status(final_status(8, 0, 10, 3));
+        let mut lost = block(7, true);
+        lost.frame = 8;
+        s.fec_block(lost, t0);
+        s.poll(t0 + Duration::from_millis(900));
+        assert!(summaries(&mut s).is_empty(), "not before a second");
+        s.poll(t0 + Duration::from_millis(1000));
+        // seq 2, 30 data shards, 9 missing: BE32s on the generic channel, unreliable.
+        assert_eq!(
+            summaries(&mut s),
+            [(
+                channel::GENERIC,
+                Delivery::Unreliable,
+                vec![0, 0, 0, 2, 0, 0, 0, 30, 0, 0, 0, 9]
+            )]
+        );
+        // A quiet second sends nothing; the next one says 4.
+        s.poll(t0 + Duration::from_millis(2000));
+        assert!(summaries(&mut s).is_empty());
+        s.frame_fec_status(final_status(9, 0, 5, 5));
+        s.poll(t0 + Duration::from_millis(3000));
+        assert_eq!(summaries(&mut s)[0].2, [0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn no_fec_summary_goes_unless_the_handshake_turned_it_on() {
+        let mut s = session(SessionOptions::default());
+        let t0 = Instant::now();
+        s.start(t0);
+        s.frame_fec_status(final_status(1, 0, 10, 2));
+        s.fec_block(block(0, false), t0);
+        for second in 0..3 {
+            s.poll(t0 + Duration::from_secs(second));
+        }
+        assert!(host_reads(&mut s).iter().all(|m| m.2 != 0x5510));
     }
 
     #[test]

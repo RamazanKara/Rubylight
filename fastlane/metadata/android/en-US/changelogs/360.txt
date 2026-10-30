@@ -1,0 +1,9 @@
+• Nightjar 4.0 for Rubylight 3.0.
+• Split-screen co-op.
+• Dolby Vision, HDR10+ and HLG; HDR through Vulkan.
+• Streams survive trips to other apps and short Wi-Fi drops.
+• Clipboard sync, files, shared folders, USB forwarding.
+• The keyboard follows text fields; Send system keys; Back as Guide.
+• 7.1.4 surround and sound for receivers.
+• Launcher exports stay in sync.
+• Error correction and automatic bitrate on more PCs.

@@ -31,6 +31,7 @@ import com.limelight.ui.TopAppBar;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
+import com.limelight.utils.FrontendSync;
 import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
@@ -413,6 +414,8 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
 
         appGridAdapter.updateHiddenApps(hiddenAppIds, hideImmediately);
         updateLibraryState();
+        // A hidden game leaves the PC's launcher exports too.
+        FrontendSync.appListChanged(this, computer);
     }
 
     private void populateAppGridWithCache() {

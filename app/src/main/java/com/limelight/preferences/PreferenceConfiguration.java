@@ -10,12 +10,14 @@ import android.view.Display;
 
 import com.limelight.binding.audio.MicGain;
 import com.limelight.binding.audio.MicProcessing;
+import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.binding.input.touch.FingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
 import com.limelight.binding.input.touch.TrackpadArea;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nvstream.PyroWaveBitrateFloor;
 import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -84,6 +86,8 @@ public class PreferenceConfiguration {
     private static final String SMALL_ICONS_PREF_STRING = "checkbox_small_icon_mode";
     private static final String MULTI_CONTROLLER_PREF_STRING = "checkbox_multi_controller";
     static final String AUDIO_CONFIG_PREF_STRING = "list_audio_config";
+    /** The audio setting's 7.1.4 value, offered only where {@link Surround714#playable} says so. */
+    static final String AUDIO_CONFIG_714 = "714";
     private static final String USB_DRIVER_PREF_SRING = "checkbox_usb_driver";
     private static final String USB_DUALSENSE_PREF_STRING = "checkbox_usb_dualsense";
     private static final String USB_SWITCH_PRO_PREF_STRING = "checkbox_usb_switch_pro";
@@ -110,6 +114,9 @@ public class PreferenceConfiguration {
     private static final String DISABLE_RUMBLE_PREF_STRING = "checkbox_disable_rumble";
     private static final String BACK_AS_META_PREF_STRING = "checkbox_back_as_meta";
     private static final String BACK_OPENS_MENU_PREF_STRING = "checkbox_back_opens_menu";
+    private static final String GAMEPAD_QUIT_COMBO_PREF_STRING = "list_gamepad_quit_combo";
+    private static final String BACK_AS_GUIDE_PREF_STRING = "checkbox_back_as_guide";
+    private static final String CAPTURE_SYSTEM_KEYS_PREF_STRING = "checkbox_capture_system_keys";
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING = "checkbox_keyboard_follows_text_fields";
     static final String CLIPBOARD_SYNC_PREF_STRING = "checkbox_clipboard_sync";
@@ -176,6 +183,9 @@ public class PreferenceConfiguration {
     static final String ROAMING_METERED_PREF_STRING = "checkbox_roaming_metered";
     private static final String VIRTUAL_DISPLAY_PREF_STRING = "checkbox_virtual_display";
     private static final String VIRTUAL_DISPLAY_SCALE_PREF_STRING = "seekbar_virtual_display_scale";
+    static final String VIRTUAL_DISPLAY_DPI_PREF_STRING = "list_virtual_display_dpi";
+    /** The Windows scales "PC display scaling" offers (rlDisplayScale); 0 keeps the PC's own. */
+    static final int[] VIRTUAL_DISPLAY_DPI_VALUES = {0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500};
     private static final String YUV444_PREF_STRING = "checkbox_yuv444";
     private static final String VRR_PREF_STRING = "checkbox_vrr";
     static final String HOST_FRAME_TIMES_PREF_STRING = "checkbox_host_frame_times";
@@ -328,6 +338,12 @@ public class PreferenceConfiguration {
     public boolean disableRumble;
     public boolean backAsMeta;
     public boolean backOpensMenu;
+    /** The controller quit combo ({@code list_gamepad_quit_combo}); "off" leaves it to the stream menu. */
+    public String gamepadQuitCombo = "off";
+    // A controller's or handheld's Back sends Guide (Home/PS).
+    public boolean backAsGuide;
+    // Alt+Tab, the Windows key and a keyboard's Back (as Esc) go to the PC where Android allows it.
+    public boolean captureSystemKeys = true;
     public boolean rightAltAsMeta;
     public boolean keyboardFollowsTextFields;
     // Clipboard sync (0x5508) with a Rubylight PC that offers it.
@@ -375,6 +391,8 @@ public class PreferenceConfiguration {
     // Vote the content rate the host's frame times show to the display (Surface.setFrameRate).
     public boolean contentRateFrameRate;
     public int virtualDisplayScale;
+    // The virtual display's Windows scale in percent; 0 keeps the PC's own.
+    public int virtualDisplayDpi;
     // Where the launch values came from, for the stream log.
     public boolean resolutionFollowsScreen, fromPcProfile;
     // What this PC's displays do during the stream, and the PC's own stream values (for the log).
@@ -597,11 +615,50 @@ public class PreferenceConfiguration {
                 prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION), prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
     }
 
+    /** The default the bitrate setting shows and stores, PyroWave's own while PyroWave is the chosen codec. */
     public static int getDefaultBitrate(Context context) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        return getDefaultBitrate(
-                prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION),
-                prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
+        return getShownDefaultBitrate(PreferenceManager.getDefaultSharedPreferences(context), null, null, null);
+    }
+
+    /**
+     * The default the bitrate setting shows and stores for these settings, with {@code res},
+     * {@code fps} and {@code codec} in place of the saved ones when not null: PyroWave's own
+     * (intra-only, it breaks up at the conventional default) while PyroWave is the chosen codec,
+     * for a link not known yet. A stream still starts at the default for the codec it negotiates
+     * and the link it finds.
+     */
+    static int getShownDefaultBitrate(SharedPreferences prefs, String res, String fps, String codec) {
+        if (res == null) res = prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION);
+        if (fps == null) fps = prefs.getString(FPS_PREF_STRING, DEFAULT_FPS);
+        if (codec == null) codec = prefs.getString(VIDEO_FORMAT_PREF_STRING, DEFAULT_VIDEO_FORMAT);
+        if ("forcepyrowave".equals(codec)) {
+            return PyroWaveBitrateFloor.defaultKbps(getWidthFromResolutionString(res),
+                    getHeightFromResolutionString(res), Integer.parseInt(fps), 0);
+        }
+        return getDefaultBitrate(res, fps);
+    }
+
+    /**
+     * PyroWave's minimum for {@code config}'s size and frame rate when it streams PyroWave at a
+     * chosen bitrate below it, else 0. {@code config} is the effective one the screen shows: the
+     * main settings with the size that follows the screen, or with a profile's, PC's or game's
+     * values on top (their bitrate counts as chosen). A chosen bitrate is kept as it is; the bitrate
+     * setting warns instead (the automatic one never goes below the minimum).
+     */
+    static int pyroWaveMinimumAboveChosenKbps(PreferenceConfiguration config) {
+        if (config.videoFormat != FormatOption.FORCE_PYROWAVE || config.automaticBitrate) {
+            return 0;
+        }
+        int minimum = PyroWaveBitrateFloor.minimumKbps(config.width, config.height, config.fps);
+        return config.bitrate < minimum ? minimum : 0;
+    }
+
+    /** The bitrate setting's warning line for {@link #pyroWaveMinimumAboveChosenKbps}, or null. */
+    static String pyroWaveBelowMinimumWarning(Context context, PreferenceConfiguration config) {
+        int minimum = pyroWaveMinimumAboveChosenKbps(config);
+        if (minimum == 0) return null;
+        return context.getString(com.limelight.R.string.summary_bitrate_pyrowave_below_minimum,
+                (minimum + 999) / 1000, config.width, config.height, config.fps);
     }
 
     private static FormatOption getVideoFormatValue(Context context) {
@@ -648,6 +705,23 @@ public class PreferenceConfiguration {
         try {
             int kbps = Integer.parseInt(stored.trim());
             return kbps < 500 ? 0 : Math.min(kbps, HostStreamProfile.MAX_BITRATE_KBPS);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    static boolean isVirtualDisplayDpi(int percent) {
+        for (int offered : VIRTUAL_DISPLAY_DPI_VALUES) {
+            if (offered == percent) return true;
+        }
+        return false;
+    }
+
+    /** A stored "PC display scaling" choice; anything Windows does not offer keeps the PC's own. */
+    static int virtualDisplayDpi(String stored) {
+        try {
+            int percent = Integer.parseInt(stored.trim());
+            return isVirtualDisplayDpi(percent) ? percent : 0;
         } catch (NumberFormatException e) {
             return 0;
         }
@@ -819,7 +893,10 @@ public class PreferenceConfiguration {
             config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
                     .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit;
         }
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
+        config.contentRateFrameRate = com.limelight.binding.video.DisplayFrameRatePolicy.tracksContentRate(
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false), config.reduceRefreshRate,
+                config.vrr, config.useTextureView);
         return config;
     }
 
@@ -1237,18 +1314,32 @@ public class PreferenceConfiguration {
         // This must happen after the preferences migration to ensure the preferences are populated
         config.bitrate = prefs.getInt(BITRATE_PREF_STRING, prefs.getInt(BITRATE_PREF_OLD_STRING, 0) * 1000);
         if (config.bitrate == 0) {
-            config.bitrate = getDefaultBitrate(context);
+            config.bitrate = getDefaultBitrate(prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION),
+                    prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
         }
-        // A bitrate the user did not pick follows the size the stream really uses.
+        // A bitrate the user did not pick follows the size the stream really uses. It is the default
+        // for the conventional codecs, also when the settings show PyroWave's (a PyroWave stream
+        // starts at PyroWave's own once it is negotiated, NvConnection.pyroWaveStartKbps).
         String fpsString = Integer.toString(config.fps);
         String used = getResolutionText(config.width, config.height);
         config.automaticBitrate = !isBitrateUserSet(prefs);
-        if (savedResolution != null && !used.equals(savedResolution) && config.automaticBitrate) {
+        if (config.automaticBitrate) {
             config.bitrate = getDefaultBitrate(used, fpsString);
         }
 
         String audioConfig = prefs.getString(AUDIO_CONFIG_PREF_STRING, DEFAULT_AUDIO_CONFIG);
-        if (audioConfig.equals("71")) {
+        if (audioConfig.equals(AUDIO_CONFIG_714)) {
+            // Moonlight V+'s 7.1.4 where this device plays it (the route may have changed since it
+            // was picked), and 7.1 otherwise.
+            if (Surround714.playable(context)) {
+                config.audioConfiguration = MoonBridge.AUDIO_CONFIGURATION_714_SURROUND;
+            }
+            else {
+                com.limelight.LimeLog.info("7.1.4 isn't playable on this output; asking for 7.1");
+                config.audioConfiguration = MoonBridge.AUDIO_CONFIGURATION_71_SURROUND;
+            }
+        }
+        else if (audioConfig.equals("71")) {
             config.audioConfiguration = MoonBridge.AUDIO_CONFIGURATION_71_SURROUND;
         }
         else if (audioConfig.equals("51")) {
@@ -1329,6 +1420,9 @@ public class PreferenceConfiguration {
         config.disableRumble = prefs.getBoolean(DISABLE_RUMBLE_PREF_STRING, false);
         config.backAsMeta = prefs.getBoolean(BACK_AS_META_PREF_STRING, false);
         config.backOpensMenu = prefs.getBoolean(BACK_OPENS_MENU_PREF_STRING, false);
+        config.gamepadQuitCombo = prefs.getString(GAMEPAD_QUIT_COMBO_PREF_STRING, "off");
+        config.backAsGuide = prefs.getBoolean(BACK_AS_GUIDE_PREF_STRING, false);
+        config.captureSystemKeys = prefs.getBoolean(CAPTURE_SYSTEM_KEYS_PREF_STRING, true);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.keyboardFollowsTextFields = prefs.getBoolean(KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING, true);
         config.clipboardSync = prefs.getBoolean(CLIPBOARD_SYNC_PREF_STRING, false);
@@ -1394,6 +1488,7 @@ public class PreferenceConfiguration {
         config.roamingMetered = prefs.getBoolean(ROAMING_METERED_PREF_STRING, false);
         config.virtualDisplay = prefs.getBoolean(VIRTUAL_DISPLAY_PREF_STRING, false);
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
+        config.virtualDisplayDpi = virtualDisplayDpi(prefs.getString(VIRTUAL_DISPLAY_DPI_PREF_STRING, "0"));
         config.enableYuv444 = prefs.getBoolean(YUV444_PREF_STRING, false);
         config.vrr = prefs.getBoolean(VRR_PREF_STRING, false);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
@@ -1407,10 +1502,13 @@ public class PreferenceConfiguration {
             config.reduceRefreshRate = false;
         }
         config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
-        config.contentRateFrameRate = prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false);
-        // The vote is for a SurfaceView on a fixed-rate panel; VRR has its own vote. It needs the lower refresh
-        // rate switch: the settings screen greys it without that, so a stored choice must not act on its own.
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
+        // The vote is for a SurfaceView. It needs the lower refresh rate switch: the settings screen greys it
+        // without that, so a stored choice must not act on its own. VRR turns it on: without ARR (known only
+        // once the stream's display is) the content rate is the only way down from the panel maximum, to a
+        // seamless multiple of the game's rate.
+        config.contentRateFrameRate = com.limelight.binding.video.DisplayFrameRatePolicy.tracksContentRate(
+                prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false), config.reduceRefreshRate,
+                config.vrr, config.useTextureView);
         if (config.hostFrameTimes) {
             // Each frame is released at its scheduled time and the compositor shows it then.
             config.framePacing = FRAME_PACING_MIN_LATENCY;

@@ -193,6 +193,7 @@ public final class PcKeyboardView extends View {
                 PcKey key = keyAt(event.getX(index), event.getY(index));
                 if (key != null) {
                     controller.touchDown(key, event.getPointerId(index), event.getEventTime());
+                    Haptics.perform(this, Haptics.Kind.KEY);
                     changed();
                 }
                 return true;

@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Estéreo</string>
     <string name="audioconf_51surround">Sonido envolvente 5.1</string>
     <string name="audioconf_71surround">Sonido envolvente 7.1</string>
+    <string name="audioconf_714surround">Sonido envolvente 7.1.4</string>
     <string name="videoformat_auto">Automático (recomendado)</string>
     <string name="videoformat_av1always">Preferir AV1</string>
     <string name="videoformat_hevcalways">Preferir HEVC</string>
@@ -270,13 +271,16 @@
     <string name="title_virtual_display">Pantalla virtual del servidor</string>
     <string name="summary_virtual_display">Pide al PC una pantalla que coincida con la transmisión. Desactivado: deciden los ajustes de pantalla propios del PC.</string>
     <string name="title_vrr">Frecuencia adaptativa (ARR / VRR)</string>
-    <string name="summary_vrr">En pantallas con Android 16 y frecuencia adaptativa, Android ajusta la frecuencia de actualización a la transmisión; las demás pantallas funcionan a su frecuencia máxima. También se pide a los servidores compatibles con VRR que lo usen, según sus ajustes. Mientras esté activado, el ritmo de fotogramas y la frecuencia de actualización menor no se aplican.</string>
+    <string name="summary_vrr">En pantallas con Android 16 y frecuencia adaptativa, Android ajusta la frecuencia de actualización a la transmisión; las demás pantallas funcionan a su frecuencia máxima y, con un PC con Rubylight, solo pasan a una menor adecuada si la del juego daría tirones a la máxima y pueden cambiar sin quedarse en negro. También se pide a los servidores compatibles con VRR que lo usen, según sus ajustes. Mientras esté activado, el ritmo de fotogramas y la frecuencia de actualización menor no se aplican.</string>
     <string name="title_host_frame_times">Mostrar fotogramas al ritmo del PC</string>
     <string name="summary_host_frame_times">Retiene cada fotograma unos milisegundos para que aparezca cuando el juego lo dibujó, no cuando lo entregó la red. Suaviza las variaciones, sobre todo con frecuencia adaptativa. Sustituye al ritmo de fotogramas. No se usa con PyroWave.</string>
     <string name="title_content_rate_frame_rate">Ajustar la pantalla a la tasa del juego</string>
     <string name="summary_content_rate_frame_rate">Indica a Android la tasa de fotogramas real del juego para que una pantalla con un modo adecuado cambie a ella sin quedarse en negro. Requiere un PC que envíe tiempos de fotograma y «Permitir una frecuencia de actualización menor»; cambia como máximo una vez cada 2 segundos. No se usa con PyroWave ni con frecuencia adaptativa.</string>
     <string name="title_virtual_display_scale">Resolución de renderizado del PC</string>
     <string name="summary_virtual_display_scale">Porcentaje de la resolución de transmisión con el que renderiza el PC. El tamaño del vídeo transmitido no cambia. Para enviar menos píxeles y escalarlos en este dispositivo, reduce la resolución de transmisión.</string>
+    <string name="title_virtual_display_dpi">Escalado de pantalla del PC</string>
+    <string name="summary_virtual_display_dpi">Tamaño del texto y de la interfaz en la pantalla virtual, en PC con Rubylight.</string>
+    <string name="virtual_display_dpi_pc_own">El del PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">aún no hay datos</string>
     <string name="title_export_latency_csv">Exportar CSV de latencia</string>
@@ -328,7 +332,7 @@
     <string name="stream_bitrate_help">Fija los Mbps para esta sesión.\nEsto desactiva «El dispositivo controla la tasa de bits».</string>
     <string name="stream_bitrate_invalid">Introduce una tasa de bits de 0,5 a 2000 Mbps</string>
     <string name="stream_bitrate_applied">El servidor ha aplicado %1$.1f Mbps</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps está por debajo del mínimo de PyroWave de %2$d Mbps a %3$d×%4$d y %5$d FPS. La imagen se verá rota.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">Por debajo del mínimo de PyroWave de %1$d Mbps a %2$d×%3$d, %4$d FPS: la imagen se romperá.</string>
     <string name="stream_enabled">Activado</string>
     <string name="stream_disabled">Desactivado</string>
     <string name="stream_limiter_status">Límite de fotogramas del servidor: %1$s\nLímite automático de pantalla: %2$s\nObjetivo: %3$s</string>

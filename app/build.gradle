@@ -16,6 +16,8 @@ if (hasReleaseSigning && !releaseSigning.values().every { it }) {
     throw new GradleException('Incomplete release signing: set all four BP_KEYSTORE/BP_KEYSTORE_PASSWORD/BP_KEY_ALIAS/BP_KEY_PASSWORD variables or keystore.properties entries.')
 }
 def brandName = project.property('brandName').toString()
+// A build for a store that updates the app itself, such as Google Play: no in-app updater.
+def storeBuild = project.findProperty('githubUpdates') == 'false'
 
 // The task timeout says only that the task took too long. A test still running after 3 minutes,
 // or 3 minutes without any test running, names itself here with the test JVMs' threads.
@@ -73,13 +75,13 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "4.0.0-alpha.2"
-        versionCode = 359
+        versionName "4.0.0"
+        versionCode = 360
 
         resValue "string", "app_name", brandName
         buildConfigField "String", "BRAND_NAME", "\"${brandName}\""
         // Builds for a store that updates the app itself (-PgithubUpdates=false) hide the in-app updater.
-        buildConfigField "boolean", "GITHUB_UPDATES", project.findProperty('githubUpdates') == 'false' ? 'false' : 'true'
+        buildConfigField "boolean", "GITHUB_UPDATES", storeBuild ? 'false' : 'true'
 
         externalNativeBuild {
             ndkBuild {
@@ -210,6 +212,13 @@ android {
         }
     }
 
+    sourceSets {
+        // Play forbids self-updates, so a store release also drops the updater's install permission.
+        if (storeBuild) {
+            release.manifest.srcFile 'src/store/AndroidManifest.xml'
+        }
+    }
+
     packaging {
         jniLibs.useLegacyPackaging = true
         resources {
@@ -242,7 +251,7 @@ def nativePatchNames = ['bughunt-stream.patch', 'bughunt-input.patch', 'controll
                         'disconnect-intercept.patch', 'control-payload.patch', 'control-teardown.patch', 'host-timing.patch',
                         'network-grace.patch', 'cursor-shape.patch', 'network-grace-input.patch',
                         'pyrowave-link-hints.patch', 'video-recv-buffer.patch', 'clock-sync.patch', 'prefix-sei.patch',
-                        'fec-report.patch']
+                        'fec-report.patch', 'wire-bytes.patch', 'surround-714.patch', 'socket-dscp.patch']
 
 // A typed task so the configuration cache can store it: the patches and their order are its
 // inputs, the stamp its output, and it reaches git through ExecOperations, not the Project.
@@ -459,9 +468,45 @@ def buildRustEngine = tasks.register('buildRustEngine', CargoAndroidBuild) {
     outputDir.set(layout.buildDirectory.dir('rustJniLibs'))
 }
 
+// The in-app updater installs with REQUEST_INSTALL_PACKAGES; Google Play rejects that permission for
+// self-updates. Every release checks its merged manifest: the GitHub build keeps it, a store build has none.
+abstract class VerifyInstallPermission extends DefaultTask {
+    @InputFile @PathSensitive(PathSensitivity.NONE)
+    abstract RegularFileProperty getManifest()
+
+    @Input
+    abstract Property<Boolean> getStoreRelease()
+
+    @OutputFile
+    abstract RegularFileProperty getStampFile()
+
+    @TaskAction
+    void verify() {
+        def permissions = new groovy.xml.XmlSlurper(false, false).parse(manifest.get().asFile).'uses-permission'
+        def present = permissions.any { it.'@android:name'.text() == 'android.permission.REQUEST_INSTALL_PACKAGES' }
+        if (present == storeRelease.get()) {
+            throw new GradleException(storeRelease.get() ?
+                    'The store build (-PgithubUpdates=false) still declares REQUEST_INSTALL_PACKAGES, which Google Play rejects for self-updates.' :
+                    'The GitHub build lost REQUEST_INSTALL_PACKAGES, which the in-app updater needs.')
+        }
+        stampFile.get().asFile.text = "REQUEST_INSTALL_PACKAGES ${present ? 'declared' : 'absent'}\n"
+    }
+}
+
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.sources.jniLibs?.addGeneratedSourceDirectory(buildRustEngine) { it.outputDir }
+    }
+    onVariants(selector().withBuildType('release')) { variant ->
+        def suffix = variant.name.capitalize()
+        def verify = tasks.register("verify${suffix}InstallPermission", VerifyInstallPermission) {
+            manifest.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.MERGED_MANIFEST.INSTANCE))
+            storeRelease.set(storeBuild)
+            stampFile.set(layout.buildDirectory.file("install-permission/${variant.name}.txt"))
+        }
+        tasks.matching { it.name == "assemble${suffix}" || it.name == "bundle${suffix}" }.configureEach {
+            dependsOn verify
+        }
     }
 }
 

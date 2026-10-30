@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Stereo</string>
     <string name="audioconf_51surround">5.1-Surround</string>
     <string name="audioconf_71surround">7.1-Surround</string>
+    <string name="audioconf_714surround">7.1.4-Surround</string>
     <string name="videoformat_auto">Automatisch (empfohlen)</string>
     <string name="videoformat_av1always">AV1 bevorzugen</string>
     <string name="videoformat_hevcalways">HEVC bevorzugen</string>
@@ -270,13 +271,16 @@
     <string name="title_virtual_display">Virtuelles Host-Display</string>
     <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden.</string>
     <string name="title_vrr">Adaptive Bildwiederholrate (ARR / VRR)</string>
-    <string name="summary_vrr">Auf Displays mit adaptiver Bildwiederholrate ab Android 16 passt Android die Bildwiederholrate an den Stream an; andere Displays laufen mit ihrer höchsten Rate. Hosts mit VRR-Unterstützung werden gebeten, VRR ebenfalls zu nutzen, je nach ihren Einstellungen. Solange dies an ist, gelten Frame-Pacing und niedrigere Display-Bildrate nicht.</string>
+    <string name="summary_vrr">Auf Displays mit adaptiver Bildwiederholrate ab Android 16 passt Android die Bildwiederholrate an den Stream an; andere Displays laufen mit ihrer höchsten Rate und wechseln mit einem Rubylight-PC nur dann zu einer passenden niedrigeren, wenn die Bildrate des Spiels dort ruckeln würde und sie ohne Schwarzbild wechseln können. Hosts mit VRR-Unterstützung werden gebeten, VRR ebenfalls zu nutzen, je nach ihren Einstellungen. Solange dies an ist, gelten Frame-Pacing und niedrigere Display-Bildrate nicht.</string>
     <string name="title_host_frame_times">Bilder im Takt des PCs zeigen</string>
     <string name="summary_host_frame_times">Hält jedes Bild einige Millisekunden zurück, damit es erscheint, wann das Spiel es gezeichnet hat, statt wann das Netzwerk es geliefert hat. Gleicht Schwankungen aus, besonders mit adaptiver Bildwiederholrate. Ersetzt das Frame-Pacing. Nicht mit PyroWave.</string>
     <string name="title_content_rate_frame_rate">Bildwiederholrate an die Spielrate anpassen</string>
     <string name="summary_content_rate_frame_rate">Meldet Android die Bildrate, mit der das Spiel tatsächlich läuft, damit ein Display mit passendem Modus ohne schwarzen Bildschirm darauf umschalten kann. Braucht einen PC, der Bildzeiten sendet, und „Niedrigere Display-Bildrate“; ändert höchstens alle 2 Sekunden. Nicht mit PyroWave oder adaptiver Bildwiederholrate.</string>
     <string name="title_virtual_display_scale">Render-Auflösung des PCs</string>
     <string name="summary_virtual_display_scale">Prozent der Stream-Auflösung, mit der der PC rendert. Die Größe des übertragenen Videos ändert sich nicht. Senke die Stream-Auflösung, um weniger Pixel zu übertragen und auf diesem Gerät hochzuskalieren.</string>
+    <string name="title_virtual_display_dpi">Display-Skalierung am PC</string>
+    <string name="summary_virtual_display_dpi">Text- und Oberflächengröße auf dem virtuellen Display, auf Rubylight-PCs.</string>
+    <string name="virtual_display_dpi_pc_own">Wie am PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">Noch keine Daten</string>
     <string name="title_export_latency_csv">Latenz als CSV exportieren</string>
@@ -328,7 +332,7 @@
     <string name="stream_bitrate_help">Mbit/s für diese Sitzung festlegen.\n„Gerät steuert die Bitrate“ wird ausgeschaltet.</string>
     <string name="stream_bitrate_invalid">Gib eine Bitrate von 0,5 bis 2000 Mbit/s ein.</string>
     <string name="stream_bitrate_applied">Host nutzt %1$.1f Mbit/s</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbit/s liegt unter dem PyroWave-Minimum von %2$d Mbit/s bei %3$d×%4$d, %5$d FPS. Das Bild wird zerfallen.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">Unter dem PyroWave-Minimum von %1$d Mbit/s bei %2$d×%3$d, %4$d FPS: Das Bild wird zerfallen.</string>
     <string name="stream_enabled">An</string>
     <string name="stream_disabled">Aus</string>
     <string name="stream_limiter_status">Host-FPS-Limit: %1$s\nAuto-Display-Limit: %2$s\nZiel: %3$s</string>

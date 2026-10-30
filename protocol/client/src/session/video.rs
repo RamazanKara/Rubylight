@@ -13,6 +13,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::net::{self, NextSocket, PingHandle, Pinger, REBIND_WAIT, UDP_RECV_POLL_TIMEOUT};
+use super::trace::{PacketTrace, Stream};
 use super::{error, now_us, DecodeStatus, Shared, VideoDecoder};
 use crate::control::driver::ControlHandle;
 use crate::control::FrameFecStatus;
@@ -440,7 +441,12 @@ fn receive_thread(
     let mut signals = Vec::new();
     let mut waiting = Duration::ZERO;
     let mut first_data: Option<Instant> = None;
+    let encrypted = lock(&shared.receiver).config().encryption_key.is_some();
+    let mut trace = PacketTrace::from_env(Stream::Video { encrypted });
     while !stop.load(Ordering::Acquire) {
+        if let Some(trace) = trace.as_mut() {
+            trace.waiting();
+        }
         let length = match net::receive(&socket, &mut buffer) {
             Ok(Some(length)) => length,
             Ok(None) => {
@@ -476,6 +482,7 @@ fn receive_thread(
                 break;
             }
         };
+        session.received(length);
         let first = *first_data.get_or_insert_with(|| {
             session.log(&format!(
                 "Received first video packet after {} ms",
@@ -488,6 +495,10 @@ fn receive_thread(
             session.terminate(error::NO_VIDEO_FRAME);
             break;
         }
+        let now = now_us();
+        if let Some(trace) = trace.as_mut() {
+            trace.push(now, &buffer[..length]);
+        }
         {
             let mut receiver = lock(&shared.receiver);
             let mut sink = Sink {
@@ -495,7 +506,7 @@ fn receive_thread(
                 direct: direct.as_mut(),
                 signals: &mut signals,
             };
-            receiver.receive(&buffer[..length], now_us(), &mut sink);
+            receiver.receive(&buffer[..length], now, &mut sink);
             if let Some(d) = direct.as_mut() {
                 if std::mem::take(&mut d.decoded_key_frame) {
                     receiver.frame_decoded(FrameType::Idr);
@@ -514,6 +525,10 @@ fn receive_thread(
             }
         }
         route(&control, &mut signals);
+    }
+    if let Some(trace) = trace {
+        let session = session.clone();
+        trace.finish(move |line| session.log(line));
     }
     direct.map(|d| d.decoder)
 }

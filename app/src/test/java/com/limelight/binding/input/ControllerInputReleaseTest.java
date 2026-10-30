@@ -65,8 +65,173 @@ public class ControllerInputReleaseTest {
         }
     }
 
+    @Test
+    public void theChosenQuitComboLeavesOnceReleasedAndIsOffByDefault() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        assertEquals("off", prefs.gamepadQuitCombo);
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+        ControllerHandler.UsbDeviceContext pad = usbPad(handler);
+        int combo = ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.A_FLAG | ControllerPacket.B_FLAG;
+        try {
+            usb(handler, combo);
+            usb(handler, 0);
+            assertEquals("Off: the chord is ordinary input", 0, activity.leaves);
+            prefs.gamepadQuitCombo = "lb_rb_a_b";
+            usb(handler, ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG);
+            usb(handler, combo);
+            assertTrue(pad.quitComboPending);
+            usb(handler, ControllerPacket.A_FLAG);
+            assertEquals("Not while a button is still held", 0, activity.leaves);
+            usb(handler, 0);
+            assertEquals(1, activity.leaves);
+            assertEquals("The menu combo is not the quit combo", 0, activity.menuCount);
+            usb(handler, ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG);
+            usb(handler, 0);
+            assertEquals("Another chord leaves nothing", 1, activity.leaves);
+        } finally {
+            handler.destroy();
+        }
+        assertEquals(0, ControllerHandler.quitComboMask("off"));
+        assertEquals(0, ControllerHandler.quitComboMask(null));
+        assertEquals(ControllerPacket.BACK_FLAG | ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.Y_FLAG,
+                ControllerHandler.quitComboMask("select_lb_rb_y"));
+    }
+
+    @Test
+    public void theAndroidMappedQuitComboLeavesToo() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.gamepadQuitCombo = "start_lb_rb_a";
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        context.hasSelect = context.hasMode = true;
+        int[] keys = {KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_A};
+        try {
+            for (int key : keys) {
+                assertTrue(handler.handleButtonDown(new KeyEvent(1000, 1000, KeyEvent.ACTION_DOWN, key, 0, 0, 0, 0)));
+            }
+            for (int key : keys) {
+                assertEquals(0, activity.leaves);
+                assertTrue(handler.handleButtonUp(new KeyEvent(1000, 1100, KeyEvent.ACTION_UP, key, 0, 0, 0, 0)));
+            }
+            assertEquals(1, activity.leaves);
+            assertEquals(0, activity.menuCount);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void aQuitComboHeldIntoTheMenuOrAFocusLossIsForgotten() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.gamepadQuitCombo = "lb_rb_a_b";
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+        ControllerHandler.UsbDeviceContext pad = usbPad(handler);
+        ControllerHandler.InputDeviceContext mapped = ReflectionHelpers.getField(handler, "defaultContext");
+        mapped.assignedControllerNumber = true;
+        mapped.hasSelect = mapped.hasMode = true;
+        int combo = ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.A_FLAG | ControllerPacket.B_FLAG;
+        int[] keys = {KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_B};
+        try {
+            // Released input (focus lost, the menu opened) while the combo was held.
+            usb(handler, combo);
+            for (int key : keys) handler.handleButtonDown(new KeyEvent(1000, 1000, KeyEvent.ACTION_DOWN, key, 0, 0, 0, 0));
+            assertTrue(pad.quitComboPending && mapped.quitComboPending);
+            handler.releaseInput();
+            usb(handler, 0);
+            usb(handler, ControllerPacket.X_FLAG);
+            usb(handler, 0);
+            handler.handleButtonDown(new KeyEvent(1000, 1200, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X, 0, 0, 0, 0));
+            handler.handleButtonUp(new KeyEvent(1000, 1300, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_X, 0, 0, 0, 0));
+            assertEquals("A later press and release does not leave", 0, activity.leaves);
+
+            // The USB pad steered the menu with the combo held: neither the menu nor its end arms it.
+            usb(handler, combo);
+            assertTrue(pad.quitComboPending);
+            ReflectionHelpers.setField(handler, "inputEnabled", false);
+            usb(handler, combo);
+            assertFalse(pad.quitComboPending);
+            usb(handler, 0);
+            ReflectionHelpers.setField(handler, "inputEnabled", true);
+            usb(handler, ControllerPacket.A_FLAG);
+            usb(handler, 0);
+            assertEquals(0, activity.leaves);
+            usb(handler, combo);
+            usb(handler, 0);
+            assertEquals("Held again, it still works", 1, activity.leaves);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void theQuitComboGoesByThePhysicalButtons() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.gamepadQuitCombo = "start_lb_rb_a";
+        prefs.flipFaceButtons = true;
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        // No Select: Start+LB becomes Select, and A is flipped to B, on the way to the PC.
+        context.hasSelect = false;
+        context.hasMode = true;
+        int[] keys = {KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_A};
+        try {
+            for (int key : keys) handler.handleButtonDown(new KeyEvent(1000, 1000, KeyEvent.ACTION_DOWN, key, 0, 0, 0, 0));
+            assertTrue(context.quitComboPending);
+            for (int key : keys) handler.handleButtonUp(new KeyEvent(1000, 1100, KeyEvent.ACTION_UP, key, 0, 0, 0, 0));
+            assertEquals(1, activity.leaves);
+
+            // A USB-driver pad: its own flags, before the flip.
+            prefs.gamepadQuitCombo = "select_lb_rb_y";
+            usbPad(handler);
+            usb(handler, ControllerPacket.BACK_FLAG | ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.Y_FLAG);
+            usb(handler, 0);
+            assertEquals(2, activity.leaves);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void theMenuMouseSwitchCoversEveryContextAndTurnsOnTheFirstPad() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, new PreferenceConfiguration());
+        ControllerHandler.InputDeviceContext fallback = ReflectionHelpers.getField(handler, "defaultContext");
+        Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
+        try {
+            fallback.mouseEmulationActive = true;
+            assertTrue(handler.isMouseEmulationActive());
+            handler.toggleMouseEmulationFromMenu();
+            assertFalse("The default context's mouse turns off too", handler.isMouseEmulationActive());
+
+            ControllerHandler.UsbDeviceContext second = usbPad(handler);
+            second.controllerNumber = 2;
+            usb.remove(3);
+            usb.put(1, second);
+            ControllerHandler.UsbDeviceContext first = usbPad(handler);
+            first.controllerNumber = 0;
+            usb.remove(3);
+            usb.put(9, first);
+            handler.toggleMouseEmulationFromMenu();
+            assertTrue("Pad 1 gets the mouse", first.mouseEmulationActive);
+            assertFalse(second.mouseEmulationActive);
+            assertFalse(fallback.mouseEmulationActive);
+            handler.toggleMouseEmulationFromMenu();
+            assertFalse(handler.isMouseEmulationActive());
+        } finally {
+            handler.destroy();
+        }
+    }
+
     public static class MenuGame extends Game {
         int menuCount;
+        int leaves;
+        @Override public void leaveStreamFromController() { leaves++; }
         final List<Integer> steered = new ArrayList<>();
         @Override public void showStreamMenu() { menuCount++; }
         @Override public void steerStreamMenu(int keyCode) { steered.add(keyCode); }
@@ -457,7 +622,8 @@ public class ControllerInputReleaseTest {
     public void cursorShortcutRestoresUsbInputAfterRegrabbing() {
         Game activity = Robolectric.buildActivity(FocusedGame.class).get();
         RecordingConnection connection = new RecordingConnection();
-        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs);
         Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
         ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
         context.assignedControllerNumber = true;
@@ -465,6 +631,8 @@ public class ControllerInputReleaseTest {
         context.device = new UsbController();
         usb.put(3, context);
         InputCaptureProvider capture = new InputCaptureProvider() { };
+        // Regrabbing reads Send system keys
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
         ReflectionHelpers.setField(activity, "conn", connection);
         ReflectionHelpers.setField(activity, "controllerHandler", handler);
         ReflectionHelpers.setField(activity, "inputCaptureProvider", capture);

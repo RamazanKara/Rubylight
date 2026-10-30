@@ -27,7 +27,7 @@ use jni::JNIEnv;
 
 use nightjar_core::control::ClientMessage;
 use nightjar_core::input::InputQueue;
-use nightjar_core::session::{HostInfo, SessionConfig};
+use nightjar_core::session::{HostInfo, NetworkChange, SessionConfig};
 use rubylight_protocol::control::{HostTimingRequest, LinkNoticeRequest, Reconfigure};
 
 use crate::extras::input_result;
@@ -121,6 +121,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     roaming_metered: jboolean,
     audio_passthrough: jint,
     hdr_format: jint,
+    video_fec_percentage: jint,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -162,6 +163,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     stream.client_wireless = client_wireless == JNI_TRUE;
     stream.audio_passthrough = extras::audio_passthrough(audio_passthrough);
     stream.hdr_format = hdr_format as u8 & rubylight_protocol::hdr::ALL;
+    stream.video_fec = extras::video_fec(video_fec_percentage);
     let config = SessionConfig {
         stream,
         location: extras::location(streaming_remotely),
@@ -192,14 +194,22 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_interruptConne
 }
 
 /// The default network changed while a stream runs (`NvConnection`'s network callback):
-/// whether a roam started.
+/// `MoonBridge.NETWORK_CARRIES_ON` (0), `NETWORK_ROAMED` (1) or `NETWORK_CANNOT_CONTINUE` (2).
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_networkChanged(
     _: JNIEnv,
     _: JClass,
     metered: jboolean,
-) -> jboolean {
-    jbool(engine::network_changed(metered == JNI_TRUE))
+) -> jint {
+    network_change_code(engine::network_changed(metered == JNI_TRUE))
+}
+
+fn network_change_code(change: NetworkChange) -> jint {
+    match change {
+        NetworkChange::CarriesOn => 0,
+        NetworkChange::Roamed => 1,
+        NetworkChange::CannotContinue => 2,
+    }
 }
 
 #[no_mangle]
@@ -489,6 +499,15 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getPendingVide
     _: JClass,
 ) -> jint {
     engine::with_session(0, |s| s.stats().decode_queue_len as i32)
+}
+
+/// Bytes of video and audio datagrams received, FEC parity included; 0 without a session.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getWireBytesReceived(
+    _: JNIEnv,
+    _: JClass,
+) -> jlong {
+    engine::with_session(0, |s| s.wire_bytes() as jlong)
 }
 
 #[no_mangle]

@@ -42,6 +42,7 @@ import com.limelight.R;
 import com.limelight.binding.audio.AudioPassthrough;
 import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
+import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.InputBatcher;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostNotices;
@@ -51,11 +52,13 @@ import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeApiTransport;
+import com.limelight.nativeapi.NativeAudio;
 import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
@@ -84,16 +87,18 @@ public class NvConnection {
     private volatile boolean nativeCouchMenu;
     private volatile boolean nativeUsbForwarding;
     private volatile boolean nativeImageClipboard;
+    private volatile boolean nativeNightMode, nativeHeadphoneSurround;
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
     private volatile ComputerDetails hostDetails = new ComputerDetails();
     private NvHTTP http;
+    private NvHTTP foundationAbrHttp;
     private Thread connectionThread;
     private volatile boolean stopRequested;
     private boolean nativeStarted;
     private volatile boolean nativeConnected;
-    // Client roaming's network callback while a Rust-engine stream runs; guarded by MoonBridge.class.
+    // The stream's network callback (client roaming, network loss and return); guarded by MoonBridge.class.
     private RoamingNetworkWatch roamingWatch;
     // Why packed full chroma left HDR out before the launch (startApp), or null.
     private String packedHdrDropAtLaunch;
@@ -721,6 +726,8 @@ public class NvConnection {
         context.hostCaps = details.caps;
         LimeLog.info("Host: " + details.caps);
         context.streamConfig.getApp().setHostCapabilities(details.caps);
+        context.streamConfig.setHostAudioConfiguration(
+                Surround714.forHost(context.streamConfig.getAudioConfiguration(), details.caps));
         if (canSendControllerInput() && details.caps.has(HostCapabilities.Feature.CONTROLLER_PREPARATION) &&
                 controllerPreparation != null) {
             context.preparedControllers = controllerPreparation.get();
@@ -947,6 +954,13 @@ public class NvConnection {
 
         }
 
+        context.linkHints = WiredLink.hintsToward(appContext, context.serverAddress.address);
+        context.startBitrateKbps = pyroWaveStartKbps(context, context.linkHints.mbps);
+        if (context.startBitrateKbps != context.streamConfig.getBitrate()) {
+            LimeLog.info("PyroWave: starting at its default of " + context.startBitrateKbps + " kbps (link " +
+                    context.linkHints.mbps + " Mbps)");
+        }
+
         // We will perform some connection type detection if the caller asked for it
         if (context.streamConfig.getRemote() == StreamConfiguration.STREAM_CFG_AUTO) {
             context.negotiatedRemoteStreaming = detectServerConnectionType();
@@ -1073,12 +1087,30 @@ public class NvConnection {
     }
 
     /**
+     * The bitrate a stream that negotiated PyroWave starts at ({@link PyroWaveBitrateFloor#startKbps}):
+     * PyroWave's default when the bitrate is automatic (within {@code linkMbps}, this device's wired
+     * link toward the host, 0 when unknown) and no higher than this client's cap (the mobile data
+     * limit). A chosen bitrate, any other codec, and a stream that is not PyroWave after all keep the
+     * configured bitrate.
+     */
+    static int pyroWaveStartKbps(ConnectionContext context, int linkMbps) {
+        StreamConfiguration config = context.streamConfig;
+        if ((context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) {
+            return config.getBitrate();
+        }
+        int start = PyroWaveBitrateFloor.startKbps(config.getBitrate(), config.isAutomaticBitrate(),
+                context.negotiatedWidth, context.negotiatedHeight, config.getRefreshRate(), linkMbps);
+        int limit = config.getBitrateLimitKbps();
+        return limit > 0 ? Math.min(start, Math.max(limit, config.getBitrate())) : start;
+    }
+
+    /**
      * The bitrate a new stream starts at: {@link NvHTTP#probeStartKbps} of a link test when
-     * {@link #probesFirstBitrate}, else the configured one. A failed test is logged and the stream
-     * starts at the configured bitrate.
+     * {@link #probesFirstBitrate}, else the one {@link #pyroWaveStartKbps} chose. A failed test is
+     * logged and the stream starts at the configured bitrate.
      */
     static int firstBitrateKbps(ConnectionContext context, LinkProbe probe) {
-        int configured = context.streamConfig.getBitrate();
+        int configured = context.startBitrateKbps;
         if (!probesFirstBitrate(context)) {
             return configured;
         }
@@ -1239,7 +1271,7 @@ public class NvConnection {
                     // same path (PyroWavePaceCalibration), if any. Zero (Wi-Fi, cellular,
                     // unknown) leaves either out of the stream description.
                     boolean pyroWave = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
-                    WiredLink.Hints linkHints = WiredLink.hintsToward(appContext, context.serverAddress.address);
+                    WiredLink.Hints linkHints = context.linkHints;
                     int pyroWaveLinkMbps = linkHints.mbps;
                     boolean wirelessRoute = linkHints.wireless;
                     PreferenceConfiguration hintPrefs = PreferenceConfiguration.readPreferences(appContext);
@@ -1285,12 +1317,14 @@ public class NvConnection {
                         // The session's choice (Game turns it off after a packed failure), not the saved setting.
                         MoonBridge.requestPacked444(context.streamConfig.isPacked444());
                         MoonBridge.requestHdrFormat(context.hdrFormat);
+                        // Sent only to a host whose DESCRIBE offers Foundation's FEC control.
+                        MoonBridge.requestVideoFec((context.fecChoice != null ? context.fecChoice : FecChoice.HOST)
+                                .summaryPercentage());
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
                                 context.streamConfig.getAudioConfiguration().channelCount));
                         // Before the start, so a change during the handshake is still reported.
-                        Network streamNetwork =prefs.rustEngine && prefs.clientRoaming ?
-                                RoamingNetworkWatch.defaultNetwork(appContext) : null;
+                        Network streamNetwork = RoamingNetworkWatch.defaultNetwork(appContext);
                         int ret = MoonBridge.startConnection(context.serverAddress.address,
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,
@@ -1322,9 +1356,10 @@ public class NvConnection {
                                     videoDecoderRenderer.packedHdrDropReason());
                         }
                         nativeConnected = true;
-                        if (prefs.clientRoaming && MoonBridge.isRustStream()) {
-                            roamingWatch = RoamingNetworkWatch.start(appContext, streamNetwork);
-                        }
+                        // Every stream follows its network (a lost one that returns where the
+                        // connection cannot carry on reconnects at once); the engine roams only
+                        // with client roaming on both sides.
+                        roamingWatch = RoamingNetworkWatch.start(appContext, streamNetwork, context.connListener);
                         startInputPolling(prefs.unbatchedInput);
                         startMicrophone();
                         started = true;
@@ -1499,6 +1534,36 @@ public class NvConnection {
         }
     }
 
+    /**
+     * Turns on Foundation Sunshine's own bitrate controller up to {@code maxKbps} (FoundationAbr).
+     * Returns its initial bitrate, or -1 when the PC has none.
+     */
+    public int startFoundationAbr(int maxKbps) throws IOException {
+        NvHTTP request = foundationAbrHttp();
+        if (!request.supportsFoundationAbr()) return -1;
+        return request.configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.enableRequest(maxKbps));
+    }
+
+    /** Also after {@link #stop}, which cancels {@code http}: the PC must not keep its controller. */
+    public void stopFoundationAbr() throws IOException {
+        foundationAbrHttp().configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.disableRequest());
+    }
+
+    // Turning a Foundation PC's controller on and off goes through its own NvHTTP, which stop()
+    // does not cancel: an enable it aborted could still have reached the PC, and the disable
+    // runs as the stream stops.
+    private synchronized NvHTTP foundationAbrHttp() throws IOException {
+        if (foundationAbrHttp == null) {
+            int httpsPort = hostDetails != null && hostDetails.httpsPort > 0 ? hostDetails.httpsPort : context.httpsPort;
+            foundationAbrHttp = new NvHTTP(context.serverAddress, httpsPort, uniqueId, context.serverCert, cryptoProvider);
+        }
+        return foundationAbrHttp;
+    }
+
+    public org.json.JSONObject sendFoundationAbrFeedback(org.json.JSONObject feedback) throws IOException {
+        return http.sendFoundationAbrFeedback(feedback);
+    }
+
     public String getClipboard() throws IOException, XmlPullParserException {
         if (!refreshHostDetails().canReadClipboard()) {
             throw new IOException("Host clipboard read permission denied");
@@ -1598,6 +1663,16 @@ public class NvConnection {
         return nativeCouchMenu;
     }
 
+    /**
+     * Whether the host offers the audio setting {@code id} ({@code audio.night_mode} or {@code audio.headphone_surround})
+     * and lets this device change it, as it last said; false until known.
+     */
+    public boolean offersHostAudio(String id) {
+        if (NativeCapabilities.NIGHT_MODE.equals(id)) return nativeNightMode;
+        if (NativeCapabilities.HEADPHONE_SURROUND.equals(id)) return nativeHeadphoneSurround;
+        return false;
+    }
+
     /** Whether the host forwards USB devices and lets this device do it ({@code usb}), as it last said; false until known. */
     public boolean offersUsbForwarding() {
         return nativeUsbForwarding;
@@ -1637,8 +1712,41 @@ public class NvConnection {
     }
 
     /**
-     * Asks a native API host whether this device has host control, whether the host draws its own menu and whether
-     * it forwards this device's USB devices, in the background; the stream menu reads the answers. The host's wake targets are refreshed on the way.
+     * Night mode and headphone surround of this stream as the host has them now. Blocks on HTTPS; the native API's
+     * error, with its code, comes back as the cause of the IOException.
+     */
+    public NativeAudio hostAudio() throws IOException {
+        NativeApiClient client = nativeApiClient();
+        if (client == null) {
+            throw new IOException("The host has no audio settings for this stream.");
+        }
+        try {
+            return client.audio();
+        } catch (NativeApiException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Turns one of them on or off for this stream; the host applies it from the next audio packet and answers with
+     * its new state. Blocks on HTTPS like {@link #hostAudio}.
+     */
+    public NativeAudio writeHostAudio(String id, boolean on) throws IOException {
+        NativeApiClient client = nativeApiClient();
+        if (client == null) {
+            throw new IOException("The host has no audio settings for this stream.");
+        }
+        try {
+            return client.writeAudio(id, on);
+        } catch (NativeApiException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Asks a native API host whether this device has host control, whether the host draws its own menu, whether
+     * it forwards this device's USB devices and which audio settings it offers, in the background; the stream menu
+     * reads the answers. The host's wake targets are refreshed on the way.
      */
     public void refreshNativeHostControl() {
         if (isMonkey || !hasNativeSessionActions()) {
@@ -1655,6 +1763,8 @@ public class NvConnection {
                 nativeCouchMenu = capabilities.has(NativeCapabilities.COUCH_MENU);
                 nativeUsbForwarding = capabilities.offersUsbForwarding();
                 nativeImageClipboard = capabilities.has(NativeCapabilities.CLIPBOARD_IMAGE);
+                nativeNightMode = capabilities.offersAudio(NativeCapabilities.NIGHT_MODE);
+                nativeHeadphoneSurround = capabilities.offersAudio(NativeCapabilities.HEADPHONE_SURROUND);
                 if (appContext != null) {
                     new WakeTargets(appContext).refresh(hostDetails.uuid, capabilities, client);
                 }

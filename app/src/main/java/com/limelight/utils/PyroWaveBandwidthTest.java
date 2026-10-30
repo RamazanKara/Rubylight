@@ -17,6 +17,10 @@ import org.xmlpull.v1.XmlPullParserException;
 import java.io.IOException;
 
 public final class PyroWaveBandwidthTest {
+    /** Whether each Sunshine-family PC (by uuid) has Foundation Sunshine's bandwidth test, asked once per run. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> FOUNDATION_TEST =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private final Activity activity;
     private final ComputerDetails computer;
     private final String uniqueId;
@@ -94,6 +98,22 @@ public final class PyroWaveBandwidthTest {
                             }
                         }));
                         speed = speedText(activity, mbps, current.pyroWaveHostLinkMbps);
+                    } else if (current.caps.family() == HostCapabilities.Family.SUNSHINE) {
+                        // Foundation Sunshine's own test, as Moonlight V+ runs it. Other Sunshine PCs
+                        // (stock, Apollo, Vibepollo) have none: they get the delay test alone.
+                        if (hasFoundationTest(http, computer.uuid)) {
+                            try {
+                                double mbps = http.probeFoundationBandwidth(percent -> activity.runOnUiThread(() -> {
+                                    if (!cancelled && !activity.isFinishing() && !activity.isDestroyed()) {
+                                        progress.setIndeterminate(false);
+                                        progress.setProgressCompat(percent, true);
+                                    }
+                                }));
+                                speed = speedText(activity, mbps, 0);
+                            } catch (java.io.FileNotFoundException e) {
+                                speed = activity.getString(R.string.connection_test_speed_unsupported);
+                            }
+                        }
                     } else {
                         speed = activity.getString(R.string.connection_test_speed_unsupported);
                     }
@@ -124,7 +144,18 @@ public final class PyroWaveBandwidthTest {
 
     /** Only hosts with the download test measure speed; the others are tested for delay alone. */
     private boolean measuresSpeed() {
-        return computer.caps.mayHave(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE);
+        return computer.caps.mayHave(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE) ||
+                (computer.caps.family() == HostCapabilities.Family.SUNSHINE &&
+                        !Boolean.FALSE.equals(computer.uuid == null ? null : FOUNDATION_TEST.get(computer.uuid)));
+    }
+
+    /** Asks the PC once whether it has Foundation Sunshine's test; a question that did not get through is asked again. */
+    static boolean hasFoundationTest(NvHTTP http, String uuid) throws IOException {
+        Boolean known = uuid == null ? null : FOUNDATION_TEST.get(uuid);
+        if (known != null) return known;
+        boolean found = http.supportsFoundationBandwidthTest();
+        if (uuid != null) FOUNDATION_TEST.put(uuid, found);
+        return found;
     }
 
     /** "Ping 63 ms · Jitter 41 ms · Loss 0.0%", then the speed line when there is one. */

@@ -22,6 +22,7 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
     match name {
         "recovery::StreamRecoveryPolicy" => crate::recovery::traced_policy(args),
         "recovery::Backoff" => crate::recovery::traced_backoff(args),
+        "recovery::RouteWait" => crate::recovery::traced_route_wait(args),
         "bitrate::AdaptiveBitrateController" => crate::bitrate::traced_controller(args),
         "client_hint::Bitrate" => crate::client_hint::traced(args),
         "quality::AdaptiveQualityController" => crate::quality::traced_controller(args),
@@ -30,6 +31,7 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
         "health::StreamHealth" => crate::health::traced_health(args),
         "health::PeriodicStalls" => crate::health::traced_stalls(args),
         "health::BitrateTrial" => crate::health::traced_trial(args),
+        "stats::LateFrames" => crate::stats::traced_late(args),
         "launch::LaunchPolicy" => crate::launch::traced(crate::launch::Traced::Launch, args),
         "launch::StreamExitPolicy" => crate::launch::traced(crate::launch::Traced::Exit, args),
         "launch::InputOnlyPolicy" => crate::launch::traced(crate::launch::Traced::InputOnly, args),
@@ -111,6 +113,12 @@ impl<'a> Args<'a> {
             -1 => Ok(None),
             _ => self.int(i).map(Some),
         }
+    }
+
+    pub fn flag(&self, i: usize) -> Result<bool, String> {
+        self.0[i]
+            .as_bool()
+            .ok_or_else(|| format!("argument {i} is not a bool: {}", self.0[i]))
     }
 
     pub fn text(&self, i: usize) -> Result<Option<&'a str>, String> {

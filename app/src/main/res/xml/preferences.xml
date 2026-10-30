@@ -17,11 +17,6 @@
 
     <!-- Video -->
     <PreferenceCategory android:key="category_basic_settings">
-        <!-- Opens the named profiles; the summary says which one streams use (StreamSettings). -->
-        <Preference
-            android:key="stream_profiles"
-            android:title="@string/profiles_title"
-            android:summary="@string/profiles_summary_none" />
         <com.limelight.preferences.ResolutionPreference
             android:key="list_resolution"
             android:title="@string/title_resolution_list"
@@ -217,6 +212,13 @@
             android:max="200"
             seekbar:step="5"
             android:text="%" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_virtual_display_dpi"
+            android:title="@string/title_virtual_display_dpi"
+            android:dialogMessage="@string/summary_virtual_display_dpi"
+            android:entries="@array/virtual_display_dpi_names"
+            android:entryValues="@array/virtual_display_dpi_values"
+            android:defaultValue="0" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_more_display">
         <Preference android:key="more_display" android:title="@string/settings_more" android:persistent="false" />
@@ -241,6 +243,18 @@
             android:key="checkbox_back_opens_menu"
             android:title="@string/title_checkbox_back_opens_menu"
             android:dialogMessage="@string/summary_checkbox_back_opens_menu"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_gamepad_quit_combo"
+            android:title="@string/title_list_gamepad_quit_combo"
+            android:dialogMessage="@string/summary_list_gamepad_quit_combo"
+            android:entries="@array/gamepad_quit_combo_names"
+            android:entryValues="@array/gamepad_quit_combo_values"
+            android:defaultValue="off" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_back_as_guide"
+            android:title="@string/title_checkbox_back_as_guide"
+            android:dialogMessage="@string/summary_checkbox_back_as_guide"
             android:defaultValue="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_deadzone"
@@ -493,6 +507,11 @@
         <Preference android:key="keyboard_shortcuts_editor"
             android:title="@string/keyboard_shortcuts_title"
             android:summary="@string/keyboard_shortcuts_summary" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_capture_system_keys"
+            android:title="@string/title_checkbox_capture_system_keys"
+            android:dialogMessage="@string/summary_checkbox_capture_system_keys"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_back_as_meta"
             android:title="@string/title_checkbox_back_as_meta"

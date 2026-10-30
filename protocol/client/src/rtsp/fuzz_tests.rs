@@ -112,7 +112,7 @@ proptest! {
         let _ = describe::sdp_attribute_u32(&sdp, "x-ss-general.featureFlags");
         let _ = super::parse_app_version(&sdp);
         if let Ok(configs) = describe::parse_opus_configs(&sdp, channels) {
-            prop_assert!(channels <= 8);
+            prop_assert!(usize::from(channels) <= describe::MAX_CHANNELS);
             for config in [Some(configs.normal), configs.high_quality].into_iter().flatten() {
                 prop_assert_eq!(config.channel_count, channels);
             }

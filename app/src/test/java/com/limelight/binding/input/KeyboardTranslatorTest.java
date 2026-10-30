@@ -91,20 +91,33 @@ public class KeyboardTranslatorTest {
 
     @Test
     public void keyboardBackBecomesTheWindowsKeyOnlyWhenEnabled() {
-        assertEquals(KeyEvent.KEYCODE_META_LEFT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, true, false));
-        assertEquals(KeyEvent.KEYCODE_BACK, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, false, false));
+        assertEquals(KeyEvent.KEYCODE_META_LEFT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, true, false, false));
+        assertEquals(KeyEvent.KEYCODE_BACK, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, false, false, false));
         // Back that is not from a keyboard keeps opening the stream menu.
-        assertEquals(KeyEvent.KEYCODE_BACK, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, false, true, true));
+        assertEquals(KeyEvent.KEYCODE_BACK, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, false, true, false, true));
         assertEquals((short) 0x805B, KeyboardTranslator.translateKeyCode(
-                KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, true, false)));
+                KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, true, false, false)));
+    }
+
+    // #50: the Esc key of many Android keyboards sends Back, which must reach the PC as Esc.
+    @Test
+    public void keyboardBackBecomesEscWhenSystemKeysGoToThePc() {
+        assertEquals(KeyEvent.KEYCODE_ESCAPE, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, false, true, false));
+        assertEquals((short) 0x801B, KeyboardTranslator.translateKeyCode(
+                KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, false, true, false)));
+        // Keyboard Back sends Windows key is the explicit choice and wins.
+        assertEquals(KeyEvent.KEYCODE_META_LEFT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, true, true, false));
+        // Back that is not from a keyboard, or with the option off, stays Back.
+        assertEquals(KeyEvent.KEYCODE_BACK, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, false, false, true, false));
+        assertEquals(KeyEvent.KEYCODE_BACK, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_BACK, true, false, false, false));
     }
 
     @Test
     public void rightAltBecomesCommandAndLeftAltStaysAlt() {
-        assertEquals(KeyEvent.KEYCODE_META_LEFT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_ALT_RIGHT, false, false, true));
-        assertEquals(KeyEvent.KEYCODE_ALT_RIGHT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_ALT_RIGHT, false, false, false));
-        assertEquals(KeyEvent.KEYCODE_ALT_LEFT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_ALT_LEFT, false, true, true));
-        assertEquals(KeyEvent.KEYCODE_C, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_C, true, true, true));
+        assertEquals(KeyEvent.KEYCODE_META_LEFT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_ALT_RIGHT, false, false, false, true));
+        assertEquals(KeyEvent.KEYCODE_ALT_RIGHT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_ALT_RIGHT, false, false, false, false));
+        assertEquals(KeyEvent.KEYCODE_ALT_LEFT, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_ALT_LEFT, false, true, false, true));
+        assertEquals(KeyEvent.KEYCODE_C, KeyboardTranslator.remapPhysicalKey(KeyEvent.KEYCODE_C, true, true, false, true));
     }
 
     @Test

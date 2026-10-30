@@ -4,7 +4,9 @@
 //!
 //! The mapping (button flags, stick inversion, trigger scaling, motion units, controller
 //! types and capabilities, the Start+Select+LB+RB quit combo) follows moonlight-qt's
-//! `app/streaming/input/gamepad.cpp` (GPL-3.0, Cameron Gutman and contributors).
+//! `app/streaming/input/gamepad.cpp` (GPL-3.0, Cameron Gutman and contributors). The other quit
+//! combos and the stream menu's controller mouse switch are ported from Moonlight V+ PC
+//! (qiin2333/moonlight-qt).
 
 use crate::strings::{en, trf};
 use nightjar_core::input::packets::{button, capability, motion_type, touch_event};
@@ -200,7 +202,7 @@ impl Pad {
 /// What a controller asked the UI to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Start+Select+LB+RB: leave the stream.
+    /// The quit combo (Start+Select+LB+RB unless the settings choose another): leave the stream.
     Quit,
     Menu,
     Mouse(bool),
@@ -213,11 +215,29 @@ pub struct Gamepads {
     pub motion: bool,
     pub mappings: std::collections::BTreeMap<String, Mapping>,
     back_opens_menu: bool,
+    quit_combo: crate::config::GamepadQuitCombo,
     mouse_emulation: bool,
     analog_scrolling: crate::config::AnalogScrolling,
     mouse_fixed_step: bool,
     touchpad_as_mouse: bool,
     disable_rumble: bool,
+}
+
+/// The physical buttons of a quit combo, as bits of `1 << SDL_GamepadButton`. Face buttons are
+/// positions (A is south) like the rest of the local chords, so the Nintendo layout swap leaves
+/// them where they are.
+pub fn quit_mask(combo: crate::config::GamepadQuitCombo) -> u32 {
+    use crate::config::GamepadQuitCombo as Combo;
+    let bits = |buttons: &[SDL_GamepadButton]| buttons.iter().fold(0u32, |mask, b| mask | 1 << b.0);
+    let shoulders = [SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER];
+    bits(&shoulders) | match combo {
+        Combo::StartSelectLbRb => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK]),
+        Combo::SelectLbRbY => bits(&[SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_NORTH]),
+        Combo::StartLbRbA => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_SOUTH]),
+        Combo::StartLbRbB => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_EAST]),
+        Combo::LbRbXY => bits(&[SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH]),
+        Combo::LbRbAB => bits(&[SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST]),
+    }
 }
 
 fn invert(value: i16) -> i16 {
@@ -229,6 +249,7 @@ impl Gamepads {
         self.swap_face_buttons = settings.swap_face_buttons;
         self.motion = settings.controller_motion;
         self.back_opens_menu = settings.back_opens_menu;
+        self.quit_combo = settings.gamepad_quit_combo;
         self.mouse_emulation = settings.controller_mouse;
         self.analog_scrolling = settings.analog_scrolling;
         self.mouse_fixed_step = settings.mouse_fixed_step;
@@ -363,6 +384,7 @@ impl Gamepads {
         let motion = self.motion;
         let mask = self.active_mask();
         let back_opens_menu = self.back_opens_menu;
+        let quit = quit_mask(self.quit_combo);
         let mouse_emulation = self.mouse_emulation;
         let precision = self.mouse_fixed_step;
         let touchpad_as_mouse = self.touchpad_as_mouse;
@@ -389,7 +411,6 @@ impl Gamepads {
                     }
                     // Local escape chords use physical buttons even when remapped or disabled.
                     let menu = (1 << SDL_GAMEPAD_BUTTON_START.0) | (1 << SDL_GAMEPAD_BUTTON_BACK.0);
-                    let quit = menu | (1 << SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0) | (1 << SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0);
                     if b.down && (pad.raw_buttons == quit || pad.raw_buttons == menu) {
                         let action = if pad.raw_buttons == quit { Action::Quit } else { Action::Menu };
                         pad.raw_buttons = 0;
@@ -644,6 +665,21 @@ impl Gamepads {
             pad.mouse.tick(pad.report(), self.analog_scrolling, self.mouse_fixed_step, now, queue);
         }
         active
+    }
+
+    /// Any controller drives the mouse.
+    pub fn mouse_active(&self) -> bool {
+        self.pads.iter().any(|pad| pad.mouse.active)
+    }
+
+    /// The stream menu's controller mouse switch, as in V+ PC: the first controller's mouse turns
+    /// on, or every active one turns off. None without a controller.
+    pub fn toggle_mouse(&mut self, queue: &mut InputQueue) -> Option<bool> {
+        if self.mouse_active() {
+            for pad in self.pads.iter_mut().filter(|pad| pad.mouse.active) { pad.mouse.toggle(queue); }
+            return Some(false);
+        }
+        Some(self.pads.first_mut()?.mouse.toggle(queue))
     }
 
     pub fn release_mouse(&mut self, id: SDL_JoystickID, queue: &mut InputQueue) {
@@ -926,6 +962,74 @@ mod tests {
             pads.close_all();
             SDL_DetachVirtualJoystick(id);
             SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+        }
+    }
+
+    /// Every quit combo in the settings leaves the stream when its last button goes down, and only
+    /// the chosen one does; the menu chord and the stream menu's mouse switch keep working.
+    #[test]
+    fn the_chosen_quit_combo_leaves_the_stream() {
+        use crate::config::GamepadQuitCombo;
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+        use nightjar_core::control::HostCapabilities;
+        // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+            desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+            desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+            desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+            desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+            desc.name = c"Nightjar test pad".as_ptr();
+            let id = SDL_AttachVirtualJoystick(&desc);
+            assert!(id.0 != 0, "{}", crate::sdl::error());
+            let mut pads = Gamepads::default();
+            pads.added(id).unwrap();
+            let mut queue = InputQueue::new(&HostCapabilities { app_version: [7, 1, 431, -1], feature_flags: 0x03, ..Default::default() });
+            pads.announce_all(&mut queue);
+            let press = |pads: &mut Gamepads, queue: &mut InputQueue, button: i32, down: bool| {
+                let event = SDL_Event { gbutton: SDL_GamepadButtonEvent { r#type: if down { SDL_EVENT_GAMEPAD_BUTTON_DOWN } else { SDL_EVENT_GAMEPAD_BUTTON_UP },
+                    which: id, button: button as u8, down, ..Default::default() } };
+                pads.handle(&event, queue)
+            };
+            // Shoulders first so Start+Select alone (the menu chord) is never all that is held.
+            let order = |mask: u32| {
+                let mut buttons: Vec<i32> = (0..32).filter(|b| mask & 1 << b != 0).collect();
+                buttons.sort_by_key(|b| ![SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0].contains(b));
+                buttons
+            };
+            for chosen in GamepadQuitCombo::ALL {
+                pads.quit_combo = chosen;
+                for combo in GamepadQuitCombo::ALL {
+                    let buttons = order(quit_mask(combo));
+                    let mut actions = Vec::new();
+                    for button in &buttons { actions.push(press(&mut pads, &mut queue, *button, true)); }
+                    for button in &buttons { press(&mut pads, &mut queue, *button, false); }
+                    let quit = actions.last() == Some(&Some(Action::Quit));
+                    assert_eq!(quit, combo == chosen, "{combo:?} held with {chosen:?} chosen");
+                    assert!(actions[..actions.len() - 1].iter().all(Option::is_none), "{combo:?}: {actions:?}");
+                    assert_eq!(pads.pads[0].raw_buttons, 0);
+                }
+                assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, true), None);
+                assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, true), Some(Action::Menu), "{chosen:?}");
+                press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, false);
+                press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, false);
+            }
+            assert_eq!(quit_mask(GamepadQuitCombo::StartSelectLbRb), 1 << SDL_GAMEPAD_BUTTON_START.0 | 1 << SDL_GAMEPAD_BUTTON_BACK.0
+                | 1 << SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0 | 1 << SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0, "the default stays moonlight-qt's");
+
+            assert!(!pads.mouse_active());
+            assert_eq!(pads.toggle_mouse(&mut queue), Some(true));
+            assert!(pads.mouse_active());
+            assert_eq!(pads.toggle_mouse(&mut queue), Some(false));
+            assert!(!pads.mouse_active());
+
+            pads.close_all();
+            SDL_DetachVirtualJoystick(id);
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+            assert_eq!(Gamepads::default().toggle_mouse(&mut queue), None, "no controller, no switch");
         }
     }
 

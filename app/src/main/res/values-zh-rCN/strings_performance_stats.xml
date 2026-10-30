@@ -6,6 +6,7 @@
     <string name="stats_waiting">正在等待串流统计信息…</string>
     <string name="stats_frame_rates">渲染：%1$s FPS · 接收：%2$s FPS</string>
     <string name="stats_throughput">视频负载：%1$s Mbps · 丢包：%2$s%%</string>
+    <string name="stats_wire">线路占用：%1$s Mbps（含 FEC 和音频）</string>
     <string name="stats_network">网络 RTT：%1$s ms（±%2$s ms）</string>
     <string name="stats_host">主机处理：%1$s ms</string>
     <string name="stats_host_network">主机到网络：%1$s ms</string>

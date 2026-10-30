@@ -164,6 +164,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private final static int SHARED_FOLDERS_ID = HostMenu.SHARED_FOLDERS;
     private final static int FILES_ID = HostMenu.FILES;
     private final static int COOP_ID = HostMenu.COOP;
+    private final static int CONNECTION_ADDRESS_ID = HostMenu.CONNECTION_ADDRESS;
 
     /** How long a row says "Waking…" after a wake signal while the PC has not answered. */
     static final long WAKE_WINDOW_MS = 2 * 60 * 1000;
@@ -570,6 +571,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
             case RENAME_ID:
                 hostActions.rename(computer.details);
+                return true;
+
+            case CONNECTION_ADDRESS_ID:
+                hostActions.chooseAddress(computer.details);
                 return true;
 
             case WOL_ID:

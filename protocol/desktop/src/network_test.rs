@@ -1,5 +1,5 @@
 use std::sync::{Arc, mpsc::{channel, Receiver}, atomic::{AtomicBool, Ordering}};
-use nightjar_core::http::{pace, HostClient, Feature};
+use nightjar_core::http::{pace, Family, Feature, HostClient, ServerInfo};
 use crate::{config::PaceCalibration, network::Network};
 
 pub enum Outcome {
@@ -28,7 +28,7 @@ impl Test {
                 // Calibrate for the interface that reaches this PC, which is what the stream will use.
                 let network = network.toward(crate::network::toward(&address));
                 let info = worker.server_info_https().map_err(|e| e.to_string())?;
-                if !calibrate { return worker.probe_bandwidth(&info).map(Outcome::Bandwidth).map_err(|e| e.to_string()); }
+                if !calibrate { return bandwidth(&worker, &info); }
                 if !info.paired || !info.capabilities.has(Feature::PyroWave) || !info.pyrowave_burst_probe {
                     return Err("This paired PC does not support PyroWave pace calibration.".into());
                 }
@@ -54,6 +54,25 @@ impl Test {
     }
 }
 
+/// Rubylight's PyroWave bandwidth test, else Foundation Sunshine's (`/api/network/probe`, as
+/// Moonlight V+ Android runs it).
+fn bandwidth(client: &HostClient, info: &ServerInfo) -> Result<Outcome, String> {
+    if info.capabilities.has(Feature::PyroWaveBandwidthProbe) || !has_foundation_probe(info) {
+        return client.probe_bandwidth(info).map(Outcome::Bandwidth).map_err(|e| e.to_string());
+    }
+    match client.foundation_network_probe() {
+        Ok(result) => Ok(Outcome::Bandwidth(result.bandwidth_mbps)),
+        Err(nightjar_core::http::Error::NotFound(_)) => Err("This PC has no bandwidth test.".into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// A paired Sunshine-family PC may be Foundation Sunshine, which has its own bandwidth test; the
+/// PC is asked once whether it does (`Host::bandwidth_test`).
+pub fn has_foundation_probe(info: &ServerInfo) -> bool {
+    info.paired && info.capabilities.family() == Family::Sunshine
+}
+
 /// The slower of the two ends' reported rates bounds the search; an end that reports none is ignored.
 fn calibration_link(client_mbps: u32, host_mbps: u32) -> u32 {
     [client_mbps, host_mbps].into_iter().filter(|&n| n > 0).min().unwrap_or(0).min(9999)
@@ -69,6 +88,16 @@ impl Drop for Test {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Foundation Sunshine's test is offered to paired Sunshine PCs; Rubylight keeps its own.
+    #[test]
+    fn the_foundation_bandwidth_test_is_offered_to_paired_sunshine_pcs() {
+        let info = |extra: &str, paired: u8| ServerInfo::parse(&format!("<root status_code=\"200\"><uniqueid>pc</uniqueid>\
+            <state>SUNSHINE_SERVER_FREE</state><PairStatus>{paired}</PairStatus>{extra}</root>"), 47989).unwrap();
+        assert!(has_foundation_probe(&info("<appversion>7.1.431.-1</appversion><SunshineVersion>2025.1</SunshineVersion><VddCapabilityVersion>1</VddCapabilityVersion>", 1)));
+        assert!(!has_foundation_probe(&info("<appversion>7.1.431.-1</appversion>", 0)), "unpaired");
+        assert!(!has_foundation_probe(&info("<RustHostVersion>3.0.0</RustHostVersion>", 1)), "Rubylight");
+    }
 
     #[test]
     fn calibration_link_is_capped_by_the_wifi_rate_the_route_keeps() {

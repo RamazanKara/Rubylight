@@ -227,6 +227,25 @@ public class FrontendEntryTest {
     }
 
     @Test
+    public void onlyEntriesTheExportWroteCountAsItsOwn() throws IOException {
+        String marked = FrontendEntry.serializeExport("host", "PC", "app", "Game", 42);
+        assertTrue(FrontendEntry.writtenByExport(marked, parse(marked)));
+        // Exports before the marker: exactly this text, always with a game number.
+        String legacy = FrontendEntry.serialize("host", "PC", "app", "Game", 42);
+        assertTrue(FrontendEntry.writtenByExport(legacy, parse(legacy)));
+
+        for (String user : new String[] {
+                FrontendEntry.serialize("host", "PC", null, null, 0),
+                "[host_uuid] host\n[app_name] Game\n",
+                legacy + "# edited\n",
+                legacy.replace("[app_name] Game", "[app_name]  Game"),
+                legacy.replace("\n", "\r\n"),
+                legacy + "[nightjar_export] yes\n"}) {
+            assertFalse(user, FrontendEntry.writtenByExport(user, parse(user)));
+        }
+    }
+
+    @Test
     public void serializeDropsLineBreaksAndMissingFields() throws IOException {
         String text = FrontendEntry.serialize("u", "Two\nLines", null, "Game", 0);
         assertFalse(text.contains("[app_uuid]"));

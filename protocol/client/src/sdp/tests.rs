@@ -37,6 +37,7 @@ fn params<'a>(
         hdr_formats_offered: 0,
         audio_codec: 0,
         audio_codecs_offered: 0,
+        video_fec_percentage: None,
     }
 }
 
@@ -69,6 +70,34 @@ fn packed_bitrate_reserves_packet_overhead_and_fec() {
             .text
             .contains(&format!("a=x-ml-video.configuredBitrateKbps:{budget} \r\n")));
     }
+}
+
+#[test]
+fn foundation_fec_control_goes_where_v_plus_puts_it() {
+    // V+'s SdpGenerator.c: right after the packet size, the percentage, then summary version 1.
+    let config = StreamConfig::default();
+    let mut p = params(&config, SUNSHINE, "192.168.1.20", VIDEO_FORMAT_H265);
+    for (percentage, line) in [
+        (-2, "a=x-ml-video.fecPercentage:-2 \r\n"),
+        (-1, "a=x-ml-video.fecPercentage:-1 \r\n"),
+        (0, "a=x-ml-video.fecPercentage:0 \r\n"),
+        (100, "a=x-ml-video.fecPercentage:100 \r\n"),
+    ] {
+        p.video_fec_percentage = Some(percentage);
+        let sdp = generate(&p).text;
+        assert!(
+            sdp.contains(&format!(
+                "a=x-nv-video[0].packetSize:1392 \r\n{line}a=x-ml-video.fecSummaryVersion:1 \r\n\
+                 a=x-nv-video[0].rateControlMode:4 \r\n"
+            )),
+            "{sdp}"
+        );
+    }
+    // Without the host's FEC control (Rubylight, Sunshine, Apollo, GameStream): neither.
+    p.video_fec_percentage = None;
+    let sdp = generate(&p).text;
+    assert!(!sdp.contains("x-ml-video.fec"), "{sdp}");
+    assert!(sdp.contains("a=x-nv-video[0].packetSize:1392 \r\na=x-nv-video[0].rateControlMode:4 \r\n"));
 }
 
 #[test]
@@ -301,6 +330,31 @@ fn sunshine_pyrowave_with_records_and_pacing_hints() {
 fn attribute<'a>(sdp: &'a str, name: &str) -> Option<&'a str> {
     let prefix = format!("a={name}:");
     sdp.lines().find(|l| l.starts_with(&prefix)).map(|l| l.trim_end())
+}
+
+/// 7.1.4 asks as Moonlight V+ does: 12 channels with mask 0xF63F, in the launch's
+/// `surroundAudioInfo` and the ANNOUNCE.
+#[test]
+fn seven_one_four_is_announced_as_moonlight_v_plus_does() {
+    let config = StreamConfig {
+        audio: AudioConfiguration::SURROUND_714,
+        bitrate_kbps: 50_000,
+        ..Default::default()
+    };
+    assert_eq!(config.audio.surround_audio_info(), 0xF63F_000C);
+    let mut p = params(&config, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_H265);
+    p.high_quality_surround_supported = true;
+    let sdp = generate(&p);
+    for line in [
+        "a=x-nv-audio.surround.numChannels:12",
+        "a=x-nv-audio.surround.channelMask:63039",
+        "a=x-nv-audio.surround.enable:1",
+        "a=x-nv-audio.surround.AudioQuality:1",
+    ] {
+        let name = &line[2..line.rfind(':').unwrap()];
+        assert_eq!(attribute(&sdp.text, name), Some(line), "{}", sdp.text);
+    }
+    assert!(sdp.high_quality_surround_enabled);
 }
 
 #[test]

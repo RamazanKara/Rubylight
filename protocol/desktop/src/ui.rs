@@ -15,7 +15,7 @@ use crate::config::{
 use crate::console::{self, EndAction, GameState, Playing, Source};
 use crate::hosts::{Apps, Art, Handed, Host, Hosts, Reach, SleepStep};
 use crate::strings::{en, tr, trf};
-use crate::stream::{stream_mode, Display};
+use crate::stream::{pyrowave_bitrate_warning, stream_mode, Display};
 use crate::theme::*;
 
 pub enum Command {
@@ -41,6 +41,8 @@ pub enum Command {
     Sleep { host: u64, ask: u64, token: String, at: Handed },
     /// Name a PC on this device only; empty brings back the PC's own name.
     Rename { host: u64, alias: String },
+    /// Always connect to the PC through this known address; None brings back the automatic pick.
+    PinAddress { host: u64, address: Option<String> },
     HostSettings(u64),
     SaveHostSettings(u64),
     AppSettings { host: u64, app: nightjar_core::http::App },
@@ -93,6 +95,12 @@ pub enum Command {
     OpenFiles(u64),
     /// Show the system's file dialog for files to send from the open Files page.
     ChooseFiles,
+    /// The PIN screen let a start through (or unlocked the app): the start that waited goes on.
+    PinPassed,
+    /// The PIN screen for a stream start was cancelled: the start that waited is dropped.
+    PinCancelled,
+    /// Close Nightjar (the app lock's way out).
+    Quit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -346,6 +354,8 @@ pub struct Launcher {
     pub files: files::Files,
     /// A short notice over the launcher, such as the game quitting after leaving its stream.
     toast: Option<(String, std::time::Instant)>,
+    /// The PIN lock; None in tests that do not look at it.
+    pub pin: Option<crate::pin_ui::PinLock>,
 }
 
 /// What the launcher shows, borrowed from the app each frame.
@@ -365,7 +375,7 @@ const POSTER_W: f32 = 168.0;
 const POSTER_H: f32 = 224.0;
 const CONTENT_MAX: f32 = 1180.0;
 
-fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
+pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
     if response.has_focus() {
         ui.painter().rect_stroke(
             rect.expand(3.0),
@@ -391,6 +401,8 @@ fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
         *on = !*on;
         response.mark_changed();
     }
+    // A switch with its state for screen readers; the row names it (name_for_readers).
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Switch, ui.is_enabled(), *on, ""));
     let t = ui.ctx().animate_bool_responsive(response.id, *on);
     let enabled = ui.is_enabled();
     let track: Color32 = if *on { *MOON } else { *SURFACE_HIGHEST };
@@ -403,7 +415,7 @@ fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     response
 }
 
-fn primary_button(ui: &mut Ui, text: &str) -> Response {
+pub(crate) fn primary_button(ui: &mut Ui, text: &str) -> Response {
     let button = egui::Button::new(RichText::new(tr(text)).color(ON_MOON).font(semibold(text::LABEL)))
         .fill(*MOON)
         .corner_radius(CornerRadius::same(radius::CONTROL))
@@ -413,7 +425,7 @@ fn primary_button(ui: &mut Ui, text: &str) -> Response {
     response
 }
 
-fn quiet_button(ui: &mut Ui, text: &str) -> Response {
+pub(crate) fn quiet_button(ui: &mut Ui, text: &str) -> Response {
     let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::LABEL)))
         .fill(*SURFACE_HIGHEST)
         .corner_radius(CornerRadius::same(radius::CONTROL))
@@ -510,6 +522,7 @@ impl Launcher {
             coop: Default::default(),
             files: Default::default(),
             toast: None,
+            pin: None,
         }
     }
 
@@ -799,6 +812,14 @@ impl Launcher {
             _ => None,
         });
         self.files.poll(files);
+        // The PIN screen and the PIN lock page cover the launcher while they are up. The polls
+        // above run under them, so a check, transfer or join in flight still ends or is cancelled.
+        if let Some(pin) = &mut self.pin {
+            let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
+            if pin.ui(ui, &pcs, &mut commands) {
+                return commands;
+            }
+        }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
@@ -1071,7 +1092,7 @@ impl Launcher {
             }
             ui.add_space(8.0);
             ui.label(
-                RichText::new(tr("Options for a PC: F2, right-click, the three dots, or the controller's X button. Ctrl+N adds a PC."))
+                RichText::new(trf("Options for a PC: F2, right-click, the three dots, or the controller's {} button. Ctrl+N adds a PC.", &[&crate::glyphs::Style::of(view.pads).face(crate::glyphs::Face::West)]))
                     .color(OUTLINE)
                     .font(regular(text::CAPTION)),
             );
@@ -1104,7 +1125,7 @@ impl Launcher {
                     ui.label(RichText::new(tr("This PC lists no apps.")).color(ON_SURFACE_VARIANT));
                     return;
                 }
-                ui.label(RichText::new(tr("Game settings: right-click a game, press F2, or use the controller's left face button.")).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(trf("Game settings: right-click a game, press F2, or use the controller's {} button.", &[&crate::glyphs::Style::of(view.pads).face(crate::glyphs::Face::West)])).color(ON_SURFACE_VARIANT));
                 ui.add_space(12.0);
                 scroll(ui, "apps", |ui| {
                     let gap = 20.0;
@@ -1707,6 +1728,7 @@ impl Launcher {
                     ui.label(RichText::new(why).color(ERROR));
                 }
             }
+            self.connection_address(ui, host, commands);
             section(ui, "Play away from home");
             let button = row(ui, "Remote access", "Checks the paired PC's identity with five small HTTPS requests. It does not start a stream or download a speed-test file.", |ui| {
                 if running {
@@ -1743,6 +1765,33 @@ impl Launcher {
                 self.coop_sessions(ui, id, commands);
             }
         });
+    }
+
+    /// The details page's connection address: Automatic, or one of the PC's known addresses to
+    /// always connect through (Moonlight V+ PC's address pinning). Shown once the PC has more
+    /// than one address, or while one is pinned.
+    fn connection_address(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) {
+        let record = &host.record;
+        let known: Vec<&String> = std::iter::once(&record.address).chain(&record.other_addresses).collect();
+        if known.len() < 2 && record.pinned_address.is_none() {
+            return;
+        }
+        section(ui, "Connection");
+        let pinned = record.pinned_address.clone();
+        let mut choice = pinned.clone();
+        let shown = pinned.clone().unwrap_or_else(|| tr("Automatic").to_owned());
+        let chooser = row(ui, "Connection address", "Automatic tries the address that answered last, then the PC's other addresses. Choose one to always connect through it.", |ui| {
+            egui::ComboBox::from_id_salt("pinned-address").selected_text(shown).show_ui(ui, |ui| {
+                ui.selectable_value(&mut choice, None, tr("Automatic"));
+                for address in &known {
+                    ui.selectable_value(&mut choice, Some((*address).clone()), address.as_str());
+                }
+            }).response
+        });
+        self.focus_item(&chooser, "pinned-address", false);
+        if choice != pinned {
+            commands.push(Command::PinAddress { host: host.id, address: choice });
+        }
     }
 
     /// The details page's Nucleus Co-op sessions (Experimental): their players, free slots and
@@ -2197,8 +2246,13 @@ impl Launcher {
             );
             if !automatic {
                 let mut mbps = bitrate as f32 / 1000.0;
-                let note = if s.codec.is_pyrowave() { en("PyroWave maintains a minimum bitrate for this size and frame rate.") }
-                    else { en("Higher is sharper and needs a faster network.") };
+                // A chosen bitrate below PyroWave's minimum stays; the row says what it costs.
+                let warning = pyrowave_bitrate_warning(s, w, h, fps);
+                let note = match &warning {
+                    Some(warning) => warning.as_str(),
+                    None if s.codec.is_pyrowave() => en("PyroWave needs a high bitrate: below its minimum the picture breaks up."),
+                    None => en("Higher is sharper and needs a faster network."),
+                };
                 setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {
@@ -2270,14 +2324,26 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.", |ui, s| {
-                egui::ComboBox::from_id_salt("upscaling").selected_text(s.upscaling.label()).show_ui(ui, |ui| {
-                    for mode in [crate::config::Upscaling::Bilinear, crate::config::Upscaling::Fsr1, crate::config::Upscaling::Sgsr1] {
-                        ui.selectable_value(&mut s.upscaling, mode, mode.label());
+            let upscaling_help = if s.upscaling == crate::config::Upscaling::Ai {
+                en("Uses the GPU's AI video upscaling, for SDR and HDR. On NVIDIA with an HDR display it also turns SDR streams into HDR. Costs GPU power.")
+            } else {
+                en("Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.")
+            };
+            setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", upscaling_help, |ui, s| {
+                egui::ComboBox::from_id_salt("upscaling").selected_text(tr(s.upscaling.label())).show_ui(ui, |ui| {
+                    // AI enhancement is offered only where the GPU's probe finds the vendor's super
+                    // resolution or RTX Video HDR. It loads the AMF runtime, so it runs once per
+                    // renderer device, in the background, when the menu is first opened.
+                    let probe = crate::stream::enhance::settings_probe(probe_device);
+                    if probe.is_none() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(200)); }
+                    let ai_offered = probe.flatten().is_some();
+                    for mode in [crate::config::Upscaling::Bilinear, crate::config::Upscaling::Fsr1, crate::config::Upscaling::Sgsr1, crate::config::Upscaling::Ai] {
+                        if mode == crate::config::Upscaling::Ai && !ai_offered && s.upscaling != mode { continue; }
+                        ui.selectable_value(&mut s.upscaling, mode, tr(mode.label()));
                     }
                 }).response
             });
-            if s.upscaling != crate::config::Upscaling::Bilinear {
+            if s.upscaling.is_shader() {
                 setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Sharpness", "Extra sharpening applied by the upscaler.", |ui, s| {
                     ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
                 });
@@ -2343,6 +2409,26 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution.", |ui, s| {
                 ui.add(egui::Slider::new(&mut s.virtual_display_scale, crate::config::RENDER_SCALE).step_by(5.0).suffix("%"))
             });
+            // A PC's own settings offer it only if its host reads rlDisplayScale (DisplayScale).
+            let dpi_gate = display_scale_gate(test_host.and_then(|h| h.info.as_ref())
+                .map_or(nightjar_core::http::Availability::Unknown, |i| i.capabilities.availability(nightjar_core::http::Feature::DisplayScale)));
+            if let Some(note) = dpi_gate {
+                let description = match note {
+                    Some(note) => format!("{} {}", tr("Text and interface size on the virtual display, on Rubylight PCs."), tr(note)),
+                    None => tr("Text and interface size on the virtual display, on Rubylight PCs.").to_owned(),
+                };
+                ui.add_enabled_ui(note.is_none(), |ui| {
+                    setting_row(ui, s, &mut rows, &["virtual_display_dpi"], "PC display scaling", &description, |ui, s| {
+                        egui::ComboBox::from_id_salt("virtual-display-dpi")
+                            .selected_text(display_scale_name(s.virtual_display_dpi))
+                            .show_ui(ui, |ui| {
+                                for percent in crate::config::DISPLAY_SCALES {
+                                    ui.selectable_value(&mut s.virtual_display_dpi, percent, display_scale_name(percent));
+                                }
+                            }).response
+                    });
+                });
+            }
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
                     .selected_text(match s.window_mode {
@@ -2375,6 +2461,17 @@ impl Launcher {
                 );
             });
             ui.add_enabled_ui(!s.vrr, |ui| {
+                setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing",
+                    "Without VRR: Lowest latency shows the newest frame at once. Balanced waits for the display's refresh. With an FPS limit, frames that come early wait for their turn. Smoothest video shows every frame in turn and adds up to a frame of delay.",
+                    |ui, s| {
+                        egui::ComboBox::from_id_salt("frame-pacing").selected_text(tr(s.frame_pacing.label())).show_ui(ui, |ui| {
+                            for mode in crate::config::FramePacing::ALL {
+                                ui.selectable_value(&mut s.frame_pacing, mode, tr(mode.label()));
+                            }
+                        }).response
+                    });
+            });
+            ui.add_enabled_ui(!s.vrr && !s.frame_pacing.forces_vsync(), |ui| {
                 setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Without VRR: wait for the display's refresh, no tearing.", |ui, s| {
                     toggle(ui, &mut s.vsync)
                 });
@@ -2415,12 +2512,23 @@ impl Launcher {
             });
             setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "Sensitivity of the captured pointer.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Send the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
+            if cfg!(windows) {
+                setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Send the touchpad's fingers to a PC that takes them, so its gestures work there. Other PCs get the pointer as before.", |ui, s| toggle(ui, &mut s.native_touchpad));
+            }
             setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
             setting_row(ui, s, &mut rows, &["controllers"], "Controllers", "Every connected controller becomes a controller on the PC.", |ui, s| {
                 toggle(ui, &mut s.controllers)
             });
             ui.add_enabled_ui(s.controllers, |ui| {
                 setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "Use the controller's Back / Select button to open the menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+                setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Controller quit combo", "Hold these buttons to leave the stream. Pick another if a game or your controller needs the default.", |ui, s| {
+                    let style = crate::glyphs::Style::of(view.pads);
+                    egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
+                        for combo in crate::config::GamepadQuitCombo::ALL {
+                            ui.selectable_value(&mut s.gamepad_quit_combo, combo, style.quit_combo(combo));
+                        }
+                    }).response
+                });
                 setting_row(ui, s, &mut rows, &["controller_mouse"], "Controller mouse mode", "Hold Start for 750 ms, then release. A/B click and the D-pad scrolls.", |ui, s| toggle(ui, &mut s.controller_mouse));
                 if s.controller_mouse {
                     setting_row(ui, s, &mut rows, &["analog_scrolling"], "Stick for scrolling", "The other stick moves the pointer. Off lets both sticks move it.", |ui, s| {
@@ -2456,11 +2564,15 @@ impl Launcher {
                         AudioChannels::Stereo => tr("Stereo"),
                         AudioChannels::Surround51 => tr("5.1 surround"),
                         AudioChannels::Surround71 => tr("7.1 surround"),
+                        AudioChannels::Surround714 => tr("7.1.4 surround"),
                     })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut s.audio, AudioChannels::Stereo, tr("Stereo"));
                         ui.selectable_value(&mut s.audio, AudioChannels::Surround51, tr("5.1 surround"));
                         ui.selectable_value(&mut s.audio, AudioChannels::Surround71, tr("7.1 surround"));
+                        if crate::stream::offers_714() {
+                            ui.selectable_value(&mut s.audio, AudioChannels::Surround714, tr("7.1.4 surround"));
+                        }
                     })
                     .response
             });
@@ -2472,6 +2584,17 @@ impl Launcher {
             });
             setting_row(ui, s, &mut rows, &["microphone"], "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui, s| {
                 toggle(ui, &mut s.microphone)
+            });
+            ui.add_enabled_ui(s.microphone, |ui| {
+                setting_row(ui, s, &mut rows, &["mic_echo_cancel"], "Echo cancellation",
+                    "Keeps the stream's sound from the speakers out of the microphone. On Windows, Automatic turns it off when the sound plays through headphones or a headset. On Linux it needs PipeWire's or PulseAudio's echo-cancel module.",
+                    |ui, s| {
+                        egui::ComboBox::from_id_salt("mic-echo-cancel").selected_text(tr(s.mic_echo_cancel.label())).show_ui(ui, |ui| {
+                            for mode in crate::config::MicEcho::ALL {
+                                ui.selectable_value(&mut s.mic_echo_cancel, mode, tr(mode.label()));
+                            }
+                        }).response
+                    });
             });
 
             rows.section(ui, "Streaming", &mut jump);
@@ -2499,7 +2622,7 @@ impl Launcher {
             if let Some(host) = test_host {
                 let online = host.paired() && host.reach == Reach::Online;
                 row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
-                    let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe));
+                    let enabled = online && host.bandwidth_test();
                     let button = ui.add_enabled(enabled, egui::Button::new(tr("Test speed")));
                     if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
                     button
@@ -2519,7 +2642,7 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["auto_reconnect"], "Recover interrupted streams", "Try to resume the same running app up to five times within one minute.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
             });
-            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "How much recovery data the PC adds to the video. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
                 egui::ComboBox::from_id_salt("error-correction")
                     .selected_text(error_correction_name(s.error_correction))
                     .show_ui(ui, |ui| {
@@ -2572,6 +2695,14 @@ impl Launcher {
                         toggle(ui, &mut s.input_only_any_host)
                     });
                 }
+                row(ui, "PIN lock", "Ask for a PIN to open Nightjar or to start a stream.", |ui| {
+                    let set = self.pin.as_ref().is_some_and(|p| p.store.has_pin());
+                    let button = quiet_button(ui, if set { en("Change PIN lock") } else { en("Set up") });
+                    if button.clicked() {
+                        if let Some(pin) = self.pin.as_mut() { pin.open_settings(); }
+                    }
+                    button
+                });
                 row(ui, "Language", "The language of the launcher and the stream menu. System default follows the operating system.", |ui| {
                     egui::ComboBox::from_id_salt("language")
                         .selected_text(match s.language {
@@ -2586,6 +2717,11 @@ impl Launcher {
                         })
                         .response
                 });
+                if cfg!(windows) && rows.shows(&["check_updates"]) {
+                    row(ui, "Check for updates", "Once per launch, asks GitHub whether a newer Nightjar release is out and says so here. Nothing is downloaded or installed.", |ui| {
+                        toggle(ui, &mut s.check_updates)
+                    });
+                }
                 if rows.shows(&["ui_zoom"]) {
                     row(ui, "UI zoom", "Makes everything bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", |ui| {
                         egui::ComboBox::from_id_salt("ui-zoom")
@@ -2645,9 +2781,10 @@ impl Launcher {
             rows.finish(ui);
             ui.add_space(18.0);
             ui.label(
-                RichText::new(tr(
+                RichText::new(trf(
                     "While streaming: Ctrl+Alt+Shift+Q leaves, +Z releases input, +X toggles fullscreen, +D minimizes. \
-                     On a controller, Start+Select+LB+RB leaves.",
+                     On a controller, {} leaves.",
+                    &[&crate::glyphs::Style::of(view.pads).quit_combo(s.gamepad_quit_combo)],
                 ))
                 .color(OUTLINE)
                 .font(regular(text::CAPTION)),
@@ -3638,6 +3775,26 @@ fn remote_report(ui: &mut Ui, report: &crate::host_page::Report) {
     );
 }
 
+/// How a PC's own settings offer PC display scaling, as Android's per-PC "dpi" row: None hides
+/// it on a host that can never read `rlDisplayScale`; Some(note) draws it, turned off with the
+/// note on a host that could (an older Rubylight, a virtual display that is off or not ready).
+/// The main settings and a PC not reached yet offer it; the launch sends it only to hosts with
+/// `Feature::DisplayScale`.
+fn display_scale_gate(availability: nightjar_core::http::Availability) -> Option<Option<&'static str>> {
+    use nightjar_core::http::{Availability, Reason};
+    match availability {
+        Availability::Supported | Availability::Unknown => Some(None),
+        Availability::Unsupported(Some(Reason::UpdateHost)) => Some(Some(en("Update the host software to use this."))),
+        Availability::Unsupported(Some(Reason::VirtualDisplayOff)) => Some(Some(en("Turn on the virtual display in the host’s settings."))),
+        Availability::Unsupported(Some(Reason::VirtualDisplayDriver)) => Some(Some(en("The host’s virtual display driver isn’t ready."))),
+        Availability::Unsupported(_) => None,
+    }
+}
+
+fn display_scale_name(percent: u32) -> String {
+    if percent == 0 { tr("PC’s own").into() } else { format!("{percent}%") }
+}
+
 fn host_display_name(mode: HostDisplay) -> &'static str {
     match mode {
         HostDisplay::HostDefault => en("Host default"),
@@ -3794,7 +3951,7 @@ fn error_correction_name(mode: ErrorCorrection) -> String {
 /// The main rows of each section, as `client/app/src/main/res/values/settings_tiers.xml` lists them
 /// by Android preference key, in `SETTINGS_SECTIONS` order. A test keeps the two equal.
 const MAIN_KEYS: [(&str, &[&str]); 7] = [
-    ("video", &["stream_profiles", "list_resolution", "list_fps", "seekbar_bitrate_kbps", "checkbox_auto_bitrate", "list_mobile_bitrate_kbps", "video_format", "checkbox_enable_hdr"]),
+    ("video", &["list_resolution", "list_fps", "seekbar_bitrate_kbps", "checkbox_auto_bitrate", "list_mobile_bitrate_kbps", "video_format", "checkbox_enable_hdr"]),
     ("display", &["checkbox_stretch_video", "stream_orientation"]),
     ("input", &["checkbox_multi_controller", "controller_button_mapping", "controller_test", "checkbox_flip_face_buttons", "checkbox_touchscreen_trackpad", "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"]),
     ("audio", &["list_audio_config", "checkbox_host_audio", "checkbox_enable_mic", "checkbox_mic_button"]),
@@ -3804,7 +3961,7 @@ const MAIN_KEYS: [(&str, &[&str]); 7] = [
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
-const ANDROID_KEYS: [(&str, &str); 30] = [
+const ANDROID_KEYS: [(&str, &str); 35] = [
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
@@ -3819,6 +3976,9 @@ const ANDROID_KEYS: [(&str, &str); 30] = [
     ("audio_passthrough", "checkbox_audio_passthrough"), ("usb_forwarding", "checkbox_usb_forwarding"),
     ("unbatched_input", "checkbox_unbatched_input"), ("network_priority", "checkbox_network_priority"),
     ("input_only_any_host", "checkbox_input_only_any_host"),
+    ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("check_updates", "checkbox_check_updates"),
+    ("frame_pacing", "frame_pacing"), ("mic_echo_cancel", "list_mic_echo_cancel"),
+    ("pin_lock", "pin_lock"),
 ];
 
 /// Main rows Android has no match for.
@@ -3915,6 +4075,7 @@ fn setting_row(
                 *settings = overrides.apply(inherited);
             }
             let value = ui.add_enabled_ui(own, |ui| control(ui, settings)).inner;
+            name_for_readers(ui, &value, label, description);
             if own { overrides.capture(settings, keys); }
             response.union(value)
         }).inner
@@ -3938,12 +4099,27 @@ fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui
                     ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    out = Some(control(ui));
+                    let response = control(ui);
+                    name_for_readers(ui, &response, label, description);
+                    out = Some(response);
                 });
             });
         });
     ui.add_space(6.0);
     out.expect("control drawn")
+}
+
+/// A row's switch, list or slider has no text of its own: a screen reader says the row's label for
+/// it, and its description, as Android's preferences read their title and summary.
+fn name_for_readers(ui: &Ui, response: &Response, label: &str, description: &str) {
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        if node.role() != egui::Role::Label && node.label().is_none_or(|l| l.trim().is_empty()) && node.labelled_by().is_empty() {
+            node.set_label(tr(label));
+        }
+        if node.description().is_none() {
+            node.set_description(tr(description));
+        }
+    });
 }
 
 /// A PC's card. `line` replaces the address and GPU line (Home shows what it knows of the games).
@@ -3957,6 +4133,7 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     };
     painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
     let (status, color, ring) = host_status(host);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {status}", host.display_name())));
     // The status dot: full and green when the PC is up and paired, a ring otherwise. Amber stays the
     // action's colour, so it never stands for a state.
     let dot = Pos2::new(rect.left() + 26.0, rect.top() + 30.0);
@@ -4089,6 +4266,7 @@ fn favourite_menu(
 
 fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H + 34.0), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, if running { trf("{}, running", &[&name]) } else { name.to_owned() }));
     let image = Rect::from_min_size(rect.min, vec2(POSTER_W, POSTER_H));
     paint_cover(ui, image, name, art, running);
     let painter = ui.painter_at(rect.expand(6.0));
@@ -4102,6 +4280,7 @@ fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response
 /// A game to carry on with: title, and where it runs.
 fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, 84.0), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{title}, {line}")));
     let painter = ui.painter_at(rect.expand(6.0));
     let fill = if response.hovered() || response.has_focus() { SURFACE_HIGH } else { SURFACE };
     painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
@@ -4303,6 +4482,8 @@ mod tests {
         shapes: Vec<egui::epaint::ClippedShape>,
         /// The display's scale (1 everywhere but in screenshots).
         native_ppp: f32,
+        /// The last frame's AccessKit tree, once a test turned AccessKit on.
+        access: Option<egui::accesskit::TreeUpdate>,
     }
 
     impl Drop for Frames {
@@ -4348,6 +4529,7 @@ mod tests {
             let output = self.ctx.run_ui(input, |ui| {
                 commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None, waking: self.waking.clone() });
             });
+            self.access = output.platform_output.accesskit_update.clone();
             // Only screenshots read the textures; everyone else lets them go.
             if self.native_ppp == 1.0 {
                 let mut delta = output.textures_delta;
@@ -4379,6 +4561,7 @@ mod tests {
                 textures: Default::default(),
                 shapes: Vec::new(),
                 native_ppp: 1.0,
+                access: None,
             }
         }
 
@@ -4600,6 +4783,68 @@ mod tests {
         assert_eq!(headings, upper.iter().collect::<Vec<_>>(), "and the page has them in the same order");
     }
 
+    /// The widgets a screen reader can press or change that have no name to say, with their role and place.
+    fn unnamed(f: &Frames) -> Vec<String> {
+        use egui::accesskit::{Action, Role};
+        let tree = f.access.as_ref().expect("AccessKit is on");
+        let pressable = |n: &egui::accesskit::Node| {
+            n.supports_action(Action::Click) || n.supports_action(Action::Focus)
+                || matches!(n.role(), Role::Button | Role::CheckBox | Role::Switch | Role::ComboBox | Role::Slider | Role::TextInput | Role::SpinButton)
+        };
+        tree.nodes.iter()
+            // A label is named by its text, its value.
+            .filter(|(_, n)| pressable(n) && n.role() != Role::Label)
+            .filter(|(_, n)| n.label().is_none_or(|l| l.trim().is_empty()) && n.labelled_by().is_empty())
+            .map(|(_, n)| format!("{:?} at {:?}", n.role(), n.bounds()))
+            .collect()
+    }
+
+    /// Every button, switch, list and field on the main screens has a name for a screen reader.
+    #[test]
+    fn screen_readers_hear_a_name_for_everything_on_the_main_screens() {
+        let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 7)), vec![game(7), game(9)]);
+        f.ctx.enable_accesskit();
+        f.size = vec2(1280.0, 12000.0);
+        let id = f.hosts.list[0].id;
+        let mut screens = vec![("PCs", Screen::Hosts), ("Home", Screen::Home), ("library", Screen::Apps(id)), ("details", Screen::HostDetails(id)), ("PC settings", Screen::HostSettings(id))];
+        screens.push(("settings", Screen::Settings));
+        let mut missing = Vec::new();
+        for (name, screen) in screens {
+            f.l.go(screen);
+            for section in SETTINGS_SECTIONS {
+                f.l.unfolded.insert(section);
+            }
+            f.settle();
+            assert!(f.access.as_ref().is_some_and(|t| t.nodes.len() > 5), "{name}: a tree came out");
+            missing.extend(unnamed(&f).into_iter().map(|w| format!("{name}: {w}")));
+        }
+        f.l.go(Screen::Hosts);
+        f.l.dialog = Dialog::HostOptions { host: id };
+        f.settle();
+        missing.extend(unnamed(&f).into_iter().map(|w| format!("options: {w}")));
+        assert_eq!(missing, Vec::<String>::new(), "unnamed widgets");
+        // The PIN screen: every key, Delete, Confirm and the way out.
+        f.l.dialog = Dialog::None;
+        let dir = std::env::temp_dir().join(format!("nightjar-ui-pin-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::pin_lock::PinStore::new(&dir, Arc::new(crate::pin_lock::SystemClock));
+        store.set_pin(b"1234").unwrap();
+        store.set_mode(crate::pin_lock::Mode::App);
+        store.flush();
+        f.l.pin = Some(crate::pin_ui::PinLock::with_store(store));
+        f.settle();
+        assert!(f.l.pin.as_ref().unwrap().app_locked());
+        assert_eq!(unnamed(&f), Vec::<String>::new(), "the PIN screen");
+        // A label's name is its value.
+        let labels: Vec<String> = f.access.as_ref().unwrap().nodes.iter().filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned)).collect();
+        for wanted in ["1", "0", "Delete", "Confirm", "Close Nightjar", "0 of 4 digits entered"] {
+            assert!(labels.iter().any(|l| l == wanted), "{wanted} in {labels:?}");
+        }
+        assert!(!labels.iter().any(|l| l.contains("Desk")), "the lock screen hides the PCs from the reader too");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     #[test]
     fn settings_main_rows_are_androids_tiers() {
         let tiers = include_str!("../../../app/src/main/res/values/settings_tiers.xml");
@@ -4704,12 +4949,48 @@ mod tests {
         f.settle();
         assert!(shows(&f, "PC render resolution"), "{:?}", f.drawn);
         assert!(shows(&f, "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution."));
-        assert!(!f.drawn.iter().any(|t| t.contains("display scaling") || t.contains("Text and interface size")), "{:?}", f.drawn);
+        // The old name and description went to the Windows scale, a row of its own.
+        assert!(!f.drawn.iter().any(|t| t == "Text and interface size on the virtual display."), "{:?}", f.drawn);
+        assert!(shows(&f, "PC display scaling") && shows(&f, "Text and interface size on the virtual display, on Rubylight PCs."));
         // The slider holds Android's 50-200 %.
         for (set, kept) in [(300, 200), (25, 50), (135, 135)] {
             f.l.settings.virtual_display_scale = set;
             f.settle();
             assert_eq!(f.l.settings.virtual_display_scale, kept, "{set} %");
+        }
+    }
+
+    #[test]
+    fn a_pcs_own_display_scaling_is_offered_only_by_hosts_that_read_it() {
+        use nightjar_core::http::{Availability, Reason};
+        assert_eq!(display_scale_gate(Availability::Supported), Some(None));
+        assert_eq!(display_scale_gate(Availability::Unknown), Some(None), "the main settings and a PC not reached");
+        assert_eq!(display_scale_gate(Availability::Unsupported(None)), None);
+        assert_eq!(display_scale_gate(Availability::Unsupported(Some(Reason::UpdateHost))), Some(Some("Update the host software to use this.")));
+        let info = |extra: &str| {
+            let xml = format!(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state><Permission>1</Permission>{extra}</root>"
+            );
+            nightjar_core::http::ServerInfo::parse(&xml, 47989).expect("the answer parses")
+        };
+        let rubylight = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
+        let description = "Text and interface size on the virtual display, on Rubylight PCs.";
+        for (host, extra, drawn) in [
+            ("Rubylight that reads it", format!("{rubylight}<DisplayScaleVersion>1</DisplayScaleVersion>"), Some(description.to_owned())),
+            ("older Rubylight", rubylight.to_owned(), Some(format!("{description} Update the host software to use this."))),
+            ("Apollo", String::new(), None),
+        ] {
+            let mut f = Frames::with(record("PC", true, false), Reach::Online, Some(info(&extra)), Vec::new());
+            f.size = vec2(1280.0, 12000.0);
+            f.l.unfolded.insert("Display & image");
+            let id = f.hosts.list[0].id;
+            f.l.go(Screen::HostSettings(id));
+            f.settle();
+            assert!(shows(&f, "PC render resolution"), "{host}: {:?}", f.drawn);
+            assert_eq!(shows(&f, "PC display scaling"), drawn.is_some(), "{host}: {:?}", f.drawn);
+            if let Some(drawn) = drawn {
+                assert!(shows(&f, &drawn), "{host}: {:?}", f.drawn);
+            }
         }
     }
 
@@ -5517,6 +5798,31 @@ mod tests {
         f.l.open(Screen::HostDetails(id));
         f.settle();
         assert!(!shows(&f, "Test cancelled. No host or network settings were changed."), "the page opens fresh");
+    }
+
+    #[test]
+    fn the_pin_screen_does_not_stop_checks_from_being_polled() {
+        let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+        let id = f.hosts.list[0].id;
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        f.settle();
+        // The app locks with the check in flight, and the page under the lock screen is left.
+        let dir = std::env::temp_dir().join(format!("nightjar-ui-pin-poll-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::pin_lock::PinStore::new(&dir, Arc::new(crate::pin_lock::SystemClock));
+        store.set_pin(b"1234").unwrap();
+        store.set_mode(crate::pin_lock::Mode::App);
+        store.flush();
+        f.l.pin = Some(crate::pin_ui::PinLock::with_store(store));
+        f.l.screen = Screen::Hosts;
+        f.l.trail.clear();
+        f.settle();
+        assert!(f.l.pin.as_ref().unwrap().app_locked());
+        assert_eq!(probe.cancels.load(Ordering::SeqCst), 1, "leaving the page cancels its check under the lock too");
+        assert!(!f.l.remote.running());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

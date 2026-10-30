@@ -56,7 +56,9 @@ import org.cgutman.shieldcontrollerextensions.SceConnectionType;
 import org.cgutman.shieldcontrollerextensions.SceManager;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -427,6 +429,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.leftStickX = context.leftStickY = 0;
         context.rightStickX = context.rightStickY = 0;
         context.releaseMouseButtons();
+        // A quit combo held as input went away (focus lost, the menu opened) is no longer held.
+        context.quitComboPending = false;
+        context.quitButtons = 0;
         if (context instanceof InputDeviceContext) {
             InputDeviceContext inputContext = (InputDeviceContext) context;
             inputContext.pressedButtons.clear();
@@ -889,31 +894,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         //
         // First, check if this is an internal device we're being called on.
         if (!isExternal(dev)) {
-            InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
-
-            boolean foundInternalGamepad = false;
-            boolean foundInternalSelect = false;
-            for (int id : im.getInputDeviceIds()) {
-                InputDevice currentDev = im.getInputDevice(id);
-
-                // Ignore external devices
-                if (currentDev == null || isExternal(currentDev)) {
-                    continue;
-                }
-
-                // Note that we are explicitly NOT excluding the current device we're examining here,
-                // since the other gamepad buttons may be on our current device and that's fine.
-                if (currentDev.hasKeys(KeyEvent.KEYCODE_BUTTON_SELECT)[0]) {
-                    foundInternalSelect = true;
-                }
-
-                // We don't check KEYCODE_BUTTON_A here, since the Shield Android TV has a
-                // virtual mouse device that claims to have KEYCODE_BUTTON_A. Instead, we rely
-                // on the SOURCE_GAMEPAD flag to be set on gamepad devices.
-                if (hasGamepadButtons(currentDev)) {
-                    foundInternalGamepad = true;
-                }
-            }
+            boolean[] internal = findInternalGamepadAndSelect();
+            boolean foundInternalGamepad = internal[0];
+            boolean foundInternalSelect = internal[1];
 
             // Allow the back button to function for navigation if we either:
             // a) have no internal gamepad (most phones)
@@ -927,6 +910,107 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // has no gamepad axes or gamepad buttons.
             return !hasJoystickAxes(dev) && !hasGamepadButtons(dev);
         }
+    }
+
+    /** Back sends Guide when the option is on, except the Back with modifiers some remote apps type for B. */
+    static boolean isBackAsGuide(boolean backAsGuide, int keyCode, int flags) {
+        return backAsGuide && keyCode == KeyEvent.KEYCODE_BACK && (flags & KeyEvent.FLAG_SOFT_KEYBOARD) == 0;
+    }
+
+    /**
+     * Back as Guide on a built-in gamepad, only where Back is a spare button: the pad has its own
+     * Select and does not use Back as Start. An external pad's Back, often its Select, stays Back.
+     */
+    static boolean isBuiltInPadBackAsGuide(boolean backAsGuide, int keyCode, int flags, boolean external,
+                                           boolean backIsStart, boolean hasSelectButton) {
+        return isBackAsGuide(backAsGuide, keyCode, flags) && !external && !backIsStart && hasSelectButton;
+    }
+
+    /**
+     * A Back from a handheld's system button that is not on its gamepad device: one its firmware
+     * injects (Android's virtual keyboard device) or a built-in key device such as gpio-keys.
+     * Never the navigation bar or gesture, a fallback key, a mouse's right click, an external or
+     * alphabetic keyboard, a gamepad (handleButtonDown/Up), or a device without a built-in gamepad
+     * with its own Select (that Back is Select, see shouldIgnoreBack).
+     */
+    public static boolean isHandheldSystemBack(int keyCode, int flags, int source, boolean virtualDevice,
+                                               boolean external, boolean alphabeticKeyboard, boolean gamepad,
+                                               boolean internalGamepadWithSelect) {
+        return keyCode == KeyEvent.KEYCODE_BACK && internalGamepadWithSelect &&
+                (flags & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK | KeyEvent.FLAG_SOFT_KEYBOARD)) == 0 &&
+                (source & InputDevice.SOURCE_CLASS_POINTER) == 0 &&
+                (virtualDevice || (!external && !alphabeticKeyboard && !gamepad));
+    }
+
+    /** Whether this device has a built-in gamepad and a built-in Select button, on any internal device. */
+    protected boolean[] findInternalGamepadAndSelect() {
+        InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
+
+        boolean foundInternalGamepad = false;
+        boolean foundInternalSelect = false;
+        for (int id : im.getInputDeviceIds()) {
+            InputDevice currentDev = im.getInputDevice(id);
+
+            // Ignore external devices
+            if (currentDev == null || isExternal(currentDev)) {
+                continue;
+            }
+
+            // Note that we are explicitly NOT excluding the device a Back came from here,
+            // since the other gamepad buttons may be on that device and that's fine.
+            if (currentDev.hasKeys(KeyEvent.KEYCODE_BUTTON_SELECT)[0]) {
+                foundInternalSelect = true;
+            }
+
+            // We don't check KEYCODE_BUTTON_A here, since the Shield Android TV has a
+            // virtual mouse device that claims to have KEYCODE_BUTTON_A. Instead, we rely
+            // on the SOURCE_GAMEPAD flag to be set on gamepad devices.
+            if (hasGamepadButtons(currentDev)) {
+                foundInternalGamepad = true;
+            }
+        }
+        return new boolean[] {foundInternalGamepad, foundInternalSelect};
+    }
+
+    /**
+     * A handheld whose system Back is a spare button: a built-in gamepad with its own Select
+     * (Retroid, GPD XD). Without one (Shield Portable), shouldIgnoreBack sends that Back as Select.
+     */
+    private boolean hasInternalGamepadWithSelect() {
+        boolean[] internal = findInternalGamepadAndSelect();
+        return internal[0] && internal[1];
+    }
+
+    /**
+     * Back as Guide for a handheld's system button (see isHandheldSystemBack): Guide goes out on
+     * controller 0, where built-in buttons always sit. Returns whether the event was such a Back.
+     */
+    public boolean handleHandheldBackAsGuide(KeyEvent event) {
+        if (!isBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags())) {
+            return false;
+        }
+        InputDevice dev = event.getDevice();
+        boolean virtualDevice = dev == null || dev.isVirtual();
+        if (!isHandheldSystemBack(event.getKeyCode(), event.getFlags(), event.getSource(), virtualDevice,
+                !virtualDevice && isExternal(dev),
+                !virtualDevice && dev.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
+                !virtualDevice && (hasGamepadButtons(dev) || hasJoystickAxes(dev)), hasInternalGamepadWithSelect())) {
+            return false;
+        }
+        if (stopped) {
+            return true;
+        }
+
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+        }
+        else if (event.getAction() == KeyEvent.ACTION_UP) {
+            // Firmware injects the press and release together; hold Guide long enough for games to see it
+            holdForMinimumPress(event);
+            defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
+        }
+        sendControllerInputPacket(defaultContext);
+        return true;
     }
 
     private InputDeviceContext createInputDeviceContextForDevice(InputDevice dev) {
@@ -1022,6 +1106,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         boolean[] buttons = dev.hasKeys(KeyEvent.KEYCODE_BUTTON_MODE, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BACK, 0);
         context.hasMode = buttons[0];
         context.hasSelect = buttons[1] || buttons[2];
+        context.hasSelectButton = buttons[1];
 
         context.touchpadXRange = dev.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_TOUCHPAD);
         context.touchpadYRange = dev.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_TOUCHPAD);
@@ -1650,6 +1735,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Return a valid keycode, -2 to consume, or -1 to not consume the event
     // Device MAY BE NULL
     private int handleRemapping(InputDeviceContext context, KeyEvent event) {
+        // Back as Guide also takes the Back that handhelds otherwise leave to Android
+        if (isBuiltInPadBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags(),
+                context.external, context.backIsStart, context.hasSelectButton)) {
+            return KeyEvent.KEYCODE_BUTTON_MODE;
+        }
+
         // Don't capture the back button if configured
         if (context.ignoreBack) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
@@ -2911,6 +3002,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return (keyCode == REMAP_CONSUME);
         }
 
+        context.quitButtons &= ~quitButton(keyCode);
+        releaseQuitCombo(context, context.quitButtons);
+
         // A user mapping is keyed by the physical key code and replaces face-button flipping
         int userTarget = context.buttonMap.map(event.getKeyCode());
         if (userTarget == ControllerButtonMap.DISABLED) {
@@ -2928,25 +3022,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return true;
         }
 
-        // If the button hasn't been down long enough, sleep for a bit before sending the up event
-        // This allows "instant" button presses (like OUYA's virtual menu button) to work. This
-        // path should not be triggered during normal usage.
-        long buttonDownTime = event.getEventTime() - event.getDownTime();
-        if (buttonDownTime < ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS)
-        {
-            // Since our sleep time is so short (<= 25 ms), it shouldn't cause a problem doing this
-            // in the UI thread.
-            try {
-                Thread.sleep(ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS - buttonDownTime);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-
-                // InterruptedException clears the thread's interrupt status. Since we can't
-                // handle that here, we will re-interrupt the thread to set the interrupt
-                // status back to true.
-                Thread.currentThread().interrupt();
-            }
-        }
+        holdForMinimumPress(event);
 
         switch (keyCode) {
         case KeyEvent.KEYCODE_BUTTON_MODE:
@@ -3161,6 +3237,28 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return true;
     }
 
+    // If the button hasn't been down long enough, sleep for a bit before sending the up event
+    // This allows "instant" button presses (like OUYA's virtual menu button) to work. This
+    // path should not be triggered during normal usage.
+    private static void holdForMinimumPress(KeyEvent event) {
+        long buttonDownTime = event.getEventTime() - event.getDownTime();
+        if (buttonDownTime < ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS)
+        {
+            // Since our sleep time is so short (<= 25 ms), it shouldn't cause a problem doing this
+            // in the UI thread.
+            try {
+                Thread.sleep(ControllerHandler.MINIMUM_BUTTON_DOWN_TIME_MS - buttonDownTime);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+
+                // InterruptedException clears the thread's interrupt status. Since we can't
+                // handle that here, we will re-interrupt the thread to set the interrupt
+                // status back to true.
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     public boolean handleButtonDown(KeyEvent event) {
         InputDeviceContext context = getContextForEvent(event);
         if (context == null) {
@@ -3171,6 +3269,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (keyCode < 0) {
             return (keyCode == REMAP_CONSUME);
         }
+
+        // Like the desktop's, the quit combo is the physical buttons, even remapped or disabled.
+        context.quitButtons |= quitButton(keyCode);
+        holdQuitCombo(context, context.quitButtons);
 
         // A user mapping is keyed by the physical key code and replaces face-button flipping
         int userTarget = context.buttonMap.map(event.getKeyCode());
@@ -3459,6 +3561,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (stopped || context == null) {
             return;
         }
+        // The driver's own flags are the physical buttons, before mapping and face-button flipping;
+        // the quit combo arms as it comes together, not again for a chord held from the menu.
+        boolean quitChanged = buttonFlags != context.quitButtons;
+        context.quitButtons = buttonFlags;
         int buttons = context.buttonMap.mapButtonFlags(buttonFlags, prefConfig.flipFaceButtons);
         if (!inputEnabled) {
             // Android sees no key events from a pad this driver owns: it steers the menu from here.
@@ -3512,6 +3618,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
             context.menuComboPending = true;
         }
+        if (quitChanged) holdQuitCombo(context, buttonFlags);
 
         sendControllerInputPacket(context);
 
@@ -3521,6 +3628,104 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ((Game) activityContext).showStreamMenu();
             }
         }
+        releaseQuitCombo(context, buttonFlags);
+    }
+
+    /**
+     * The buttons of the controller quit combo chosen in Settings, or 0 when it is off (the default:
+     * Start+Select+LB+RB opens the stream menu here). The choices are Moonlight V+ PC's
+     * (qiin2333/moonlight-qt, gamepad.cpp), less its default, which is the menu combo on Android.
+     */
+    static int quitComboMask(String combo) {
+        int shoulders = ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG;
+        switch (combo == null ? "" : combo) {
+            case "select_lb_rb_y": return shoulders | ControllerPacket.BACK_FLAG | ControllerPacket.Y_FLAG;
+            case "start_lb_rb_a": return shoulders | ControllerPacket.PLAY_FLAG | ControllerPacket.A_FLAG;
+            case "start_lb_rb_b": return shoulders | ControllerPacket.PLAY_FLAG | ControllerPacket.B_FLAG;
+            case "lb_rb_x_y": return shoulders | ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG;
+            case "lb_rb_a_b": return shoulders | ControllerPacket.A_FLAG | ControllerPacket.B_FLAG;
+            default: return 0;
+        }
+    }
+
+    // A physical button as the quit combo sees it; 0 for buttons no combo uses.
+    static int quitButton(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BUTTON_START: case KeyEvent.KEYCODE_MENU: return ControllerPacket.PLAY_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_SELECT: case KeyEvent.KEYCODE_BACK: return ControllerPacket.BACK_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_L1: return ControllerPacket.LB_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_R1: return ControllerPacket.RB_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_A: return ControllerPacket.A_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_B: return ControllerPacket.B_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_X: return ControllerPacket.X_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_Y: return ControllerPacket.Y_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return ControllerPacket.LS_CLK_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return ControllerPacket.RS_CLK_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_MODE: return ControllerPacket.SPECIAL_BUTTON_FLAG;
+            case KeyEvent.KEYCODE_DPAD_UP: return ControllerPacket.UP_FLAG;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return ControllerPacket.DOWN_FLAG;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return ControllerPacket.LEFT_FLAG;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return ControllerPacket.RIGHT_FLAG;
+            default: return 0;
+        }
+    }
+
+    private void holdQuitCombo(GenericControllerContext context, int buttons) {
+        int mask = quitComboMask(prefConfig.gamepadQuitCombo);
+        if (mask != 0 && buttons == mask) {
+            context.quitComboPending = true;
+        }
+    }
+
+    // Like the menu combo, the stream ends once every button is up, so none stays held on the PC.
+    private void releaseQuitCombo(GenericControllerContext context, int buttons) {
+        if (context.quitComboPending && buttons == 0) {
+            context.quitComboPending = false;
+            if (activityContext instanceof Game) {
+                ((Game) activityContext).leaveStreamFromController();
+            }
+        }
+    }
+
+    // Every controller context the mouse switch covers: the default one and each pad.
+    private List<GenericControllerContext> mouseContexts() {
+        List<GenericControllerContext> contexts = new ArrayList<>();
+        contexts.add(defaultContext);
+        contexts.addAll(inputDeviceContexts.values());
+        contexts.addAll(usbDeviceContexts.values());
+        return contexts;
+    }
+
+    /** Any controller drives the mouse (mouse emulation). */
+    public boolean isMouseEmulationActive() {
+        for (GenericControllerContext context : mouseContexts()) {
+            if (context.mouseEmulationActive) return true;
+        }
+        return false;
+    }
+
+    /** A controller is connected, so the stream menu offers its mouse switch. */
+    public boolean hasControllers() {
+        return !inputDeviceContexts.isEmpty() || !usbDeviceContexts.isEmpty();
+    }
+
+    /**
+     * The stream menu's controller mouse switch, as in Moonlight V+ PC: every active controller
+     * mouse turns off, or the first controller's turns on. It works with the Start long press off.
+     */
+    public void toggleMouseEmulationFromMenu() {
+        boolean active = false;
+        for (GenericControllerContext context : mouseContexts()) {
+            if (context.mouseEmulationActive) { context.toggleMouseEmulation(); active = true; }
+        }
+        if (active) return;
+        // The first controller is the lowest numbered pad, not whichever the map lists first.
+        GenericControllerContext first = null;
+        for (GenericControllerContext context : mouseContexts()) {
+            if (context == defaultContext || !context.assignedControllerNumber) continue;
+            if (first == null || context.controllerNumber < first.controllerNumber) first = context;
+        }
+        if (first != null) first.toggleMouseEmulation();
     }
 
     // The keyboard owns the pad: report each change to it, and treat what is still held on the way
@@ -3537,6 +3742,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // press for the keyboard and stays away from the game until it is let go.
             context.menuButtons = buttons | context.lastButtons;
             context.menuComboPending = false;
+            context.quitComboPending = false;
             context.captureStick = null;
             context.captureGeneration = captureGeneration.get();
             // The game's last state is cleared here, on the thread that sends this pad's reports.
@@ -3569,6 +3775,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             context.steeringMenu = true;
             context.menuButtons = context.lastButtons;
             context.menuComboPending = false;
+            context.quitComboPending = false;
         }
         int pressed = buttons & ~context.menuButtons;
         context.menuButtons = buttons;
@@ -3685,6 +3892,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public short leftStickY = 0x0000;
 
         public boolean mouseEmulationActive;
+        // The quit combo was held; the stream ends once every button is up.
+        boolean quitComboPending;
+        // The physical buttons held, before user mapping, face-button flipping and the Select,
+        // clickpad and guide emulation: the quit combo is matched against these.
+        int quitButtons;
         public int mouseEmulationLastInputMap;
         public boolean mouseEmulationFixedStepHeld;
         public int mouseEmulationStep = FixedStepMouse.MIN_STEP;
@@ -3812,6 +4024,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         public int emulatingButtonFlags = 0;
         public boolean hasSelect;
+        // A BUTTON_SELECT of its own, so Back is not its Select
+        public boolean hasSelectButton;
         public boolean hasMode;
         public boolean hasPaddles;
         public boolean hasShare;

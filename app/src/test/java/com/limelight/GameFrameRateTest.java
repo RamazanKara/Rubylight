@@ -5,8 +5,10 @@ import android.graphics.SurfaceTexture;
 import android.media.MediaFormat;
 import android.view.Surface;
 
+import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
+import com.limelight.binding.video.RefreshSwitchMonitorTest;
 import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -20,7 +22,10 @@ import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowSurface;
+import org.robolectric.shadows.ShadowSystemClock;
 import org.robolectric.util.ReflectionHelpers;
+
+import java.time.Duration;
 
 import static org.junit.Assert.*;
 
@@ -30,7 +35,7 @@ import static org.junit.Assert.*;
 public class GameFrameRateTest {
     @Test
     @Config(sdk = 36, shadows = FrameRateSurface.class)
-    public void automaticArrClearsTheMaximumRefreshFallbackVote() {
+    public void automaticArrReplacesTheMaximumRefreshVoteWithASeamlessOne() {
         Game activity = Robolectric.buildActivity(Game.class).get();
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.vrr = true;
@@ -46,11 +51,12 @@ public class GameFrameRateTest {
             assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
 
+            // No stream rate known yet: ARR votes the panel's top rate, seamless only.
             ReflectionHelpers.setField(activity, "useArr", true);
             ReflectionHelpers.callInstanceMethod(activity, "voteSurfaceFrameRate",
                     ReflectionHelpers.ClassParameter.from(Surface.class, surface));
-            assertEquals(0, vote.frameRate, 0);
-            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_DEFAULT, vote.compatibility);
+            assertEquals(120, vote.frameRate, 0);
+            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
         } finally {
             surface.release();
@@ -101,7 +107,7 @@ public class GameFrameRateTest {
 
     @Test
     @Config(sdk = 36, shadows = FrameRateSurface.class)
-    public void exactStreamRateDoesNotReplacePanelOrAutomaticArrVotes() {
+    public void exactStreamRateIsTheArrVoteButNotThePanelVote() {
         Game activity = Robolectric.buildActivity(Game.class).get();
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
@@ -127,10 +133,12 @@ public class GameFrameRateTest {
             assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
 
+            // ARR votes the exact stream rate, seamless only: a 0 vote would leave a game at
+            // Android's 60 Hz default.
             ReflectionHelpers.setField(activity, "useArr", true);
             vote(activity, surface);
-            assertEquals(0f, vote.frameRate, 0);
-            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_DEFAULT, vote.compatibility);
+            assertEquals(59.94f, vote.frameRate, 0.001f);
+            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
         } finally {
             surface.release();
@@ -174,6 +182,120 @@ public class GameFrameRateTest {
             StreamReconfigureRequester requester = ReflectionHelpers.getField(activity, "reconfigureRequester");
             assertEquals(59_940, requester.fpsMillihz());
         } finally {
+            surface.release();
+            texture.release();
+        }
+    }
+
+    @Test
+    @Config(sdk = 36, shadows = FrameRateSurface.class)
+    public void aStreamRateChangeRedoesTheArrVote() {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+        prefs.vrr = true;
+        prefs.fps = 120;
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        ReconfigurableRenderer renderer = new ReconfigurableRenderer(activity, prefs);
+        renderer.setStreamFrameRateMilliHz(120_000);
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
+        ReflectionHelpers.setField(activity, "decoderRenderer", renderer);
+        ReflectionHelpers.setField(activity, "useArr", true);
+        ReflectionHelpers.setField(activity, "panelMaxRefreshRate", 120f);
+        SurfaceTexture texture = new SurfaceTexture(0);
+        Surface surface = new Surface(texture);
+        try {
+            FrameRateSurface vote = Shadow.extract(surface);
+            ReflectionHelpers.setField(activity, "videoSurface", surface);
+            ReflectionHelpers.setField(activity, "surfaceCreated", true);
+            vote(activity, surface);
+            assertEquals(120f, vote.frameRate, 0);
+
+            // A half-rate verdict on the old vote does not carry over to the new one.
+            DisplayFrameRatePolicy.ArrHalfRateCheck check = ReflectionHelpers.getField(activity, "arrHalfRate");
+            for (long t = 0; t <= DisplayFrameRatePolicy.ArrHalfRateCheck.HOLD_MS; t += 1000) {
+                check.update(t, 120f, 60f, 60f, 120f);
+            }
+            assertTrue(check.flagged());
+
+            // A 0x553C rate change or a reconfigure moves the stream to 90 fps: ARR is told at once.
+            ReflectionHelpers.callInstanceMethod(activity, "setStreamFrameRate",
+                    ReflectionHelpers.ClassParameter.from(int.class, 90_000));
+            assertEquals(90f, vote.frameRate, 0);
+            assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
+            assertFalse(check.flagged());
+
+            ReflectionHelpers.callInstanceMethod(activity, "setStreamFrameRate",
+                    ReflectionHelpers.ClassParameter.from(int.class, 59_940));
+            assertEquals(59.94f, vote.frameRate, 0.001f);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
+        } finally {
+            surface.release();
+            texture.release();
+        }
+    }
+
+    @Test
+    @Config(sdk = 34, shadows = {FrameRateSurface.class, RefreshSwitchMonitorTest.FakePanel.class})
+    public void vrrContentVoteLowersOnlyForJudderOrWithTheOptIn() {
+        // A 60/90/120 phone at 120, VRR without ARR, a host that sends frame times.
+        RefreshSwitchMonitorTest.FakePanel.set(RefreshSwitchMonitorTest.mode(3, 120f, 60f, 90f),
+                RefreshSwitchMonitorTest.mode(1, 60f, 90f, 120f), RefreshSwitchMonitorTest.mode(2, 90f, 60f, 120f),
+                RefreshSwitchMonitorTest.mode(3, 120f, 60f, 90f));
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+        prefs.vrr = true;
+        prefs.fps = 120;
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        ReconfigurableRenderer renderer = new ReconfigurableRenderer(activity, prefs);
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
+        ReflectionHelpers.setField(activity, "decoderRenderer", renderer);
+        ReflectionHelpers.setField(activity, "panelMaxRefreshRate", 120f);
+        SurfaceTexture texture = new SurfaceTexture(0);
+        Surface surface = new Surface(texture);
+        try {
+            FrameRateSurface vote = Shadow.extract(surface);
+            ReflectionHelpers.setField(activity, "videoSurface", surface);
+            ReflectionHelpers.setField(activity, "surfaceCreated", true);
+            vote(activity, surface);
+            assertEquals(120f, vote.frameRate, 0);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
+
+            // No lower refresh rate allowed. A 60 fps game: 120 is a multiple, so the panel stays,
+            // and the start-of-stream vote is not made again seamless-only (the status line keeps
+            // its reason).
+            renderer.contentMilliHz = 60_000;
+            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            assertEquals(120f, vote.frameRate, 0);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
+            assertFalse((boolean) ReflectionHelpers.getField(activity, "appSurfaceSeamlessOnly"));
+
+            // A 90 fps game would judder at 120: 90 is a seamless alternative.
+            ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
+            renderer.contentMilliHz = 90_000;
+            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            assertEquals(90f, vote.frameRate, 0);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
+
+            // A fixed 120 Hz panel: a 45 fps game would want 90, which it lacks.
+            RefreshSwitchMonitorTest.FakePanel.set(RefreshSwitchMonitorTest.mode(3, 120f),
+                    RefreshSwitchMonitorTest.mode(3, 120f));
+            ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
+            renderer.contentMilliHz = 45_000;
+            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            assertEquals(120f, vote.frameRate, 0);
+
+            // A lower refresh rate allowed: the vote without VRR, the game's own 60.
+            prefs.reduceRefreshRate = true;
+            ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
+            renderer.contentMilliHz = 60_000;
+            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            assertEquals(60f, vote.frameRate, 0);
+            assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
+        } finally {
+            RefreshSwitchMonitorTest.FakePanel.clear();
             surface.release();
             texture.release();
         }
@@ -250,6 +372,8 @@ public class GameFrameRateTest {
     }
 
     private static class ReconfigurableRenderer extends MediaCodecDecoderRenderer {
+        int contentMilliHz;
+
         ReconfigurableRenderer(Game activity, PreferenceConfiguration prefs) {
             super(activity, prefs, null, 0, false, false, "", null);
             ReflectionHelpers.setField(this, "refreshRate", prefs.fps);
@@ -266,6 +390,10 @@ public class GameFrameRateTest {
 
         @Override public boolean prepareForReconfigure(int width, int height) {
             return true;
+        }
+
+        @Override public int getContentRateMilliHz() {
+            return contentMilliHz;
         }
     }
 

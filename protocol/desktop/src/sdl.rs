@@ -140,6 +140,12 @@ pub fn set_hint(name: *const c_char, value: &CStr) {
     unsafe { SDL_SetHint(name, value.as_ptr()) };
 }
 
+/// While streaming, Alt+F4 goes to the PC's game instead of closing Nightjar, as in Moonlight
+/// (and V+): the stream's own quit shortcut and the window's close button still end it.
+pub fn alt_f4_to_host(streaming: bool) {
+    set_hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, if streaming { c"0" } else { c"1" });
+}
+
 /// The system's preferred languages, most preferred first, as lower-case codes ("de", "en").
 pub fn preferred_languages() -> Vec<String> {
     let mut count = 0;
@@ -254,6 +260,22 @@ pub fn display_caps(renderer: *mut SDL_Renderer) -> rubylight_protocol::control:
     caps
 }
 
+/// The display's luminance for the launch query of hosts other than Rubylight, from the same
+/// output description as [`display_caps`] (Moonlight V+ PC sends the DXGI values too). The
+/// desktop has no HDR/SDR ratio to estimate a missing peak from, so such a display sends none.
+pub fn launch_luminance(renderer: *mut SDL_Renderer) -> Option<nightjar_core::http::DisplayLuminance> {
+    luminance_of(&display_caps(renderer))
+}
+
+fn luminance_of(caps: &rubylight_protocol::control::DisplayCaps) -> Option<nightjar_core::http::DisplayLuminance> {
+    nightjar_core::http::DisplayLuminance::from_display(
+        caps.max_centinits as f32 / 100.0,
+        caps.min_decimillinits as f32 / 10_000.0,
+        caps.max_average_centinits as f32 / 100.0,
+        f32::NAN,
+    )
+}
+
 pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer {
     // SAFETY: The window is live, and all property strings are static.
     unsafe {
@@ -302,7 +324,8 @@ pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer 
     }
 }
 
-/// The window's icon from straight RGBA pixels.
+/// The window's icon from straight RGBA pixels (Windows uses the executable's).
+#[cfg(not(windows))]
 pub fn set_icon(window: *mut SDL_Window, rgba: &[u8], size: i32) {
     // SAFETY: the surface borrows `rgba` only for the call.
     unsafe {
@@ -348,5 +371,43 @@ pub fn screenshot(renderer: *mut SDL_Renderer, path: &Path) -> Result<(), String
             let _ = std::fs::create_dir_all(dir);
         }
         image::save_buffer(path, &pixels, w as u32, h as u32, image::ColorType::Rgba8).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hint(name: *const c_char) -> String {
+        // SAFETY: a NUL-terminated name; SDL returns its own string or null.
+        let value = unsafe { SDL_GetHint(name) };
+        if value.is_null() {
+            return String::new();
+        }
+        unsafe { CStr::from_ptr(value) }.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn alt_f4_reaches_the_game_only_while_streaming() {
+        let _sdl = TEST_LOCK.lock().unwrap();
+        alt_f4_to_host(true);
+        assert_eq!(hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4), "0");
+        alt_f4_to_host(false);
+        assert_eq!(hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4), "1");
+    }
+}
+
+#[cfg(test)]
+mod luminance_tests {
+    use super::*;
+    use rubylight_protocol::control::DisplayCaps;
+
+    #[test]
+    fn the_launch_gets_the_values_the_control_message_carries() {
+        let caps = DisplayCaps { hdr: true, max_centinits: 100_000, max_average_centinits: 40_000, min_decimillinits: 50 };
+        let luminance = luminance_of(&caps).unwrap();
+        assert_eq!(luminance.query_parameters(), "&minBrightness=0.005&maxBrightness=1000.0&maxAverageBrightness=400.0");
+        // No output description: nothing is sent and the host picks its own.
+        assert_eq!(luminance_of(&DisplayCaps::default()), None);
     }
 }

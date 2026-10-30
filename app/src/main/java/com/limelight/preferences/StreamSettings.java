@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Locale;
 
 import com.limelight.BuildConfig;
+import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
@@ -977,6 +978,8 @@ public class StreamSettings extends NightjarActivity {
     }
 
     static final String SEARCH_ROW_KEY = "settings_search";
+    /** The overview's Profiles row, under the presets: profiles hold values from every section. */
+    static final String PROFILES_KEY = "stream_profiles";
 
     public static class RootFragment extends PreferenceFragment {
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater = (prefs, key) -> updateSummaries();
@@ -1005,6 +1008,7 @@ public class StreamSettings extends NightjarActivity {
             findPreference("audio").setSummary(entryFor(context, R.array.audio_config_names, R.array.audio_config_values,
                     prefs.getString(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, "2")));
             findPreference("app").setSummary(getString(R.string.settings_section_app_summary, BuildConfig.VERSION_NAME));
+            findPreference(PROFILES_KEY).setSummary(SettingsFragment.profilesSummary(context));
         }
 
         @Override
@@ -1027,6 +1031,14 @@ public class StreamSettings extends NightjarActivity {
                     return true;
                 });
             }
+            // Profiles opens its own screen, with a section's look: a title, what is in use, a chevron.
+            Preference profiles = findPreference(PROFILES_KEY);
+            profiles.setLayoutResource(R.layout.settings_section);
+            if (isTelevision(getActivity())) profiles.setIcon(SettingsRail.iconOf(PROFILES_KEY));
+            profiles.setOnPreferenceClickListener(preference -> {
+                startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
+                return true;
+            });
             if (showsSearchRow(getActivity(), ((StreamSettings) getActivity()).twoPane)) {
                 Preference search = new Preference(getActivity());
                 search.setKey(SEARCH_ROW_KEY);
@@ -1169,6 +1181,20 @@ public class StreamSettings extends NightjarActivity {
                     return true;
                 });
                 screen.addPreference(presets);
+                resultCount++;
+            }
+            // Profiles live on the overview too, outside every section's rows: their result opens them.
+            if (!query.isEmpty() && SettingsSearch.matches(query, getString(R.string.profiles_title),
+                    profilesSummary(getActivity()), null)) {
+                Preference profiles = new Preference(getActivity());
+                profiles.setKey("search_result_" + PROFILES_KEY);
+                profiles.setTitle(R.string.profiles_title);
+                profiles.setSummary(profilesSummary(getActivity()));
+                profiles.setOnPreferenceClickListener(pref -> {
+                    startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
+                    return true;
+                });
+                screen.addPreference(profiles);
                 resultCount++;
             }
             for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
@@ -1399,8 +1425,6 @@ public class StreamSettings extends NightjarActivity {
                             prefs.getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
                     pref.setSummary(partial ? getString(R.string.settings_low_latency_partial) : null);
                     continue;
-                } else if ("stream_profiles".equals(pref.getKey())) {
-                    value = profilesSummary(getActivity());
                 } else if (SettingRules.micEffect(pref.getKey()) != null && !(pref instanceof ListPreference)) {
                     // The switches have no value line; it says when the device lacks the effect.
                     pref.setSummary(SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects()) ?
@@ -1428,6 +1452,13 @@ public class StreamSettings extends NightjarActivity {
                                     com.limelight.binding.video.Sdr10Policy.Refusal.NONE) {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_tenbit_short));
                     }
+                }
+                if (value != null && PreferenceConfiguration.BITRATE_PREF_STRING.equals(pref.getKey())) {
+                    // A chosen bitrate below PyroWave's minimum stays; the value line says what it costs.
+                    // Measured at the size the stream gets, also when the resolution follows the screen.
+                    PreferenceConfiguration config = PreferenceConfiguration.readPreferences(getActivity());
+                    String warning = PreferenceConfiguration.pyroWaveBelowMinimumWarning(getActivity(), config);
+                    if (warning != null) value = value + "\n" + warning;
                 }
                 if (value != null && SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects())) {
                     value = getString(R.string.settings_joined, value, getString(R.string.mic_effect_not_on_device));
@@ -1696,6 +1727,83 @@ public class StreamSettings extends NightjarActivity {
             pref.setEntryValues(entryValues);
         }
 
+        // Drops the fixed sizes above the largest width the display or the decoders take.
+        private void removeUndecodableResolutions(int maxSupportedResW) {
+            LimeLog.info("Maximum resolution slot: "+maxSupportedResW);
+            if (maxSupportedResW == 0) {
+                return;
+            }
+            if (maxSupportedResW < 3840) {
+                // 4K is unsupported
+                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_4K, new Runnable() {
+                    @Override
+                    public void run() {
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
+                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P);
+                        resetBitrateToDefault(prefs, null, null);
+                    }
+                });
+            }
+            if (maxSupportedResW < 2560) {
+                // 1440p is unsupported
+                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P, new Runnable() {
+                    @Override
+                    public void run() {
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
+                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P);
+                        resetBitrateToDefault(prefs, null, null);
+                    }
+                });
+            }
+            if (maxSupportedResW < 1920) {
+                // 1080p is unsupported
+                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P, new Runnable() {
+                    @Override
+                    public void run() {
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
+                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_720P);
+                        resetBitrateToDefault(prefs, null, null);
+                    }
+                });
+            }
+            // Never remove 720p
+        }
+
+        interface DecoderWidthProbe {
+            int probe(Context context);
+        }
+
+        // Tests swap in their own probe and wait for the thread.
+        static DecoderWidthProbe decoderWidthProbe = SettingsFragment::probeDecoderWidths;
+        Thread decoderProbe;
+
+        // The widest fixed size the AVC or HEVC decoder takes, or 0 when neither tells.
+        private static int probeDecoderWidths(Context context) {
+            // This must be called to do runtime initialization before calling functions that evaluate
+            // decoder lists.
+            MediaCodecHelper.initialize(context, GlPreferences.readPreferences(context).glRenderer);
+            return Math.max(
+                    decoderWidthSlot(MediaCodecHelper.findProbableSafeDecoder("video/avc", -1), "video/avc", "AVC"),
+                    decoderWidthSlot(MediaCodecHelper.findProbableSafeDecoder("video/hevc", -1), "video/hevc", "HEVC"));
+        }
+
+        private static int decoderWidthSlot(MediaCodecInfo decoder, String mime, String label) {
+            if (decoder == null) {
+                return 0;
+            }
+            Range<Integer> widths = decoder.getCapabilitiesForType(mime).getVideoCapabilities().getSupportedWidths();
+            LimeLog.info(label+" supported width range: "+widths.getLower()+" - "+widths.getUpper());
+
+            // If 720p is not reported as supported, ignore all results from this API
+            if (!widths.contains(1280)) {
+                return 0;
+            }
+            if (widths.contains(3840)) {
+                return 3840;
+            }
+            return widths.contains(1920) ? 1920 : 1280;
+        }
+
         // Removes a setting this device cannot use from whichever group holds it.
         private void removeSetting(String key) {
             Preference preference = findPreference(key);
@@ -1708,20 +1816,18 @@ public class StreamSettings extends NightjarActivity {
         }
 
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
-            // A bitrate the user picked stays; a default one follows the new resolution and frame rate.
+            resetBitrateToDefault(prefs, res, fps, null);
+        }
+
+        static void resetBitrateToDefault(SharedPreferences prefs, String res, String fps, String codec) {
+            // A bitrate the user picked stays; a default one follows the new resolution, frame rate
+            // and codec (PyroWave has its own).
             if (PreferenceConfiguration.isBitrateUserSet(prefs)) {
                 return;
             }
-            if (res == null) {
-                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
-            }
-            if (fps == null) {
-                fps = prefs.getString(PreferenceConfiguration.FPS_PREF_STRING, PreferenceConfiguration.DEFAULT_FPS);
-            }
-
             prefs.edit()
                     .putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
-                            PreferenceConfiguration.getDefaultBitrate(res, fps))
+                            PreferenceConfiguration.getShownDefaultBitrate(prefs, res, fps, codec))
                     .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, false)
                     .apply();
         }
@@ -1896,6 +2002,7 @@ public class StreamSettings extends NightjarActivity {
             codec.setOnPreferenceChangeListener((preference, value) -> {
                 texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(value));
                 updateCodecSummary(codec, (String) value, hdr.isChecked());
+                resetBitrateToDefault(settings, null, null, (String) value);
                 return true;
             });
             hdr.setOnPreferenceChangeListener((preference, value) -> {
@@ -2020,13 +2127,6 @@ public class StreamSettings extends NightjarActivity {
                 startActivity(new Intent(getActivity(), ControllerMappingActivity.class));
                 return true;
             });
-            Preference profiles = findPreference("stream_profiles");
-            if (profiles != null) {
-                profiles.setOnPreferenceClickListener(preference -> {
-                    startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
-                    return true;
-                });
-            }
             findPreference("controller_test").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), ControllerTestActivity.class));
                 return true;
@@ -2212,89 +2312,23 @@ public class StreamSettings extends NightjarActivity {
                     }
                 }
 
-                // This must be called to do runtime initialization before calling functions that evaluate
-                // decoder lists.
-                MediaCodecHelper.initialize(getContext(), GlPreferences.readPreferences(getContext()).glRenderer);
-
-                MediaCodecInfo avcDecoder = MediaCodecHelper.findProbableSafeDecoder("video/avc", -1);
-                MediaCodecInfo hevcDecoder = MediaCodecHelper.findProbableSafeDecoder("video/hevc", -1);
-
-                if (avcDecoder != null) {
-                    Range<Integer> avcWidthRange = avcDecoder.getCapabilitiesForType("video/avc").getVideoCapabilities().getSupportedWidths();
-
-                    LimeLog.info("AVC supported width range: "+avcWidthRange.getLower()+" - "+avcWidthRange.getUpper());
-
-                    // If 720p is not reported as supported, ignore all results from this API
-                    if (avcWidthRange.contains(1280)) {
-                        if (avcWidthRange.contains(3840) && maxSupportedResW < 3840) {
-                            maxSupportedResW = 3840;
+                // The decoders' width ranges can only raise the slot. Reading them builds a
+                // MediaCodecList, a blocking call to the media service that hit an ANR on a
+                // MediaTek Android 15 device (V+ c519d37): probe off the main thread and drop
+                // the sizes the decoders can't take once it's done.
+                final int displayResW = maxSupportedResW;
+                final android.app.Activity activity = getActivity();
+                final Context appContext = activity.getApplicationContext();
+                final DecoderWidthProbe probe = decoderWidthProbe;
+                decoderProbe = new Thread(() -> {
+                    int decoderResW = probe.probe(appContext);
+                    activity.runOnUiThread(() -> {
+                        if (isAdded() && getActivity() == activity && !activity.isFinishing()) {
+                            removeUndecodableResolutions(Math.max(displayResW, decoderResW));
                         }
-                        else if (avcWidthRange.contains(1920) && maxSupportedResW < 1920) {
-                            maxSupportedResW = 1920;
-                        }
-                        else if (maxSupportedResW < 1280) {
-                            maxSupportedResW = 1280;
-                        }
-                    }
-                }
-
-                if (hevcDecoder != null) {
-                    Range<Integer> hevcWidthRange = hevcDecoder.getCapabilitiesForType("video/hevc").getVideoCapabilities().getSupportedWidths();
-
-                    LimeLog.info("HEVC supported width range: "+hevcWidthRange.getLower()+" - "+hevcWidthRange.getUpper());
-
-                    // If 720p is not reported as supported, ignore all results from this API
-                    if (hevcWidthRange.contains(1280)) {
-                        if (hevcWidthRange.contains(3840) && maxSupportedResW < 3840) {
-                            maxSupportedResW = 3840;
-                        }
-                        else if (hevcWidthRange.contains(1920) && maxSupportedResW < 1920) {
-                            maxSupportedResW = 1920;
-                        }
-                        else if (maxSupportedResW < 1280) {
-                            maxSupportedResW = 1280;
-                        }
-                    }
-                }
-
-                LimeLog.info("Maximum resolution slot: "+maxSupportedResW);
-
-                if (maxSupportedResW != 0) {
-                    if (maxSupportedResW < 3840) {
-                        // 4K is unsupported
-                        removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_4K, new Runnable() {
-                            @Override
-                            public void run() {
-                                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                                setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P);
-                                resetBitrateToDefault(prefs, null, null);
-                            }
-                        });
-                    }
-                    if (maxSupportedResW < 2560) {
-                        // 1440p is unsupported
-                        removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P, new Runnable() {
-                            @Override
-                            public void run() {
-                                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                                setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P);
-                                resetBitrateToDefault(prefs, null, null);
-                            }
-                        });
-                    }
-                    if (maxSupportedResW < 1920) {
-                        // 1080p is unsupported
-                        removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P, new Runnable() {
-                            @Override
-                            public void run() {
-                                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                                setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_720P);
-                                resetBitrateToDefault(prefs, null, null);
-                            }
-                        });
-                    }
-                    // Never remove 720p
-                }
+                    });
+                }, "Decoder resolution probe");
+                decoderProbe.start();
             }
             else {
                 // We can get the true metrics via the getRealMetrics() function (unlike the lies
@@ -2336,6 +2370,15 @@ public class StreamSettings extends NightjarActivity {
                 // Never remove 30 FPS or 60 FPS
             }
             addNativeFrameRateEntry(maxSupportedFps);
+
+            // 7.1.4 only where this device plays it. A 7.1.4 choice made on another route (spatial
+            // headphones) stays picked; the stream asks for 7.1 while it isn't playable.
+            ListPreference audioConfig = (ListPreference) findPreference(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING);
+            if (audioConfig != null && !PreferenceConfiguration.AUDIO_CONFIG_714.equals(audioConfig.getValue())
+                    && !Surround714.playable(getActivity())) {
+                LimeLog.info("Excluding 7.1.4 audio: no output plays 12 channels");
+                removeValue(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, PreferenceConfiguration.AUDIO_CONFIG_714, () -> { });
+            }
 
             // Remove HDR preference for devices below Nougat
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {

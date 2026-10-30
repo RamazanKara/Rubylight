@@ -55,6 +55,7 @@ public class DecoderGiveUpRfiTest {
     public void setUp() {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", false);
+        MediaCodecHelper.forgetCodecList();
         ShadowMediaCodecList.addCodec(lowLatencyHevc());
         activity = Robolectric.buildActivity(Activity.class).create();
         tombstone = activity.get().getSharedPreferences("DecoderTombstone", 0);
@@ -63,6 +64,7 @@ public class DecoderGiveUpRfiTest {
 
     @After
     public void tearDown() {
+        MediaCodecHelper.forgetCodecList();
         activity.close();
     }
 

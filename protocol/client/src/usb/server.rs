@@ -110,6 +110,13 @@ pub trait UsbDevice: Send + Sync {
     fn unlink(&self, seqnum: u32);
     /// The attachment ended: stop every transfer and let go of the device.
     fn close(&self);
+    /// A device a USB/IP server on this machine serves whole (Linux's usbip-host): the
+    /// connection that server already serves the device on. The import is answered here with
+    /// [`UsbDevice::describe`], as usbipd would, and every byte after is relayed to it. Taken
+    /// once; None for a device served transfer by transfer.
+    fn relay(&self) -> Option<std::io::Result<Arc<dyn Tunnel>>> {
+        None
+    }
 }
 
 /// Why serving a device ended other than by the host closing the tunnel.
@@ -337,6 +344,52 @@ pub fn serve(tunnel: Arc<dyn Tunnel>, device: Arc<dyn UsbDevice>) -> Result<(), 
     }
 }
 
+/// Relays everything after the import between the tunnel and `peer`, a USB/IP server here
+/// that already has the device, until either side closes. The side that closed first says
+/// how it ended.
+fn relay(tunnel: &Arc<dyn Tunnel>, peer: Arc<dyn Tunnel>) -> Result<(), ServeError> {
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let back = {
+        let (tunnel, peer, first) = (tunnel.clone(), peer.clone(), first.clone());
+        std::thread::Builder::new()
+            .name("usb-relay".into())
+            .spawn(move || {
+                let pumped = pump(peer.as_ref(), tunnel.as_ref());
+                let was_first = !first.swap(true, std::sync::atomic::Ordering::SeqCst);
+                tunnel.close();
+                (pumped, was_first)
+            })
+    };
+    let back = match back {
+        Ok(back) => back,
+        Err(e) => {
+            peer.close();
+            return Err(ServeError::Io(e));
+        }
+    };
+    let forth = pump(tunnel.as_ref(), peer.as_ref());
+    let forth_first = !first.swap(true, std::sync::atomic::Ordering::SeqCst);
+    peer.close();
+    let (back, back_first) = back
+        .join()
+        .unwrap_or_else(|_| (Err(std::io::Error::other("the relay thread panicked")), true));
+    match (forth_first, back_first) {
+        (true, _) => forth.map_err(ServeError::Io),
+        _ => back.map_err(ServeError::Io),
+    }
+}
+
+/// Copies what `from` reads to `to` until `from` closes.
+fn pump(from: &dyn Tunnel, to: &dyn Tunnel) -> std::io::Result<()> {
+    let mut buffer = vec![0; 64 * 1024];
+    loop {
+        match from.read(&mut buffer)? {
+            0 => return Ok(()),
+            n => to.write_all(&buffer[..n])?,
+        }
+    }
+}
+
 fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
     let tunnel = shared.tunnel.as_ref();
     let described = device.describe();
@@ -354,6 +407,16 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
             )));
         }
     }
+    let peer = match device.relay() {
+        None => None,
+        Some(Ok(peer)) => Some(peer),
+        Some(Err(e)) => {
+            tunnel.write_all(&wire::import_reply(1))?;
+            return Err(ServeError::Device(format!(
+                "the USB/IP server here can't serve it: {e}"
+            )));
+        }
+    };
     let encoded = described.encode().ok_or_else(|| {
         ServeError::Device(format!(
             "busid {:?} or path {:?} does not fit",
@@ -362,7 +425,15 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
     })?;
     let mut reply = wire::import_reply(0).to_vec();
     reply.extend_from_slice(&encoded);
-    tunnel.write_all(&reply)?;
+    if let Err(e) = tunnel.write_all(&reply) {
+        if let Some(peer) = peer {
+            peer.close();
+        }
+        return Err(e.into());
+    }
+    if let Some(peer) = peer {
+        return relay(&shared.tunnel, peer);
+    }
 
     loop {
         let mut head = [0; wire::HEADER_BYTES];

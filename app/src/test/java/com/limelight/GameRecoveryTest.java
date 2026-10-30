@@ -69,6 +69,8 @@ public class GameRecoveryTest {
                 null, 0, false, false, "", null) {
             @Override public void prepareForStop() {}
         });
+        // The stream showed video before it dropped.
+        ReflectionHelpers.setField(ReflectionHelpers.getField(game, "decoderRenderer"), "lastVideoFrameTimeMs", 1L);
         ReflectionHelpers.setField(game, "tombstonePrefs", game.getSharedPreferences("recovery-test", 0));
         ReflectionHelpers.setField(game, "attemptedConnection", true);
         ReflectionHelpers.setField(game, "recoveryAppId", 73);
@@ -235,6 +237,53 @@ public class GameRecoveryTest {
             return Integer.toString(portFlags);
         }
         @Implementation public static int getPortFlagsFromTerminationErrorCode(int errorCode) { return 0; }
+    }
+
+    // The review's regression: video showed, the network dropped, and the first reconnect had no frame
+    // yet when it dropped too. The chain carries its video, so the next attempt follows; a stream whose
+    // chain never showed video shows its error at once, and a network return does not reconnect it.
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aReconnectWithoutAFrameYetKeepsTheChainGoingAfterARealDrop() throws Exception {
+        Game shown = establishedGame();
+        ReflectionHelpers.setField(shown, "conn", new MuteConnection());
+        try {
+            assertTrue(ReflectionHelpers.callInstanceMethod(shown, "tryAutomaticRecovery"));
+            assertTrue("the drop came after video", awaitRecoveryLaunch(shown, 1).getBooleanExtra("RecoveryVideoShown", false));
+        } finally {
+            cleanupRecovery(shown);
+        }
+        for (boolean chainHadVideo : new boolean[] {true, false}) {
+            Game attempt = establishedGame();
+            ReflectionHelpers.setField(ReflectionHelpers.getField(attempt, "decoderRenderer"), "lastVideoFrameTimeMs", 0L);
+            attempt.setIntent(new Intent().putExtra("RecoveryVideoShown", chainHadVideo));
+            ReflectionHelpers.setField(attempt, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { return false; }
+            });
+            try {
+                attempt.connectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC);
+                assertEquals(chainHadVideo, ReflectionHelpers.getField(attempt, "pendingRecovery") != null);
+            } finally {
+                cleanupRecovery(attempt);
+            }
+        }
+        for (boolean video : new boolean[] {true, false}) {
+            Game returned = establishedGame();
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(returned, "prefConfig");
+            prefs.networkGraceSeconds = 0;
+            if (!video) {
+                ReflectionHelpers.setField(ReflectionHelpers.getField(returned, "decoderRenderer"), "lastVideoFrameTimeMs", 0L);
+            }
+            ReflectionHelpers.setField(returned, "conn", new MuteConnection());
+            try {
+                returned.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, false);
+                org.robolectric.shadows.ShadowLooper.idleMainLooper();
+                assertEquals("a network return reconnects only a stream that had video",
+                        video, ReflectionHelpers.getField(returned, "pendingRecoveryIntent") != null);
+            } finally {
+                cleanupRecovery(returned);
+            }
+        }
     }
 
     @Test
@@ -1069,6 +1118,165 @@ public class GameRecoveryTest {
         } finally {
             cleanupRecovery(game);
         }
+    }
+
+    // A network back where the connection cannot carry on (another address, not roamed): the
+    // overlay said a reconnect follows, and the recovery starts with no delay instead of after the
+    // connection's timeout, also when that answer only comes once the network's address arrived.
+    // It waits while the PC has no route (DHCP still running), starts once it does, and resumes
+    // the captured game.
+    @Test public void aNetworkBackTheConnectionCannotCarryOnOverReconnectsOnceThePcIsReachable() throws Exception {
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
+        Game game = establishedGame();
+        android.widget.TextView overlay = new android.widget.TextView(game);
+        ReflectionHelpers.setField(game, "notificationOverlayView", overlay);
+        AtomicInteger checks = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean routed = new java.util.concurrent.atomic.AtomicBoolean();
+        Game.RouteProbe probe = (host, port) -> {
+            checks.incrementAndGet();
+            return routed.get() ? null : "ENETUNREACH (no address yet)";
+        };
+        ReflectionHelpers.setField(game, "routeProbe", probe);
+        game.setIntent(new Intent().putExtra(Game.EXTRA_HOST, "pc.test"));
+        try {
+            game.streamNetworkLost();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(game.getString(R.string.stream_network_lost_reconnecting), overlay.getText().toString());
+            assertEquals(android.view.View.VISIBLE, overlay.getVisibility());
+            // A poor-connection update meanwhile does not replace the notice.
+            game.connectionStatusUpdate(MoonBridge.CONN_STATUS_OKAY);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.VISIBLE, overlay.getVisibility());
+
+            // Back with no route yet: the connection carries on, and the notice goes.
+            game.streamNetworkReturned(MoonBridge.NETWORK_CARRIES_ON, false);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.GONE, overlay.getVisibility());
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            // Its address arrives, another one: the same return, reported again, reconnects.
+            game.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, false);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(android.view.View.GONE, overlay.getVisibility());
+            // No time passes on the main looper: the attempt does not wait for a backoff delay,
+            // only for the route.
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(HANG_GUARD_MS);
+            while (checks.get() < 2) {
+                if (System.nanoTime() > deadline) fail("the recovery never checked the route twice");
+                Thread.sleep(5);
+            }
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertNull("no attempt without a route", org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            routed.set(true);
+            Intent retry = awaitStartedActivity(game);
+            assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
+            assertEquals("captured-game", retry.getStringExtra(Game.EXTRA_APP_UUID));
+            assertEquals(1, retry.getIntExtra("RecoveryAttempts", 0));
+            assertTrue(checks.get() >= 3);
+        } finally {
+            routed.set(true);
+            cleanupRecovery(game);
+        }
+    }
+
+    // The regression the review found: roamed is false, but the same address came back (DHCP
+    // gave it again) or there is no route yet. The connection resumes in place, so nothing tears
+    // it down; neither when it roamed, nor where a reconnect is not wanted.
+    @Test public void aNetworkBackTheConnectionCarriesOnOverKeepsTheStream() throws Exception {
+        Game game = establishedGame();
+        android.widget.TextView overlay = new android.widget.TextView(game);
+        ReflectionHelpers.setField(game, "notificationOverlayView", overlay);
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        try {
+            for (int change : new int[] {MoonBridge.NETWORK_CARRIES_ON, MoonBridge.NETWORK_ROAMED}) {
+                game.streamNetworkLost();
+                game.streamNetworkReturned(change, false);
+                org.robolectric.shadows.ShadowLooper.idleMainLooper();
+                assertEquals(android.view.View.GONE, overlay.getVisibility());
+                assertKeepsStreaming(game, "change " + change);
+            }
+            // A network drop tolerance holds the connection and decides.
+            config.networkGraceSeconds = 20;
+            game.streamNetworkLost();
+            game.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, false);
+            assertKeepsStreaming(game, "with a drop tolerance");
+            // Mobile data without "Continue on mobile data": no reconnect over it.
+            config.networkGraceSeconds = 0;
+            config.roamingMetered = false;
+            game.streamNetworkLost();
+            game.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, true);
+            assertKeepsStreaming(game, "on mobile data");
+            // Automatic reconnection off: the user decides.
+            config.autoReconnect = false;
+            game.streamNetworkLost();
+            game.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, false);
+            assertKeepsStreaming(game, "with automatic reconnection off");
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    private static void assertKeepsStreaming(Game game, String condition) throws InterruptedException {
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        assertFalse(condition, ReflectionHelpers.<Boolean>getField(game, "displayedFailureDialog"));
+        assertNull(condition, ReflectionHelpers.getField(game, "pendingRecovery"));
+        assertFalse(condition, ReflectionHelpers.<Boolean>getField(game, "recoveryHandoffInProgress"));
+        settleHandoff(game);
+        assertNull(condition, org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+    }
+
+    // The notice promises a reconnect only when one will follow.
+    @Test public void theLostNetworkNoticePromisesAReconnectOnlyWhenOneFollows() throws Exception {
+        Game game = establishedGame();
+        android.widget.TextView overlay = new android.widget.TextView(game);
+        ReflectionHelpers.setField(game, "notificationOverlayView", overlay);
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        String plain = game.getString(R.string.stream_network_lost);
+        try {
+            config.autoReconnect = false;
+            assertEquals("automatic reconnection off", plain, noticeAfterLoss(game, overlay));
+            config.autoReconnect = true;
+            config.networkGraceSeconds = 30;
+            assertEquals("a drop tolerance decides", plain, noticeAfterLoss(game, overlay));
+            config.networkGraceSeconds = 0;
+            ReflectionHelpers.setField(game, "recoveryPolicy",
+                    new StreamRecoveryPolicy(StreamRecoveryPolicy.MAX_ATTEMPTS, SystemClock.elapsedRealtime()));
+            assertEquals("the retry budget is used up", plain, noticeAfterLoss(game, overlay));
+            ReflectionHelpers.setField(game, "recoveryPolicy", new StreamRecoveryPolicy(0, 0));
+            assertEquals(game.getString(R.string.stream_network_lost_reconnecting), noticeAfterLoss(game, overlay));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    private static String noticeAfterLoss(Game game, android.widget.TextView overlay) {
+        game.streamNetworkLost();
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        String text = overlay.getText().toString();
+        game.streamNetworkReturned(MoonBridge.NETWORK_ROAMED, false);
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        return text;
+    }
+
+    // Only an immediate no-route error waits; a check that times out (a slow link, or a closed
+    // port on Windows) or is refused goes on to the attempt.
+    @Test public void onlyAnImmediateNoRouteErrorWaitsForTheRoute() {
+        assertTrue(Game.routeMissing(new java.net.UnknownHostException("pc.test")));
+        assertTrue(Game.routeMissing(new java.net.NoRouteToHostException("EHOSTUNREACH")));
+        // What Android throws for EADDRNOTAVAIL: no errno cause.
+        assertTrue(Game.routeMissing(new java.net.BindException("Address not available")));
+        for (int errno : new int[] {android.system.OsConstants.ENETUNREACH, android.system.OsConstants.EHOSTUNREACH,
+                android.system.OsConstants.EADDRNOTAVAIL}) {
+            assertTrue("errno " + errno, Game.routeMissing(connectFailure(errno)));
+        }
+        assertFalse(Game.routeMissing(new java.net.SocketTimeoutException("connect timed out")));
+        assertFalse(Game.routeMissing(connectFailure(android.system.OsConstants.ECONNREFUSED)));
+        assertFalse(Game.routeMissing(new java.net.ConnectException("connect failed")));
+    }
+
+    private static java.net.ConnectException connectFailure(int errno) {
+        java.net.ConnectException failure = new java.net.ConnectException("connect failed");
+        failure.initCause(new android.system.ErrnoException("connect", errno));
+        return failure;
     }
 
     private static Intent awaitRecoveryLaunch(Game game, int delaySeconds) throws InterruptedException {

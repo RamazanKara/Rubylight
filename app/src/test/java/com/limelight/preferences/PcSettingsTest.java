@@ -363,6 +363,105 @@ public class PcSettingsTest {
         }
     }
 
+    @Test
+    public void aSyncedExportSaysSoAndCanBeStopped() throws Exception {
+        new FrontendExportStore(app, "sync-pc", FrontendLauncher.BEACON)
+                .save(Uri.parse("content://documents/tree/roms"), null);
+        ActivityController<HostStreamSettings> controller = open("sync-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            assertEquals(app.getString(R.string.frontend_sync_summary, "Beacon"),
+                    row(screen, "frontend_export").getSummary().toString());
+            click(row(screen, "frontend_export"));
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView()
+                    .performItemClick(null, FrontendLauncher.BEACON.ordinal(), 0);
+            AlertDialog actions = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals(app.getString(R.string.frontend_sync_stop), actions.getListView().getAdapter().getItem(3));
+            actions.getListView().performItemClick(null, 3, 0);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertNull(new FrontendExportStore(app, "sync-pc", FrontendLauncher.BEACON).romsTree());
+            assertEquals(app.getString(R.string.pc_settings_export_summary),
+                    row(screen, "frontend_export").getSummary().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(sdk = 25) // The test folder provider answers the pre-O query format only.
+    public void anExportWithoutLastingAccessSaysItCannotSync() throws Exception {
+        java.io.File root = java.nio.file.Files.createTempDirectory("export").toFile();
+        new java.io.File(root, "roms").mkdirs();
+        com.limelight.utils.FrontendExporterTest.TestDocuments provider = new com.limelight.utils.FrontendExporterTest.TestDocuments();
+        provider.root = root;
+        android.content.pm.ProviderInfo info = new android.content.pm.ProviderInfo();
+        info.authority = "com.limelight.test.grants";
+        info.exported = true;
+        info.grantUriPermissions = true;
+        info.readPermission = "android.permission.MANAGE_DOCUMENTS";
+        info.writePermission = "android.permission.MANAGE_DOCUMENTS";
+        provider.attachInfo(app, info);
+        org.robolectric.shadows.ShadowContentResolver.registerProviderInternal(info.authority, provider);
+        Uri roms = android.provider.DocumentsContract.buildTreeDocumentUri(info.authority, "roms");
+        try (OutputStream out = CacheHelper.openCacheFileForOutput(app.getCacheDir(), "applist", "grant-pc")) {
+            out.write("<root status_code=\"200\"><App><AppTitle>Game</AppTitle><ID>2</ID></App></root>"
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+        // The provider granted only that visit: no persisted permission for the folder.
+        FrontendExportStore store = new FrontendExportStore(app, "grant-pc", FrontendLauncher.BEACON);
+        store.save(roms, null);
+        ActivityController<HostStreamSettings> controller = open("grant-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            click(row(screen, "frontend_export"));
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView()
+                    .performItemClick(null, FrontendLauncher.BEACON.ordinal(), 0);
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView().performItemClick(null, 0, 0);
+            String unavailable = app.getString(R.string.frontend_sync_unavailable, app.getString(R.string.app_name));
+            String message = "";
+            for (int i = 0; i < 500 && !message.contains(unavailable); i++) {
+                Thread.sleep(10);
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                TextView text = ShadowDialog.getLatestDialog().findViewById(android.R.id.message);
+                message = text == null ? "" : text.getText().toString();
+            }
+
+            assertTrue(message, message.contains(unavailable));
+            assertFalse(message.contains(app.getString(R.string.frontend_sync_note, app.getString(R.string.app_name))));
+            assertTrue(new java.io.File(root, "roms/butterpollo/Game.art").isFile());
+            assertTrue(store.failed());
+            assertEquals(app.getString(R.string.frontend_sync_failed_summary, "Beacon"),
+                    row(screen, "frontend_export").getSummary().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aLostExportFolderIsShownOnThePcAndOffersANewOne() throws Exception {
+        new FrontendExportStore(app, "lost-pc", FrontendLauncher.ES_DE)
+                .save(Uri.parse("content://documents/tree/roms"), null);
+        app.getSharedPreferences("frontend_exports", android.content.Context.MODE_PRIVATE).edit()
+                .putBoolean("lost-pc:ES_DE:failed", true).commit();
+        ActivityController<HostStreamSettings> controller = open("lost-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            assertEquals(app.getString(R.string.frontend_sync_failed_summary, "ES-DE"),
+                    row(screen, "frontend_export").getSummary().toString());
+            click(row(screen, "frontend_export"));
+            ((AlertDialog) ShadowDialog.getLatestDialog()).getListView()
+                    .performItemClick(null, FrontendLauncher.ES_DE.ordinal(), 0);
+            AlertDialog lost = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals(app.getString(R.string.frontend_sync_failed_message),
+                    ((TextView) lost.findViewById(android.R.id.message)).getText().toString());
+            assertEquals(app.getString(R.string.frontend_export_pick),
+                    lost.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     private static com.limelight.computers.ComputerManagerService.ComputerManagerBinder manager(
             List<String> renamed, List<ComputerDetails> removed) {
         return new com.limelight.computers.ComputerManagerService().new ComputerManagerBinder() {

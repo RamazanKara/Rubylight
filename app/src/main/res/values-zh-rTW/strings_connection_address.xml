@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_connection_address">連線位址</string>
+    <string name="host_address_automatic">自動</string>
+</resources>

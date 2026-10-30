@@ -51,6 +51,7 @@ public class HostCapabilitiesContractTest {
             case VIRTUAL_DISPLAY: return "virtual_display";
             case VIRTUAL_DISPLAY_HDR: return "virtual_display_hdr";
             case HOST_DISPLAY_MODES: return "host_display_modes";
+            case DISPLAY_SCALE: return "display_scale";
             case FRACTIONAL_REFRESH: return "fractional_refresh";
             case HOST_VRR: return "host_vrr";
             case RUNTIME_BITRATE: return "runtime_bitrate";

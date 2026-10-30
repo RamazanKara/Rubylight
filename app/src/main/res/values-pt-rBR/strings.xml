@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Estéreo</string>
     <string name="audioconf_51surround">Som surround 5.1</string>
     <string name="audioconf_71surround">Som surround 7.1</string>
+    <string name="audioconf_714surround">Som surround 7.1.4</string>
     <string name="videoformat_auto">Automático (recomendado)</string>
     <string name="videoformat_av1always">Preferir AV1</string>
     <string name="videoformat_hevcalways">Preferir HEVC</string>
@@ -270,13 +271,16 @@
     <string name="title_virtual_display">Tela virtual do host</string>
     <string name="summary_virtual_display">Pede ao PC uma tela que corresponda à transmissão. Desativado: as configurações de tela do próprio PC decidem.</string>
     <string name="title_vrr">Atualização adaptável (ARR / VRR)</string>
-    <string name="summary_vrr">Em telas com Android 16 e atualização adaptável, o Android ajusta a taxa de atualização à transmissão; outras telas funcionam na taxa mais alta. Hosts compatíveis com VRR também são solicitados a usá-lo, conforme as configurações deles. Enquanto isto estiver ativado, o ritmo de quadros e a taxa de atualização menor não se aplicam.</string>
+    <string name="summary_vrr">Em telas com Android 16 e atualização adaptável, o Android ajusta a taxa de atualização à transmissão; outras telas funcionam na taxa mais alta e, com um PC com Rubylight, só passam para uma menor adequada se a do jogo engasgasse na mais alta e conseguirem mudar sem escurecer. Hosts compatíveis com VRR também são solicitados a usá-lo, conforme as configurações deles. Enquanto isto estiver ativado, o ritmo de quadros e a taxa de atualização menor não se aplicam.</string>
     <string name="title_host_frame_times">Mostrar quadros no ritmo do PC</string>
     <string name="summary_host_frame_times">Segura cada quadro por alguns milissegundos para que apareça quando o jogo o desenhou, e não quando a rede o entregou. Suaviza variações, principalmente com taxa adaptativa. Substitui o ritmo de quadros. Não é usado com PyroWave.</string>
     <string name="title_content_rate_frame_rate">Ajustar a tela à taxa do jogo</string>
     <string name="summary_content_rate_frame_rate">Informa ao Android a taxa de quadros em que o jogo realmente roda, para que uma tela com um modo correspondente possa mudar para ela sem ficar preta. Requer um PC que envie os tempos dos quadros e «Permitir taxa de atualização menor»; muda no máximo uma vez a cada 2 segundos. Não é usado com PyroWave nem com atualização adaptável.</string>
     <string name="title_virtual_display_scale">Resolução de renderização do PC</string>
     <string name="summary_virtual_display_scale">Porcentagem da resolução da transmissão com que o PC renderiza. O tamanho do vídeo transmitido não muda. Para enviar menos pixels e fazer upscaling neste dispositivo, reduza a resolução da transmissão.</string>
+    <string name="title_virtual_display_dpi">Escala da tela do PC</string>
+    <string name="summary_virtual_display_dpi">Tamanho do texto e da interface na tela virtual, em PCs com Rubylight.</string>
+    <string name="virtual_display_dpi_pc_own">A do PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">ainda sem dados</string>
     <string name="title_export_latency_csv">Exportar CSV de latência</string>
@@ -328,7 +332,7 @@
     <string name="stream_bitrate_help">Defina os Mbps desta sessão.\nIsso desativa “O dispositivo controla a taxa de bits”.</string>
     <string name="stream_bitrate_invalid">Insira uma taxa de bits de 0,5 a 2000 Mbps</string>
     <string name="stream_bitrate_applied">O host aplicou %1$.1f Mbps</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps está abaixo do mínimo do PyroWave de %2$d Mbps em %3$d×%4$d, %5$d FPS. A imagem vai se desfazer.</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">Abaixo do mínimo do PyroWave de %1$d Mbps em %2$d×%3$d, %4$d FPS: a imagem vai se desfazer.</string>
     <string name="stream_enabled">Ativado</string>
     <string name="stream_disabled">Desativado</string>
     <string name="stream_limiter_status">Limite de quadros do host: %1$s\nLimite automático da tela: %2$s\nMeta: %3$s</string>

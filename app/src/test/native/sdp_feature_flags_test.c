@@ -26,6 +26,8 @@ int PyroWaveRecordsEnabled;
 bool AudioEncryptionEnabled;
 uint16_t RtspPortNumber;
 bool AndroidHapticsPcmRequested;
+bool RlFecSummariesEnabled;
+int AndroidVideoFecPercentage = -2;
 
 bool isReferenceFrameInvalidationSupportedByDecoder(void) { return false; }
 bool PltSafeStrcpy(char* dest, size_t destSize, const char* src) {

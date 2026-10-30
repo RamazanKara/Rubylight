@@ -8,6 +8,7 @@
     <string name="stream_auto_bitrate_unavailable">此电脑不报告串流码率。此串流的“由设备控制码率”已关闭。</string>
     <string name="stream_auto_bitrate_status">由设备控制码率：%1$.1f Mbps</string>
     <string name="stream_bitrate_busy">主机繁忙。请稍后重试。</string>
+    <string name="stream_host_abr_failed">电脑未启动其自动码率：%1$s</string>
     <string name="title_auto_bitrate">由设备控制码率</string>
     <string name="dialog_auto_bitrate">连接或设备跟不上时降低码率，恢复后再提高。不会超过串流码率。这是所有电脑的默认设置；可在串流菜单中为单台电脑更改。</string>
 </resources>

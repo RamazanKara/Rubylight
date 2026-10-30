@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">立體聲</string>
     <string name="audioconf_51surround">5.1 環繞音效</string>
     <string name="audioconf_71surround">7.1 環繞音效</string>
+    <string name="audioconf_714surround">7.1.4 環繞音效</string>
     <string name="videoformat_auto">自動 (建議)</string>
     <string name="videoformat_av1always">優先使用 AV1</string>
     <string name="videoformat_hevcalways">優先使用 HEVC</string>
@@ -270,13 +271,16 @@
     <string name="title_virtual_display">主機虛擬顯示器</string>
     <string name="summary_virtual_display">要求電腦提供與串流相符的顯示器。關閉：由電腦本身的顯示設定決定。</string>
     <string name="title_vrr">自動調整更新率 (ARR / VRR)</string>
-    <string name="summary_vrr">在支援自動調整更新率的 Android 16 螢幕上，Android 會讓更新率配合串流；其他螢幕則以最高更新率執行。支援 VRR 的主機也會依其設定被要求使用 VRR。開啟此功能時，影格調步和較低更新率將不會套用。</string>
+    <string name="summary_vrr">在支援自動調整更新率的 Android 16 螢幕上，Android 會讓更新率配合串流；其他螢幕則以最高更新率執行；連接 Rubylight 電腦時，僅當遊戲影格率在最高更新率下會頓挫且能無黑畫面切換時，才會切換到相符的較低更新率。支援 VRR 的主機也會依其設定被要求使用 VRR。開啟此功能時，影格調步和較低更新率將不會套用。</string>
     <string name="title_host_frame_times">依電腦的影格時間顯示畫面</string>
     <string name="summary_host_frame_times">將每個影格保留幾毫秒，讓它在遊戲繪製的時刻顯示，而不是在網路送達時顯示。可平滑抖動，在自適應更新率下效果更好。會取代影格節奏設定。PyroWave 不使用此功能。</string>
     <string name="title_content_rate_frame_rate">讓螢幕符合遊戲影格率</string>
     <string name="summary_content_rate_frame_rate">將遊戲實際執行的影格率告知 Android，讓具有相符更新模式的螢幕可切換到該模式而不會黑屏。需要會傳送影格時間的電腦，並須開啟「允許較低的更新率」；最多每 2 秒變更一次。不適用於 PyroWave 與自動調整更新率。</string>
     <string name="title_virtual_display_scale">電腦轉譯解析度</string>
     <string name="summary_virtual_display_scale">電腦轉譯所用解析度占串流解析度的百分比。傳輸的影片大小不變。若要傳送較少像素並在此裝置上放大，請降低串流解析度。</string>
+    <string name="title_virtual_display_dpi">電腦顯示縮放</string>
+    <string name="summary_virtual_display_dpi">虛擬顯示器上的文字和介面大小，適用於 Rubylight 電腦。</string>
+    <string name="virtual_display_dpi_pc_own">依照電腦</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">尚無資料</string>
     <string name="title_export_latency_csv">匯出延遲 CSV</string>
@@ -328,7 +332,7 @@
     <string name="stream_bitrate_help">為這個工作階段設定 Mbps。\n這會關閉「由裝置控制位元速率」。</string>
     <string name="stream_bitrate_invalid">請輸入 0.5 到 2000 Mbps 之間的位元速率</string>
     <string name="stream_bitrate_applied">主機已套用 %1$.1f Mbps</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps 低於 PyroWave 在 %3$d×%4$d、%5$d FPS 下的最低需求 %2$d Mbps，畫面會破碎。</string>
+    <string name="summary_bitrate_pyrowave_below_minimum">低於 PyroWave 在 %2$d×%3$d、%4$d FPS 下的最低 %1$d Mbps：畫面會破碎。</string>
     <string name="stream_enabled">開啟</string>
     <string name="stream_disabled">關閉</string>
     <string name="stream_limiter_status">主機影格限制：%1$s\n自動顯示限制：%2$s\n目標：%3$s</string>

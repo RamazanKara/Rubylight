@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="help_profiles_title">Profile i ustawienia gier</string>
-    <string name="help_profiles_body">Profile to nazwane zestawy wartości strumienia, np. „Dom 4K120” lub „Hotel”. Utwórz je w Ustawienia, Wideo, Profile i wybierz profil w użyciu albo pozwól, by przy starcie strumienia wybrała go sieć: dane mobilne, domowa sieć Wi-Fi lub inna sieć Wi-Fi. Własne wartości gry (Ustawienia strumienia dla tej gry, w jej menu w bibliotece) mają pierwszeństwo przed wartościami komputera, wartości komputera przed profilem, a profil przed ustawieniami głównymi. Szybkość transmisji na danych mobilnych ogranicza szybkość transmisji na danych mobilnych.</string>
+    <string name="help_profiles_body">Profile to nazwane zestawy wartości strumienia, np. „Dom 4K120” lub „Hotel”. Utwórz je w Ustawienia, Profile i wybierz profil w użyciu albo pozwól, by przy starcie strumienia wybrała go sieć: dane mobilne, domowa sieć Wi-Fi lub inna sieć Wi-Fi. Własne wartości gry (Ustawienia strumienia dla tej gry, w jej menu w bibliotece) mają pierwszeństwo przed wartościami komputera, wartości komputera przed profilem, a profil przed ustawieniami głównymi. Szybkość transmisji na danych mobilnych ogranicza szybkość transmisji na danych mobilnych.</string>
     <string name="help_profiles_link">Przewodnik po profilach</string>
 </resources>

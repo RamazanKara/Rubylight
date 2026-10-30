@@ -204,7 +204,7 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 16] = [
+    const SOURCES: [(&str, &str); 19] = [
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
@@ -220,12 +220,17 @@ pub(crate) mod tests {
         ("radeon.rs", include_str!("radeon.rs")),
         ("gamepad.rs", include_str!("gamepad.rs")),
         ("usb.rs", include_str!("usb.rs")),
+        ("usb_linux.rs", include_str!("usb_linux.rs")),
         ("stream/doctor.rs", include_str!("stream/doctor.rs")),
+        ("update_check.rs", include_str!("update_check.rs")),
+        ("pin_ui.rs", include_str!("pin_ui.rs")),
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-    const MARKED_ONLY: [(&str, &str); 3] = [
+    const MARKED_ONLY: [(&str, &str); 5] = [
         ("stream/mod.rs", include_str!("stream/mod.rs")),
+        ("stream/menu_extras.rs", include_str!("stream/menu_extras.rs")),
+        ("stream/microphone.rs", include_str!("stream/microphone.rs")),
         ("stream/rate_change.rs", include_str!("stream/rate_change.rs")),
         ("stream/clipboard_sync.rs", include_str!("stream/clipboard_sync.rs")),
     ];

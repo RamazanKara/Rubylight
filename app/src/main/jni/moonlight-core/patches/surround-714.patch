@@ -1,0 +1,28 @@
+7.1.4 (12 channels), as Moonlight V+ asks for it: AUDIO_CONFIGURATION_714_SURROUND with mask
+0xF63F, and room for 12 channels in OPUS_MULTISTREAM_CONFIGURATION. android_rtsp.c parses the
+comma form of surround-params that Foundation Sunshine and Rubylight send for it.
+
+diff --git a/src/Limelight.h b/src/Limelight.h
+index 22bee46..1c645ca 100644
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -202,6 +202,10 @@ typedef struct _DECODE_UNIT {
+ // Specifies that the audio stream should be in 7.1 surround sound if the PC is able
+ #define AUDIO_CONFIGURATION_71_SURROUND MAKE_AUDIO_CONFIGURATION(8, 0x63F)
+ 
++// Specifies that the audio stream should be in 7.1.4 surround sound if the PC is able.
++// Moonlight V+'s value, built unsigned: 0xF63F << 16 overflows an int in MAKE_AUDIO_CONFIGURATION.
++#define AUDIO_CONFIGURATION_714_SURROUND ((int) (0xF63FU << 16 | 12 << 8 | 0xCA))
++
+ // Specifies an audio configuration by channel count and channel mask
+ // See https://docs.microsoft.com/en-us/windows-hardware/drivers/audio/channel-mask for channelMask values
+ // NOTE: Not all combinations are supported by GFE and/or this library.
+@@ -218,7 +222,7 @@ typedef struct _DECODE_UNIT {
+     (CHANNEL_MASK_FROM_AUDIO_CONFIGURATION(x) << 16 | CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(x))
+ 
+ // The maximum number of channels supported
+-#define AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT 8
++#define AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT 12
+ 
+ // Passed in StreamConfiguration.supportedVideoFormats to specify supported codecs
+ // and to DecoderRendererSetup() to specify selected codec.

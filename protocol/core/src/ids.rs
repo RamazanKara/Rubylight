@@ -41,6 +41,10 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
         "clipboard sync (Moonlight V+)",
     ),
     (
+        fec_report::FEC_SUMMARY_MESSAGE_TYPE,
+        "FEC summary (Moonlight V+, Foundation Sunshine)",
+    ),
+    (
         steam_controller::STEAM_HAPTIC_MESSAGE_TYPE,
         "Steam Controller haptics",
     ),
@@ -84,7 +88,10 @@ pub const RESERVED_CONTROL_IDS: &[(u16, &str)] = &[(0x5542, "cursor position")];
 pub const OTHER_CLIENTS_CONTROL_IDS: RangeInclusive<u16> = 0x5506..=0x5510;
 
 /// Control message types of other clients Rubylight takes with their wire format unchanged.
-pub const ADOPTED_CONTROL_IDS: &[u16] = &[clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE];
+pub const ADOPTED_CONTROL_IDS: &[u16] = &[
+    clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE,
+    fec_report::FEC_SUMMARY_MESSAGE_TYPE,
+];
 
 /// A capability bit (DualSense haptics) that must never become a message type.
 pub const HAPTICS_CAPABILITY: u16 = 0x8000;
@@ -154,7 +161,7 @@ mod tests {
 
     #[test]
     fn adopted_ids_keep_their_meaning_from_other_clients() {
-        assert_eq!(ADOPTED_CONTROL_IDS, [0x5508]);
+        assert_eq!(ADOPTED_CONTROL_IDS, [0x5508, 0x5510]);
         for id in ADOPTED_CONTROL_IDS {
             assert!(OTHER_CLIENTS_CONTROL_IDS.contains(id), "{id:#06x}");
             assert!(

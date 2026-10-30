@@ -16,6 +16,14 @@ final class StreamHealthTrace {
                 displayP95Ms, receivedFps, releasedFps, shownFps, thermal, hostIncludesSend));
     }
 
+    /** {@code add} with the tick's late frames last (-1 when unknown). */
+    void addLate(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs, float decodeMs,
+                 float hostP95Ms, float displayP95Ms, float receivedFps, float releasedFps, float shownFps,
+                 int thermal, boolean hostIncludesSend, int lateFrames) {
+        health.add(new StreamHealth.Sample(atMs, fresh, fps, lossPercent, jitterMs, decodeMs, hostP95Ms,
+                displayP95Ms, receivedFps, releasedFps, shownFps, thermal, hostIncludesSend, lateFrames));
+    }
+
     /** The same sample {@code count} times, {@code stepMs} apart, as steady stats ticks. */
     void addSeries(long firstMs, long count, long stepMs, boolean fresh, int fps, float lossPercent,
                    float jitterMs, float decodeMs, float hostP95Ms, float displayP95Ms, float receivedFps,
@@ -46,5 +54,6 @@ final class StreamHealthTrace {
     int reportStalls(long nowMs) { return health.report(nowMs).stalls; }
     long reportStallPeriodMs(long nowMs) { return health.report(nowMs).stallPeriodMs; }
     boolean reportHostIncludesSend(long nowMs) { return health.report(nowMs).hostIncludesSend; }
+    int reportLateSamples(long nowMs) { return health.report(nowMs).lateSamples; }
     boolean reportCanSuggestBitrate(long nowMs) { return health.report(nowMs).canSuggestBitrate(); }
 }

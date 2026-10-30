@@ -21,7 +21,7 @@ use nightjar_core::roaming::RoamEvent;
 use nightjar_core::sdp::*;
 use nightjar_core::session::{
     AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location, Session,
-    NetworkHint, SessionConfig, Stage, VideoDecoder, VideoSetup,
+    NetworkChange, NetworkHint, SessionConfig, Stage, VideoDecoder, VideoSetup,
 };
 use nightjar_core::video::{Frame, FrameType};
 use rubylight_protocol::roaming::{is_roaming, Datagram, Header, Payload, SDP_ATTRIBUTE};
@@ -787,13 +787,15 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
     } else {
         h264_p()
     };
+    // Every video and audio datagram the host sends, parity included: the session's wire bytes.
+    let mut sent = 0u64;
     let frames = [(&idr, 2), (&p, 1), (&p, 1), (&p, 1), (&p, 1)];
     for (payload, kind) in &frames {
         for (index, packet) in packetizer.frame(payload, *kind).into_iter().enumerate() {
             if packed_format.is_some() && index == 1 {
                 continue;
             }
-            host.video.send_to(&packet, client).unwrap();
+            sent += host.video.send_to(&packet, client).unwrap() as u64;
         }
         thread::sleep(Duration::from_millis(20));
     }
@@ -807,7 +809,7 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
             >= 2
     });
     for packet in packetizer.frame(&idr, 2) {
-        host.video.send_to(&packet, client).unwrap();
+        sent += host.video.send_to(&packet, client).unwrap() as u64;
     }
     until("the recovery frame", || {
         record.lock().unwrap().frames.len() >= 4
@@ -816,10 +818,11 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
     // Audio: 100 packets of backlog are dropped, the rest play in order.
     let client = host.peer(Media::Audio);
     for packet in audio_stream(200) {
-        host.audio.send_to(&packet, client).unwrap();
+        sent += host.audio.send_to(&packet, client).unwrap() as u64;
         thread::sleep(Duration::from_micros(200));
     }
     until("audio", || record.lock().unwrap().audio.len() >= 90);
+    until("every datagram counted on the wire", || session.wire_bytes() == sent);
 
     let stats = session.stats();
     assert!(stats.rtt.is_some());
@@ -1234,7 +1237,8 @@ fn a_network_change_on_the_same_address_does_not_roam() {
     let session = start_session(&host, roaming_config(), &record);
     let client = host.peer(Media::Video);
 
-    assert!(!session.network_changed(NetworkHint::default()));
+    // Not roamed, and the connection carries on: the front end must not reconnect.
+    assert_eq!(session.network_changed(NetworkHint::default()), NetworkChange::CarriesOn);
     // The control stream carries on, the host saw no PROBE and video stays where it was.
     input_arrives(&session, &host);
     assert_eq!(*host.roaming.lock().unwrap(), []);
@@ -1349,7 +1353,7 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
     let session = start_session(&host, config, &record);
     let client = host.peer(Media::Video);
 
-    assert!(!session.network_changed(NetworkHint { metered: true }));
+    assert_eq!(session.network_changed(NetworkHint { metered: true }), NetworkChange::CarriesOn);
     until("the hold", || roam_events(&record) == [RoamEvent::Held]);
     silence_host(&host, &session);
     // The control stream carries on; the host has taken everything sent before this input.
@@ -1407,7 +1411,13 @@ fn with_roaming_off_nothing_is_probed() {
         record.lock().unwrap().logs
     );
 
-    assert!(!session.network_changed(NetworkHint::default()));
+    // Without a roamer the session still tells the same address carries on, and a route from
+    // another address than it started on cannot: it kept its start address.
+    assert_eq!(session.network_changed(NetworkHint::default()), NetworkChange::CarriesOn);
+    let elsewhere = SocketAddr::from((Ipv4Addr::new(192, 0, 2, 7), 0));
+    assert_eq!(session.network_changed_on(Ok(elsewhere)), NetworkChange::CannotContinue);
+    let here = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+    assert_eq!(session.network_changed_on(Ok(here)), NetworkChange::CarriesOn);
     for local in [None, Some(IpAddr::from(Ipv4Addr::LOCALHOST))] {
         let refused = session.roam_to(local).unwrap_err();
         assert_eq!(refused.kind(), io::ErrorKind::Unsupported, "{refused}");

@@ -4,8 +4,9 @@
 //! socket's marking, which Windows gets through qWAVE:
 //!
 //! - Socket QoS (`setSocketQos` in `PlatformSockets.c`) is always on: the audio and microphone
-//!   sockets get `SO_PRIORITY` 6 and the video socket 5. It is a local queue hint, not DSCP
-//!   marking that a router might reject.
+//!   sockets get `SO_PRIORITY` 6 and the video socket 5, a local queue hint. They also get DSCP
+//!   marking ([`media_tos`]): Expedited Forwarding for audio and microphone, AF41 for video. A
+//!   socket the OS refuses it stays unmarked.
 //! - The control socket is always marked the way ENet's `ENET_SOCKOPT_QOS` does: `SO_PRIORITY`
 //!   6 and DSCP Expedited Forwarding with ECT(1) (`IP_TOS` or `IPV6_TCLASS`); on Windows a
 //!   qWAVE control flow, DSCP 56 ([`ControlFlow`]). Routes that drop marked packets are
@@ -34,6 +35,10 @@ pub const DECODE_FALLBACK_NICE: i32 = -4;
 /// The control socket's `IP_TOS` / `IPV6_TCLASS`: DSCP Expedited Forwarding (46) plus ECT(1)
 /// for L4S, as `enet_socket_set_option(ENET_SOCKOPT_QOS, 1)` sets.
 pub const CONTROL_TOS: i32 = 46 << 2 | 0x01;
+/// The audio and microphone sockets' `IP_TOS` / `IPV6_TCLASS`: DSCP Expedited Forwarding (46).
+pub const AUDIO_TOS: i32 = 46 << 2;
+/// The video socket's: DSCP AF41 (34).
+pub const VIDEO_TOS: i32 = 34 << 2;
 /// Connect attempts lost in a row before the control socket's marking is taken off.
 pub const CONTROL_MARKING_LOST_LIMIT: u32 = 3;
 
@@ -61,6 +66,28 @@ where
 {
     match socket_priority(qos, network_priority) {
         Some(value) => socket.set_priority(value),
+        None => Ok(()),
+    }
+}
+
+/// The `IP_TOS` / `IPV6_TCLASS` a socket of this kind gets, or `None` to leave it unmarked, as
+/// Moonlight V+'s moonlight-common-c (qiin2333/moonlight-common-c c7ebb7cb3) marks its audio,
+/// microphone and video sockets.
+pub fn media_tos(qos: Qos) -> Option<i32> {
+    match qos {
+        Qos::Audio => Some(AUDIO_TOS),
+        Qos::Video => Some(VIDEO_TOS),
+        Qos::BestEffort => None,
+    }
+}
+
+/// Applies [`media_tos`] to `socket`; an `Err` leaves it unmarked.
+pub fn mark_media_socket<S>(socket: &S, qos: Qos, ipv6: bool) -> io::Result<()>
+where
+    S: PriorityTarget,
+{
+    match media_tos(qos) {
+        Some(value) => socket.set_tos(ipv6, value),
         None => Ok(()),
     }
 }
@@ -388,6 +415,27 @@ pub(crate) mod tests {
     fn other_sockets_are_prioritized_only_on_request() {
         assert_eq!(socket_priority(Qos::BestEffort, false), None);
         assert_eq!(socket_priority(Qos::BestEffort, true), Some(6));
+    }
+
+    #[test]
+    fn audio_and_microphone_go_expedited_and_video_af41() {
+        assert_eq!(media_tos(Qos::Audio), Some(0xB8));
+        assert_eq!(media_tos(Qos::Video), Some(0x88));
+        assert_eq!(media_tos(Qos::BestEffort), None);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn media_sockets_are_marked() {
+        let audio = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        mark_media_socket(&audio, Qos::Audio, false).unwrap();
+        assert_eq!(read_option(&audio, libc::IPPROTO_IP, libc::IP_TOS), AUDIO_TOS);
+        let video = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        mark_media_socket(&video, Qos::Video, false).unwrap();
+        assert_eq!(read_option(&video, libc::IPPROTO_IP, libc::IP_TOS), VIDEO_TOS);
+        let plain = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        mark_media_socket(&plain, Qos::BestEffort, false).unwrap();
+        assert_eq!(read_option(&plain, libc::IPPROTO_IP, libc::IP_TOS), 0);
     }
 
     #[test]

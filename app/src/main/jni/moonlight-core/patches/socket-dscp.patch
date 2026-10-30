@@ -1,0 +1,67 @@
+Mark the audio and microphone sockets DSCP Expedited Forwarding (0xB8) and the video socket
+AF41 (0x88) with IP_TOS / IPV6_TCLASS, as Moonlight V+ (qiin2333/moonlight-common-c c7ebb7cb3,
+src/PlatformSockets.c setSocketQos) does, before SO_PRIORITY (on Linux IP_TOS resets it). A
+socket the OS refuses it stays unmarked, logged once.
+Independent of the other patches; add it at the end of the list.
+
+--- a/src/PlatformSockets.c
++++ b/src/PlatformSockets.c
+@@ -240,8 +240,9 @@
+ }
+ 
+ // These set "safe" host or link-local QoS options that we can unconditionally
+-// set without having to worry about routers blockholing the traffic.
+-static void setSocketQos(SOCKET s, int socketQosType) {
++// set without having to worry about routers blockholing the traffic, and the
++// DSCP marking below.
++static void setSocketQos(SOCKET s, int addressFamily, int socketQosType) {
+ #ifdef SO_NET_SERVICE_TYPE
+     int value;
+     switch (socketQosType) {
+@@ -264,6 +265,37 @@
+         Limelog("setsockopt(SO_NET_SERVICE_TYPE, %d) failed: %d\n", value, (int)LastSocketError());
+     }
+ #endif
++#ifdef IP_TOS
++    {
++        // DSCP: Expedited Forwarding (0xB8) for audio and microphone, AF41 (0x88) for video,
++        // as Moonlight V+'s moonlight-common-c (qiin2333/moonlight-common-c c7ebb7cb3) marks
++        // them. A socket the OS refuses it stays unmarked; that is logged once. Before
++        // SO_PRIORITY: on Linux, IP_TOS resets it.
++        static int tosRefused;
++        int tos = socketQosType == SOCK_QOS_TYPE_AUDIO ? 0xB8 :
++                  socketQosType == SOCK_QOS_TYPE_VIDEO ? 0x88 : 0;
++        int err = 0;
++        if (tos != 0) {
++#ifdef IPV6_TCLASS
++            if (addressFamily == AF_INET6) {
++                if (setsockopt(s, IPPROTO_IPV6, IPV6_TCLASS, (char*)&tos, sizeof(tos)) < 0) {
++                    err = (int)LastSocketError();
++                }
++                // IPv4-mapped remotes on this socket use IP_TOS: best effort.
++                setsockopt(s, IPPROTO_IP, IP_TOS, (char*)&tos, sizeof(tos));
++            }
++            else
++#endif
++            if (setsockopt(s, IPPROTO_IP, IP_TOS, (char*)&tos, sizeof(tos)) < 0) {
++                err = (int)LastSocketError();
++            }
++            if (err != 0 && !tosRefused) {
++                tosRefused = 1;
++                Limelog("DSCP marking 0x%x refused (%d): sending unmarked\n", tos, err);
++            }
++        }
++    }
++#endif
+ #ifdef SO_PRIORITY
+     int value;
+     switch (socketQosType) {
+@@ -355,7 +387,7 @@
+ 
+     // Enable QOS for the socket (best effort)
+     if (socketQosType != SOCK_QOS_TYPE_BEST_EFFORT) {
+-        setSocketQos(s, socketQosType);
++        setSocketQos(s, addressFamily, socketQosType);
+     }
+ 
+ #ifdef __3DS__

@@ -1,6 +1,8 @@
 # Remote connection route
 
-Rubylight 2.2.16 lets compatible clients show whether their current Tailscale connection is direct, relayed or unknown. Tailscale must already be installed and running on the host for a route to be identified; Rubylight does not install or configure it. An unknown result does not by itself mean that streaming is unavailable.
+[Documentation](README.md) · [HTTP API](api.md) · [Native API](native-api.md)
+
+Rubylight lets compatible clients show whether their current Tailscale connection is direct, relayed or unknown. Tailscale must already be installed and running on the host for a route to be identified; Rubylight does not install or configure it. An unknown result does not by itself mean that streaming is unavailable.
 
 The paired-client HTTPS endpoint `GET /api/network-path` helps a client explain an away-from-home connection. It uses the streaming HTTPS port, not the administration port. The client needs a valid, enabled paired certificate and **View streams** or **Launch applications** permission. HTTP and administration tokens do not grant access. `serverinfo` advertises `NetworkPathVersion=1` only to an authenticated viewer. The host rechecks pairing and permissions after the route lookup before returning its result.
 

@@ -1,5 +1,7 @@
 # Windows release signing
 
+[Documentation](README.md) · [Code signing policy](code-signing-policy.md) · [Building](building.md)
+
 Rubylight's Windows releases can be signed through the [SignPath Foundation](https://signpath.org), which gives open-source projects free code signing with a certificate issued to the Foundation. The workflow, the artifact configurations and the public [code signing policy](code-signing-policy.md) are in this repository. Signing stays off until the SignPath project exists and its secret and variables are set in GitHub; until then releases are unsigned, exactly as before.
 
 This page is for the maintainer. It describes what the workflow does, then lists every step on SignPath's side and GitHub's, in order, and ends with the text for SignPath's application form.

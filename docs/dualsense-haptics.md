@@ -1,5 +1,7 @@
 # DualSense waveform haptics
 
+[Documentation](README.md) · [Controllers](configuration.md#controllers) · [USB forwarding](usb-forwarding.md)
+
 Rubylight can expose a composite DualSense controller on the Windows host, including its USB audio endpoint. Games write their native haptic audio to that endpoint; Rubylight forwards the two actuator channels using Nonary's Moonlight PCM extension. Ordinary rumble, adaptive triggers, lightbar, motion, touchpad and battery reports remain available.
 
 Controller speaker and headset audio, microphone input and controller preparation need a matching client such as Nightjar. A client that only implements Nonary's waveform extension still receives haptics.

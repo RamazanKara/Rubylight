@@ -861,7 +861,7 @@ The consoles are at **https://localhost:48124** and **https://localhost:48324**.
 
 For copied portable packages, create a separate `config` folder beside each copy of `butterpollo.exe` and set a different `port` in each folder's `sunshine.conf` before launching. Without an adjacent folder or explicit path, copies running as the same account share the per-user default, including SYSTEM's systemprofile location. Start with fresh profiles for independent identities and pair each instance separately; copying a populated profile also copies its identity and paired devices.
 
-For multiseat use, launch each process in its intended Windows session through your multiseat software, using that session's SYSTEM token if required by your setup. The installer continues to manage one Windows service. Separate-profile startup has been smoke-tested with two simultaneous hosts; simultaneous streaming from different Windows users still needs validation.
+For multiseat use, launch each process in its intended Windows session through your multiseat software, using that session's SYSTEM token if required by your setup. The installer continues to manage one Windows service. Separate-profile startup has been smoke-tested with two simultaneous hosts.
 
 ## Updates
 

@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md)
 
-Start with the stream card on **Home**, **Help → Log analysis** and the host log. Note the time of a failure before changing anything, and change one setting at a time. Capture and performance probes add GPU work; compare them in an otherwise idle session.
+Start with the stream card on **Home**, **Help → Log analysis** and the host log. Note the time of the failure before changing anything, then change one setting at a time. Capture and performance probes add GPU work, so compare them in an otherwise idle session.
 
 | Area | Symptoms |
 | --- | --- |
@@ -32,7 +32,7 @@ A Moonlight client that cannot start a stream on such a PC shows "No video encod
 
 The default base port is `47989`; the console uses `47990`. A changed **Base port** moves the console to the next port up. Check the active profile's `sunshine.conf` if the launcher reports another address.
 
-**Start Rubylight.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close the conflicting Sunshine, Apollo, Vibepollo or second Rubylight instance, or give each instance [its own profile and ports](configuration.md#multiple-instances). Restarting another copy on the same port does not solve the conflict.
+**Start Rubylight.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close that host or the second Rubylight instance, or give each instance [its own profile and ports](configuration.md#multiple-instances). Restarting another copy on the same port does not solve the conflict.
 
 For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`. If it is stopped, read `service.log` before starting it again. An update keeps the startup type you set for the service (Manual or Disabled stay as they are; setup does not start a disabled service), and **Start Rubylight.exe** offers to start a stopped service after a Windows permission prompt. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
 
@@ -159,7 +159,7 @@ Compare the same moving scene at the same resolution, frame rate, codec and bitr
 
 None of the host timings measures the complete input-to-screen delay. Smoothness also depends on distinct pictures arriving regularly. The [performance guide](performance.md) separates host timings, measured picture age, fresh-picture rate and arrival gaps.
 
-If the problem starts when the GPU is fully occupied, compare with a lower game frame cap or lighter graphics settings. If client network loss rises, reduce the bitrate or compare a wired connection. If decoder time rises, reduce resolution or rate, or select another hardware-decoded codec. Keep the default capture and compute settings for the baseline; use capture and compute overrides only for a recorded comparison. Our published tests cover the Radeon GPUs and networks listed in the [hardware matrix](hardware-matrix.md), not every model or Wi-Fi connection.
+If the problem starts when the GPU is fully occupied, compare with a lower game frame cap or lighter graphics settings. If client network loss rises, reduce the bitrate or compare a wired connection. If decoder time rises, reduce resolution or rate, or select another hardware-decoded codec. Keep the default capture and compute settings for the baseline; use capture and compute overrides only for a recorded comparison. The published measurements cover the Radeon GPUs and networks listed in the [hardware matrix](hardware-matrix.md), not every model or Wi-Fi connection.
 
 ## The picture freezes while audio and input continue
 
@@ -182,7 +182,7 @@ Send the host log **from `CLIENT CONNECTED` through `CLIENT DISCONNECTED`**, plu
 
 Windows logs a `LiveKernelEvent` 141 (VIDEO_ENGINE_TIMEOUT_DETECTED), and the Radeon may stay in Device Manager error Code 31 until a reboot. This is the AMD driver's video encoder hanging inside an encode call. Rubylight's stall watch then logs `stream thread stopped making progress` with `phase=encoding`; its GPU query probe may answer, or wait about 3 s while Windows resets the engine. About 34 s later the encode call returns `DXGI_ERROR_DEVICE_RESET`. No host process can end a call blocked in the kernel driver, and ending the stream does not stop the reset.
 
-On our test RX 7900 XT this happened with H.264, HEVC and AV1, SDR and HDR, with and without long-term references, at 63 to 399 Mb/s, on drivers 32.0.31041.1004 and 32.0.32015.2008, and each time the driver then failed to bring the adapter back (live kernel events 193 and 1B0, Code 31).
+On the project's RX 7900 XT test host this happened with H.264, HEVC and AV1, SDR and HDR, with and without long-term references, at 63 to 399 Mb/s, on drivers 32.0.31041.1004 and 32.0.32015.2008, and each time the driver then failed to bring the adapter back (live kernel events 193 and 1B0, Code 31).
 
 If it happens on your PC:
 
@@ -228,13 +228,13 @@ Audio and video share the network path. On Wi-Fi, a video burst can fill the ada
    When keyframes themselves are lost on such a path, the picture freezes on every recovery. The host then paces the rest of the stream at twice the encoder bitrate and the stream card says so (**Slow down after video loss**, on by default). A fixed limit avoids the first frozen moments too. Clients that report a Wi-Fi or cellular route, such as Nightjar, are paced adaptively from the first frame (**Adaptive packet pacing for Wi-Fi clients**, on by default).
 3. **Adaptive packet pacing** (`host_adaptive_pacing`) is an alternative when the suitable rate is unknown. Leave the pacing limit at `0` and turn it on. It starts conservatively, then probes faster rates while video is active and control feedback is healthy; a confirmed loss during a probe restores the previous rate. Startup is slower, and probing can still lose packets. It is off by default and does not apply with a positive fixed limit, host adaptive bitrate or PyroWave. If loss continues, lower the client's bitrate too; pacing cannot create network capacity.
 
-Compare Moonlight's loss statistics and the host log before and after. `reference_invalidations` counts reference-loss feedback separately from `idr_requests`; neither counts lost packets. PyroWave has no inter-frame references, so its recovery feedback does not force another encode or increase FEC. A steadily rising request counter alone does not establish Wi-Fi loss. [Capture and video](configuration.md#capture-and-video) has the pacing details, and the [transport record](../rust/PERFORMANCE.md#october-7-pyrowave-recovery-feedback) the limits of our local tests.
+Compare Moonlight's loss statistics and the host log before and after. `reference_invalidations` counts reference-loss feedback separately from `idr_requests`; neither counts lost packets. PyroWave has no inter-frame references, so its recovery feedback does not force another encode or increase FEC. A steadily rising request counter alone does not establish Wi-Fi loss. [Capture and video](configuration.md#capture-and-video) has the pacing details, and the [transport record](../rust/PERFORMANCE.md#october-7-pyrowave-recovery-feedback) the limits of the local tests.
 
 ## A controller or other input does nothing
 
 Check the stream card in the console first.
 
-- **"…its device permissions do not allow it"**: the device lacks that input permission. A device paired after the first gets what was chosen when it paired (Watch only has no input), or view only without a choice, as in Apollo and Vibepollo. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
+- **"…its device permissions do not allow it"**: the device lacks that input permission. Devices paired after the first get the permissions chosen at pairing (**Watch only** has no input), or view-only permissions when no choice was made. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
 - **"Virtual gamepad driver unavailable"**: the VHF gamepad driver could not be opened. Run the installer again with the gamepad driver selected.
 
 ## Steam shows two controllers
@@ -258,7 +258,7 @@ See [Steam Deck](configuration.md#steam-deck).
 
 Keep a Windows user signed in, turn on **All settings → Games & automation → Playnite**, and check that the game starts in Playnite locally. If Rubylight cannot find a portable copy, leave Playnite open in that user's session when starting the stream.
 
-On **Games**, check Playnite's plugin status. Use **Install plugin** or **Update plugin** if offered, fully exit and reopen Playnite, then try **Sync now**. Use the connector bundled with Rubylight; newer Vibepollo connectors may need different host support. A `Playnite CLI fallback requested` warning means automatic game-exit tracking is unavailable; quit that stream manually.
+On **Games**, check Playnite's plugin status. Use **Install plugin** or **Update plugin** if offered, fully exit and reopen Playnite, then try **Sync now**. Use the plugin bundled with Rubylight; a plugin taken from another streaming host may expect different host support. A `Playnite CLI fallback requested` warning means automatic game-exit tracking is unavailable; quit that stream manually.
 
 Set **Log level** to **Debug** before reproducing so the log includes `Playnite plugin check` and the launch-pipe details. Send the failure time, installed or portable location, Desktop or Fullscreen mode, and the host log from `Playnite launch prepared` and `Playnite plugin check` through the pipe, startup, fallback or exit messages. Include any `Moonlight session launch failed`, `Playnite library sync failed`, `Playnite startup failed`, `Playnite did not confirm startup` or `Playnite game exit confirmed` lines. If available, include Playnite's `playnite.log` and the matching `%APPDATA%\Sunshine\logs\sunshine_playnite-*.log`.
 

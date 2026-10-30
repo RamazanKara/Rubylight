@@ -129,7 +129,8 @@ jobs:
       # restores nor saves the target, FFmpeg or SDK caches: it rebuilds them, so nothing a
       # branch run cached can end up in a published package. Only the downloaded crates
       # (~/.cargo/registry, checked by Cargo.lock) are restored.
-      # The cached FFmpeg and its dav1d are linked against this image's libraries (glibc, libva).
+      # The cached FFmpeg and its dav1d, the PyroWave SDK and the target (SDL3's C objects) are
+      # built against this image's glibc and libraries: every such cache is keyed by the image.
       - name: Runner image
         id: image
         run: echo "os=$ImageOS" >> "$GITHUB_OUTPUT"
@@ -160,7 +161,7 @@ jobs:
             pyrowave-sdk/libpyrowave-shared.so
             pyrowave-sdk/build-info.txt
             pyrowave-sdk/licenses
-          key: pyrowave-sdk-linux-${{ env.RUBYLIGHT_SHA }}-${{ hashFiles('protocol/desktop/pyrowave-sdk.pin', 'scripts/build-pyrowave-sdk.sh', 'app/src/main/jni/pyrowave-renderer/patches/*.patch') }}
+          key: pyrowave-sdk-linux-${{ steps.image.outputs.os }}-${{ env.RUBYLIGHT_SHA }}-${{ hashFiles('protocol/desktop/pyrowave-sdk.pin', 'scripts/build-pyrowave-sdk.sh', 'app/src/main/jni/pyrowave-renderer/patches/*.patch') }}
       - name: Build the PyroWave SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-pyrowave-sdk.sh -o "$GITHUB_WORKSPACE/pyrowave-sdk" -H "$GITHUB_WORKSPACE/rubylight-host"
@@ -180,8 +181,8 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: protocol/target
-          key: desktop-linux-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
-          restore-keys: desktop-linux-${{ steps.rustc.outputs.version }}-
+          key: desktop-linux-${{ steps.image.outputs.os }}-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: desktop-linux-${{ steps.image.outputs.os }}-${{ steps.rustc.outputs.version }}-
       # package-linux.sh checks the SDK against the pin, then runs the unpacked archive as
       # `nightjar --check-pyrowave`: the library must load (a runner has no Vulkan device). It also
       # fails when the unpacked executable loads an FFmpeg library from outside the archive.

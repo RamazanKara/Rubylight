@@ -36,7 +36,10 @@ public class Surround714Test {
     @Test public void theRequestIsMoonlightVPlusAndTheMaskIsAndroids714() {
         // MoonBridge's constants need its native static initializer, which the shadow skips; this is
         // AUDIO_CONFIGURATION_714_SURROUND's request as V+ sends it.
-        assertEquals(0xF63F000C, new MoonBridge.AudioConfiguration(Surround714.CHANNELS, 0xF63F).getSurroundAudioInfo());
+        // 0xF63F000C as /launch sends it: unsigned, where the int itself is negative.
+        int info = new MoonBridge.AudioConfiguration(Surround714.CHANNELS, 0xF63F).getSurroundAudioInfo();
+        assertEquals("4131323916", Integer.toUnsignedString(info));
+        assertEquals(-163643380, info);
         assertEquals(AudioFormat.CHANNEL_OUT_7POINT1POINT4, Surround714.channelMask());
         assertEquals(12, Integer.bitCount(Surround714.channelMask()));
         assertEquals(Surround714.channelMask(), AudioPassthrough.channelMask(12));

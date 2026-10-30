@@ -62,6 +62,44 @@ int main(void) {
     setSurround714Fallback(&config);
     checkLayout(&config, 12, 8, 4, inOrder);
 
+    // A 3.0 rc host (rc.4, rc.5) sends no surround-params for 7.1.4, only these lines, exactly.
+    static const char rcDescribe[] =
+        "a=fmtp:97 surround-params=21101\r\na=fmtp:97 surround-params=642014523\r\n"
+        "a=fmtp:97 surround-params=85301456723\r\na=x-rl-audio.codecs:15\r\n"
+        "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n"
+        "a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n";
+    static const unsigned char rcMapping[12] = {0, 1, 10, 11, 2, 3, 4, 5, 6, 7, 8, 9};
+    OPUS_MULTISTREAM_CONFIGURATION highQuality;
+    bool highQualitySupported = false;
+    memset(&config, 0, sizeof(config));
+    memset(&highQuality, 0, sizeof(highQuality));
+    CHECK(setSurround714FromDescribe(rcDescribe, &config, &highQuality, &highQualitySupported) == 0);
+    checkLayout(&config, 12, 7, 5, rcMapping);
+    CHECK(highQualitySupported);
+    checkLayout(&highQuality, 12, 12, 0, rcMapping);
+    // Without the HQ line, normal quality only; with no line at all, V+'s fallback.
+    CHECK(setSurround714FromDescribe("a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\n",
+                                     &config, &highQuality, &highQualitySupported) == 0);
+    checkLayout(&config, 12, 7, 5, rcMapping);
+    CHECK(!highQualitySupported);
+    CHECK(setSurround714FromDescribe("a=x-rl-audio.codecs:15\r\nxa=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n",
+                                     &config, &highQuality, &highQualitySupported) == 0);
+    checkLayout(&config, 12, 8, 4, inOrder);
+    CHECK(!highQualitySupported);
+    // A malformed line is an error, not the fallback.
+    static const char* const bad[] = {
+        "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8\r\n",
+        "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9,10\r\n",
+        "a=x-rl-audio.layout714:12,7,6,0,1,10,11,2,3,4,5,6,7,8,9\r\n",
+        "a=x-rl-audio.layout714:12,7,5,0,1,10,12,2,3,4,5,6,7,8,9\r\n",
+        "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,x\r\n",
+        "a=x-rl-audio.layout714:8,5,3,0,1,2,3,4,5,6,7\r\n",
+        "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\na=x-rl-audio.layout714Hq:12,7\r\n",
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        CHECK(setSurround714FromDescribe(bad[i], &config, &highQuality, &highQualitySupported) < 0);
+    }
+
     // V+'s request: 12 channels, mask 0xF63F.
     CHECK(CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(AUDIO_CONFIGURATION_714_SURROUND) == 12);
     CHECK(CHANNEL_MASK_FROM_AUDIO_CONFIGURATION(AUDIO_CONFIGURATION_714_SURROUND) == 0xF63F);

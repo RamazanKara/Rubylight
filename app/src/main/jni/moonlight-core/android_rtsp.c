@@ -757,8 +757,13 @@ static int parseOpusConfigurations(PRTSP_MESSAGE response) {
                 NormalQualityOpusConfig.mapping[5] = 3;
             }
             else if (channelCount == 12) {
-                // Moonlight V+'s 7.1.4 fallback: Foundation Sunshine's layout.
-                setSurround714Fallback(&NormalQualityOpusConfig);
+                // A 3.0 rc host's x-rl layout lines, else Moonlight V+'s fallback: Foundation
+                // Sunshine's layout.
+                err = setSurround714FromDescribe(response->payload, &NormalQualityOpusConfig,
+                                                 &HighQualityOpusConfig, &HighQualitySurroundSupported);
+                if (err != 0) {
+                    return err;
+                }
             }
             else {
                 // We don't have a hardcoded fallback mapping, so we have no choice but to fail.

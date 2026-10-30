@@ -88,6 +88,13 @@ deb_owner() {
 	done
 	return 0
 }
+# Debian 13 and Ubuntu 24.04 renamed the libraries whose ABI has a time_t (the 64-bit time_t
+# transition), and there the old name is only a virtual package: apt may give libasound2 to OSS4's
+# ALSA emulation (liboss4-salsa-asound2), whose libasound lacks what SDL loads (snd_pcm_recover),
+# and Nightjar does not start. Built where the old name is the real package (Ubuntu 22.04, the
+# release build), the .deb names the new one first.
+t64_renamed="libasound2 libpipewire-0.3-0"
+deb_name() { if [[ " $t64_renamed " == *" $1 "* ]]; then echo "${1}t64 | $1"; else echo "$1"; fi; }
 # A YAML list item per argument.
 yaml_list() { local item; for item in "$@"; do printf '    - "%s"\n' "$item"; done; }
 
@@ -98,20 +105,20 @@ for lib in $needed; do
 	[[ $lib == ld-linux* ]] && continue
 	owner=$(deb_owner "$lib")
 	[[ -n $owner ]] || { echo "error: no Debian package owns $lib, which the package links; install it on the build machine" >&2; exit 1; }
-	deb_depends+=("$owner")
+	deb_depends+=("$(deb_name "$owner")")
 	rpm_depends+=("$lib()(64bit)")
 done
 for lib in $dlopened_required; do
 	owner=$(deb_owner "$lib")
 	[[ -n $owner ]] || { echo "error: no Debian package owns $lib, which SDL needs to start; install it on the build machine" >&2; exit 1; }
-	deb_depends+=("$owner")
+	deb_depends+=("$(deb_name "$owner")")
 	rpm_depends+=("$lib()(64bit)")
 done
 deb_recommends=()
 rpm_recommends=()
 for lib in $dlopened; do
 	owner=$(deb_owner "$lib")
-	[[ -z $owner ]] || deb_recommends+=("$owner")
+	[[ -z $owner ]] || deb_recommends+=("$(deb_name "$owner")")
 	rpm_recommends+=("$lib()(64bit)")
 done
 mapfile -t deb_depends < <(printf '%s\n' "${deb_depends[@]}" | sort -u)

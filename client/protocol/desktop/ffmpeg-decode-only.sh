@@ -5,7 +5,9 @@
 #
 # Windows: run it in an MSYS2 UCRT64 shell (gcc, make, nasm, pkgconf, mingw-w64-ucrt-x86_64-dav1d).
 # Linux: gcc, make, nasm, pkg-config, libdav1d-dev, libva-dev and libffmpeg-nvenc-dev (Debian and
-# Ubuntu names; nv-codec-headers elsewhere).
+# Ubuntu names; nv-codec-headers elsewhere). Where dav1d or the NVIDIA headers are older than
+# FFmpeg 8 accepts (Ubuntu 22.04), ffmpeg-deps-linux.sh builds both into a prefix: put its
+# lib/pkgconfig on PKG_CONFIG_PATH.
 # The result is libavcodec and libavutil only, with the H.264, HEVC and AV1 decoders, their
 # hardware paths (D3D11VA and DXVA2 on Windows; VAAPI, NVDEC and the V4L2 memory-to-memory
 # decoders on Linux) and dav1d: no encoders, muxers,
@@ -82,17 +84,23 @@ if [[ -n $linux ]]; then
   # libavcodec needs dav1d at run time: ship the one it was built against, next to it (a copy
   # from an earlier run would hide the system's from ldd).
   rm -f "$prefix"/lib/libdav1d.so*
-  dav1d=$(ldd "$prefix/lib/libavcodec.so" | sed -n 's/^[[:space:]]*libdav1d\.so[^ ]* => \([^ ]*\) .*/\1/p')
+  # ldd looks in the library folder pkg-config gave the build first, so a dav1d from
+  # ffmpeg-deps-linux.sh is found without LD_LIBRARY_PATH.
+  dav1d_libdir=$(pkg-config --variable=libdir dav1d)
+  dav1d=$(LD_LIBRARY_PATH=$dav1d_libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} ldd "$prefix/lib/libavcodec.so" |
+    sed -n 's/^[[:space:]]*libdav1d\.so[^ ]* => \([^ ]*\) .*/\1/p')
   [ -n "$dav1d" ] || { echo "libavcodec.so does not link libdav1d (apt install libdav1d-dev)" >&2; exit 1; }
   cp -L "$dav1d" "$prefix/lib/"
-  # dav1d's licence: the copyright file of the Debian package that owns the library, or Arch's.
+  # dav1d's licence: the copyright file of the Debian package that owns the library, or the
+  # share/licenses/dav1d/COPYING beside its lib/ (Arch's /usr, or ffmpeg-deps-linux.sh's prefix).
   owner=$(dpkg -S "$(readlink -f "$dav1d")" 2>/dev/null | head -n1 | cut -d: -f1) || true
+  licence=$(dirname "$(readlink -f "$dav1d")")/../share/licenses/dav1d/COPYING
   if [[ -n $owner && -f /usr/share/doc/$owner/copyright ]]; then
     cp "/usr/share/doc/$owner/copyright" "$prefix/licenses-dav1d/COPYING"
-  elif [[ -f /usr/share/licenses/dav1d/COPYING ]]; then
-    cp /usr/share/licenses/dav1d/COPYING "$prefix/licenses-dav1d/COPYING"
+  elif [[ -f $licence ]]; then
+    cp "$licence" "$prefix/licenses-dav1d/COPYING"
   else
-    echo "no licence text for $dav1d (/usr/share/doc/<package>/copyright or /usr/share/licenses/dav1d/COPYING)" >&2
+    echo "no licence text for $dav1d (/usr/share/doc/<package>/copyright or share/licenses/dav1d/COPYING beside its lib/)" >&2
     exit 1
   fi
   cd /

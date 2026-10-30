@@ -4,7 +4,7 @@
 
 ## What do I need?
 
-A device with Android 5.0 or newer, Windows 10 or 11, or x86-64 Linux with glibc 2.39 or newer; a PC running a Moonlight-compatible host such as Sunshine, Apollo, Vibepollo or Rubylight; and a network between them. Start with the [quick start](quick-start.md). Some features, such as PyroWave, the HDR formats and audio passthrough, have further device or host requirements, listed with each feature.
+A device with Android 5.0 or newer, Windows 10 or 11, or x86-64 Linux with glibc 2.35 or newer; a PC running a Moonlight-compatible host such as Sunshine, Apollo, Vibepollo or Rubylight; and a network between them. Start with the [quick start](quick-start.md). Some features, such as PyroWave, the HDR formats and audio passthrough, have further device or host requirements, listed with each feature.
 
 ## Does Nightjar run the game on this device?
 

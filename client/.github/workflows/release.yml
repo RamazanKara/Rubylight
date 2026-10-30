@@ -69,10 +69,12 @@ jobs:
     # shipped in lib/ so the machine's own FFmpeg does not matter) and packs
     # nightjar-desktop-<version>-linux-x86_64.tar.gz; packaging/linux/build-packages.sh makes the
     # .deb, .rpm and AppImage from that archive, and each is installed and started here. A fixed
-    # Ubuntu: the glibc it builds against is the packages' floor (2.39), and the .deb's dependency
-    # names are read off it.
+    # Ubuntu, the oldest LTS still in standard support: the glibc it builds against is the
+    # packages' floor (2.35), the AppImage catalog tests on it, and the .deb's dependency names are
+    # read off it. Its dav1d and NVIDIA headers are too old for FFmpeg 8, so ffmpeg-deps-linux.sh
+    # builds both, and its cmake is too old for the PyroWave SDK (3.27): the runner's newer one builds.
     needs: preflight
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -95,6 +97,8 @@ jobs:
       FEDORA_IMAGE: fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814
       # A clean Ubuntu for the .deb's start check (the runner has most libraries installed already).
       UBUNTU_IMAGE: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+      # The runner's Ubuntu, clean, as the AppImage catalog tests on it: the AppImage must start there.
+      UBUNTU_OLDEST_IMAGE: ubuntu:22.04@sha256:8a2321a92b438238f93b4346fff61bc4259c99fdd4d9b52ee86f153fee0c344f
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -115,8 +119,8 @@ jobs:
       - name: Install the build packages
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build pkg-config libclang-dev \
-            nasm libdav1d-dev libffmpeg-nvenc-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
+          sudo apt-get install -y -qq --no-install-recommends meson ninja-build pkg-config libclang-dev \
+            nasm libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
             wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
             libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev \
@@ -135,14 +139,15 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ffprefix
-          key: ffmpeg-decode-only-linux-${{ steps.image.outputs.os }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh') }}
+          key: ffmpeg-decode-only-linux-${{ steps.image.outputs.os }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-deps-linux.sh') }}
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: |
           curl -sSLf --retry 5 --retry-all-errors -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
           tar -xf ffmpeg.tar.xz
-          bash protocol/desktop/ffmpeg-decode-only.sh "$PWD/ffmpeg-$FFMPEG_VERSION" "$PWD/ffprefix"
+          bash protocol/desktop/ffmpeg-deps-linux.sh "$RUNNER_TEMP/ffdeps"
+          PKG_CONFIG_PATH="$RUNNER_TEMP/ffdeps/lib/pkgconfig" bash protocol/desktop/ffmpeg-decode-only.sh "$PWD/ffmpeg-$FFMPEG_VERSION" "$PWD/ffprefix"
       - name: Check the FFmpeg source note
         run: |
           grep -qx "SHA-256: $FFMPEG_SHA256" ffprefix/licenses-ffmpeg/SOURCE.txt || { echo "::error::ffprefix/licenses-ffmpeg/SOURCE.txt has no SHA-256 $FFMPEG_SHA256"; exit 1; }
@@ -226,9 +231,10 @@ jobs:
             "dist/nightjar-desktop-$VERSION-linux-x86_64.tar.gz"
       # Each package installs, answers --version (no window needed) and uninstalls without
       # leftovers: the .deb on this Ubuntu runner, the .rpm in a clean Fedora. The AppImage runs in
-      # a Fedora of its own without libva and libdrm, as the AppImage catalog tests it (it carries
-      # libopus, and libva and libdrm as fallbacks), and opens its window there with only ALSA and
-      # X11 added; removing the .rpm would also have removed the libraries the .rpm pulled in.
+      # a Fedora of its own without libva and libdrm, and in a clean Ubuntu 22.04 without libva, the
+      # AppImage catalog's test system (it carries libopus, and libva and libdrm as fallbacks), and
+      # opens its window in both with only ALSA and X11 added; removing the .rpm would also have
+      # removed the libraries the .rpm pulled in.
       # --version returns before SDL starts, so the .deb and the .rpm must also name the libraries
       # SDL cannot start without, and each opens its launcher window under Xvfb (check-start.sh) in
       # a clean container holding only the package and its hard dependencies (no recommends, no
@@ -277,6 +283,14 @@ jobs:
             if rpm -q libva; then echo "the window check would not use the fallback libva"; exit 1; fi
             bash /check-start.sh "/dist/$appimage"
             echo "fedora: AppImage passed"'
+          docker run --rm -e VERSION -e appimage="$appimage" -v "$PWD/dist:/dist:ro" -v "$PWD/protocol/desktop/packaging/linux/check-start.sh:/check-start.sh:ro" "$UBUNTU_OLDEST_IMAGE" bash -euo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive APPIMAGE_EXTRACT_AND_RUN=1
+            cd /tmp && "/dist/$appimage" --version | grep -qx "Nightjar $VERSION"
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends libasound2 libx11-6 libxext6 xvfb x11-utils libgl1-mesa-dri libegl1 libgl1 >/dev/null
+            if dpkg -s libva2 >/dev/null 2>&1; then echo "the window check would not use the fallback libva"; exit 1; fi
+            bash /check-start.sh "/dist/$appimage"
+            echo "ubuntu 22.04: AppImage passed"'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-linux

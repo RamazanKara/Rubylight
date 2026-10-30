@@ -7,7 +7,7 @@ This page takes you from installation to a running stream. The defaults are chos
 You need:
 
 - A PC running a Moonlight-compatible host, such as [Sunshine](https://github.com/LizardByte/Sunshine), [Apollo](https://github.com/ClassicOldSong/Apollo), [Vibepollo](https://github.com/Nonary/Vibepollo) or [Rubylight](https://github.com/RamazanKara/Rubylight).
-- A device for Nightjar: Android 5.0 or newer (phone, tablet, handheld, Android TV or Fire TV), Windows 10 or 11, or x86-64 Linux with glibc 2.39 or newer.
+- A device for Nightjar: Android 5.0 or newer (phone, tablet, handheld, Android TV or Fire TV), Windows 10 or 11, or x86-64 Linux with glibc 2.35 or newer.
 - A network between them. Start on the same local network, with the PC on Ethernet where possible. To play elsewhere, see [Play away from home](remote-setup.md).
 
 ## Five steps to your first stream

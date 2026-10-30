@@ -91,7 +91,7 @@ The **Error correction** setting and host-side automatic bitrate also work with 
 | --- | --- |
 | Android, Android TV, Fire TV | Android 5.0 or newer. PyroWave needs 64-bit Android 10 or newer with Vulkan 1.3. Audio passthrough needs Android 10 or newer; 7.1.4 needs Android 12L or newer and a 12-channel output. |
 | Windows | Windows 10 or 11, x86-64. HDR needs an HDR display with HDR turned on in Windows. PyroWave GPU decoding needs Vulkan 1.3. |
-| Linux | x86-64 with glibc 2.39 or newer: Ubuntu 24.04, Debian 13, Fedora 40 or later. Hardware decoding through VA-API, V4L2 M2M or NVDEC. |
+| Linux | x86-64 with glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36 or later. Hardware decoding through VA-API, V4L2 M2M or NVDEC. |
 | PC | A Moonlight-compatible host. The host's own requirements apply. |
 
 ## Measured performance

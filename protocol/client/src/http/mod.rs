@@ -277,6 +277,25 @@ impl HostClient {
         self.cancel.cancel();
     }
 
+    /// The same host and pairing, untouched by this client's [`HostClient::cancel_pending_requests`]:
+    /// for a request that must still go after the stream ends, such as turning a PC's own bitrate
+    /// controller off again.
+    pub fn detached(&self) -> Self {
+        let state = self.state.lock().unwrap();
+        Self {
+            host: self.host.clone(),
+            http_port: self.http_port,
+            identity: self.identity.clone(),
+            device_name: self.device_name.clone(),
+            state: Mutex::new(State {
+                https_port: state.https_port,
+                server_certificate: state.server_certificate.clone(),
+                tls: state.tls.clone(),
+            }),
+            cancel: Cancel::default(),
+        }
+    }
+
     fn pin(&self, der: Option<Vec<u8>>) {
         let mut state = self.state.lock().unwrap();
         state.server_certificate = der;
@@ -744,5 +763,35 @@ impl pairing::PairingTransport for PairingClient<'_> {
             Some(READ_TIMEOUT),
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    #[test]
+    fn a_detached_client_still_reaches_the_host_after_a_cancel() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let host = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request);
+            socket
+                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .unwrap();
+        });
+        let identity = Arc::new(identity::tests::fixture());
+        let client = HostClient::new("127.0.0.1", port, identity)
+            .unwrap()
+            .with_https_port(47984);
+        client.cancel_pending_requests();
+        assert!(matches!(client.server_info_http(true), Err(Error::Cancelled)));
+        let detached = client.detached();
+        assert_eq!(detached.state.lock().unwrap().https_port, 47984);
+        assert!(!matches!(detached.server_info_http(true), Err(Error::Cancelled)));
+        host.join().unwrap();
     }
 }

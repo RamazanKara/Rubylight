@@ -350,6 +350,29 @@ impl Desktop for Win32 {
         }
         Ok(found)
     }
+    fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<u64>> {
+        crate::input::follow_input_desktop();
+        let mut closed = Vec::new();
+        for window in top_level(Some(processes))? {
+            let form = hwnd(window.id);
+            if !window.visible || !window.owned || class_of(form).as_deref() == Some(DIALOG_CLASS) {
+                continue;
+            }
+            // SAFETY: plain queries of window handles; one that closed meanwhile answers null or
+            // false, and posting never waits for the owner's message loop.
+            unsafe {
+                let owner = GetWindow(form, GW_OWNER).unwrap_or_default();
+                if owner.is_invalid()
+                    || windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(owner).as_bool()
+                {
+                    continue;
+                }
+                PostMessageW(Some(form), WM_CLOSE, WPARAM(0), LPARAM(0))?;
+            }
+            closed.push(window.id);
+        }
+        Ok(closed)
+    }
 }
 
 #[cfg(test)]
@@ -478,5 +501,25 @@ mod tests {
         );
         drop(made);
         assert_eq!(new(&mut desktop), []);
+
+        // A form shown with ShowDialog: owned by the window it disabled,
+        // which is closed. A message box over that window, and a window
+        // whose owner is enabled, are left alone.
+        let mut made = Made(Vec::new());
+        let popup = WS_POPUP | WS_VISIBLE;
+        let owner = make("Static", "owner", hidden, popup, None);
+        made.0.push(owner);
+        let form = make("Static", "form", hidden, popup, Some(owner));
+        made.0.push(form);
+        made.0
+            .push(make(DIALOG_CLASS, "box", hidden, popup, Some(owner)));
+        let free = make("Static", "free", hidden, popup, None);
+        made.0.push(free);
+        made.0
+            .push(make("Static", "owned", hidden, popup, Some(free)));
+        assert!(desktop.close_forms(&own).unwrap().is_empty());
+        // SAFETY: a window this thread made.
+        let _ = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(owner, false) };
+        assert_eq!(desktop.close_forms(&own).unwrap(), [form.0 as usize as u64]);
     }
 }

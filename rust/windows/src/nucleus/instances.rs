@@ -31,6 +31,10 @@ pub trait Desktop: Send {
     /// Windows shows for any program (hard errors): with no processes, those
     /// alone.
     fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>>;
+    /// Close the visible windows of `processes` that keep their owner
+    /// disabled until they close (a WinForms form shown with `ShowDialog`),
+    /// message boxes aside, as their close button does: the ones closed.
+    fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<u64>>;
 }
 
 /// A message box on the desktop: its window, its caption and its text.
@@ -397,6 +401,9 @@ pub(crate) mod tests {
         pub boxes: Vec<(u32, MessageBox)>,
         /// Listing message boxes fails.
         pub unlisted: bool,
+        /// Forms that disable their owner, and the process showing each.
+        pub forms: Vec<(u32, u64)>,
+        pub closed: Vec<u64>,
         /// Placing a window moves it there, as a cooperative game does.
         pub obey: bool,
     }
@@ -450,6 +457,15 @@ pub(crate) mod tests {
                 .filter(|(pid, _)| processes.contains(pid) || *pid == CSRSS)
                 .map(|(_, shown)| shown.clone())
                 .collect())
+        }
+        fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<u64>> {
+            let (closed, kept) = std::mem::take(&mut self.forms)
+                .into_iter()
+                .partition::<Vec<_>, _>(|(pid, _)| processes.contains(pid));
+            self.forms = kept;
+            let closed: Vec<u64> = closed.into_iter().map(|(_, id)| id).collect();
+            self.closed.extend(&closed);
+            Ok(closed)
         }
     }
 

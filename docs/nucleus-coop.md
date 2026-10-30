@@ -229,8 +229,16 @@ the click on the profile (answer or fix it there; a box Windows showed for
 another program before the launch doesn't count), that it doesn't list the
 game (naming the game list it reads, in the Nucleus Co-op the host installs),
 no profile Rubylight (open Nucleus Co-op and load the profile Rubylight once,
-then launch again), or no window at all, with the last error from its
-`crashlog.txt` if it wrote one (in the user's own copy, read as the user).
+then launch again), that it still shows its setup screen with the profile
+Rubylight (Nucleus Co-op plays a profile once every player has a controller),
+or no window at all, with the last error from its `crashlog.txt` if it wrote
+one (in the user's own copy, read as the user). A click that comes while Nucleus
+Co-op still builds its setup screen fails with "The profile can't be loaded",
+a box that blocks its window until someone closes it. So after the click,
+until a game instance runs, the host closes a box like that (logging it) and
+clicks the profile again every 5 seconds while Nucleus Co-op still lists it;
+when every click ends in such a box, the start fails saying how many were
+closed.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A

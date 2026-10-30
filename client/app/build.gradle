@@ -73,8 +73,8 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "4.0.0-alpha.2"
-        versionCode = 359
+        versionName "4.0.0"
+        versionCode = 360
 
         resValue "string", "app_name", brandName
         buildConfigField "String", "BRAND_NAME", "\"${brandName}\""

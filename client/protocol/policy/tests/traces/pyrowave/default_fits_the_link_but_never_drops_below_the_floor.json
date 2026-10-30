@@ -1,0 +1,19 @@
+{
+  "source": "PyroWaveBitrateFloorTest.theDefaultFitsTheLinkButNeverDropsBelowTheFloor",
+  "rust": "pyrowave::BitrateFloor",
+  "java": "com.limelight.nvstream.PyroWaveBitrateFloor",
+  "new": null,
+  "calls": [
+    {"call": "default_kbps", "args": [2560, 1440, 120, 0], "expect": 900000},
+    {"call": "default_kbps", "args": [3840, 2160, 60, 0], "expect": 900000},
+    {"call": "default_kbps", "args": [3840, 2160, 120, 0], "expect": 1492992},
+    {"call": "default_kbps", "args": [3840, 2160, 60, 2500], "expect": 1592525},
+    {"call": "default_kbps", "args": [2560, 1440, 120, 2500], "expect": 1415578},
+    {"call": "default_kbps", "args": [3840, 2160, 60, 1000], "expect": 900000},
+    {"call": "default_kbps", "args": [1920, 1080, 60, 300], "expect": 270000},
+    {"call": "default_kbps", "args": [1920, 1080, 60, 100], "expect": 186624},
+    {"call": "default_kbps", "args": [3840, 2160, 120, 10000], "expect": 2000000},
+    {"call": "default_kbps", "args": [3840, 2160, 60, 10000], "expect": 1592525},
+    {"call": "default_kbps", "args": [2560, 1440, 120, 1000], "expect": 900000}
+  ]
+}

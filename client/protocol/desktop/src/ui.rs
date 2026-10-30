@@ -15,7 +15,7 @@ use crate::config::{
 use crate::console::{self, EndAction, GameState, Playing, Source};
 use crate::hosts::{Apps, Art, Handed, Host, Hosts, Reach, SleepStep};
 use crate::strings::{en, tr, trf};
-use crate::stream::{stream_mode, Display};
+use crate::stream::{pyrowave_bitrate_warning, stream_mode, Display};
 use crate::theme::*;
 
 pub enum Command {
@@ -2245,8 +2245,13 @@ impl Launcher {
             );
             if !automatic {
                 let mut mbps = bitrate as f32 / 1000.0;
-                let note = if s.codec.is_pyrowave() { en("PyroWave maintains a minimum bitrate for this size and frame rate.") }
-                    else { en("Higher is sharper and needs a faster network.") };
+                // A chosen bitrate below PyroWave's minimum stays; the row says what it costs.
+                let warning = pyrowave_bitrate_warning(s, w, h, fps);
+                let note = match &warning {
+                    Some(warning) => warning.as_str(),
+                    None if s.codec.is_pyrowave() => en("PyroWave needs a high bitrate: below its minimum the picture breaks up."),
+                    None => en("Higher is sharper and needs a faster network."),
+                };
                 setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {

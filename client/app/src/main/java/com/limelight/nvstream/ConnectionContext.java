@@ -4,6 +4,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.preferences.HostDisplayChoice;
+import com.limelight.utils.WiredLink;
 
 import java.security.cert.X509Certificate;
 
@@ -38,8 +39,11 @@ public class ConnectionContext {
     public boolean rateChange;
     // Set only for the launch that retries after the user confirmed closing the running game
     public boolean confirmReplace;
-    // The bitrate the stream starts at: the configured one, or lower after a link test
+    // The bitrate the stream starts at: the configured one, lower after a link test, or PyroWave's own
     public int startBitrateKbps;
+    // This device's route toward the host, looked up once at launch: PyroWave's default stays within
+    // its link, and the pacing hints tell the host about it
+    public WiredLink.Hints linkHints;
 
     public int negotiatedWidth, negotiatedHeight;
     // HDR is asked for in the launch only when this is set; 10-bit SDR negotiates 10-bit without it.

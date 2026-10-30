@@ -2012,6 +2012,22 @@ fn a_damaged_record_is_never_written_over() {
         assert!(record_pending(h, &[]).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), damaged);
     }
+    // A pending removals list that doesn't parse fails each change, and
+    // nothing writes over the removals it holds.
+    let damaged = br#"{"accepted_at": 1, "pending_removals": [{"name": "Game", "exe": 7}]}"#;
+    std::fs::write(&path, damaged).unwrap();
+    let away = Pending {
+        name: "Away".into(),
+        exe: unconnected_drive().join(r"Games\Away\Away.exe"),
+        uuid: None,
+    };
+    let error = format!("{:#}", record_pending(h, &[away.clone()]).unwrap_err());
+    assert!(error.contains("pending removals are damaged"), "{error}");
+    clear_pending(h, &away.exe);
+    try_pending(h, std::slice::from_ref(&away));
+    remove_pending(h);
+    assert!(pending(h).is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), damaged);
 }
 
 /// A cache is used only as this host keeps it: no link on the way to it,

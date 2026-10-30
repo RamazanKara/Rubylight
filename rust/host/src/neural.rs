@@ -419,14 +419,15 @@ fn settings(h: &Shared) -> Value {
         json!({})
     })
 }
-fn update_settings(h: &Shared, change: impl FnOnce(&mut Value)) -> Result<()> {
+/// Change the record and write it; nothing is written when `change` fails.
+fn update_settings(h: &Shared, change: impl FnOnce(&mut Value) -> Result<()>) -> Result<()> {
     let _one = h
         .neural
         .record
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
     let mut value = read_settings(h)?;
-    change(&mut value);
+    change(&mut value)?;
     butterpollo_core::state::write_json(&h.directory.join(SETTINGS_FILE), &value)
 }
 /// Whether the user accepted the notice that comes before the first download.
@@ -434,7 +435,10 @@ pub fn accepted(h: &Shared) -> bool {
     settings(h)["accepted_at"].as_u64().is_some()
 }
 pub fn accept(h: &Shared) -> Result<()> {
-    update_settings(h, |value| value["accepted_at"] = json!(now()))?;
+    update_settings(h, |value| {
+        value["accepted_at"] = json!(now());
+        Ok(())
+    })?;
     tracing::info!("Neural Rendering: the user accepted the third-party mod notice");
     Ok(())
 }
@@ -1564,8 +1568,22 @@ impl Pending {
     }
 }
 
+/// The record's removals, none when it has no list yet. A list that can't
+/// be read is an error, never taken for empty and written over.
+fn pending_in(record: &Value) -> Result<Vec<Pending>> {
+    match &record[PENDING] {
+        Value::Null => Ok(Vec::new()),
+        list => serde_json::from_value(list.clone())
+            .with_context(|| format!("{SETTINGS_FILE}'s pending removals are damaged")),
+    }
+}
+
+/// [`pending_in`] for a reader, empty and logged when it can't be read.
 fn pending(h: &Shared) -> Vec<Pending> {
-    serde_json::from_value(settings(h)[PENDING].clone()).unwrap_or_default()
+    pending_in(&settings(h)).unwrap_or_else(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: its pending removals can't be read");
+        Vec::new()
+    })
 }
 
 /// Take the mod placed beside `exe` out again (true), or leave its removal
@@ -1595,10 +1613,10 @@ fn take_back(h: &Shared, uuid: &str, name: &str, exe: &Path) -> Result<bool> {
 /// there, or nothing was written.
 fn clear_pending(h: &Shared, exe: &Path) {
     let saved = update_settings(h, |value| {
-        let mut list: Vec<Pending> =
-            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        let mut list = pending_in(value)?;
         list.retain(|removal| removal.exe != exe);
         value[PENDING] = json!(list);
+        Ok(())
     });
     if let Err(error) = saved {
         tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");
@@ -1608,14 +1626,14 @@ fn clear_pending(h: &Shared, exe: &Path) {
 /// Add removals to the record (once each).
 fn record_pending(h: &Shared, removals: &[Pending]) -> Result<()> {
     update_settings(h, |value| {
-        let mut list: Vec<Pending> =
-            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        let mut list = pending_in(value)?;
         for removal in removals {
             if !list.iter().any(|old| old.exe == removal.exe) {
                 list.push(removal.clone());
             }
         }
         value[PENDING] = json!(list);
+        Ok(())
     })
 }
 
@@ -1728,8 +1746,7 @@ fn try_pending(h: &Shared, also: &[Pending]) {
         return;
     }
     let saved = update_settings(h, |value| {
-        let mut list: Vec<Pending> =
-            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        let mut list = pending_in(value)?;
         for removal in also {
             if !list.iter().any(|old| old.exe == removal.exe) {
                 list.push(removal.clone());
@@ -1737,6 +1754,7 @@ fn try_pending(h: &Shared, also: &[Pending]) {
         }
         list.retain(|removal| !done.contains(&removal.exe));
         value[PENDING] = json!(list);
+        Ok(())
     });
     if let Err(error) = saved {
         tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");

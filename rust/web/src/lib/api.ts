@@ -861,6 +861,12 @@ export interface PowerStatus {
       shutdown_wake: 'firmware_unknown' | 'unknown';
     };
   };
+  /**
+   * Why `wake.primary` is null: opened on this PC without a default route
+   * (`no_route`) or with an unreadable one (`route_error`, with `error`), or the
+   * address leads to no connected physical adapter (`unmapped`). Absent from older hosts.
+   */
+  primary_missing?: { reason: 'no_route' | 'route_error' | 'unmapped'; error: string | null } | null;
   idle_sleep: {
     state: IdleSleepState;
     /** 0 when off. */

@@ -59,11 +59,19 @@ export function readiness(power: PowerStatus): Readiness {
   }
   const target = targets.find((target) => target.mac === primary);
   if (!target) {
-    // Opened on this PC without a default route: the host can't tell which adapter devices reach.
-    if (targets.some((target) => target.connected)) {
-      return { status: 'idle', label: 'Check from another device', tone: 'neutral', text: 'This PC has no default route, so it cannot tell which adapter devices reach. Open this page from another device to see which adapter it uses.' };
+    if (!targets.some((target) => target.connected)) {
+      return { status: 'warning', label: 'Not connected', tone: 'warn', text: 'No physical adapter is connected, so devices get no address to wake this PC.' };
     }
-    return { status: 'warning', label: 'Not connected', tone: 'warn', text: 'No physical adapter is connected, so devices get no address to wake this PC.' };
+    // Adapters are up, but the host can't tell which one devices reach: say why.
+    const missing = power.primary_missing;
+    const why =
+      missing?.reason === 'no_route'
+        ? 'This PC has no default route'
+        : missing?.reason === 'route_error'
+          ? `This PC's default route could not be read${missing.error ? ` (${missing.error})` : ''}`
+          : 'The address this page reached belongs to no connected adapter';
+    const text = `${why}, so it cannot tell which adapter devices reach. Open this page from another device to see which adapter it uses.`;
+    return { status: 'idle', label: 'Check from another device', tone: 'neutral', text };
   }
   const name = `the ${adapterKind(target).toLowerCase()} adapter ${target.mac}`;
   switch (target.state) {

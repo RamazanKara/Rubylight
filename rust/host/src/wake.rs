@@ -801,22 +801,55 @@ fn unix(at: SystemTime) -> u64 {
 /// Where the console judges readiness from. /serverinfo and `/wake` give
 /// loopback zeros, but a console opened on this PC asks about the adapter a
 /// device on the network would reach: the one under the default route.
-fn console_local(h: &Host, local: Option<IpAddr>) -> Option<IpAddr> {
-    let local = local?.to_canonical();
+fn console_local(h: &Host, local: Option<IpAddr>) -> Result<Option<IpAddr>, Missing> {
+    let Some(local) = local.map(|local| local.to_canonical()) else {
+        return Ok(None);
+    };
     if !local.is_loopback() {
-        return Some(local);
+        return Ok(Some(local));
     }
-    h.wake.power().default_route().unwrap_or_else(|error| {
-        tracing::warn!("Wake-on-LAN: the default route could not be read: {error:#}");
-        None
-    })
+    match h.wake.power().default_route() {
+        Ok(Some(route)) => Ok(Some(route)),
+        Ok(None) => Err(Missing::NoRoute),
+        Err(error) => {
+            tracing::warn!("Wake-on-LAN: the default route could not be read: {error:#}");
+            Err(Missing::RouteError(format!("{error:#}")))
+        }
+    }
+}
+
+/// Why the console has no primary adapter.
+#[derive(Debug)]
+enum Missing {
+    /// Opened on this PC, which has no default route.
+    NoRoute,
+    /// Opened on this PC, whose default route could not be read.
+    RouteError(String),
+    /// The address the request reached, or the default route's, leads to no
+    /// connected physical adapter.
+    Unmapped,
+}
+
+impl Missing {
+    fn json(&self) -> Value {
+        match self {
+            Self::NoRoute => json!({"reason": "no_route", "error": null}),
+            Self::RouteError(error) => json!({"reason": "route_error", "error": error}),
+            Self::Unmapped => json!({"reason": "unmapped", "error": null}),
+        }
+    }
 }
 
 /// `GET /api/power`: readiness as `/wake` has it, the changes a fix would
 /// make, sleep after idle with its countdown, and the last sleep and fix.
 pub fn console_status(h: &Host, refresh: bool, local: Option<IpAddr>) -> Result<Value> {
     let reading = read(h, refresh)?;
-    let wake = wake_of(h, &reading, console_local(h, local));
+    let local = console_local(h, local);
+    let wake = wake_of(h, &reading, local.as_ref().ok().copied().flatten());
+    let missing = wake
+        .primary
+        .is_none()
+        .then(|| local.err().unwrap_or(Missing::Unmapped));
     let plan = match (&reading.nics, &reading.facts) {
         (Ok(nics), Ok(facts)) => Ok(FixPlan::new(&reading.adapters, nics, facts, false)),
         (Err(error), _) | (_, Err(error)) => Err(error.clone()),
@@ -834,6 +867,8 @@ pub fn console_status(h: &Host, refresh: bool, local: Option<IpAddr>) -> Result<
     Ok(json!({
         "status": true,
         "wake": wake,
+        // Why `wake.primary` is null; null when it isn't.
+        "primary_missing": missing.as_ref().map(Missing::json),
         "idle_sleep": {
             "state": idle.state,
             "minutes": idle.minutes,
@@ -1652,10 +1687,11 @@ mod tests {
     fn a_console_on_this_pc_judges_the_default_route_adapter() {
         let f = Fixture::new();
         let fake = Fake::new().on(&f.host);
+        let status = |local: &str| console_status(&f.host, false, Some(local.parse().unwrap()));
         let console = |local: &str| -> api::Wake {
-            let status = console_status(&f.host, false, Some(local.parse().unwrap())).unwrap();
-            serde_json::from_value(status["wake"].clone()).unwrap()
+            serde_json::from_value(status(local).unwrap()["wake"].clone()).unwrap()
         };
+        let missing = |local: &str| status(local).unwrap()["primary_missing"].clone();
         let routed = |wake: &api::Wake| -> Vec<String> {
             let targets = wake.targets.iter().filter(|target| target.route);
             targets.map(|target| target.mac.clone()).collect()
@@ -1666,21 +1702,52 @@ mod tests {
             let wake = console(local);
             assert_eq!(wake.primary.as_deref(), Some(WIRED_MAC), "{local}");
             assert_eq!(routed(&wake), [WIRED_MAC], "{local}");
+            assert_eq!(missing(local), Value::Null, "{local}");
         }
         // A request from the network is judged by its own address, not the route.
         *locked(&fake.route) = Ok(None);
         assert_eq!(routed(&console("192.168.4.20")), [WIRED_MAC]);
+        assert_eq!(missing("192.168.4.20"), Value::Null);
         // A virtual adapter (a VPN) carries it: the physical one under it.
         *locked(&fake.route) = Ok(Some([172, 30, 112, 1].into()));
         let wake = console("127.0.0.1");
         assert_eq!(wake.primary.as_deref(), Some(WIRED_MAC));
         assert!(routed(&wake).is_empty());
-        // No default route, or an unreadable one: no primary, as before.
-        for route in [Ok(None), Err("IP Helper failed".to_string())] {
-            *locked(&fake.route) = route;
-            let wake = console("127.0.0.1");
-            assert_eq!(wake.primary, None);
-            assert!(routed(&wake).is_empty());
+        // An IPv6-only network: the IPv6 default route's address names it.
+        let ipv6: IpAddr = "2001:db8:4::20".parse().unwrap();
+        if let Ok(adapters) = locked(&fake.adapters).as_mut() {
+            adapters[0].addresses.push(ipv6);
+        }
+        *locked(&fake.route) = Ok(Some(ipv6));
+        assert_eq!(routed(&console("::1")), [WIRED_MAC]);
+        // No default route, or an unreadable one: no primary, and why.
+        *locked(&fake.route) = Ok(None);
+        let wake = console("127.0.0.1");
+        assert_eq!(wake.primary, None);
+        assert!(routed(&wake).is_empty());
+        assert_eq!(
+            missing("127.0.0.1"),
+            json!({"reason": "no_route", "error": null})
+        );
+        *locked(&fake.route) = Err("IP Helper failed".into());
+        assert_eq!(console("127.0.0.1").primary, None);
+        assert_eq!(
+            missing("127.0.0.1"),
+            json!({"reason": "route_error", "error": "IP Helper failed"})
+        );
+        // An address no physical adapter owns, and none connected: unmapped,
+        // from this PC or the network.
+        *locked(&fake.route) = Ok(Some([10, 8, 0, 2].into()));
+        if let Ok(adapters) = locked(&fake.adapters).as_mut() {
+            adapters[0].connected = false;
+        }
+        for local in ["127.0.0.1", "10.8.0.2"] {
+            assert_eq!(console(local).primary, None, "{local}");
+            assert_eq!(
+                missing(local),
+                json!({"reason": "unmapped", "error": null}),
+                "{local}"
+            );
         }
     }
 }

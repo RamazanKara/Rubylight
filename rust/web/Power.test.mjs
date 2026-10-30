@@ -35,11 +35,21 @@ test('readiness follows the adapter devices are sent, and says what to do', () =
   assert.equal(onlyWifi.label, 'Depends on Wi-Fi');
   assert.doesNotMatch(onlyWifi.text, /Experimental/);
   assert.equal(readiness(status({ wake: { primary: null, targets: [{ ...wired, connected: false, route: false }, wifi] } })).label, 'Not connected');
-  // Opened on this PC without a default route: connected adapters are not called disconnected.
-  const local = readiness(status({ wake: { primary: null, targets: [{ ...wired, route: false }, wifi] } }));
-  assert.equal(local.label, 'Check from another device');
-  assert.doesNotMatch(local.text, /connected/);
-  assert.match(local.text, /from another device/);
+  // Connected adapters but no primary: never called disconnected, and the host's reason is named.
+  const unknown = (primary_missing) =>
+    readiness({ ...status({ wake: { primary: null, targets: [{ ...wired, route: false }, wifi] } }), primary_missing });
+  const noRoute = unknown({ reason: 'no_route', error: null });
+  assert.deepEqual([noRoute.label, noRoute.tone], ['Check from another device', 'neutral']);
+  assert.match(noRoute.text, /^This PC has no default route, .* from another device/);
+  const failed = unknown({ reason: 'route_error', error: 'GetBestRoute2 toward 8.8.8.8: access denied' });
+  assert.match(failed.text, /default route could not be read \(GetBestRoute2 toward 8\.8\.8\.8: access denied\)/);
+  assert.doesNotMatch(failed.text, /no default route/);
+  for (const missing of [{ reason: 'unmapped', error: null }, null, undefined]) {
+    // Unmapped, or an older host that doesn't say: no claim about the route.
+    const text = unknown(missing).text;
+    assert.match(text, /belongs to no connected adapter/);
+    assert.doesNotMatch(text, /default route|is connected/);
+  }
   assert.equal(readiness(status({ wake: { targets: [], primary: null } })).tone, 'danger');
   // A state from a newer host is not shown as ready.
   assert.equal(readiness(status({ wake: { targets: [{ ...wired, state: 'sleepy' }] } })).label, 'Unknown');

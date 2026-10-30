@@ -2,9 +2,9 @@
 
 [Documentation](index.md) · [All defaults](settings.md)
 
-This page describes the Android app. [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux) has its own section at the end. On-screen controls and touch controls are part of the Android app only; the desktop client is driven by keyboard, mouse, touchpad and controllers.
+This page describes the Android app; [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux) has its own section at the end. On-screen and touch controls are specific to Android. The desktop client takes keyboard, mouse, touchpad, pen and controller input.
 
-If your host has per-device permissions, it must grant the relevant input permission to this device. If video works but controls do not, check [host permissions](pairing.md#per-device-permissions) first.
+Hosts with per-device permissions must grant this device each input type it uses. If video works but input does not, check the [host permissions](pairing.md#per-device-permissions) first.
 
 ## The stream menu
 
@@ -23,7 +23,7 @@ The menu is one sheet:
 
 **Overlay and diagnostics** opens a page in the same sheet: Compact, Statistics or Debug, Copy stats, Why did my stream stutter? and Measure input latency. Back, Escape or a controller's B returns from the page to the menu; Back again closes the menu, and the close button closes it from anywhere. The D-pad and a controller move through every row; on a USB-driver controller, its D-pad, A and B do this while the menu is open. Items a host or permission does not allow are left out rather than shown disabled.
 
-**Host → Server commands** runs commands configured on the host, including Sleep. Nightjar asks for confirmation and checks the command and permission again before sending it. **Command sent; result unknown** confirms submission, not successful execution: the protocol provides no execution result. If the PC stays awake, check the host log for the command execution and any error, then check that the same configured command can put that PC to sleep when run on the host. The command's elevation setting and the PC's supported sleep states are controlled on the host.
+**Host → Server commands** runs commands configured on the host, such as Sleep. Nightjar asks for confirmation and checks the command and the permission again before sending it. **Command sent; result unknown** confirms that the command was sent; the protocol does not report whether it succeeded. If a Sleep command has no effect, check the host's log, and check that the command puts the PC to sleep when run on the host itself. The command's elevation and the PC's sleep states are configured on the host.
 
 ## Gamepads
 
@@ -71,9 +71,7 @@ For a GameSir G8+ MFi, use its green **Xbox mode** for direct USB input and rumb
 
 ### Switch Pro over USB
 
-This driver follows the published protocol notes. If it misbehaves with your controller, turn it off; Android's own input path keeps working.
-
-Android reads a Switch Pro Controller through its own input path; what that offers for motion, rumble and the Capture button depends on the device and Android version. For the direct USB driver:
+Android reads a Switch Pro Controller through its own input path; what that path offers for motion, rumble and the Capture button depends on the device and Android version. Nightjar's USB driver provides all of them on every device:
 
 1. Open **Settings → Controls → More Controls settings** and enable **USB Switch Pro driver** (off by default).
 2. Connect a Nintendo Switch Pro Controller by USB and start a stream.
@@ -81,7 +79,7 @@ Android reads a Switch Pro Controller through its own input path; what that offe
 
 The driver reads the factory or user stick calibration and motion calibration from the controller, then sends all buttons including **Home** (Guide) and **Capture** (sent as the Misc button), both sticks, ZL/ZR as fully pressed or released triggers, gyro and accelerometer in the same axes as a DualSense, battery state and rumble. The face buttons follow their position, like Android's own Switch driver: the bottom button (B on the Switch) is A. Use **Flip face buttons** or **Controller buttons** to match the labels instead. The stream's stick deadzone applies as for any controller, the player lights show the controller's slot, and **Disable rumble** silences it. The host's two rumble motors map to the controller's low and high band at a fixed 150 Hz; the host's HD rumble waveforms are not used.
 
-Unplugging the controller releases every button and stops motion on the host; ending the stream stops rumble, turns the motion sensors off and hands the controller back to Android. Joy-Con and the Joy-Con Charging Grip are not claimed by this driver and stay on Android's input path. Third-party Switch controllers with other USB IDs are not claimed either. The **Controller test** page reads the controller through this driver when it is on.
+Unplugging the controller releases every button and stops motion on the host; ending the stream stops rumble, turns the motion sensors off and hands the controller back to Android. Joy-Con, the Joy-Con Charging Grip and third-party Switch controllers with other USB IDs stay on Android's input path. **Controller test** reads the controller through this driver when it is on, and turning the driver off returns the controller to Android.
 
 ### Controller mouse mode
 
@@ -103,7 +101,7 @@ During a stream, **Back** and **Menu** open Nightjar's stream menu. They stay lo
 
 With the menu closed and input captured, the remote's **D-pad** sends PC arrow keys and **Select** sends Enter. The host must allow keyboard input for that device. A TV remote provides basic keyboard navigation; use a controller or mouse for games or desktop actions that need those inputs. Connected gamepads retain their controller mapping, including the Start button and menu shortcut. Home, voice search and other system-reserved buttons follow the TV's behavior.
 
-This detection follows Amazon's [remote identification](https://developer.amazon.com/docs/fire-tv/identify-controllers.html) and [remote button events](https://developer.amazon.com/docs/fire-tv/remote-input.html): a non-alphabetic D-pad device without gamepad buttons or joystick axes is a remote. An alphabetic keyboard with arrow keys keeps its keyboard behavior.
+Nightjar identifies remotes as Amazon documents in [identifying controllers](https://developer.amazon.com/docs/fire-tv/identify-controllers.html) and [remote input](https://developer.amazon.com/docs/fire-tv/remote-input.html): a non-alphabetic D-pad device without gamepad buttons or joystick axes is a remote. An alphabetic keyboard with arrow keys keeps its keyboard behavior.
 
 ## Menu navigation
 
@@ -120,7 +118,7 @@ Choose **Settings → Controls → Touch mode**, or **stream menu → Input → 
 | Trackpad (default) | Drag to move the pointer relatively. Tap with one finger for left-click, two for right-click. Lift both fingers quickly in either order. Hold then drag to drag with a mouse button; move two fingers to scroll. |
 | Direct mouse | Tap and release to left-click at that location. Move beyond the small hold area to drag with the left button, or hold still for about 0.65 seconds to right-click. A hold sends only the right click. A second finger scrolls. |
 | Multi-touch | Send fingers directly to the host touch interface. If native touch is unavailable, Nightjar uses Direct mouse. Use the stream menu for the keyboard. |
-| Local cursor | Like Trackpad, but Nightjar draws the pointer on this device, so it follows your finger with no round trip to the PC. The pointer's position goes to the host as an absolute position, so a tap clicks exactly where the drawn arrow points, including while pinch zoom is on. Tap, two-finger tap, hold-then-drag and two-finger scroll work as in Trackpad. The drawn pointer is a plain arrow and the PC's own cursor may still show in the video, unless the host offers [cursor shapes](protocol/cursor-shape.md): then Nightjar draws the PC's cursor (I-beam, resize arrows and so on), hides it when the PC does, and the host leaves it out of the video. Rubylight 3.0 offers this, with either capture method (Windows Graphics Capture or Desktop Duplication). |
+| Local cursor | Like Trackpad, but Nightjar draws the pointer on this device, so it follows your finger with no round trip to the PC. The pointer's position goes to the host as an absolute position, so a tap clicks exactly where the drawn arrow points, including while pinch zoom is on. Tap, two-finger tap, hold-then-drag and two-finger scroll work as in Trackpad. With a host that sends [cursor shapes](protocol/cursor-shape.md) (Rubylight 3.0), Nightjar draws the PC's own cursor (I-beam, resize arrows and so on), hides it when the PC does, and the host leaves it out of the video. Other hosts get a plain arrow, and the PC's cursor may also appear in the video. |
 | Touch off | The stream ignores fingers, for playing with a controller without stray touches. Android's Back gesture or Back button still opens the stream menu, where you can switch the mode back. On-screen controls, per-game touch buttons, pinch zoom (if you turned it on), a mouse and a pen keep working. |
 
 **Trackpad speed** changes Trackpad movement and **Local cursor speed** changes Local cursor movement, each from 25–400% with 100% as the default. At 100%, the local pointer moves as far as your finger. Native pen input is forwarded when supported and permitted by the host.
@@ -188,7 +186,7 @@ While the keyboard is open, controllers and TV remotes steer it and the game get
 | LB / RB | Toggle Shift / Ctrl |
 | Start | Enter |
 
-With **Flip face buttons** on, A/B and X/Y swap here as they do in games, and a button you remapped for that controller in the button map does what its target does here (a disabled button does nothing). A TV remote uses the D-pad and OK. A controller that reports its D-pad as keys and as a hat moves the selection once. USB and Bluetooth controller behaviour is researched but not yet tried on real pads; see [USB and Bluetooth pads in the menus and the PC keyboard](gamepad-navigation.md). This works for Android-mapped and USB-driver controllers alike.
+With **Flip face buttons** on, A/B and X/Y swap here as they do in games, and a button you remapped for that controller in the button map does what its target does here (a disabled button does nothing). A TV remote uses the D-pad and OK. A controller that reports its D-pad both as keys and as a hat moves the selection once. This works for Android-mapped and USB-driver controllers alike; [gamepad navigation](gamepad-navigation.md) describes how each type of controller is handled.
 
 ### Keyboard options
 
@@ -222,7 +220,7 @@ The importer also accepts this format without `version`, common Windows names su
 
 ## PC display mode and administration
 
-Open your PC's menu → **PC settings… → PC display mode**. The choice is saved per PC and applies from the next stream. The entry appears only for PCs whose host supports display modes (Rubylight 2.2.1 or later); an older Rubylight shows it disabled with the reason. Other PCs with a virtual display get a plain **Host virtual display** switch in their settings.
+Open your PC's menu → **PC settings… → PC display mode**. The choice is saved per PC and applies from the next stream. The entry appears for PCs whose host supports display modes (Rubylight 2.2.1 or later). Other PCs with a virtual display get a **Host virtual display** switch in their settings instead.
 
 | Choice | What happens on the PC |
 | --- | --- |
@@ -291,17 +289,15 @@ Artemis saves pixel positions without the screen size, so Nightjar reads them ag
 
 ### Tablet zoom and external displays
 
-Choose **stream menu → Display → Enable pinch zoom and pan**. Pinch to zoom from 1× to 4× and drag two fingers to pan within the desktop. One finger continues to use the selected touch mode; direct mouse, native touch, pen and absolute mouse positions use the inverse video transform. Trackpad movement stays relative; in Local cursor mode the drawn pointer stays over the same spot of the zoomed image and moves as far as your finger. While enabled, moving two fingers controls the view instead of scrolling the PC. A quick two-finger tap still right-clicks in Trackpad and Local cursor, within the configured trackpad area. Small tap movement does not pan the view, and a pan or pinch does not also click. **Reset zoom** restores the full image. Android 5/6 require TextureView; Android 7+ support the SurfaceView path as well.
+Choose **stream menu → Display → Enable pinch zoom and pan**. Pinch to zoom from 1× to 4× and drag two fingers to pan. One finger keeps the selected touch mode, and touch, pen and absolute mouse positions map through the zoom. Trackpad movement stays relative; in Local cursor mode the drawn pointer stays over the same spot of the zoomed image. While zoom is enabled, two fingers move the view instead of scrolling on the PC; a quick two-finger tap still right-clicks in Trackpad and Local cursor modes. **Reset zoom** restores the full image. On Android 5 and 6, zoom uses the TextureView video path.
 
-For a dock, USB-C/HDMI monitor or Android presentation-capable wireless display, choose **stream menu → Display → Video output** and select the display. The item appears while Android offers such a display, and while video is on one. Switching output safely disconnects/reconnects the client while preserving the PC application, and starts the decoder on a dedicated presentation surface. Game streams resume only the captured application: if it stops or another application replaces it during handoff, the reconnect fails without launching or quitting an application. This guard is independent of automatic network recovery. Remote Monitor keeps its dedicated view-only host operation. Video goes to the monitor; the device remains a touchpad with its keyboard toolbar, game buttons and stream menu. This works with any Moonlight-compatible host and does not ask the host to change its display layout. Android determines which attached outputs support presentations; mirroring-only outputs cannot be selected.
+To play on a dock, a USB-C or HDMI monitor, or a wireless display that supports Android presentations, choose **stream menu → Display → Video output** and select the display. The item appears while Android offers such a display. Video moves to the monitor, and the device becomes a touchpad with its keyboard toolbar, game buttons and stream menu. Switching reconnects the stream to the same running game; if that game stopped or was replaced in the meantime, the reconnect fails rather than starting or quitting anything. This works with any Moonlight-compatible host and leaves the PC's display layout unchanged. Displays that Android offers only for mirroring cannot be selected.
 
-Select **This device** to return. Removing the external display triggers the same client reconnect back to the phone/tablet. A display that disappears before launch falls back to the device. Output selection is session-local and is preserved through reconnects, not saved as a global preference. PiP auto-entry is disabled while presenting externally. Locking/leaving the activity follows the normal stream lifecycle; no background input or unattended reconnect is introduced.
+Select **This device** to return; unplugging the display does the same. The choice lasts for the session and survives reconnects. Picture-in-picture does not start automatically while video is on an external display.
 
-Nightjar tracks changes to the selected video display's maximum refresh rate. On hosts (Rubylight) and decoders supporting [in-place reconfiguration](recovery-and-quality.md#choosing-automatic-quality), streams that follow the display rate can update their FPS target and automatic-quality ceiling without reconnecting, even when the phone's refresh rate is unchanged. Returning to **This device** restores phone/tablet display tracking, including native-resolution changes. Received and rendered FPS in the overlay remain the measurements of delivered video.
+Nightjar follows the external display's refresh rate. With hosts and decoders that support [in-place reconfiguration](recovery-and-quality.md#choosing-automatic-quality) (Rubylight 3.0), a stream that follows the display rate updates its frame rate and automatic-quality ceiling without reconnecting.
 
-For external MediaCodec video, **Balanced** pacing uses the lowest-latency path for this session, with a notice when it changes. Android's public Choreographer callbacks follow the internal display, so using them to pace an external surface can hold video to the phone's cadence. The saved pacing preference is unchanged; other pacing modes keep their behavior. PyroWave keeps its own Vulkan presentation. External output does not send phase-lock timing derived from the phone display, and this fallback does not claim a measured FPS or VRR result.
-
-The JSON validator and its version 1 fixtures, the Artemis import mapping, stick deadzone, floating centering, WASD directions, grid snapping, release of held gamepad input, held-input ownership, axis/hat report remapping, zoom bounds and inverse touch mapping have headless unit coverage. Actual monitor attach/detach, OEM SurfaceView transforms, controller hardware and accessibility services still require device testing; no physical display, audio or controller is used by these tests.
+On an external display, **Balanced** pacing uses the lowest-latency path for the session and says so, because Android's frame callbacks follow the built-in display. The saved pacing setting is unchanged. Phase-lock timing is not sent for external displays.
 
 ### Touch mapping and video scaling
 

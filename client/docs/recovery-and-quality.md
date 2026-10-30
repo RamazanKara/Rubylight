@@ -2,52 +2,80 @@
 
 [Documentation](index.md) · [Settings reference](settings.md) · [Video and latency](video-and-latency.md)
 
+Nightjar keeps a stream running through transient failures and adapts its quality to the link and the device. This page describes the rules: when a stream reconnects, when it lowers resolution or frame rate, and how the bitrate controller decides.
+
 ## Recovering a connection
 
-**Settings → Streaming → Recover interrupted streams** is on by default (an install that stored the old default, off, is switched on once; turning it off again is kept). When it is on, after a temporary transport failure, a normal game stream retries after 1, 2, 4, 8 and 12 seconds, with at most five attempts and a one-minute budget including connection startup. The progress dialog shows the attempt; Back cancels. Leaving the stream cancels pending recovery. A connection must remain up for 30 seconds before another interruption receives a fresh retry budget.
+**Settings → Streaming → Recover interrupted streams** is on by default. After a temporary transport failure, a game stream reconnects to the same running game:
 
-When the stream's network goes away (Wi-Fi off or dropped), the stream says "Network lost" over the picture at once, even with on-screen warnings off; it adds that it reconnects as soon as the network is back only when an automatic reconnect will follow (Recover interrupted streams on, a normal game stream, an attempt left in the budget, no **Network drop tolerance** above the 10-second timeout). When a network comes back, the stream goes on where it can: after a [roam](protocol/client-roaming.md), on the same address (DHCP gave it again), or while there is no route yet, the connection resumes in place or its own timeout decides. Only when the route toward the PC now leaves from another address and the stream did not roam there, which the connection cannot carry on over, does the stream reconnect to the same game right away instead of waiting for the timeout: the first attempt has no delay (it still counts). A network back before its address toward the PC (IPv6 first, DHCP later) is asked about again each time its addresses change, up to the 10-second timeout, so an address that arrives late reconnects at once too. It does not on mobile data without **Continue on mobile data**, with a drop tolerance above the timeout (the tolerance decides), or where the stream would not reconnect on its own. Every attempt first waits while the PC has no route (an immediate no-route error: no address toward it yet, DHCP), checking every half second, instead of failing at once and backing off; a check that times out, as on a slow link, goes on to the attempt. When the one-minute budget ends without a route, the Reconnect dialog says so. The desktop client does the same, following the route toward the PC once a second; with its default 3-second interruption grace, below the timeout, it reconnects at once too, and only while its window is not minimized.
+| Rule | Value |
+| --- | --- |
+| Attempts | Up to five, after 1, 2, 4, 8 and 12 seconds |
+| Budget | One minute, including connection startup |
+| Fresh budget | After the connection has stayed up for 30 seconds |
+| Cancel | Back in the progress dialog, or leaving the stream |
 
-When an established game stream stops because the screen locks or the app leaves the foreground, returning resumes that captured game, resume-only. No connection starts while the app is in the background. A return from the user's own trip (Home, Files, a task switch, a lock, or the external display unplugged while away) is not a retry: it never takes an attempt and the budget never refuses it. It starts after a fixed second and has one minute of its own to connect. The resumed stream then continues the failure budget as it stood when the stream was left: the attempts are unchanged, and a window already running for a failure starts later by the time from leaving until the resumed stream starts, so the time away does not run it. Time connected before and after trips adds up toward the 30 seconds that earn a fresh budget. A connection lost while away, or reported as the user leaves, makes its return a retry that spends the budget, and so does a failure while the resume starts up. Time spent locked does not count as a stable connection or refresh an exhausted retry budget. Leaving during startup, a queued retry or teardown cancels that handoff and keeps recovery manual. With **Recover interrupted streams** off, leaving the stream ends it and there is no automatic recovery after screen lock.
+Recovery only resumes the game that was running. It never sends a launch or quit request, never confirms replacing a game, and never takes over another device's session; it stops if the game is no longer running, its identity has changed, access is denied or the pairing is gone. Normal streams and a Resume tile recover. Remote Monitor, Input-only and host actions keep the manual **Reconnect**. These rules hold with every Moonlight-compatible host.
 
-Automatic recovery only resumes the same running game. It never sends a launch or quit request, confirms replacement, or takes over someone else's session. It stops if the game is no longer running, its identity changes, access is denied, or pairing is missing. Normal streams and a main-session Resume tile can recover. Remote Monitor, Remote Input and control actions keep the existing manual reconnect path. These restrictions apply with every Moonlight-compatible host.
+A normal end of the stream by the host, protected content, host frame-conversion errors, decoder startup failures and unknown errors do not trigger recovery. When the host ends the stream because the game exited, Nightjar returns to the library without an error. After recovery stops, the error dialog offers **Reconnect**, which starts a new connection with normal launch behavior, and **Disconnect**.
 
-Normal host termination closes the stream. Protected content, host frame-conversion errors, decoder startup failures and unknown errors do not trigger automatic recovery. The error dialog retains **Reconnect** and **Disconnect** after recovery stops. Manual Reconnect is an explicit new connection attempt using normal launch behavior. Recovery recreates the stream activity after the previous native connection has stopped, restoring its configured audio, controller and display setup; it does not quit the game.
+### When the network changes
 
-Controller or input traffic during shutdown never replaces the host's normal end-of-stream notification with a generic disconnect error. When the host ends an established stream normally after the game exits, the app returns to the library without an error or automatic reconnect. Actual connection failures and host-reported errors still use the recovery and error handling above.
+When the network disappears (Wi-Fi turned off or dropped), the stream shows "Network lost" over the picture at once, even with on-screen warnings off, and says that it will reconnect when an automatic reconnect will follow.
 
-Microphone mute is kept for the current session through automatic recovery, screen-lock resume, manual **Reconnect** and [**Video output** handoffs](controls.md#tablet-zoom-and-external-displays). This includes a USB controller microphone muted by the host, even if controller capture is lost during teardown. Unmute from the stream menu when ready; microphone streaming still requires its setting and Android permission. The mute choice does not change the microphone-streaming preference and is not saved for a separate new session.
+When a network returns, the stream continues in place where it can: after a [client roam](protocol/client-roaming.md), on the same address, or while there is no route yet, in which case the connection's own timeout decides. If the route to the PC now leaves from a different address that the connection cannot continue on, Nightjar reconnects to the same game immediately rather than waiting for the timeout; the immediate attempt still counts toward the budget. A network whose address arrives late, such as IPv6 before DHCP, is checked again each time its addresses change, up to the 10-second timeout.
+
+Immediate reconnects do not happen on mobile data without **Continue on mobile data**, or when **Ride out network drops** is set above the 10-second timeout, since the tolerance then decides. Every attempt first waits while the PC has no route, checking every half second, instead of failing and backing off. If the minute ends without a route, the reconnect dialog says so.
+
+Nightjar for Windows and Linux follows the same rules, checking the route to the PC once a second. With its default 3-second interruption grace, it also reconnects immediately, while its window is not minimized.
+
+### Leaving and returning
+
+When the screen locks or Nightjar leaves the foreground, the stream stops; returning resumes the same game. No connection starts while the app is in the background.
+
+- A return after your own trip away (Home, another app, a task switch, a lock, or unplugging an external display while away) is not a retry: it uses no attempt, starts after one second and has its own minute to connect.
+- A connection lost while away, or a failure while resuming, counts as a retry and uses the budget.
+- Time away does not count toward the 30 seconds that earn a fresh budget, and does not refresh an exhausted one.
+- With **Recover interrupted streams** off, leaving the stream ends it.
+
+The microphone's mute state carries over automatic recovery, screen-lock resume, manual **Reconnect** and [video output changes](controls.md#tablet-zoom-and-external-displays) within a session, including a USB controller microphone muted by the host. It does not change the microphone setting and is not kept for a new session.
 
 ## Choosing automatic quality
 
-**Settings → Video → Lower resolution or frame rate when needed**, next to Device controls bitrate, is off by default. Choose the mode, then the minimum short edge and FPS, which appear once it is on. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
+**Settings → Video → Lower resolution or frame rate when needed** is off by default. When it is on, choose a mode and the minimum short edge and frame rate. The stream's resolution and frame rate are the upper bounds; a minimum above them is clamped. Aspect ratio and decoder alignment are preserved, and a stream that follows the native display follows fold, window and panel changes.
 
 | Mode | Behavior |
 | --- | --- |
-| Preserve motion | Reduce resolution before lowering FPS. |
-| Preserve detail | Reduce FPS before lowering resolution. |
-| Extend battery life | Gradually reduce work even on a healthy connection, toward at most 60 FPS and a 1080-pixel short edge, while respecting the minimums. Further pressure can lower it more. |
+| Preserve motion | Lowers resolution before frame rate. |
+| Preserve detail | Lowers frame rate before resolution. |
+| Extend battery life | Reduces work even on a healthy connection, toward at most 60 fps and a 1080-pixel short edge, within the minimums. Further pressure lowers it more. |
 
-During a stream, **stream menu → Quality → Automatic stream quality** overrides the mode for that PC. It appears where the host can change the stream in place. **Use app settings** removes that override. Turning it off restores the stream ceiling. Changing the mode starts its new policy from that ceiling. The floors come from app settings and apply to the next stream.
+During a stream, **stream menu → Quality → Automatic stream quality** overrides the mode for that PC; **Use app settings** removes the override. The minimums come from the app settings and apply from the next stream.
 
-Automatic quality requires the host to advertise control message `0x5532` (Rubylight) and the active decoder to support in-place resolution changes. It is unavailable with PyroWave, input-only/remote-monitor streams, hosts without this capability, and non-adaptive decoders. The UI reports this fallback; it does not silently reconnect or change codecs. Automatic bitrate remains separately available where supported.
+### Requirements
 
-On a host that supports runtime bitrate (Rubylight), choosing automatic quality enables the existing bitrate controller first. The client reads the actual encoder budget and sends the current bitrate once to take control from host-side adaptation. It waits for sustained network trouble after substantial bitrate reduction before asking for a lower resolution/FPS. Slow decoding and thermal pressure can reduce quality independently because bitrate alone may not reduce those workloads.
+Automatic quality needs a host that can change a running stream's resolution and frame rate (Rubylight 3.0) and a decoder that supports in-place resolution changes. It is unavailable with PyroWave and for Input-only and Remote Monitor streams. Where it is unavailable, the settings say why; Nightjar never reconnects or changes codec to apply it.
 
-Resolution/FPS reductions are at least 15 seconds apart. Decoder/thermal pressure must persist for four samples; network pressure at a reduced bitrate must persist for eight. Recovery takes one step after 30 healthy seconds, with adequate decode headroom and no thermal warning. Missing video, unknown recovery metrics, menus, backgrounding and picture in picture do not count as healthy time.
+The change keeps the negotiated codec, HDR and color mode, and the host's display selection. If the host rejects a size, or the size has not appeared in decoded frames within ten seconds, automatic quality stops with an explanation and the stream stays connected. The frame rate is a requested target, since the protocol has no frame-rate acknowledgement; the overlay's received and rendered frame rates show what arrives. After a size change, a hardware-decoder upscaler can fall back to direct output, as described in [upscaling](video-and-latency.md#upscaling).
 
-Decode timing allows two frame intervals for pipeline latency before treating a frame as late; recovery requires the average below one and a half intervals. A quiet host can recover while sending fewer frames than the requested FPS: each timing window still needs at least 12 fresh outputs spread over half a second, with its newest output no more than half a second old. Pauses, brief bursts and reused timing windows cannot count as recovery.
+### How it decides
 
-The quality request keeps the negotiated codec, HDR/color mode and host display selection. The host controls what display mode it can apply. If a requested size is rejected or has not appeared in decoded frames within ten seconds, automatic quality stops with a visible explanation and leaves the stream connected. FPS is shown as a requested target because this protocol has no separate frame-rate acknowledgement; received/rendered FPS in the existing overlay remains the measurement. A MediaCodec upscaler may fall back to direct output after a size change, as described in [upscaling](video-and-latency.md#upscaling).
+With a host that supports bitrate changes during a stream, automatic quality first turns on **Device controls bitrate**. It reads the encoder's actual bitrate, takes control from the host's own adaptation, and asks for a lower resolution or frame rate only after network trouble persists at a substantially reduced bitrate. Slow decoding and thermal pressure lower quality directly, since a lower bitrate may not reduce those loads.
+
+| Rule | Value |
+| --- | --- |
+| Time between reductions | At least 15 seconds |
+| Decoder or thermal pressure | Must persist for four samples |
+| Network pressure at a reduced bitrate | Must persist for eight samples |
+| Step back up | One step after 30 healthy seconds with decode headroom and no thermal warning |
+| Late frame | Decode longer than two frame intervals; recovery needs an average below one and a half |
+
+Missing video, unknown metrics, open menus, background time and picture-in-picture do not count as healthy time. Each timing window needs at least 12 fresh frames spread over half a second, the newest no more than half a second old, so pauses and short bursts cannot count as recovery.
 
 ## Device controls bitrate
 
-Device controls bitrate sends one bitrate request per change through the same host path as a manual change; the host's own controller stands down while it is on.
+**Device controls bitrate** sends one bitrate request per change, through the same path as a manual change; the host's own controller stands down while it is on.
 
-- **Cuts must help.** Loss of 3% or more, or the native connection warning, cuts 20% every 3 seconds. Jitter or queueing alone also cuts, but each cut is checked: if jitter or queueing is not at least 15% lower after a cut than before it, and two cuts in a row did not help, the rate is held instead of ratcheted down. Holding ends after 5 healthy seconds, and loss clears it at once. Wi-Fi jitter that does not follow the bitrate therefore stops above the floor, while loss still cuts to the floor.
-- **Fast recovery.** A rate with no poor sample for 10 seconds is remembered as stable. After trouble, once the link has been healthy for 5 seconds, the rate steps back toward the stable one by half the remaining gap (at least 250 kbps) every 3 seconds, so 2 to 50 Mbps takes about 30 seconds. Above the stable rate it probes by 5% every 15 seconds. If a step back brings poor samples again within 10 seconds, the rate returns to the one before it, the stable rate drops to halfway between the two, and the next try waits for 15 healthy seconds.
-- **Floor.** The floor is 2 Mbps or the stream's pixels per second times a per-codec budget (H.264 0.10, HEVC 0.07, AV1 0.065 bits per pixel), whichever is higher: about 8.7 Mbps for 1080p60 HEVC, 2 Mbps for 720p30. It never exceeds half the starting bitrate and follows resolution and frame rate changes from Automatic stream quality. The ceiling is the video bitrate the stream started at.
-
-## Verification limits
-
-Policy tests cover retry budgets and exclusions, lifecycle cancellation, resume-only launch/quit/confirmation guards, mode ordering, floors, thermal/network hysteresis, delayed recovery and display changes. These checks do not measure real device latency, battery savings, roaming recovery or decoder/display compatibility. Those require a later hardware session; no live host, display or controller is needed for the unit suite.
+- **Cuts must help.** Loss of 3% or more, or the connection's own warning, cuts the bitrate by 20% every 3 seconds. Jitter or queueing alone also cuts, but if two cuts in a row did not lower jitter or queueing by at least 15%, the rate is held instead of cut further. Holding ends after 5 healthy seconds; loss ends it at once. Wi-Fi jitter that does not depend on the bitrate therefore stops above the floor, while loss still cuts to the floor.
+- **Fast recovery.** A rate with no poor sample for 10 seconds is remembered as stable. After trouble, once the link has been healthy for 5 seconds, the rate climbs back toward the stable rate by half the remaining gap (at least 250 kbps) every 3 seconds, so 2 to 50 Mbps takes about 30 seconds. Above the stable rate it probes up by 5% every 15 seconds. If a step brings poor samples back within 10 seconds, the rate returns to the previous one, the stable rate drops halfway between the two, and the next attempt waits for 15 healthy seconds.
+- **Floor and ceiling.** The floor is the higher of 2 Mbps and the stream's pixels per second times a per-codec budget (H.264 0.10, HEVC 0.07, AV1 0.065 bits per pixel): about 8.7 Mbps for 1080p60 HEVC, 2 Mbps for 720p30. It never exceeds half the starting bitrate and follows resolution and frame rate changes from automatic quality. The ceiling is the bitrate the stream started at.

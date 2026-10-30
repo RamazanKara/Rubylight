@@ -2,122 +2,131 @@
 
 [Documentation](index.md)
 
-Home, a game's page and the in-stream **Session and graphics** menu use Rubylight's native API, so they appear for PCs running [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 or newer. Other Moonlight-compatible hosts, including older Rubylight versions, keep the classic PC list and app grid, which work as before. Everything on this page applies to Android and to Nightjar for Windows and Linux unless a section names one of them.
+Home, game pages and the in-stream **Session and graphics** menu use a host's native library and session API, which [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 provides. With other Moonlight-compatible hosts, including earlier Rubylight versions, Nightjar shows the classic PC list and app grid. This page applies to Android and to Nightjar for Windows and Linux unless a section names one of them.
 
 ## Home
 
-Nightjar opens on Home when a paired PC supports the API. Home has four parts:
+Nightjar opens on Home when a paired PC supports the native API. Home has four parts:
 
-- **Favourites**: games you starred, first on the page. Long-press a game card (with a D-pad or controller, hold the select button) and choose **Add to favourites**, or use the star on the game's page. A favourite belongs to one PC, so the same title on two PCs is two entries. Favourites are kept when the app updates, and a favourite whose PC is offline stays on Home with its saved cover.
-- **Continue playing**: games that are running or suspended, with a Running or Suspended badge.
-- **Library**: the games of every paired PC with covers. A game on several PCs is one card ("On 2 hosts").
-- **PCs**: your PCs, with their game counts. An offline PC keeps the games it last reported and says so. Each card has three dots at its end with the PC's options, the same list as on the PCs screen (see below); with a D-pad, press Right on the card to mark the dots, then Center.
+- **Favourites.** Games you starred, at the top. Long-press a game card (with a D-pad or controller, hold Select) and choose **Add to favourites**, or use the star on the game's page. Favourites belong to one PC, so the same title on two PCs is two entries. A favourite whose PC is offline stays on Home with its saved cover.
+- **Continue playing.** Games that are running or suspended, marked **Running** or **Suspended**.
+- **Library.** The games of every paired PC, with cover art. A game installed on several PCs appears once, marked with the number of PCs.
+- **PCs.** Each PC with its number of games. An offline PC keeps the games it last reported and says it is offline. The three dots on a card open the PC's options.
 
-Turn Home off with **Open on Home** in settings to start on the list of PCs. The shell bar under the top bar (Home, PCs, Settings; see below) opens that list at any time. A PC paired from the PCs screen that offers the API lands on Home, where its games are; any other PC opens its game list as before.
-
-## PCs on the Windows and Linux client
-
-The header lists **Home**, **PCs** and **Settings** in that order, with the current one underlined; Tab walks them in that order, then **Add PC** on the PCs screen. **Home** shows only when some PC has a library. The destinations replace each other: Back from PCs or Settings goes to Home (or stays on PCs when Home is off), however many you visited. Start (the controller's menu button) from a library or a game page opens Settings over it, and Back returns to that page. Profiles, Controller mappings and Keyboard shortcuts open from Settings and Back returns to the row that opened them. Settings lists **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App** and **Advanced**, with a chip for each at the top that jumps to it. On a TV and on screens at least 840 dp wide the sections sit in a left pane beside the chosen section, with **Search settings** as its first row; Profiles, Controller mappings, Keyboard shortcuts, GPU driver and the latency benchmark start with focus on their content and share one focus outline. See [Settings](settings.md).
-
-A PC's options are one list, opened with **F2** (the controller's West button), **Shift+F10**, a right-click or the three dots on its card. The entries depend on the PC: **Open library** or **Pair**, **Resume** and **Quit running app** (a game is running and the library is known), **Pair with one-time PIN** (hosts that offer it), **Wake up** (not online, with a known MAC), **PC settings**, **Rename**, **Unpair** (paired and online) or **Pairing help** (not paired), **Check again** and **Remove PC**. **Ctrl+N** adds a PC by address.
-
-- **Rename** keeps a name on this device only, and the stream screens show it too. The PC's own name keeps updating underneath, and clearing the field (or typing the PC's own name or address) brings it back. The field starts empty for a PC that never reported a name. The name is at most 40 characters.
-- **Unpair** and **Remove PC** ask first. Unpair asks the PC to forget this device, so it needs the PC online; this device keeps its pairing until the PC has answered. Removing deletes the PC, its settings, its saved library, its covers and its recent games from this device; the PC still lists this device until you unpair it.
-- A pairing that fails says why in a dialog with **Try again**: the PC is offline, a game is running on it, the PIN or one-time PIN was wrong, another request is pending, or the network blocked it. A failed unpair or wake says so the same way.
-
-## Language, zoom, contrast and motion on the Windows and Linux client
-
-Four settings under **Settings > App** change how Nightjar looks. They are global: no profile, PC or game overrides them.
-
-- **Language**: **System default**, **English** or **Deutsch**. System default follows the operating system's first language that Nightjar has, and falls back to English. The launcher, dialogs and the stream menu are translated; German is the first language, and the other languages Nightjar Android ships are not in the desktop client yet. The Radeon panel names and the stream's toasts are translated too, except the brand names (Radeon Chill, AMD Fluid Motion Frames, ...) and the error text that comes from the host or the network. A few lines stay in English everywhere: the names of settings an older client does not know (made from the host's ids), the upscaler names, the performance overlay, startup error boxes and log lines.
-- **UI zoom**: 85, 100, 115, 130 or 150 percent, for the launcher and the in-stream menu and overlay. **Ctrl+=** and **Ctrl+-** step it, **Ctrl+0** goes back to 100. At 150 percent a 1280x720 window still shows every button; pages scroll instead of clipping.
-- **High contrast**: black surfaces, white text, brighter amber, outlines on every control and a thicker focus ring. Body text is at least 7:1 against its background and the focus ring at least 3:1. The normal theme meets WCAG AA (4.5:1) for text.
-- **Reduce motion**: **Follow system**, **Reduce** or **Full motion**. Reduce stops fades, slides, scroll animation and the spinning wheel. Follow system reads Windows' "Show animations in Windows" switch. Linux has no single setting Nightjar can read, so there Follow system leaves motion on; pick **Reduce** to turn it off.
-
-## The shell bar
-
-Home, PCs and Settings sit in one bar under the top app bar of each of those three screens. The current one is highlighted. Home is hidden until a PC has a library to show. On a TV the bar and the screens keep clear of the overscan edge.
-
-- The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from any other of the three goes to that first screen. Back there leaves the app.
-- Switching does not stack screens: the first screen is brought back to the front, and any other screen closes when it opens a sibling.
-- A game's page belongs to Home and stays underneath when you open PCs or Settings from it. With Home as the first screen, Back from PCs goes to Home, not to the game page.
-- Help left the PCs toolbar. Find it under Settings, App, Help, press F1, or use the pairing guide.
-- Settings applies the Back rule only when the bar opened it; opened with Ctrl+comma or from a menu, Back just closes it. If Home turns on or off while you are in Settings, Back restarts the task on the new first screen.
-- Home appears in the bar as soon as the first library is read, without a resume.
-- Home's old toolbar menu is gone; PCs in the bar replaces it. Home shows the PC the way the PCs screen does, with the name given to it by Rename.
-- A game's page has the bar too, with Home marked as the current destination because the page belongs to Home. Home in the bar closes the page (Home is underneath); PCs and Settings open as they do from Home.
-
-## PCs on Android
-
-Every PC card has three dots at its end. They open the PC's options, as does a long press, a mouse's right button, Menu or Shift+F10, and a controller's X. In a PC's library, X opens the selected game's options the same way. With a D-pad, press Right on a card with nothing further to its right to mark the three dots, then Center. When a key or controller was the last input, the PCs screen says "X or ⋮ for options".
-
-The options are one list: **Open library** or **Pair**, **Resume** and **Quit** (a game is running), **Pair with one-time PIN** (hosts that offer it), **Wake PC** (offline, with a known MAC address), **Join co-op**, **Shared folders** and **Files** (on a PC that offers them; see [Join co-op](#join-co-op) and [sharing](sharing.md)), **PC settings**, **Rename**, **Unpair** (paired and online) or **Pairing help** (not paired), and **Remove PC**. An offline PC without a MAC address says "Pair once while the PC is on to enable Wake".
-
-- **Rename** keeps a name on this device only (`HostNames`, keyed by the PC's id), and the library, the stream's title, shortcuts and the TV channel show it. A game's own settings page, a PC's settings page and the Home row say it too. The PC's own name keeps updating underneath. An empty field, or the PC's own name, brings the PC's name back. The name is at most 40 characters. Removing the PC forgets it.
-- **Unpair** asks first, then asks the PC to forget this device and clears the library saved from it. The PC stays in the list as not paired.
-- **Remove PC** asks first, then deletes the PC, its settings, saved library, covers, hidden games and name from this device. The PC still lists this device until you unpair it.
-- A failed pairing, unpair or wake says why in a dialog. **Try again** is offered where a retry can help (a wrong PIN, the network, a failed unpair) and left out where it cannot (the PC is offline, or no MAC address is known). A pairing you cancelled never shows a result afterwards.
-- A PC's settings page lists **Rename**, **Unpair** (paired and online) and **Remove PC** under Host, the same actions as the list's options. Remove closes the page.
-
-## Accessibility on Android
-
-Three settings under **Settings > App > Accessibility** change how every screen of the app looks. They are global: no profile, PC or game overrides them, and the stream itself is never scaled or recoloured. A change recreates the screen you are on.
-
-- **Interface size**: 85, 100, 115, 130 or 150 percent. It scales the density of the app's own screens, so a 393 dp phone at 150 percent lays out like a 262 dp one, and the layout qualifiers follow. Touch targets stay 48 dp. The system font size still applies on top. `UiScaleTest` checks PCs and Settings at 150 percent for overflow and for targets under 48 dp.
-- **High contrast**: black surfaces, secondary text and outlines in the body text colour, a 2 dp outline on cards, and a 4 dp moon-amber focus ring on every focusable. `ContrastTest` computes the WCAG ratios from the palette and the theme: body and secondary text are at least 7:1 and focus rings at least 3:1 on every surface.
-- **Reduce motion**: **Follow system**, **Reduce** or **Full**. Follow system reduces when Android's animation scale is 0. Reduce replaces the TV focus zoom with a still ring and skips the sliding sheet on a TV. Full always animates. A focus ring always shows.
-
-On a TV every stop of a D-pad walk shows a ring, never only Material's faint state layer: buttons, icon buttons, rows and cards all draw one (`FocusVisibilityTest` requires focus to change pixels by at least 3:1 around the edge). A filled amber button gets a ring in the body text colour, because amber on amber would not show. Checked by D-pad on an Android 14 TV emulator, normal and high contrast: PCs opens with **Add PC** focused and Settings with its list focused, never the toolbar, and the screens keep 48 dp by 27 dp clear of the overscan edge.
+To start on the PC list instead, turn off **Open on Home**. The bar under the top bar switches between **Home**, **PCs** and **Settings** at any time; Home appears in it as soon as a PC has a library. A PC paired from the PC list that supports the native API opens on Home; other PCs open their app grid.
 
 ## A game's page
 
-Pick a card to see the PC the game runs on and the stream settings it will use (resolution, frame rate, bitrate, and which profile layer set them), then **Play** or **Resume**. If another game is running on that PC, the page says that playing this game closes it. **Close game** appears when the PC has granted this device Host control. Without it you get the classic Quit.
+Select a game to see the PC it runs on and the settings the stream will use (resolution, frame rate, bitrate, and the profile layer that set each), then choose **Play** or **Resume**. If another game is running on that PC, the page says that playing this game will close it. **Close game** appears when the PC grants this device **Host control**; otherwise the page offers **Quit game**.
 
-Starting a game while another one runs closes the running game only after you confirm the prompt, which names both games when the library knows them. A remembered launch or a cancelled prompt never closes it. When the PC asks before it closes a game, Nightjar asks you instead and starts the game once you confirm, on Android and on Windows and Linux.
+Starting a game while another is running closes the running game only after you confirm a prompt that names both games. A cancelled prompt or a remembered launch never closes a game. When the host asks for confirmation before closing a game, Nightjar shows that question to you and starts the new game once you confirm.
 
-When the host lists the game as not installed, **Play** is off and the page says why: "Not installed on Living-room PC". A game the host lists as one it can't start says "Living-room PC can't start this game" instead.
+When the host lists a game as not installed, **Play** is unavailable and the page says so, for example "Not installed on Living-room PC". A game the host cannot start says "Living-room PC can't start this game".
 
-On a TV the page keeps the backdrop Home showed for the card, so opening it doesn't flash. A line of chips sits under the title, in this order: the store with its glyph (Steam, Epic, GOG, Microsoft; gone for an app no store owns), the state with its dot (Running or Suspended on the PC), Installed or Not installed when the host says so, and HDR when the game has it. A screen reader reads the line as one stop.
+On a TV the page keeps the backdrop that Home showed for the game. A row of chips above the title shows the state (**Running** or **Suspended**), the store (Steam, Epic, GOG, Microsoft), whether the game is installed, and HDR support. A screen reader reads the row as one item.
 
-## Join co-op
-
-A Rubylight PC can run a game as a [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) split-screen session, with one stream per player. Start a game's "(Co-op)" entry from the library on one device, and the others join it:
-
-- **Android:** **Join co-op** in the PC's options lists the PC's co-op sessions with their status, free slots and your own seat. Pick a free slot to join, or your own seat to return to it, and the stream starts.
-- **Windows and Linux:** the PC's details page lists the same sessions and joins a slot.
-
-The device needs "Can join co-op games" on the PC's web UI. Every refusal shows the PC's reason.
+<p align="center">
+  <img src="assets/shots/tv-game-page.png" width="720" alt="A game's page on a TV: chips for Running on Living-room PC, Steam and Installed, the Resume, Add to favourites and Close game buttons, and the stream settings 1920 x 1080, 120 FPS, 28 Mbps from the main settings (demo library)">
+</p>
 
 ## On a TV
 
-Home and the PCs screen have their own TV layouts, picked by Android's television mode. The **Interface layout** setting puts them on a handheld too (`--es ui tv` in the demo).
+Home and the PC list have dedicated TV layouts, chosen by Android's television mode. **Interface layout** in the settings selects the TV layout on other devices too.
 
-- **Library rows**: Home splits the library into rows: Recently played, one row per store, Other apps (games no store owns) and On your PCs, not added (games the host found in a store but hasn't added). A row shows at most 20 cards. A longer one ends in an **All N games** tile that opens All games under that row's filter.
-- **Cards**: each card has a small store chip. A game that isn't installed is greyed and says Not installed. A game not added says Not added. Pick it and the host adds it when this device may launch games and the host offers that; otherwise the card says **Add it on the PC**. A game not added can't be starred.
-- **All games**: every game of the paired PCs in one poster grid, six across, under a filter chip row: All, Installed, each store the library has, Other apps and Not added. It keeps the focused card when the library refreshes.
-- **PCs**: each PC is a 248 by 152 dp tile, three to a row, centred inside the overscan edge. A PC with a running game shows that game's cover, blurred, under a dark scrim. Other PCs get a tint for their state. Its dot is green when the PC is up, neutral while it is waking, checking or not paired, and an outlined ring when it is offline; a state is always a word with a shape, never colour alone. Focus scales the tile to 1.05 with the amber ring; Reduce motion keeps the ring without the scale. **Add PC** is a pill under the tiles.
-- **Settings**: the sections are a rail on the left with an icon each. An amber bar slides to the current section, and its pane fades in from the side. Right moves into the pane, Left goes back to the rail, and Back from the pane returns to the rail before it leaves Settings. Group headings are in sentence case. Reduce motion turns off the slide and the fade.
+- **Library rows.** Recently played, one row per store, Other apps (games no store owns), and On your PCs, not added (games the host found in a store but has not added). A row shows up to 20 games; a longer row ends in an **All N games** tile that opens All games with that row's filter.
+- **Cards.** Each card shows a store chip. A game that is not installed is dimmed and says so. Selecting a game marked Not added asks the host to add it, when this device may launch games and the host supports it; otherwise the card says **Add it on the PC**.
+- **All games.** Every game of the paired PCs in a poster grid, filtered by All, Installed, each store in the library, Other apps or Not added. Focus stays on the same card when the library refreshes.
+- **PCs.** Large tiles, three to a row, inside the TV's safe area. A PC with a running game shows that game's cover behind its name. Each state has a word and a symbol as well as a color. **Add PC** sits below the tiles.
+- **Settings.** The sections form a rail on the left. Right moves into a section, Left returns to the rail, and Back returns to the rail before leaving Settings.
+
+<p align="center">
+  <img src="assets/shots/tv-home-stores.png" width="800" alt="Home on a TV: the Home, PCs and Settings bar, the focused game's title and PC, and the Epic Games row with store chips and a Not installed card (demo library)">
+</p>
+
+## Join co-op
+
+A host with co-op sessions (Rubylight 3.0) can run a game as a [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) split-screen session with one stream per player. Start the game's "(Co-op)" entry from the library on one device; the other players join from theirs:
+
+- **Android:** **Join co-op** in the PC's options lists the PC's co-op sessions with their status, free slots and your own seat. Select a free slot to join, or your seat to return to it, and the stream starts.
+- **Windows and Linux:** the PC's details page lists the same sessions and joins a slot.
+
+The device needs the **Can join co-op games** permission in the host's web UI. A refused request shows the host's reason.
 
 ## Session and graphics
 
-Press Back while streaming to open the stream menu, then **Session and graphics**:
+Open the stream menu during a stream and choose **Session and graphics**:
 
-- **Session**: Resume, Disconnect, End session, and Close game with Host control (otherwise the classic Quit game).
-- **Connection**: the host, codec, resolution and frame rate, bitrate, and your link (Wi-Fi generation, band and speed, Ethernet or mobile data, with the round trip).
-- **Radeon graphics**: the AMD driver features the host exposes, such as Anti-Lag and Radeon Chill.
+- **Session.** **Resume**, **Disconnect**, **End session**, and **Close game** with Host control (otherwise **Quit game**).
+- **Connection.** The host, codec, resolution, frame rate and bitrate, and your link: Wi-Fi generation, band and speed, Ethernet or mobile data, with the round-trip time.
+- **Radeon graphics.** The AMD driver features the host exposes, such as Anti-Lag and Radeon Chill.
 
-The page reads the host only while it is open, and the Radeon state at most once a second, never on the video, audio or input threads. Back closes it.
+The menu queries the host only while it is open, and the Radeon state at most once a second, never on the video, audio or input paths.
+
+<p align="center">
+  <img src="assets/shots/stream-menu-radeon.png" width="720" alt="Session and graphics during a stream: bitrate, the Wi-Fi link with its round trip, and Radeon Anti-Lag, Radeon Chill and Frame Rate Target Control settings from the PC (demo)">
+</p>
 
 ### Radeon panel
 
-Each setting shows what the host says about it:
+Each setting shows the state the host reports:
 
 | State | What you see |
 | --- | --- |
 | Configurable | A switch, slider or choice you can change |
-| Read only | The value, not editable |
-| Needs setup in AMD Software | The value and what to do once on the PC |
+| Read only | The value, which cannot be changed |
+| Needs setup in AMD Software | The value and the one-time step needed on the PC |
 | Not supported | A note that the GPU or driver does not support it |
-| Temporarily unavailable | The reason, and Nightjar asks again |
+| Temporarily unavailable | The reason; Nightjar asks again |
 
-You can change a setting only when the host marks it configurable, your device has Host control and you own the running session. Turn on Host control for the device in the Rubylight console. After a change, the panel shows what the host reads back. A change made in a stream is undone when the session ends (End session, Close game, grace expiry, unpair or host shutdown), and the panel says so next to the setting. Disconnect keeps the change until you resume or end the session. A setting Nightjar does not know yet is still listed, drawn from its type. If the driver refuses a change, the reason appears next to that setting.
+You can change a setting when the host marks it configurable, the device has **Host control**, and you own the running session. Grant Host control to the device in the host's web UI. After a change, the panel shows the value the host reads back. Changes made during a stream are reverted when the session ends (End session, Close game, an expired grace period, unpairing or host shutdown), and the panel notes this next to the setting; **Disconnect** keeps the change until you resume or end the session. Settings this version of Nightjar does not recognize are still listed, drawn from their type. If the driver refuses a change, the reason appears next to the setting.
+
+## Navigation
+
+### The shell bar
+
+**Home**, **PCs** and **Settings** sit in one bar under the top app bar, with the current one highlighted. On a TV the bar and the screens stay inside the safe area.
+
+- The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from either of the other two returns to the first screen; Back there leaves the app.
+- Switching does not stack screens. A game's page belongs to Home and stays underneath when you open PCs or Settings from it; Back from PCs then returns to Home, not to the game page, and **Home** in the bar closes the game page.
+- Settings opened from a menu or with **Ctrl+,** closes on Back.
+- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide.
+
+### PC options on Android
+
+The three dots at the end of a PC card open its options, as do a long press, a right-click, **Menu**, **Shift+F10** and a controller's **X**. In a PC's library, **X** opens the selected game's options. With a D-pad, press Right on a card to reach its three dots, then Center.
+
+The options depend on the PC's state: **Open library** or **Pair**, **Resume** and **Quit** (a game is running), **Pair with one-time PIN** (hosts that offer it), **Wake PC** (offline, with a known MAC address), **Join co-op**, **Shared folders** and **Files** (hosts that offer them; see [sharing](sharing.md)), **PC settings**, **Rename**, **Unpair** (paired and online) or **Pairing help** (not paired), and **Remove PC**.
+
+- **Rename** sets a name on this device only, used in the library, during streams, in shortcuts and in the TV channel. An empty field restores the PC's own name. Names are limited to 40 characters.
+- **Unpair** asks the PC to forget this device and clears the library saved from it; the PC stays in the list as not paired.
+- **Remove PC** deletes the PC, its settings, saved library, covers, hidden games and name from this device. The PC still lists this device until you unpair it.
+- A failed pairing, unpair or wake explains why, and offers **Try again** where a retry can help.
+
+The same **Rename**, **Unpair** and **Remove PC** actions are in the PC's settings page.
+
+### PC options on Windows and Linux
+
+The header lists **Home**, **PCs** and **Settings**; **Home** appears when a PC has a library. Back from PCs or Settings returns to Home, or to PCs when Home is off. **Start** on a controller opens Settings from a library or game page, and Back returns to that page. Settings has the sections **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App** and **Advanced**, with a chip for each at the top.
+
+A PC's options open with **F2** (the controller's West button), **Shift+F10**, a right-click or the three dots on its card: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Ctrl+N** adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
+
+## Accessibility on Android
+
+Three settings under **Settings → App → Accessibility** apply to every screen of the app. They are global, and never scale or recolor the stream itself.
+
+- **Interface size.** 85, 100, 115, 130 or 150 percent. The app's screens scale while touch targets stay at least 48 dp; the system font size applies on top.
+- **High contrast.** Black surfaces, outlines on cards, and a thick amber focus ring on every control. Body and secondary text reach a contrast ratio of at least 7:1, focus rings at least 3:1.
+- **Reduce motion.** **Follow system**, **Reduce** or **Full**. Follow system reduces motion when Android's animation scale is 0. Reduce replaces the TV focus zoom with a still ring and removes sliding transitions.
+
+Every focusable element shows a visible ring when focused with a D-pad or controller, and the app supports TalkBack.
+
+## Accessibility on Windows and Linux
+
+Four settings under **Settings → App** change how Nightjar looks. They are global.
+
+- **Language.** **System default**, **English** or **Deutsch**. System default uses the operating system's first language that Nightjar supports, otherwise English. Brand names, error text from the host or network, the upscaler names, the performance overlay and log lines stay in English.
+- **UI zoom.** 85, 100, 115, 130 or 150 percent for the launcher, the stream menu and the overlay. **Ctrl+=** and **Ctrl+-** change it; **Ctrl+0** resets it to 100. At 150 percent a 1280×720 window still shows every control.
+- **High contrast.** Black surfaces, white text, outlines on every control and a thicker focus ring. Body text reaches at least 7:1 and the focus ring at least 3:1; the normal theme meets WCAG AA (4.5:1) for text.
+- **Reduce motion.** **Follow system**, **Reduce** or **Full motion**. Follow system reads Windows' **Show animations in Windows** setting; Linux has no equivalent, so there it leaves motion on.
+
+Screen readers read the interface through UI Automation on Windows and AT-SPI on Linux.

@@ -2,9 +2,9 @@
 
 [Documentation](index.md) · [All defaults](settings.md) · [Host feature support](PARITY-MATRIX.md)
 
-A [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 PC can share more than the picture with this device: its clipboard, a file transfer folder, the folders it shares and USB devices plugged in here. Each needs the PC to offer it and to allow it for this device, on the web UI's **Devices** page. When something is missing, Nightjar says what to change on the PC instead of hiding the reason. Other hosts keep the classic clipboard transfer in the stream menu where they offer it.
+A PC whose host supports sharing ([Rubylight](https://github.com/RamazanKara/Rubylight) 3.0) can exchange more than the stream with this device: its clipboard, a file-transfer folder, the folders it shares, and USB devices plugged into this device. Each feature needs the host to offer it and to allow it for this device on the **Devices** page of its web UI. When a permission or setting is missing, Nightjar names what to change on the PC. Hosts without these features keep the classic clipboard transfer in the stream menu where they offer it.
 
-Everything on this page works on Android and on Nightjar for Windows and Linux. Where the two differ, the difference is named.
+Everything on this page applies to Android and to Nightjar for Windows and Linux; differences are noted.
 
 ## Clipboard
 
@@ -32,14 +32,19 @@ Images travel as PNG and use the same clipboard permissions as text. An image to
 
 ## Files
 
-**Files** sends files to the PC and downloads the files in its file transfer folder.
+**Files** sends files to the PC and downloads files from its file-transfer folder.
 
 - **Android:** open it from a PC's options (long-press the PC, or its three dots), from Home, or from the stream menu's **Host** section. From the stream menu it opens its own screen; the game keeps running on the PC. You can also share files to **Send to PC** from another app.
 - **Windows and Linux:** **Files** is on the PC's options. Downloads land in your Downloads folder.
 
-The page shows the PC's folder with its free space, and a list of transfers. Each transfer shows its progress and can be cancelled or tried again; cancelling ends it at once, also when the PC stopped answering. **Clear finished** tidies the list. A refusal says what to change: **Upload files** or **Download files** for this device on the web UI's Devices page, or a file larger than the PC allows.
+The page shows the PC's folder with its free space and a list of transfers. Each transfer shows its progress and can be cancelled or retried; cancelling ends it at once, even when the PC has stopped answering. **Clear finished** removes completed transfers from the list.
 
-A download never overwrites another file: a name that is taken, or another download's unfinished `.part` file, stops the download with an error. A download that brings more than the size the PC listed stops too, and an unfinished file that can't be deleted is named. On Android, switching dark mode, the font size or the language while files move keeps the transfers going.
+<p align="center">
+  <img src="assets/shots/files-sent.png" width="450" alt="Files on PC on a handheld: two text files shared from Android's Files app, each marked Sent, with Clear finished and the PC's receive folder with its free space below">
+</p>
+ A refusal says what to change: **Upload files** or **Download files** for this device on the web UI's Devices page, or a file larger than the PC allows.
+
+A download never overwrites a file: an existing name, or another download's unfinished `.part` file, stops it with an error. A download that exceeds the size the PC listed also stops, and an unfinished file that cannot be deleted is named. On Android, transfers continue through changes of theme, font size or language.
 
 ## Shared folders
 
@@ -48,7 +53,7 @@ A PC can share folders with a device. **Shared folders** opens them:
 - **Android:** in a PC's options. Browse the folders, download files to Downloads and upload files where the PC grants writing.
 - **Windows and Linux:** on the PC's details page. Downloads go into a folder you choose, and with a write grant you can upload a file. Each transfer shows its progress and each refusal its reason.
 
-A PC that shares no folders yet, or a host too old for them, says so and points to the web UI. A folder Windows won't let the PC read says so and points to that folder's permissions on the PC.
+A PC that shares no folders, or a host without shared folders, says so and points to the web UI. A folder Windows does not let the host read says so and points to that folder's permissions on the PC.
 
 ## USB devices
 

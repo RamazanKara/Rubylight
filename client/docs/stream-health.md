@@ -2,13 +2,15 @@
 
 [Documentation](index.md)
 
-Open the stream menu, then **Display → Overlay and diagnostics → Why did my stream stutter?** The report uses up to 30 seconds of measurements already collected by the client, plus the start times of network stalls from the last 20 minutes and the current Wi-Fi reading. It does not run the mouse-moving latency test, record video, contact an analytics service, or write a history to disk. Copying the report puts only its displayed evidence and advice on your clipboard.
+**Why did my stream stutter?** explains stutter from measurements Nightjar already collects. Open the stream menu, then **Display → Overlay and diagnostics → Why did my stream stutter?**
 
-Repeated observations can identify network loss/variation, slow decode output, host processing, display waits, and Android thermal pressure. Several findings may appear together. Host processing includes more than encoding. Display waits are compared with observed frame release rather than the requested frame rate, so a static or variable-refresh desktop does not automatically count as dropped frames. Missing counters stay unavailable; a lack of findings does not prove every stage is healthy. These measurements cannot be added together to claim input-to-screen latency.
+The report uses up to 30 seconds of stream measurements, the start times of network stalls from the last 20 minutes, and the current Wi-Fi reading. It does not move the mouse, record video, contact any service, or write a history to disk. Copying the report puts only the displayed evidence and advice on the clipboard.
 
-Collect a few seconds of gameplay, then open the report just after a stutter. Sampling continues while navigating menus and pauses during backgrounding and host actions. Individual stage counters must be no more than two seconds old before entering the history. Old history expires, and advice is withheld when recent video is unavailable.
+The report identifies network loss and variation, slow decoding, host processing, display waits and Android thermal pressure from repeated observations; several findings can appear together. Host processing covers more than encoding. Display waits are compared with the frames actually released rather than the requested frame rate, so a still or variable-refresh desktop does not count as dropped frames. Missing counters stay unavailable, and an empty report does not prove that every stage is healthy. The stage timings cannot be added up to an input-to-screen latency.
 
-For repeated network evidence, a host that supports runtime bitrate changes (Rubylight) can offer **Try a lower bitrate**. It reduces the current encoder bitrate by 20%, with a 500 Kbps floor, for this session. Compare similar gameplay for another 30 seconds, then return and choose **Undo bitrate trial**. Device controls bitrate, automatic quality and manual changes take ownership of the settings; the doctor does not compete with them. Other hosts still get observations and manual advice when their counters are available; unsupported runtime changes are not offered.
+Play for a few seconds, then open the report right after a stutter. Sampling continues while menus are open and pauses while the app is in the background or a host action runs. Stage counters older than two seconds are not used, old history expires, and advice is withheld when there is no recent video.
+
+When the network findings repeat and the host supports bitrate changes during a stream (Rubylight 3.0), the report offers **Try a lower bitrate**. It lowers the encoder bitrate by 20%, to no less than 500 kbps, for this session. Play similar content for another 30 seconds, then return and choose **Undo bitrate trial** if nothing improved. The trial is not offered while **Device controls bitrate**, automatic quality or a manual change controls the bitrate. With other hosts the report gives the same findings and advice without the trial.
 
 ## Wi-Fi facts
 
@@ -23,7 +25,7 @@ The report ends with a **Connection** section, and the **Debug** performance ove
 
 Ethernet, mobile data and VPN connections say so instead. Behind a VPN such as Tailscale, Nightjar shows the Wi-Fi facts when the device has a Wi-Fi association. Anything Android does not report reads *not available* rather than disappearing.
 
-Nightjar reads these values every five seconds on a separate low-priority thread while a stream is connected. The overlay and report only read the last reading, so nothing is added to the video, audio or input paths. It needs only the network and Wi-Fi state permissions Nightjar already has. **The network name (SSID) and access point address are not shown**: Android treats them as location data and releases them only with location permission, which Nightjar does not request for this.
+Nightjar reads these values every five seconds on a low-priority thread while a stream is connected; the overlay and the report use the latest reading, so the video, audio and input paths are unaffected. Only the network and Wi-Fi state permissions are needed. The network name (SSID) and the access point's address are not shown: Android treats them as location data, and Nightjar does not request location permission for this.
 
 ## Stalls every few minutes
 
@@ -41,7 +43,5 @@ Nightjar already holds Android's low-latency Wi-Fi lock while streaming, which a
 ## Frames in bursts
 
 Some Wi-Fi links hold video back for a few tens of milliseconds and then deliver several frames at once, although the host sent every frame on time. The picture then hitches once per burst. Nightjar compares each frame's arrival with the host's timestamps: a frame that comes at least three quarters of a frame interval (8 ms at the least) later than its timestamp says, after the frame before it, is late. Frames the host itself sent late, such as a still desktop, a game that slows down or a frame that took the host longer to encode than the one before, do not count. A sample with late frames is a vote; a run of up to 10 such samples in a row counts as 2 votes, because a launch or a switch to fullscreen holds frames back for a few seconds once and is not reported. When the votes reach 6 and a third of the samples, the report adds **Bursts**.
-
-Thresholds are conservative troubleshooting hints, not a measured improvement guarantee. Live stream, decoder and device testing is still needed to compare actual latency and picture quality.
 
 [Documentation](index.md) · [Video and latency](video-and-latency.md) · [Troubleshooting](TROUBLESHOOTING.md)

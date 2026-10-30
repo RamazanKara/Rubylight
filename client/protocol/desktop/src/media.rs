@@ -571,7 +571,6 @@ impl Frame {
 
     /// Another reference to the same picture (its surface, for a hardware one), without the
     /// export: what keeps an imported surface from going back to the decoder while it is shown.
-    #[cfg_attr(not(unix), allow(dead_code))]
     pub fn reference(&self) -> Option<Self> {
         // SAFETY: a live frame; the clone is a new reference to its buffers.
         let mut frame = Self::new(NonNull::new(unsafe { av_frame_clone(self.raw.as_ptr()) })?);
@@ -750,12 +749,6 @@ impl Frame {
             let readable = d3d.BindFlags & windows::Win32::Graphics::Direct3D11::D3D11_BIND_SHADER_RESOURCE.0 as u32 != 0;
             Some(D3d11Surface { texture: frame.data[0].cast(), slice: frame.data[1] as usize as u32, readable })
         }
-    }
-
-    /// Another reference to the same picture, which keeps its decoder surface out of reuse.
-    pub fn reference(&self) -> Option<Frame> {
-        // SAFETY: Cloning a live AVFrame references its buffers.
-        NonNull::new(unsafe { av_frame_clone(self.raw.as_ptr()) }).map(|raw| Frame { raw, wavelet: self.wavelet })
     }
 
     /// Runs `f` under the D3D11VA device's lock, which FFmpeg holds while it decodes.

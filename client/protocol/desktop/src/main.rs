@@ -1468,6 +1468,7 @@ impl App {
             microphone_muted: false,
             recovery: None,
             confirm_replace: false,
+            display_luminance: sdl::launch_luminance(self.renderer),
         };
         self.cancelled = false;
         self.connecting = Some(Connecting::start(plan, self.waker.clone()));

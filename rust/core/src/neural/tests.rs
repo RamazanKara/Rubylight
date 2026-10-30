@@ -145,9 +145,10 @@ fn a_release_offers_only_the_package() {
     ]);
     let found = releases(&list);
     let tags: Vec<_> = found.iter().map(|r| r.tag.as_str()).collect();
-    assert_eq!(tags, ["Alpha0.3.5.7", "Alpha0.3.5.8"]);
+    // A pre-release is taken; a draft is not.
+    assert_eq!(tags, ["Alpha0.8", "Alpha0.3.5.7", "Alpha0.3.5.8"]);
     assert_eq!(
-        found[1],
+        found[2],
         Release {
             tag: "Alpha0.3.5.8".into(),
             package: Download {
@@ -217,6 +218,15 @@ fn only_the_pinned_release_with_its_pinned_digests_is_taken() {
         ..pin
     };
     assert_eq!(pinned(&list[1], GITHUB, &alone).unwrap().runtime, None);
+    // The pinned tag marked a pre-release is still taken by its digests;
+    // a draft is not.
+    let mut pre = list[1].clone();
+    pre["prerelease"] = json!(true);
+    assert_eq!(super::release(&pre, GITHUB).as_ref(), Some(&found));
+    assert_eq!(pinned(&pre, GITHUB, &pin).unwrap(), found);
+    let mut draft = list[1].clone();
+    draft["draft"] = json!(true);
+    assert!(pinned(&draft, GITHUB, &pin).is_err());
     // What Rubylight ships: R2's package and runtime component.
     assert_eq!(PINNED.tag, "Alpha0.3.5.8R2");
     for file in [Some(PINNED.package), PINNED.runtime] {

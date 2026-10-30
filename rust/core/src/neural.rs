@@ -203,12 +203,13 @@ pub fn pinned(listed: &Value, origin: &str, pin: &Pin) -> Result<Release, String
     Ok(Release { runtime, ..release })
 }
 
-/// A release as GitHub lists it, when it offers the package. A draft, a
-/// pre-release and a release whose package has no GitHub digest, an
-/// unexpected address or size is not; a runtime component or checksum list
-/// that has one of those faults is left out.
+/// A release as GitHub lists it, when it offers the package. A draft and a
+/// release whose package has no GitHub digest, an unexpected address or
+/// size is not; a runtime component or checksum list that has one of those
+/// faults is left out. A pre-release is: the SHA-256 pin decides which
+/// files are taken, not how the author marks the release.
 pub fn release(release: &Value, origin: &str) -> Option<Release> {
-    if release["draft"] == true || release["prerelease"] == true {
+    if release["draft"] == true {
         return None;
     }
     let tag = release["tag_name"].as_str()?;

@@ -43,6 +43,8 @@ mod theme;
 mod timing_csv;
 mod ui;
 mod usb;
+#[cfg(target_os = "linux")]
+mod usb_linux;
 // Windows reads its drivers here; the parsing is tested everywhere.
 #[cfg(any(windows, test))]
 mod usb_winusb;

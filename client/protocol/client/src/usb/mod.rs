@@ -4,7 +4,8 @@
 //! control stream (0x553A, [`rubylight_protocol::usb`]), opens the native API's USB tunnel
 //! with the token the host answers, and [`serve`]s the device over it as a USB/IP server: the
 //! host relays the tunnel to its USB/IP driver. Platforms implement [`UsbDevice`], or the
-//! simpler [`BlockingDevice`] behind [`Blocking`], for their USB stack (libusb on the desktop);
+//! simpler [`BlockingDevice`] behind [`Blocking`], for their USB stack (libusb on the desktop,
+//! or a relay to Linux's own USB/IP server through [`UsbDevice::relay`]);
 //! [`usbfs::UsbfsDevice`] runs one on Linux's usbfs, the descriptor Android's `UsbManager`
 //! opens; [`fake::FakeDevice`] stands in for one in tests.
 

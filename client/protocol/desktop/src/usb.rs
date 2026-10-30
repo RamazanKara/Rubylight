@@ -1,7 +1,9 @@
 //! USB forwarding (Experimental): the devices plugged into this PC, which the user attaches to
 //! the host from the stream controls, served to it through libusb. On Windows libusb opens
 //! only devices that have the WinUSB driver; [`usb_winusb`](crate::usb_winusb) names the
-//! driver of every other one, and the picker says so instead of offering it.
+//! driver of every other one, and the picker says so instead of offering it. On Linux the
+//! devices libusb can't serve (webcams, audio) go through the kernel's own USB/IP server
+//! instead ([`usb_linux`](crate::usb_linux)).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,15 +31,22 @@ const CLASS_HUB: u8 = 9;
 pub enum Blocked {
     /// Windows has another driver on it (the driver services, as Windows names them).
     NoWinUsb(String),
-    /// It has isochronous endpoints (audio, video), which this client doesn't serve.
+    /// It has isochronous endpoints (audio, video), which this client doesn't serve (Linux
+    /// serves them through usbip-host).
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     Isochronous,
+    /// It has isochronous endpoints, and this computer lacks what Linux's USB/IP server needs.
+    #[cfg(target_os = "linux")]
+    Kernel(crate::usb_linux::Missing),
 }
 
 impl Blocked {
     pub fn message(&self) -> String {
         match self {
             Self::NoWinUsb(driver) => trf("No WinUSB driver ({}). Install WinUSB for this device, for example with Zadig, to forward it. Windows can't use it here while WinUSB has it.", &[driver]),
-            Self::Isochronous => tr("It has isochronous endpoints (audio or video), which Nightjar for Windows and Linux doesn't forward.").to_owned(),
+            Self::Isochronous => tr("It has isochronous endpoints (audio or video), which Nightjar doesn't forward on this computer.").to_owned(),
+            #[cfg(target_os = "linux")]
+            Self::Kernel(missing) => missing.message(),
         }
     }
 }
@@ -50,6 +59,8 @@ pub struct Local {
     pub pid: u16,
     pub name: String,
     pub blocked: Option<Blocked>,
+    /// Linux's usbip-host serves it, not libusb: it has isochronous endpoints.
+    pub kernel: bool,
 }
 
 /// Linux's name for the device at `ports` on `bus`: `1-2.4`.
@@ -78,6 +89,8 @@ pub fn list() -> Result<Vec<Local>, String> {
     let devices = context.devices().map_err(|e| trf("USB devices could not be listed: {}", &[&e]))?;
     #[cfg(windows)]
     let nodes = crate::usb_winusb::nodes()?;
+    #[cfg(target_os = "linux")]
+    let missing = crate::usb_linux::System::real().missing();
     let mut out = Vec::new();
     for device in devices.iter() {
         let Ok(descriptor) = device.device_descriptor() else { continue };
@@ -94,11 +107,17 @@ pub fn list() -> Result<Vec<Local>, String> {
         let (name, mut blocked) = (sysfs_name(&busid), None);
         #[cfg(not(any(windows, target_os = "linux")))]
         let (name, mut blocked) = (None::<String>, None);
-        if blocked.is_none() && device.active_config_descriptor().is_ok_and(|c| has_isochronous(&c)) {
-            blocked = Some(Blocked::Isochronous);
-        }
+        let isochronous = blocked.is_none() && device.active_config_descriptor().is_ok_and(|c| has_isochronous(&c));
+        #[cfg(target_os = "linux")]
+        let kernel = isochronous && missing.is_none();
+        #[cfg(target_os = "linux")]
+        if let (true, Some(missing)) = (isochronous, &missing) { blocked = Some(Blocked::Kernel(missing.clone())); }
+        #[cfg(not(target_os = "linux"))]
+        let kernel = false;
+        #[cfg(not(target_os = "linux"))]
+        if isochronous { blocked = Some(Blocked::Isochronous); }
         let name = name.unwrap_or_else(|| format!("USB device {vid:04x}:{pid:04x}"));
-        out.push(Local { busid, vid, pid, name, blocked });
+        out.push(Local { busid, vid, pid, name, blocked, kernel });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.busid.cmp(&b.busid)));
     Ok(out)
@@ -107,6 +126,10 @@ pub fn list() -> Result<Vec<Local>, String> {
 /// Opens `local` and claims every interface, for [`nightjar_core::usb::Forwarder::attach`].
 pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
     if let Some(blocked) = &local.blocked { return Err(blocked.message()); }
+    #[cfg(target_os = "linux")]
+    if local.kernel {
+        return crate::usb_linux::System::real().open(&local.busid, local.vid, local.pid).map(|device| device as Arc<dyn UsbDevice>);
+    }
     let context = rusb::Context::new().map_err(|e| trf("USB devices could not be listed: {}", &[&e]))?;
     let devices = context.devices().map_err(|e| trf("USB devices could not be listed: {}", &[&e]))?;
     let device = devices.iter()
@@ -513,16 +536,34 @@ impl BlockingDevice for Libusb {
 /// The stream controls' USB section: the devices plugged in here, and what the PC made of
 /// each one the user attached.
 pub struct Panel {
-    forwarder: Forwarder,
+    forwarder: Arc<Forwarder>,
     /// Listed when the section is first drawn and on Refresh.
     local: Option<Vec<Local>>,
     /// The last thing that failed, until the next action.
     pub error: Option<String>,
+    /// Devices being opened on their own thread (Linux's usbip-host asks for the password),
+    /// and what failed there, until the next draw shows it.
+    opening: Arc<Mutex<Opening>>,
+}
+
+#[derive(Default)]
+struct Opening {
+    busids: Vec<String>,
+    failed: Option<String>,
 }
 
 impl Panel {
     pub fn new(forwarder: Forwarder) -> Self {
-        Self { forwarder, local: None, error: None }
+        Self { forwarder: Arc::new(forwarder), local: None, error: None, opening: Arc::default() }
+    }
+
+    fn opening(&self) -> MutexGuard<'_, Opening> {
+        self.opening.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether `local` is being opened.
+    pub fn is_opening(&self, local: &Local) -> bool {
+        self.opening().busids.contains(&local.busid)
     }
 
     /// The devices here, listed now if they haven't been.
@@ -556,16 +597,25 @@ impl Panel {
     }
 
     pub fn attach(&mut self, local: &Local) {
-        let attached = open(local).and_then(|device| self.forwarder.attach(device, &local.name).map_err(|e| attach_error(&e)));
-        match attached {
-            Ok(request_id) => {
-                eprintln!("nightjar: USB {}: asked the PC to attach {} ({:04x}:{:04x}), request {request_id}", local.busid, local.name, local.vid, local.pid);
-                self.error = None;
-            }
-            Err(e) => {
-                eprintln!("nightjar: USB {}: attaching {} failed: {e}", local.busid, local.name);
-                self.error = Some(e);
-            }
+        self.error = None;
+        if !local.kernel {
+            if let Err(e) = attach_now(&self.forwarder, local) { self.error = Some(e); }
+            return;
+        }
+        // Binding waits for the password: off the drawing thread.
+        if self.is_opening(local) { return; }
+        self.opening().busids.push(local.busid.clone());
+        let busid = local.busid.clone();
+        let (forwarder, opening, local) = (self.forwarder.clone(), self.opening.clone(), local.clone());
+        let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || {
+            let attached = attach_now(&forwarder, &local);
+            let mut opening = opening.lock().unwrap_or_else(PoisonError::into_inner);
+            opening.busids.retain(|b| *b != local.busid);
+            if let Err(e) = attached { opening.failed = Some(e); }
+        });
+        if let Err(e) = spawned {
+            self.opening().busids.retain(|b| *b != busid);
+            self.error = Some(trf("The device could not be opened: {}", &[&e]));
         }
     }
 
@@ -623,6 +673,8 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel) {
             panel.refresh();
         }
     });
+    let failed = panel.opening().failed.take();
+    if failed.is_some() { panel.error = failed; }
     let local = panel.local().to_vec();
     if local.is_empty() { ui.weak(tr("No USB devices are plugged in here.")); }
     let mut attach = None;
@@ -631,6 +683,10 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel) {
         ui.horizontal(|ui| {
             let active = panel.active(device);
             ui.label(format!("{} ({:04x}:{:04x}, {})", device.name, device.vid, device.pid, device.busid));
+            if panel.is_opening(device) {
+                ui.weak(tr("Waiting for your password"));
+                return;
+            }
             match (&active, &device.blocked) {
                 (Some(attachment), _) => {
                     ui.weak(phase_label(&attachment.phase));
@@ -652,6 +708,23 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel) {
     if let Some(error) = &panel.error { ui.colored_label(crate::theme::ERROR, error); }
     if let Some(device) = attach { panel.attach(&device); }
     if let Some(request_id) = detach { panel.detach(request_id); }
+}
+
+impl Drop for Panel {
+    /// The stream is over: a device still being opened finds the forwarder ended.
+    fn drop(&mut self) {
+        self.forwarder.end();
+    }
+}
+
+/// Opens `local` and asks the PC to attach it; what failed, for the user.
+fn attach_now(forwarder: &Forwarder, local: &Local) -> Result<u32, String> {
+    let attached = open(local).and_then(|device| forwarder.attach(device, &local.name).map_err(|e| attach_error(&e)));
+    match &attached {
+        Ok(request_id) => eprintln!("nightjar: USB {}: asked the PC to attach {} ({:04x}:{:04x}), request {request_id}", local.busid, local.name, local.vid, local.pid),
+        Err(e) => eprintln!("nightjar: USB {}: attaching {} failed: {e}", local.busid, local.name),
+    }
+    attached
 }
 
 fn attach_error(e: &AttachError) -> String {

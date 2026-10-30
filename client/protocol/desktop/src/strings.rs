@@ -220,6 +220,7 @@ pub(crate) mod tests {
         ("radeon.rs", include_str!("radeon.rs")),
         ("gamepad.rs", include_str!("gamepad.rs")),
         ("usb.rs", include_str!("usb.rs")),
+        ("usb_linux.rs", include_str!("usb_linux.rs")),
         ("stream/doctor.rs", include_str!("stream/doctor.rs")),
         ("update_check.rs", include_str!("update_check.rs")),
     ];

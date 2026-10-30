@@ -2582,7 +2582,7 @@ impl Launcher {
             });
             ui.add_enabled_ui(s.microphone, |ui| {
                 setting_row(ui, s, &mut rows, &["mic_echo_cancel"], "Echo cancellation",
-                    "Keeps the stream's sound from the speakers out of the microphone. On Windows, Automatic turns it off when the sound plays through headphones or a headset.",
+                    "Keeps the stream's sound from the speakers out of the microphone. On Windows, Automatic turns it off when the sound plays through headphones or a headset. On Linux it needs PipeWire's or PulseAudio's echo-cancel module.",
                     |ui, s| {
                         egui::ComboBox::from_id_salt("mic-echo-cancel").selected_text(tr(s.mic_echo_cancel.label())).show_ui(ui, |ui| {
                             for mode in crate::config::MicEcho::ALL {

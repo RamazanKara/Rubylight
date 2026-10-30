@@ -68,6 +68,8 @@ pub enum Notice {
     /// ends with this message (nothing falls back).
     DecoderFailed(String),
     MicrophoneFailed(String),
+    /// The microphone runs, without the echo cancellation its setting asked for; the text says why.
+    EchoCancelOff(String),
     /// Audio passthrough was asked for, but the PC sends Opus; the stream plays on with a message.
     PassthroughOpus,
     Clipboard(Result<Option<String>, String>),
@@ -161,6 +163,8 @@ pub struct Shared {
     pub queue_limit: usize,
     /// Client roaming's network watcher while a session runs; dropping it stops it.
     pub roam_watch: Mutex<Option<crate::network::RoamWatch>>,
+    /// The toast that the microphone runs without the echo cancellation asked for was shown.
+    pub echo_cancel_noted: std::sync::atomic::AtomicBool,
     waker: Waker,
 }
 
@@ -191,6 +195,7 @@ impl Shared {
             counters: Counters::default(),
             queue_limit,
             roam_watch: Mutex::new(None),
+            echo_cancel_noted: std::sync::atomic::AtomicBool::new(false),
             waker,
         })
     }

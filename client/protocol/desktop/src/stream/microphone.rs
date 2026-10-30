@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use sdl3_sys::everything::*;
 
 use super::pipeline::{Notice, Shared};
 use crate::config::MicEcho;
+use crate::strings::tr;
 
 extern "C" {
     fn opus_encoder_create(
@@ -160,48 +162,146 @@ fn recording_devices() -> Vec<(SDL_AudioDeviceID, String)> {
     }
 }
 
+/// Says, once a stream, that the microphone is sent without the echo cancellation that was asked
+/// for: a toast, besides the log line.
+fn without_echo_cancellation(shared: &Shared, text: String) {
+    if !shared.echo_cancel_noted.swap(true, Ordering::Relaxed) {
+        shared.notify(Notice::EchoCancelOff(text));
+    }
+}
+
+/// Windows: what opening the echo canceller came to, on its own thread.
+#[cfg(windows)]
+enum Opened {
+    Voice(super::voice_capture::VoiceCapture),
+    /// The plain microphone instead: echo cancellation not wanted (headphones), or, with the
+    /// reason, it could not run.
+    Plain(Option<String>),
+}
+
+#[cfg(windows)]
+enum Voice {
+    None,
+    /// Asking Windows about the speakers and opening the DSP take a moment; this answers.
+    Opening(Receiver<Opened>),
+    /// Runs until dropped.
+    Running { _capture: super::voice_capture::VoiceCapture },
+}
+
 pub struct Microphone {
     stream: Option<NonNull<SDL_AudioStream>>,
     _capture: Option<Box<Capture>>,
     #[cfg(windows)]
-    _voice: Option<super::voice_capture::VoiceCapture>,
+    voice: Voice,
+    shared: Arc<Shared>,
+    sender: SyncSender<Vec<u8>>,
     pub packets: Receiver<Vec<u8>>,
 }
 
 impl Microphone {
-    /// Opens the microphone with echo cancellation as `echo` asks, where this system has it.
+    fn new(shared: Arc<Shared>) -> Self {
+        let (sender, packets) = sync_channel(4);
+        Self {
+            stream: None,
+            _capture: None,
+            #[cfg(windows)]
+            voice: Voice::None,
+            shared,
+            sender,
+            packets,
+        }
+    }
+
+    /// Opens the microphone with echo cancellation as `echo` asks, where this system has it. On
+    /// Windows the echo canceller opens on a thread of its own, so the caller (the render thread,
+    /// when the microphone is turned on mid-stream) never waits for it: [`Self::poll`] takes its
+    /// answer.
     pub fn open(shared: Arc<Shared>, echo: MicEcho) -> Result<Self, String> {
         #[cfg(windows)]
-        let private_output = echo == MicEcho::Auto && super::voice_capture::private_output();
-        #[cfg(not(windows))]
-        let private_output = false;
-        let wanted = echo.wanted(private_output);
-        let devices = if wanted && !cfg!(windows) { recording_devices() } else { Vec::new() };
+        if echo != MicEcho::Off {
+            return Self::open_voice(shared, echo);
+        }
+        let wanted = !cfg!(windows) && echo.wanted(false);
+        let devices = if wanted { recording_devices() } else { Vec::new() };
         let names: Vec<String> = devices.iter().map(|(_, name)| name.clone()).collect();
-        match plan(wanted, cfg!(windows), &names) {
-            Source::VoiceCapture => {
-                #[cfg(windows)]
-                match Self::open_voice(shared.clone()) {
-                    Ok(microphone) => return Ok(microphone),
-                    Err(error) => eprintln!("nightjar: Windows' echo cancellation cannot run ({error}); the microphone is sent without it"),
-                }
-            }
+        let mut microphone = Self::new(shared);
+        match plan(wanted, false, &names) {
             Source::EchoCanceller(index) => {
                 let (id, name) = &devices[index];
                 eprintln!("nightjar: the microphone records from {name:?}, the echo-cancel source");
-                return Self::open_sdl(shared, *id);
+                microphone.start_sdl(*id)?;
+                return Ok(microphone);
             }
-            Source::Default if wanted => eprintln!(
-                "nightjar: the microphone is sent without echo cancellation: no echo-cancel source (PipeWire's libpipewire-module-echo-cancel or PulseAudio's module-echo-cancel)"
-            ),
-            Source::Default => {}
+            Source::Default if wanted => {
+                eprintln!("nightjar: the microphone is sent without echo cancellation: no echo-cancel source (PipeWire's libpipewire-module-echo-cancel or PulseAudio's module-echo-cancel)");
+                without_echo_cancellation(&microphone.shared, tr("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.").to_owned());
+            }
+            Source::Default | Source::VoiceCapture => {}
         }
-        Self::open_sdl(shared, SDL_AUDIO_DEVICE_DEFAULT_RECORDING)
+        microphone.start_sdl(SDL_AUDIO_DEVICE_DEFAULT_RECORDING)?;
+        Ok(microphone)
+    }
+
+    /// Takes the answer of the echo canceller's opening (Windows): it runs from now on, or the
+    /// plain microphone starts. Call before reading `packets`; an error ends the microphone.
+    pub fn poll(&mut self) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Voice::Opening(answer) = &self.voice {
+            match answer.try_recv() {
+                Ok(Opened::Voice(voice)) => self.voice = Voice::Running { _capture: voice },
+                Ok(Opened::Plain(why)) => {
+                    self.voice = Voice::None;
+                    if let Some(why) = why {
+                        without_echo_cancellation(&self.shared, crate::strings::trf("Echo cancellation could not start: {}. The microphone is sent without it.", &[&why]));
+                    }
+                    self.start_sdl(SDL_AUDIO_DEVICE_DEFAULT_RECORDING)?;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.voice = Voice::None;
+                    return Err("The microphone's echo cancellation ended before it started.".into());
+                }
+            }
+        }
+        Ok(())
     }
 
     #[cfg(windows)]
-    fn open_voice(shared: Arc<Shared>) -> Result<Self, String> {
-        let (sender, packets) = sync_channel(4);
+    fn open_voice(shared: Arc<Shared>, echo: MicEcho) -> Result<Self, String> {
+        let mut microphone = Self::new(shared.clone());
+        let (answer, opening) = std::sync::mpsc::channel();
+        let sender = microphone.sender.clone();
+        let spawned = std::thread::Builder::new().name("nightjar-mic-open".into()).spawn(move || {
+            let wanted = echo.wanted(echo == MicEcho::Auto && super::voice_capture::private_output());
+            let opened = if plan(wanted, true, &[]) == Source::VoiceCapture {
+                match Self::start_voice(shared.clone(), sender) {
+                    Ok(voice) => Opened::Voice(voice),
+                    Err(error) => {
+                        eprintln!("nightjar: Windows' echo cancellation cannot run ({error}); the microphone is sent without it");
+                        Opened::Plain(Some(error))
+                    }
+                }
+            } else {
+                Opened::Plain(None)
+            };
+            // A microphone turned off meanwhile is gone: its capture stops with this answer.
+            if answer.send(opened).is_ok() {
+                shared.wake();
+            }
+        });
+        match spawned {
+            Ok(_) => microphone.voice = Voice::Opening(opening),
+            Err(error) => {
+                eprintln!("nightjar: Windows' echo cancellation cannot start a thread ({error}); the microphone is sent without it");
+                without_echo_cancellation(&microphone.shared, crate::strings::trf("Echo cancellation could not start: {}. The microphone is sent without it.", &[&error]));
+                microphone.start_sdl(SDL_AUDIO_DEVICE_DEFAULT_RECORDING)?;
+            }
+        }
+        Ok(microphone)
+    }
+
+    #[cfg(windows)]
+    fn start_voice(shared: Arc<Shared>, sender: SyncSender<Vec<u8>>) -> Result<super::voice_capture::VoiceCapture, String> {
         let mut encoder = Encoder::new(super::voice_capture::RATE as i32)?;
         let frames_shared = shared.clone();
         let frames = move |samples: &[f32]| match encoder.encode(samples) {
@@ -218,15 +318,15 @@ impl Microphone {
         };
         let voice = super::voice_capture::VoiceCapture::start(frames, move |error| shared.notify(Notice::MicrophoneFailed(error)))?;
         eprintln!("nightjar: the microphone runs through Windows' echo cancellation");
-        Ok(Self { stream: None, _capture: None, _voice: Some(voice), packets })
+        Ok(voice)
     }
 
-    fn open_sdl(shared: Arc<Shared>, device: SDL_AudioDeviceID) -> Result<Self, String> {
-        let (sender, packets) = sync_channel(4);
+    /// Records `device` through SDL into `packets`.
+    fn start_sdl(&mut self, device: SDL_AudioDeviceID) -> Result<(), String> {
         let mut capture = Box::new(Capture {
             encoder: Encoder::new(48000)?,
-            sender,
-            shared,
+            sender: self.sender.clone(),
+            shared: self.shared.clone(),
             failed: false,
         });
         let spec = SDL_AudioSpec {
@@ -244,20 +344,15 @@ impl Microphone {
         };
         let stream = NonNull::new(stream)
             .ok_or_else(|| format!("Could not open the microphone: {}", crate::sdl::error()))?;
-        let microphone = Self {
-            stream: Some(stream),
-            _capture: Some(capture),
-            #[cfg(windows)]
-            _voice: None,
-            packets,
-        };
+        // Kept before resuming: Drop destroys the stream whatever happens next.
+        (self.stream, self._capture) = (Some(stream), Some(capture));
         if !unsafe { SDL_ResumeAudioStreamDevice(stream.as_ptr()) } {
             return Err(format!(
                 "Could not start the microphone: {}",
                 crate::sdl::error()
             ));
         }
-        Ok(microphone)
+        Ok(())
     }
 }
 
@@ -306,6 +401,18 @@ mod tests {
         assert_eq!(plan(true, false, &pulse), Source::EchoCanceller(0));
         assert_eq!(plan(true, false, &plain), Source::Default, "no echo-cancel source: none, said in the log");
         assert_eq!(plan(false, false, &pipewire), Source::Default, "off records the default device as it is");
+    }
+
+    #[test]
+    fn a_microphone_without_the_asked_echo_cancellation_says_so_once_a_stream() {
+        let shared = Shared::new(Arc::new(|| {}), 2);
+        without_echo_cancellation(&shared, "first".into());
+        without_echo_cancellation(&shared, "again, the microphone turned on a second time".into());
+        let notices = std::mem::take(&mut *shared.notices.lock().unwrap());
+        assert!(matches!(&notices[..], [Notice::EchoCancelOff(text)] if text == "first"), "one toast a stream");
+        let next = Shared::new(Arc::new(|| {}), 2);
+        without_echo_cancellation(&next, "next stream".into());
+        assert_eq!(next.notices.lock().unwrap().len(), 1, "the next stream says it again");
     }
 
     #[test]

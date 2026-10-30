@@ -133,8 +133,9 @@ unsafe fn default_index(enumerator: &IMMDeviceEnumerator, flow: EDataFlow) -> wi
     Err(windows::core::Error::new(E_INVALIDARG, "the default device is not among the active ones"))
 }
 
-/// Opts this process's session on `device` out of Windows' ducking, which would turn the stream's
-/// sound down by 80% while a communications capture runs (the Sound panel's default).
+/// Opts this process's session on `device`, the speakers the stream plays on, out of Windows'
+/// ducking, which would turn the stream's sound down by 80% while a communications capture runs
+/// (the Sound panel's default). Ducking applies to playback sessions, so it is the render device's.
 unsafe fn keep_other_sounds(device: &IMMDevice) -> windows::core::Result<()> {
     let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
     manager.GetAudioSessionControl(None, 0)?.cast::<IAudioSessionControl2>()?.SetDuckingPreference(true)
@@ -143,9 +144,9 @@ unsafe fn keep_other_sounds(device: &IMMDevice) -> windows::core::Result<()> {
 /// Sets up the DSP for the default microphone and speakers, 16 kHz mono 16-bit output.
 unsafe fn open_dsp() -> windows::core::Result<IMediaObject> {
     let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-    let (capture, microphone) = default_index(&enumerator, eCapture)?;
-    let (render, _) = default_index(&enumerator, eRender)?;
-    if let Err(error) = keep_other_sounds(&microphone) {
+    let (capture, _) = default_index(&enumerator, eCapture)?;
+    let (render, speakers) = default_index(&enumerator, eRender)?;
+    if let Err(error) = keep_other_sounds(&speakers) {
         eprintln!("nightjar: Windows may turn the stream's sound down while the microphone runs ({error})");
     }
     let dsp: IMediaObject = CoCreateInstance(&CLSID_CWMAUDIOAEC, None, CLSCTX_INPROC_SERVER)?;

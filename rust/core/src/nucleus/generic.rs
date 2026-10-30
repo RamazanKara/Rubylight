@@ -70,16 +70,61 @@ pub struct Setup {
     /// What the game starts with after its .exe: the app's arguments, or
     /// its Steam launch option's (Portal is `hl2.exe -game portal`).
     pub arguments: String,
-    /// Whether Nucleus Co-op injects ProtoInput's input hooks into the game
-    /// once its window shows. Off for a game that refused them: Nucleus
-    /// ends a game it can't inject into ([`INJECT_FAILED`], #59).
-    pub hooks: bool,
+    /// How Nucleus Co-op injects ProtoInput's input hooks into the game.
+    pub inject: Inject,
 }
 
 /// What Nucleus Co-op 2.4.2 says in a message box when ProtoInput's hooks
-/// can't be injected into a running game (`ProtoInputLauncher.InjectRuntime`),
-/// just before it ends the game.
-pub const INJECT_FAILED: &str = "ProtoInput failed to runtime inject";
+/// can't be injected into a running game or one it starts
+/// (`ProtoInputLauncher.InjectRuntime`, `InjectStartup`), just before it
+/// ends the game.
+pub const INJECT_FAILED: [&str; 2] = [
+    "ProtoInput failed to runtime inject",
+    "ProtoInput failed to startup inject",
+];
+
+/// How Nucleus Co-op injects ProtoInput's input hooks into the game. Nucleus
+/// ends a game it can't inject into ([`INJECT_FAILED`]), so a game that
+/// refuses one way gets the next at its next start (#59), down to none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Inject {
+    /// Into the running game, through EasyHook.
+    #[default]
+    Runtime,
+    /// As Nucleus starts the game, before any of its code runs: in before a
+    /// game that guards itself once it runs (one whose mods load as DLLs
+    /// at its start).
+    Startup,
+    /// Into the running game from one of its own threads, for a game that
+    /// refuses a thread made in it.
+    Stealth,
+    /// None: Nucleus only tells the game it has focus.
+    None,
+}
+
+impl Inject {
+    pub const ALL: [Inject; 4] = [Self::Runtime, Self::Startup, Self::Stealth, Self::None];
+
+    /// The way tried after this one is refused; None after the last.
+    pub fn next(self) -> Option<Inject> {
+        let at = Self::ALL.iter().position(|&way| way == self)?;
+        Self::ALL.get(at + 1).copied()
+    }
+
+    /// Its name in the host's record of each game's way.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Runtime => "runtime",
+            Self::Startup => "startup",
+            Self::Stealth => "stealth",
+            Self::None => "none",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Inject> {
+        Self::ALL.into_iter().find(|way| way.name() == name)
+    }
+}
 
 impl Setup {
     /// The setup for `exe_path`; `steam` is the Steam app it was found from
@@ -100,7 +145,7 @@ impl Setup {
             steam_app: steam.map(|(app, _)| app),
             anti_cheat: None,
             arguments: String::new(),
-            hooks: true,
+            inject: Inject::Runtime,
         }
     }
 
@@ -166,11 +211,27 @@ impl Setup {
             "// The game runs from its own folder and nothing is written there: no links, copies, DLLs or tools that need administrator rights.",
             "Game.Hook.CustomDllEnabled = false;",
         ];
-        let hooks = [
+        let way: &[&str] = match self.inject {
+            Inject::Runtime => &[
+                "Game.ProtoInput.InjectStartup = false;",
+                "Game.ProtoInput.InjectRuntime_EasyHookMethod = true;",
+            ],
+            Inject::Startup => &[
+                "// The game refused ProtoInput's hooks once it ran, so Nucleus Co-op injects them as it starts the game.",
+                "Game.ProtoInput.InjectStartup = true;",
+            ],
+            Inject::Stealth => &[
+                "// The game refused ProtoInput's hooks once it ran and as it started, so Nucleus Co-op injects them from one of its own threads.",
+                "Game.ProtoInput.InjectStartup = false;",
+                "Game.ProtoInput.InjectRuntime_EasyHookStealthMethod = true;",
+            ],
+            Inject::None => &[],
+        };
+        let focus = [
             "// The game keeps running and reading its pad without focus, and never sees the PC's keyboard or moves its cursor.",
             "Game.FakeFocus = true;",
-            "Game.ProtoInput.InjectStartup = false;",
-            "Game.ProtoInput.InjectRuntime_EasyHookMethod = true;",
+        ];
+        let hooks = [
             "Game.ProtoInput.FocusHooks = true;",
             "Game.ProtoInput.XinputHook = true;",
             "Game.ProtoInput.UseOpenXinput = true;",
@@ -182,18 +243,22 @@ impl Setup {
             "Game.ProtoInput.ClipCursorHook = true;",
         ];
         let unhooked = [
-            "// The game refused ProtoInput's input hooks, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
+            "// The game refused ProtoInput's input hooks every way Nucleus Co-op injects them, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
             "Game.FakeFocus = true;",
         ];
-        let options = options.iter().chain(if self.hooks {
-            &hooks[..]
-        } else {
-            &unhooked[..]
-        });
+        let options: Vec<&&str> = match self.inject {
+            Inject::None => options.iter().chain(&unhooked).collect(),
+            _ => options
+                .iter()
+                .chain(&focus)
+                .chain(way)
+                .chain(&hooks)
+                .collect(),
+        };
         let lines: Vec<&str> = head
             .iter()
             .map(String::as_str)
-            .chain(options.copied())
+            .chain(options.into_iter().copied())
             .collect();
         let mut text = lines.join("\r\n");
         text.push_str("\r\n");
@@ -770,39 +835,94 @@ mod tests {
         assert!(!text.contains("StartArguments"));
     }
 
-    /// Nucleus Co-op ends a game ProtoInput can't be injected into (#59):
-    /// one that refused its hooks gets a handler that injects nothing, and
-    /// is otherwise the same.
+    /// Nucleus Co-op ends a game ProtoInput can't be injected into (#59): a
+    /// game that refused one way gets the next, as Nucleus starts it, then
+    /// from one of its own threads, then none, with the same hooks each
+    /// time and a handler otherwise the same.
     #[test]
-    fn a_game_that_refused_the_hooks_gets_a_handler_without_them() {
+    fn a_game_that_refused_the_hooks_gets_the_next_way_down_to_none() {
+        let owner = Some("S-1-5-21-1-2-3-1001");
         let hooked = steam_game();
-        let setup = Setup {
-            hooks: false,
-            ..steam_game()
-        };
-        let text = setup.handler_of(Some("S-1-5-21-1-2-3-1001"));
-        assert!(owns(&text));
-        assert!(!text.contains("Game.ProtoInput"), "{text}");
-        assert!(!text.contains("Inject"), "{text}");
-        // Nucleus' own focus messages are no hook.
-        assert!(
-            text.lines().any(|l| l == "Game.FakeFocus = true;"),
-            "{text}"
+        assert_eq!(hooked.inject, Inject::Runtime);
+        let runtime = hooked.handler_of(owner);
+        // The handlers written before the ladder are left as they are.
+        let proto: Vec<&str> = runtime
+            .lines()
+            .skip_while(|l| *l != "Game.FakeFocus = true;")
+            .take(4)
+            .collect();
+        assert_eq!(
+            proto,
+            [
+                "Game.FakeFocus = true;",
+                "Game.ProtoInput.InjectStartup = false;",
+                "Game.ProtoInput.InjectRuntime_EasyHookMethod = true;",
+                "Game.ProtoInput.FocusHooks = true;",
+            ]
         );
-        let h = handler::parse(&setup.file(), &text).unwrap();
-        let hooked_handler = handler::parse(&hooked.file(), &hooked.handler()).unwrap();
-        assert_eq!(h.guid, hooked_handler.guid);
-        assert_eq!(setup.file(), hooked.file());
-        assert_eq!(h.max_players, 1);
-        assert!(!h.supports_keyboard);
-        assert!(!handler::needs_admin(&h));
-        // Another text: the handler written before is rewritten.
-        assert_ne!(text, hooked.handler_of(Some("S-1-5-21-1-2-3-1001")));
-        assert!(
+        let hook_lines = |text: &str| {
             text.lines()
-                .skip(1)
-                .all(|l| l.starts_with("Game.") || l.starts_with("//"))
-        );
+                .filter(|l| l.starts_with("Game.ProtoInput.") && l.contains("Hook"))
+                .filter(|l| !l.contains("Inject"))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        let mut ways = vec![Inject::Runtime];
+        while let Some(next) = ways.last().unwrap().next() {
+            ways.push(next);
+        }
+        assert_eq!(ways, Inject::ALL);
+        let mut texts = Vec::new();
+        for way in Inject::ALL {
+            assert_eq!(Inject::from_name(way.name()), Some(way));
+            let setup = Setup {
+                inject: way,
+                ..steam_game()
+            };
+            let text = setup.handler_of(owner);
+            assert!(owns(&text));
+            let says = |line: &str| text.lines().any(|l| l == line);
+            // Nucleus' own focus messages are no hook.
+            assert!(says("Game.FakeFocus = true;"), "{text}");
+            match way {
+                Inject::Runtime => assert_eq!(text, runtime),
+                Inject::Startup => {
+                    assert!(says("Game.ProtoInput.InjectStartup = true;"), "{text}");
+                    assert!(!text.contains("InjectRuntime"), "{text}");
+                }
+                Inject::Stealth => {
+                    assert!(says("Game.ProtoInput.InjectStartup = false;"), "{text}");
+                    assert!(
+                        says("Game.ProtoInput.InjectRuntime_EasyHookStealthMethod = true;"),
+                        "{text}"
+                    );
+                    assert!(!text.contains("InjectRuntime_EasyHookMethod"), "{text}");
+                }
+                Inject::None => {
+                    assert!(!text.contains("Game.ProtoInput"), "{text}");
+                    assert!(!text.contains("Inject"), "{text}");
+                }
+            }
+            if way != Inject::None {
+                assert_eq!(hook_lines(&text), hook_lines(&runtime), "{way:?}");
+            }
+            let h = handler::parse(&setup.file(), &text).unwrap();
+            assert_eq!(h.guid, hooked.guid());
+            assert_eq!(setup.file(), hooked.file());
+            assert_eq!(h.max_players, 1);
+            assert!(!h.supports_keyboard);
+            assert!(!handler::needs_admin(&h), "{way:?}: {:?}", h.admin);
+            assert!(
+                text.lines()
+                    .skip(1)
+                    .all(|l| l.starts_with("Game.") || l.starts_with("//"))
+            );
+            texts.push(text);
+        }
+        // Each its own text: the handler written before is rewritten.
+        texts.sort();
+        texts.dedup();
+        assert_eq!(texts.len(), Inject::ALL.len());
     }
 
     #[test]

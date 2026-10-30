@@ -3,10 +3,11 @@
 //! titled "Rubylight" that starts the session's players.
 use super::layers::{LOCK_WAIT, Lock};
 use anyhow::{Context, Result, bail, ensure};
-use butterpollo_core::nucleus::generic::{self, Setup};
+use butterpollo_core::nucleus::generic::{self, Inject, Setup};
 use butterpollo_core::nucleus::handler::{self, Catalog, Handler};
 use butterpollo_core::nucleus::profile::{self, Player};
 use butterpollo_core::nucleus::window::Rect;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The handlers and the games added in the Nucleus Co-op at `folder`, from
@@ -194,14 +195,20 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
     let owner = crate::process::user_sid()
         .context("finding the signed-in user, whose game list the handler is for")?;
     let setup = &Setup {
-        hooks: setup.hooks && !hooks_refused(folder, &setup.exe_path)?,
+        inject: inject_for(folder, &setup.exe_path)?,
         ..setup.clone()
     };
-    if !setup.hooks {
-        tracing::warn!(
+    match setup.inject {
+        Inject::Runtime => {}
+        Inject::None => tracing::warn!(
             exe = setup.exe_path,
-            "Nucleus Co-op: the game refused ProtoInput's input hooks before, so Rubylight's handler injects none: a keyboard, mouse or pad on the PC can reach it too"
-        );
+            "Nucleus Co-op: the game refused ProtoInput's input hooks every way, so Rubylight's handler injects none: a keyboard, mouse or pad on the PC can reach it too"
+        ),
+        way => tracing::info!(
+            exe = setup.exe_path,
+            way = way.name(),
+            "Nucleus Co-op: the game refused ProtoInput's input hooks before, so Rubylight's handler injects them another way"
+        ),
     }
     let text = setup.handler_of(Some(&owner));
     let handler = handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
@@ -225,56 +232,71 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
     Ok(handler)
 }
 
-/// The games whose process refused ProtoInput's input hooks in a session
-/// of the Nucleus Co-op at `folder` (the host's, which only SYSTEM and
-/// Administrators change): `{"Games": [<.exe path in lower case>]}`.
-fn unhooked(folder: &Path) -> PathBuf {
-    folder.join("Rubylight-unhooked.json")
+/// How Rubylight's handler injects ProtoInput's input hooks into the games
+/// that refused a way in a session of the Nucleus Co-op at `folder` (the
+/// host's, which only SYSTEM and Administrators change):
+/// `{"Games": {<.exe path in lower case>: <Inject::name>}}`.
+fn injection(folder: &Path) -> PathBuf {
+    folder.join("Rubylight-injection.json")
 }
 
-fn unhooked_games(folder: &Path) -> Result<Vec<String>> {
-    let path = unhooked(folder);
+fn injections(folder: &Path) -> Result<BTreeMap<String, Inject>> {
+    let path = injection(folder);
     let Some(text) = read_existing(&path)? else {
-        return Ok(Vec::new());
+        return Ok(BTreeMap::new());
     };
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .with_context(|| format!("{} can't be read: delete it", path.display()))?;
-    Ok(json
-        .get("Games")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|game| game.as_str().map(str::to_string))
-        .collect())
+    let unreadable = || format!("{} can't be read: delete it", path.display());
+    let json: serde_json::Value = serde_json::from_str(&text).with_context(unreadable)?;
+    let Some(games) = json.get("Games").and_then(serde_json::Value::as_object) else {
+        bail!(unreadable());
+    };
+    games
+        .iter()
+        .map(|(game, way)| {
+            let way = way.as_str().and_then(Inject::from_name);
+            Ok((game.clone(), way.with_context(unreadable)?))
+        })
+        .collect()
 }
 
 fn game_key(exe: &str) -> String {
     exe.trim().replace('/', "\\").to_lowercase()
 }
 
-/// Whether the game at `exe` refused ProtoInput's input hooks in a session
-/// of the Nucleus Co-op at `folder` ([`refuse_hooks`]): Rubylight's handler
-/// for it injects none ([`Setup::hooks`]).
-pub fn hooks_refused(folder: &Path, exe: &str) -> Result<bool> {
-    Ok(unhooked_games(folder)?.contains(&game_key(exe)))
+/// How Rubylight's handler for the game at `exe` injects ProtoInput's
+/// input hooks ([`Setup::inject`]): the first way, or the next after one it
+/// refused in a session of the Nucleus Co-op at `folder` ([`refuse_inject`]).
+pub fn inject_for(folder: &Path, exe: &str) -> Result<Inject> {
+    Ok(injections(folder)?
+        .get(&game_key(exe))
+        .copied()
+        .unwrap_or_default())
 }
 
-/// Remember that the game at `exe` refused ProtoInput's input hooks in a
-/// session of the Nucleus Co-op at `folder`: Nucleus Co-op ended it (#59).
-pub fn refuse_hooks(folder: &Path, exe: &str) -> Result<()> {
-    let mut games = unhooked_games(folder)?;
+/// Remember that the game at `exe` refused the way ProtoInput's input hooks
+/// were injected in a session of the Nucleus Co-op at `folder`, which
+/// ended it (#59): its next start gets the next way. Returns that way.
+pub fn refuse_inject(folder: &Path, exe: &str) -> Result<Inject> {
+    let mut games = injections(folder)?;
     let key = game_key(exe);
-    if games.contains(&key) {
-        return Ok(());
-    }
-    games.push(key);
+    let refused = games.get(&key).copied().unwrap_or_default();
+    let Some(next) = refused.next() else {
+        return Ok(refused);
+    };
+    games.insert(key, next);
+    let games: serde_json::Map<_, _> = games
+        .into_iter()
+        .map(|(game, way)| (game, way.name().into()))
+        .collect();
     let text = serde_json::to_string_pretty(&serde_json::json!({ "Games": games }))?;
-    replace(&unhooked(folder), &text)?;
+    replace(&injection(folder), &text)?;
     tracing::warn!(
         exe,
-        "Nucleus Co-op: the game refused ProtoInput's input hooks; its next start injects none"
+        refused = refused.name(),
+        next = next.name(),
+        "Nucleus Co-op: the game refused ProtoInput's input hooks; its next start gets the next way"
     );
-    Ok(())
+    Ok(next)
 }
 
 /// Add `setup`'s game to the game list at `path`, replacing the file whole
@@ -991,38 +1013,64 @@ Game.MaxPlayers = 4;
         assert_eq!(games[0].guid, setup.guid());
     }
 
-    /// #59: a game that refused ProtoInput's hooks once gets a handler that
-    /// injects none from then on, also after the host restarts (the file
-    /// in the host's Nucleus folder keeps it); other games keep theirs.
+    /// #59: a game that refused the way ProtoInput's hooks were injected
+    /// gets a handler with the next way at its next start, down to none,
+    /// also after the host restarts (the file in the host's Nucleus folder
+    /// keeps it); other games keep the first.
     #[test]
-    fn a_game_that_refused_the_hooks_gets_a_handler_without_them() {
+    fn a_game_that_refused_the_hooks_gets_the_next_way_down_to_none() {
         let nucleus = tempfile::tempdir().unwrap();
         let setup = Setup::new(r"D:\Games\Black Flag\ACBlackFlag.exe", "Black Flag", None);
         let other = Setup::new(r"D:\Games\Other\Game.exe", "Other", None);
         let file = nucleus.path().join("handlers").join(setup.file());
-        write_own(nucleus.path(), &setup).unwrap();
-        assert!(
-            std::fs::read_to_string(&file)
-                .unwrap()
-                .contains("Game.ProtoInput")
+        let kept = nucleus.path().join("Rubylight-injection.json");
+        let written = |way: Inject| {
+            write_own(nucleus.path(), &setup).unwrap();
+            let text = std::fs::read_to_string(&file).unwrap();
+            assert!(generic::owns(&text));
+            let wanted = Setup {
+                inject: way,
+                ..setup.clone()
+            };
+            let owner = crate::process::user_sid().unwrap();
+            assert_eq!(text, wanted.handler_of(Some(&owner)), "{way:?}");
+        };
+        written(Inject::Runtime);
+        assert_eq!(
+            inject_for(nucleus.path(), &setup.exe_path).unwrap(),
+            Inject::Runtime
         );
-        refuse_hooks(nucleus.path(), &setup.exe_path).unwrap();
-        // Once.
-        refuse_hooks(nucleus.path(), &setup.exe_path.to_lowercase()).unwrap();
-        let kept = std::fs::read_to_string(nucleus.path().join("Rubylight-unhooked.json")).unwrap();
-        assert_eq!(kept.matches("acblackflag.exe").count(), 1, "{kept}");
-        write_own(nucleus.path(), &setup).unwrap();
-        let text = std::fs::read_to_string(&file).unwrap();
-        assert!(generic::owns(&text));
-        assert!(!text.contains("Game.ProtoInput"), "{text}");
+        for next in [Inject::Startup, Inject::Stealth, Inject::None] {
+            // By its path, in any case.
+            let exe = match next {
+                Inject::Stealth => setup.exe_path.to_uppercase(),
+                _ => setup.exe_path.clone(),
+            };
+            assert_eq!(refuse_inject(nucleus.path(), &exe).unwrap(), next);
+            let text = std::fs::read_to_string(&kept).unwrap();
+            assert_eq!(text.matches("acblackflag.exe").count(), 1, "{text}");
+            assert_eq!(inject_for(nucleus.path(), &setup.exe_path).unwrap(), next);
+            written(next);
+        }
+        // None is the last.
+        assert_eq!(
+            refuse_inject(nucleus.path(), &setup.exe_path).unwrap(),
+            Inject::None
+        );
         write_own(nucleus.path(), &other).unwrap();
         let other_text =
             std::fs::read_to_string(nucleus.path().join("handlers").join(other.file())).unwrap();
-        assert!(other_text.contains("Game.ProtoInput"));
-        // A file Rubylight can't read is loud, never taken for none.
-        std::fs::write(nucleus.path().join("Rubylight-unhooked.json"), "{").unwrap();
-        let error = format!("{:#}", write_own(nucleus.path(), &setup).unwrap_err());
-        assert!(error.contains("delete it"), "{error}");
+        assert!(other_text.contains("Game.ProtoInput.InjectRuntime_EasyHookMethod = true;"));
+        // A file Rubylight can't read is loud, never taken for the first way.
+        for broken in [
+            "{",
+            r#"{"Games": []}"#,
+            r#"{"Games": {"d:\\a.exe": "sideways"}}"#,
+        ] {
+            std::fs::write(&kept, broken).unwrap();
+            let error = format!("{:#}", write_own(nucleus.path(), &setup).unwrap_err());
+            assert!(error.contains("delete it"), "{broken}: {error}");
+        }
     }
 
     #[test]

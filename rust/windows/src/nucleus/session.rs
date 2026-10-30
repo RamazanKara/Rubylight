@@ -14,7 +14,7 @@ use butterpollo_core::audio_scope::Identity;
 use butterpollo_core::input::Input;
 use butterpollo_core::nucleus::coop::{self, End, Phase};
 use butterpollo_core::nucleus::elevation::{Account, Refused, Run};
-use butterpollo_core::nucleus::generic;
+use butterpollo_core::nucleus::generic::{self, Inject};
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::EXECUTABLE;
 use butterpollo_core::nucleus::profile::{Player, TITLE};
@@ -527,10 +527,10 @@ struct Runner {
     game_folder: Option<PathBuf>,
     /// For Rubylight's own handler: the host's Nucleus folder and the
     /// game's .exe, kept there when the game refuses ProtoInput's hooks
-    /// ([`files::refuse_hooks`]).
+    /// ([`files::refuse_inject`]).
     own_game: Option<(PathBuf, String)>,
-    /// Until when Nucleus may still show that box: it injects once, right
-    /// after the game's window shows. Set at the first window.
+    /// Until when Nucleus may still show that box: it injects once, as it
+    /// starts the game or right after. Set at the first window.
     inject_by: Option<Instant>,
     /// The user's Nucleus settings the session changed (None from the
     /// user's own copy, whose stay), then the game's compatibility settings
@@ -589,7 +589,9 @@ impl Runner {
         if windows > 0 && self.inject_by.is_none() {
             self.inject_by = Some(now + START_TIMEOUT);
         }
-        if roots > 0
+        // From the click: a game Nucleus injects into as it starts it is
+        // refused before its process runs.
+        if self.clicked
             && self.inject_by.is_none_or(|by| now < by)
             && let Some(end) = self.refused_hooks(&job)
         {
@@ -688,10 +690,11 @@ impl Runner {
     }
 
     /// Rubylight's own handler's game refused ProtoInput's hooks: Nucleus
-    /// shows [`generic::INJECT_FAILED`] once the game's window is up and
-    /// ends the game when the box is answered, which nobody does during a
-    /// background stream (#59). The game is kept so its next handler
-    /// injects none, and the session ends saying so.
+    /// shows [`generic::INJECT_FAILED`] as it starts the game or once the
+    /// game runs, and ends it when the box is answered, which nobody does
+    /// during a background stream (#59). The game is kept so its next
+    /// handler injects them the next way ([`generic::Inject`]), or none
+    /// after the last, and the session ends saying so.
     fn refused_hooks(&mut self, job: &BTreeSet<u32>) -> Option<End> {
         self.own_game.as_ref()?;
         let boxes = match self.desktop.message_boxes(job) {
@@ -709,13 +712,20 @@ impl Runner {
             }
         };
         let shown = boxes.iter().find(|shown| {
-            !self.before.contains(&shown.window) && shown.text.contains(generic::INJECT_FAILED)
+            !self.before.contains(&shown.window)
+                && generic::INJECT_FAILED
+                    .iter()
+                    .any(|failed| shown.text.contains(failed))
         })?;
         let said = shown.summary();
         let (folder, exe) = self.own_game.as_ref()?;
-        let why = match files::refuse_hooks(folder, exe) {
-            Ok(()) => format!(
+        let why = match files::refuse_inject(folder, exe) {
+            Ok(Inject::None) => format!(
                 "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), and Nucleus Co-op ends a game it can't hook: start the stream again, and Rubylight starts it without them",
+                self.title
+            ),
+            Ok(_) => format!(
+                "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), and Nucleus Co-op ends a game it can't hook: start the stream again, and Rubylight has Nucleus Co-op hook it another way",
                 self.title
             ),
             Err(error) => format!(
@@ -1045,13 +1055,13 @@ pub struct Running {
 pub const UNHOOKED: &str = "nucleus_unhooked";
 
 /// What the player should know when Rubylight's own handler starts the game
-/// without ProtoInput's hooks, because it refused them once (#59).
+/// without ProtoInput's hooks, because it refused every way (#59).
 fn unhooked(start: &Start) -> Result<Option<String>> {
-    if !start.handler.own || !files::hooks_refused(start.folder, start.exe_path)? {
+    if !start.handler.own || files::inject_for(start.folder, start.exe_path)? != Inject::None {
         return Ok(None);
     }
     Ok(Some(format!(
-        "{} refused Nucleus Co-op's input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too",
+        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too",
         start.title
     )))
 }
@@ -1800,57 +1810,88 @@ mod tests {
         assert_eq!(clicks(&screen), 2);
     }
 
-    /// #59: once the game's window is up, Nucleus injects ProtoInput's
-    /// hooks; a game that refuses them gets Nucleus' box, and Nucleus ends
-    /// it once the box is answered. Rubylight's own handler's session ends
-    /// saying so, and the game's next handler injects nothing. A hub
-    /// handler's game is not kept.
-    #[test]
-    fn a_game_that_refuses_the_hooks_ends_the_session_and_is_kept() {
-        let refused = MessageBox {
+    /// What Nucleus 2.4.2 shows when it can't inject ProtoInput's hooks,
+    /// into a running game ([`generic::INJECT_FAILED`]'s first) or one it
+    /// starts (its second).
+    fn refused(text: &str) -> MessageBox {
+        MessageBox {
             window: 500,
             caption: "Error".into(),
-            text: generic::INJECT_FAILED.into(),
-        };
-        let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
-        for own in [true, false] {
-            let t0 = Instant::now();
-            let host = tempfile::tempdir().unwrap();
-            let (screen, probe) = (screen(), Probe::default());
-            let mut runner = runner(1, &screen, &probe, t0);
-            runner.own_game = own.then(|| (host.path().to_path_buf(), exe.to_string()));
-            label(&screen);
-            assert_eq!(runner.step(t0), None);
-            instance(&screen, 0);
-            assert_eq!(runner.step(t0), None);
-            assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
-            screen
-                .0
-                .lock()
-                .unwrap()
-                .boxes
-                .push((NUCLEUS, refused.clone()));
-            let end = runner.step(t0 + PERIOD);
-            if !own {
-                assert_eq!(end, None);
-                assert!(!files::hooks_refused(host.path(), exe).unwrap());
-                continue;
-            }
-            assert_eq!(
-                end,
-                Some(End::Crashed(format!(
-                    "Game refused Nucleus Co-op's input hooks (it showed \"Error: {}\"), and Nucleus Co-op ends a game it can't hook: start the stream again, and Rubylight starts it without them",
-                    generic::INJECT_FAILED
-                )))
-            );
-            assert!(files::hooks_refused(host.path(), exe).unwrap());
-            // By its path, in any case.
-            assert!(files::hooks_refused(host.path(), &exe.to_uppercase()).unwrap());
-            assert!(!files::hooks_refused(host.path(), r"D:\Games\Other\Game.exe").unwrap());
+            text: text.into(),
         }
+    }
 
-        // Nucleus injects right after the window shows: a minute later the
-        // boxes are no longer looked through for it.
+    /// #59: a game that refuses ProtoInput's hooks gets Nucleus' box, and
+    /// Nucleus ends it once the box is answered. Rubylight's own handler's
+    /// session ends saying so, and the game's next handler injects them the
+    /// next way: as Nucleus starts it (refused before its process runs),
+    /// then from one of its threads, then none. A hub handler's game is
+    /// not kept.
+    #[test]
+    fn a_game_that_refuses_the_hooks_ends_the_session_and_gets_the_next_way() {
+        let [runtime, startup] = generic::INJECT_FAILED;
+        let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+        let another = "start the stream again, and Rubylight has Nucleus Co-op hook it another way";
+        let none = "start the stream again, and Rubylight starts it without them";
+        let host = tempfile::tempdir().unwrap();
+        // The way it was started, the box Nucleus shows, whether the game's
+        // process runs by then, and what Rubylight does next.
+        let ladder = [
+            (Inject::Runtime, runtime, true, Inject::Startup, another),
+            (Inject::Startup, startup, false, Inject::Stealth, another),
+            (Inject::Stealth, runtime, true, Inject::None, none),
+        ];
+        for (way, text, runs, next, then) in ladder {
+            for own in [false, true] {
+                assert_eq!(files::inject_for(host.path(), exe).unwrap(), way);
+                let t0 = Instant::now();
+                let (screen, probe) = (screen(), Probe::default());
+                let mut runner = runner(1, &screen, &probe, t0);
+                runner.own_game = own.then(|| (host.path().to_path_buf(), exe.to_string()));
+                label(&screen);
+                assert_eq!(runner.step(t0), None);
+                if runs {
+                    instance(&screen, 0);
+                    assert_eq!(runner.step(t0), None);
+                    assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
+                }
+                screen
+                    .0
+                    .lock()
+                    .unwrap()
+                    .boxes
+                    .push((NUCLEUS, refused(text)));
+                let end = runner.step(t0 + PERIOD);
+                if !own {
+                    assert_eq!(end, None, "{way:?}");
+                    continue;
+                }
+                let why = format!(
+                    "Game refused Nucleus Co-op's input hooks (it showed \"Error: {text}\"), and Nucleus Co-op ends a game it can't hook: {then}"
+                );
+                // The start fails; a game that ran crashed.
+                let wanted = if runs {
+                    End::Crashed(why)
+                } else {
+                    End::Failed(why)
+                };
+                assert_eq!(end, Some(wanted), "{way:?}");
+                assert_eq!(files::inject_for(host.path(), exe).unwrap(), next);
+            }
+        }
+        // By its path, in any case; other games keep the first way.
+        assert_eq!(
+            files::inject_for(host.path(), &exe.to_uppercase()).unwrap(),
+            Inject::None
+        );
+        assert_eq!(
+            files::inject_for(host.path(), r"D:\Games\Other\Game.exe").unwrap(),
+            Inject::Runtime
+        );
+
+        // Nucleus injects into the running game right after it starts: a
+        // minute after its window shows, the boxes are no longer looked
+        // through for it.
         let t0 = Instant::now();
         let host = tempfile::tempdir().unwrap();
         let (screen, probe) = (screen(), Probe::default());
@@ -1860,20 +1901,24 @@ mod tests {
         assert_eq!(runner.step(t0), None);
         instance(&screen, 0);
         assert_eq!(runner.step(t0), None);
-        screen.0.lock().unwrap().boxes.push((NUCLEUS, refused));
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .boxes
+            .push((NUCLEUS, refused(runtime)));
         assert_eq!(runner.step(t0 + START_TIMEOUT), None);
-        assert!(!files::hooks_refused(host.path(), exe).unwrap());
+        assert_eq!(
+            files::inject_for(host.path(), exe).unwrap(),
+            Inject::Runtime
+        );
     }
 
     /// #59: a box that was up before Nucleus started is an earlier
     /// session's, not this game's.
     #[test]
     fn a_refused_hooks_box_from_before_the_start_is_not_this_games() {
-        let refused = MessageBox {
-            window: 500,
-            caption: "Error".into(),
-            text: generic::INJECT_FAILED.into(),
-        };
+        let refused = refused(generic::INJECT_FAILED[0]);
         let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
         let t0 = Instant::now();
         let host = tempfile::tempdir().unwrap();
@@ -1887,13 +1932,16 @@ mod tests {
         assert_eq!(runner.step(t0), None);
         screen.0.lock().unwrap().boxes.push((NUCLEUS, refused));
         assert_eq!(runner.step(t0 + PERIOD), None);
-        assert!(!files::hooks_refused(host.path(), exe).unwrap());
+        assert_eq!(
+            files::inject_for(host.path(), exe).unwrap(),
+            Inject::Runtime
+        );
     }
 
-    /// #59: the stream of a game started without the hooks it refused tells
-    /// its player that the PC's keyboard, mouse and pads reach it too. A
-    /// hub handler's game, whose handler Rubylight doesn't write, is not
-    /// told.
+    /// #59: the stream of a game started without the hooks it refused every
+    /// way tells its player that the PC's keyboard, mouse and pads reach it
+    /// too; one still hooked another way is not told. A hub handler's game,
+    /// whose handler Rubylight doesn't write, is not told.
     #[test]
     fn a_game_started_without_the_hooks_it_refused_is_told() {
         let host = tempfile::tempdir().unwrap();
@@ -1917,12 +1965,14 @@ mod tests {
             owner: ("phone", "Phone"),
             size: (1280, 720),
         };
-        assert_eq!(unhooked(&start(&own)).unwrap(), None);
-        files::refuse_hooks(host.path(), exe).unwrap();
+        for _ in [Inject::Runtime, Inject::Startup, Inject::Stealth] {
+            assert_eq!(unhooked(&start(&own)).unwrap(), None);
+            files::refuse_inject(host.path(), exe).unwrap();
+        }
         assert_eq!(
             unhooked(&start(&own)).unwrap().as_deref(),
             Some(
-                "Black Flag refused Nucleus Co-op's input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too"
+                "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too"
             )
         );
         assert_eq!(unhooked(&start(&hub)).unwrap(), None);

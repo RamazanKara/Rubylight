@@ -169,9 +169,9 @@ public class DecoderTuningKeysTest {
 
     @Test
     public void mediaTekFirstTryAsksForShorterQueuesAndTheFallbackForTheFullPreset() {
-        assertSame(VendorLowLatencyKeys.MEDIATEK_SHORT, VendorLowLatencyKeys.mediaTekKeys(0));
+        assertSame(VendorLowLatencyKeys.MEDIATEK_SHORT, VendorLowLatencyKeys.mediaTekKeys(0, HEVC));
         for (int attempt = 1; attempt <= 3; attempt++) {
-            assertSame("try " + attempt, VendorLowLatencyKeys.MEDIATEK, VendorLowLatencyKeys.mediaTekKeys(attempt));
+            assertSame("try " + attempt, VendorLowLatencyKeys.MEDIATEK, VendorLowLatencyKeys.mediaTekKeys(attempt, HEVC));
         }
         // Same keys; only the five queue knobs differ, and each is shorter than the full preset's.
         assertEquals(VendorLowLatencyKeys.MEDIATEK.keySet(), VendorLowLatencyKeys.MEDIATEK_SHORT.keySet());
@@ -201,6 +201,23 @@ public class DecoderTuningKeysTest {
         // Other decoders get neither preset.
         assertAbsent("Snapdragon", tune("c2.qti.hevc.decoder", 0, false), "vendor.mtk.vdec.input.max.queue.depth",
                 "vendor.mtk.vdec.preload.frame.count");
+    }
+
+    @Test
+    public void mediaTekAv1KeepsTheFullPresetOnTheFirstTry() {
+        // Issue 56: a MediaTek AV1 decoder with the shorter queues showed rainbow colours for whole
+        // streams and reported no error, so no fallback try ever ran.
+        for (int attempt = 0; attempt <= 3; attempt++) {
+            assertSame("try " + attempt, VendorLowLatencyKeys.MEDIATEK,
+                    VendorLowLatencyKeys.mediaTekKeys(attempt, "video/av01"));
+        }
+        for (String name : new String[] {"c2.mtk.av1.decoder", "OMX.MTK.VIDEO.DECODER.AV1"}) {
+            MediaFormat format = MediaFormat.createVideoFormat("video/av01", 2880, 1620);
+            assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name), 0, true, true, false, false));
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.MEDIATEK.entrySet()) {
+                assertEquals(name + " try 0 " + key.getKey(), (int) key.getValue(), format.getInteger(key.getKey()));
+            }
+        }
     }
 
     @Test

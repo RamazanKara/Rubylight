@@ -181,10 +181,12 @@ final class VendorLowLatencyKeys {
 
     /**
      * The whole MediaTek preset for a configure try, set by name whether or not the decoder lists
-     * it: the shorter queues on try 0, the full preset after that.
+     * it: the shorter queues on try 0, the full preset after that. AV1 always gets the full preset:
+     * with the shorter queues a MediaTek AV1 decoder accepted the format and then showed rainbow
+     * colours for whole streams without reporting a single error (issue 56).
      */
-    static Map<String, Integer> mediaTekKeys(int tryNumber) {
-        return tryNumber == 0 ? MEDIATEK_SHORT : MEDIATEK;
+    static Map<String, Integer> mediaTekKeys(int tryNumber, String mimeType) {
+        return tryNumber == 0 && !"video/av01".equals(mimeType) ? MEDIATEK_SHORT : MEDIATEK;
     }
 
     static boolean isMediaTekDetectOnly(Collection<String> integerParams) {

@@ -79,6 +79,8 @@ Review both portrait overlays before the device pass. Emulator checks do not est
 | `:app:bundleNonRootRelease` | `app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab` |
 | Root equivalents | Replace `NonRoot` with `Root` in task names and `nonRoot` with `root` in output paths. |
 
+For Google Play or another store that updates the app itself, add `-PgithubUpdates=false` to the release build: it hides the in-app updater and removes `REQUEST_INSTALL_PACKAGES` from the manifest (`app/src/store`). Every release build checks its merged manifest: the GitHub build must keep that permission, the store build must not have it.
+
 Release builds enable R8 shrinking. The source namespace remains `com.limelight`; it is distinct from the Android package ID. The packaged locales are listed in `localeFilters` in `app/build.gradle` and in `app/src/main/res/xml/locales_config.xml`; see [translations](TRANSLATIONS.md).
 
 ## Release signing

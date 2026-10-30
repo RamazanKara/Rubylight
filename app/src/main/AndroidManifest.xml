@@ -11,7 +11,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.CAPTURE_KEYBOARD" />
-    <!-- Only for the in-app updater, which installs the release APK from GitHub (not used when installed from Google Play). -->
+    <!-- Only for the in-app updater, which installs the release APK from GitHub. Store builds remove it (src/store). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Only requested when the user turns on "Send microphone to the PC" -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

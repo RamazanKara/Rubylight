@@ -111,11 +111,44 @@ pub fn bitrate_slider(ui: &mut egui::Ui, value: &mut u32, enabled: bool) -> bool
             .custom_parser(|text| parse(text).map(position)))
     }).inner;
     if at != before { *value = kbps(at); }
-    let id = response.id.with("bitrate-scrub");
-    let mut scrub = ui.data(|d| d.get_temp::<Scrub>(id)).unwrap_or_default();
+    let mut scrub = ui.data(|d| d.get_temp::<Scrub>(scrub_id())).unwrap_or_default();
     let send = scrub.step(at != before, response.dragged(), response.drag_stopped(), Instant::now());
-    ui.data_mut(|d| d.insert_temp(id, scrub));
+    if scrub.changed_at.is_some() { ui.ctx().request_repaint_after(COMMIT_DELAY); }
+    ui.data_mut(|d| d.insert_temp(scrub_id(), scrub));
     send && enabled
+}
+
+/// One slider is shown at a time (HTTP or 0x553C), so its wait is kept under one id that
+/// [`Streaming::settle_bitrate_slider`] finds after the menu closed.
+fn scrub_id() -> egui::Id {
+    egui::Id::unique("bitrate-slider-scrub")
+}
+
+/// Whether a slider change was still waiting for [`COMMIT_DELAY`]; it no longer waits after this.
+fn take_pending(ctx: &egui::Context) -> bool {
+    ctx.data_mut(|d| d.remove_temp::<Scrub>(scrub_id())).is_some_and(|scrub| scrub.changed_at.is_some())
+}
+
+impl Streaming {
+    /// For a frame without the menu: a slider change still waiting when the menu closed goes out
+    /// now, instead of staying unsent while the menu shows it and leaving when the menu next opens.
+    pub fn settle_bitrate_slider(&mut self, ctx: &egui::Context) {
+        if !take_pending(ctx) { return; }
+        let controls = self.menu_controls();
+        if let Some(rates) = self.rate_change.as_ref().filter(|_| controls.rate_change) {
+            if rates.menu_busy() {
+                eprintln!("nightjar: bitrate slider: the PC is still answering, {} kbps not sent", rates.menu_kbps);
+            } else {
+                self.change_rates();
+            }
+        } else if self.facts.runtime_bitrate && controls.http_bitrate {
+            if self.adaptive_bitrate || self.bitrate_busy {
+                eprintln!("nightjar: bitrate slider: automatic bitrate or a change in flight, {} kbps not sent", self.bitrate_kbps);
+            } else {
+                self.set_bitrate();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -170,5 +203,21 @@ mod tests {
         assert!(!scrub.step(false, false, false, now + Duration::from_millis(700)), "450 ms after the last step only");
         assert!(scrub.step(false, false, false, now + Duration::from_millis(750)));
         assert!(!scrub.step(false, false, false, now + Duration::from_secs(5)), "once");
+    }
+
+    #[test]
+    fn a_step_still_waiting_when_the_menu_closes_is_found_once() {
+        let ctx = egui::Context::default();
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        let (mut value, mut sent) = (20_000, false);
+        for events in [vec![key(egui::Key::Tab)], vec![key(egui::Key::ArrowRight)]] {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| sent |= bitrate_slider(ui, &mut value, true))
+                .textures_delta.clear();
+        }
+        assert_eq!(value, 22_000, "one step up");
+        assert!(!sent, "a key step waits");
+        // The menu closed before the wait was over: the change is found, and only once.
+        assert!(take_pending(&ctx));
+        assert!(!take_pending(&ctx));
     }
 }

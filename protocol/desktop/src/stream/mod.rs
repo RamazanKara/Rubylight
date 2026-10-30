@@ -11,6 +11,7 @@ pub mod color_probe;
 pub mod pipeline;
 mod playout;
 pub mod present;
+mod hlg;
 mod microphone;
 #[cfg(windows)]
 mod voice_capture;
@@ -386,6 +387,66 @@ fn offered_formats(settings: &Settings, scm: u32, decodable: &(u32, String)) -> 
 /// what saying nothing does.
 fn launches_ten_bit_sdr(settings: &Settings, offer: &color::Offer) -> bool {
     !settings.hdr && offer.formats & VIDEO_FORMAT_MASK_10BIT != 0
+}
+
+/// The HDR format beyond stock HDR10 to ask a Rubylight host for (one `rubylight_protocol::hdr`
+/// bit, 0 for stock HDR10), as Android's HdrFormatPolicy picks it. Dolby Vision where the client
+/// reads its RPUs (`reads_dolby_vision`: the Windows draw pass, whose tone map takes each frame's
+/// peak from them): profile 10.1 on AV1 Main10 before 8.1 on HEVC Main10, as the handshake takes
+/// AV1 first, both with the HDR10 base layer every other path shows as HDR10. Not with packed
+/// full chroma, which draws PQ only. Never HLG: Android asks for it only on a display without
+/// HDR10, and every desktop HDR output takes PQ. A host that lists no formats (every other
+/// host, `host_formats` -1) gets 0, and the ANNOUNCE asks only for what the stream's DESCRIBE
+/// offers for its codec (`sdp::announced_hdr_format`).
+fn hdr_format(hdr: bool, host_formats: i32, formats: u32, packed444: bool, reads_dolby_vision: bool) -> u8 {
+    use rubylight_protocol::hdr;
+    if !hdr || host_formats <= 0 || packed444 || !reads_dolby_vision {
+        return 0;
+    }
+    let host = host_formats as u8;
+    if host & hdr::DV_101 != 0 && formats & VIDEO_FORMAT_AV1_MAIN10 != 0 {
+        hdr::DV_101
+    } else if host & hdr::DV_81 != 0 && formats & VIDEO_FORMAT_H265_MAIN10 != 0 {
+        hdr::DV_81
+    } else {
+        0
+    }
+}
+
+/// The Windows draw pass reads Dolby Vision RPUs for its tone map, unless `NIGHTJAR_D3D11_PASS=0`
+/// leaves the pictures to SDL. Nothing else does.
+#[cfg(windows)]
+fn reads_dolby_vision() -> bool {
+    direct::enabled()
+}
+
+#[cfg(not(windows))]
+fn reads_dolby_vision() -> bool {
+    false
+}
+
+/// `hdr_format`, or the bit `NIGHTJAR_HDR_FORMAT` asks for instead (tests: HLG, which desktop never
+/// picks itself), said in the log when it is not stock HDR10.
+fn asked_hdr_format(picked: u8) -> u8 {
+    let format = match hint_env("NIGHTJAR_HDR_FORMAT") {
+        Some(bit) => {
+            let bit = u8::try_from(bit).unwrap_or(0);
+            eprintln!("nightjar: NIGHTJAR_HDR_FORMAT asks the host for HDR format {bit} (picked: {picked})");
+            bit
+        }
+        None => picked,
+    };
+    let name = match format {
+        rubylight_protocol::hdr::DV_101 => "Dolby Vision profile 10.1",
+        rubylight_protocol::hdr::DV_81 => "Dolby Vision profile 8.1",
+        rubylight_protocol::hdr::DV_84 => "Dolby Vision profile 8.4",
+        rubylight_protocol::hdr::HLG => "HLG",
+        _ => "",
+    };
+    if !name.is_empty() {
+        eprintln!("nightjar: asking the host for {name} where the stream's codec takes it");
+    }
+    format
 }
 
 fn refusal_text(refusal: &color::Refusal) -> String {
@@ -1358,6 +1419,13 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         video_capabilities: 0,
         audio_capabilities: CAPABILITY_DIRECT_SUBMIT,
         video_fec: settings.error_correction.into(),
+        hdr_format: asked_hdr_format(hdr_format(
+            settings.hdr,
+            plan.info.capabilities.evidence().map_or(-1, |evidence| evidence.hdr_formats),
+            offer.formats,
+            settings.experimental_packed_444,
+            reads_dolby_vision(),
+        )),
         ..Default::default()
     };
     let host = HostInfo {
@@ -3357,7 +3425,7 @@ impl Streaming {
         renderer: *mut SDL_Renderer,
         mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
     ) -> bool {
-        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
+        if self.texture.needs_hdr_output() && !crate::sdl::hdr_available(renderer) {
             self.texture.destroy();
             self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
             self.needs_redraw = true;
@@ -4282,6 +4350,32 @@ fn bitrate_automatic(adaptive_bitrate: bool, quality_mode: QualityMode, rate_cha
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Desktop never asked for an HDR format, so no host sent it Dolby Vision RPUs and the draw
+    /// pass's RPU peak was unreachable. It asks as Android does, and stock hosts see nothing new.
+    #[test]
+    fn hdr_streams_ask_a_rubylight_host_for_dolby_vision_where_the_rpus_are_read() {
+        use rubylight_protocol::hdr::{ALL, DV_101, DV_81, DV_84, HLG, PQ};
+        let both = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10;
+        let hevc = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
+        let host = i32::from(ALL);
+        // AV1 first, as the handshake takes it, then HEVC; each only where the host offers it.
+        assert_eq!(hdr_format(true, host, both, false, true), DV_101);
+        assert_eq!(hdr_format(true, host, hevc, false, true), DV_81);
+        assert_eq!(hdr_format(true, i32::from(PQ | HLG | DV_81), both, false, true), DV_81);
+        // Never profile 8.4 (an HLG base layer) nor HLG: every desktop HDR output takes PQ.
+        assert_eq!(hdr_format(true, i32::from(PQ | HLG | DV_84), both, false, true), 0);
+        // Stock HDR10 for a stock host (no HdrFormats: -1), an SDR stream, packed full chroma,
+        // 8-bit formats only, and where nothing reads the RPUs (Linux, SDL drawing on Windows).
+        assert_eq!(hdr_format(true, -1, both, false, true), 0);
+        assert_eq!(hdr_format(true, 0, both, false, true), 0);
+        assert_eq!(hdr_format(false, host, both, false, true), 0);
+        assert_eq!(hdr_format(true, host, both, true, true), 0);
+        assert_eq!(hdr_format(true, host, VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8, false, true), 0);
+        assert_eq!(hdr_format(true, host, both, false, false), 0);
+        #[cfg(not(windows))]
+        assert!(!reads_dolby_vision(), "only the Windows draw pass reads them");
+    }
 
     #[test]
     fn the_doctor_offers_no_trial_while_the_client_hint_steers_the_bitrate() {

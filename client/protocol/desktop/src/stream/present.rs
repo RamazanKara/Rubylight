@@ -270,6 +270,8 @@ pub struct VideoTexture {
     logged_failure: Option<String>,
     /// The last picture of a GPU-decoded or planar stream carried the PQ transfer.
     hdr_frame: bool,
+    /// The last picture carried the HLG transfer (ARIB STD-B67).
+    hlg_frame: bool,
     /// Measurement: CPU time per PyroWave picture in `pyrowave_gpu`, kept across `destroy`.
     pub pyrowave_stages: super::stage_times::Stages<2>,
     packed_format: Option<[u32; 12]>,
@@ -309,10 +311,19 @@ pub struct VideoTexture {
     d3d11_picture: bool,
     #[cfg(windows)]
     hdr10_plus: Option<f32>,
-    /// The current 10-bit SDR picture converted to RGB by the pass, for SDL (`sdl_texture`), the
-    /// view the pass writes it through, and whether it holds the current picture.
+    /// The current picture's Dolby Vision peak in nits (`media::Frame::dolby_vision`).
+    #[cfg(windows)]
+    dolby_vision: Option<f32>,
+    /// A profile 5 (IPT) RPU was logged: its pictures are drawn as HDR10, once said.
+    #[cfg(windows)]
+    dolby_vision_ipt_said: bool,
+    /// The current picture converted to RGB by the pass, for SDL (`sdl_texture`): 10-bit SDR as
+    /// gamma-coded RGB, HLG as linear light (`converted_linear`). The view the pass writes it
+    /// through, and whether it holds the current picture.
     #[cfg(windows)]
     converted: *mut SDL_Texture,
+    #[cfg(windows)]
+    converted_linear: bool,
     #[cfg(windows)]
     converted_view: Option<windows::Win32::Graphics::Direct3D11::ID3D11RenderTargetView>,
     #[cfg(windows)]
@@ -338,6 +349,7 @@ impl Default for VideoTexture {
             failure: None,
             logged_failure: None,
             hdr_frame: false,
+            hlg_frame: false,
             pyrowave_stages: super::stage_times::Stages::new(super::pyrowave_gpu::UPLOAD_AND_PASSES),
             packed_format: None,
             white_level: 1.0,
@@ -365,7 +377,13 @@ impl Default for VideoTexture {
             #[cfg(windows)]
             hdr10_plus: None,
             #[cfg(windows)]
+            dolby_vision: None,
+            #[cfg(windows)]
+            dolby_vision_ipt_said: false,
+            #[cfg(windows)]
             converted: std::ptr::null_mut(),
+            #[cfg(windows)]
+            converted_linear: false,
             #[cfg(windows)]
             converted_view: None,
             #[cfg(windows)]
@@ -380,18 +398,23 @@ pub fn hdr_negotiated(asked_hdr: bool, negotiated_format: u32) -> bool {
     asked_hdr && negotiated_format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0
 }
 
+/// FFmpeg's AVCOL_TRC_SMPTE2084 (PQ) and AVCOL_TRC_ARIB_STD_B67 (HLG).
+const TRC_PQ: i32 = 16;
+const TRC_HLG: i32 = 18;
+
 /// Whether a picture is shown as HDR: as the host's HDR mode says once it has, else when it
-/// carries the PQ transfer or the session negotiated HDR. A 10-bit format alone is not HDR.
+/// carries the PQ or HLG transfer or the session negotiated HDR. A 10-bit format alone is not HDR.
 fn shows_hdr(hdr_mode: Option<bool>, hdr_stream: bool, color_trc: i32) -> bool {
-    hdr_mode.unwrap_or(hdr_stream || color_trc == 16)
+    hdr_mode.unwrap_or(hdr_stream || color_trc == TRC_PQ || color_trc == TRC_HLG)
 }
 
 /// The plane shader's constants for a software-decoded planar picture: its colour description is
 /// FFmpeg's, read as `colorspace` reads it (the shader's matrix 0 is BT.601, 2 BT.2020, else BT.709).
+/// An HDR picture with the HLG transfer gets the shader's HLG flag (128), never PQ.
 pub(super) fn planar_parameters(info: &FrameInfo, layout: media::PlanarLayout, hdr: bool, white_level: f32) -> [u32; 8] {
     let matrix = match info.color_space { 5 | 6 => 0, 9 | 10 => 2, _ => 1 };
     let flags = u32::from(info.color_range == 2) | (u32::from(hdr) << 1) | (matrix << 2) | (u32::from(layout.ten_bit) << 4)
-        | (u32::from(layout.chroma444) << 5) | (u32::from(layout.ten_bit) << 6);
+        | (u32::from(layout.chroma444) << 5) | (u32::from(layout.ten_bit) << 6) | (u32::from(hdr && info.color_trc == TRC_HLG) << 7);
     [layout.width, layout.height, layout.width, layout.height, 0, 3, flags, white_level.to_bits()]
 }
 
@@ -430,19 +453,32 @@ fn direct_matrix(space: SDL_Colorspace) -> (u32, bool) {
     }
 }
 
-/// Whether a decoded picture is PQ, one decision for every path that shows it: a P010 picture
-/// when the stream shows HDR (`shows_hdr`: the host's HDR mode, else the PQ transfer or the
-/// negotiated HDR), even when the bitstream does not signal PQ; never an NV12 one.
+/// A decoded picture's transfer, one decision for every path that shows it. When the stream
+/// shows HDR (`shows_hdr`: the host's HDR mode, else the PQ or HLG transfer or the negotiated
+/// HDR), a picture with the HLG transfer is HLG and any other P010 picture PQ, even when the
+/// bitstream does not signal PQ. Everything else is SDR: an NV12 picture is never PQ.
 #[cfg(windows)]
-fn picture_pq(format: SDL_PixelFormat, hdr_mode: Option<bool>, hdr_stream: bool, hdr_frame: bool) -> bool {
-    format == SDL_PIXELFORMAT_P010 && shows_hdr(hdr_mode, hdr_stream, if hdr_frame { 16 } else { 0 })
+fn picture_transfer(format: SDL_PixelFormat, hdr_mode: Option<bool>, hdr_stream: bool, hdr_frame: bool, hlg_frame: bool) -> super::direct::Transfer {
+    use super::direct::Transfer;
+    let trc = if hlg_frame { TRC_HLG } else if hdr_frame { TRC_PQ } else { 0 };
+    if !matches!(format, SDL_PIXELFORMAT_P010 | SDL_PIXELFORMAT_NV12) || !shows_hdr(hdr_mode, hdr_stream, trc) {
+        Transfer::Sdr
+    } else if hlg_frame {
+        Transfer::Hlg
+    } else if format == SDL_PIXELFORMAT_P010 {
+        Transfer::Pq
+    } else {
+        Transfer::Sdr
+    }
 }
 
-/// SDL's D3D11 shaders decode every P010 texture as PQ (and NV12 as gamma): a picture whose
-/// `picture_pq` differs reaches SDL converted to RGB by the pass.
+/// SDL's D3D11 shaders decode every P010 texture as PQ and NV12 as gamma, and know no HLG: a
+/// picture whose `picture_transfer` differs reaches SDL converted to RGB by the pass.
 #[cfg(windows)]
-fn sdl_needs_rgb(format: SDL_PixelFormat, pq: bool) -> bool {
-    (format == SDL_PIXELFORMAT_P010) != pq
+fn sdl_needs_rgb(format: SDL_PixelFormat, transfer: super::direct::Transfer) -> bool {
+    use super::direct::Transfer;
+    let sdl_reads = if format == SDL_PIXELFORMAT_P010 { Transfer::Pq } else { Transfer::Sdr };
+    sdl_reads != transfer
 }
 
 /// The pass for the renderer's device, made on first use or after the device changed.
@@ -540,6 +576,7 @@ impl VideoTexture {
     pub fn is_hdr(&self) -> bool {
         self.hdr_mode.unwrap_or(
             self.hdr_frame
+                || self.hlg_frame
                 || self
                     .packed_format
                     .is_some_and(|parameters| parameters[7] != 0),
@@ -559,7 +596,7 @@ impl VideoTexture {
             _ => return None,
         };
         (!self.texture.is_null() && !self.d3d11.is_null()).then_some(super::enhance::Source {
-            texture: self.texture, d3d11: self.d3d11, picture: (self.width, self.height), ten_bit, colorspace: self.colorspace, pq: self.pq(),
+            texture: self.texture, d3d11: self.d3d11, picture: (self.width, self.height), ten_bit, colorspace: self.colorspace, transfer: self.transfer(),
         })
     }
 
@@ -810,7 +847,8 @@ impl VideoTexture {
             }
             return success;
         }
-        self.hdr_frame = info.color_trc == 16;
+        self.hdr_frame = info.color_trc == TRC_PQ;
+        self.hlg_frame = info.color_trc == TRC_HLG;
         if let Some(layout) = media::PlanarLayout::of(&info) {
             return self.upload_planar(renderer, &info, layout, white_level);
         }
@@ -830,6 +868,16 @@ impl VideoTexture {
                     }
                     self.d3d11_picture = true;
                     self.hdr10_plus = frame.hdr10_plus_peak();
+                    self.dolby_vision = match frame.dolby_vision() {
+                        Some(rpu) if rpu.ipt => {
+                            if !self.dolby_vision_ipt_said {
+                                eprintln!("nightjar: the stream's Dolby Vision is profile 5 (IPT), which has no HDR10 base layer; its pictures are drawn as HDR10");
+                                self.dolby_vision_ipt_said = true;
+                            }
+                            None
+                        }
+                        rpu => rpu.and_then(|rpu| rpu.peak),
+                    };
                     self.held = None;
                     self.copied = false;
                     // The pass reads a readable decoder texture in place: no copy.
@@ -950,11 +998,11 @@ impl VideoTexture {
         unsafe { importer.import(renderer, self.texture, export, info.width as u32, info.height as u32) }
     }
 
-    /// Whether the current picture is PQ: the one decision of the pass, AI enhancement and what
-    /// SDL draws (`picture_pq`).
+    /// The current picture's transfer: the one decision of the pass, AI enhancement and what
+    /// SDL draws (`picture_transfer`).
     #[cfg(windows)]
-    fn pq(&self) -> bool {
-        picture_pq(self.format, self.hdr_mode, self.hdr_stream, self.hdr_frame)
+    fn transfer(&self) -> super::direct::Transfer {
+        picture_transfer(self.format, self.hdr_mode, self.hdr_stream, self.hdr_frame, self.hlg_frame)
     }
 
     /// Puts a held decoder picture into the video texture, for what reads it (AI enhancement,
@@ -976,17 +1024,18 @@ impl VideoTexture {
     pub fn copy_held(&mut self) {}
 
     /// The texture SDL draws or the upscalers read for the current picture: the video texture
-    /// (with a held picture copied in), or for a 10-bit SDR picture, which SDL's shaders would
-    /// decode as PQ, its RGB conversion by the pass.
+    /// (with a held picture copied in), or for a 10-bit SDR or an HLG picture, which SDL's
+    /// shaders would decode as PQ or gamma, its RGB conversion by the pass.
     #[cfg(windows)]
     pub fn sdl_texture(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_Texture {
-        if self.texture.is_null() || !self.d3d11_picture || !sdl_needs_rgb(self.format, self.pq()) {
+        if self.texture.is_null() || !self.d3d11_picture || !sdl_needs_rgb(self.format, self.transfer()) {
             self.copy_held();
             return self.texture;
         }
         if !self.converted_current {
             if let Err(error) = self.convert(renderer) {
-                self.fail(format!("converting a 10-bit SDR picture for SDL failed: {error}"), "the GPU conversion failed".into());
+                let what = if self.transfer() == super::direct::Transfer::Hlg { "an HLG" } else { "a 10-bit SDR" };
+                self.fail(format!("converting {what} picture for SDL failed: {error}"), "the GPU conversion failed".into());
                 self.copy_held();
                 return self.texture;
             }
@@ -1004,16 +1053,27 @@ impl VideoTexture {
     fn convert(&mut self, renderer: *mut SDL_Renderer) -> Result<(), String> {
         use windows::core::Interface;
         let picture = self.picture().ok_or("no picture to convert")?;
+        // HLG becomes linear light relative to SDR white in a float texture, as the PyroWave and
+        // packed pictures SDL draws; 10-bit SDR gamma-coded RGB.
+        let linear = picture.transfer == super::direct::Transfer::Hlg;
+        if !self.converted.is_null() && self.converted_linear != linear {
+            self.converted_view = None;
+            // SAFETY: a texture we created.
+            unsafe { SDL_DestroyTexture(self.converted) };
+            self.converted = std::ptr::null_mut();
+        }
         if self.converted.is_null() {
             // SAFETY: SDL calls on the presenting thread's live renderer.
             unsafe {
+                let (format, space) = if linear { (SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_COLORSPACE_SRGB_LINEAR) } else { (SDL_PIXELFORMAT_ABGR2101010, SDL_COLORSPACE_SRGB) };
                 let props = SDL_CreateProperties();
-                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64::from(SDL_PIXELFORMAT_ABGR2101010.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64::from(format.0));
                 SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64::from(SDL_TEXTUREACCESS_TARGET.0));
                 SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64::from(self.width));
                 SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, i64::from(self.height));
-                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64::from(SDL_COLORSPACE_SRGB.0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64::from(space.0));
                 self.converted = SDL_CreateTextureWithProperties(renderer, props);
+                self.converted_linear = linear;
                 SDL_DestroyProperties(props);
                 if self.converted.is_null() { return Err(format!("SDL could not make the RGB texture: {}", crate::sdl::error())); }
                 SDL_SetTextureScaleMode(self.converted, SDL_SCALEMODE_LINEAR);
@@ -1027,10 +1087,13 @@ impl VideoTexture {
         }
         let view = self.converted_view.clone().ok_or("the RGB texture has no view")?;
         let size = (self.width as u32, self.height as u32);
+        // SAFETY: The live renderer belongs to the presenting thread.
+        let headroom = unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0) };
+        let white_nits = 80.0 * self.white_level;
         let pass = direct_pass(&mut self.direct, renderer)?;
         let held = &self.held;
         // SAFETY: The picture's texture and the view belong to the renderer's device.
-        unsafe { pass.convert(&view, size, &picture, |submit| lock_for(held, picture.texture, submit)) }
+        unsafe { pass.convert(&view, size, &picture, white_nits, headroom, |submit| lock_for(held, picture.texture, submit)) }
     }
 
     /// The current D3D11VA picture for the pass: the held decoder slice or the copied texture.
@@ -1051,7 +1114,7 @@ impl VideoTexture {
         };
         let (matrix, full_range) = direct_matrix(self.colorspace);
         Some(super::direct::Picture {
-            texture, slice, size: (self.width as u32, self.height as u32), ten_bit, full_range, matrix, pq: self.pq(),
+            texture, slice, size: (self.width as u32, self.height as u32), ten_bit, full_range, matrix, transfer: self.transfer(),
         })
     }
 
@@ -1094,6 +1157,7 @@ impl VideoTexture {
         let white_nits = 80.0 * self.white_level;
         let tone = super::direct::Tone {
             white_nits,
+            dolby_vision: self.dolby_vision,
             hdr10_plus: self.hdr10_plus,
             static_peak: hdr_properties(true, self.white_level, metadata).headroom.map(|headroom| headroom * white_nits),
         };
@@ -1302,6 +1366,9 @@ impl VideoTexture {
             hdr_stream: self.hdr_stream,
             // Facts about the stream, not the texture: `ensure` calls `destroy` before it reads them.
             hdr_frame: self.hdr_frame,
+            hlg_frame: self.hlg_frame,
+            #[cfg(windows)]
+            dolby_vision_ipt_said: self.dolby_vision_ipt_said,
             logged_failure: self.logged_failure.take(),
             pyrowave_stages: stages,
             #[cfg(unix)]
@@ -1446,6 +1513,11 @@ pub(crate) mod tests {
         // 10-bit 4:4:4 HDR, BT.2020, white 2.5.
         let hdr = info(media::FRAME_YUV444P10, 16, 16, 9, 1);
         assert_eq!(planar_parameters(&hdr, layout(&hdr), true, 2.5)[6..], [2 | 8 | 16 | 32 | 64, 2.5f32.to_bits()]);
+        // An HLG one gets the HLG flag (128) beside HDR, so the shader does not read it as PQ;
+        // with the host's HDR mode off it is drawn as SDR, without it.
+        let hlg = FrameInfo { color_trc: TRC_HLG, ..hdr };
+        assert_eq!(planar_parameters(&hlg, layout(&hlg), true, 2.5)[6], 2 | 8 | 16 | 32 | 64 | 128);
+        assert_eq!(planar_parameters(&hlg, layout(&hlg), false, 1.0)[6], 8 | 16 | 32 | 64);
         // Odd 4:2:0 pictures round their chroma up, as FFmpeg does.
         assert_eq!([0, 1, 2].map(|p| layout(&main10).plane_size(p)), [(7, 3), (4, 2), (4, 2)]);
         assert_eq!([0, 1, 2].map(|p| layout(&yuv444).plane_size(p)), [(64, 32); 3]);
@@ -1730,21 +1802,47 @@ pub(crate) mod tests {
     #[cfg(windows)]
     #[test]
     fn an_hdr_stream_is_pq_without_a_pq_transfer_in_the_bitstream() {
+        use super::super::direct::Transfer::{Pq, Sdr};
         // The host's HDR mode decides, not the VUI: a host that leaves the transfer out still streams PQ.
-        assert!(picture_pq(SDL_PIXELFORMAT_P010, Some(true), false, false));
+        assert_eq!(picture_transfer(SDL_PIXELFORMAT_P010, Some(true), false, false, false), Pq);
         // Before the HDR mode arrives, the negotiated HDR or the PQ transfer decides.
-        assert!(picture_pq(SDL_PIXELFORMAT_P010, None, true, false));
-        assert!(picture_pq(SDL_PIXELFORMAT_P010, None, false, true));
+        assert_eq!(picture_transfer(SDL_PIXELFORMAT_P010, None, true, false, false), Pq);
+        assert_eq!(picture_transfer(SDL_PIXELFORMAT_P010, None, false, true, false), Pq);
         // 10-bit SDR, and HDR mode off, are not PQ.
-        assert!(!picture_pq(SDL_PIXELFORMAT_P010, None, false, false));
-        assert!(!picture_pq(SDL_PIXELFORMAT_P010, Some(false), true, true));
+        assert_eq!(picture_transfer(SDL_PIXELFORMAT_P010, None, false, false, false), Sdr);
+        assert_eq!(picture_transfer(SDL_PIXELFORMAT_P010, Some(false), true, true, false), Sdr);
         // An 8-bit picture is never PQ.
-        assert!(!picture_pq(SDL_PIXELFORMAT_NV12, Some(true), true, true));
+        assert_eq!(picture_transfer(SDL_PIXELFORMAT_NV12, Some(true), true, true, false), Sdr);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_hlg_picture_is_hlg_on_every_path_never_pq() {
+        use super::super::direct::Transfer::{Hlg, Pq, Sdr};
+        // The HLG transfer in the VUI makes the picture HLG, with or without the host's HDR mode
+        // or negotiated HDR, 10-bit or 8-bit.
+        for (hdr_mode, hdr_stream) in [(Some(true), true), (None, true), (None, false), (Some(true), false)] {
+            assert_eq!(picture_transfer(SDL_PIXELFORMAT_P010, hdr_mode, hdr_stream, false, true), Hlg, "{hdr_mode:?} {hdr_stream}");
+            assert_eq!(picture_transfer(SDL_PIXELFORMAT_NV12, hdr_mode, hdr_stream, false, true), Hlg, "{hdr_mode:?} {hdr_stream}");
+        }
+        assert!(shows_hdr(None, false, TRC_HLG), "HLG is HDR");
+        // The host's HDR mode off still means SDR, as it does for PQ.
+        assert_eq!(picture_transfer(SDL_PIXELFORMAT_P010, Some(false), true, false, true), Sdr);
+        // SDL's shaders know no HLG: whatever it is in, SDL gets the pass's conversion.
+        assert!(sdl_needs_rgb(SDL_PIXELFORMAT_P010, Hlg) && sdl_needs_rgb(SDL_PIXELFORMAT_NV12, Hlg));
+        assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_P010, Pq));
+        // And the picture counts as HDR (upscaler gate, HDR output check).
+        let texture = VideoTexture { hlg_frame: true, ..Default::default() };
+        assert!(texture.is_hdr());
+        assert_eq!(texture.transfer(), Sdr, "no picture format yet");
+        let texture = VideoTexture { hlg_frame: true, format: SDL_PIXELFORMAT_P010, ..Default::default() };
+        assert_eq!(texture.transfer(), Hlg);
     }
 
     #[cfg(windows)]
     #[test]
     fn sdl_gets_rgb_exactly_when_its_shaders_would_decode_the_picture_wrongly() {
+        use super::super::direct::Transfer::{Pq, Sdr};
         // SDL decodes P010 as PQ and NV12 as gamma: every case of the one decision.
         for (format, hdr_mode, hdr_stream, hdr_frame) in [
             (SDL_PIXELFORMAT_P010, Some(true), false, false),
@@ -1753,13 +1851,13 @@ pub(crate) mod tests {
             (SDL_PIXELFORMAT_NV12, Some(true), true, true),
             (SDL_PIXELFORMAT_NV12, None, false, false),
         ] {
-            let pq = picture_pq(format, hdr_mode, hdr_stream, hdr_frame);
+            let transfer = picture_transfer(format, hdr_mode, hdr_stream, hdr_frame, false);
             let sdl_decodes_pq = format == SDL_PIXELFORMAT_P010;
-            assert_eq!(sdl_needs_rgb(format, pq), sdl_decodes_pq != pq, "{} {hdr_mode:?} {hdr_stream} {hdr_frame}", format.0);
+            assert_eq!(sdl_needs_rgb(format, transfer), sdl_decodes_pq != (transfer == Pq), "{} {hdr_mode:?} {hdr_stream} {hdr_frame}", format.0);
         }
         // 10-bit SDR is the case: converted, not shown as PQ.
-        assert!(sdl_needs_rgb(SDL_PIXELFORMAT_P010, false));
-        assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_P010, true));
-        assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_NV12, false));
+        assert!(sdl_needs_rgb(SDL_PIXELFORMAT_P010, Sdr));
+        assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_P010, Pq));
+        assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_NV12, Sdr));
     }
 }

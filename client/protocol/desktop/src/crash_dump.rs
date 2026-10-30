@@ -4,27 +4,38 @@
 //! module to `nightjar.log` before Windows ends the process. The newest dumps are kept, older ones
 //! removed at start. Rust panics are not crashes here: the panic hook logs them (logpipe.rs).
 //!
-//! The handler runs in a crashed process, so it allocates nothing: every path and line is built in
-//! buffers prepared at start or on its stack.
+//! The filter runs on the crashed thread, which may have no stack left (a stack overflow) and may
+//! hold the heap or loader lock. So it only hands the exception to a thread started for this at
+//! launch and waits, at most [`WAIT_MS`], for it to write the dump and the log lines; that thread
+//! allocates nothing either, building every path and line in buffers prepared at start or on its
+//! own stack. A crash on a second thread meanwhile waits for the same dump instead of ending the
+//! process mid-write. A filter installed before ours still runs after it.
+//!
+//! The dump holds the threads' stacks, modules and thread details, not the memory they point to:
+//! logs get shared, and pointed-to memory would carry pairing keys, tokens and clipboard text.
 
 use std::fmt::Write as _;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GENERIC_WRITE, HMODULE};
+use windows::Win32::Foundation::{CloseHandle, GENERIC_WRITE, HANDLE, HMODULE};
 use windows::Win32::Storage::FileSystem::{CreateFileW, WriteFile, FlushFileBuffers, CREATE_ALWAYS, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_WRITE_THROUGH, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS, FILE_SHARE_NONE};
-use windows::Win32::System::Diagnostics::Debug::{MiniDumpIgnoreInaccessibleMemory, MiniDumpWithIndirectlyReferencedMemory, MiniDumpWithThreadInfo, MiniDumpWithUnloadedModules, MiniDumpWriteDump, SetUnhandledExceptionFilter, EXCEPTION_POINTERS, MINIDUMP_EXCEPTION_INFORMATION};
+use windows::Win32::System::Diagnostics::Debug::{MiniDumpIgnoreInaccessibleMemory, MiniDumpNormal, MiniDumpWithThreadInfo, MiniDumpWithUnloadedModules, MiniDumpWriteDump, SetUnhandledExceptionFilter, EXCEPTION_POINTERS, LPTOP_LEVEL_EXCEPTION_FILTER, MINIDUMP_EXCEPTION_INFORMATION, MINIDUMP_TYPE};
 use windows::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT};
-use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId, Sleep};
+use windows::Win32::System::Threading::{CreateEventW, GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId, SetEvent, Sleep, WaitForSingleObject, INFINITE};
 
 const PREFIX: &str = "nightjar-crash-";
 /// Dumps kept, counting the one a crash in this run would write.
 const KEEP: usize = 3;
 const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
+/// How long a crashed thread waits for the dump before Windows ends the process anyway.
+const WAIT_MS: u32 = 30_000;
+/// Stacks, modules and threads; no memory reached through pointers.
+const KIND: MINIDUMP_TYPE = MINIDUMP_TYPE(MiniDumpNormal.0 | MiniDumpWithThreadInfo.0 | MiniDumpWithUnloadedModules.0 | MiniDumpIgnoreInaccessibleMemory.0);
 
 struct Paths {
     /// The logs folder, without a terminating NUL.
@@ -34,10 +45,17 @@ struct Paths {
 }
 
 static PATHS: OnceLock<Paths> = OnceLock::new();
+static PREVIOUS: OnceLock<LPTOP_LEVEL_EXCEPTION_FILTER> = OnceLock::new();
 static HIT: AtomicBool = AtomicBool::new(false);
+/// The writer's events, as raw handle values: asked to write (auto reset), and done (manual reset,
+/// so every crashed thread waiting sees it).
+static REQUEST: AtomicUsize = AtomicUsize::new(0);
+static DONE: AtomicUsize = AtomicUsize::new(0);
+static CRASH: AtomicPtr<EXCEPTION_POINTERS> = AtomicPtr::new(std::ptr::null_mut());
+static CRASH_THREAD: AtomicU32 = AtomicU32::new(0);
 
 /// Writes dumps for unhandled crashes to `dir` (the logs folder) from now on, and says so in the
-/// log. A folder that cannot be made is logged and leaves dumps off.
+/// log. A folder that cannot be made, or no writer thread, is logged and leaves dumps off.
 pub fn install(dir: &Path) {
     if let Err(e) = std::fs::create_dir_all(dir) {
         eprintln!("nightjar: crash dumps off: {}: {e}", dir.display());
@@ -50,8 +68,26 @@ pub fn install(dir: &Path) {
     if PATHS.set(Paths { dir: wide(dir), log: wide(&dir.join(crate::logfile::CURRENT)).into_iter().chain([0]).collect() }).is_err() {
         return;
     }
+    // SAFETY: unnamed events, kept open for the life of the process.
+    let events = unsafe { CreateEventW(None, false, false, PCWSTR::null()).and_then(|r| Ok((r, CreateEventW(None, true, false, PCWSTR::null())?))) };
+    let (request, done) = match events {
+        Ok(events) => events,
+        Err(e) => { eprintln!("nightjar: crash dumps off: no event: {e}"); return; }
+    };
+    REQUEST.store(request.0 as usize, Ordering::SeqCst);
+    DONE.store(done.0 as usize, Ordering::SeqCst);
+    let request = request.0 as usize;
+    let spawned = std::thread::Builder::new().name("crash-dump".into()).spawn(move || {
+        // SAFETY: the event made above, never closed.
+        unsafe { WaitForSingleObject(HANDLE(request as *mut _), INFINITE) };
+        write_crash();
+    });
+    if let Err(e) = spawned {
+        eprintln!("nightjar: crash dumps off: no writer thread: {e}");
+        return;
+    }
     // SAFETY: the handler is a plain function that lives as long as the process.
-    unsafe { SetUnhandledExceptionFilter(Some(handler)) };
+    let _ = PREVIOUS.set(unsafe { SetUnhandledExceptionFilter(Some(handler)) });
     eprintln!("nightjar: crash dumps go to {}", dir.display());
 }
 
@@ -144,17 +180,41 @@ fn append(log: &[u16], line: &Line) {
     }
 }
 
+/// The filter, on the crashed thread: as little as can be, no stack to speak of.
 unsafe extern "system" fn handler(pointers: *const EXCEPTION_POINTERS) -> i32 {
-    // The first unhandled exception only.
-    if HIT.swap(true, Ordering::SeqCst) { return EXCEPTION_CONTINUE_SEARCH; }
-    let Some(paths) = PATHS.get() else { return EXCEPTION_CONTINUE_SEARCH };
-    // SAFETY: Windows passes the pointers of the exception being handled; each may be null.
+    // SAFETY: plain Win32 calls on the events made at install.
+    unsafe {
+        // The first unhandled exception is dumped; a crash on another thread meanwhile waits for it.
+        if !HIT.swap(true, Ordering::SeqCst) {
+            CRASH.store(pointers.cast_mut(), Ordering::SeqCst);
+            CRASH_THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
+            let _ = SetEvent(HANDLE(REQUEST.load(Ordering::SeqCst) as *mut _));
+        }
+        WaitForSingleObject(HANDLE(DONE.load(Ordering::SeqCst) as *mut _), WAIT_MS);
+        match PREVIOUS.get().copied().flatten() {
+            Some(previous) => previous(pointers),
+            None => EXCEPTION_CONTINUE_SEARCH,
+        }
+    }
+}
+
+/// On the writer thread: the log lines and the dump of the crash the filter handed over.
+fn write_crash() {
+    let pointers = CRASH.load(Ordering::SeqCst).cast_const();
+    let thread = CRASH_THREAD.load(Ordering::SeqCst);
+    if let Some(paths) = PATHS.get() { write_dump(paths, pointers, thread); }
+    // SAFETY: the event made at install, never closed.
+    let _ = unsafe { SetEvent(HANDLE(DONE.load(Ordering::SeqCst) as *mut _)) };
+}
+
+fn write_dump(paths: &Paths, pointers: *const EXCEPTION_POINTERS, thread: u32) {
+    // SAFETY: the crashed thread waits in the filter, so the exception it passed stays valid; each
+    // pointer may be null.
     let record = unsafe { pointers.as_ref().and_then(|p| p.ExceptionRecord.as_ref()) };
     let (code, address) = record.map_or((0, 0), |r| (r.ExceptionCode.0 as u32, r.ExceptionAddress as usize));
     let info = record.map_or(&[][..], |r| &r.ExceptionInformation[..(r.NumberParameters as usize).min(15)]);
     // SAFETY: plain Win32 calls with buffers on this stack.
     unsafe {
-        let thread = GetCurrentThreadId();
         let mut line = Line::new();
         describe(&mut line, code, address, info, thread);
         append(&paths.log, &line);
@@ -180,8 +240,7 @@ unsafe extern "system" fn handler(pointers: *const EXCEPTION_POINTERS) -> i32 {
         match CreateFileW(PCWSTR(name.as_ptr()), GENERIC_WRITE.0, FILE_SHARE_NONE, None, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, None) {
             Ok(file) => {
                 let exception = MINIDUMP_EXCEPTION_INFORMATION { ThreadId: thread, ExceptionPointers: pointers.cast_mut(), ClientPointers: false.into() };
-                let kind = MiniDumpWithIndirectlyReferencedMemory | MiniDumpIgnoreInaccessibleMemory | MiniDumpWithUnloadedModules | MiniDumpWithThreadInfo;
-                match MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file, kind, Some(&exception), None, None) {
+                match MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file, KIND, Some(&exception), None, None) {
                     Ok(()) => { let _ = write!(line, "nightjar: crash dump written to "); line.wide(path); }
                     Err(e) => { let _ = write!(line, "nightjar: crash dump failed: error 0x{:08X}, ", e.code().0); line.wide(path); }
                 }
@@ -210,7 +269,6 @@ unsafe extern "system" fn handler(pointers: *const EXCEPTION_POINTERS) -> i32 {
         // The log thread may still be writing what came before.
         Sleep(500);
     }
-    EXCEPTION_CONTINUE_SEARCH
 }
 
 #[cfg(test)]
@@ -251,38 +309,82 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Run by [`a_crash_writes_a_dump_and_says_where`] in a child process: crashes for real.
+    /// The exit code of the filter installed before ours in [`crash_child`].
+    const CHAINED: u32 = 0x4E4A;
+
+    unsafe extern "system" fn earlier_filter(_: *const EXCEPTION_POINTERS) -> i32 {
+        // SAFETY: ends this child process.
+        let _ = unsafe { windows::Win32::System::Threading::TerminateProcess(GetCurrentProcess(), CHAINED) };
+        EXCEPTION_CONTINUE_SEARCH
+    }
+
+    fn overflow(depth: u64) -> u64 {
+        if depth == u64::MAX { return 0; }
+        let frame = std::hint::black_box([depth as u8; 4096]);
+        overflow(depth + 1) + u64::from(frame[0])
+    }
+
+    /// Run by the tests below in a child process: crashes for real.
     #[test]
     fn crash_child() {
         let Some(dir) = std::env::var_os("NIGHTJAR_CRASH_CHILD_DIR") else { return };
-        install(Path::new(&dir));
+        let overflows = std::env::var_os("NIGHTJAR_CRASH_CHILD_OVERFLOW").is_some();
         // No Windows Error Reporting dialog for the crash this test makes on purpose.
-        // SAFETY: changes this child process's error mode only.
-        unsafe { windows::Win32::System::Diagnostics::Debug::SetErrorMode(windows::Win32::System::Diagnostics::Debug::SEM_NOGPFAULTERRORBOX) };
+        // SAFETY: changes this child process's error mode and filter only.
+        unsafe {
+            windows::Win32::System::Diagnostics::Debug::SetErrorMode(windows::Win32::System::Diagnostics::Debug::SEM_NOGPFAULTERRORBOX);
+            if !overflows { SetUnhandledExceptionFilter(Some(earlier_filter)); }
+        }
+        install(Path::new(&dir));
+        if overflows {
+            std::hint::black_box(overflow(0));
+        }
         // SAFETY: none; an access violation is the point.
         unsafe { std::ptr::write_volatile(8 as *mut u8, 1) };
     }
 
-    #[test]
-    fn a_crash_writes_a_dump_and_says_where() {
-        let dir = std::env::temp_dir().join(format!("nightjar-crash-{}", std::process::id()));
+    /// Runs [`crash_child`]; its exit code, the dumps it wrote and its log.
+    fn crash(name: &str, overflow: bool) -> (Option<u32>, Vec<PathBuf>, String, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("nightjar-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "crash_dump::tests::crash_child", "--nocapture", "--test-threads=1"])
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact", "crash_dump::tests::crash_child", "--nocapture", "--test-threads=1"])
             .env("NIGHTJAR_CRASH_CHILD_DIR", &dir)
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .unwrap();
-        assert_eq!(status.code().map(|c| c as u32), Some(0xC000_0005), "the child crashed with an access violation");
+            .stderr(std::process::Stdio::null());
+        if overflow { child.env("NIGHTJAR_CRASH_CHILD_OVERFLOW", "1"); }
+        let status = child.status().unwrap();
         let dumps: Vec<PathBuf> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|x| x == "dmp")).collect();
+        for dump in &dumps { assert_eq!(&std::fs::read(dump).unwrap()[..4], b"MDMP", "a minidump"); }
+        let log = std::fs::read_to_string(dir.join(crate::logfile::CURRENT)).unwrap_or_default();
+        (status.code().map(|c| c as u32), dumps, log, dir)
+    }
+
+    #[test]
+    fn a_crash_writes_a_dump_says_where_and_runs_the_earlier_filter() {
+        let (code, dumps, log, dir) = crash("crash", false);
+        assert_eq!(code, Some(CHAINED), "the filter installed before ours ran after it");
         assert_eq!(dumps.len(), 1, "{dumps:?}");
-        let dump = std::fs::read(&dumps[0]).unwrap();
-        assert_eq!(&dump[..4], b"MDMP", "a minidump");
-        let log = std::fs::read_to_string(dir.join(crate::logfile::CURRENT)).unwrap();
         assert!(log.contains("(EXCEPTION_ACCESS_VIOLATION)") && log.contains(", write of 0x8,"), "{log}");
         assert!(log.contains(&format!("crash dump written to {}", dumps[0].display())), "{log}");
         assert!(log.contains("nightjar: crash: in "), "{log}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_stack_overflow_gets_its_dump_too() {
+        let (code, dumps, log, dir) = crash("overflow", true);
+        assert_eq!(code, Some(0xC000_00FD), "the child overflowed its stack");
+        assert_eq!(dumps.len(), 1, "{dumps:?} {log}");
+        assert!(log.contains("(EXCEPTION_STACK_OVERFLOW)") && log.contains("crash dump written to "), "{log}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_dump_leaves_out_memory_behind_pointers() {
+        use windows::Win32::System::Diagnostics::Debug::{MiniDumpWithFullMemory, MiniDumpWithIndirectlyReferencedMemory, MiniDumpWithPrivateReadWriteMemory};
+        for kind in [MiniDumpWithIndirectlyReferencedMemory, MiniDumpWithFullMemory, MiniDumpWithPrivateReadWriteMemory] {
+            assert_eq!(KIND.0 & kind.0, 0, "{kind:?}");
+        }
     }
 }

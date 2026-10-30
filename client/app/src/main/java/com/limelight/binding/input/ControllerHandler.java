@@ -56,7 +56,9 @@ import org.cgutman.shieldcontrollerextensions.SceConnectionType;
 import org.cgutman.shieldcontrollerextensions.SceManager;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -427,6 +429,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.leftStickX = context.leftStickY = 0;
         context.rightStickX = context.rightStickY = 0;
         context.releaseMouseButtons();
+        // A quit combo held as input went away (focus lost, the menu opened) is no longer held.
+        context.quitComboPending = false;
+        context.quitButtons = 0;
         if (context instanceof InputDeviceContext) {
             InputDeviceContext inputContext = (InputDeviceContext) context;
             inputContext.pressedButtons.clear();
@@ -2997,6 +3002,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return (keyCode == REMAP_CONSUME);
         }
 
+        context.quitButtons &= ~quitButton(keyCode);
+        releaseQuitCombo(context, context.quitButtons);
+
         // A user mapping is keyed by the physical key code and replaces face-button flipping
         int userTarget = context.buttonMap.map(event.getKeyCode());
         if (userTarget == ControllerButtonMap.DISABLED) {
@@ -3225,7 +3233,6 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ((Game) activityContext).showStreamMenu();
             }
         }
-        releaseQuitCombo(context, context.inputMap);
 
         return true;
     }
@@ -3262,6 +3269,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (keyCode < 0) {
             return (keyCode == REMAP_CONSUME);
         }
+
+        // Like the desktop's, the quit combo is the physical buttons, even remapped or disabled.
+        context.quitButtons |= quitButton(keyCode);
+        holdQuitCombo(context, context.quitButtons);
 
         // A user mapping is keyed by the physical key code and replaces face-button flipping
         int userTarget = context.buttonMap.map(event.getKeyCode());
@@ -3441,7 +3452,6 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                                  ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
             context.pendingExit = true;
         }
-        holdQuitCombo(context, context.inputMap);
 
         // Start+LB acts like select for controllers with one button
         if (!context.hasSelect) {
@@ -3551,6 +3561,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (stopped || context == null) {
             return;
         }
+        // The driver's own flags are the physical buttons, before mapping and face-button flipping;
+        // the quit combo arms as it comes together, not again for a chord held from the menu.
+        boolean quitChanged = buttonFlags != context.quitButtons;
+        context.quitButtons = buttonFlags;
         int buttons = context.buttonMap.mapButtonFlags(buttonFlags, prefConfig.flipFaceButtons);
         if (!inputEnabled) {
             // Android sees no key events from a pad this driver owns: it steers the menu from here.
@@ -3604,7 +3618,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
             context.menuComboPending = true;
         }
-        holdQuitCombo(context, buttons);
+        if (quitChanged) holdQuitCombo(context, buttonFlags);
 
         sendControllerInputPacket(context);
 
@@ -3614,7 +3628,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ((Game) activityContext).showStreamMenu();
             }
         }
-        releaseQuitCombo(context, buttons);
+        releaseQuitCombo(context, buttonFlags);
     }
 
     /**
@@ -3630,6 +3644,28 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             case "start_lb_rb_b": return shoulders | ControllerPacket.PLAY_FLAG | ControllerPacket.B_FLAG;
             case "lb_rb_x_y": return shoulders | ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG;
             case "lb_rb_a_b": return shoulders | ControllerPacket.A_FLAG | ControllerPacket.B_FLAG;
+            default: return 0;
+        }
+    }
+
+    // A physical button as the quit combo sees it; 0 for buttons no combo uses.
+    static int quitButton(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BUTTON_START: case KeyEvent.KEYCODE_MENU: return ControllerPacket.PLAY_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_SELECT: case KeyEvent.KEYCODE_BACK: return ControllerPacket.BACK_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_L1: return ControllerPacket.LB_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_R1: return ControllerPacket.RB_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_A: return ControllerPacket.A_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_B: return ControllerPacket.B_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_X: return ControllerPacket.X_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_Y: return ControllerPacket.Y_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return ControllerPacket.LS_CLK_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return ControllerPacket.RS_CLK_FLAG;
+            case KeyEvent.KEYCODE_BUTTON_MODE: return ControllerPacket.SPECIAL_BUTTON_FLAG;
+            case KeyEvent.KEYCODE_DPAD_UP: return ControllerPacket.UP_FLAG;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return ControllerPacket.DOWN_FLAG;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return ControllerPacket.LEFT_FLAG;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return ControllerPacket.RIGHT_FLAG;
             default: return 0;
         }
     }
@@ -3651,13 +3687,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
+    // Every controller context the mouse switch covers: the default one and each pad.
+    private List<GenericControllerContext> mouseContexts() {
+        List<GenericControllerContext> contexts = new ArrayList<>();
+        contexts.add(defaultContext);
+        contexts.addAll(inputDeviceContexts.values());
+        contexts.addAll(usbDeviceContexts.values());
+        return contexts;
+    }
+
     /** Any controller drives the mouse (mouse emulation). */
     public boolean isMouseEmulationActive() {
-        if (defaultContext.mouseEmulationActive) return true;
-        for (InputDeviceContext context : inputDeviceContexts.values()) {
-            if (context.mouseEmulationActive) return true;
-        }
-        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+        for (GenericControllerContext context : mouseContexts()) {
             if (context.mouseEmulationActive) return true;
         }
         return false;
@@ -3674,15 +3715,17 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      */
     public void toggleMouseEmulationFromMenu() {
         boolean active = false;
-        for (InputDeviceContext context : inputDeviceContexts.values()) {
-            if (context.mouseEmulationActive) { context.toggleMouseEmulation(); active = true; }
-        }
-        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+        for (GenericControllerContext context : mouseContexts()) {
             if (context.mouseEmulationActive) { context.toggleMouseEmulation(); active = true; }
         }
         if (active) return;
-        for (InputDeviceContext context : inputDeviceContexts.values()) { context.toggleMouseEmulation(); return; }
-        for (UsbDeviceContext context : usbDeviceContexts.values()) { context.toggleMouseEmulation(); return; }
+        // The first controller is the lowest numbered pad, not whichever the map lists first.
+        GenericControllerContext first = null;
+        for (GenericControllerContext context : mouseContexts()) {
+            if (context == defaultContext || !context.assignedControllerNumber) continue;
+            if (first == null || context.controllerNumber < first.controllerNumber) first = context;
+        }
+        if (first != null) first.toggleMouseEmulation();
     }
 
     // The keyboard owns the pad: report each change to it, and treat what is still held on the way
@@ -3699,6 +3742,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // press for the keyboard and stays away from the game until it is let go.
             context.menuButtons = buttons | context.lastButtons;
             context.menuComboPending = false;
+            context.quitComboPending = false;
             context.captureStick = null;
             context.captureGeneration = captureGeneration.get();
             // The game's last state is cleared here, on the thread that sends this pad's reports.
@@ -3731,6 +3775,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             context.steeringMenu = true;
             context.menuButtons = context.lastButtons;
             context.menuComboPending = false;
+            context.quitComboPending = false;
         }
         int pressed = buttons & ~context.menuButtons;
         context.menuButtons = buttons;
@@ -3849,6 +3894,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public boolean mouseEmulationActive;
         // The quit combo was held; the stream ends once every button is up.
         boolean quitComboPending;
+        // The physical buttons held, before user mapping, face-button flipping and the Select,
+        // clickpad and guide emulation: the quit combo is matched against these.
+        int quitButtons;
         public int mouseEmulationLastInputMap;
         public boolean mouseEmulationFixedStepHeld;
         public int mouseEmulationStep = FixedStepMouse.MIN_STEP;

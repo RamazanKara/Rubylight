@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| A focused VRR game next to another animating window: WGC dirty regions tell the game's pictures from the other window's updates and pointer moves; repeats, age, present-to-sent, with and without the pointer moving (ABBA) | [October 30, a focused game's pictures beside another window](#october-30-a-focused-games-pictures-beside-another-window) |
 | Nightjar desktop presenting for VRR: the display check on a 240 Hz FreeSync panel and a fixed 120 Hz laptop panel, what it costs, mid-scan presents, sync interval 1 and waiting out the scan (not kept as defaults) | [October 29, Nightjar desktop on a VRR panel and a fixed one](#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one) |
 | False slow-pace latches from #59's rc.4 logs: a decoder asking twice for a keyframe, a host adapter refusing packets (lifted after 10 s), holding frames for a full socket (not kept), the keyframe cap scale (inert here); latches, stalls, picture age, presentation gaps (ABBA) | [October 29, false slow-pace latches and a stalled adapter](#october-29-false-slow-pace-latches-and-a-stalled-adapter-rc4-field-logs) |
 | The console's Stream page against the browser page: glass-to-glass split at the frame's arrival, page part against the network and host part | [October 28, the console's Stream page against the browser page](#october-28-the-consoles-stream-page-against-the-browser-page-d4) |
@@ -57,6 +58,26 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 30: a focused game's pictures beside another window
+
+A 60 Hz game streamed at 60 fps under VRR from the 240 Hz primary display (5120x1440, display capture through WGC) repeated and skipped frames while another window on the same display animated: every composition counted as a picture of its own, so claims drifted through the game's frames. With this change, on Windows 11 24H2 and newer, the capture reads each composition's dirty regions and the foreground window's bounds. While the foreground window keeps changing, a composition that changed only other windows joins its latest picture instead of starting one, and so does a composition with no dirty region (WGC draws the cursor without one). This is not the October 26 hold below: that one held the game's own later compositions by their timing, while this one never holds the game's own compositions. A game alone on the display is claimed exactly as before (`a_game_alone_on_the_display_is_claimed_as_without_focus_labels`).
+
+The first build left the pointer out. With the pointer circling outside the game at 125 Hz, its compositions came unlabelled and ended the extension. The claim then stopped waiting for the predicted game frame and took the previous one just before the next arrived, a game frame late (traced: the claimed capture was 4 to 7.7 ms old in 133 of 1137 claims). The fix counts a composition without dirty regions as part of the picture while the foreground window animates (`a_pointer_moving_beside_the_focused_game_does_not_cost_it_a_frame`). The rows below are from that build.
+
+Setup: `e2e.py --codec hevc --vrr --motion-script 60 --record --seconds 60 --config minimum_fps_target=20` with an isolated test host. The motion probe strip (the 60 Hz game) was kept in the foreground, and ffplay drew `testsrc2` at 240 fps in a 480x270 window on the same display. Pointer legs circled the pointer outside the game at 125 Hz. A is main at `843b5e923`, B is `843b5e923` with this change and the pointer fix, each in the rc.5 package. Each leg waited for a quiet CPU first. Other lanes' builds still loaded some legs: the CPU column is the machine's load during the stream, and legs at 75 % or more (A at 98 and 99 %, B at 91 and 99 %, one A leg failing on delivery gaps) are left out. Repeats are game frames the client's motion probe showed twice. Age and present-to-sent are the host's 5 s `stream timings` lines, averaged over the leg. Picture age is the client's.
+
+| Leg | Pointer | CPU | Repeats / skips | Age p50 / p95 / p99 | Present-to-sent p50 / p95 / p99 | Cadence error p50 / p99 | Picture age mean / p95 | Pictures/s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A | moving | 40 % | 200 / 194 | 0.28 / 3.31 / 6.22 | 3.25 / 5.68 / 8.72 | 0.24 / 9.34 | 19.1 / 26.5 | 176.9 |
+| A | moving | 36 % | 159 / 154 | 0.28 / 2.78 / 7.63 | 3.22 / 5.32 / 10.28 | 0.26 / 9.07 | 20.0 / 27.5 | 190.7 |
+| B | moving | 50 % | 0 / 0 | 0.30 / 0.39 / 0.43 | 2.82 / 3.26 / 3.42 | 0.17 / 0.84 | 12.8 / 14.7 | 60.0 |
+| B | moving | 29 % | 4 / 1 | 0.47 / 1.52 / 1.72 | 3.07 / 4.17 / 4.51 | 0.24 / 2.61 | 15.2 / 19.3 | 60.3 |
+| B | moving | 50 % | 20 / 14 | 0.80 / 4.85 / 6.06 | 3.90 / 7.71 / 8.73 | 0.24 / 4.88 | 17.7 / 25.2 | 63.9 |
+| A | still | 9 % | 294 / 289 | 1.24 / 15.23 / 16.46 | 6.20 / 17.59 / 18.85 | 1.43 / 16.33 | 17.4 / 25.8 | 105.3 |
+| B | still | 29 % | 0 / 0 | 0.26 / 0.35 / 0.39 | 2.76 / 3.22 / 3.37 | 0.18 / 0.88 | 12.1 / 13.2 | 60.0 |
+
+With the pointer moving, B's age p95 averaged 2.25 ms against A's 3.05, p99 2.74 against 6.93, and present-to-sent p95 5.05 against 5.50, with 0 to 20 repeats against 159 to 200. One B leg, run while another lane's build used half the CPU, had a higher age p95 than either A leg (4.85 ms). With the pointer still, B was ahead on every column. In that pair ffplay reached only about 110 compositions a second against 240 in the earlier legs, on both builds. On October 29, without the pointer fix, two pairs without the pointer also favoured B: repeats 3.5 against 53 per leg, age p95 / p99 0.71 / 0.94 against 1.01 / 6.32 ms, present-to-sent p95 3.26 against 3.99 ms. **Kept.**
 
 ## October 29: Nightjar desktop on a VRR panel and a fixed one
 

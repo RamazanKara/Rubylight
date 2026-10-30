@@ -6,6 +6,12 @@ pub mod feature {
     pub const PEN_TOUCH_EVENTS: u32 = 0x01;
     /// Controller touchpad and motion events.
     pub const CONTROLLER_TOUCH_EVENTS: u32 = 0x02;
+    /// A laptop touchpad's raw contacts, one per packet (Foundation Sunshine,
+    /// `LI_FF_TOUCHPAD_EVENTS`).
+    pub const TOUCHPAD_EVENTS: u32 = 0x10;
+    /// A laptop touchpad's contacts of one hardware frame in one packet
+    /// (`LI_FF_TOUCHPAD_FRAME_EVENTS`).
+    pub const TOUCHPAD_FRAME_EVENTS: u32 = 0x20;
 }
 
 /// Client feature flags (`x-ml-general.featureFlags`), client to host.

@@ -21,6 +21,7 @@ mod controller_audio;
 mod controller_mouse;
 mod dmabuf;
 mod gamepad;
+mod glyphs;
 mod gui;
 mod host_page;
 mod hosts;
@@ -28,6 +29,7 @@ mod keymap;
 mod logfile;
 mod logpipe;
 mod media;
+mod nav_repeat;
 mod network;
 mod network_test;
 mod radeon;
@@ -146,6 +148,7 @@ struct App {
     screenshot_dir: PathBuf,
     screenshot_requested: bool,
     stick_held: [bool; 4],
+    nav_repeat: nav_repeat::NavRepeat,
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
@@ -471,6 +474,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         screenshot_dir,
         screenshot_requested: false,
         stick_held: [false; 4],
+        nav_repeat: nav_repeat::NavRepeat::default(),
         running: true,
         autostream: autostream::Autostream::from_env(),
         updates,
@@ -597,7 +601,13 @@ impl App {
                         for e in gui::tap(key) {
                             self.gui.push(e);
                         }
+                        if matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight) {
+                            self.nav_repeat.hold(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button), key, Instant::now());
+                        }
                     }
+                }
+                SDL_EVENT_GAMEPAD_BUTTON_UP => {
+                    self.nav_repeat.release(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button));
                 }
                 SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     let a = event.gaxis;
@@ -612,10 +622,44 @@ impl App {
                         for e in gui::tap(key) {
                             self.gui.push(e);
                         }
+                        self.nav_repeat.hold(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0), key, Instant::now());
                     }
                     self.stick_held[slot] = i32::from(a.value).abs() > 12000 && (held || self.stick_held[slot]);
+                    if !self.stick_held[slot] {
+                        self.nav_repeat.release(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0));
+                    }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Steps a held D-pad direction or stick again (nav_repeat.rs). A hold whose release went to
+    /// the stream, or whose controller left, is checked against the controller and dropped.
+    fn repeat_navigation(&mut self) {
+        if self.launcher.screen == Screen::Controllers && self.launcher.controller_test {
+            self.nav_repeat.clear();
+            return;
+        }
+        let keys = self.nav_repeat.due(Instant::now(), |pad, input| {
+            // SAFETY: SDL gamepad queries on the main thread; a null gamepad has left.
+            unsafe {
+                let gamepad = SDL_GetGamepadFromID(SDL_JoystickID(pad));
+                if gamepad.is_null() {
+                    return false;
+                }
+                match input {
+                    nav_repeat::Input::Button(button) => SDL_GetGamepadButton(gamepad, SDL_GamepadButton(i32::from(button))),
+                    nav_repeat::Input::Axis(axis, positive) => {
+                        let value = i32::from(SDL_GetGamepadAxis(gamepad, SDL_GamepadAxis(i32::from(axis))));
+                        if positive { value > 12000 } else { value < -12000 }
+                    }
+                }
+            }
+        });
+        for key in keys {
+            for e in gui::tap(key) {
+                self.gui.push(e);
             }
         }
     }
@@ -634,7 +678,7 @@ impl App {
                 SDL_EVENT_GAMEPAD_REMOVED => {
                     self.pads.removed(event.gdevice.which);
                 }
-                SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
+                SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     if self.launcher.screen != Screen::Controllers || !self.launcher.controller_test { self.navigate(event); }
                 }
                 SDL_EVENT_KEY_DOWN if event.key.scancode == SDL_SCANCODE_F12 => {
@@ -658,6 +702,8 @@ impl App {
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some() || self.autostream.is_some();
         let timeout = if busy { 16 } else { 250 };
+        // A held direction wakes the loop for its next step.
+        let timeout = self.nav_repeat.next(Instant::now()).map_or(timeout, |next| timeout.min(next.as_millis().min(250) as i32 + 1));
         // SAFETY: event polling on the main thread.
         unsafe {
             let mut event: SDL_Event = std::mem::zeroed();
@@ -671,6 +717,7 @@ impl App {
         if !self.running {
             return;
         }
+        self.repeat_navigation();
         let test_events: Vec<_> = self.network_test.as_ref().map(|test| test.events.try_iter().collect()).unwrap_or_default();
         for event in test_events {
             match event {
@@ -1715,6 +1762,7 @@ impl App {
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
+        streaming.pump_touchpad(window);
         streaming.pump();
         if streaming.session_page_requested {
             let link = self.launcher.network.description(&self.launcher.profiles.home_wifi);
@@ -2118,7 +2166,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                     if ui.button(tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
                     if ui.button(tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
-                    ui.label(tr("Ctrl+Alt+Shift+Tab or Start+Select opens this menu."));
+                    let style = glyphs::Style::of(pads);
+                    ui.label(trf("Ctrl+Alt+Shift+Tab or {}+{} opens this menu.", &[&style.start(), &style.select()]));
                 });
         }
         if visible {

@@ -167,7 +167,7 @@ pub fn start(
     waker: Waker,
 ) {
     let client = match identity {
-        Some(identity) => client_for(identity, &host.record, &host.record.address),
+        Some(identity) => client_for(identity, &host.record, host.connect_address()),
         None => Err(
             tr("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned(),
         ),

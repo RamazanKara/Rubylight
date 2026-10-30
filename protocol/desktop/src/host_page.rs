@@ -33,7 +33,7 @@ pub fn web_ui_url(host: &Host) -> Option<Result<String, String>> {
     let info = host.info.as_ref().filter(|i| host.reach == Reach::Online && i.capabilities.has(Feature::WebUi))?;
     let https_port = if info.https_port != 0 { info.https_port } else { host.record.https_port };
     let http_port = if host.record.http_port == 0 { DEFAULT_HTTP_PORT } else { host.record.http_port };
-    web_ui_at(&host.record.address, http_port, https_port)
+    web_ui_at(host.connect_address(), http_port, https_port)
 }
 
 /// Android's host details: the HTTPS port + 6 (47990 by default), else the HTTP port + 1.
@@ -88,7 +88,7 @@ pub fn start_check(remote: &mut RemoteAccess, identity: Option<&Arc<ClientIdenti
         return;
     }
     let client = match identity {
-        Some(identity) => client_for(identity, &host.record, &host.record.address),
+        Some(identity) => client_for(identity, &host.record, host.connect_address()),
         None => Err(tr("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned()),
     };
     match client {

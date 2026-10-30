@@ -429,17 +429,6 @@ fn inverse(plane: &mut [f32], stride: usize, width: usize, height: usize, scratc
     }
 }
 
-pub fn minimum_bitrate(width: u32, height: u32, fps: u32, chroma444: bool, hdr: bool) -> u32 {
-    let coefficients = if chroma444 {
-        [330.65932695689867, -12.487508056245487, 13.060737308248315, 139.64851902220505, -97.97414051841574, -112.81552415088743, 57.365194646059074, 57.19110311397152]
-    } else {
-        [309.25055550415766, 8.351816219985253, -9.905584693249878, 172.18790660175173, -64.17408945040484, -201.4015992260083, 46.22089684565188, 105.90424439986334]
-    };
-    let x = (f64::from(width) * f64::from(height)).clamp(921_600.0, 8_294_400.0).sqrt() * 0.001 - 2.0;
-    let estimate = coefficients.into_iter().rev().fold(0.0, |acc, c| acc * x + c);
-    (estimate * 0.008 * f64::from(fps.max(1)) * if hdr { 1.2 } else { 1.0 }).ceil() as u32 * 1000
-}
-
 /// One reconstructed frame, ready for the presenter.
 pub struct Output {
     pub picture: Picture,
@@ -1091,16 +1080,6 @@ mod tests {
             unsafe { pack_half_row(&mut row, [&values; 3]); }
             for (pixel, value) in row.iter().zip(values) { assert_eq!(*pixel, [half(value), half(value), half(value), 0x3c00]); }
         }
-    }
-
-    #[test]
-    fn bitrate_floors_match_androids_reference_values() {
-        for (width, height, expected) in [(1280, 720, 89_000), (1920, 1080, 133_000), (2560, 1440, 149_000), (3840, 2160, 167_000)] {
-            assert_eq!(minimum_bitrate(width, height, 60, false, false), expected);
-        }
-        assert_eq!(minimum_bitrate(1920, 1080, 60, true, false), 151_000);
-        assert_eq!(minimum_bitrate(1920, 1080, 120, false, false), 265_000);
-        assert_eq!(minimum_bitrate(1920, 1080, 60, false, true), 159_000);
     }
 
     #[test]

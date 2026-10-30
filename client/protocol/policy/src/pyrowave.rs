@@ -1,5 +1,5 @@
 //! PyroWave's runtime bitrate: [`BitrateController`] is Android's `PyroWaveBitrateController.java`
-//! and [`minimum_kbps`] its `PyroWaveBitrateFloor.java`.
+//! and [`minimum_kbps`], [`default_kbps`] and [`start_kbps`] its `PyroWaveBitrateFloor.java`.
 //!
 //! The controller steers only from what this client measures. The pacing hints
 //! (`pyrowaveLinkMbps`, `pyrowavePaceMbps`) go to the host at launch and stay the host's source;
@@ -148,57 +148,39 @@ impl BitrateController {
     }
 }
 
-/// The regression covers 720p to 4K pixel counts; sizes outside use the nearest end.
-const MIN_PIXELS: u64 = 1280 * 720;
-const MAX_PIXELS: u64 = 3840 * 2160;
+/// The lowest bitrate PyroWave still holds together at, in Kbps: the host's severe-detail-loss
+/// floor (`pyrowave::minimum_kbps` in rust/core/src/pyrowave.rs), 2.5 bits per pixel per frame
+/// below 1080 lines and 1.5 from 1080 up, the same for SDR and HDR, 4:2:0 and 4:4:4 (measured on
+/// representative pictures, rust/PERFORMANCE.md). The host lowers PyroWave no further and warns
+/// below it. PyroWave is intra-only, so below this every frame visibly falls apart instead of
+/// just softening.
+pub fn minimum_kbps(width: u32, height: u32, fps: u32) -> u32 {
+    bitrate_kbps(width, height, fps, if height < 1080 { 25 } else { 15 })
+}
 
-// Bytes per frame as a polynomial in sqrt(megapixels) - 2: the 30 dB, height factor 2.00 rows.
-#[allow(clippy::excessive_precision)]
-const YUV420: [f64; 8] = [
-    309.25055550415766,
-    8.351816219985253,
-    -9.905584693249878,
-    172.18790660175173,
-    -64.17408945040484,
-    -201.4015992260083,
-    46.22089684565188,
-    105.90424439986334,
-];
-#[allow(clippy::excessive_precision)]
-const YUV444: [f64; 8] = [
-    330.65932695689867,
-    -12.487508056245487,
-    13.060737308248315,
-    139.64851902220505,
-    -97.97414051841574,
-    -112.81552415088743,
-    57.365194646059074,
-    57.19110311397152,
-];
+/// The bitrate a PyroWave stream starts at when the user has not chosen one: the host's
+/// clean-picture target (`pyrowave::recommended_kbps`), 5 bits per pixel per frame below 1080
+/// lines and 3.2 from 1080 up, which is about 280 Mbps at 720p60 and 400 Mbps at 1080p60, the
+/// starting points the client docs give. No more than a stream may ask for.
+pub fn default_kbps(width: u32, height: u32, fps: u32) -> u32 {
+    bitrate_kbps(width, height, fps, if height < 1080 { 50 } else { 32 }).min(MAX_RUNTIME_KBPS)
+}
 
-// The author allows 1.2x for HDR10.
-const HDR_FACTOR: f64 = 1.2;
-
-/// The lowest bitrate PyroWave still holds together at, in Kbps rounded up to a whole Mbps.
-///
-/// From its author's objective bitrate regression (Themaister/pyrowave,
-/// eval-results/pyrowave_regression_results.h, MIT): its lowest level, 30 dB PSNR-HVS-M-H at a
-/// viewing distance of twice the screen height. PyroWave is intra-only, so below this every frame
-/// visibly falls apart instead of just softening.
-pub fn minimum_kbps(width: u32, height: u32, fps: u32, yuv444: bool, hdr: bool) -> u32 {
-    let pixels = (u64::from(width) * u64::from(height)).clamp(MIN_PIXELS, MAX_PIXELS);
-    let x = (pixels as f64 * 1e-6).sqrt() - 2.0;
-    let coefficients = if yuv444 { &YUV444 } else { &YUV420 };
-    let (mut estimate, mut power) = (0.0, 1.0);
-    for coefficient in coefficients {
-        estimate += power * coefficient;
-        power *= x;
+/// The bitrate a PyroWave stream starts at: [`default_kbps`] when the bitrate is automatic, else
+/// the chosen one, raised to [`minimum_kbps`] (up to what a stream may ask for) when below it.
+pub fn start_kbps(configured: u32, automatic: bool, width: u32, height: u32, fps: u32) -> u32 {
+    if automatic {
+        default_kbps(width, height, fps)
+    } else {
+        configured.max(minimum_kbps(width, height, fps).min(MAX_RUNTIME_KBPS))
     }
-    let factor = if hdr { HDR_FACTOR } else { 1.0 };
-    let mbps = estimate * 8e-3 * f64::from(fps.max(1)) * factor;
-    // Clamped so an absurd frame rate cannot overflow the Kbps; Java's int would wrap.
-    let mbps = mbps.ceil().clamp(0.0, f64::from(u32::MAX / 1000));
-    mbps as u32 * 1000
+}
+
+// The host's arithmetic at a whole frame rate: tenths of a bit per pixel per frame, rounded up.
+fn bitrate_kbps(width: u32, height: u32, fps: u32, bpp_tenths: u32) -> u32 {
+    (u128::from(width) * u128::from(height) * u128::from(fps) * u128::from(bpp_tenths))
+        .div_ceil(10_000)
+        .min(u128::from(u32::MAX)) as u32
 }
 
 pub(crate) fn traced_floor(args: &Value) -> Result<Box<dyn Subject>, String> {
@@ -282,14 +264,16 @@ impl Subject for TracedFloor {
     fn call(&mut self, method: &str, args: &Value) -> Result<Value, String> {
         match method {
             "minimum_kbps" => {
+                let a = Args::new(args, 3)?;
+                Ok(minimum_kbps(a.int(0)?, a.int(1)?, a.int(2)?).into())
+            }
+            "default_kbps" => {
+                let a = Args::new(args, 3)?;
+                Ok(default_kbps(a.int(0)?, a.int(1)?, a.int(2)?).into())
+            }
+            "start_kbps" => {
                 let a = Args::new(args, 5)?;
-                let kbps = minimum_kbps(
-                    a.int(0)?,
-                    a.int(1)?,
-                    a.int(2)?,
-                    flag(args, 3)?,
-                    flag(args, 4)?,
-                );
+                let kbps = start_kbps(a.int(0)?, flag(args, 1)?, a.int(2)?, a.int(3)?, a.int(4)?);
                 Ok(kbps.into())
             }
             _ => Err(format!("unknown method {method}")),
@@ -311,8 +295,42 @@ mod tests {
 
     #[test]
     fn an_absurd_frame_rate_saturates_the_floor() {
-        assert_eq!(minimum_kbps(3840, 2160, u32::MAX, true, true), u32::MAX / 1000 * 1000);
-        assert!(minimum_kbps(3840, 2160, 1_000_000, true, true) > MAX_RUNTIME_KBPS);
+        assert_eq!(minimum_kbps(3840, 2160, u32::MAX), u32::MAX);
+        assert!(minimum_kbps(3840, 2160, 1_000_000) > MAX_RUNTIME_KBPS);
+        assert_eq!(default_kbps(3840, 2160, u32::MAX), MAX_RUNTIME_KBPS);
+        assert_eq!(start_kbps(5_000, false, 3840, 2160, u32::MAX), MAX_RUNTIME_KBPS);
+    }
+
+    // The host's own figures (rust/core/src/pyrowave.rs, quality_bitrates_scale_with_pixels_and_frame_rate),
+    // so the client never starts PyroWave at a rate the host calls too low.
+    #[test]
+    fn the_floor_and_default_are_the_hosts() {
+        assert_eq!(minimum_kbps(1280, 720, 60), 138_240);
+        assert_eq!(minimum_kbps(1920, 1080, 60), 186_624);
+        assert_eq!(minimum_kbps(3840, 2160, 60), 746_496);
+        assert_eq!(minimum_kbps(1920, 1080, 30), 93_312);
+        assert_eq!(minimum_kbps(1280, 720, 120), 276_480);
+        assert_eq!(default_kbps(1280, 720, 60), 276_480);
+        assert_eq!(default_kbps(1920, 1080, 60), 398_132);
+        assert_eq!(default_kbps(3840, 2160, 60), 1_592_525);
+        assert_eq!(default_kbps(1920, 1080, 120), 796_263);
+        for (w, h, fps) in [(1280, 720, 60), (1920, 1080, 60), (2560, 1440, 120), (3840, 2160, 60)] {
+            assert!(default_kbps(w, h, fps) > minimum_kbps(w, h, fps), "{w}x{h}@{fps}");
+        }
+    }
+
+    #[test]
+    fn a_stream_starts_at_the_default_or_a_chosen_rate_no_lower_than_the_floor() {
+        // Automatic: the default, whatever the stored conventional default was.
+        assert_eq!(start_kbps(20_000, true, 1920, 1080, 60), 398_132);
+        assert_eq!(start_kbps(20_000, true, 2560, 1440, 120), 1_415_578);
+        assert_eq!(start_kbps(20_000, true, 3840, 2160, 60), 1_592_525);
+        assert_eq!(start_kbps(20_000, true, 3840, 2160, 120), MAX_RUNTIME_KBPS);
+        // Chosen below the floor: raised to it. Above it: untouched, even past the default.
+        assert_eq!(start_kbps(20_000, false, 1920, 1080, 60), 186_624);
+        assert_eq!(start_kbps(200_000, false, 1920, 1080, 60), 200_000);
+        assert_eq!(start_kbps(900_000, false, 1920, 1080, 60), 900_000);
+        assert_eq!(start_kbps(MAX_RUNTIME_KBPS, false, 3840, 2160, 60), MAX_RUNTIME_KBPS);
     }
 
     #[test]

@@ -333,6 +333,7 @@
     <string name="stream_bitrate_invalid">0.5 ile 2000 Mbps arasında bir bit hızı girin</string>
     <string name="stream_bitrate_applied">Ana bilgisayar %1$.1f Mbps uyguladı</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps, %3$d×%4$d ve %5$d FPS için PyroWave alt sınırı olan %2$d Mbps değerinin altında. Görüntü bozulacak.</string>
+    <string name="stream_pyrowave_bitrate_raised">%1$.1f Mbps bit hızınız PyroWave alt sınırının altında, bu yüzden bu yayın %2$.1f Mbps kullanıyor.</string>
     <string name="stream_enabled">Açık</string>
     <string name="stream_disabled">Kapalı</string>
     <string name="stream_limiter_status">Ana bilgisayar kare sınırı: %1$s\nOtomatik ekran sınırı: %2$s\nHedef: %3$s</string>

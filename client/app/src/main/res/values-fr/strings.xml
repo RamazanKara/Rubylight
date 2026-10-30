@@ -333,6 +333,7 @@
     <string name="stream_bitrate_invalid">Saisissez un débit de 0,5 à 2000 Mbit/s</string>
     <string name="stream_bitrate_applied">Débit appliqué par l’hôte : %1$.1f Mbit/s</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbit/s est sous le minimum de PyroWave de %2$d Mbit/s en %3$d×%4$d à %5$d FPS. L’image sera fragmentée.</string>
+    <string name="stream_pyrowave_bitrate_raised">Votre débit de %1$.1f Mbit/s est sous le minimum de PyroWave, ce stream utilise donc %2$.1f Mbit/s.</string>
     <string name="stream_enabled">Activé</string>
     <string name="stream_disabled">Désactivé</string>
     <string name="stream_limiter_status">Limite d’images de l’hôte : %1$s\nLimite d’affichage auto : %2$s\nCible : %3$s</string>

@@ -333,6 +333,7 @@
     <string name="stream_bitrate_invalid">Nhập tốc độ bit từ 0,5 đến 2000 Mbps</string>
     <string name="stream_bitrate_applied">Máy chủ đã áp dụng %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps thấp hơn mức tối thiểu %2$d Mbps của PyroWave ở %3$d×%4$d, %5$d FPS. Hình ảnh sẽ bị vỡ.</string>
+    <string name="stream_pyrowave_bitrate_raised">Bitrate %1$.1f Mbps của bạn thấp hơn mức tối thiểu của PyroWave, nên luồng này dùng %2$.1f Mbps.</string>
     <string name="stream_enabled">Bật</string>
     <string name="stream_disabled">Tắt</string>
     <string name="stream_limiter_status">Giới hạn khung hình của máy chủ: %1$s\nGiới hạn hiển thị tự động: %2$s\nMục tiêu: %3$s</string>

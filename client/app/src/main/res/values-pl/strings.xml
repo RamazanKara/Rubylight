@@ -333,6 +333,7 @@
     <string name="stream_bitrate_invalid">Wpisz szybkość transmisji od 0,5 do 2000 Mbps</string>
     <string name="stream_bitrate_applied">Host zastosował %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps to mniej niż minimum PyroWave, %2$d Mbps przy %3$d×%4$d, %5$d FPS. Obraz będzie się rozpadał.</string>
+    <string name="stream_pyrowave_bitrate_raised">Twój bitrate %1$.1f Mbps jest poniżej minimum PyroWave, więc ten stream używa %2$.1f Mbps.</string>
     <string name="stream_enabled">Wł.</string>
     <string name="stream_disabled">Wył.</string>
     <string name="stream_limiter_status">Limit klatek hosta: %1$s\nAutomatyczny limit ekranu: %2$s\nCel: %3$s</string>

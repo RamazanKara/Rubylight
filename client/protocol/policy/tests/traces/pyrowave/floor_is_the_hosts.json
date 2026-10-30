@@ -1,0 +1,15 @@
+{
+  "source": "PyroWaveBitrateFloorTest.theFloorIsTheHosts",
+  "rust": "pyrowave::BitrateFloor",
+  "java": "com.limelight.nvstream.PyroWaveBitrateFloor",
+  "new": null,
+  "calls": [
+    {"call": "minimum_kbps", "args": [1280, 720, 60], "expect": 138240},
+    {"call": "minimum_kbps", "args": [1920, 1080, 60], "expect": 186624},
+    {"call": "minimum_kbps", "args": [2560, 1440, 120], "expect": 663552},
+    {"call": "minimum_kbps", "args": [3840, 2160, 60], "expect": 746496},
+    {"call": "minimum_kbps", "args": [1920, 1080, 30], "expect": 93312},
+    {"call": "minimum_kbps", "args": [1280, 720, 120], "expect": 276480},
+    {"call": "minimum_kbps", "args": [1280, 720, 0], "expect": 0}
+  ]
+}

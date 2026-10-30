@@ -31,7 +31,7 @@ public enum StreamPreset {
 
     boolean matches(SharedPreferences preferences, String nativeResolution, float panelMaxHz) {
         String fps = Integer.toString(fps(panelMaxHz));
-        int bitrate = PreferenceConfiguration.getDefaultBitrate(nativeResolution, fps);
+        int bitrate = PreferenceConfiguration.getShownDefaultBitrate(preferences, nativeResolution, fps, null);
         if (!nativeResolution.equals(preferences.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING,
                 PreferenceConfiguration.DEFAULT_RESOLUTION)) ||
                 !fps.equals(preferences.getString(PreferenceConfiguration.FPS_PREF_STRING, PreferenceConfiguration.DEFAULT_FPS)) ||
@@ -56,7 +56,7 @@ public enum StreamPreset {
         return true;
     }
 
-    // The codec, HDR and 4:4:4 choices stay as they are.
+    // The codec, HDR and 4:4:4 choices stay as they are; the bitrate is the default for that codec.
     void apply(SharedPreferences preferences, String nativeResolution, float panelMaxHz) {
         String fps = Integer.toString(fps(panelMaxHz));
         SharedPreferences.Editor editor = preferences.edit()
@@ -64,7 +64,7 @@ public enum StreamPreset {
                 .putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING, true)
                 .putString(PreferenceConfiguration.FPS_PREF_STRING, fps)
                 .putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
-                        PreferenceConfiguration.getDefaultBitrate(nativeResolution, fps))
+                        PreferenceConfiguration.getShownDefaultBitrate(preferences, nativeResolution, fps, null))
                 .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, false)
                 .putBoolean("checkbox_vrr", false)
                 .putString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off")

@@ -38,8 +38,10 @@ public class ConnectionContext {
     public boolean rateChange;
     // Set only for the launch that retries after the user confirmed closing the running game
     public boolean confirmReplace;
-    // The bitrate the stream starts at: the configured one, or lower after a link test
+    // The bitrate the stream starts at: the configured one, lower after a link test, or PyroWave's own
     public int startBitrateKbps;
+    // The chosen bitrate PyroWave's floor raised startBitrateKbps from, or 0
+    public int pyroWaveRaisedFromKbps;
 
     public int negotiatedWidth, negotiatedHeight;
     // HDR is asked for in the launch only when this is set; 10-bit SDR negotiates 10-bit without it.

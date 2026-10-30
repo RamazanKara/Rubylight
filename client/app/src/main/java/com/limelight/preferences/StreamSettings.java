@@ -1809,20 +1809,18 @@ public class StreamSettings extends NightjarActivity {
         }
 
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
-            // A bitrate the user picked stays; a default one follows the new resolution and frame rate.
+            resetBitrateToDefault(prefs, res, fps, null);
+        }
+
+        static void resetBitrateToDefault(SharedPreferences prefs, String res, String fps, String codec) {
+            // A bitrate the user picked stays; a default one follows the new resolution, frame rate
+            // and codec (PyroWave has its own).
             if (PreferenceConfiguration.isBitrateUserSet(prefs)) {
                 return;
             }
-            if (res == null) {
-                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
-            }
-            if (fps == null) {
-                fps = prefs.getString(PreferenceConfiguration.FPS_PREF_STRING, PreferenceConfiguration.DEFAULT_FPS);
-            }
-
             prefs.edit()
                     .putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
-                            PreferenceConfiguration.getDefaultBitrate(res, fps))
+                            PreferenceConfiguration.getShownDefaultBitrate(prefs, res, fps, codec))
                     .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, false)
                     .apply();
         }
@@ -1997,6 +1995,7 @@ public class StreamSettings extends NightjarActivity {
             codec.setOnPreferenceChangeListener((preference, value) -> {
                 texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(value));
                 updateCodecSummary(codec, (String) value, hdr.isChecked());
+                resetBitrateToDefault(settings, null, null, (String) value);
                 return true;
             });
             hdr.setOnPreferenceChangeListener((preference, value) -> {

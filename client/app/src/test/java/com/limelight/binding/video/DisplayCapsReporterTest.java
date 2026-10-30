@@ -28,6 +28,22 @@ public class DisplayCapsReporterTest {
     }
 
     @Test
+    public void aMissingPeakIsEstimatedFromTheHdrSdrRatio() {
+        // No peak, black or average from the display, a 5x HDR/SDR headroom: 5 x 300 nits.
+        DisplayCapsReporter.Caps caps = reporter.update("0:1080x2400", true, -1, -1, Float.NaN, 5f);
+        assertNotNull(caps);
+        assertEquals(1500, caps.maxNits, 0);
+        assertEquals(300, caps.maxAverageNits, 0);
+        assertEquals(0.001f, caps.minNits, 0);
+        // A reported peak wins over the ratio, and the plausibility floor still applies to it.
+        assertEquals(1000, DisplayCapsReporter.Caps.of(true, 1000, 500, 0.0005f, 5f).maxNits, 0);
+        assertEquals(0, DisplayCapsReporter.Caps.of(true, 400, 300, 0.0005f, 5f).maxNits, 0);
+        // Without a usable ratio a missing peak stays unknown.
+        assertEquals(0, DisplayCapsReporter.Caps.of(true, 0, 0, 0, 1f).maxNits, 0);
+        assertEquals(0, DisplayCapsReporter.Caps.of(true, 0, 0, 0, Float.NaN).maxNits, 0);
+    }
+
+    @Test
     public void foldAndExternalOutputChangesReportTheNewPanel() {
         assertNotNull(reporter.update("0:1968x2184", true, 1000, 500, 0.0005f));
         // The cover screen shares the inner screen's logical display ID.

@@ -1445,6 +1445,11 @@ public class NvHTTP {
             "&remoteControllersBitmap=" + gamepads +
             "&gcmap=" + gamepads +
             "&gcpersist="+(role != NvApp.Role.REMOTE_MONITOR && context.streamConfig.getPersistGamepadsAfterDisconnect() ? 1 : 0) +
+            // The display's luminance as Moonlight V+ sends it to Sunshine-family hosts; a Rubylight
+            // host gets it in the DisplayCaps control message once the stream runs.
+            (inputOnly || caps.family() == HostCapabilities.Family.RUBYLIGHT ||
+                    context.streamConfig.getDisplayLuminance() == null ? "" :
+                    context.streamConfig.getDisplayLuminance().toQueryParameters()) +
             (caps.family() != HostCapabilities.Family.RUBYLIGHT ? "" :
                     "&" + LaunchConfirmation.REPLACE_PARAMETER + "=" + (context.confirmReplace ? 1 : 0)) +
             (context.fecChoice == null || !caps.has(HostCapabilities.Feature.CLIENT_FEC) ? "" :

@@ -5,7 +5,6 @@ import java.io.OutputStream;
 import java.io.StringReader;
 import java.net.Inet4Address;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -38,6 +37,7 @@ import com.limelight.preferences.HostStreamProfile;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.FrontendExportStore;
 import com.limelight.utils.FrontendSync;
+import com.limelight.utils.LiteralAddress;
 import com.limelight.utils.NetHelper;
 import com.limelight.utils.RedactedLog;
 import com.limelight.utils.ServerHelper;
@@ -155,17 +155,16 @@ public class ComputerManagerService extends Service {
                 }
 
                 if (existingComputer == null) {
-                    try {
-                        // If the active address is a site-local address (RFC 1918),
-                        // then use STUN to populate the external address field if
-                        // it's not set already.
-                        if (details.remoteAddress == null) {
-                            InetAddress addr = InetAddress.getByName(details.activeAddress.address);
-                            if (addr.isSiteLocalAddress()) {
-                                populateExternalAddress(details);
-                            }
+                    // If the active address is a site-local address (RFC 1918),
+                    // then use STUN to populate the external address field if
+                    // it's not set already. Only a literal address is classified: a
+                    // name is not looked up for this.
+                    if (details.remoteAddress == null) {
+                        InetAddress addr = LiteralAddress.parse(details.activeAddress.address);
+                        if (addr != null && addr.isSiteLocalAddress()) {
+                            populateExternalAddress(details);
                         }
-                    } catch (UnknownHostException ignored) {}
+                    }
                 }
             }
 

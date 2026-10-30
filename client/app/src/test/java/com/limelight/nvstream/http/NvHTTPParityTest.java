@@ -655,6 +655,31 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void displayLuminanceGoesToOtherHostsAtLaunchAndToRubylightByControlMessage() throws Exception {
+        com.limelight.utils.HdrBrightness luminance =
+                com.limelight.utils.HdrBrightness.create(1000.125f, 0.0004f, 600.25f);
+        for (String server : new String[] {"sunshine-serverinfo.xml", "vibepollo-serverinfo.xml",
+                "apollo-serverinfo.xml", "butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml"}) {
+            ConnectionContext context = context(server);
+            // Unknown luminance sends nothing, so the host picks its own fallback.
+            assertNull(server, query(context, true).queryParameter("maxBrightness"));
+            context.streamConfig = new StreamConfiguration.Builder()
+                    .setResolution(1968, 2184).setRefreshRate(120).setLaunchRefreshRate(120)
+                    .setClientRefreshRateX100(11988).setVirtualDisplay(true, 100)
+                    .setDisplayLuminance(luminance).build();
+            HttpUrl query = query(context, true);
+            if (context.hostCaps.family() == HostCapabilities.Family.RUBYLIGHT) {
+                assertNull(server, query.queryParameter("maxBrightness"));
+                continue;
+            }
+            // Float precision both ways, whatever the locale.
+            assertEquals(server, 1000.125f, Float.parseFloat(query.queryParameter("maxBrightness")), 0f);
+            assertEquals(server, 0.0004f, Float.parseFloat(query.queryParameter("minBrightness")), 0f);
+            assertEquals(server, 600.25f, Float.parseFloat(query.queryParameter("maxAverageBrightness")), 0f);
+        }
+    }
+
+    @Test
     public void onlyARubylightHostHearsWhetherTheLaunchConfirmsTheReplace() throws Exception {
         for (String server : new String[] {"butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml"}) {
             ConnectionContext context = context(server);

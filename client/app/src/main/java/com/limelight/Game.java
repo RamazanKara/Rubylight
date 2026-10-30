@@ -87,6 +87,7 @@ import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
 import com.limelight.utils.ClipboardImages;
 import com.limelight.utils.Dialog;
+import com.limelight.utils.HdrBrightness;
 import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
@@ -760,10 +761,36 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     Math.max(mode.getPhysicalWidth(), mode.getPhysicalHeight());
         }
         DisplayCapsReporter.Caps sent = displayCapsReporter.update(output, streamHdr && displayHdr,
-                maxNits, maxAverageNits, minNits);
+                maxNits, maxAverageNits, minNits, hdrSdrRatio(display));
         if (sent != null) {
             LimeLog.info("Display luminance sent to host: " + sent);
         }
+    }
+
+    // Android's HDR/SDR ratio (API 34+; the larger of the current and highest on Android 16), for
+    // an output that reports no peak. NaN when there is none.
+    private static float hdrSdrRatio(Display display) {
+        if (Build.VERSION.SDK_INT < 34 || !display.isHdrSdrRatioAvailable()) {
+            return Float.NaN;
+        }
+        float current = display.getHdrSdrRatio();
+        float highest = Build.VERSION.SDK_INT >= 36 ? display.getHighestHdrSdrRatio() : current;
+        return HdrBrightness.bestHdrSdrRatio(current, highest);
+    }
+
+    // The output's luminance for the launch query of hosts other than Rubylight (Rubylight takes
+    // the DisplayCaps control message instead), as Moonlight V+ sends it. Null when unknown.
+    static HdrBrightness launchLuminance(Display display) {
+        float maxNits = Float.NaN, maxAverageNits = Float.NaN, minNits = Float.NaN;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
+            if (hdrCaps != null) {
+                maxNits = hdrCaps.getDesiredMaxLuminance();
+                maxAverageNits = hdrCaps.getDesiredMaxAverageLuminance();
+                minNits = hdrCaps.getDesiredMinLuminance();
+            }
+        }
+        return HdrBrightness.fromDisplay(maxNits, minNits, maxAverageNits, hdrSdrRatio(display));
     }
 
     private void updateInputPollingRate() {
@@ -1364,6 +1391,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     "): " + e);
                             return;
                         }
+                        // The decoder, format and frame counts this crash is counted against.
+                        LimeLog.severe("Decoder crash counted: " + e);
 
                         // The renderer reports a decoder it gave up on; the stream ends with its
                         // dialog, and the next one runs without reference frame invalidation.
@@ -1532,6 +1561,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setColorSpace(decoderRenderer.getPreferredColorSpace())
                 .setColorRange(decoderRenderer.getPreferredColorRange())
                 .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
+                .setDisplayLuminance(smallStream ? null : launchLuminance(getVideoDisplay()))
                 .build();
 
         // Initialize the connection

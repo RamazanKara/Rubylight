@@ -8,9 +8,11 @@
 //! overrides that, as V+'s `D3D11VA_FORCE_BIND` does. Without binding the pass reads the copy in
 //! SDL's video texture. Its color conversion follows SDL's D3D11 shaders, so a picture looks the
 //! same as SDL draws it, but its tone map takes the content peak per frame: from the stream's
+//! Dolby Vision RPU (profiles 8.1 and 10.1 have an HDR10 base layer, drawn as PQ), else its
 //! HDR10+ metadata, else measured on the picture, as V+'s libplacebo renderer does (plvk.cpp,
 //! with libplacebo's peak detection defaults: 20 frames of smoothing, scene changes at 1 and
-//! 3 dB). `NIGHTJAR_D3D11_PASS=0` leaves drawing to SDL, as before.
+//! 3 dB). HLG pictures go through BT.2100's inverse OETF and OOTF for the display's peak, SDL
+//! has no HLG. `NIGHTJAR_D3D11_PASS=0` leaves drawing to SDL, as before.
 
 use std::ffi::c_void;
 
@@ -67,9 +69,12 @@ pub struct Picture {
     pub full_range: bool,
     /// 0 BT.601, 1 BT.709, 2 BT.2020.
     pub matrix: u32,
-    /// The picture carries the PQ transfer.
-    pub pq: bool,
+    pub transfer: Transfer,
 }
+
+/// How a picture's codes map to light: SDR gamma, PQ (SMPTE ST 2084) or HLG (ARIB STD-B67).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transfer { Sdr, Pq, Hlg }
 
 /// What the back buffer wants: scRGB (`linear`) or sRGB, SDL's color scale (with the SDR white
 /// level) and the display's headroom over SDR white.
@@ -80,34 +85,38 @@ pub struct Output {
     pub headroom: f32,
 }
 
-/// What the tone map knows of an HDR picture: the SDR white in nits, the frame's HDR10+ peak and
-/// the stream's static peak (MaxCLL or the mastering display's), in nits.
+/// What the tone map knows of an HDR picture: the SDR white in nits, the frame's Dolby Vision and
+/// HDR10+ peaks and the stream's static peak (MaxCLL or the mastering display's), in nits.
 #[derive(Clone, Copy, Default)]
 pub struct Tone {
     pub white_nits: f32,
+    pub dolby_vision: Option<f32>,
     pub hdr10_plus: Option<f32>,
     pub static_peak: Option<f32>,
 }
 
 /// Where the tone map's content peak came from.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PeakSource { Hdr10Plus, Measured, Static, None }
+pub enum PeakSource { DolbyVision, Hdr10Plus, Measured, Static, Hlg, None }
 
 impl PeakSource {
     fn describe(self) -> &'static str {
         match self {
+            Self::DolbyVision => "the stream's Dolby Vision metadata",
             Self::Hdr10Plus => "the stream's HDR10+ metadata",
             Self::Measured => "the peak measured on the pictures",
             Self::Static => "the stream's static HDR metadata",
+            Self::Hlg => "the display's peak (HLG)",
             Self::None => "nothing (no tone mapping)",
         }
     }
 }
 
-/// The content peak in nits: HDR10+ first, then the measured peak (never above the static one),
-/// then the static peak.
-pub fn content_peak(hdr10_plus: Option<f32>, measured: Option<f32>, static_peak: Option<f32>) -> (Option<f32>, PeakSource) {
+/// The content peak in nits: Dolby Vision first, then HDR10+, then the measured peak (never
+/// above the static one), then the static peak.
+pub fn content_peak(dolby_vision: Option<f32>, hdr10_plus: Option<f32>, measured: Option<f32>, static_peak: Option<f32>) -> (Option<f32>, PeakSource) {
     let usable = |peak: Option<f32>| peak.filter(|p| p.is_finite() && *p > 0.0);
+    if let Some(peak) = usable(dolby_vision) { return (Some(peak), PeakSource::DolbyVision); }
     if let Some(peak) = usable(hdr10_plus) { return (Some(peak), PeakSource::Hdr10Plus); }
     if let Some(peak) = usable(measured) {
         return (Some(usable(static_peak).map_or(peak, |s| peak.min(s))), PeakSource::Measured);
@@ -129,6 +138,43 @@ pub fn tonemap_factors(peak: f32, white_nits: f32, headroom: f32) -> Option<(f32
 pub fn pq_nits(code: f64) -> f64 {
     let p = code.clamp(0.0, 1.0).powf(1.0 / 78.84375);
     10000.0 * ((p - 0.8359375).max(0.0) / (18.8515625 - 18.6875 * p)).powf(1.0 / 0.1593017578125)
+}
+
+/// HLG's reference white in nits on its 1000-nit reference display (ITU-R BT.2408).
+const HLG_REFERENCE_WHITE: f32 = 203.0;
+
+/// The display an HLG picture is drawn for: BT.2100's OOTF peak and system gamma, and the white
+/// the result is relative to, all in nits.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HlgDisplay { pub peak: f32, pub gamma: f32, pub white: f32 }
+
+/// HLG on an output with `headroom` over an SDR white of `white_nits`: an HDR output takes its
+/// own peak, as BT.2100 renders HLG for the display at hand. An SDR output takes the 1000-nit
+/// reference display with HLG's reference white at SDR white, and the SDR tone map (as PQ gets)
+/// brings the highlights into it. The gamma follows BT.2100 (1.2 at 1000 nits), not below 1 for
+/// dim displays, as mpv's OOTF does.
+pub fn hlg_display(headroom: f32, white_nits: f32) -> HlgDisplay {
+    let (peak, white) = if headroom > 1.0 && white_nits.is_finite() && white_nits > 0.0 && (headroom * white_nits).is_finite() {
+        ((headroom * white_nits).min(10000.0), white_nits)
+    } else {
+        (1000.0, HLG_REFERENCE_WHITE)
+    };
+    HlgDisplay { peak, gamma: (1.2 + 0.42 * (peak / 1000.0).log10()).max(1.0), white }
+}
+
+/// Display light in nits of HLG codes `rgb` (BT.2020) on `display`: the inverse OETF to scene
+/// light, then the OOTF `peak * Ys^(gamma - 1) * E` (BT.2100, black level 0). The shader's
+/// `hlgToNits`; the tests hold the two together.
+#[cfg(test)]
+pub fn hlg_nits(rgb: [f64; 3], display: HlgDisplay) -> [f64; 3] {
+    let (a, b, c) = (0.17883277, 0.28466892, 0.55991073);
+    let scene = rgb.map(|v| {
+        let v = v.clamp(0.0, 1.0);
+        if v <= 0.5 { v * v / 3.0 } else { (((v - c) / a).exp() + b) / 12.0 }
+    });
+    let luma = 0.2627 * scene[0] + 0.6780 * scene[1] + 0.0593 * scene[2];
+    let gain = f64::from(display.peak) * if luma > 0.0 { luma.powf(f64::from(display.gamma) - 1.0) } else { 0.0 };
+    scene.map(|e| gain * e)
 }
 
 /// The peak in nits of a maxRGB histogram over PQ codes: the top of the bin under which all but
@@ -184,12 +230,14 @@ struct Constants {
     sdr_white: f32,
     color_scale: f32,
     tonemap: [f32; 2],
-    padding: [f32; 2],
+    /// The HLG display's peak in nits and system gamma.
+    hlg: [f32; 2],
 }
 
 fn flags(picture: &Picture, output: &Output, tonemap: bool) -> u32 {
     u32::from(picture.ten_bit) | u32::from(picture.full_range) << 1 | (picture.matrix & 3) << 2
-        | u32::from(picture.pq) << 4 | u32::from(output.linear) << 5 | u32::from(tonemap) << 6
+        | u32::from(picture.transfer == Transfer::Pq) << 4 | u32::from(output.linear) << 5 | u32::from(tonemap) << 6
+        | u32::from(picture.transfer == Transfer::Hlg) << 7
 }
 
 /// The pass. It records on a deferred context, so SDL's cached immediate-context state holds.
@@ -291,15 +339,19 @@ impl Direct {
         self.back_buffer = None;
     }
 
-    /// Converts `picture` to gamma-coded RGB in `target` (its whole size), for what SDL draws
-    /// or upscales instead of a picture its own shaders would decode wrongly (10-bit SDR).
+    /// Converts `picture` to RGB in `target` (its whole size), for what SDL draws or upscales
+    /// instead of a picture its own shaders would decode wrongly: 10-bit SDR as gamma-coded RGB,
+    /// HLG as linear light relative to SDR white (scRGB) for a display with `headroom` over SDR
+    /// white at `white_nits`.
     ///
     /// # Safety
     /// As `draw`.
     pub unsafe fn convert(&mut self, target: &ID3D11RenderTargetView, size: (u32, u32), picture: &Picture,
-        lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
-        let output = Output { linear: false, color_scale: 1.0, headroom: 1.0 };
-        self.draw(target, [0.0, 0.0, size.0 as f32, size.1 as f32], picture, output, Tone::default(), lock)
+        white_nits: f32, headroom: f32, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
+        let hlg = picture.transfer == Transfer::Hlg;
+        let output = Output { linear: hlg, color_scale: 1.0, headroom: if hlg { headroom } else { 1.0 } };
+        let tone = Tone { white_nits, ..Tone::default() };
+        self.draw(target, [0.0, 0.0, size.0 as f32, size.1 as f32], picture, output, tone, lock)
     }
 
     /// The smoothed measured peak in nits, once one is in.
@@ -360,22 +412,31 @@ impl Direct {
         ID3D11Texture2D::from_raw_borrowed(&picture.texture).ok_or("no picture texture")?.GetDesc(&mut desc);
         let texture_size = (desc.Width, desc.Height);
         self.collect();
-        let measure = picture.pq && tone.hdr10_plus.is_none();
-        let (peak, source) = if picture.pq { content_peak(tone.hdr10_plus, self.tracker.value(), tone.static_peak) } else { (None, PeakSource::None) };
-        if picture.pq && self.source != Some(source) {
+        let pq = picture.transfer == Transfer::Pq;
+        let measure = pq && tone.dolby_vision.is_none() && tone.hdr10_plus.is_none();
+        let hlg = hlg_display(output.headroom, tone.white_nits);
+        let (peak, white, source) = match picture.transfer {
+            Transfer::Pq => {
+                let (peak, source) = content_peak(tone.dolby_vision, tone.hdr10_plus, self.tracker.value(), tone.static_peak);
+                (peak, tone.white_nits, source)
+            }
+            Transfer::Hlg => (Some(hlg.peak), hlg.white, PeakSource::Hlg),
+            Transfer::Sdr => (None, tone.white_nits, PeakSource::None),
+        };
+        if picture.transfer != Transfer::Sdr && self.source != Some(source) {
             eprintln!("nightjar: HDR tone mapping follows {}", source.describe());
             self.source = Some(source);
         }
-        let factors = peak.and_then(|peak| tonemap_factors(peak, tone.white_nits, output.headroom));
+        let factors = peak.and_then(|peak| tonemap_factors(peak, white, output.headroom));
         let constants = Constants {
             picture: [picture.size.0 as f32, picture.size.1 as f32],
             texture: [texture_size.0 as f32, texture_size.1 as f32],
             slice: picture.slice as f32,
             flags: flags(picture, &output, factors.is_some()),
-            sdr_white: tone.white_nits.max(1e-3),
+            sdr_white: white.max(1e-3),
             color_scale: output.color_scale,
             tonemap: factors.map_or([0.0; 2], |(a, b)| [a, b]),
-            padding: [0.0; 2],
+            hlg: [hlg.peak, hlg.gamma],
         };
         let c = &self.deferred;
         c.ClearState();
@@ -465,12 +526,50 @@ mod tests {
     }
 
     #[test]
-    fn hdr10_plus_wins_then_the_measured_peak_then_the_static_one() {
-        assert_eq!(content_peak(Some(600.0), Some(900.0), Some(1000.0)), (Some(600.0), PeakSource::Hdr10Plus));
-        assert_eq!(content_peak(None, Some(900.0), Some(1000.0)), (Some(900.0), PeakSource::Measured));
-        assert_eq!(content_peak(None, Some(1500.0), Some(1000.0)), (Some(1000.0), PeakSource::Measured), "never above the static peak");
-        assert_eq!(content_peak(Some(0.0), None, Some(1000.0)), (Some(1000.0), PeakSource::Static), "an empty HDR10+ peak is no peak");
-        assert_eq!(content_peak(None, None, None), (None, PeakSource::None));
+    fn dolby_vision_wins_then_hdr10_plus_then_the_measured_peak_then_the_static_one() {
+        assert_eq!(content_peak(Some(450.0), Some(600.0), Some(900.0), Some(1000.0)), (Some(450.0), PeakSource::DolbyVision));
+        assert_eq!(content_peak(None, Some(600.0), Some(900.0), Some(1000.0)), (Some(600.0), PeakSource::Hdr10Plus));
+        assert_eq!(content_peak(None, None, Some(900.0), Some(1000.0)), (Some(900.0), PeakSource::Measured));
+        assert_eq!(content_peak(None, None, Some(1500.0), Some(1000.0)), (Some(1000.0), PeakSource::Measured), "never above the static peak");
+        assert_eq!(content_peak(None, Some(0.0), None, Some(1000.0)), (Some(1000.0), PeakSource::Static), "an empty HDR10+ peak is no peak");
+        assert_eq!(content_peak(Some(f32::NAN), Some(600.0), None, None), (Some(600.0), PeakSource::Hdr10Plus), "nor an unreadable RPU peak");
+        assert_eq!(content_peak(None, None, None, None), (None, PeakSource::None));
+    }
+
+    #[test]
+    fn hlg_follows_bt2100() {
+        // The 1000-nit reference display: gamma 1.2, 75% HLG (reference white) at 203 nits
+        // (BT.2408), full code at the peak, black at 0.
+        let reference = hlg_display(1.0, 80.0);
+        assert_eq!(reference, HlgDisplay { peak: 1000.0, gamma: 1.2, white: 203.0 }, "an SDR output");
+        let white = hlg_nits([0.75; 3], reference);
+        assert!(white.iter().all(|n| (n - 203.0).abs() < 1.5), "{white:?}");
+        assert!(hlg_nits([1.0; 3], reference).iter().all(|n| (n - 1000.0).abs() < 0.1));
+        assert_eq!(hlg_nits([0.0; 3], reference), [0.0; 3]);
+        // The lower half is the square-root part: 0.5 is a twelfth of scene white.
+        let half = hlg_nits([0.5; 3], HlgDisplay { peak: 1000.0, gamma: 1.0, white: 203.0 });
+        assert!((half[0] - 1000.0 / 12.0).abs() < 1e-6, "{half:?}");
+        // An HDR display with 4x headroom over a 200-nit SDR white: rendered for its 800 nits.
+        let hdr = hlg_display(4.0, 200.0);
+        assert_eq!((hdr.peak, hdr.white), (800.0, 200.0));
+        assert!((hdr.gamma - (1.2 + 0.42 * 0.8f32.log10())).abs() < 1e-6);
+        assert!(hlg_nits([1.0; 3], hdr).iter().all(|n| (n - 800.0).abs() < 0.1), "full code lands on the display's peak");
+        assert_eq!(tonemap_factors(hdr.peak, hdr.white, 4.0), None, "so it needs no tone map");
+        // A dim display does not get a gamma below 1; a broken headroom is the reference display.
+        assert_eq!(hlg_display(1.5, 100.0).gamma, 1.0);
+        assert_eq!(hlg_display(f32::INFINITY, 200.0).peak, 1000.0);
+        // The OOTF keeps the colour's ratios: a red is as red as it was in scene light.
+        let red = hlg_nits([0.9, 0.3, 0.3], reference);
+        assert!(red[0] > 5.0 * red[1] && (red[1] - red[2]).abs() < 1e-9);
+    }
+
+    #[test]
+    fn transfers_set_their_own_shader_flags() {
+        let picture = |transfer| Picture { texture: std::ptr::null_mut(), slice: 0, size: (1, 1), ten_bit: true, full_range: false, matrix: 2, transfer };
+        let output = Output { linear: true, color_scale: 1.0, headroom: 4.0 };
+        assert_eq!(flags(&picture(Transfer::Pq), &output, false) & (1 << 4 | 1 << 7), 1 << 4);
+        assert_eq!(flags(&picture(Transfer::Hlg), &output, false) & (1 << 4 | 1 << 7), 1 << 7, "HLG is never drawn as PQ");
+        assert_eq!(flags(&picture(Transfer::Sdr), &output, false) & (1 << 4 | 1 << 7), 0);
     }
 
     #[test]
@@ -644,7 +743,7 @@ mod gpu_tests {
         // BT.709 limited-range white, black and red bands in a 96x32 picture of a 128x48 surface.
         let bands = [[235, 128, 128], [16, 128, 128], [63, 102, 240]];
         let texture = picture_array(&device, (128, 48), (96, 32), 3, false, |x, _| bands[(x / 32) as usize]);
-        let picture = Picture { texture: texture.as_raw(), slice: 2, size: (96, 32), ten_bit: false, full_range: false, matrix: 1, pq: false };
+        let picture = Picture { texture: texture.as_raw(), slice: 2, size: (96, 32), ten_bit: false, full_range: false, matrix: 1, transfer: Transfer::Sdr };
         // SAFETY: The test's device, on this thread.
         let mut pass = unsafe { Direct::new(&device) }.unwrap();
         let output = Output { linear: false, color_scale: 1.0, headroom: 1.0 };
@@ -668,7 +767,7 @@ mod gpu_tests {
         let (device, context) = device();
         // BT.2020 limited-range 10-bit white and half grey (luma 940 and 502).
         let texture = picture_array(&device, (64, 32), (64, 32), 1, true, |x, _| if x < 32 { [940, 512, 512] } else { [502, 512, 512] });
-        let picture = Picture { texture: texture.as_raw(), slice: 0, size: (64, 32), ten_bit: true, full_range: false, matrix: 2, pq: false };
+        let picture = Picture { texture: texture.as_raw(), slice: 0, size: (64, 32), ten_bit: true, full_range: false, matrix: 2, transfer: Transfer::Sdr };
         // SAFETY: The test's device, on this thread.
         let mut pass = unsafe { Direct::new(&device) }.unwrap();
         // What `convert` draws for SDL: gamma-coded, unscaled.
@@ -686,7 +785,7 @@ mod gpu_tests {
         // A grey 100-nit picture with a 1000-nit block: 10% of the pixels.
         let (grey, bright) = (pq_code(100.0), pq_code(1000.0));
         let texture = picture_array(&device, (64, 64), (64, 64), 1, true, |x, y| if x < 20 && y < 20 { [bright, 512, 512] } else { [grey, 512, 512] });
-        let picture = Picture { texture: texture.as_raw(), slice: 0, size: (64, 64), ten_bit: true, full_range: false, matrix: 2, pq: true };
+        let picture = Picture { texture: texture.as_raw(), slice: 0, size: (64, 64), ten_bit: true, full_range: false, matrix: 2, transfer: Transfer::Pq };
         // SAFETY: The test's device, on this thread.
         let mut pass = unsafe { Direct::new(&device) }.unwrap();
         // SDR white 200 nits (2.5 x 80), a 400-nit display: headroom 2.
@@ -695,22 +794,97 @@ mod gpu_tests {
         let at = |pixels: &[[f32; 3]], x: usize, y: usize| pixels[y * 64 + x][1] * 80.0;
         // HDR10+ says 1000 nits: the block lands on the display's 400 nits.
         let mapped = render(&device, &context, &mut pass, &picture, (64, 64), DXGI_FORMAT_R16G16B16A16_FLOAT, output,
-            Tone { white_nits, hdr10_plus: Some(1000.0), static_peak: Some(4000.0) });
+            Tone { white_nits, dolby_vision: None, hdr10_plus: Some(1000.0), static_peak: Some(4000.0) });
         assert!((at(&mapped, 5, 5) - 400.0).abs() < 15.0, "{}", at(&mapped, 5, 5));
         std::thread::sleep(std::time::Duration::from_millis(50));
         // Without any peak (none measured yet) the picture is drawn as coded, as SDL does.
         let plain = render(&device, &context, &mut pass, &picture, (64, 64), DXGI_FORMAT_R16G16B16A16_FLOAT, output,
-            Tone { white_nits, hdr10_plus: None, static_peak: None });
+            Tone { white_nits, dolby_vision: None, hdr10_plus: None, static_peak: None });
         assert!(pass.measured_peak().is_none(), "nothing was measured while HDR10+ was there");
         assert!((at(&plain, 40, 40) - 100.0).abs() < 3.0 && (at(&plain, 5, 5) - 1000.0).abs() < 30.0, "{} {}", at(&plain, 40, 40), at(&plain, 5, 5));
         // Without HDR10+ the pass measures the frames and gets to about 1000 nits.
         for _ in 0..200 {
             render(&device, &context, &mut pass, &picture, (64, 64), DXGI_FORMAT_R16G16B16A16_FLOAT, output,
-                Tone { white_nits, hdr10_plus: None, static_peak: Some(4000.0) });
+                Tone { white_nits, dolby_vision: None, hdr10_plus: None, static_peak: Some(4000.0) });
             if pass.measured_peak().is_some() { break; }
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         let measured = pass.measured_peak().expect("a measured peak within 200 frames");
         assert!((measured - 1000.0).abs() < 60.0, "measured {measured} nits");
+        // A Dolby Vision peak of 1000 nits takes over from HDR10+ (here 4000): the block lands on
+        // the display's 400 nits again.
+        let mapped = render(&device, &context, &mut pass, &picture, (64, 64), DXGI_FORMAT_R16G16B16A16_FLOAT, output,
+            Tone { white_nits, dolby_vision: Some(1000.0), hdr10_plus: Some(4000.0), static_peak: Some(4000.0) });
+        assert!((at(&mapped, 5, 5) - 400.0).abs() < 15.0, "{}", at(&mapped, 5, 5));
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn hlg_pictures_are_drawn_for_the_display_never_as_pq() {
+        let (device, context) = device();
+        // BT.2020 limited-range 10-bit HLG grey: 75% (reference white) and 50% (luma 721 and 502).
+        let texture = picture_array(&device, (64, 32), (64, 32), 1, true, |x, _| if x < 32 { [721, 512, 512] } else { [502, 512, 512] });
+        let picture = Picture { texture: texture.as_raw(), slice: 0, size: (64, 32), ten_bit: true, full_range: false, matrix: 2, transfer: Transfer::Hlg };
+        // SAFETY: The test's device, on this thread.
+        let mut pass = unsafe { Direct::new(&device) }.unwrap();
+        let code = |luma: u16| f64::from(luma - 64) / 876.0;
+        // An HDR display (scRGB): 200-nit SDR white (2.5 x 80), 800-nit peak.
+        let output = Output { linear: true, color_scale: 2.5, headroom: 4.0 };
+        let tone = Tone { white_nits: 200.0, ..Tone::default() };
+        let pixels = render(&device, &context, &mut pass, &picture, (64, 32), DXGI_FORMAT_R16G16B16A16_FLOAT, output, tone);
+        let display = hlg_display(4.0, 200.0);
+        for (x, luma) in [(16, 721), (48, 502)] {
+            let want = hlg_nits([code(luma); 3], display)[1];
+            let got = f64::from(pixels[16 * 64 + x][1]) * 80.0;
+            assert!((got - want).abs() < want * 0.03, "HLG {luma}: {got} nits, expected {want}");
+            assert!((got - pq_nits(code(luma))).abs() > want * 0.5, "HLG {luma} drawn as PQ ({got} nits)");
+        }
+        // What SDL gets instead of the P010 it would decode as PQ: linear light relative to SDR
+        // white, the same light once SDL scales it by its 2.5.
+        let mut target = None;
+        let desc = D3D11_TEXTURE2D_DESC { Width: 64, Height: 32, MipLevels: 1, ArraySize: 1, Format: DXGI_FORMAT_R16G16B16A16_FLOAT,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, Usage: D3D11_USAGE_DEFAULT, BindFlags: D3D11_BIND_RENDER_TARGET.0 as u32, ..Default::default() };
+        // SAFETY: Resources of the test's device, used on this thread.
+        let converted = unsafe {
+            device.CreateTexture2D(&desc, None, Some(&mut target)).unwrap();
+            let target = target.unwrap();
+            let mut view = None;
+            device.CreateRenderTargetView(&target, None, Some(&mut view)).unwrap();
+            pass.convert(view.as_ref().unwrap(), (64, 32), &picture, 200.0, 4.0, |submit| submit()).unwrap();
+            read_half(&device, &context, &target, desc)
+        };
+        assert!((converted[16 * 64 + 16][1] * 2.5 - pixels[16 * 64 + 16][1]).abs() < 0.02, "{:?} {:?}", converted[16 * 64 + 16], pixels[16 * 64 + 16]);
+        // An SDR display: reference white at SDR white, highlights tone-mapped into it like PQ's.
+        let output = Output { linear: false, color_scale: 1.0, headroom: 1.0 };
+        let pixels = render(&device, &context, &mut pass, &picture, (64, 32), DXGI_FORMAT_R8G8B8A8_UNORM, output, Tone { white_nits: 80.0, ..Tone::default() });
+        let reference = hlg_display(1.0, 80.0);
+        let (a, b) = tonemap_factors(reference.peak, reference.white, 1.0).unwrap();
+        let linear = hlg_nits([code(721); 3], reference)[1] as f32 / reference.white;
+        let want = linear * (1.0 + a * linear) / (1.0 + b * linear);
+        let want = want.powf(1.0 / 2.4) * 1.055 - 0.055;
+        let got = pixels[16 * 64 + 16];
+        assert!(got.iter().all(|c| (c - want).abs() < 0.02), "{got:?}, expected {want}");
+    }
+
+    fn read_half(device: &ID3D11Device, context: &ID3D11DeviceContext, target: &ID3D11Texture2D, desc: D3D11_TEXTURE2D_DESC) -> Vec<[f32; 3]> {
+        // SAFETY: Resources of the test's device, used on this thread.
+        unsafe {
+            let mut staging = None;
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Usage: D3D11_USAGE_STAGING, BindFlags: 0, CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32, ..desc }, None, Some(&mut staging)).unwrap();
+            let staging = staging.unwrap();
+            context.CopyResource(&staging, target);
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
+            let mut pixels = Vec::new();
+            for y in 0..desc.Height as usize {
+                let row = mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize);
+                for x in 0..desc.Width as usize {
+                    let at = row.add(x * 8).cast::<u16>();
+                    pixels.push([half(*at), half(*at.add(1)), half(*at.add(2))]);
+                }
+            }
+            context.Unmap(&staging, 0);
+            pixels
+        }
     }
 }

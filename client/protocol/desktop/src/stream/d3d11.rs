@@ -686,6 +686,21 @@ mod tests {
     }
 
     #[test]
+    fn a_software_decoded_hlg_picture_is_drawn_as_hlg_not_pq() {
+        // 10-bit 4:2:0 BT.2020 limited, the HLG transfer: grey at 75% (reference white, luma 721).
+        let (_planes, mut info) = picture(media::FRAME_YUV420P10, 4, 2, |plane, _, _| if plane == 0 { 721 } else { 512 });
+        info.color_space = 9;
+        info.color_trc = 18;
+        let layout = media::PlanarLayout::of(&info).unwrap();
+        // An HDR display with SDR white at 2.5 x 80 nits: 1.0 is 200 nits.
+        let pixels = draw_on_warp(&info, &crate::stream::present::planar_parameters(&info, layout, true, 2.5));
+        // BT.2100's 1000-nit reference display puts it at 203 nits; read as PQ it would be 983.
+        let display = super::super::direct::HlgDisplay { peak: 1000.0, gamma: 1.2, white: 203.0 };
+        let nits = super::super::direct::hlg_nits([0.75; 3], display)[1] as f32;
+        assert_close(pixels[0], [nits / 200.0; 3], "HLG reference white");
+    }
+
+    #[test]
     fn a_picture_with_a_missing_plane_is_refused_by_name() {
         let (_planes, mut info) = picture(media::FRAME_YUV444P, 4, 2, |_, _, _| 128);
         info.data[2] = std::ptr::null_mut();

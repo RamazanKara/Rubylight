@@ -795,6 +795,54 @@ impl Frame {
             (peak > 0.0).then_some(peak as f32)
         }
     }
+
+    /// What the frame's Dolby Vision RPU says, from the metadata FFmpeg's HEVC, AV1 and dav1d
+    /// decoders attach to every frame with an RPU (`AV_FRAME_DATA_DOVI_METADATA`). None without one.
+    pub fn dolby_vision(&self) -> Option<DolbyVision> {
+        // SAFETY: Side data of the live AVFrame, sized as FFmpeg made it; the offsets are FFmpeg's
+        // and checked against that size.
+        unsafe {
+            let side = av_frame_get_side_data(self.raw.as_ptr(), AV_FRAME_DATA_DOVI_METADATA);
+            if side.is_null() || (*side).size < std::mem::size_of::<AVDOVIMetadata>() {
+                return None;
+            }
+            let metadata = &*(*side).data.cast::<AVDOVIMetadata>();
+            let within = |offset: usize, size: usize| offset.checked_add(size).is_some_and(|end| end <= (*side).size);
+            if !within(metadata.header_offset, std::mem::size_of::<AVDOVIRpuDataHeader>())
+                || !within(metadata.color_offset, std::mem::size_of::<AVDOVIColorMetadata>())
+            {
+                return None;
+            }
+            let header = &*(*side).data.add(metadata.header_offset).cast::<AVDOVIRpuDataHeader>();
+            let color = &*(*side).data.add(metadata.color_offset).cast::<AVDOVIColorMetadata>();
+            let level1 = av_dovi_find_level(metadata, 1);
+            let max_pq = if level1.is_null() { None } else { Some((*level1).__bindgen_anon_1.l1.max_pq) };
+            Some(DolbyVision::of(header.vdr_rpu_profile, header.bl_video_full_range_flag, max_pq, color.source_max_pq))
+        }
+    }
+}
+
+/// The parts of a Dolby Vision RPU the tone map takes.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DolbyVision {
+    /// The frame's peak in nits: L1's maximum PQ, else the source display's maximum.
+    pub peak: Option<f32>,
+    /// Profile 5: IPT pictures without an HDR10 base layer (FFmpeg's `ff_dovi_guess_profile_hevc`:
+    /// RPU profile 0 with a full-range base layer).
+    pub ipt: bool,
+}
+
+#[cfg(windows)]
+impl DolbyVision {
+    /// From the RPU's profile and base-layer range, and its L1 and source maximum in 12-bit PQ.
+    pub fn of(vdr_rpu_profile: u8, full_range_base: u8, l1_max_pq: Option<u16>, source_max_pq: u16) -> Self {
+        let nits = |pq: u16| (pq > 0).then(|| crate::stream::direct::pq_nits(f64::from(pq.min(4095)) / 4095.0) as f32);
+        Self {
+            peak: l1_max_pq.and_then(nits).or_else(|| nits(source_max_pq)),
+            ipt: vdr_rpu_profile == 0 && full_range_base != 0,
+        }
+    }
 }
 
 impl Drop for Frame {
@@ -1060,6 +1108,48 @@ mod tests {
             };
             assert_eq!(frame.info().pts, pts);
         }
+    }
+
+    /// The fixtures' RPUs are the Rubylight host's (`rust/core/src/dovi.rs`, profiles 8.1 and
+    /// 10.1): L1 maximum 3079 (1000 nits), source display 0.005 to 4000 nits.
+    #[cfg(windows)]
+    #[test]
+    fn a_dolby_vision_rpu_reaches_the_frame_as_its_peak() {
+        let hevc = include_bytes!("../../../app/src/main/assets/packed444/hevc-10.bin").as_slice();
+        let av1 = include_bytes!("../../../app/src/main/assets/packed444/av1-10.bin").as_slice();
+        // Profile 8.1: the RPU NAL unit ends the access unit. Profile 10.1: the metadata OBU
+        // follows the temporal delimiter.
+        let mut hevc_dv = hevc.to_vec();
+        hevc_dv.extend_from_slice(include_bytes!("../tests/fixtures/dovi-81-rpu.bin"));
+        assert_eq!(&av1[..2], &[0x12, 0], "the AV1 fixture starts with a temporal delimiter");
+        let av1_dv = [&av1[..2], include_bytes!("../tests/fixtures/dovi-101-rpu.bin"), &av1[2..]].concat();
+        for (codec, plain, with_rpu) in [(Codec::Hevc, hevc, hevc_dv.as_slice()), (Codec::Av1, av1, av1_dv.as_slice())] {
+            let decode = |bytes: &[u8]| {
+                let mut decoder = VideoDecoder::open(codec, Hardware::None, 1, false).unwrap();
+                assert_eq!(decoder.send(bytes, 1), 0, "{codec:?}");
+                let Received::Frame(frame) = decoder.receive() else { panic!("{codec:?}: no decoded frame") };
+                frame.dolby_vision()
+            };
+            assert_eq!(decode(plain), None, "{codec:?} without an RPU");
+            let rpu = decode(with_rpu).unwrap_or_else(|| panic!("{codec:?}: no Dolby Vision metadata"));
+            assert!(!rpu.ipt, "{codec:?}: an HDR10 base layer");
+            let peak = rpu.peak.unwrap();
+            assert!((peak - 1000.0).abs() < 2.0, "{codec:?}: L1's 1000 nits, not the source's 4000: {peak}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_dolby_vision_peak_comes_from_l1_else_the_source_display_and_profile_5_is_ipt() {
+        let peak = |l1, source| DolbyVision::of(1, 0, l1, source).peak;
+        assert!((peak(Some(3079), 3696).unwrap() - 1000.0).abs() < 2.0);
+        assert!((peak(None, 3696).unwrap() - 4000.0).abs() < 10.0, "no L1: the source display's maximum");
+        assert!((peak(Some(0), 3079).unwrap() - 1000.0).abs() < 2.0, "an empty L1 is no peak");
+        assert_eq!(peak(None, 0), None);
+        assert!((peak(Some(u16::MAX), 0).unwrap() - 10000.0).abs() < 1.0, "codes past 12 bits are the top");
+        // ff_dovi_guess_profile_hevc: RPU profile 0 with a full-range base layer is profile 5.
+        assert!(DolbyVision::of(0, 1, Some(3079), 0).ipt);
+        assert!(!DolbyVision::of(1, 1, Some(3079), 0).ipt && !DolbyVision::of(0, 0, Some(3079), 0).ipt);
     }
 
     #[test]

@@ -286,6 +286,11 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
         w.bg_stroke = if high { Stroke::new(1.5, *OUTLINE_VARIANT) } else { Stroke::NONE };
         w.expansion = 0.0;
     }
+    // A check box or radio draws its box in `bg_fill` (buttons use `weak_bg_fill`): on a window,
+    // whose fill is SURFACE_HIGH too, an unchecked box would vanish. High contrast outlines it.
+    if !high {
+        v.widgets.inactive.bg_fill = *OUTLINE_VARIANT;
+    }
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, *OUTLINE_VARIANT);
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, *ON_SURFACE_VARIANT);
     // Keyboard and controller focus must be obvious from across a room.
@@ -625,6 +630,27 @@ mod tests {
         assert_eq!(style.visuals.menu_corner_radius, egui::CornerRadius::same(10));
         assert_eq!([space::XS, space::S, space::M, space::L, space::XL, space::XXL, space::XXXL], [4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0]);
         assert_eq!(CONTROL_HEIGHT, 44.0);
+    }
+
+    #[test]
+    fn an_unchecked_box_shows_on_a_window_and_on_a_page() {
+        let ctx = egui::Context::default();
+        own_palette();
+        for high in [false, true] {
+            set_look(&ctx, high, false);
+            let v = ctx.global_style().visuals.clone();
+            let box_ = &v.widgets.inactive;
+            if high {
+                assert!(box_.bg_stroke.width > 0.0, "high contrast outlines the box");
+            } else {
+                for ground in [v.window_fill, v.panel_fill] {
+                    let ratio = contrast(box_.bg_fill, ground);
+                    assert!(ratio >= 1.3, "box on {ground:?} is {ratio:.2}:1");
+                }
+                // Buttons keep their own fill.
+                assert_eq!(box_.weak_bg_fill, color(false, SURFACE_HIGH));
+            }
+        }
     }
 
     /// `top` (maybe translucent) painted over the opaque `ground`, as egui blends it.

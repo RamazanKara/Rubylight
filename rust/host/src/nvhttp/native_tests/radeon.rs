@@ -504,6 +504,8 @@ async fn capabilities_list_the_radeon_features_only_with_a_worker() {
             "session.close_game",
             "session.launcher",
             "wake",
+            "audio.night_mode",
+            "audio.headphone_surround",
             "radeon.read",
             "radeon.write",
             "radeon.profile",

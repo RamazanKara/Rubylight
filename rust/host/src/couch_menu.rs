@@ -563,24 +563,7 @@ impl VideoOverlay {
 /// `POST /session/couch-menu`: opens or closes the menu in the caller's
 /// stream. Returns whether it is open now.
 pub(crate) fn request(h: &Shared, client: &Client, open: bool) -> Result<bool, Failure> {
-    let s = {
-        let sessions = h.sessions.lock().unwrap();
-        let mut live = sessions
-            .active
-            .values()
-            .filter(|s| !s.stopping())
-            .peekable();
-        if live.peek().is_none() {
-            return Err(Refusal::NoSession.into());
-        }
-        let mut own: Vec<_> = live
-            .filter(|s| s.launch.client.uuid == client.uuid)
-            .collect();
-        own.sort_by_key(|s| s.launch.role != Role::Stream);
-        own.first()
-            .map(|s| Arc::clone(s))
-            .ok_or(Refusal::NotOwner)?
-    };
+    let s = own_stream(h, client)?;
     if !open {
         s.couch_menu.close();
         return Ok(false);
@@ -592,6 +575,25 @@ pub(crate) fn request(h: &Shared, client: &Client, open: bool) -> Result<bool, F
         .open()
         .map_err(|reason| Failure::new(ErrorCode::TemporarilyUnavailable, reason))?;
     Ok(menu::Shared::is_open(s.couch_menu.load()))
+}
+
+/// The caller's live stream, a Stream before a monitor or input session: what the couch menu
+/// and the audio settings (`native_api::audio`) act on.
+pub(crate) fn own_stream(h: &Shared, client: &Client) -> Result<Arc<Session>, Refusal> {
+    let sessions = h.sessions.lock().unwrap();
+    let mut live = sessions
+        .active
+        .values()
+        .filter(|s| !s.stopping())
+        .peekable();
+    if live.peek().is_none() {
+        return Err(Refusal::NoSession);
+    }
+    let mut own: Vec<_> = live
+        .filter(|s| s.launch.client.uuid == client.uuid)
+        .collect();
+    own.sort_by_key(|s| s.launch.role != Role::Stream);
+    own.first().map(|s| Arc::clone(s)).ok_or(Refusal::NotOwner)
 }
 
 #[cfg(test)]

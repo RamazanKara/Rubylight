@@ -7,6 +7,7 @@
 //! device's permissions and Host control flag from `h.paired` then, never from
 //! a copy taken at launch: a grant or revoke in the console applies to the
 //! next request.
+mod audio;
 pub(crate) mod coop;
 pub(crate) mod files;
 mod folders;
@@ -193,6 +194,11 @@ pub fn router() -> Router<Shared> {
                 .fallback(unknown),
         )
         .route(&path("/wake"), get(wake::read).fallback(unknown))
+        .route(&path("/audio"), get(audio::read).fallback(unknown))
+        .route(
+            &path("/audio/settings"),
+            post(audio::write).fallback(unknown),
+        )
         .route(&path("/coop"), get(coop::list).fallback(unknown))
         .route(&path("/coop/join"), post(coop::join).fallback(unknown))
         .route(
@@ -337,6 +343,9 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 feature::CLOSE_GAME,
                 feature::SESSION_LAUNCHER,
                 feature::WAKE,
+                // Night mode and headphone surround of the caller's own stream.
+                feature::AUDIO_NIGHT_MODE,
+                feature::AUDIO_HEADPHONE_SURROUND,
             ]
             .into_iter()
             // The Radeon endpoints answer only where the host started its Radeon worker.

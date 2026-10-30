@@ -23,8 +23,8 @@ Download a package from the [3.0.0 release](https://github.com/RamazanKara/Rubyl
 
 | Package | How to start | Use |
 | --- | --- | --- |
-| `rubylight-setup-3.0.0.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use: the Windows service, start with Windows, virtual displays and emulated controllers. |
-| `rubylight-3.0.0-windows-x64.zip` | Extract the whole archive and open **Start Rubylight.exe**. | Trying the host on a physical display without installing anything. |
+| `rubylight-setup-3.0.1.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use: the Windows service, start with Windows, virtual displays and emulated controllers. |
+| `rubylight-3.0.1-windows-x64.zip` | Extract the whole archive and open **Start Rubylight.exe**. | Trying the host on a physical display without installing anything. |
 
 The installer sets up the host, the Windows service, Rubylight's virtual display driver and, unless you clear its box, the VHF driver for emulated controllers. **Install USB audio and haptics support** adds DualSense and Steam Deck USB audio and haptics through usbip-win2; it is off by default, can reconnect USB devices and may need a restart ([DualSense USB audio and haptics](dualsense-haptics.md)). A detected Vibepollo installation is migrated with its settings and paired devices.
 

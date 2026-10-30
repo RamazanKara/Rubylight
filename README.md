@@ -12,7 +12,7 @@
 
 Rubylight is a game-streaming host for Windows PCs with AMD Radeon graphics. It implements the Moonlight protocol, so Moonlight, Artemis, [Nightjar](https://github.com/RamazanKara/nightjar) and other Sunshine-compatible clients connect to it without changes.
 
-**[Download 3.0.0](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
+**[Download 3.0.1](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.1)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
 
 <p align="center">
   <img src="docs/media/showcase/console-home.png" width="800" alt="The Rubylight console's Home page: Ready to play, the host name and paired devices, the running app and the first games of the library.">
@@ -69,12 +69,12 @@ The [hardware matrix](docs/hardware-matrix.md) records what has been tested on e
 
 ## Install
 
-Download one of the packages from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0):
+Download one of the packages from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.1):
 
 | Package | Use |
 | --- | --- |
-| `rubylight-setup-3.0.0.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and migrates a detected Apollo or Vibepollo installation. |
-| `rubylight-3.0.0-windows-x64.zip` | Portable. Extract it and run `Start Rubylight.exe`. Streams a physical display unless the drivers are installed separately. |
+| `rubylight-setup-3.0.1.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and migrates a detected Apollo or Vibepollo installation. |
+| `rubylight-3.0.1-windows-x64.zip` | Portable. Extract it and run `Start Rubylight.exe`. Streams a physical display unless the drivers are installed separately. |
 
 The console offers updates and can install them automatically while nothing is streaming; settings and paired devices are kept. [Getting started](docs/getting-started.md#install-or-run-portable) lists the installer's command-line options, and [Upgrading](docs/getting-started.md#upgrading) covers updates, backups and uninstalling.
 

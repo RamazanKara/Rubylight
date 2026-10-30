@@ -111,6 +111,7 @@ mod windows_impl {
     use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
     use super::super::amf_scaler::{self, HqScaler};
+    use super::super::direct::Transfer;
     use super::{capability, plan, Capability, Engine, Plan, Probe};
 
     const NVIDIA_PPE: GUID = GUID::from_values(0xd43ce1b3, 0x1f4b, 0x48ac, [0xba, 0xee, 0xc3, 0xc2, 0x53, 0x75, 0xe6, 0xf7]);
@@ -270,20 +271,23 @@ mod windows_impl {
         pub picture: (i32, i32),
         pub ten_bit: bool,
         pub colorspace: SDL_Colorspace,
-        /// The picture is PQ, as the presenter decides it for every path (`present::picture_pq`).
-        pub pq: bool,
+        /// The picture's transfer, as the presenter decides it for every path
+        /// (`present::picture_transfer`).
+        pub transfer: Transfer,
     }
 
     impl Source {
         pub fn hdr(&self) -> bool {
-            self.pq
+            self.transfer != Transfer::Sdr
         }
     }
 
     /// The video processor's input and output colour spaces for a picture in `space`.
-    pub fn colors(space: SDL_Colorspace, pq: bool, hdr_output: bool) -> (DXGI_COLOR_SPACE_TYPE, DXGI_COLOR_SPACE_TYPE) {
+    pub fn colors(space: SDL_Colorspace, transfer: Transfer, hdr_output: bool) -> (DXGI_COLOR_SPACE_TYPE, DXGI_COLOR_SPACE_TYPE) {
         let input = match space {
-            _ if pq => DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020,
+            _ if transfer == Transfer::Pq => DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020,
+            SDL_COLORSPACE_BT2020_FULL | SDL_COLORSPACE_BT709_FULL | SDL_COLORSPACE_BT601_FULL if transfer == Transfer::Hlg => DXGI_COLOR_SPACE_YCBCR_FULL_GHLG_TOPLEFT_P2020,
+            _ if transfer == Transfer::Hlg => DXGI_COLOR_SPACE_YCBCR_STUDIO_GHLG_TOPLEFT_P2020,
             SDL_COLORSPACE_BT2020_LIMITED => DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020,
             SDL_COLORSPACE_BT2020_FULL => DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020,
             SDL_COLORSPACE_BT601_LIMITED => DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601,
@@ -471,7 +475,7 @@ mod windows_impl {
                 let (texture, output) = create_texture(renderer, SDL_PIXELFORMAT_ABGR2101010, SDL_TEXTUREACCESS_TARGET, key.output, space,
                     source.hdr().then_some(source.texture))?;
                 let picture = (source.picture.0 as u32, source.picture.1 as u32);
-                match Processor::new(device, &input, picture, &output, frame_rate, colors(source.colorspace, source.pq, plan.hdr_output), Some((capability.engine, plan))) {
+                match Processor::new(device, &input, picture, &output, frame_rate, colors(source.colorspace, source.transfer, plan.hdr_output), Some((capability.engine, plan))) {
                     Ok(processor) => Ok(Self { key, texture, pass: Pass::Processor(processor), label }),
                     Err(e) => { SDL_DestroyTexture(texture); Err(e) }
                 }
@@ -586,6 +590,7 @@ mod tests {
 #[cfg(all(test, windows))]
 mod gpu_tests {
     use super::super::amf_scaler::{self, HqScaler};
+    use super::super::direct::Transfer;
     use super::*;
     use sdl3_sys::everything::SDL_COLORSPACE_BT709_LIMITED;
     use windows::core::Interface;
@@ -666,11 +671,14 @@ mod gpu_tests {
     fn the_video_processor_reads_pq_only_when_the_picture_is_pq() {
         use sdl3_sys::everything::{SDL_COLORSPACE_BT2020_FULL, SDL_COLORSPACE_BT2020_LIMITED};
         // 10-bit SDR is BT.2020 with a gamma transfer, not PQ.
-        assert_eq!(colors(SDL_COLORSPACE_BT2020_LIMITED, false, false).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020);
-        assert_eq!(colors(SDL_COLORSPACE_BT2020_FULL, false, false).0, DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020);
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_LIMITED, Transfer::Sdr, false).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020);
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_FULL, Transfer::Sdr, false).0, DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020);
         // A PQ picture is read as PQ whatever its VUI matrix says.
-        assert_eq!(colors(SDL_COLORSPACE_BT2020_LIMITED, true, true).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
-        assert_eq!(colors(SDL_COLORSPACE_BT709_LIMITED, true, true).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_LIMITED, Transfer::Pq, true).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+        assert_eq!(colors(SDL_COLORSPACE_BT709_LIMITED, Transfer::Pq, true).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+        // HLG as HLG, never as PQ or gamma.
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_LIMITED, Transfer::Hlg, true).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_GHLG_TOPLEFT_P2020);
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_FULL, Transfer::Hlg, false).0, DXGI_COLOR_SPACE_YCBCR_FULL_GHLG_TOPLEFT_P2020);
     }
 
     #[test]
@@ -691,7 +699,7 @@ mod gpu_tests {
         let output = target(&device, 192, 64, DXGI_FORMAT_R10G10B10A2_UNORM, (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32);
         // SAFETY: Textures on the test's device, used on this thread.
         unsafe {
-            let processor = Processor::new(&device, &input, (96, 32), &output, 60, colors(SDL_COLORSPACE_BT709_LIMITED, false, false), None).unwrap();
+            let processor = Processor::new(&device, &input, (96, 32), &output, 60, colors(SDL_COLORSPACE_BT709_LIMITED, Transfer::Sdr, false), None).unwrap();
             processor.blt().unwrap();
         }
         let pixels = read(&device, &context, &output, 192 * 4, 64);

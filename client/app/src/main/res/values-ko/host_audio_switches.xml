@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">야간 모드</string>
+    <string name="stream_headphone_surround">헤드폰 서라운드</string>
+    <string name="stream_audio_next_stream">다음 스트림부터 적용</string>
+    <string name="stream_audio_failed">PC 오디오를 변경하지 못했습니다: %1$s</string>
+</resources>

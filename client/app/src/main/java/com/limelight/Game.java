@@ -3120,9 +3120,100 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         restoreInputAfterMenu = grabbedInput;
         // Whoever opens the menu knows how; the first-stream hint has done its job.
         dismissStreamMenuHint(true);
+        // The audio switches show the host's state as it is now, so they appear once it answers.
+        hostAudio = null;
         streamMenuSheet = new com.limelight.ui.StreamMenu(this, this::streamMenuOptions, this::onStreamMenuItem,
                 nativeMenuController());
         showStreamDialog(streamMenuSheet.sheet());
+        refreshHostAudio();
+    }
+
+    // Night mode and headphone surround as the host last answered, for the stream menu; null until it does. UI thread.
+    private com.limelight.nativeapi.NativeAudio hostAudio;
+    private boolean hostAudioBusy;
+
+    private boolean offersHostAudio() {
+        return conn != null && app.getRole() == NvApp.Role.STREAM &&
+                (conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE) ||
+                        conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND));
+    }
+
+    // Reads the host's audio switches on the native menu thread; the open menu shows them once it answers.
+    private void refreshHostAudio() {
+        if (!offersHostAudio()) return;
+        NvConnection connection = conn;
+        int generation = foregroundGeneration;
+        try {
+            nativeMenuThread().execute(() -> {
+                com.limelight.nativeapi.NativeAudio audio = null;
+                try {
+                    audio = connection.hostAudio();
+                } catch (IOException e) {
+                    LimeLog.warning("Host audio not read: " + e.getMessage());
+                }
+                com.limelight.nativeapi.NativeAudio answer = audio;
+                runOnUiThread(() -> showHostAudio(answer, generation));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // The stream is over.
+        }
+    }
+
+    private void showHostAudio(com.limelight.nativeapi.NativeAudio audio, int generation) {
+        if (generation != foregroundGeneration || isFinishing()) return;
+        hostAudio = audio;
+        if (streamMenuSheet != null) streamMenuSheet.refresh();
+    }
+
+    /**
+     * A quick toggle for one of the host's audio switches: the host applies it to this stream from its next audio
+     * packet, and the menu shows the host's answer rather than guessing. A refusal is shown with the host's message.
+     */
+    private void toggleHostAudio(String id) {
+        com.limelight.nativeapi.NativeAudio audio = hostAudio;
+        com.limelight.nativeapi.NativeAudio.Setting setting = audio == null ? null : audio.get(id);
+        if (setting == null || !setting.switchable() || hostAudioBusy || conn == null) return;
+        boolean on = !setting.value;
+        NvConnection connection = conn;
+        int generation = foregroundGeneration;
+        hostAudioBusy = true;
+        try {
+            nativeMenuThread().execute(() -> {
+                com.limelight.nativeapi.NativeAudio answer = null;
+                IOException failure = null;
+                try {
+                    answer = connection.writeHostAudio(id, on);
+                } catch (IOException e) {
+                    failure = e;
+                }
+                com.limelight.nativeapi.NativeAudio changed = answer;
+                IOException refused = failure;
+                runOnUiThread(() -> {
+                    hostAudioBusy = false;
+                    if (refused != null) {
+                        LimeLog.warning("Host audio not changed: " + refused.getMessage());
+                        if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
+                            messages.alert(getString(R.string.stream_audio_failed, refused.getMessage()), Toast.LENGTH_LONG);
+                        }
+                        // Show what the host has instead of the switch's old state.
+                        refreshHostAudio();
+                        return;
+                    }
+                    showHostAudio(changed, generation);
+                    com.limelight.nativeapi.NativeAudio.Setting now = changed.get(id);
+                    // Why the stream doesn't apply it yet, in the host's words unless it is just the next stream.
+                    String note = now == null || now.reason == null ? null :
+                            com.limelight.nativeapi.NativeAudio.NEXT_STREAM.equals(now.reason) ?
+                                    getString(R.string.stream_audio_next_stream) : now.message;
+                    if (on && note != null && foreground && generation == foregroundGeneration) {
+                        messages.alert(note, Toast.LENGTH_LONG);
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // The stream is over.
+            hostAudioBusy = false;
+        }
     }
 
     private com.limelight.console.NativeMenuController nativeMenuController;
@@ -3192,6 +3283,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.imageClipboard = conn.hasImageClipboard();
         options.microphoneOffered = conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = conn.isMicrophoneMuted();
+        options.nightModeOffered = conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE);
+        options.headphoneSurroundOffered = conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND);
+        options.hostAudio = hostAudio;
         options.micButtonAvailable = micButton != null;
         options.micButtonShown = micButton != null && prefConfig.micButton;
         options.overlayShown = prefConfig.enablePerfOverlay;
@@ -3233,6 +3327,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // The quick toggles change in place and leave the menu open.
             case OVERLAY: togglePerformanceOverlay(); return;
             case MICROPHONE: toggleMicrophoneMute(); return;
+            case NIGHT_MODE: toggleHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE); return;
+            case HEADPHONE_SURROUND: toggleHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND); return;
             default: break;
         }
         Runnable action = null;

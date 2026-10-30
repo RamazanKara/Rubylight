@@ -2081,6 +2081,13 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         let mut mouse = pads.mouse_active();
                         if ui.checkbox(&mut mouse, tr("Controller mouse")).changed() { s.toggle_controller_mouse(pads); }
                     }
+                    // The PC's night mode and headphone surround, as it answered when the menu opened.
+                    for switch in s.host_audio.switches() {
+                        let mut on = switch.on;
+                        let label = stream::menu_extras::audio_label(switch.id);
+                        if ui.add_enabled(switch.enabled, egui::Checkbox::new(&mut on, label)).changed() { s.set_host_audio(switch.id, on); }
+                        if let Some(note) = &switch.note { ui.weak(note); }
+                    }
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
                         if ui.button(tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
                         if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }

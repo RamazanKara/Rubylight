@@ -24,6 +24,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
 
+mod audio;
 mod compat;
 mod coop;
 mod couch_menu;
@@ -238,6 +239,8 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("POST", "/radeon/settings"),
         ("POST", "/radeon/restore"),
         ("GET", "/wake"),
+        ("GET", "/audio"),
+        ("POST", "/audio/settings"),
         ("GET", "/coop"),
         ("POST", "/coop/join"),
         ("GET", "/folders"),
@@ -327,6 +330,8 @@ async fn unknown_paths_and_methods_answer_404_not_found_in_the_error_shape() {
         ("GET", "/session/end"),
         ("GET", "/session/close-game"),
         ("GET", "/session/couch-menu"),
+        ("POST", "/audio"),
+        ("GET", "/audio/settings"),
         ("POST", "/usb/tunnel"),
         ("POST", "/folders"),
         ("PUT", "/folders/games/entries?path="),
@@ -375,7 +380,6 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
         s.host().paired.read().unwrap().unique_id
     );
     // Radeon features appear when the host started its Radeon worker (see native_tests/radeon.rs).
-    // Audio processing is not served yet, so it is not listed.
     assert_eq!(
         capabilities.features,
         [
@@ -384,6 +388,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "session.close_game",
             "session.launcher",
             "wake",
+            "audio.night_mode",
+            "audio.headphone_surround",
             "session.couch_menu",
             "clipboard.image"
         ]
@@ -408,6 +414,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "session.close_game",
             "session.launcher",
             "wake",
+            "audio.night_mode",
+            "audio.headphone_surround",
             "session.couch_menu",
             "coop",
             "clipboard.image"

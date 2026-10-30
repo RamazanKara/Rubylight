@@ -122,6 +122,33 @@ public final class NativeApiClient {
         }
     }
 
+    /**
+     * Night mode and headphone surround of this device's stream. Only for a host that advertises
+     * {@link NativeCapabilities#NIGHT_MODE} or {@link NativeCapabilities#HEADPHONE_SURROUND}.
+     */
+    public NativeAudio audio() throws NativeApiException {
+        try {
+            return NativeAudio.parse(call("audio", ""));
+        } catch (JSONException e) {
+            throw malformed("audio", e);
+        }
+    }
+
+    /** Turns one of them on or off for this device's own stream and returns the host's new state. */
+    public NativeAudio writeAudio(String id, boolean on) throws NativeApiException {
+        String body;
+        try {
+            body = NativeAudio.writeJson(id, on);
+        } catch (JSONException e) {
+            throw new NativeApiException(NativeApiException.Kind.INVALID_ARGUMENT, "Audio write: " + e.getMessage());
+        }
+        try {
+            return NativeAudio.parse(call("audio_write", body));
+        } catch (JSONException e) {
+            throw malformed("audio", e);
+        }
+    }
+
     public NativeRadeon radeon() throws NativeApiException {
         return parseRadeon(call("radeon", ""));
     }

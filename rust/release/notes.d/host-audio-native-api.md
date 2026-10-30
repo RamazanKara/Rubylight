@@ -1,0 +1,2 @@
+# Night mode and headphone surround from the client
+- Night mode and Headphone surround can now be switched from a client during its own stream: the native API serves GET /audio and POST /audio/settings and lists both in its features, with the View or Launch permission. A change applies from the stream's next audio packet and carries to that device's next session of the app. Nightjar's stream menu uses it.

@@ -77,6 +77,8 @@ pub enum Notice {
     ServerCommand(Result<Vec<u8>, String>),
     /// The host's answer to opening its menu; the error is the text to show.
     HostMenu(Result<(), String>),
+    /// The PC's night mode and headphone surround, read or changed from the stream controls.
+    HostAudio(super::menu_extras::AudioAnswer),
     Bitrate { requested: u32, result: Result<u32, String> },
     AdaptiveBitrate(Result<(u32, u32), String>),
     /// A Foundation PC turned its own bitrate controller on; None when it has none.

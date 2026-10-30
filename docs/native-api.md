@@ -330,7 +330,7 @@ GET /api/native/v1/wake
 
 ## Audio processing (`audio.night_mode`, `audio.headphone_surround`)
 
-Status: contract only (3.0.0-rc.3 work, [design](wake-and-audio-design.md) B.3, B.4 and B.6). Types in `rubylight_native_api::audio`, fixtures `audio.json` and `audio_write.json`.
+Status: served (3.0.0, [design](wake-and-audio-design.md) B.3, B.4 and B.6); Nightjar's stream menus show both switches. Types in `rubylight_native_api::audio`, fixtures `audio.json` and `audio_write.json`.
 
 ```http
 GET /api/native/v1/audio
@@ -371,7 +371,7 @@ POST /api/native/v1/audio/settings
 
 - For the owner of a `streaming` or `suspended` session, with View or Launch. Host control isn't needed: the change affects only the caller's own stream.
 - It applies to this session from the next audio packet and isn't saved. It answers the new Audio object.
-- Refusals: `no_session`, `not_session_owner` and `session_busy` as for the Radeon writes; `not_found` for an id the host doesn't list; `invalid_value` for a value that isn't a boolean; `invalid_request` for unknown fields.
+- Refusals: `no_session`, `not_session_owner` and `session_busy` as for the Radeon writes, and `no_session` for a suspended session, which has no stream to change; `not_found` for an id the host doesn't list; `invalid_value` for a value that isn't a boolean; `invalid_request` for unknown fields.
 
 **Launch parameters.** `/launch` and `/resume` take `audioNightMode=on|off` and `audioHeadphoneSurround=on|off`, the session choice above. A client sends them only when the host lists the feature and the user picked something other than the host setting. Other values are logged and ignored, and hosts without the features ignore the parameters.
 

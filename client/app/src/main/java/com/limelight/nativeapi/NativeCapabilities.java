@@ -26,6 +26,10 @@ public final class NativeCapabilities {
     public static final String FOLDERS = "folders";
     /** GET /coop lists the PC's Nucleus Co-op sessions and POST /coop/join seats this device in one. */
     public static final String COOP = "coop";
+    /** GET /audio and POST /audio/settings carry night mode for this device's stream. */
+    public static final String NIGHT_MODE = "audio.night_mode";
+    /** GET /audio and POST /audio/settings carry headphone surround for this device's stream. */
+    public static final String HEADPHONE_SURROUND = "audio.headphone_surround";
 
     public final int apiVersion;
     public final String hostName;
@@ -55,6 +59,11 @@ public final class NativeCapabilities {
     /** Whether the host forwards USB devices and lets this device do it. */
     public boolean offersUsbForwarding() {
         return usb && has(USB);
+    }
+
+    /** Whether the host offers the audio setting {@code id} and lets this device change it: View or Launch. */
+    public boolean offersAudio(String id) {
+        return (view || launch) && has(id);
     }
 
     /** Whether the host advertises {@code feature} (one of the constants here, or any other name). */

@@ -10,6 +10,8 @@ import com.limelight.R;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.console.ConnectionInfo;
 import com.limelight.console.NativeMenuController;
+import com.limelight.nativeapi.NativeAudio;
+import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -27,7 +29,7 @@ import java.util.function.Supplier;
  */
 public final class StreamMenu {
     public enum Item {
-        KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE,
+        KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE, NIGHT_MODE, HEADPHONE_SURROUND,
         TOUCH_MODE, MOUSE_CURSOR, CONTROLLER_MOUSE, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
@@ -93,6 +95,10 @@ public final class StreamMenu {
         public boolean usbForwarding;
         /** The host's native API carries clipboard images ({@code clipboard.image}). */
         public boolean imageClipboard;
+        /** The host offers night mode and headphone surround for this device's stream ({@code audio.*}). */
+        public boolean nightModeOffered, headphoneSurroundOffered;
+        /** What the host last said about them (GET /audio); null until it answered. */
+        public NativeAudio hostAudio;
         /** Host, codec, size, bitrate and link for the native page; null leaves the connection facts out. */
         public ConnectionInfo connection;
 
@@ -127,7 +133,7 @@ public final class StreamMenu {
 
         /** Quick toggles change in place; everything else closes the menu or opens a page. */
         public boolean keepsMenuOpen() {
-            return item == Item.OVERLAY || item == Item.MICROPHONE;
+            return item == Item.OVERLAY || item == Item.MICROPHONE || item == Item.NIGHT_MODE || item == Item.HEADPHONE_SURROUND;
         }
 
         public boolean opensPage() {
@@ -160,6 +166,18 @@ public final class StreamMenu {
         if (o.microphoneOffered) {
             entries.add(entry(Section.QUICK, Item.MICROPHONE, R.string.stream_microphone,
                     o.microphoneMuted ? R.drawable.ic_mic_off : R.drawable.ic_mic, !o.microphoneMuted));
+        }
+        // The host's audio processing for this stream, once the host has said it may change now.
+        if (o.role == NvApp.Role.STREAM && o.hostAudio != null) {
+            NativeAudio.Setting night = o.hostAudio.get(NativeCapabilities.NIGHT_MODE);
+            if (o.nightModeOffered && night != null && night.switchable()) {
+                entries.add(entry(Section.QUICK, Item.NIGHT_MODE, R.string.stream_night_mode, R.drawable.ic_night_mode, night.value));
+            }
+            NativeAudio.Setting surround = o.hostAudio.get(NativeCapabilities.HEADPHONE_SURROUND);
+            if (o.headphoneSurroundOffered && surround != null && surround.switchable()) {
+                entries.add(entry(Section.QUICK, Item.HEADPHONE_SURROUND, R.string.stream_headphone_surround,
+                        R.drawable.ic_headphones, surround.value));
+            }
         }
 
         if (o.canSendInput) {
@@ -409,13 +427,7 @@ public final class StreamMenu {
         sheet.setHeading(activity.getString(target == Page.MAIN ? title(o.role) :
                 target == Page.NATIVE ? R.string.native_menu_row : R.string.stream_overlay_page));
         sheet.setBackHandler(target == Page.MAIN ? null : this::back);
-        entries = target == Page.MAIN ? mainPage(o) : target == Page.NATIVE ? nativePage(o) : overlayPage(o);
-        if ((activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
-                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
-            entries.removeIf(entry -> entry.item == Item.TOUCH_MODE || entry.item == Item.ONSCREEN_CONTROLS ||
-                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.MIC_BUTTON || entry.item == Item.GAME_CONTROLS ||
-                    entry.item == Item.ZOOM);
-        }
+        entries = pageEntries(target, o);
         LinearLayout quickRow = null;
         Section section = null;
         for (Entry entry : entries) {
@@ -442,6 +454,32 @@ public final class StreamMenu {
         sheet.focusFirstAction();
         MaterialButton focused = focus == null ? null : rows.get(focus);
         if (focused != null && !focused.isInTouchMode()) focused.requestFocus();
+    }
+
+    private List<Entry> pageEntries(Page target, Options o) {
+        List<Entry> list = target == Page.MAIN ? mainPage(o) : target == Page.NATIVE ? nativePage(o) : overlayPage(o);
+        if ((activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
+            list.removeIf(entry -> entry.item == Item.TOUCH_MODE || entry.item == Item.ONSCREEN_CONTROLS ||
+                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.MIC_BUTTON || entry.item == Item.GAME_CONTROLS ||
+                    entry.item == Item.ZOOM);
+        }
+        return list;
+    }
+
+    /**
+     * Shows what changed while the menu is open, such as the host's answer about its audio: the quick toggles in
+     * place, or the first page again when items came or went.
+     */
+    public void refresh() {
+        if (page != Page.MAIN || !sheet.isShowing()) return;
+        Options o = options.get();
+        List<Item> now = new ArrayList<>();
+        for (Entry entry : pageEntries(Page.MAIN, o)) now.add(entry.item);
+        List<Item> shown = new ArrayList<>();
+        for (Entry entry : entries) shown.add(entry.item);
+        if (now.equals(shown)) refreshToggles();
+        else render(Page.MAIN, o, null);
     }
 
     // The connection facts and the Radeon panel under the native page's actions.

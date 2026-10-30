@@ -144,25 +144,20 @@ impl PlanesPass {
         })
     }
 
-    /// Uploads the planes of a software-decoded planar picture (row by row: FFmpeg pads its rows)
-    /// and draws them, converted, over all of `target`.
+    /// Uploads the planes of a software-decoded planar picture (row by row: FFmpeg pads its rows),
+    /// or of an NV12 or P010 one (`PlanarLayout::of_semi_planar`), and draws them, converted, over
+    /// all of `target`.
     ///
     /// # Safety
     /// `renderer` and `target` must be live, the pass the one made on this renderer for pictures
     /// shaped like `info`, and `info` the description of a live frame.
     pub unsafe fn draw_frame(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, info: &crate::media::FrameInfo, parameters: &[u32; 8]) -> Result<(), String> {
-        if let Some(plane) = (0..3).find(|&plane| info.data[plane].is_null() || info.linesize[plane] <= 0) {
+        let planes = if semi_planar(info) { 2 } else { 3 };
+        if let Some(plane) = (0..planes).find(|&plane| info.data[plane].is_null() || info.linesize[plane] <= 0) {
             return Err(format!("plane {plane} of the picture is missing"));
         }
         let (sizes, sample_bytes) = (self.sizes, self.sample_bytes);
-        self.draw_with(renderer, target, parameters, None, |mapped, offsets| {
-            for (plane, &(width, height)) in sizes.iter().enumerate() {
-                let row = width as usize * sample_bytes;
-                for y in 0..height as usize {
-                    ptr::copy_nonoverlapping(info.data[plane].add(y * info.linesize[plane] as usize), mapped.add(offsets[plane] + y * row), row);
-                }
-            }
-        })
+        self.draw_with(renderer, target, parameters, None, |mapped, offsets| fill_planes(info, sizes, sample_bytes, mapped, offsets))
     }
 
     /// The bytes of plane `plane` in the transfer buffer (tightly packed rows).
@@ -222,6 +217,61 @@ impl PlanesPass {
     }
 }
 
+/// Whether a picture's chroma is one interleaved plane (NV12, P010).
+fn semi_planar(info: &crate::media::FrameInfo) -> bool {
+    matches!(info.kind, crate::media::FRAME_NV12 | crate::media::FRAME_P010)
+}
+
+/// Copies a picture's planes into the transfer buffer as the tightly packed planes `sizes` gives.
+/// A planar picture's rows go as they are. An NV12 or P010 picture's interleaved chroma is split
+/// into its Cb and Cr planes, and P010's samples, in the high 10 bits of each word, move to the low
+/// bits, where the shader reads FFmpeg's 10-bit planes (flag 64).
+///
+/// # Safety
+/// `info` describes a live frame with at least `sizes` samples in each plane, and `mapped` has
+/// room for the planes at `offsets`.
+unsafe fn fill_planes(info: &crate::media::FrameInfo, sizes: [(u32, u32); 3], sample_bytes: usize, mapped: *mut u8, offsets: [usize; 3]) {
+    if !semi_planar(info) {
+        for (plane, &(width, height)) in sizes.iter().enumerate() {
+            let row = width as usize * sample_bytes;
+            for y in 0..height as usize {
+                ptr::copy_nonoverlapping(info.data[plane].add(y * info.linesize[plane] as usize), mapped.add(offsets[plane] + y * row), row);
+            }
+        }
+        return;
+    }
+    let p010 = info.kind == crate::media::FRAME_P010;
+    let put = |target: &mut [u8], source: &[u8]| {
+        if p010 {
+            target.copy_from_slice(&(u16::from_le_bytes([source[0], source[1]]) >> 6).to_le_bytes());
+        } else {
+            target.copy_from_slice(source);
+        }
+    };
+    let (width, height) = sizes[0];
+    let row = width as usize * sample_bytes;
+    for y in 0..height as usize {
+        let source = std::slice::from_raw_parts(info.data[0].add(y * info.linesize[0] as usize), row);
+        let target = std::slice::from_raw_parts_mut(mapped.add(offsets[0] + y * row), row);
+        if p010 {
+            target.chunks_exact_mut(2).zip(source.chunks_exact(2)).for_each(|(target, source)| put(target, source));
+        } else {
+            target.copy_from_slice(source);
+        }
+    }
+    let (width, height) = sizes[1];
+    let row = width as usize * sample_bytes;
+    for y in 0..height as usize {
+        let source = std::slice::from_raw_parts(info.data[1].add(y * info.linesize[1] as usize), 2 * row);
+        let cb = std::slice::from_raw_parts_mut(mapped.add(offsets[1] + y * row), row);
+        let cr = std::slice::from_raw_parts_mut(mapped.add(offsets[2] + y * row), row);
+        for (pair, (cb, cr)) in source.chunks_exact(2 * sample_bytes).zip(cb.chunks_exact_mut(sample_bytes).zip(cr.chunks_exact_mut(sample_bytes))) {
+            put(cb, &pair[..sample_bytes]);
+            put(cr, &pair[sample_bytes..]);
+        }
+    }
+}
+
 impl Drop for PlanesPass {
     fn drop(&mut self) {
         // SAFETY: These objects belong to the renderer's device, which outlives the pass.
@@ -231,6 +281,105 @@ impl Drop for PlanesPass {
             for texture in self.textures { if !texture.is_null() { SDL_ReleaseGPUTexture(self.device, texture); } }
             if !self.sampler.is_null() { SDL_ReleaseGPUSampler(self.device, self.sampler); }
             if !self.shader.is_null() { SDL_ReleaseGPUShader(self.device, self.shader); }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::media::{FrameInfo, PlanarLayout, FRAME_NV12, FRAME_P010};
+
+    fn picture(kind: i32, luma: &mut [u8], chroma: &mut [u8], linesize: i32) -> FrameInfo {
+        FrameInfo {
+            width: 3, height: 2, kind, ten_bit: i32::from(kind == FRAME_P010), pts: 0,
+            data: [luma.as_mut_ptr(), chroma.as_mut_ptr(), ptr::null_mut()],
+            linesize: [linesize; 3], color_space: 9, color_range: 1, color_trc: 18,
+        }
+    }
+
+    /// An HLG P010 picture from a hardware decoder reaches the plane shader as the 10-bit planar
+    /// picture it reads (SDL's P010 texture read it as PQ): Cb and Cr in planes of their own,
+    /// every sample in the low 10 bits. Row padding is skipped.
+    #[test]
+    fn a_p010_picture_is_uploaded_as_ten_bit_planes() {
+        // 3x2 luma, 2x1 chroma pairs; rows of 4 words (8 bytes), the last word padding.
+        let words = |w: [u16; 8]| w.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+        let mut luma = words([64 << 6, 512 << 6, 940 << 6, 0xffff, 1 << 6, 2 << 6, 1023 << 6, 0xffff]);
+        let mut chroma = words([100 << 6, 900 << 6, 512 << 6, 513 << 6, 0xffff, 0xffff, 0xffff, 0xffff]);
+        let info = picture(FRAME_P010, &mut luma, &mut chroma, 8);
+        let layout = PlanarLayout::of_semi_planar(&info).unwrap();
+        assert_eq!(layout, PlanarLayout { width: 3, height: 2, chroma444: false, ten_bit: true });
+        let sizes = [0, 1, 2].map(|plane| layout.plane_size(plane));
+        let mut buffer = vec![0xaau8; (6 + 2 + 2) * 2];
+        // SAFETY: the planes above hold `sizes` samples; the buffer holds the three planes.
+        unsafe { fill_planes(&info, sizes, 2, buffer.as_mut_ptr(), [0, 12, 16]) };
+        let samples: Vec<u16> = buffer.chunks_exact(2).map(|s| u16::from_le_bytes([s[0], s[1]])).collect();
+        assert_eq!(samples, [64, 512, 940, 1, 2, 1023, 100, 512, 900, 513]);
+    }
+
+    #[test]
+    fn an_nv12_picture_is_uploaded_as_eight_bit_planes() {
+        let mut luma = vec![16, 128, 235, 0xff, 17, 18, 19, 0xff];
+        let mut chroma = vec![60, 200, 128, 129, 0xff, 0xff, 0xff, 0xff];
+        let info = picture(FRAME_NV12, &mut luma, &mut chroma, 4);
+        let layout = PlanarLayout::of_semi_planar(&info).unwrap();
+        assert!(!layout.ten_bit && !layout.chroma444);
+        let mut buffer = vec![0xaau8; 6 + 2 + 2];
+        // SAFETY: as above.
+        unsafe { fill_planes(&info, [0, 1, 2].map(|plane| layout.plane_size(plane)), 1, buffer.as_mut_ptr(), [0, 6, 8]) };
+        assert_eq!(buffer, [16, 128, 235, 17, 18, 19, 60, 128, 200, 129]);
+    }
+
+    /// The HLG picture on the GPU (a Vulkan device and SDL's offscreen video driver, so ignored:
+    /// `cargo test -p nightjar-desktop -- --ignored stream::planes_gpu`): HLG's reference white
+    /// (75 %) in P010 and NV12 comes out at BT.2408's 203 nits, in units of SDR white (80 nits
+    /// here). Read as PQ, the same code would be 1000 nits.
+    #[test]
+    #[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+    fn hlg_reference_white_is_drawn_at_203_nits_from_p010_and_nv12() {
+        let (width, height) = (16usize, 8usize);
+        let p010_luma = (0..width * height).flat_map(|_| (721u16 << 6).to_le_bytes()).collect::<Vec<u8>>();
+        let p010_chroma = (0..width * height / 2).flat_map(|_| (512u16 << 6).to_le_bytes()).collect::<Vec<u8>>();
+        let nv12_luma = vec![180u8; width * height];
+        let nv12_chroma = vec![128u8; width * height / 2];
+        // SAFETY: Plain SDL calls on objects made here, on one thread.
+        unsafe {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
+            assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
+            let window = SDL_CreateWindow(c"HLG planes".as_ptr(), 64, 64, SDL_WINDOW_HIDDEN);
+            let renderer = crate::sdl::create_renderer(window, true);
+            assert!(!renderer.is_null(), "{}", crate::sdl::error());
+            assert_eq!(crate::sdl::renderer_name(renderer), "gpu");
+            let target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_TEXTUREACCESS_TARGET, width as i32, height as i32);
+            assert!(!target.is_null(), "{}", crate::sdl::error());
+            for (kind, luma, chroma, bytes) in [(FRAME_P010, &p010_luma, &p010_chroma, 2), (FRAME_NV12, &nv12_luma, &nv12_chroma, 1)] {
+                let (mut luma, mut chroma) = (luma.clone(), chroma.clone());
+                let mut info = picture(kind, &mut luma, &mut chroma, (width * bytes) as i32);
+                (info.width, info.height) = (width as i32, height as i32);
+                assert!(super::super::present::hlg_through_planes(&info));
+                let layout = PlanarLayout::of_semi_planar(&info).unwrap();
+                let parameters = super::super::present::planar_parameters(&info, layout, true, 1.0);
+                let mut pass = PlanesPass::for_frames(renderer, layout).unwrap();
+                pass.draw_frame(renderer, target, &info, &parameters).unwrap();
+                assert!(SDL_SetRenderTarget(renderer, target), "{}", crate::sdl::error());
+                let readback = SDL_RenderReadPixels(renderer, ptr::null());
+                assert!(!readback.is_null(), "{}", crate::sdl::error());
+                let pixels = SDL_ConvertSurface(readback, SDL_PIXELFORMAT_RGBA128_FLOAT);
+                SDL_DestroySurface(readback);
+                SDL_SetRenderTarget(renderer, ptr::null_mut());
+                let rgb = std::slice::from_raw_parts((*pixels).pixels.cast::<f32>(), 3).to_vec();
+                SDL_DestroySurface(pixels);
+                let nits = rgb.iter().map(|value| value * 80.0).collect::<Vec<f32>>();
+                eprintln!("kind {kind}: {nits:?} nits");
+                for value in nits {
+                    assert!((value - 203.0).abs() < 203.0 * 0.03, "kind {kind}: {value} nits, not HLG's reference white");
+                }
+            }
+            SDL_DestroyTexture(target);
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
         }
     }
 }

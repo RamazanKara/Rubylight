@@ -65,6 +65,19 @@ impl PlanarLayout {
         (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444, ten_bit })
     }
 
+    /// The 4:2:0 layout an NV12 or P010 picture in memory is drawn in by the plane shader: the
+    /// upload splits its interleaved chroma into two planes and moves P010's high-bit samples to
+    /// the low bits (`planes_gpu`), so it reads as `FRAME_YUV420P` or `FRAME_YUV420P10`.
+    #[cfg(unix)]
+    pub fn of_semi_planar(info: &FrameInfo) -> Option<Self> {
+        let ten_bit = match info.kind {
+            FRAME_NV12 => false,
+            FRAME_P010 => true,
+            _ => return None,
+        };
+        (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444: false, ten_bit })
+    }
+
     pub fn plane_size(&self, plane: usize) -> (u32, u32) {
         if plane == 0 || self.chroma444 { (self.width, self.height) } else { (self.width.div_ceil(2), self.height.div_ceil(2)) }
     }
@@ -672,8 +685,8 @@ impl Frame {
         }
     }
 
+    #[cfg(windows)]
     pub fn copy_to_d3d11(&self, texture: *mut c_void, width: i32, height: i32) -> bool {
-        #[cfg(windows)]
         unsafe {
             use windows::core::Interface;
             use windows::Win32::Graphics::Direct3D11::{
@@ -717,11 +730,6 @@ impl Frame {
             );
             (d3d.unlock.unwrap())(d3d.lock_ctx);
             true
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = (texture, width, height);
-            false
         }
     }
 }

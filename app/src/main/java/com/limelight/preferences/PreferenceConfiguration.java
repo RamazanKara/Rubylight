@@ -639,19 +639,26 @@ public class PreferenceConfiguration {
     }
 
     /**
-     * PyroWave's minimum for the saved resolution and frame rate when PyroWave is the chosen codec
-     * and the bitrate the user picked is below it, else 0. A chosen bitrate is kept as it is; the
-     * bitrate setting warns instead (the automatic one never goes below the minimum).
+     * PyroWave's minimum for {@code config}'s size and frame rate when it streams PyroWave at a
+     * chosen bitrate below it, else 0. {@code config} is the effective one the screen shows: the
+     * main settings with the size that follows the screen, or with a profile's, PC's or game's
+     * values on top (their bitrate counts as chosen). A chosen bitrate is kept as it is; the bitrate
+     * setting warns instead (the automatic one never goes below the minimum).
      */
-    static int pyroWaveMinimumAboveChosenKbps(SharedPreferences prefs) {
-        if (!"forcepyrowave".equals(prefs.getString(VIDEO_FORMAT_PREF_STRING, DEFAULT_VIDEO_FORMAT)) ||
-                !isBitrateUserSet(prefs)) {
+    static int pyroWaveMinimumAboveChosenKbps(PreferenceConfiguration config) {
+        if (config.videoFormat != FormatOption.FORCE_PYROWAVE || config.automaticBitrate) {
             return 0;
         }
-        String res = prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION);
-        int minimum = PyroWaveBitrateFloor.minimumKbps(getWidthFromResolutionString(res),
-                getHeightFromResolutionString(res), Integer.parseInt(prefs.getString(FPS_PREF_STRING, DEFAULT_FPS)));
-        return prefs.getInt(BITRATE_PREF_STRING, 0) < minimum ? minimum : 0;
+        int minimum = PyroWaveBitrateFloor.minimumKbps(config.width, config.height, config.fps);
+        return config.bitrate < minimum ? minimum : 0;
+    }
+
+    /** The bitrate setting's warning line for {@link #pyroWaveMinimumAboveChosenKbps}, or null. */
+    static String pyroWaveBelowMinimumWarning(Context context, PreferenceConfiguration config) {
+        int minimum = pyroWaveMinimumAboveChosenKbps(config);
+        if (minimum == 0) return null;
+        return context.getString(com.limelight.R.string.summary_bitrate_pyrowave_below_minimum,
+                (minimum + 999) / 1000, config.width, config.height, config.fps);
     }
 
     private static FormatOption getVideoFormatValue(Context context) {

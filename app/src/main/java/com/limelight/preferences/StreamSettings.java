@@ -1455,16 +1455,10 @@ public class StreamSettings extends NightjarActivity {
                 }
                 if (value != null && PreferenceConfiguration.BITRATE_PREF_STRING.equals(pref.getKey())) {
                     // A chosen bitrate below PyroWave's minimum stays; the value line says what it costs.
-                    int minimum = PreferenceConfiguration.pyroWaveMinimumAboveChosenKbps(prefs);
-                    if (minimum > 0) {
-                        String res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING,
-                                PreferenceConfiguration.DEFAULT_RESOLUTION);
-                        value = value + "\n" + getString(R.string.summary_bitrate_pyrowave_below_minimum,
-                                (minimum + 999) / 1000, PreferenceConfiguration.getWidthFromResolutionString(res),
-                                PreferenceConfiguration.getHeightFromResolutionString(res),
-                                Integer.parseInt(prefs.getString(PreferenceConfiguration.FPS_PREF_STRING,
-                                        PreferenceConfiguration.DEFAULT_FPS)));
-                    }
+                    // Measured at the size the stream gets, also when the resolution follows the screen.
+                    PreferenceConfiguration config = PreferenceConfiguration.readPreferences(getActivity());
+                    String warning = PreferenceConfiguration.pyroWaveBelowMinimumWarning(getActivity(), config);
+                    if (warning != null) value = value + "\n" + warning;
                 }
                 if (value != null && SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects())) {
                     value = getString(R.string.settings_joined, value, getString(R.string.mic_effect_not_on_device));

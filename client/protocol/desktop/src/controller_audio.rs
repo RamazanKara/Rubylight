@@ -92,7 +92,9 @@ fn downmix(frame: &[f32]) -> [i16; 2] {
         let mut value = frame[channel.min(frame.len() - 1)];
         if frame.len() >= 6 {
             value += std::f32::consts::FRAC_1_SQRT_2 * (frame[2] + frame[4 + channel]);
-            if frame.len() == 8 { value += std::f32::consts::FRAC_1_SQRT_2 * frame[6 + channel]; }
+            if frame.len() >= 8 { value += std::f32::consts::FRAC_1_SQRT_2 * frame[6 + channel]; }
+            // 7.1.4's heights, front and back.
+            if frame.len() >= 12 { value += std::f32::consts::FRAC_1_SQRT_2 * (frame[8 + channel] + frame[10 + channel]); }
         }
         (value * 32768.0).clamp(-32768.0, 32767.0) as i16
     })
@@ -394,6 +396,11 @@ mod tests {
         assert_eq!(downmix(&[0.0, 0.0, 1.0, 1.0, 0.0, 0.0]), [23170; 2]);
         assert_eq!(downmix(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]), [0; 2]);
         assert_eq!(downmix(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, -0.5]), [11585, -11585]);
+        let mut heights = [0.0; 12];
+        heights[6] = 0.25;
+        heights[8] = 0.25;
+        heights[11] = -0.5;
+        assert_eq!(downmix(&heights), [11585, -11585], "7.1.4's sides and heights");
         let mut playback = Playback::default();
         assert!(!playback.headphones(&[1.0, -1.0], 2));
         playback.routed = true;

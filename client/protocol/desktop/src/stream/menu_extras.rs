@@ -1,12 +1,20 @@
 //! Stream menu controls ported from Moonlight V+ PC (qiin2333/moonlight-qt,
 //! `app/streaming/video/overlaymenupanel.cpp` and `app/streaming/input/gamepad.cpp`): the
-//! controller mouse switch and the bitrate slider with its piecewise scale.
+//! controller mouse switch and the bitrate slider with its piecewise scale. Also the host's
+//! night mode and headphone surround switches (Rubylight's native API `/audio`).
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use nightjar_core::http::native_api::audio::{reason, Audio, AudioWrite, HEADPHONE_SURROUND, NIGHT_MODE};
+use nightjar_core::http::native_api::capabilities::Capabilities;
+use nightjar_core::http::native_api::radeon::{Change, ControlState, Value};
+use nightjar_core::http::{AppRole, Feature, HostClient};
 
 use crate::gamepad::Gamepads;
 use crate::strings::{tr, trf};
 
+use super::pipeline::{lock, Notice};
 use super::Streaming;
 
 impl Streaming {
@@ -35,6 +43,139 @@ pub fn mouse_toast(pads: &Gamepads, active: bool, hold_start: bool) -> String {
         (true, true) => trf("Controller mouse enabled. {}/{} click; D-pad scrolls. Hold {} to return to gamepad.", &[&left, &right, &style.start()]),
         (true, false) => trf("Controller mouse enabled. {}/{} click; D-pad scrolls.", &[&left, &right]),
         (false, _) => tr("Controller mouse disabled.").to_owned(),
+    }
+}
+
+/// The host's night mode and headphone surround (`GET /audio`): read each time the stream controls
+/// open, so they show the PC's state, and changed live for this stream with `POST /audio/settings`.
+#[derive(Debug, Default)]
+pub struct HostAudio {
+    /// The switches the PC offers this device, from its native capabilities; None until read.
+    offered: Option<Vec<&'static str>>,
+    audio: Option<Audio>,
+    /// A read or a change is on its way.
+    busy: bool,
+}
+
+/// What came back from the PC for [`HostAudio`].
+pub enum AudioAnswer {
+    /// The offered switches and, when there are any, their state.
+    Read(Result<(Vec<&'static str>, Option<Audio>), String>),
+    Changed(Result<Audio, String>),
+}
+
+/// One switch as the stream controls show it.
+#[derive(Debug, PartialEq)]
+pub struct Switch {
+    pub id: &'static str,
+    pub on: bool,
+    pub enabled: bool,
+    /// Why this stream doesn't apply it now.
+    pub note: Option<String>,
+}
+
+/// The switches the PC lists that this device may change: the host wants View or Launch.
+pub fn offered_switches(capabilities: &Capabilities) -> Vec<&'static str> {
+    let allowed = capabilities.permissions.view || capabilities.permissions.launch;
+    [NIGHT_MODE, HEADPHONE_SURROUND]
+        .into_iter()
+        .filter(|id| allowed && capabilities.features.iter().any(|f| f == id))
+        .collect()
+}
+
+pub fn audio_label(id: &str) -> &'static str {
+    if id == NIGHT_MODE { tr("Night mode") } else { tr("Headphone surround") }
+}
+
+/// The request that turns one switch on or off.
+pub fn audio_write(id: &str, on: bool) -> AudioWrite {
+    AudioWrite { changes: vec![Change { id: id.into(), value: Value::Bool(on) }] }
+}
+
+impl HostAudio {
+    /// The offered switches the PC's answer has, in the PC's state.
+    pub fn switches(&self) -> Vec<Switch> {
+        let (Some(offered), Some(audio)) = (&self.offered, &self.audio) else { return Vec::new() };
+        offered
+            .iter()
+            .filter_map(|&id| {
+                let setting = audio.settings.iter().find(|s| s.id == id)?;
+                Some(Switch {
+                    id,
+                    on: setting.value == Some(Value::Bool(true)),
+                    enabled: setting.state == ControlState::Configurable && !self.busy,
+                    note: match setting.reason.as_deref() {
+                        None => None,
+                        Some(reason::NEXT_STREAM) => Some(tr("Applies next stream").to_owned()),
+                        Some(_) => setting.message.clone(),
+                    },
+                })
+            })
+            .collect()
+    }
+
+    /// Takes the PC's answer; a failed change is the text to show.
+    pub fn answered(&mut self, answer: AudioAnswer) -> Result<(), String> {
+        self.busy = false;
+        match answer {
+            AudioAnswer::Read(Ok((offered, audio))) => {
+                self.offered = Some(offered);
+                self.audio = audio;
+            }
+            // Nothing stale stays on screen: the switches go until the next read.
+            AudioAnswer::Read(Err(error)) => {
+                eprintln!("nightjar: the PC's audio settings were not read: {error}");
+                self.audio = None;
+            }
+            AudioAnswer::Changed(Ok(audio)) => self.audio = Some(audio),
+            AudioAnswer::Changed(Err(error)) => return Err(trf("Could not change the PC's audio: {}", &[&error])),
+        }
+        Ok(())
+    }
+}
+
+/// The switches the PC offers, read once per stream, and their state now.
+fn read_host_audio(client: &HostClient, offered: Option<Vec<&'static str>>) -> Result<(Vec<&'static str>, Option<Audio>), String> {
+    let offered = match offered {
+        Some(offered) => offered,
+        None => offered_switches(&client.native_capabilities().map_err(|e| e.to_string())?),
+    };
+    if offered.is_empty() {
+        return Ok((offered, None));
+    }
+    let audio = client.audio().map_err(|e| e.to_string())?;
+    Ok((offered, Some(audio)))
+}
+
+impl Streaming {
+    /// The PC's client for the native API, on a stream that may use it.
+    fn audio_client(&self) -> Option<Arc<HostClient>> {
+        if self.facts.role != AppRole::Stream || !self.plan.info.capabilities.has(Feature::NativeApi) {
+            return None;
+        }
+        lock(&self.shared.host_client).clone()
+    }
+
+    /// Reads the switches as the stream controls open, on a thread. A PC that offers none is not
+    /// asked again in this stream.
+    pub fn refresh_host_audio(&mut self) {
+        if self.host_audio.busy || self.host_audio.offered.as_ref().is_some_and(Vec::is_empty) { return; }
+        let Some(client) = self.audio_client() else { return };
+        let (offered, shared) = (self.host_audio.offered.clone(), self.shared.clone());
+        self.host_audio.busy = true;
+        std::thread::spawn(move || shared.notify(Notice::HostAudio(AudioAnswer::Read(read_host_audio(&client, offered)))));
+    }
+
+    /// Turns a switch on or off for this stream; the PC's answer sets what the menu shows.
+    pub fn set_host_audio(&mut self, id: &'static str, on: bool) {
+        if self.host_audio.busy { return; }
+        let Some(client) = self.audio_client() else { return };
+        let shared = self.shared.clone();
+        self.host_audio.busy = true;
+        std::thread::spawn(move || {
+            let answer = client.write_audio(&audio_write(id, on)).map_err(|e| e.to_string());
+            shared.notify(Notice::HostAudio(AudioAnswer::Changed(answer)));
+        });
     }
 }
 
@@ -162,6 +303,69 @@ impl Streaming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn capabilities(features: &[&str], view: bool, launch: bool) -> Capabilities {
+        serde_json::from_value(serde_json::json!({
+            "api_version": 1,
+            "host": { "name": "PC", "version": "3.0.0", "unique_id": "1" },
+            "features": features,
+            "permissions": { "list": true, "view": view, "launch": launch, "host_control": false }
+        }))
+        .unwrap()
+    }
+
+    /// The host's `GET /audio` with night mode on and headphone surround waiting for the next stream.
+    fn audio() -> Audio {
+        serde_json::from_value(serde_json::json!({
+            "revision": 3,
+            "settings": [
+                { "id": "audio.night_mode", "group": "sound", "kind": "toggle", "state": "configurable", "value": true },
+                { "id": "audio.headphone_surround", "group": "sound", "kind": "toggle", "state": "configurable", "value": false,
+                  "reason": "next_stream", "message": "Headphone surround applies from the next stream." }
+            ]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_audio_switches_show_only_what_the_pc_offers_and_allows() {
+        let both = ["library", "audio.night_mode", "audio.headphone_surround"];
+        assert_eq!(offered_switches(&capabilities(&both, true, false)), [NIGHT_MODE, HEADPHONE_SURROUND]);
+        assert_eq!(offered_switches(&capabilities(&both, false, true)), [NIGHT_MODE, HEADPHONE_SURROUND], "Launch is enough");
+        assert!(offered_switches(&capabilities(&both, false, false)).is_empty(), "the host refuses List alone");
+        assert_eq!(offered_switches(&capabilities(&["audio.headphone_surround"], true, true)), [HEADPHONE_SURROUND]);
+        assert!(offered_switches(&capabilities(&["library", "session.couch_menu"], true, true)).is_empty(), "an older Rubylight");
+
+        let mut menu = HostAudio::default();
+        assert!(menu.switches().is_empty(), "nothing before the PC answered");
+        menu.answered(AudioAnswer::Read(Ok((vec![NIGHT_MODE, HEADPHONE_SURROUND], Some(audio()))))).unwrap();
+        assert_eq!(menu.switches(), [
+            Switch { id: NIGHT_MODE, on: true, enabled: true, note: None },
+            Switch { id: HEADPHONE_SURROUND, on: false, enabled: true, note: Some("Applies next stream".into()) },
+        ]);
+        // Only what the capabilities offer, even when the answer has more.
+        menu.answered(AudioAnswer::Read(Ok((vec![NIGHT_MODE], Some(audio()))))).unwrap();
+        assert_eq!(menu.switches().iter().map(|s| s.id).collect::<Vec<_>>(), [NIGHT_MODE]);
+        // A stream that has ended is unavailable: shown, not changeable.
+        let mut ended = audio();
+        ended.settings[0].state = ControlState::TemporarilyUnavailable;
+        ended.settings[0].value = None;
+        menu.answered(AudioAnswer::Changed(Ok(ended))).unwrap();
+        assert_eq!(menu.switches()[0], Switch { id: NIGHT_MODE, on: false, enabled: false, note: None });
+        // A failed read leaves nothing stale on screen; a failed change says so.
+        menu.answered(AudioAnswer::Read(Err("gone".into()))).unwrap();
+        assert!(menu.switches().is_empty());
+        assert!(menu.answered(AudioAnswer::Changed(Err("refused".into()))).unwrap_err().contains("refused"));
+    }
+
+    #[test]
+    fn a_switch_writes_the_hosts_request() {
+        let write = serde_json::to_value(audio_write(HEADPHONE_SURROUND, true)).unwrap();
+        assert_eq!(write, serde_json::json!({ "changes": [{ "id": "audio.headphone_surround", "value": true }] }));
+        let write = serde_json::to_value(audio_write(NIGHT_MODE, false)).unwrap();
+        assert_eq!(write, serde_json::json!({ "changes": [{ "id": "audio.night_mode", "value": false }] }));
+        assert_eq!((audio_label(NIGHT_MODE), audio_label(HEADPHONE_SURROUND)), ("Night mode", "Headphone surround"));
+    }
 
     #[test]
     fn the_scale_matches_v_plus_and_round_trips() {

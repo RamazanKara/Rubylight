@@ -1614,6 +1614,50 @@ fn a_games_folder_linked_back_into_steams_library_is_still_asked_about() {
     }
 }
 
+/// A game Steam lists Valve Anti-Cheat for is refused before the download:
+/// GitHub is never asked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vac_game_is_refused_before_the_download() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    *h.neural.probe.lock().unwrap() = Some(Probe {
+        gpus: vec![Gpu {
+            name: "AMD Radeon RX 7900 XT".into(),
+            arch: "gfx1100".into(),
+            compute_units: 84,
+            luid: None,
+        }],
+        driver: Some("26.10.1".into()),
+        error: None,
+    });
+    accept(h).unwrap();
+    let steam = steam_root("1");
+    *h.neural.steam_roots.lock().unwrap() = Some(vec![steam.path().to_path_buf()]);
+    let folder = steam.path().join(r"steamapps\common\Black Flag");
+    std::fs::write(folder.join("AC4BFSP.exe"), b"MZ game").unwrap();
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({"name": "Black Flag", "uuid": "flag", "launcher-install-dir": folder}));
+        true
+    })
+    .unwrap();
+    let files = r2_files();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let list = release_list(&base, "Alpha0.3.5.8R2", &files);
+    pin_files(h, &files);
+    let server = serve(listener, list, Arc::new(files)).await;
+    *h.neural.origin.lock().unwrap() = Some(server.base);
+
+    enable(h, "flag", None).unwrap();
+    let job = ended(h, "flag").await;
+    assert_eq!(job.phase, "failed", "{job:?}");
+    let error = job.error.unwrap();
+    assert!(error.starts_with("Steam lists Valve Anti-Cheat"), "{error}");
+    assert!(server.log.lock().unwrap().is_empty());
+    assert!(cached(&cache_root(h)).is_none());
+    assert_eq!(names(&folder), ["AC4BFSP.exe"]);
+}
+
 /// A launcher is never the game: an app whose command starts Steam or
 /// another store has the game's program found in its install, a launcher
 /// picked is refused, and so is a program outside the game's install.
@@ -2590,7 +2634,9 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     pin_files(h, &files);
     let server = serve(listener, list, Arc::new(files)).await;
     *h.neural.origin.lock().unwrap() = Some(server.base);
-    enable(h, "game", None).unwrap();
+    // The game's program is found before the download.
+    let temp = tempdir();
+    enable(h, "game", Some(game(temp.path()))).unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
     let job = loop {
         let job = h.neural.lock().jobs["game"].clone();

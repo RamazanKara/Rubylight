@@ -1313,6 +1313,20 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     let (h, uuid) = (h.clone(), uuid.to_owned());
     tokio::spawn(async move {
         let (exe, install) = (exe.or_else(|| game_command(&app)), install(&app));
+        // The game's program and Valve Anti-Cheat before the download: a game
+        // that is refused never waits for about 1 GB. Asked again after it,
+        // as the game may have changed meanwhile.
+        let checked = {
+            let (h, app, exe, install) = (h.clone(), app.clone(), exe.clone(), install.clone());
+            tokio::task::spawn_blocking(move || find_game(&h, &app, exe, install)).await
+        };
+        match checked {
+            Ok(Ok(Response::Found { .. })) => {}
+            Ok(response) => return finish_install(&h, &uuid, &app, None, response),
+            Err(error) => {
+                return fail_job(&h, &uuid, format!("the install stopped: {error}"), false);
+            }
+        }
         let progress = |done, total| {
             update_job(&h, &uuid, |job| {
                 job.done = done;

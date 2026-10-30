@@ -2487,9 +2487,10 @@ impl Launcher {
             ui.add_enabled_ui(s.controllers, |ui| {
                 setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "Use the controller's Back / Select button to open the menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
                 setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Controller quit combo", "Hold these buttons to leave the stream. Pick another if a game or your controller needs the default.", |ui, s| {
-                    egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(s.gamepad_quit_combo.label()).show_ui(ui, |ui| {
+                    let style = crate::glyphs::Style::of(view.pads);
+                    egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
                         for combo in crate::config::GamepadQuitCombo::ALL {
-                            ui.selectable_value(&mut s.gamepad_quit_combo, combo, combo.label());
+                            ui.selectable_value(&mut s.gamepad_quit_combo, combo, style.quit_combo(combo));
                         }
                     }).response
                 });
@@ -2723,9 +2724,10 @@ impl Launcher {
             rows.finish(ui);
             ui.add_space(18.0);
             ui.label(
-                RichText::new(tr(
+                RichText::new(trf(
                     "While streaming: Ctrl+Alt+Shift+Q leaves, +Z releases input, +X toggles fullscreen, +D minimizes. \
-                     On a controller, Start+Select+LB+RB leaves.",
+                     On a controller, {} leaves.",
+                    &[&crate::glyphs::Style::of(view.pads).quit_combo(s.gamepad_quit_combo)],
                 ))
                 .color(OUTLINE)
                 .font(regular(text::CAPTION)),

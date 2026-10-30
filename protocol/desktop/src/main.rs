@@ -638,10 +638,11 @@ impl App {
 
     /// Steps a held D-pad direction or stick again (nav_repeat.rs). A hold whose release went to
     /// the stream, or whose controller left, is checked against the controller and dropped.
-    fn repeat_navigation(&mut self) {
+    /// True when it stepped.
+    fn repeat_navigation(&mut self) -> bool {
         if self.launcher.screen == Screen::Controllers && self.launcher.controller_test {
             self.nav_repeat.clear();
-            return;
+            return false;
         }
         let keys = self.nav_repeat.due(Instant::now(), |pad, input| {
             // SAFETY: SDL gamepad queries on the main thread; a null gamepad has left.
@@ -659,11 +660,12 @@ impl App {
                 }
             }
         });
-        for key in keys {
-            for e in gui::tap(key) {
+        for key in &keys {
+            for e in gui::tap(*key) {
                 self.gui.push(e);
             }
         }
+        !keys.is_empty()
     }
 
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
@@ -1747,6 +1749,8 @@ impl App {
             match streaming.wait() {
                 stream::Wait::Now => {}
                 stream::Wait::For(duration) => {
+                    // A held direction in the stream menu wakes the loop for its next step.
+                    let duration = self.nav_repeat.next(Instant::now()).map_or(duration, |next| duration.min(next + Duration::from_millis(1)));
                     if duration > Duration::from_micros(1500) {
                         let ms = (duration.as_micros() / 1000).saturating_sub(1).max(1) as i32;
                         if SDL_WaitEventTimeout(&mut event, ms) {
@@ -1760,6 +1764,16 @@ impl App {
             while SDL_PollEvent(&mut event) {
                 self.dispatch_stream_event(&event);
             }
+        }
+        // A held D-pad or stick steps the stream menu again, as in the launcher.
+        if self.streaming.as_ref().is_some_and(|(s, _)| s.menu_visible) {
+            if self.repeat_navigation() {
+                if let Some((s, _)) = self.streaming.as_mut() {
+                    s.needs_redraw = true;
+                }
+            }
+        } else {
+            self.nav_repeat.clear();
         }
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
@@ -2169,7 +2183,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if ui.button(tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
                     if ui.button(tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
                     let style = glyphs::Style::of(pads);
-                    ui.label(trf("Ctrl+Alt+Shift+Tab or {}+{} opens this menu.", &[&style.start(), &style.select()]));
+                    ui.label(trf("Ctrl+Alt+Shift+Tab or {} opens this menu.", &[&style.chord(&[style.start(), style.select()])]));
                 });
         }
         if visible {

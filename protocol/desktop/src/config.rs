@@ -85,19 +85,8 @@ pub enum GamepadQuitCombo {
 }
 
 impl GamepadQuitCombo {
+    /// Their names follow the connected controller (`glyphs::Style::quit_combo`).
     pub const ALL: [Self; 6] = [Self::StartSelectLbRb, Self::SelectLbRbY, Self::StartLbRbA, Self::StartLbRbB, Self::LbRbXY, Self::LbRbAB];
-
-    /// Button names, the same in every language.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::StartSelectLbRb => "Start+Select+LB+RB",
-            Self::SelectLbRbY => "Select+LB+RB+Y",
-            Self::StartLbRbA => "Start+LB+RB+A",
-            Self::StartLbRbB => "Start+LB+RB+B",
-            Self::LbRbXY => "LB+RB+X+Y",
-            Self::LbRbAB => "LB+RB+A+B",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

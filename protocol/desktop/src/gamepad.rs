@@ -1008,12 +1008,12 @@ mod tests {
                     for button in &buttons { actions.push(press(&mut pads, &mut queue, *button, true)); }
                     for button in &buttons { press(&mut pads, &mut queue, *button, false); }
                     let quit = actions.last() == Some(&Some(Action::Quit));
-                    assert_eq!(quit, combo == chosen, "{} held with {} chosen", combo.label(), chosen.label());
-                    assert!(actions[..actions.len() - 1].iter().all(Option::is_none), "{}: {actions:?}", combo.label());
+                    assert_eq!(quit, combo == chosen, "{combo:?} held with {chosen:?} chosen");
+                    assert!(actions[..actions.len() - 1].iter().all(Option::is_none), "{combo:?}: {actions:?}");
                     assert_eq!(pads.pads[0].raw_buttons, 0);
                 }
                 assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, true), None);
-                assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, true), Some(Action::Menu), "{}", chosen.label());
+                assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, true), Some(Action::Menu), "{chosen:?}");
                 press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, false);
                 press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, false);
             }

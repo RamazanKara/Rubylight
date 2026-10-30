@@ -5,7 +5,7 @@
 use std::time::{Duration, Instant};
 
 use crate::gamepad::Gamepads;
-use crate::strings::tr;
+use crate::strings::{tr, trf};
 
 use super::Streaming;
 
@@ -22,11 +22,19 @@ impl Streaming {
         self.session.input(|q| active = pads.toggle_mouse(q));
         let Some(active) = active else { return };
         self.controller_mouse_active = active;
-        self.show_toast(match (active, self.settings.controller_mouse) {
-            (true, true) => tr("Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad."),
-            (true, false) => tr("Controller mouse enabled. A/B click; D-pad scrolls."),
-            (false, _) => tr("Controller mouse disabled."),
-        });
+        self.show_toast(mouse_toast(pads, active, self.settings.controller_mouse));
+    }
+}
+
+/// What turning the controller mouse on or off says, in the connected controller's button names;
+/// `hold_start` when holding Start turns it off again.
+pub fn mouse_toast(pads: &Gamepads, active: bool, hold_start: bool) -> String {
+    let style = crate::glyphs::Style::of(pads);
+    let (left, right) = style.mouse_clicks(pads.swap_face_buttons);
+    match (active, hold_start) {
+        (true, true) => trf("Controller mouse enabled. {}/{} click; D-pad scrolls. Hold {} to return to gamepad.", &[&left, &right, &style.start()]),
+        (true, false) => trf("Controller mouse enabled. {}/{} click; D-pad scrolls.", &[&left, &right]),
+        (false, _) => tr("Controller mouse disabled.").to_owned(),
     }
 }
 

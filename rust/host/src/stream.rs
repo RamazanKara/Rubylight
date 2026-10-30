@@ -1428,9 +1428,9 @@ impl Media {
                             Ok(Some(mut image)) => {
                                 last_frame = Instant::now();
                                 capture_warnings.clear("capture_recovery");
-                                let captured = image.captured;
+                                let (captured, focus) = (image.captured, image.focus);
                                 image.published = Instant::now();
-                                worker.publish_captured(Arc::new(image), captured)?;
+                                worker.publish_focus(Arc::new(image), captured, focus)?;
                             }
                             Ok(None) => {
                                 let interval = if capture_config.boolean("capture_predictive_poll", false)
@@ -1880,16 +1880,17 @@ impl Media {
                     let arrival_pacing = vrr
                         || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
                     let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);
-                    let new_pacer = |period: Duration| {
+                    let new_pacer = |rates: &butterpollo_core::reconfigure::Rates| {
                         let predictive = c.boolean("frame_pacing_predictive", true);
-                        butterpollo_core::stream_policy::Pacer::new(Instant::now(), period)
+                        butterpollo_core::stream_policy::Pacer::new(Instant::now(), rates.period)
+                            .with_static_period(rates.static_period)
                             .with_prediction(predictive)
                             .with_prediction_floor(if vrr { Duration::from_millis(2) } else { Duration::ZERO })
                             // Source phase follows the opened backend, set per image below.
                             .with_source_phase(false)
                             .with_spacing(if vrr { 0.5 } else { 0.75 })
                     };
-                    let mut pacer = new_pacer(rates.period);
+                    let mut pacer = new_pacer(&rates);
                     // The claim grid's period from before a phase lock, restored when it ends.
                     let mut unlocked_grid_period: Option<Duration> = None;
                     let due = cadence.deadline();
@@ -2694,7 +2695,7 @@ impl Media {
                                 stream_period.set(rates.period);
                                 progress.set_period(rates.period);
                                 cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("wgc_pacing_smoothing", true));
-                                pacer = new_pacer(rates.period);
+                                pacer = new_pacer(&rates);
                                 unlocked_grid_period = None;
                                 {
                                     let mut grid = latest.grid.lock().unwrap();
@@ -2779,8 +2780,9 @@ impl Media {
                             if arrival_pacing {
                                 pacer.observe_source(image.captured);
                                 pacer.observe_source_rate(latest.source_rate());
-                                let (start, late) = latest.picture();
+                                let (start, late, extends) = latest.picture();
                                 pacer.observe_picture(start, late);
+                                pacer.observe_extension(extends);
                             }
                             let fresh = last_image.as_ref().is_none_or(|previous| !Arc::ptr_eq(previous, &image));
                             if arrival_pacing

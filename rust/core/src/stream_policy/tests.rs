@@ -134,6 +134,18 @@ fn simulate_captures(
     detect: impl Fn(usize) -> f64,
     configure: impl Fn(Pacer) -> Pacer,
 ) -> Vec<(f64, f64)> {
+    let unlabelled: Vec<(f64, Option<bool>)> = captures.iter().map(|c| (*c, None)).collect();
+    simulate_focus(period, &unlabelled, detect, configure)
+}
+/// Like `simulate_captures`, with whether each capture changed the focus
+/// window (`Freshness::observe_focus`).
+fn simulate_focus(
+    period: f64,
+    labelled: &[(f64, Option<bool>)],
+    detect: impl Fn(usize) -> f64,
+    configure: impl Fn(Pacer) -> Pacer,
+) -> Vec<(f64, f64)> {
+    let captures: Vec<f64> = labelled.iter().map(|c| c.0).collect();
     let start = Instant::now();
     let ns = |ms: f64| (ms * 1e6).round() as u64;
     let at = |ms: f64| start + Duration::from_nanos(ns(ms));
@@ -170,7 +182,8 @@ fn simulate_captures(
                 break;
             }
         }
-        cadence.observe(ns(presented), ns(published - presented));
+        cadence.observe_focus(ns(presented), ns(published - presented), labelled[index].1);
+        pacer.observe_extension(cadence.extends_picture());
         interval = cadence.picture_interval().map(Duration::from_nanos);
         pacer.observe_source_rate(cadence.mean_interval().map(Duration::from_nanos));
         pacer.observe_picture(
@@ -820,6 +833,231 @@ fn a_second_composition_of_each_game_frame_does_not_age_vrr_claims() {
                     .all(|pair| pair[1].0 - pair[0].0 >= period / 2. - 1e-6)
             );
         }
+    }
+}
+/// A 60 Hz game window on the 240 Hz VRR desktop while another window on the
+/// same display animates at the display rate. Returns every composition as
+/// (time, whether it carries a new game frame or its duplicate) and the times
+/// of the compositions that carry each game frame, in milliseconds.
+fn mixed_desktop(seconds: f64, other: f64, seed: u64) -> (Vec<(f64, bool)>, Vec<f64>) {
+    mixed_desktop_at(1000. / 60., seconds, seconds, other, seed)
+}
+/// `mixed_desktop` with the game presenting every `game` ms until `still`.
+fn mixed_desktop_at(
+    game: f64,
+    still: f64,
+    seconds: f64,
+    other: f64,
+    seed: u64,
+) -> (Vec<(f64, bool)>, Vec<f64>) {
+    let mut compositions = vec![];
+    let mut frames = vec![];
+    for frame in 0..(still * 1000. / game) as usize {
+        let composed = frame as f64 * game + 2.5 + noise(frame, seed);
+        frames.push(composed);
+        compositions.push((composed, true));
+        compositions.push((composed + 0.1 + 0.9 * noise(frame, seed + 1), true));
+    }
+    let mut at = 0.3;
+    let mut index = 0;
+    while at < seconds * 1000. {
+        // An update within half a millisecond of a game frame is composed with it.
+        let next = frames.partition_point(|f| *f < at);
+        let near = |i: usize| frames.get(i).is_some_and(|f| (f - at).abs() < 0.5);
+        if !near(next) && !(next > 0 && near(next - 1)) {
+            compositions.push((at, false));
+        }
+        at += other + 0.3 * (noise(index, seed + 2) - 0.5);
+        index += 1;
+    }
+    compositions.sort_by(|a, b| a.0.total_cmp(&b.0));
+    (compositions, frames)
+}
+/// Game frames shown by claims of `claims` (claim, presented): repeats,
+/// skipped frames, and claims one or more frames behind the newest composed.
+fn game_frames_shown(claims: &[(f64, f64)], frames: &[f64]) -> (usize, usize, usize) {
+    let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+    let (mut repeats, mut skipped, mut behind) = (0, 0, 0);
+    for pair in claims.windows(2) {
+        let (previous, current) = (shown(pair[0].1), shown(pair[1].1));
+        if current == previous {
+            repeats += 1;
+        } else if current > previous + 1 {
+            skipped += current - previous - 1;
+        }
+        if shown(pair[1].0) > current {
+            behind += 1;
+        }
+    }
+    (repeats, skipped, behind)
+}
+/// Labels `compositions` from `mixed_desktop` for `Freshness::observe_focus`:
+/// `None` without dirty regions, or whether each composition changed the
+/// game window. With `duplicate_other`, the duplicate composition of a game
+/// frame reports no change in the game window.
+fn focus_labels(
+    compositions: &[(f64, bool)],
+    labelled: bool,
+    duplicate_other: bool,
+) -> Vec<(f64, Option<bool>)> {
+    compositions
+        .iter()
+        .enumerate()
+        .map(|(i, &(t, game))| {
+            let duplicate = i > 0 && compositions[i - 1].1 && t - compositions[i - 1].0 <= 1.;
+            let focus = game && !(duplicate_other && duplicate);
+            (t, labelled.then_some(focus))
+        })
+        .collect()
+}
+fn vrr_desktop(pacer: Pacer) -> Pacer {
+    pacer
+        .with_prediction_floor(Duration::from_millis(2))
+        .with_source_phase(true)
+        .with_spacing(0.5)
+}
+#[test]
+fn another_window_animating_on_the_display_does_not_pace_the_focused_game() {
+    // Hardware: a 60 Hz game streamed at 60 fps under VRR on a 240 Hz display
+    // while another window presented 245/s on it. Every composition counted
+    // as a picture, claims ran at 60.1/s against the game's 60.0 and drifted
+    // through its frames: repeats and skips, and up to a frame of extra age
+    // the host could not see. With dirty regions, only game frames start a
+    // picture and a still game picture waits for the next one.
+    let mut unlabelled_repeats = 0;
+    for other in [1000. / 245., 1000. / 240., 1000. / 144.] {
+        for seed in 0..4 {
+            let (compositions, frames) = mixed_desktop(25., other, seed * 10);
+            for (labelled, duplicate_other) in [(false, false), (true, false), (true, true)] {
+                let claims = simulate_focus(
+                    1000. / 60.,
+                    &focus_labels(&compositions, labelled, duplicate_other),
+                    |i| 0.08 + 0.12 * noise(i, seed + 99),
+                    vrr_desktop,
+                );
+                let steady = &claims[300..];
+                let (repeats, skipped, behind) = game_frames_shown(steady, &frames);
+                if !labelled {
+                    unlabelled_repeats += repeats;
+                    continue;
+                }
+                let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+                let mut ages: Vec<f64> = steady
+                    .iter()
+                    .map(|(claim, presented)| claim - frames[shown(*presented).max(1) - 1])
+                    .collect();
+                ages.sort_by(f64::total_cmp);
+                let rate =
+                    (steady.len() - 1) as f64 * 1000. / (steady.last().unwrap().0 - steady[0].0);
+                let case =
+                    format!("other {other:.2} ms seed {seed} duplicate other {duplicate_other}");
+                assert_eq!((repeats, skipped, behind), (0, 0, 0), "{case}");
+                assert!(rate < 60.05, "{case}: {rate:.3}/s");
+                assert!(
+                    ages[ages.len() * 95 / 100] < 1.,
+                    "{case}: game age p95 {:.2} ms",
+                    ages[ages.len() * 95 / 100]
+                );
+            }
+        }
+    }
+    // Without dirty regions the pacer behaves as before, which repeats frames.
+    assert!(unlabelled_repeats > 0);
+}
+#[test]
+fn another_window_still_streams_at_the_stream_rate_once_the_game_is_still() {
+    // A focus window that stops changing (a paused game, a menu) must not
+    // hold the rest of the display to the static repeat.
+    let (compositions, frames) = mixed_desktop_at(1000. / 60., 2., 6., 1000. / 240., 0);
+    let claims = simulate_focus(
+        1000. / 60.,
+        &focus_labels(&compositions, true, false),
+        |i| 0.08 + 0.12 * noise(i, 99),
+        vrr_desktop,
+    );
+    let still = frames.last().unwrap() + 200.;
+    let after: Vec<f64> = claims.iter().map(|c| c.0).filter(|c| *c > still).collect();
+    let rate = (after.len() - 1) as f64 * 1000. / (after.last().unwrap() - after[0]);
+    assert!((59.5..60.5).contains(&rate), "{rate:.2}/s");
+    // A 30 Hz game is still a game picture every 33 ms, not 60 claims.
+    let (compositions, frames) = mixed_desktop_at(1000. / 30., 25., 25., 1000. / 240., 0);
+    let claims = simulate_focus(
+        1000. / 60.,
+        &focus_labels(&compositions, true, false),
+        |i| 0.08 + 0.12 * noise(i, 99),
+        vrr_desktop,
+    );
+    let steady = &claims[150..];
+    assert_eq!(game_frames_shown(steady, &frames), (0, 0, 0));
+}
+#[test]
+fn a_pointer_moving_beside_the_focused_game_does_not_cost_it_a_frame() {
+    // Hardware: the same desktop with the pointer circling outside the game
+    // at 125 Hz. WGC draws the cursor and reports no dirty region for a
+    // composition that only moved it, so it came unlabelled, within the
+    // picture gap of another window's update, and ended the extension: the
+    // claim no longer waited for the predicted game frame and took the
+    // previous one just before the next arrived, a game frame late.
+    for seed in 0..4 {
+        let (compositions, frames) = mixed_desktop(25., 1000. / 240., seed * 10);
+        let mut labelled = focus_labels(&compositions, true, false);
+        let mut at = 1.7;
+        let mut index = 0;
+        while at < 25_000. {
+            // A move within 0.05 ms of another update is composed with it.
+            let next = compositions.partition_point(|c| c.0 < at);
+            let near = |i: usize| compositions.get(i).is_some_and(|c| (c.0 - at).abs() < 0.05);
+            if !near(next) && !(next > 0 && near(next - 1)) {
+                labelled.push((at, None));
+            }
+            at += 8. + 0.4 * (noise(index, seed + 3) - 0.5);
+            index += 1;
+        }
+        labelled.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let claims = simulate_focus(
+            1000. / 60.,
+            &labelled,
+            |i| 0.08 + 0.12 * noise(i, seed + 99),
+            vrr_desktop,
+        );
+        let steady = &claims[300..];
+        let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+        let mut ages: Vec<f64> = steady
+            .iter()
+            .map(|(claim, presented)| claim - frames[shown(*presented).max(1) - 1])
+            .collect();
+        ages.sort_by(f64::total_cmp);
+        let case = format!("seed {seed}");
+        assert_eq!(game_frames_shown(steady, &frames), (0, 0, 0), "{case}");
+        assert!(
+            ages[ages.len() * 95 / 100] < 1.,
+            "{case}: game age p95 {:.2} ms",
+            ages[ages.len() * 95 / 100]
+        );
+    }
+}
+#[test]
+fn a_game_alone_on_the_display_is_claimed_as_without_focus_labels() {
+    // Holding a later composition of a claimed frame by its timing measured
+    // no better (rust/PERFORMANCE.md, October 26). The labels hold only
+    // another window's updates: a game's own compositions, its duplicates
+    // included, are claimed exactly as without them.
+    for seed in 0..4 {
+        let (compositions, _) = mixed_desktop(25., 1e9, seed * 10);
+        let detect = |i: usize| 0.08 + 0.12 * noise(i, seed + 99);
+        let labelled = simulate_focus(
+            1000. / 60.,
+            &focus_labels(&compositions, true, false),
+            detect,
+            vrr_desktop,
+        );
+        let unlabelled = simulate_focus(
+            1000. / 60.,
+            &focus_labels(&compositions, false, false),
+            detect,
+            vrr_desktop,
+        );
+        assert_eq!(labelled, unlabelled, "seed {seed}");
     }
 }
 #[test]

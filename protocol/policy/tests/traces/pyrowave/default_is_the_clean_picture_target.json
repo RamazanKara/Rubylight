@@ -1,0 +1,13 @@
+{
+  "source": "PyroWaveBitrateFloorTest.theDefaultIsTheCleanPictureTarget",
+  "rust": "pyrowave::BitrateFloor",
+  "java": "com.limelight.nvstream.PyroWaveBitrateFloor",
+  "new": null,
+  "calls": [
+    {"call": "default_kbps", "args": [1280, 720, 60], "expect": 276480},
+    {"call": "default_kbps", "args": [1920, 1080, 60], "expect": 398132},
+    {"call": "default_kbps", "args": [2560, 1440, 120], "expect": 1415578},
+    {"call": "default_kbps", "args": [3840, 2160, 60], "expect": 1592525},
+    {"call": "default_kbps", "args": [3840, 2160, 120], "expect": 2000000}
+  ]
+}

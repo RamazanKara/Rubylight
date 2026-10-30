@@ -952,6 +952,17 @@ public class NvConnection {
 
         }
 
+        int configuredKbps = context.streamConfig.getBitrate();
+        context.startBitrateKbps = pyroWaveStartKbps(context);
+        context.pyroWaveRaisedFromKbps = !context.streamConfig.isAutomaticBitrate() &&
+                context.startBitrateKbps > configuredKbps ? configuredKbps : 0;
+        if (context.pyroWaveRaisedFromKbps > 0) {
+            LimeLog.warning("PyroWave: the chosen " + configuredKbps + " kbps is below its floor, starting at " +
+                    context.startBitrateKbps + " kbps");
+        } else if (context.startBitrateKbps != configuredKbps) {
+            LimeLog.info("PyroWave: starting at its default of " + context.startBitrateKbps + " kbps");
+        }
+
         // We will perform some connection type detection if the caller asked for it
         if (context.streamConfig.getRemote() == StreamConfiguration.STREAM_CFG_AUTO) {
             context.negotiatedRemoteStreaming = detectServerConnectionType();
@@ -1078,12 +1089,29 @@ public class NvConnection {
     }
 
     /**
+     * The bitrate a stream that negotiated PyroWave starts at ({@link PyroWaveBitrateFloor#startKbps}):
+     * PyroWave's default when the bitrate is automatic, else the chosen one, at least PyroWave's floor;
+     * either no higher than this client's cap (the mobile data limit). Any other codec, and a stream
+     * that is not PyroWave after all, keeps the configured bitrate.
+     */
+    static int pyroWaveStartKbps(ConnectionContext context) {
+        StreamConfiguration config = context.streamConfig;
+        if ((context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) {
+            return config.getBitrate();
+        }
+        int start = PyroWaveBitrateFloor.startKbps(config.getBitrate(), config.isAutomaticBitrate(),
+                context.negotiatedWidth, context.negotiatedHeight, config.getRefreshRate());
+        int limit = config.getBitrateLimitKbps();
+        return limit > 0 ? Math.min(start, Math.max(limit, config.getBitrate())) : start;
+    }
+
+    /**
      * The bitrate a new stream starts at: {@link NvHTTP#probeStartKbps} of a link test when
-     * {@link #probesFirstBitrate}, else the configured one. A failed test is logged and the stream
-     * starts at the configured bitrate.
+     * {@link #probesFirstBitrate}, else the one {@link #pyroWaveStartKbps} chose. A failed test is
+     * logged and the stream starts at the configured bitrate.
      */
     static int firstBitrateKbps(ConnectionContext context, LinkProbe probe) {
-        int configured = context.streamConfig.getBitrate();
+        int configured = context.startBitrateKbps;
         if (!probesFirstBitrate(context)) {
             return configured;
         }
@@ -1390,6 +1418,11 @@ public class NvConnection {
     /** The bitrate this stream started at: the configured one, or lower after a link test. */
     public int getStartBitrateKbps() {
         return context.startBitrateKbps;
+    }
+
+    /** The chosen bitrate PyroWave's floor raised this stream's start from, or 0 when it did not. */
+    public int getPyroWaveRaisedFromKbps() {
+        return context.pyroWaveRaisedFromKbps;
     }
 
     public synchronized boolean startHardwareMetricsPolling(Consumer<HardwareMetrics> listener) {

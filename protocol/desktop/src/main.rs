@@ -2097,6 +2097,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if ui.button(tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
                     ui.label(tr("Ctrl+Alt+Shift+Tab or Start+Select opens this menu."));
                 });
+        } else {
+            s.settle_bitrate_slider(&ctx);
         }
         if visible {
             egui::Area::new(egui::Id::unique("overlay"))

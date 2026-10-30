@@ -2,15 +2,20 @@
 # nightjar-usb-helper-version: 1
 # Nightjar's USB forwarding helper (Linux usbip-host). Nightjar runs it only through pkexec, and
 # it checks its own arguments. It binds a device the user attaches to the kernel's usbip-host,
-# which usbipd serves to Nightjar, and gives it back to its driver afterwards.
+# hands usbip-host the connection Nightjar serves it on, and gives the device back to its
+# driver afterwards. No usbipd: nothing listens for USB/IP, on the network or on loopback.
 #   install                  writes the polkit policy and the udev rule, then itself
-#   hold BUSID IDENTITY      binds, prints "bound", and unbinds when stdin closes (the
-#                            attachment ended, or Nightjar quit or crashed)
+#   hold BUSID IDENTITY      stdin is one end of a TCP connection Nightjar made on loopback:
+#                            binds, gives usbip-host that connection (usbip_sockfd, as
+#                            usbipd does after an import), prints "bound", and unbinds once
+#                            the connection ended (the attachment ended, or Nightjar quit or
+#                            crashed, which closes Nightjar's end)
 #   bind BUSID IDENTITY      binds
 #   unbind BUSID             unbinds and gives the device back to its driver
 #   auto-release BUSID       udev, on unplug: clears what usbip-host keeps of the port
 # Exit codes: 2 bad arguments, 3 no usbip tool, 4 no usbip_host module, 5 another device at
-# the port, 6 bound but not recorded, 7 setup failed, 8 the old connection did not let go.
+# the port, 6 bound but not recorded, 7 setup failed, 8 the old connection did not let go,
+# 9 usbip-host did not take the connection.
 # Ported from Moonlight V+ (qiin2333/moonlight-qt, app/backend/usbforwardingbackend.cpp).
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
@@ -30,9 +35,12 @@ case "$ACTION" in install|hold|bind|unbind|auto-release) ;; *) echo "unsupported
 if [ "$ACTION" != "install" ]; then
     case "$BUSID" in ''|*[!0-9.-]*) echo "invalid busid" >&2; exit 2;; esac
 fi
+if [ "$ACTION" = "hold" ] && [ ! -S "/proc/$$/fd/0" ]; then
+    echo "stdin is not a socket" >&2; exit 2
+fi
 
 # Kills the whole process group (Nightjar starts the helper as its own group) when a step
-# hangs: usbip or usbipd stuck on a broken device.
+# hangs: usbip stuck on a broken device.
 OPERATION_TIMEOUT_SECONDS=30
 WATCHDOG_PID=
 start_watchdog() {
@@ -44,7 +52,7 @@ start_watchdog() {
         wait "$WATCHDOG_SLEEP_PID"
         echo "operation_timeout" >&2
         kill -s KILL -- "-$$"
-    ) &
+    ) </dev/null &
     WATCHDOG_PID=$!
 }
 stop_watchdog() {
@@ -166,10 +174,6 @@ fi
 # Binds the device the user picked: $3 is the identity Nightjar saw, read again here as root so
 # that nothing else plugged into the port in the meantime is bound.
 bind_device() {
-    if ! pgrep -x usbipd >/dev/null 2>&1; then
-        usbipd -D >/dev/null 2>&1
-        sleep 0.5
-    fi
     EXPECTED=${3:-}
     if [ -z "$EXPECTED" ] || [ "${#EXPECTED}" -gt 512 ]; then
         echo "missing expected identity" >&2; exit 2
@@ -178,7 +182,7 @@ bind_device() {
     if ! read_identity_attrs || [ "$VID:$PID:$SERIAL" != "$EXPECTED" ]; then
         echo "device_changed" >&2; exit 5
     fi
-    OUT=$(usbip bind -b "$BUSID" 2>&1)
+    OUT=$(usbip bind -b "$BUSID" 2>&1 </dev/null)
     RC=$?
     echo "$OUT" >&2
     case "$OUT" in *"already bound"*) RC=0;; esac
@@ -187,7 +191,7 @@ bind_device() {
     record || { echo "snapshot_failed" >&2; SNAPSHOT_FAILED=1; }
 }
 
-# usbipd hands the connection to usbip-host, so a connection an interrupted client left behind
+# usbip-host keeps the connection it was handed, so a connection an interrupted client left behind
 # stays until the kernel is told to close that device's export.
 release_active_export() {
     STATUS_FILE="$SYSFS_USB_DEVICES/$BUSID/usbip_status"
@@ -209,7 +213,7 @@ unbind_device() {
         echo "active_connection_stuck" >&2
         exit 8
     fi
-    OUT=$(usbip unbind -b "$BUSID" 2>&1)
+    OUT=$(usbip unbind -b "$BUSID" 2>&1 </dev/null)
     RC=$?
     echo "$OUT" >&2
     # Still bound: the record keeps guarding the port.
@@ -228,10 +232,23 @@ case "$ACTION" in
         # A Ctrl-C in Nightjar's terminal or a closed session must not skip the unbind.
         trap '' INT HUP
         bind_device "$@"
+        # echo is the shell's own: the write comes from this process, whose fd 0 is the
+        # connection, and usbip-host takes it from here (status 2, in use).
+        if ! echo 0 > "$SYSFS_USB_DEVICES/$BUSID/usbip_sockfd"; then
+            echo "export_failed" >&2
+            unbind_device
+            exit 9
+        fi
+        # usbip-host holds the connection now; this end is never read here.
+        exec 0</dev/null
         stop_watchdog
         echo "bound"
-        # Nothing comes on stdin: it closes when the attachment ends or Nightjar exits.
-        cat > /dev/null
+        # The export ends when Nightjar's end closes or the device goes away.
+        while [ -d "$SYSFS_USB_DEVICES/$BUSID" ] &&
+              [ "$(cat "$SYSFS_USB_DEVICES/$BUSID/usbip_status" 2>/dev/null)" = "2" ]; do
+            sleep 0.5
+        done
+        [ -d "$SYSFS_USB_DEVICES/$BUSID" ] || exit 0
         start_watchdog
         unbind_device
         ;;

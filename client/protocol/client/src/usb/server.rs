@@ -110,9 +110,10 @@ pub trait UsbDevice: Send + Sync {
     fn unlink(&self, seqnum: u32);
     /// The attachment ended: stop every transfer and let go of the device.
     fn close(&self);
-    /// A device a USB/IP server on this machine serves whole (Linux's usbip-host behind
-    /// usbipd): a connection to that server, which the tunnel is relayed to byte for byte once
-    /// the driver's import names this device. None for a device served transfer by transfer.
+    /// A device a USB/IP server on this machine serves whole (Linux's usbip-host): the
+    /// connection that server already serves the device on. The import is answered here with
+    /// [`UsbDevice::describe`], as usbipd would, and every byte after is relayed to it. Taken
+    /// once; None for a device served transfer by transfer.
     fn relay(&self) -> Option<std::io::Result<Arc<dyn Tunnel>>> {
         None
     }
@@ -343,39 +344,10 @@ pub fn serve(tunnel: Arc<dyn Tunnel>, device: Arc<dyn UsbDevice>) -> Result<(), 
     }
 }
 
-/// Hands the driver's import `request` to `peer`, a USB/IP server here, and passes its answer
-/// back: a refusal ends it, else every byte goes both ways until either side closes. The side
-/// that closed first says how it ended.
-fn relay(
-    tunnel: &Arc<dyn Tunnel>,
-    peer: Arc<dyn Tunnel>,
-    request: &[u8; wire::IMPORT_REQUEST_BYTES],
-) -> Result<(), ServeError> {
-    let answered = (|| -> std::io::Result<wire::OpHeader> {
-        peer.write_all(request)?;
-        let mut head = [0; wire::OP_HEADER_BYTES];
-        if !read_whole(peer.as_ref(), &mut head)? {
-            return Err(std::io::ErrorKind::UnexpectedEof.into());
-        }
-        tunnel.write_all(&head)?;
-        Ok(wire::OpHeader::decode(&head))
-    })();
-    let head = match answered {
-        Ok(head) => head,
-        Err(e) => {
-            peer.close();
-            return Err(ServeError::Device(format!(
-                "the USB/IP server here did not answer the import: {e}"
-            )));
-        }
-    };
-    if head.code != wire::OP_REP_IMPORT || head.status != 0 {
-        peer.close();
-        return Err(ServeError::Device(format!(
-            "the USB/IP server here refused the device (code {:#06x}, status {})",
-            head.code, head.status
-        )));
-    }
+/// Relays everything after the import between the tunnel and `peer`, a USB/IP server here
+/// that already has the device, until either side closes. The side that closed first says
+/// how it ended.
+fn relay(tunnel: &Arc<dyn Tunnel>, peer: Arc<dyn Tunnel>) -> Result<(), ServeError> {
     let first = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let back = {
         let (tunnel, peer, first) = (tunnel.clone(), peer.clone(), first.clone());
@@ -435,12 +407,16 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
             )));
         }
     }
-    if let Some(peer) = device.relay() {
-        let peer = peer.map_err(|e| {
-            ServeError::Device(format!("the USB/IP server here did not answer: {e}"))
-        })?;
-        return relay(&shared.tunnel, peer, &request);
-    }
+    let peer = match device.relay() {
+        None => None,
+        Some(Ok(peer)) => Some(peer),
+        Some(Err(e)) => {
+            tunnel.write_all(&wire::import_reply(1))?;
+            return Err(ServeError::Device(format!(
+                "the USB/IP server here can't serve it: {e}"
+            )));
+        }
+    };
     let encoded = described.encode().ok_or_else(|| {
         ServeError::Device(format!(
             "busid {:?} or path {:?} does not fit",
@@ -449,7 +425,15 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
     })?;
     let mut reply = wire::import_reply(0).to_vec();
     reply.extend_from_slice(&encoded);
-    tunnel.write_all(&reply)?;
+    if let Err(e) = tunnel.write_all(&reply) {
+        if let Some(peer) = peer {
+            peer.close();
+        }
+        return Err(e.into());
+    }
+    if let Some(peer) = peer {
+        return relay(&shared.tunnel, peer);
+    }
 
     loop {
         let mut head = [0; wire::HEADER_BYTES];

@@ -674,8 +674,12 @@ impl Launcher {
     /// Gives an item focus: the first one on a new screen, or the one that had it before the
     /// user went forward. Records which item has focus so `open` can remember it.
     fn focus_item(&mut self, response: &Response, key: &str, first: bool) {
+        // Arrow keys and the D-pad move the focus at the end of a pass, where egui never reports
+        // `gained_focus`: the move shows here as a new focused key, and the item scrolls into view
+        // on that too (Tab moves report both; scrolling twice is one scroll).
         if response.has_focus() && self.focused_key.as_deref() != Some(key) {
             self.focused_key = Some(key.to_owned());
+            response.scroll_to_me(None);
         }
         if response.gained_focus() {
             response.scroll_to_me(None);
@@ -6165,6 +6169,65 @@ mod tests {
         assert_eq!(stops.len(), 3, "Home, PCs and Settings: {stops:?}");
         assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
         assert!(1280.0 - stops[2].right() < 80.0, "Settings is at the right edge");
+    }
+
+    /// A paired PC whose library holds `count` installed games with distinct titles and ids.
+    fn home_with_games(count: u32) -> Frames {
+        use nightjar_core::http::native_api::library::{Artwork, Game, Library};
+        let games = (0..count)
+            .map(|n| Game {
+                install_id: format!("install-{n}"),
+                app_id: 1000 + n,
+                title: format!("Game {n:02}"),
+                game_id: Some(format!("steam:{n}")),
+                store: None,
+                installed: Some(true),
+                running: false,
+                artwork: Artwork { cover: None, version: String::new() },
+            })
+            .collect();
+        let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+        f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games });
+        f.l.go(Screen::Home);
+        f.settle();
+        f
+    }
+
+    /// nightjar#51: the Home grid follows the focus down and back up when the arrow keys (or the
+    /// D-pad, which sends the same keys) move it, as it already did for Tab.
+    #[test]
+    fn home_scrolls_to_the_game_the_arrow_keys_focus() {
+        let mut f = home_with_games(36);
+        let focused = |f: &Frames| {
+            let id = f.ctx.memory(|m| m.focused()).expect("a game is focused");
+            (id, f.ctx.read_response(id).expect("the focused widget was drawn").rect)
+        };
+        let (start, first) = focused(&f);
+        assert!(first.top() >= 0.0 && first.bottom() <= 720.0, "the first game starts on screen: {first:?}");
+        let mut seen = vec![start];
+        // Scrolling animates for up to 0.3 s; the frames run 0.05 s apart.
+        let scrolled = |f: &mut Frames| {
+            f.settle();
+            f.settle();
+        };
+        for step in 0..8 {
+            f.press(Key::ArrowDown);
+            scrolled(&mut f);
+            let (id, rect) = focused(&f);
+            if id == seen[seen.len() - 1] {
+                break;
+            }
+            seen.push(id);
+            assert!(rect.top() >= 0.0 && rect.bottom() <= 720.0, "row {step}: the focused game is on screen: {rect:?}");
+        }
+        assert!(seen.len() >= 4, "the focus walked down past the first screen: {} rows", seen.len());
+        for step in 0..seen.len() {
+            f.press(Key::ArrowUp);
+            scrolled(&mut f);
+            let (_, rect) = focused(&f);
+            assert!(rect.top() >= 0.0 && rect.bottom() <= 720.0, "back up {step}: on screen: {rect:?}");
+        }
+        assert_eq!(focused(&f).0, start, "back at the first game");
     }
 
     #[test]

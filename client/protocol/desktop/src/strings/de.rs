@@ -379,6 +379,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Sensitivity of the captured pointer.", "Empfindlichkeit des erfassten Zeigers."),
     ("Mouse navigation buttons", "Maus-Navigationstasten"),
     ("Send the mouse's Back and Forward buttons to the PC.", "Die Zurück- und Vorwärts-Tasten der Maus an den PC senden."),
+    ("Touchpad gestures on the PC", "Touchpad-Gesten auf dem PC"),
+    ("Send the touchpad's fingers to a PC that takes them, so its gestures work there. Other PCs get the pointer as before.", "Die Finger auf dem Touchpad an einen PC senden, der sie annimmt, damit seine Gesten dort funktionieren. Andere PCs bekommen weiter den Mauszeiger."),
     ("Right Alt as Windows key", "Rechte Alt-Taste als Windows-Taste"),
     ("Use Right Alt for Windows-key shortcuts on the PC.", "Die rechte Alt-Taste für Windows-Tasten-Kürzel auf dem PC verwenden."),
     ("Every connected controller becomes a controller on the PC.", "Jeder angeschlossene Controller wird am PC zu einem Controller."),

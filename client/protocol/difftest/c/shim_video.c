@@ -58,6 +58,10 @@ uint64_t PltGetMillis(void) { return dtNow / 1000; }
 bool LiGetCurrentHostDisplayHdrMode(void) { return dtHdr; }
 bool isReferenceFrameInvalidationEnabled(void) { return dtRfi; }
 void notifyKeyFrameReceived(void) { }
+// The FEC report goes to the control stream, which the difftest does not run.
+void rlFecSummaryBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received) {
+    (void)frame; (void)block; (void)data; (void)received;
+}
 
 void LiRequestIdrFrame(void) { dtLogU8('I'); }
 

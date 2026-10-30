@@ -158,6 +158,9 @@ stream from, as on Android. Apart from your PCs, the desktop client contacts:
 - `stun.moonlight-stream.org` to learn this network's public IPv4 address, so
   a PC on your home network can be reached from outside it.
 
-Both receive your public IP address. To remove the desktop client's data,
-choose "Remove them too" in the Windows uninstaller, or delete the folder
-above. Revoke pairing on the PC to remove this computer's access there.
+Both receive your public IP address. To remove the desktop client's data on
+Windows, choose "Remove them too" in the uninstaller: it deletes everything in
+`%APPDATA%\Nightjar\config` except the `screenshots` and `statistics`
+folders, which hold your own files; delete those yourself. On Linux, delete
+`~/.config/nightjar`. Revoke pairing on the PC to remove this computer's access
+there.

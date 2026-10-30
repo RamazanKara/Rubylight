@@ -32,7 +32,7 @@ Phones, handhelds, tablets, TVs and the desktop client share one streaming engin
 - **Video:** H.264, HEVC and AV1 through the device's hardware decoder, with low-latency settings tuned per decoder family ([decoder flags](docs/decoder-flags.md)). HDR10 on any host with HDR, plus HDR10+, HLG and Dolby Vision where the PC and the screen support them. Also 10-bit SDR, full-chroma YUV 4:4:4, and PyroWave decoded on the GPU. Upscaling with FSR 1 or Snapdragon GSR, and optional rendering through Vulkan.
 - **Timing:** follows the display's refresh rate, including Android's adaptive refresh and VRR on the desktop. Supported hosts get phase-lock reports, so frames arrive just before the display needs them. The desktop client can also beam race ([beam racing](docs/beam-racing.md)).
 - **Network:** **Device controls bitrate** adapts to loss, round-trip variation and decode headroom. Bitrate and frame rate can change during a stream, and error correction can be left to the PC, follow measured loss or use a fixed share. **Recover interrupted streams** resumes the running game after a transient drop. Optional tolerance keeps a stream alive through up to 60 seconds of network silence.
-- **Audio:** stereo, 5.1, 7.1 and 7.1.4, with low-latency AAudio for stereo. Passthrough sends PCM, Dolby Digital or Dolby Digital Plus to a receiver, soundbar or TV. The microphone gets echo cancellation, noise suppression, gain and an in-stream mute.
+- **Audio:** stereo, 5.1, 7.1 and 7.1.4, with low-latency AAudio for stereo. Passthrough sends PCM, Dolby Digital or Dolby Digital Plus to a receiver, soundbar or TV. The microphone gets echo cancellation on Android and the desktop, and noise suppression, gain and an in-stream mute button on Android.
 - **Input:** up to 16 controllers with per-model mapping. Direct USB drivers for Xbox, DualSense (adaptive triggers and haptics) and Switch Pro controllers. Trackpad, direct-touch, multi-touch and local-cursor modes, with the PC's own cursor shapes. Native pen, a full PC keyboard, and a soft keyboard that opens when a text field on the PC takes focus. On-screen controls are Android-only.
 - **Library:** Home merges the games of all your PCs, with a shelf per store on a TV and a page per game. A sleeping PC can be woken from Home. Nightjar also launches games from Android TV's home screen, Beacon, ES-DE, Daijisho and Pegasus.
 - **Sharing:** clipboard sync, clipboard images, file transfer, the PC's shared folders, and USB devices forwarded to the PC.
@@ -50,7 +50,7 @@ All results are our own measurements against a Rubylight PC with a Radeon RX 790
 
 | Device and link | Stream | Result |
 | --- | --- | --- |
-| Retroid Pocket 6, Wi-Fi | HEVC 1080p60, 40 Mbps | Median picture age 6.92 ms on the new streaming engine (7.04 ms on the classic engine), measured from the PC's capture timestamp to the frame rendered on the device ([runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)) |
+| Retroid Pocket 6, Wi-Fi | HEVC 1080p60, 40 Mbps | About 7 ms median picture age on either engine (6.92 / 7.04 ms, within measurement error), from the PC's capture timestamp to the frame rendered on the device; a debug build, with ±0.5 ms error in joining the two clocks ([runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)) |
 | Retroid Pocket 6, Wi-Fi | HEVC 1080p120, 28 Mbps | About 120 fps ([4.0.0 notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
 | Retroid Pocket 6, Wi-Fi | PyroWave 1080p120, default bitrate | 119.6 to 120 fps, about 1.7 ms per frame for the decode steps ([4.0.0 notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
 
@@ -119,7 +119,7 @@ Report bugs and request features in the [issue tracker](https://github.com/Ramaz
 
 ## Privacy
 
-Streams, input, clipboard contents and files travel only between your device and your PC. Nightjar contacts GitHub for update checks, and Moonlight's public STUN and connection-test servers for network diagnostics. Problem reports stay on the device until you share them. Details are in the [privacy policy](docs/PRIVACY.md).
+Streams, input, clipboard contents and files travel only between your device and your PC. Nightjar contacts GitHub to check for updates. It asks Moonlight's STUN server (`stun.moonlight-stream.org`) for your network's public address, to check whether your PC is reachable from outside, and on Android uses Moonlight's connection-test server (`android.conntest.moonlight-stream.org`) to diagnose connection failures. Problem reports stay on the device until you share them. Details are in the [privacy policy](docs/PRIVACY.md).
 
 ## License and credits
 

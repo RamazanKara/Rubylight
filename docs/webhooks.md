@@ -2,11 +2,11 @@
 
 [Documentation](README.md)
 
-The host can tell other services when devices pair, apps start and stop, and streams begin and end. Each event is an HTTP POST with a JSON body, signed with a secret only the host and the receiver know.
+Webhooks notify your own services when devices pair, apps start and stop, and streams begin and end. Each event is an HTTP POST with a JSON body, signed with a secret known only to the host and the receiver.
 
 ## Set up a hook
 
-Open **Webhooks** under **Advanced** in the console's sidebar (or go to `/webhooks`) and add a hook: its URL (`http://` or `https://`) and the events it receives. The console shows the hook's secret once, right after it is created; copy it into the receiver. **New secret** replaces it and shows the new one once; so does moving a hook to another host, since the old secret is the old receiver's. The console refuses URLs on this PC (`localhost`, `127.0.0.0/8`, `::1`) and link-local addresses (`169.254.0.0/16`, `fe80::/10`), whose services may trust whoever reaches them; receivers on your LAN, such as Home Assistant, are fine. **Send test** sends a `webhook.test` event at once and shows what the receiver answered. Each hook lists its last delivery since the host started.
+Open **Webhooks** under **Advanced** in the console's sidebar (or go to `/webhooks`) and add a hook: its URL (`http://` or `https://`) and the events it receives. The console shows the hook's secret once, right after it is created; copy it into the receiver. **New secret** replaces it and shows the new one once. Pointing a hook's URL at another host also issues a new secret, because the old one belongs to the old receiver. The console refuses URLs on this PC (`localhost`, `127.0.0.0/8`, `::1`) and link-local addresses (`169.254.0.0/16`, `fe80::/10`), whose services may trust whoever reaches them; receivers on your LAN, such as Home Assistant, are fine. **Send test** sends a `webhook.test` event at once and shows what the receiver answered. Each hook lists its last delivery since the host started.
 
 The host keeps the hooks in the `webhooks` setting of its configuration file, with the other host secrets in `ProgramData\Butterpollo`. It never shows the secrets again: the settings API leaves the setting out and refuses to write it, the support bundle redacts it, and the host log names a hook by its origin (`https://example.com`) only, since a path or query may hold a token. At most 16 hooks can be saved.
 

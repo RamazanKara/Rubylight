@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Stereo</string>
     <string name="audioconf_51surround">5.1 Çevresel Ses</string>
     <string name="audioconf_71surround">7.1 Çevresel Ses</string>
+    <string name="audioconf_714surround">7.1.4 Çevresel Ses</string>
     <string name="videoformat_auto">Otomatik (önerilen)</string>
     <string name="videoformat_av1always">AV1 tercih et</string>
     <string name="videoformat_hevcalways">HEVC tercih et</string>

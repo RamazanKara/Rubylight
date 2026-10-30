@@ -74,6 +74,7 @@ public final class AudioPassthrough {
             case 2: return AudioFormat.CHANNEL_OUT_STEREO;
             case 6: return AudioFormat.CHANNEL_OUT_5POINT1;
             case 8: return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
+            case Surround714.CHANNELS: return Surround714.channelMask();
             default: return 0;
         }
     }

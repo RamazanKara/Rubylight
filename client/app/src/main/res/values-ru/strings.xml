@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Стерео</string>
     <string name="audioconf_51surround">Объёмный звук 5.1</string>
     <string name="audioconf_71surround">Объёмный звук 7.1</string>
+    <string name="audioconf_714surround">Объёмный звук 7.1.4</string>
     <string name="videoformat_auto">Автоматически (рекомендуется)</string>
     <string name="videoformat_av1always">Предпочитать AV1</string>
     <string name="videoformat_hevcalways">Предпочитать HEVC</string>

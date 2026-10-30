@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">立體聲</string>
     <string name="audioconf_51surround">5.1 環繞音效</string>
     <string name="audioconf_71surround">7.1 環繞音效</string>
+    <string name="audioconf_714surround">7.1.4 環繞音效</string>
     <string name="videoformat_auto">自動 (建議)</string>
     <string name="videoformat_av1always">優先使用 AV1</string>
     <string name="videoformat_hevcalways">優先使用 HEVC</string>

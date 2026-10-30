@@ -406,7 +406,6 @@
     <string name="stream_bitrate_help">Set Mbps for this session.\nThis turns off Device controls bitrate.</string>
     <string name="stream_bitrate_invalid">Enter a bitrate from 0.5 to 2000 Mbps</string>
     <string name="stream_bitrate_applied">Host applied %1$.1f Mbps</string>
-    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps is below PyroWave’s minimum of %2$d Mbps at %3$d×%4$d, %5$d FPS. Expect a broken-up picture.</string>
     <string name="summary_bitrate_pyrowave_below_minimum">Below PyroWave’s minimum of %1$d Mbps at %2$d×%3$d, %4$d FPS: the picture will break up.</string>
     <string name="stream_enabled">On</string>
     <string name="stream_disabled">Off</string>

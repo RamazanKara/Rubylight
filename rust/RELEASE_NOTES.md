@@ -1,10 +1,192 @@
-# Rubylight 3.0.0-rc.5 for Windows
+# Rubylight 3.0.0 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [3.0.0](#new-in-300) · [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-rc.5 installer is named `rubylight-setup-3.0.0-rc.5.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0 installer is named `rubylight-setup-3.0.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 3.0.0
+
+Rubylight 3.0.0 is the stable release of the 3.0 line. It covers everything since 2.6.0, including the nine previews from 3.0.0-alpha.1 to rc.5. It brings split-screen co-op and background streams through Nucleus Co-op, a picture that holds through scene cuts and lost frames, a bitrate that follows the network, Dolby Vision, HDR10+ and HLG, sound for receivers and soundbars, Neural Rendering, and a simpler console. Stock Moonlight clients keep working and get the streaming fixes too. Formats and features that need the client's support go only to a client that asks for them, and the protocol version is unchanged. Nightjar 4.0 is the matching client.
+
+### Highlights
+
+- **The picture holds through loss.** Scene cuts no longer freeze the stream (15 freezes to 0 in our test), and H.264 and HEVC repair a lost frame with a small frame instead of a keyframe.
+- **The bitrate follows the network.** When the link can't carry the stream, the host lowers the bitrate and comes back by itself, PyroWave included.
+- **Play together.** Split-screen co-op gives each player their own copy of the game, and background streams play away from your monitors, both through Nucleus Co-op.
+- **Neural Rendering.** A switch on a game's page installs a neural upscaling mod into games with DLSS, FSR or XeSS, and takes it out again.
+- **Dolby Vision, HDR10+ and HLG.** HDR streams carry per-scene brightness data, Dolby Vision works on HEVC and AV1, and screens that show only HLG get HLG.
+- **Sound for your receiver.** PCM up to 7.1.4, Dolby Digital and Dolby Digital Plus, plus 7.1.4 surround, night mode, headphone surround and haptics from game audio.
+- **A simpler console.** Home walks you through pairing and playing, Games lists every launcher, Settings shows the ten settings most people change, and pairing takes a QR code.
+- **Clipboard, files and USB.** Copied text and images go both ways, shared folders and file transfer reach the PC's files, and USB devices can be forwarded to the PC.
+
+### Upgrading from 2.6.x
+
+Rubylight 3.0 needs an AMD Radeon GPU with a working AMF encoder, on Windows 10 or 11; NVIDIA and Intel graphics stay on [Rubylight 2.6.0](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Setup upgrades 2.6.x, Vibepollo and Butterpollo in place and keeps your settings, paired devices, games and covers.
+
+### Picture and encoding
+
+- **Scene cuts no longer freeze the picture.** When a scene cut comes out of the AMD encoder too large to keep its error correction, the host encodes it again as a keyframe that fits. In our 250 Mbps HEVC 1440p60 test at 0.3 % random loss, lost scene cuts went from 15–16 to 0, with no change in encode time. [Numbers](PERFORMANCE.md#october-28-lost-scene-cuts-and-recovery-keyframes-past-four-fec-blocks).
+- **Recovery keyframes keep their error correction.** The keyframe that repairs a lost frame is kept small enough for its full error correction, so random loss no longer takes it too. In the same test, freezes over 100 ms went from 4 to 0 and picture age dropped by 3 ms. When keyframes still come out more than a tenth over the automatic frame cap, the host lowers that cap until they fit.
+- **Faster repair after a lost frame on H.264 and HEVC**, for every client. Instead of a full keyframe, the host sends a frame predicted from an older picture the device still has. At 1440p120 that frame was 3 % to 46 % smaller than the keyframe when 1 or 2 frames were lost; for longer losses the host still sends the keyframe. `amd_ltr_frames = 0` turns it off.
+- **AV1 repairs without intra refresh.** With intra refresh, the AMD driver turned off the references a repair needs. Now a loss costs a 48 KB repair frame instead of a 101 KB keyframe, and ordinary frames are about a third smaller (33.5 KB instead of 51.2 KB at 1440p120 and 50 Mbps). [Numbers](PERFORMANCE.md#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame).
+- **Fresher frames with VRR.** The host now times the game's own frames instead of each capture, and waits for the game's next frame when it is close. A 120 Hz game in a 60 fps VRR stream reaches the encoder 0.27 ms old instead of 4.7 ms (median) and leaves the host 3.5 ms sooner. [Numbers](PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures).
+- **A focused VRR game keeps its own pace beside another window.** On Windows 11 24H2 and newer, another window's animation or a pointer move no longer makes a focused game repeat and skip frames. With a 60 Hz game at 60 fps on a 240 Hz VRR desktop and another window animating beside it, repeated game frames fell from 159–294 to 0–20 per minute, and capture age p99 from 6.2–16.5 ms to 0.4–6.1 ms. A game alone on the display is paced as before. [Numbers](PERFORMANCE.md#october-30-a-focused-games-pictures-beside-another-window).
+- **Three stream presets.** **Stream preset** under Streaming picks Lowest latency, Balanced (the default, which changes nothing) or Reference quality, for the host, a device or an app. A value you set yourself always wins. Lowest latency made the first keyframe 29 % smaller on HEVC and 38–40 % smaller on H.264, with latency within 0.15 ms of the others. [Stream presets](../docs/configuration.md#stream-presets).
+- **Full chroma takes effect when you save it**, with no host restart. Turning it off, or turning off HEVC or AV1, withdraws it at once. `/serverinfo` lists the packed 4:4:4 modes the host offers (`Packed444Modes`), and a slow first frame no longer gets packed 4:4:4 refused.
+- **10-bit SDR on request.** A client that asks for a 10-bit format with `hdrMode=0` gets a 10-bit SDR stream, packed 4:4:4 included.
+- **PyroWave is there when you need it.** It recovers when the GPU device it converts on is lost, the host checks again a minute later when its first check timed out, and a host started without administrator rights offers it again (its check took 24 s there instead of 1.4 s).
+- **Slice delivery** (`video_slice_delivery = 4`, off by default). The host starts sending an H.264 or HEVC frame while the rest of it is still encoding. At 4K60 HEVC and 80 Mbps the picture arrived 1.3 to 1.5 ms sooner on loopback and 1.2 to 1.4 ms sooner over Wi-Fi 6E. At 5 % loss, 8 frames could not be rebuilt with it on and none with it off, so it stays off by default. [Numbers](PERFORMANCE.md#october-23-slice-delivery-b2-step-2f).
+- **Encoder focus** (`encoder_focus`, off by default). `static` gives still parts of the picture, such as a HUD or text, more of the bitrate; `centre` also favours the middle of the screen. A codec that fails the startup check streams as before.
+- **A resized game window streams at its new size**, also when the game stopped drawing after the resize.
+- **Where frames go missing.** The console's stream details, the 5 s `stream timings` in the host log and Nightjar's overlay show how many frames per second the display produced and the host captured, encoded, sent and repeated.
+- **Missing codecs are explained.** When a codec is missing, the host log, the console and a refused launch say why: a setting, the driver's error by name, or a video engine without that encoder. Nothing is switched off by GPU name.
+
+### Network and bitrate
+
+- **The bitrate steps down when the link can't carry it** (`link_rate_adaptation`, on by default). When the device loses frames that error correction can't repair, the host cuts the bitrate to what the link delivered, probes back up in small steps and returns to the requested rate after ten clean seconds. On a 50 Mbit/s link asked for 75 Mbps it cut within 1.6 s and lost 1.1 to 1.2 % of frames after the start, instead of 6.7 %. A link that carries the stream sees no change, and the stream card says "Bitrate limited by the network". [Details](../docs/configuration.md#lower-bitrate-when-the-link-cannot-carry-it).
+- **PyroWave's bitrate follows the link too.** Through a link limited to 250 Mbit/s, a 400 Mbps PyroWave stream used to lose 32 % of its packets with no picture arriving whole; now it settles at 250 to 290 Mbps, loses 2.7 % and gets 81 % of pictures through whole. It stops at PyroWave's lowest workable bitrate (187 Mbps at 1080p60), and below that the warning says to use HEVC or AV1.
+- **Error correction the device chooses.** A device can pick its own share of recovery packets, or have the host follow its once-a-second loss reports. On a shaped link modelling 60 Mbit/s Wi-Fi, following the device cut median loss from 2.37 to 0.26 % and freezes from 21 to 1. The PC's own setting stays the default, and `fec_max_percentage` (50 % by default) caps both. [Numbers](PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc).
+- **No slow pace by mistake.** A clean stream no longer falls to the slow pace for the session, or for the next day, because a decoder asked twice for a keyframe ([#59](https://github.com/RamazanKara/Rubylight/issues/59)), the PC's own network adapter refused packets as a game started, Alt+Tab or a bitrate change sent a keyframe ([#48](https://github.com/RamazanKara/Rubylight/issues/48)), or the first keyframe was lost. A device asking again for the same repair no longer lowers the bitrate either. Pacing history saved by older versions is dropped once.
+- **Wi-Fi pacing from the first frame.** A device that reports a Wi-Fi or mobile route (Nightjar does) gets adaptive packet pacing from the start. On a 2.4 GHz laptop link it cut unrecoverable frames from 61 to 15.7 per 90 s run, with no change on clean 5 GHz. A device that reports its wired link speed is paced for the slower port. [Numbers](PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop).
+- **Bitrate and frame rate change mid-stream**, without reconnecting and without a keyframe, for a device that asks at launch.
+- **Keep streaming when the network changes.** A phone moving from Wi-Fi to mobile data keeps its stream after proving its new address with the stream key (`client_roaming`, on by default).
+- **Control messages arrive right after an outage.** What the host sent during a short outage now reaches the device 85 ms after it is heard from again, instead of 1.0 to 2.9 s later. Every Moonlight client benefits.
+- **Replies come from the address the device reached** ([#54](https://github.com/RamazanKara/Rubylight/issues/54)), which fixes reconnects failing with error -1 when Tailscale runs beside the LAN.
+- **Video packets are the size the device asks for** ([#52](https://github.com/RamazanKara/Rubylight/issues/52)). A Moonlight asking for small packets on a remote route got a green, broken picture; the `packetsize` setting is gone.
+- **Bandwidth test.** A paired device can time a short download before it picks a starting bitrate (`bandwidth_probe`, on by default; never while a stream runs).
+- **Each launch starts one stream.** A second start of the same launch is refused, a stalled RTSP handshake closes after 10 s, and a launch nobody connects to expires after 30 s.
+
+### HDR and Dolby Vision
+
+- **HDR scene data.** HDR streams carry HDR10+ in HEVC and AV1, and HDR Vivid in HEVC, measured on the GPU for each frame (about 60 to 90 µs of CPU per frame), so a display that tone-maps with it follows each scene. Devices without HDR10+ ignore it. `hdr_dynamic_metadata` turns it off. [Numbers](PERFORMANCE.md#october-27-hdr10-and-hdr-vivid-dynamic-metadata).
+- **Dolby Vision on HEVC and AV1.** Devices that ask get Dolby Vision profile 8.1 on HEVC and 10.1 on AV1, over the stream's HDR10 picture, so everyone else gets HDR10 as before. On a TCL C6K TV, a Dolby Vision AV1 stream carried its data on all 2317 frames and showed as Dolby Vision from the first frame. `hdr_dolby_vision` turns it off.
+- **HLG.** HEVC, AV1 and PyroWave HDR streams offer HLG to screens that show HLG and not HDR10, graded for a 1000-nit display. With HLG, HEVC also offers Dolby Vision profile 8.4. `hdr_hlg` turns it off.
+- **Windows HDR Calibration on virtual displays** (`virtual_display_hdr_calibration`, off by default). A new virtual display gets the calibration profile of the PC's physical HDR display for the stream.
+- 10-bit SDR streams never carry HDR10+, HDR Vivid or Dolby Vision data.
+
+### Audio
+
+- **PCM, Dolby Digital and Dolby Digital Plus.** A device that asks gets uncompressed PCM (stereo up to 7.1.4), or Dolby Digital and Dolby Digital Plus (stereo and 5.1), for a TV, soundbar or receiver to decode. Dolby comes in 32 ms frames, so it reaches the network up to about 30 ms later than Opus, which stays the default. Encoding Dolby takes about a fifth of the CPU Opus takes. [Numbers](PERFORMANCE.md#october-27-audio-passthrough-encode-cost).
+- **7.1.4 surround.** A device that asks for 12 channels, such as Nightjar on Android or Windows, or Moonlight V+, gets 7.1.4 Opus. On 7.1, 5.1 or stereo speakers the height channels are mixed into the speakers below.
+- **Night mode** (`audio_night_mode`) evens out loud explosions and quiet dialogue, with no added buffering.
+- **Headphone surround** (`audio_headphone_surround`) renders the game's 7.1 or 5.1 mix for headphones on a stereo device. The stream stays stereo Opus, so every Moonlight client works. Both are off by default and can be set for the host, a device, an app or one session.
+- **Switch them from the device.** A device can turn Night mode and Headphone surround on or off during its own stream, and the change carries to its next session of the app. Each streaming device changes only its own stream. Nightjar's stream menu has both switches.
+- **Haptics from game audio** (`audio_haptics`, off by default). A DualSense on the device feels the game's bass and impacts when the game sends no vibration of its own.
+- **No audio gap when the game goes quiet.** The host keeps sending at its normal pace through silence, so devices no longer hear an underrun each time.
+
+### Play together
+
+- **Split-screen co-op.** A game Nucleus Co-op supports gets a second entry with "(Co-op)" after its name. Each device that launches it takes the next free slot and streams its own copy of the game, with its own controller, picture and sound. **Play together** › **Set up co-op** on the game's page downloads Nucleus Co-op and gets the game ready. [Co-op](../docs/nucleus-coop.md).
+- **Each player gets only their own game.** A stream shows only that player's window, plays only its sound (Windows build 20348 or newer) and sends rumble back to that device. Keyboard, mouse and a second controller never reach the PC's desktop.
+- **Co-op on Home.** Home shows each running co-op game with its players. **Remove** takes a player out, **End co-op** ends every stream, and **Let … join** lets another paired device in. A device that drops keeps its slot for two minutes, and **Can join co-op games** on a device's page keeps one out.
+- **Background streams through Nucleus Co-op.** A background stream runs the game as its own instance, away from your monitors, so the PC's displays, layout and focus stay with you. Background streams take controllers only, and get a card on Home with **End stream**. A saved `background_mode` becomes `nucleus`.
+- **One-player games stream in the background too**, without a handler from Nucleus Co-op's hub ([#59](https://github.com/RamazanKara/Rubylight/issues/59)): Rubylight writes its own handler and adds the game to Nucleus Co-op's list. When the game needs no administrator rights, it runs as you, from your own copy of Nucleus Co-op.
+- **Steam games start as Steam would start them**, with their launch options and Steam app id, so they don't restart through Steam. A launcher's own .exe, or a frontend's, is refused with the reason.
+- **What can't stream says why first.** A game with anti-cheat, including Valve Anti-Cheat and Battle.net's Blizzard games, a game on a network share and a program in the Windows folder are refused before anything is written. The Play together panel says what will happen before you launch, also on an account without administrator rights.
+- **Nucleus Co-op stays out of your way.** **Close Nucleus Co-op** sits next to **Open Nucleus Co-op on this PC**, Set up co-op no longer hangs on its loading screen, and a background stream no longer waits for a question nobody at the PC answers. When Nucleus Co-op still doesn't start the game, the stream says why.
+- **Your compatibility settings come back.** Nucleus Co-op changes a game's Windows compatibility settings and never puts them back; Rubylight now does when the session ends, also after a crash.
+- Rubylight downloads Nucleus Co-op 2.4.2 at the first co-op launch, checks its size and checksum, and installs it where only administrators can change it. **Nucleus path** points at your own copy instead. Co-op needs the host to run as the Windows service.
+
+### Games and library
+
+- **Neural Rendering.** A switch on a game's page installs a third-party neural upscaling mod into the game's folder, for games with DLSS, FSR or XeSS, and removes it again. The first time, a notice explains it is at your own risk, with Cancel as the default. Rubylight downloads one pinned release (0.3.5.8R2, about 1 GB, 88 s on our PC) and checks it against its pinned and published checksums. Games with anti-cheat, Valve Anti-Cheat or another upscaler mod are refused. Turning it off, or deleting or uninstalling the game, removes only what Rubylight put there. It needs Radeon graphics with RDNA 3 or RDNA 4 and 12 or more compute units, and AMD Software 26.9.1 or newer; elsewhere the switch says why it is off.
+- **One game, different settings per device.** The app editor's **Per device** panel gives a game its own stream preset, frame limit, Radeon preset and game files on one device, such as 60 fps on the TV and 120 on a handheld.
+- **Managed game files.** A game's own `.ini` keys, such as a frame limit, can follow the stream: a fixed value or `{stream_fps}`. The host sets them when a stream starts the game and puts them back when the session ends, also after a crash, leaving every other byte as it was. It writes only existing `.ini` files inside the game's folders, as the signed-in user.
+- **Every installed game, from every launcher.** Steam, Playnite, Epic Games, Battle.net, EA app, Ubisoft Connect and GOG games are added by default, Microsoft Store and Xbox PC games are listed in Add games, and **Game folders** lists the games in folders such as `D:\Games`. A game a launcher no longer has shows "Not installed", with Remove beside it.
+- **The library sync never changes an app you made.** Syncs change only the apps they added. Editing a synced game makes it yours, and a game you delete stays deleted.
+- **Radeon settings per game.** A game's Radeon section has presets (Competitive, Smoothness, Quality, Custom) and plain controls for Anti-Lag, frame rate cap, Chill, sharpening and more. The host applies them when the game starts and puts them back after the session, also after a crash.
+- **A confirmed game switch.** Starting another game closes the running one only when the person on the device confirms.
+- **The session says when a launcher is in the way**, such as a Steam, Epic Games, EA app or Ubisoft Connect window that wants an update or a sign-in.
+
+### Displays
+
+- **A VRR device and a fixed-rate device share one virtual display.** A device that needs a faster refresh raises the shared display's refresh in place, so the VRR device keeps VRR.
+- **A device can set its virtual display's scale.** Nightjar's **PC display scaling** sets the text and interface size on the device's virtual display without changing its resolution. Stock Moonlight is unchanged.
+- **Your display choices stick.** A Windows scale you pick on the stream's virtual display comes back with the next stream ([#36](https://github.com/RamazanKara/Rubylight/issues/36)), and a display layout you set for a device is never replaced by the one a stream left behind ([#40](https://github.com/RamazanKara/Rubylight/issues/40)).
+- **Rotate the display.** A device's virtual display takes its portrait or landscape shape, a monitor turns to it and back, and with Match the device the display follows a device that turns.
+- **Keep monitors off while paused** (off by default). A monitor that wakes over HDMI while a device is away no longer takes the game ([#56](https://github.com/RamazanKara/Rubylight/issues/56)).
+- **Virtual displays Windows moves are followed.** A virtual display Windows lists under another adapter or target, as on a Radeon 780M laptop or an RX 9070 XT with a TV ([#56](https://github.com/RamazanKara/Rubylight/issues/56)), now comes up and keeps its layout and HDR.
+- **The GPU fence ring is the default** for virtual-display capture. The keyed-mutex ring stays with `idd_push_fence_ring = false`, and older display drivers keep it.
+- The virtual display needs Windows 11 23H2 or later, so it is off by default on Windows 11 21H2 and 22H2, as on Windows 10. Physical displays, Windows Graphics Capture and Desktop Duplication keep working everywhere.
+
+### Devices and input
+
+- **The keyboard follows text fields.** When a text field on the PC gets the focus, Nightjar opens its keyboard, with digits for number fields and no suggestions for passwords (`keyboard_follows_focus`).
+- **Host menu.** Hold L3+R3 for a second, press Ctrl+Alt+Backspace or hold the top-left corner for a menu drawn into the stream, so any Moonlight client can use it: Back to game, Disconnect, End session and Close game.
+- **Keyboard layout.** Nightjar reports its layout, and with `always_send_scancodes` the host types the keys on your keyboard without changing the PC's input languages. `keyboard_layout` sets one for stock Moonlight.
+- **Device-drawn cursor.** With Desktop Duplication capture, a device that asks draws the pointer itself and the host leaves it out of the video.
+- **Touch and pen.** Per device, `touch_mode` turns touch into a mouse or a trackpad, with two-finger scroll and right click. A pen's barrel roll reaches Windows.
+- **Sleep PC.** A device you allow (Sleep PC under its permissions) can put the PC to sleep while nothing streams. PCs with only Modern Standby don't offer it, and the console says why.
+- **Controllers.** No more "Controller release failed" warning at every start, two Steam Deck controllers no longer get mixed up, a Nintendo controller on an older driver plays as a DualSense with its gyro, and rumble stops reach the device even with rumble off.
+
+### Clipboard, files and USB
+
+- **Clipboard sync.** Text copied on the device goes on the PC's clipboard and back, as you copy it, with Nightjar and Moonlight V+. Images go both ways as PNG, within size limits. The device needs the clipboard permissions.
+- **Shared folders.** `shared_folders` names folders that paired devices can browse, download from and, with a write grant, upload to. Files are read and written as the signed-in user, only inside each folder.
+- **File transfer.** Paired devices with Upload files or Download files can send files to the PC's Downloads\Rubylight, or a folder you choose, and get them back. It is off until you turn it on.
+- **USB forwarding** (off by default). A USB device plugged into the device, such as a flash drive or a gamepad, attaches to the PC during a stream, inside a TLS tunnel on the stream's HTTPS port. No USB/IP port is open to the network. [Setup and limits](../docs/usb-forwarding.md).
+
+### Console and pairing
+
+- **Home, Games and a shorter menu.** Home walks a new user through three steps: pair, see your games, play. Games puts every launcher in one list with one Sync now. The sidebar keeps Home, Games, Devices, Settings and Help.
+- **Settings shows what most people change.** Ten settings in plain words, and search finds every other one in All settings.
+- **Help is "Something is wrong? Start here."** It reads the host log, explains known failures such as AMD encoder hangs, lost capture, ports in use or an old display driver, and says what to do. Nothing is sent anywhere.
+- **Pair with a QR code.** Pairing opens with a QR code that works once, for three minutes. Nightjar refuses to pair when the PC's certificate isn't the one the code names, and a used or expired code says to show a new one.
+- **A second device can play.** When you pair a device you choose Play games (the default), Watch only or Everything; before, every device after the first could only watch.
+- **Wake and sleep.** Settings has a Power section for Wake-on-LAN, adapter wake settings, Sleep and Fast Startup. **Sleep after idle** (off by default) sleeps the PC only when nothing used it for that long.
+- **Webhooks.** Signed events to your own URLs when devices pair, apps start and stop and streams begin and end, with a Send test button. [Webhooks](../docs/webhooks.md).
+- **Client build warnings.** The device list shows each device's client build and warns when that build has a known problem with this host.
+
+### Browsers and TVs
+
+- **WebRTC server** (`webrtc_server`, off by default). Samsung Tizen TVs and browsers that speak the Moonlight WebRTC TV protocol can pair with a PIN and stream H.264, HEVC or AV1, with HDR, up to 7.1 audio, gamepads, keyboard and mouse, on the local network. On the same PC over loopback, H.264 1080p60 took 21 ms glass to glass (median). [Setup](../docs/webrtc.md).
+- **Stream in the console.** With the WebRTC server on, the console's Stream page plays a game in the browser tab at H.264 1080p60, signed in with the console session.
+
+### For client authors
+
+- **Native API v1.** A paired client on the HTTPS port can read the host's capabilities, the game library with covers and the session state, and Disconnect, End session or Close game. Each device needs the Host control permission, which is off until you turn it on. [Native API](../docs/native-api.md), [control messages](../docs/control-messages.md).
+- **Radeon settings from the couch.** A device with Host control can change the Radeon settings of the running session; every change is journaled and put back when the session ends, also after a crash.
+- **Per-frame timing record.** `BUTTERPOLLO_TIMING_RECORD=<folder>` writes each frame's capture, convert, encode, packetize and send times. [Timing record](../docs/timing-record.md).
+
+### Install, updates and service
+
+- **Setup checks for an AMD GPU** and says in plain words when the PC has none or its driver has no AMF encoder.
+- **Updates keep the service's startup type.** Manual, Disabled and delayed start stay as you set them.
+- **Automatic update checks run on time**, also right after the PC wakes, and a failed check is retried within two minutes.
+- **The display driver is repaired while the service runs**, never during a stream and at most once a day. `butterpollo-setup.exe --repair-drivers --now` repairs it at once.
+- **Setup installs when an administrator owns `C:\`** ([#61](https://github.com/RamazanKara/Rubylight/issues/61)), and a refused owner is named.
+- **Setup on a busy PC** no longer takes about 11 minutes for its USB/IP checks.
+- Running setup again after a failed first install imports Vibepollo's or Apollo's settings. Uninstall says what it could not remove and no longer leaves 2.6.x's Intel library folder behind.
+
+### Fixes
+
+- Security: a form on another site can no longer use saved console credentials, a new console password revokes API tokens, one device's wrong PIN no longer spends another's, webhooks refuse URLs that point at this PC, and the pairing, Moonlight and console ports close stalled connections.
+- The stream no longer waits for the host's checks of whether a launched game is still running.
+- A device that sends input faster than the PC takes it no longer grows the host's memory without limit.
+- A lost control connection always ends the stream as lost, and a launch that fails to start its app no longer leaves a pending session.
+- After a crash, display recovery retries the restores that failed, and no longer fails at every start on a host whose only display was the virtual one.
+- A shared virtual display takes a second stream again after the first changed its rate or turned, and a paused stream resumes on it without setting up the layout again.
+- A virtual display that fell back to Windows Graphics Capture gets the frame ring back without a host restart.
+- Radeon settings that could not be put back are retried on time, also while a console page is open.
+- A failed microphone install is retried, and a host that can't find its own files says so instead of a silent microphone.
+- Turning USB forwarding off detaches every device at once, and image clipboard requests can no longer add up to gigabytes of memory.
+- A virtual controller that won't unplug keeps its slot, and a touch with an out-of-range contact size no longer crashes touch input.
+- An update whose "installed" record could not be written is no longer rolled back.
+- The Wake-on-LAN card works when the console is opened on the PC itself. It said "No physical adapter is connected"; it now judges the adapter that devices on the network reach, on IPv6-only networks too, and says why when it can't tell.
+- A device's **Display overrides** no longer close while you type a mode, and **Stream preset** no longer closes on its own.
+- Quitting a stream no longer logs a false "Audio stopped" warning.
+- The startup encoder check no longer warns "AMF returned no output" when the driver is slow on its first frame.
+
+**Tested.** The workspace tests, clippy, the web console checks and the release build pass in CI on this build. On an RX 7900 XT (Windows 11 build 26200) unless named:
+- **End-to-end harness:** H.264, HEVC and AV1 at 60.0 to 60.1 fps with 0.14 to 0.36 ms mean host processing, HEVC at 1440p120 at 120.0 fps (frame interval p99 9.6 ms, host 0.64 ms mean) and PyroWave at 400 Mbps at 60.0 fps (host 1.3 ms mean), with no long gaps and no encoder hang.
+- **Moonlight-qt 6.2 on the Radeon 780M laptop** (2560x1440, 120 fps, HDR, 80 Mbps): 120.3 fps received on AV1 and 120.1 fps on HEVC, with 0.3 and 0.7 ms average host processing and no network drops.
+- **Nightjar 4.0 on the Retroid Pocket 6** over Wi-Fi at 1080p120: about 121 fps from the host on HEVC (encode p99 3.3 to 3.6 ms, present to send p99 4.8 to 5.3 ms) and about 120 fps on PyroWave at its default bitrate (encode p99 1.5 ms).
+- **Night mode from two devices on one host:** the Retroid and the laptop each switched their own stream and read back their own state.
+- **Wake card on localhost:** the card chose the wired adapter and called it this console's connection.
+- **VRR beside another window:** the A/B in the entry above.
+The previews' own measurements are in their notes below and in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## New in 3.0.0-rc.5
 

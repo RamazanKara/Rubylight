@@ -26,9 +26,9 @@ Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTe
 | Launch, resume, quit, quit and start another | Done | Done | Done | |
 | Confirm before a running game closes | Tested | Done | Done | Retroid, 2026-10-28: Cancel keeps the running game, confirming starts the new one. Desktop: rc.4 L6. |
 | Join co-op (Nucleus Co-op) | Done | Done | Done | Android join with a desktop second player is queued for the end batch. |
-| Quick resume, quit on leave per game | Done | Done | Done | Off by default (Settings › App). Desktop: rc.4 L5. |
+| Quick resume, quit on leave per game | Done | Done | Done | Off by default (Settings → App). Desktop: rc.4 L5. |
 | Remote Monitor and Input-only tiles | Done | Done | Done | Remote Monitor sends no input, microphone, clipboard or commands. |
-| Input-only on any PC | Done | Done | Done | Off by default (Settings › Streaming on Android, App on desktop): a 640x360, 30 fps, 500 kbps stream that is neither shown nor played. Desktop: rc.4 L5. |
+| Input-only on any PC | Done | Done | Done | Off by default (Settings → Streaming on Android, App on desktop): a 640x360, 30 fps, 500 kbps stream that is neither shown nor played. Desktop: rc.4 L5. |
 | Settings per PC and per game, profiles by network, mobile data cap | Done | Done | Done | |
 | Settings that open on the main rows, with "More … settings" | Tested | Done | Done | Retroid, rc.4 R2, 2026-10-28: each section's main rows, then "More … settings" opens the rest in place. |
 | Settings search and presets | Done | Missing | Missing | |

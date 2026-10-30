@@ -1,5 +1,7 @@
 # Nightjar privacy
 
+[Documentation](index.md)
+
 This policy covers Nightjar 4.0 for Android, Android TV and Fire TV, and
 Nightjar for Windows and Linux. The sections up to
 [Backups and deletion](#backups-and-deletion) describe the Android app;

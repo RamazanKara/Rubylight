@@ -1,5 +1,7 @@
 # PyroWave GPU decoding in the desktop client
 
+[Documentation](index.md)
+
 Status: shipped. The `pyrowave_decoder` setting picks `Cpu` (the Rust
 decoder in `stream/pyrowave.rs`) or `Gpu` (the SDK, this document). Neither falls back to the other:
 with `Gpu` and a failing probe, PyroWave is not offered and the settings screen says why (the probe's

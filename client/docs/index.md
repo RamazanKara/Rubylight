@@ -2,7 +2,7 @@
 
 Nightjar is a game-streaming client for Android, Android TV, Fire TV, Windows and Linux. It works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host's extensions from what the host reports. These pages describe Nightjar 4.0.
 
-Throughout the documentation, the **PC** is the computer you stream from and the **host** is the streaming software running on it. **This device** is the one running Nightjar. Settings are named as they appear in the app, with their section: **Settings › Streaming › Recover interrupted streams**.
+Throughout the documentation, the **PC** is the computer you stream from and the **host** is the streaming software running on it. **This device** is the one running Nightjar. Settings are named as they appear in the app, with their section: **Settings → Streaming → Recover interrupted streams**.
 
 ## Get started
 

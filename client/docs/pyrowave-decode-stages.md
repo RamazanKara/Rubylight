@@ -1,5 +1,7 @@
 # PyroWave decode on the desktop client
 
+[Documentation](index.md)
+
 Measurements of Nightjar's PyroWave decode and present path on Windows. Everything here is our own measurement on one PC (RX 7900 XT, loopback to
 an isolated Rubylight host), not a claim about other hardware or other clients.
 

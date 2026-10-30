@@ -1,5 +1,7 @@
 # Translations
 
+[Documentation](index.md)
+
 Nightjar ships in 15 languages. English (`values`) is the source; every other language must translate every string before it can ship, because lint treats a missing translation as an error.
 
 ## Languages

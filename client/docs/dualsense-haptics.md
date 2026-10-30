@@ -1,6 +1,6 @@
 # DualSense USB audio and haptics
 
-[Controls](controls.md#dualsense-and-usb) · [Settings](settings.md)
+[Documentation](index.md) · [Controls](controls.md#dualsense-and-usb) · [Settings](settings.md)
 
 Nightjar implements the DualSense waveform extension that [Vibepollo](https://github.com/Nonary/Vibepollo) and Rubylight hosts send. A USB-connected DualSense or DualSense Edge can receive the game's distinct left/right actuator samples alongside input, adaptive triggers and lights. On hosts that support it (Rubylight), controller speaker, headset and microphone audio are carried too. Older releases and Vibepollo's waveform-only extension do not provide these additional audio paths.
 

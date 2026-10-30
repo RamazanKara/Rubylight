@@ -1,5 +1,7 @@
 # Play away from home
 
+[Documentation](index.md)
+
 Long-press a saved PC, choose **PC settings…**, then **Play away from home**. The guide works with any already paired Moonlight-compatible host.
 
 1. Pair on your home network first, check that an ordinary stream works, and keep the PC awake. Waking a sleeping PC from outside the home usually needs a router or another always-on device; this guide does not promise remote Wake-on-LAN.

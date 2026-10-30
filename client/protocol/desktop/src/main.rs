@@ -532,7 +532,10 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
 impl App {
     fn shutdown(&mut self) {
         // Closing Nightjar is leaving it: a start within the grace time stays unlocked.
-        if let Some(pin) = self.launcher.pin.as_mut() { pin.left(); }
+        if let Some(pin) = self.launcher.pin.as_mut() {
+            pin.left();
+            pin.flush();
+        }
         self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
         if let Some((streaming, _)) = self.streaming.take() {
@@ -1483,11 +1486,12 @@ impl App {
     fn pin_holds(&mut self, host: u64, pending: PinPending) -> bool {
         let Some(pin) = self.launcher.pin.as_mut() else { return false };
         let (uuid, name) = self.hosts.get(host).map_or((String::new(), String::new()), |h| (h.record.unique_id.clone(), h.display_name().to_owned()));
-        if !pin.needs_pin_for_stream(&uuid) {
+        let key = pin_lock::stream_key(&uuid, host);
+        if !pin.needs_pin_for_stream(&key) {
             return false;
         }
         eprintln!("nightjar: the PIN lock asks for the PIN before this start");
-        pin.ask_for_stream(&uuid, &name);
+        pin.ask_for_stream(&key, &name);
         self.pin_pending = Some(pending);
         true
     }

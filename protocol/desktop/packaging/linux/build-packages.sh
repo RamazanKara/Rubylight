@@ -118,11 +118,22 @@ mapfile -t deb_recommends < <(printf '%s\n' "${deb_recommends[@]}" | sort -u)
 # Hardware decoding needs the GPU's VA-API driver, which nothing links.
 deb_recommends+=("mesa-va-drivers | va-driver")
 rpm_recommends+=("mesa-va-drivers")
+# Forwarding webcams and audio devices runs the system's usbip tools through pkexec.
+deb_recommends+=("usbip | linux-tools-generic" "pkexec | policykit-1")
+rpm_recommends+=("usbip" "polkit")
 
 # The archive's share/ (desktop entry, icons, AppStream data) goes to /usr/share, not /opt.
 share=$work/share
 [[ -s $stage/share/applications/$app_id.desktop ]] || { echo "error: $archive has no share/applications/$app_id.desktop; build it with this checkout's package-linux.sh" >&2; exit 1; }
 mv "$stage/share" "$share"
+# USB forwarding's helper, policy and udev rule go where polkit and udev look, not to /opt.
+usb=$work/usb
+[[ -x $stage/usb/nightjar-usb-helper ]] || { echo "error: $archive has no usb/nightjar-usb-helper; build it with this checkout's package-linux.sh" >&2; exit 1; }
+mv "$stage/usb" "$usb"
+printf '#!/bin/sh
+# Loads the USB forwarding rule; a system without udev running has nothing to load.
+udevadm control --reload 2>/dev/null || true
+' >"$work/udev-reload.sh"
 
 # One entry per file: the folders under /usr/share belong to the system's packages.
 share_files() {
@@ -158,6 +169,21 @@ contents:
     dst: /usr/bin/nightjar
     type: symlink
 $(share_files)
+  - src: $usb/nightjar-usb-helper
+    dst: /usr/lib/nightjar/nightjar-usb-helper
+    file_info:
+      mode: 0755
+  - src: $usb/$app_id.usb.policy
+    dst: /usr/share/polkit-1/actions/$app_id.usb.policy
+    file_info:
+      mode: 0644
+  - src: $usb/90-nightjar-usb.rules
+    dst: /usr/lib/udev/rules.d/90-nightjar-usb.rules
+    file_info:
+      mode: 0644
+scripts:
+  postinstall: $work/udev-reload.sh
+  postremove: $work/udev-reload.sh
 overrides:
   deb:
     depends:

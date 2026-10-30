@@ -100,6 +100,12 @@ for icon in "$here"/packaging/icons/[0-9]*.png; do
 	size=$(basename "$icon" .png)
 	install -Dm644 "$icon" "$stage/share/icons/hicolor/${size}x$size/apps/$app_id.png"
 done
+# USB forwarding's root helper, its polkit policy and its udev rule (src/usb_linux.rs), which
+# build-packages.sh installs under /usr; Nightjar installs them itself where a package didn't.
+for file in nightjar-usb-helper $app_id.usb.policy 90-nightjar-usb.rules; do
+	install -Dm644 "$here/packaging/linux/usb/$file" "$stage/usb/$file"
+done
+chmod 755 "$stage/usb/nightjar-usb-helper"
 # FFmpeg and dav1d, found through the executable's run path $ORIGIN/lib (and libavcodec's own,
 # $ORIGIN, for libavutil and libdav1d). cp -a keeps the soname symlinks; the dev symlinks
 # (libavcodec.so) and the build tree's pkg-config files and headers stay out.

@@ -67,7 +67,8 @@ fn bandwidth(client: &HostClient, info: &ServerInfo) -> Result<Outcome, String> 
     }
 }
 
-/// A paired Sunshine-family PC may be Foundation Sunshine, which has its own bandwidth test.
+/// A paired Sunshine-family PC may be Foundation Sunshine, which has its own bandwidth test; the
+/// PC is asked once whether it does (`Host::bandwidth_test`).
 pub fn has_foundation_probe(info: &ServerInfo) -> bool {
     info.paired && info.capabilities.family() == Family::Sunshine
 }

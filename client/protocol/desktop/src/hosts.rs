@@ -131,6 +131,10 @@ pub struct Host {
     /// The remote address, when the last poll reached the PC only there (this device is away
     /// from the PC's network). Never saved: the address the PC is stored under stays its own.
     via_remote: Option<String>,
+    /// Whether a paired Sunshine-family PC has Foundation Sunshine's bandwidth test, asked once
+    /// (`/api/network/capabilities`); None until it answered.
+    foundation_probe: Option<bool>,
+    probing_foundation: bool,
 }
 
 impl Host {
@@ -141,6 +145,15 @@ impl Host {
             Some(remote) if self.record.pinned_address.is_none() => remote,
             _ => &self.record.address,
         }
+    }
+
+    /// Whether Test speed runs here: Rubylight's PyroWave test, or Foundation Sunshine's where
+    /// the PC said it has one. Stock Sunshine, Apollo and Vibepollo have neither.
+    pub fn bandwidth_test(&self) -> bool {
+        self.info.as_ref().is_some_and(|i| {
+            i.capabilities.has(Feature::PyroWaveBandwidthProbe)
+                || (crate::network_test::has_foundation_probe(i) && self.foundation_probe == Some(true))
+        })
     }
 
     /// The record with [`Host::connect_address`] as its address, for a request or a stream.
@@ -269,6 +282,13 @@ pub enum Event {
         name: String,
         addresses: Vec<IpAddr>,
         port: u16,
+    },
+    /// Whether the PC `unique_id` has Foundation Sunshine's bandwidth test; None when the
+    /// question did not get through.
+    FoundationProbe {
+        id: u64,
+        unique_id: String,
+        found: Option<bool>,
     },
     /// This device's WAN address from STUN, the remote address of a PC found on the LAN.
     Remote {
@@ -623,6 +643,8 @@ impl Hosts {
             info_seq: 0,
             recheck_until: None,
             via_remote: None,
+            foundation_probe: None,
+            probing_foundation: false,
         });
         id
     }
@@ -1223,6 +1245,16 @@ impl Hosts {
                     }
                     changed |= self.apply_info(id, address, result);
                     self.follow_native(id);
+                    self.check_foundation_probe(id);
+                }
+                Event::FoundationProbe { id, unique_id, found } => {
+                    if let Some(host) = self.get_mut(id) {
+                        host.probing_foundation = false;
+                        // Another PC answers at this address by now: the answer is not its.
+                        if host.record.unique_id == unique_id {
+                            host.foundation_probe = found;
+                        }
+                    }
                 }
                 Event::Discovered {
                     name,
@@ -1378,6 +1410,48 @@ impl Hosts {
         }
     }
 
+    /// Asks a paired Sunshine-family PC once whether it has Foundation Sunshine's bandwidth test,
+    /// so Test speed is offered only where it runs. A request that did not get through is asked
+    /// again after the next poll.
+    fn check_foundation_probe(&mut self, id: u64) {
+        let Some(identity) = self.identity.clone() else { return };
+        let Some(host) = self.get_mut(id) else { return };
+        let candidate = host.info.as_ref().is_some_and(|i| {
+            !i.capabilities.has(Feature::PyroWaveBandwidthProbe) && crate::network_test::has_foundation_probe(i)
+        });
+        if host.reach != Reach::Online || !candidate || host.foundation_probe.is_some() || host.probing_foundation {
+            return;
+        }
+        host.probing_foundation = true;
+        let record = host.connect_record();
+        self.spawn("network-capabilities", move || {
+            let found = match client_for(&identity, &record, &record.address).map(|c| c.network_capabilities()) {
+                Ok(Ok(capabilities)) => match capabilities.probe_bytes() {
+                    Ok(_) => Some(true),
+                    Err(e) => {
+                        eprintln!("nightjar: the PC's bandwidth test is not offered: {e}");
+                        Some(false)
+                    }
+                },
+                Ok(Err(nightjar_core::http::Error::Io(e))) => {
+                    eprintln!("nightjar: could not ask the PC for its bandwidth test: {e}");
+                    None
+                }
+                Ok(Err(nightjar_core::http::Error::Cancelled)) => None,
+                // 404 and the like: stock Sunshine, Apollo or Vibepollo.
+                Ok(Err(e)) => {
+                    eprintln!("nightjar: the PC has no bandwidth test of its own: {e}");
+                    Some(false)
+                }
+                Err(e) => {
+                    eprintln!("nightjar: could not ask the PC for its bandwidth test: {e}");
+                    None
+                }
+            };
+            Some(Event::FoundationProbe { id, unique_id: record.unique_id, found })
+        });
+    }
+
     fn apply_info(&mut self, id: u64, address: String, result: Result<Box<ServerInfo>, String>) -> bool {
         let mut changed = false;
         let Some(index) = self.list.iter().position(|h| h.id == id) else {
@@ -1466,6 +1540,7 @@ impl Hosts {
                     }
                     host.native = Native::default();
                     host.native_epoch += 1;
+                    host.foundation_probe = None;
                 }
                 if host.record.unique_id != info.unique_id || host.record.name != info.hostname {
                     host.record.unique_id = info.unique_id.clone();
@@ -1811,6 +1886,36 @@ pub(crate) mod tests {
         assert!(hosts.apply_discovery("PC".into(), vec!["192.0.2.1".parse().unwrap()], 0));
         assert_eq!(hosts.list[0].record.address, "192.0.2.1");
         assert_eq!(hosts.list[0].connect_address(), "192.0.2.1");
+    }
+
+    // Test speed goes to a Sunshine-family PC only once it said it has Foundation's test; stock
+    // Sunshine, Apollo and Vibepollo do not. Rubylight keeps its own test without asking.
+    #[test]
+    fn the_bandwidth_test_is_offered_only_where_the_pc_has_one() {
+        let sunshine = |unique_id: &str| {
+            let xml = format!("<root status_code=\"200\"><uniqueid>{unique_id}</uniqueid><state>SUNSHINE_SERVER_FREE</state>\
+                <PairStatus>1</PairStatus><appversion>7.1.431.-1</appversion><SunshineVersion>2025.1</SunshineVersion></root>");
+            ServerInfo::parse(&xml, 47989).unwrap()
+        };
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        info_lands(&mut hosts, id, sunshine("uid"));
+        assert!(!hosts.list[0].bandwidth_test(), "not before the PC answered");
+        send(&mut hosts, Event::FoundationProbe { id, unique_id: "uid".into(), found: Some(false) });
+        assert!(!hosts.list[0].bandwidth_test(), "stock Sunshine");
+        hosts.list[0].foundation_probe = None;
+        send(&mut hosts, Event::FoundationProbe { id, unique_id: "other".into(), found: Some(true) });
+        assert!(!hosts.list[0].bandwidth_test(), "another PC's answer");
+        send(&mut hosts, Event::FoundationProbe { id, unique_id: "uid".into(), found: Some(true) });
+        assert!(hosts.list[0].bandwidth_test(), "Foundation Sunshine");
+        info_lands(&mut hosts, id, sunshine("another-pc-uid"));
+        assert_eq!(hosts.list[0].foundation_probe, None, "another PC at this address is asked again");
+
+        let rubylight = "<root status_code=\"200\"><uniqueid>uid</uniqueid><state>SUNSHINE_SERVER_FREE</state><PairStatus>1</PairStatus>\
+            <RustHostVersion>3.0.0</RustHostVersion><PyroWaveBandwidthProbeBytes>33554432</PyroWaveBandwidthProbeBytes></root>";
+        info_lands(&mut hosts, id, ServerInfo::parse(rubylight, 47989).unwrap());
+        assert_eq!(hosts.list[0].foundation_probe, None);
+        assert!(hosts.list[0].bandwidth_test(), "Rubylight's PyroWave test, without asking");
     }
 
     fn paired_record(unique_id: &str) -> HostRecord {

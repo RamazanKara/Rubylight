@@ -121,6 +121,32 @@ public final class NativeApiFixtures {
         return NativeWake.parse(new org.json.JSONObject("{\"revision\":1,\"targets\":[" + targets + "]}"));
     }
 
+    /**
+     * A host's {@code /audio} answer during a stream: night mode on, headphone surround off; {@code surround} null
+     * leaves headphone surround out, as a host on a build without it would.
+     */
+    public static String audioJson(boolean night, Boolean surround) {
+        String settings = "{\"id\":\"audio.night_mode\",\"group\":\"sound\",\"kind\":\"toggle\","
+                + "\"state\":\"configurable\",\"value\":" + night + "}";
+        if (surround != null) {
+            settings += ",{\"id\":\"audio.headphone_surround\",\"group\":\"sound\",\"kind\":\"toggle\","
+                    + "\"state\":\"configurable\",\"value\":" + surround + "}";
+        }
+        return "{\"revision\":3,\"settings\":[" + settings + "]}";
+    }
+
+    /** The host's {@code /audio} answer without a stream: nothing to change yet. */
+    public static final String AUDIO_WITHOUT_STREAM = "{\"revision\":0,\"settings\":["
+            + "{\"id\":\"audio.night_mode\",\"group\":\"sound\",\"kind\":\"toggle\",\"state\":\"temporarily_unavailable\","
+            + "\"reason\":\"no_session\",\"message\":\"Start a stream first.\"},"
+            + "{\"id\":\"audio.headphone_surround\",\"group\":\"sound\",\"kind\":\"toggle\",\"state\":\"temporarily_unavailable\","
+            + "\"reason\":\"no_session\",\"message\":\"Start a stream first.\"}]}";
+
+    /** One of those answers parsed, as tests in other packages hand it to the stream menu. */
+    public static NativeAudio audio(String json) throws org.json.JSONException {
+        return NativeAudio.parse(new org.json.JSONObject(json));
+    }
+
     public static String error(String kind, String message) {
         return "{\"error\":{\"kind\":\"" + kind + "\",\"message\":\"" + message + "\"}}";
     }

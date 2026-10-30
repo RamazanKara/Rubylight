@@ -577,6 +577,42 @@ fn the_couch_menu_posts_open_and_wake_reads_the_targets() {
 }
 
 #[test]
+fn audio_reads_the_switches_and_writes_the_contracts_request() {
+    let host = serve(|method, path, body| match (method, path) {
+        ("GET", "/api/native/v1/audio") => (200, fixture("audio")),
+        ("POST", "/api/native/v1/audio/settings") => {
+            // The contract's request type, which the host parses and which refuses unknown fields,
+            // takes the body. (The pinned butterpollo-core predates /audio.)
+            let write: AudioWrite = serde_json::from_slice(body).unwrap();
+            assert_eq!(write.changes.len(), 2);
+            (200, fixture("audio"))
+        }
+        other => (404, error_body(ErrorCode::NotFound, &format!("{other:?}"))),
+    });
+    let client = paired_client(&host);
+    let audio = client.audio().unwrap();
+    assert_eq!(audio.revision, 3);
+    let write: AudioWrite = serde_json::from_str(&fixture("audio_write")).unwrap();
+    assert_eq!(client.write_audio(&write).unwrap(), audio);
+
+    let seen = host.seen.lock().unwrap();
+    assert_eq!(
+        seen.iter()
+            .map(|s| format!("{} {}", s.method, s.path))
+            .collect::<Vec<_>>(),
+        [
+            "GET /api/native/v1/audio",
+            "POST /api/native/v1/audio/settings"
+        ]
+    );
+    assert_eq!(seen[1].content_type.as_deref(), Some("application/json"));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&seen[1].body).unwrap(),
+        serde_json::from_str::<Value>(&fixture("audio_write")).unwrap()
+    );
+}
+
+#[test]
 fn a_refused_couch_menu_keeps_its_code() {
     for code in [
         ErrorCode::NoSession,

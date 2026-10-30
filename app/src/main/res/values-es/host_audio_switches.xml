@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">Modo nocturno</string>
+    <string name="stream_headphone_surround">Sonido envolvente para auriculares</string>
+    <string name="stream_audio_next_stream">Se aplica en el próximo stream</string>
+    <string name="stream_audio_failed">No se pudo cambiar el audio del PC: %1$s</string>
+</resources>

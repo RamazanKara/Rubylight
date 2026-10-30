@@ -52,6 +52,7 @@ import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeApiTransport;
+import com.limelight.nativeapi.NativeAudio;
 import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.av.audio.AudioRenderer;
@@ -86,6 +87,7 @@ public class NvConnection {
     private volatile boolean nativeCouchMenu;
     private volatile boolean nativeUsbForwarding;
     private volatile boolean nativeImageClipboard;
+    private volatile boolean nativeNightMode, nativeHeadphoneSurround;
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
@@ -1661,6 +1663,16 @@ public class NvConnection {
         return nativeCouchMenu;
     }
 
+    /**
+     * Whether the host offers the audio setting {@code id} ({@code audio.night_mode} or {@code audio.headphone_surround})
+     * and lets this device change it, as it last said; false until known.
+     */
+    public boolean offersHostAudio(String id) {
+        if (NativeCapabilities.NIGHT_MODE.equals(id)) return nativeNightMode;
+        if (NativeCapabilities.HEADPHONE_SURROUND.equals(id)) return nativeHeadphoneSurround;
+        return false;
+    }
+
     /** Whether the host forwards USB devices and lets this device do it ({@code usb}), as it last said; false until known. */
     public boolean offersUsbForwarding() {
         return nativeUsbForwarding;
@@ -1700,8 +1712,41 @@ public class NvConnection {
     }
 
     /**
-     * Asks a native API host whether this device has host control, whether the host draws its own menu and whether
-     * it forwards this device's USB devices, in the background; the stream menu reads the answers. The host's wake targets are refreshed on the way.
+     * Night mode and headphone surround of this stream as the host has them now. Blocks on HTTPS; the native API's
+     * error, with its code, comes back as the cause of the IOException.
+     */
+    public NativeAudio hostAudio() throws IOException {
+        NativeApiClient client = nativeApiClient();
+        if (client == null) {
+            throw new IOException("The host has no audio settings for this stream.");
+        }
+        try {
+            return client.audio();
+        } catch (NativeApiException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Turns one of them on or off for this stream; the host applies it from the next audio packet and answers with
+     * its new state. Blocks on HTTPS like {@link #hostAudio}.
+     */
+    public NativeAudio writeHostAudio(String id, boolean on) throws IOException {
+        NativeApiClient client = nativeApiClient();
+        if (client == null) {
+            throw new IOException("The host has no audio settings for this stream.");
+        }
+        try {
+            return client.writeAudio(id, on);
+        } catch (NativeApiException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Asks a native API host whether this device has host control, whether the host draws its own menu, whether
+     * it forwards this device's USB devices and which audio settings it offers, in the background; the stream menu
+     * reads the answers. The host's wake targets are refreshed on the way.
      */
     public void refreshNativeHostControl() {
         if (isMonkey || !hasNativeSessionActions()) {
@@ -1718,6 +1763,8 @@ public class NvConnection {
                 nativeCouchMenu = capabilities.has(NativeCapabilities.COUCH_MENU);
                 nativeUsbForwarding = capabilities.offersUsbForwarding();
                 nativeImageClipboard = capabilities.has(NativeCapabilities.CLIPBOARD_IMAGE);
+                nativeNightMode = capabilities.offersAudio(NativeCapabilities.NIGHT_MODE);
+                nativeHeadphoneSurround = capabilities.offersAudio(NativeCapabilities.HEADPHONE_SURROUND);
                 if (appContext != null) {
                     new WakeTargets(appContext).refresh(hostDetails.uuid, capabilities, client);
                 }

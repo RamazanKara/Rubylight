@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">Ночной режим</string>
+    <string name="stream_headphone_surround">Объёмный звук в наушниках</string>
+    <string name="stream_audio_next_stream">Действует со следующего стрима</string>
+    <string name="stream_audio_failed">Не удалось изменить звук ПК: %1$s</string>
+</resources>

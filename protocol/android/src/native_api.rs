@@ -1,8 +1,8 @@
 //! The JNI side of `com.limelight.nvstream.jni.NativeApiBridge`: the Rubylight native API v1
 //! (`HostClient::{native_capabilities, library, session, session_action, couch_menu, radeon,
-//! write_radeon, restore_radeon, wake}`) for the console screens and the stream menu, and Sleep
-//! PC (`power_capabilities`, `sleep`), the file transfer permissions (`files.capabilities`), and
-//! Nucleus Co-op (`coop`, `coop.join`).
+//! write_radeon, restore_radeon, wake, audio, write_audio}`) for the console screens and the
+//! stream menu, and Sleep PC (`power_capabilities`, `sleep`), the file transfer permissions
+//! (`files.capabilities`), and Nucleus Co-op (`coop`, `coop.join`).
 //! Calls block on HTTPS, so Java runs them on worker threads, never on the UI thread.
 //!
 //! One entry point, `request`, takes the operation, the host endpoint and an optional JSON
@@ -16,6 +16,7 @@ use jni::JNIEnv;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use nightjar_core::http::native_api::audio::{Audio, AudioWrite};
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
@@ -52,6 +53,8 @@ pub trait Host {
     fn wake(&self) -> Result<Wake, Error>;
     fn coop(&self) -> Result<Coop, Error>;
     fn join_coop(&self, session: u32) -> Result<CoopJoined, Error>;
+    fn audio(&self) -> Result<Audio, Error>;
+    fn write_audio(&self, write: &AudioWrite) -> Result<Audio, Error>;
 }
 
 impl Host for HostClient {
@@ -93,6 +96,12 @@ impl Host for HostClient {
     }
     fn join_coop(&self, session: u32) -> Result<CoopJoined, Error> {
         HostClient::join_coop(self, session)
+    }
+    fn audio(&self) -> Result<Audio, Error> {
+        HostClient::audio(self)
+    }
+    fn write_audio(&self, write: &AudioWrite) -> Result<Audio, Error> {
+        HostClient::write_audio(self, write)
     }
 }
 
@@ -220,7 +229,9 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
 /// (argument: the `CouchMenuRequest` JSON), `radeon`, `radeon_write` (argument: the
 /// `SettingsWrite` JSON), `radeon_restore`, `wake`, `power.capabilities` and `power.sleep`
 /// (argument: the token from `power.capabilities`), `coop` and `coop.join` (argument: the
-/// session id). Gate the power ones on `Feature::Sleep` and the co-op ones on `Feature::Coop`.
+/// session id), `audio` and `audio_write` (argument: the `AudioWrite` JSON). Gate the power ones
+/// on `Feature::Sleep`, the co-op ones on `Feature::Coop` and the audio ones on the capabilities'
+/// `audio.night_mode` and `audio.headphone_surround`.
 pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
     match op {
         // The pinned `Capabilities` drops `permissions.usb`, so the stream menu never offered USB.
@@ -255,6 +266,11 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
         "coop.join" => match argument.trim().parse::<u32>() {
             Ok(session) => ok(host.join_coop(session)),
             Err(_) => argument_error(format!("co-op session id: {argument:?}")),
+        },
+        "audio" => ok(host.audio()),
+        "audio_write" => match serde_json::from_str::<AudioWrite>(argument) {
+            Ok(write) => ok(host.write_audio(&write)),
+            Err(e) => argument_error(format!("audio write: {e}")),
         },
         other => argument_error(format!("unknown native API operation: {other:?}")),
     }
@@ -480,6 +496,55 @@ mod tests {
                 }),
             }
         }
+        fn audio(&self) -> Result<Audio, Error> {
+            self.note("audio");
+            Ok(serde_json::from_str(AUDIO).unwrap())
+        }
+        fn write_audio(&self, write: &AudioWrite) -> Result<Audio, Error> {
+            self.note(&format!("write audio {}", serde_json::to_string(write).unwrap()));
+            if let Some(code) = self.fail {
+                return Err(Error::Api {
+                    status: code.status(),
+                    error: ApiError {
+                        code,
+                        message: "This session belongs to another device.".into(),
+                        setting: None,
+                        retry_after_ms: None,
+                    },
+                });
+            }
+            Ok(serde_json::from_str(AUDIO).unwrap())
+        }
+    }
+
+    const AUDIO: &str = r#"{"revision":3,"settings":[{"id":"audio.night_mode","group":"sound","kind":"toggle","state":"configurable","value":true}]}"#;
+
+    #[test]
+    fn audio_reads_and_writes_reach_the_host_and_bad_writes_do_not() {
+        let fake = Fake::default();
+        let read = parse(&execute(&fake, "audio", ""));
+        assert_eq!(read["ok"]["settings"][0]["id"], "audio.night_mode");
+        assert_eq!(read["ok"]["settings"][0]["value"], true);
+        let write = r#"{"changes":[{"id":"audio.night_mode","value":false}]}"#;
+        assert_eq!(parse(&execute(&fake, "audio_write", write))["ok"]["revision"], 3);
+        let written = format!("write audio {write}");
+        assert_eq!(
+            fake.calls.lock().unwrap().clone(),
+            ["audio", written.as_str()]
+        );
+        for bad in ["", "{}", r#"{"changes":[{"id":"audio.night_mode","value":true,"scope":"host"}]}"#] {
+            let reply = parse(&execute(&fake, "audio_write", bad));
+            assert_eq!(reply["error"]["kind"], "invalid_argument", "{bad}");
+        }
+        assert_eq!(fake.calls.lock().unwrap().len(), 2);
+
+        let refused = Fake {
+            fail: Some(ErrorCode::NotSessionOwner),
+            ..Fake::default()
+        };
+        let reply = parse(&execute(&refused, "audio_write", write));
+        assert_eq!(reply["error"]["code"], "not_session_owner");
+        assert_eq!(reply["error"]["http_status"], 409);
     }
 
     const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

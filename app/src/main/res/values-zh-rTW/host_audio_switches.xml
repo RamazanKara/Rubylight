@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_night_mode">夜間模式</string>
+    <string name="stream_headphone_surround">耳機環繞音效</string>
+    <string name="stream_audio_next_stream">下次串流時生效</string>
+    <string name="stream_audio_failed">無法變更電腦的音訊：%1$s</string>
+</resources>

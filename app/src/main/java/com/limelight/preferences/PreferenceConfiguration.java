@@ -17,6 +17,7 @@ import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
 import com.limelight.binding.input.touch.TrackpadArea;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nvstream.PyroWaveBitrateFloor;
 import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -614,11 +615,43 @@ public class PreferenceConfiguration {
                 prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION), prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
     }
 
+    /** The default the bitrate setting shows and stores, PyroWave's own while PyroWave is the chosen codec. */
     public static int getDefaultBitrate(Context context) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        return getDefaultBitrate(
-                prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION),
-                prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
+        return getShownDefaultBitrate(PreferenceManager.getDefaultSharedPreferences(context), null, null, null);
+    }
+
+    /**
+     * The default the bitrate setting shows and stores for these settings, with {@code res},
+     * {@code fps} and {@code codec} in place of the saved ones when not null: PyroWave's own
+     * (intra-only, it breaks up at the conventional default) while PyroWave is the chosen codec,
+     * for a link not known yet. A stream still starts at the default for the codec it negotiates
+     * and the link it finds.
+     */
+    static int getShownDefaultBitrate(SharedPreferences prefs, String res, String fps, String codec) {
+        if (res == null) res = prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION);
+        if (fps == null) fps = prefs.getString(FPS_PREF_STRING, DEFAULT_FPS);
+        if (codec == null) codec = prefs.getString(VIDEO_FORMAT_PREF_STRING, DEFAULT_VIDEO_FORMAT);
+        if ("forcepyrowave".equals(codec)) {
+            return PyroWaveBitrateFloor.defaultKbps(getWidthFromResolutionString(res),
+                    getHeightFromResolutionString(res), Integer.parseInt(fps), 0);
+        }
+        return getDefaultBitrate(res, fps);
+    }
+
+    /**
+     * PyroWave's minimum for the saved resolution and frame rate when PyroWave is the chosen codec
+     * and the bitrate the user picked is below it, else 0. A chosen bitrate is kept as it is; the
+     * bitrate setting warns instead (the automatic one never goes below the minimum).
+     */
+    static int pyroWaveMinimumAboveChosenKbps(SharedPreferences prefs) {
+        if (!"forcepyrowave".equals(prefs.getString(VIDEO_FORMAT_PREF_STRING, DEFAULT_VIDEO_FORMAT)) ||
+                !isBitrateUserSet(prefs)) {
+            return 0;
+        }
+        String res = prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION);
+        int minimum = PyroWaveBitrateFloor.minimumKbps(getWidthFromResolutionString(res),
+                getHeightFromResolutionString(res), Integer.parseInt(prefs.getString(FPS_PREF_STRING, DEFAULT_FPS)));
+        return prefs.getInt(BITRATE_PREF_STRING, 0) < minimum ? minimum : 0;
     }
 
     private static FormatOption getVideoFormatValue(Context context) {
@@ -1274,13 +1307,16 @@ public class PreferenceConfiguration {
         // This must happen after the preferences migration to ensure the preferences are populated
         config.bitrate = prefs.getInt(BITRATE_PREF_STRING, prefs.getInt(BITRATE_PREF_OLD_STRING, 0) * 1000);
         if (config.bitrate == 0) {
-            config.bitrate = getDefaultBitrate(context);
+            config.bitrate = getDefaultBitrate(prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION),
+                    prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
         }
-        // A bitrate the user did not pick follows the size the stream really uses.
+        // A bitrate the user did not pick follows the size the stream really uses. It is the default
+        // for the conventional codecs, also when the settings show PyroWave's (a PyroWave stream
+        // starts at PyroWave's own once it is negotiated, NvConnection.pyroWaveStartKbps).
         String fpsString = Integer.toString(config.fps);
         String used = getResolutionText(config.width, config.height);
         config.automaticBitrate = !isBitrateUserSet(prefs);
-        if (savedResolution != null && !used.equals(savedResolution) && config.automaticBitrate) {
+        if (config.automaticBitrate) {
             config.bitrate = getDefaultBitrate(used, fpsString);
         }
 

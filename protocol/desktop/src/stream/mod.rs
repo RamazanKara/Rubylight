@@ -244,7 +244,9 @@ fn random_bytes<const N: usize>() -> [u8; N] {
     out
 }
 
-/// The stream's resolution, rate and bitrate from the settings and display.
+/// The stream's resolution, rate and bitrate from the settings and display. The bitrate is the one
+/// for the chosen codec (`start_bitrate`), PyroWave's own while PyroWave is chosen, as the settings
+/// show it; a launch decides by what it offers the PC (`offers_pyrowave`).
 pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32) {
     let (mut w, mut h) = if settings.width == 0 || settings.height == 0 {
         (display.width, display.height)
@@ -258,15 +260,42 @@ pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32
     } else {
         settings.fps
     };
-    let bitrate = if settings.bitrate_kbps == 0 {
+    (w, h, fps, start_bitrate(settings, w, h, fps, settings.codec.is_pyrowave(), 0))
+}
+
+/// The bitrate a stream starts at: the chosen one, or the default for its size and frame rate. A
+/// PyroWave stream (intra-only, it breaks up at the conventional default) starts at PyroWave's own
+/// default instead, within `link_mbps` (the wired link toward the PC, 0 when unknown as in the
+/// settings), or at the chosen one raised to PyroWave's floor (`nightjar_policy::pyrowave`).
+fn start_bitrate(settings: &Settings, w: u32, h: u32, fps: u32, pyrowave: bool, link_mbps: u32) -> u32 {
+    if pyrowave {
+        nightjar_policy::pyrowave::start_kbps(settings.bitrate_kbps, settings.bitrate_kbps == 0, w, h, fps, link_mbps)
+    } else if settings.bitrate_kbps == 0 {
         config::default_bitrate_kbps(w, h, fps)
     } else {
         settings.bitrate_kbps
-    };
-    let bitrate = if matches!(settings.codec, CodecPreference::PyroWave | CodecPreference::PyroWave444) {
-        bitrate.max(pyrowave::minimum_bitrate(w, h, fps, settings.codec == CodecPreference::PyroWave444, settings.hdr))
-    } else { bitrate };
-    (w, h, fps, bitrate)
+    }
+}
+
+/// Whether a launch that offers `offered` streams PyroWave: the handshake picks it first when the
+/// PC (`scm`, the trusted codec support) encodes a PyroWave format offered
+/// (`Describe::select_video_format`). Whatever the codec choice, so a PyroWave choice the PC
+/// lacks starts at the conventional bitrate.
+fn offers_pyrowave(offered: u32, scm: u32) -> bool {
+    [(SCM_PYROWAVE, VIDEO_FORMAT_PYROWAVE), (SCM_PYROWAVE_444, VIDEO_FORMAT_PYROWAVE_444),
+        (SCM_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10), (SCM_PYROWAVE_MAIN10_444, VIDEO_FORMAT_PYROWAVE_MAIN10_444)]
+        .iter()
+        .any(|&(host, client)| scm & host != 0 && offered & client != 0)
+}
+
+/// The bitrate setting's warning when PyroWave is chosen and the chosen bitrate is below its
+/// minimum for the stream's `w`x`h` at `fps`, naming the minimum. The bitrate is kept as chosen;
+/// the automatic one never goes below the minimum.
+pub fn pyrowave_bitrate_warning(settings: &Settings, w: u32, h: u32, fps: u32) -> Option<String> {
+    let minimum = nightjar_policy::pyrowave::minimum_kbps(w, h, fps);
+    (settings.codec.is_pyrowave() && settings.bitrate_kbps != 0 && settings.bitrate_kbps < minimum).then(|| {
+        trf("Below PyroWave’s minimum of {} Mbps at {}x{}, {} fps: the picture will break up.", &[&minimum.div_ceil(1000), &w, &h, &fps])
+    })
 }
 
 /// With the link test switched on (`link_probe`, off by default because it measured worse), a new
@@ -1131,8 +1160,7 @@ fn audio_configuration(choice: AudioChannels, host_714: bool, output_714: bool) 
 fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     let settings = &plan.settings;
     let role = plan.app.role(plan.small_stream_input_only);
-    let (width, height, fps, bitrate) = stream_mode(settings, plan.display);
-    let bitrate = capped_bitrate(bitrate, plan.bitrate_limit_kbps);
+    let (width, height, fps, _) = stream_mode(settings, plan.display);
     let audio = audio_configuration(
         settings.audio,
         plan.info.capabilities.has(Feature::Surround714),
@@ -1208,6 +1236,43 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
     let offer = offered_formats(settings, scm, &plan.color_decodable);
     request.ten_bit_sdr = launches_ten_bit_sdr(settings, &offer);
+    // The interface the system sends this host's traffic over decides, not the internet
+    // connection; the connection is the fallback when that lookup tells nothing. Looked up before
+    // the launch: PyroWave's default bitrate stays within this link.
+    let route = crate::network::route(&plan.record.address);
+    let toward = route.toward;
+    let network = plan.network.toward(toward);
+    let family = plan.info.capabilities.family();
+    let client_wireless = tells_host_wireless(settings.tell_host_wireless, family, network.wireless());
+    let routed_link_mbps = network.wired_link_mbps();
+    if network.wireless() && !client_wireless {
+        let why = if settings.tell_host_wireless { "the PC is not a Rubylight host" } else { "it is turned off in the settings" };
+        eprintln!("nightjar: not telling the PC the route is wireless: {why}");
+    }
+    eprintln!(
+        "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
+        if network.wireless() { "wireless" } else { "wired or unknown" },
+        match toward {
+            Ok(_) => "from the route".to_string(),
+            Err(why) => format!("from the internet connection, {why}"),
+        },
+    );
+    let measured_pace = plan.pace.as_ref().map_or(0, |pace| pace.for_network(&network, plan.host_link_mbps));
+    let LinkHints { link_mbps, sent_link_mbps, pace_mbps } = link_hints(
+        settings.tell_host_link_speed,
+        routed_link_mbps,
+        hint_env("NIGHTJAR_PYROWAVE_LINK_MBPS"),
+        measured_pace,
+        hint_env("NIGHTJAR_PYROWAVE_PACE_MBPS"),
+    );
+    if link_mbps > 0 && sent_link_mbps == 0 {
+        eprintln!("nightjar: not telling the PC the link speed ({link_mbps} Mbps): it is turned off in the settings");
+    }
+    let pyrowave = offers_pyrowave(offer.formats, scm);
+    let bitrate = capped_bitrate(start_bitrate(settings, width, height, fps, pyrowave, link_mbps), plan.bitrate_limit_kbps);
+    if pyrowave && settings.bitrate_kbps == 0 {
+        eprintln!("nightjar: PyroWave: starting at {bitrate} kbps, its default for {width}x{height} at {fps} fps and a {link_mbps} Mbps link");
+    }
     let bitrate = if probes_first_bitrate(settings, plan.resume, &plan.info) {
         match client.probe_link(&plan.info) {
             Ok(mbps) => {
@@ -1251,37 +1316,6 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     };
     if interrupt.is_interrupted() {
         return Err("Cancelled.".into());
-    }
-    // The interface the system sends this host's traffic over decides, not the internet
-    // connection; the connection is the fallback when that lookup tells nothing.
-    let route = crate::network::route(&plan.record.address);
-    let toward = route.toward;
-    let network = plan.network.toward(toward);
-    let family = plan.info.capabilities.family();
-    let client_wireless = tells_host_wireless(settings.tell_host_wireless, family, network.wireless());
-    let routed_link_mbps = network.wired_link_mbps();
-    if network.wireless() && !client_wireless {
-        let why = if settings.tell_host_wireless { "the PC is not a Rubylight host" } else { "it is turned off in the settings" };
-        eprintln!("nightjar: not telling the PC the route is wireless: {why}");
-    }
-    eprintln!(
-        "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
-        if network.wireless() { "wireless" } else { "wired or unknown" },
-        match toward {
-            Ok(_) => "from the route".to_string(),
-            Err(why) => format!("from the internet connection, {why}"),
-        },
-    );
-    let measured_pace = plan.pace.as_ref().map_or(0, |pace| pace.for_network(&network, plan.host_link_mbps));
-    let LinkHints { link_mbps, sent_link_mbps, pace_mbps } = link_hints(
-        settings.tell_host_link_speed,
-        routed_link_mbps,
-        hint_env("NIGHTJAR_PYROWAVE_LINK_MBPS"),
-        measured_pace,
-        hint_env("NIGHTJAR_PYROWAVE_PACE_MBPS"),
-    );
-    if link_mbps > 0 && sent_link_mbps == 0 {
-        eprintln!("nightjar: not telling the PC the link speed ({link_mbps} Mbps): it is turned off in the settings");
     }
     let beam = beam_race(settings.beam_race, link_mbps, plan.gpu_decoder.is_some());
     match beam {
@@ -4536,12 +4570,86 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(stream_mode(&settings, display()), (1920, 1080, 60, 30000));
+        // PyroWave chosen: a chosen bitrate stays, below its floor too (the settings warn), and the
+        // automatic one is PyroWave's default (what the settings show).
         let mut settings = Settings { codec: CodecPreference::PyroWave444, ..settings };
-        assert_eq!(stream_mode(&settings, display()).3, 151_000);
+        assert_eq!(stream_mode(&settings, display()).3, 30000);
         settings.bitrate_kbps = 0;
-        assert_eq!(stream_mode(&settings, display()).3, 151_000);
+        assert_eq!(stream_mode(&settings, display()).3, 398_132);
+        settings.bitrate_kbps = 250_000;
+        assert_eq!(stream_mode(&settings, display()).3, 250_000);
         settings.bitrate_kbps = 2_000_000;
         assert_eq!(stream_mode(&settings, display()).3, 2_000_000);
+    }
+
+    // User report: PyroWave started at the H.264 default (20 Mbps at 1080p60), far below its floor,
+    // because the automatic bitrate did not know the codec.
+    #[test]
+    fn a_pyrowave_stream_at_the_automatic_bitrate_starts_at_pyrowaves_default() {
+        let auto = Settings::default();
+        // With the link unknown the default stays within 900 Mbps, unless the floor is higher.
+        for (w, h, fps, kbps) in [(1920, 1080, 60, 398_132), (2560, 1440, 120, 900_000), (3840, 2160, 60, 900_000), (3840, 2160, 120, 1_492_992)] {
+            assert_eq!(start_bitrate(&auto, w, h, fps, true, 0), kbps, "{w}x{h}@{fps}");
+            assert_eq!(start_bitrate(&auto, w, h, fps, false, 0), config::default_bitrate_kbps(w, h, fps));
+            assert!(kbps >= nightjar_policy::pyrowave::minimum_kbps(w, h, fps));
+            // The settings show the same for PyroWave chosen.
+            let chosen = Settings { width: w, height: h, fps, codec: CodecPreference::PyroWave, ..Default::default() };
+            assert_eq!(stream_mode(&chosen, display()).3, kbps);
+        }
+        // Chosen bitrates stay as they are, whatever the link, also below the floor (the settings warn).
+        let chosen = |kbps| Settings { bitrate_kbps: kbps, ..Default::default() };
+        assert_eq!(start_bitrate(&chosen(300_000), 1920, 1080, 60, true, 0), 300_000);
+        assert_eq!(start_bitrate(&chosen(900_000), 3840, 2160, 60, true, 0), 900_000);
+        assert_eq!(start_bitrate(&chosen(1_500_000), 3840, 2160, 60, true, 1000), 1_500_000);
+        assert_eq!(start_bitrate(&chosen(20_000), 1920, 1080, 60, true, 0), 20_000);
+        assert_eq!(start_bitrate(&chosen(20_000), 1920, 1080, 60, false, 0), 20_000);
+    }
+
+    // A default over gigabit broke a first PyroWave stream on ordinary Ethernet and Wi-Fi: the
+    // default stays within 90% of a known wired link, never below the floor.
+    #[test]
+    fn pyrowaves_default_stays_within_the_wired_link() {
+        let auto = Settings::default();
+        assert_eq!(start_bitrate(&auto, 3840, 2160, 60, true, 1000), 900_000);
+        assert_eq!(start_bitrate(&auto, 3840, 2160, 60, true, 2500), 1_592_525);
+        assert_eq!(start_bitrate(&auto, 2560, 1440, 120, true, 2500), 1_415_578);
+        assert_eq!(start_bitrate(&auto, 1920, 1080, 60, true, 100), 186_624);
+        assert_eq!(start_bitrate(&auto, 1920, 1080, 60, false, 100), config::default_bitrate_kbps(1920, 1080, 60));
+        // 10G gets the full clean target at 4K60, 1G about 900 Mbps at 1440p120, unknown 900.
+        assert_eq!(start_bitrate(&auto, 3840, 2160, 60, true, 10_000), 1_592_525);
+        assert_eq!(start_bitrate(&auto, 2560, 1440, 120, true, 1000), 900_000);
+        assert_eq!(start_bitrate(&auto, 2560, 1440, 120, true, 0), 900_000);
+    }
+
+    // The bitrate follows what the launch offers the PC, not the codec choice alone: a PyroWave
+    // choice the PC lacks streams HEVC at the conventional default, and any offer the PC can answer
+    // with PyroWave starts at PyroWave's (the automatic choice included, should it offer PyroWave).
+    #[test]
+    fn the_launch_starts_pyrowave_bitrates_only_when_the_offer_streams_pyrowave() {
+        let with = SCM_H264 | SCM_HEVC | SCM_PYROWAVE;
+        let offered = |codec, scm| offered_formats(&Settings { codec, ..Default::default() }, scm, &decodes_all()).formats;
+        assert!(offers_pyrowave(offered(CodecPreference::PyroWave, with), with));
+        assert!(offers_pyrowave(offered(CodecPreference::PyroWave444, SCM_H264 | SCM_PYROWAVE_444), SCM_H264 | SCM_PYROWAVE_444));
+        assert!(!offers_pyrowave(offered(CodecPreference::PyroWave, SCM_H264 | SCM_HEVC), SCM_H264 | SCM_HEVC), "the PC has no PyroWave");
+        assert!(!offers_pyrowave(offered(CodecPreference::PyroWave, 0), 0), "no trusted codec support: the handshake never picks PyroWave");
+        assert!(!offers_pyrowave(offered(CodecPreference::Auto, with), with), "automatic offers HEVC and H.264 only");
+        assert!(offers_pyrowave(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_PYROWAVE, with), "an automatic offer that has PyroWave");
+        assert_eq!(start_bitrate(&Settings::default(), 1920, 1080, 60, offers_pyrowave(VIDEO_FORMAT_H264 | VIDEO_FORMAT_PYROWAVE, with), 0), 398_132);
+    }
+
+    // A chosen bitrate below PyroWave's minimum is kept; the bitrate setting warns, naming the
+    // minimum for the mode.
+    #[test]
+    fn a_chosen_bitrate_below_pyrowaves_minimum_is_warned_in_the_settings() {
+        let low = Settings { codec: CodecPreference::PyroWave, bitrate_kbps: 20_000, ..Default::default() };
+        assert_eq!(pyrowave_bitrate_warning(&low, 1920, 1080, 60).as_deref(),
+            Some("Below PyroWave’s minimum of 187 Mbps at 1920x1080, 60 fps: the picture will break up."));
+        let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || pyrowave_bitrate_warning(&low, 1920, 1080, 60));
+        assert_eq!(german.as_deref(), Some("Unter dem PyroWave-Minimum von 187 Mbit/s bei 1920x1080, 60 fps: Das Bild wird zerfallen."));
+        assert_eq!(pyrowave_bitrate_warning(&Settings { bitrate_kbps: 186_624, ..low.clone() }, 1920, 1080, 60), None);
+        assert_eq!(pyrowave_bitrate_warning(&Settings { bitrate_kbps: 0, ..low.clone() }, 1920, 1080, 60), None, "automatic");
+        assert_eq!(pyrowave_bitrate_warning(&Settings { codec: CodecPreference::Hevc, ..low.clone() }, 1920, 1080, 60), None);
+        assert!(pyrowave_bitrate_warning(&Settings { codec: CodecPreference::PyroWave444, ..low }, 1920, 1080, 60).is_some());
     }
 
     #[test]

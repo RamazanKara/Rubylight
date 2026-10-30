@@ -39,6 +39,10 @@ public class StreamConfiguration {
     private int bitrate;
     // The bitrate is the automatic one: a new stream may time the link and start lower.
     private boolean probeFirstBitrate;
+    // The user did not choose the bitrate, so a PyroWave stream starts at PyroWave's own default.
+    private boolean automaticBitrate;
+    // This client's cap on the bitrate (the mobile data limit), 0 for none; PyroWave's start stays under it.
+    private int bitrateLimitKbps;
     private boolean sops;
     private boolean enableAdaptiveResolution;
     private boolean playLocalAudio;
@@ -112,6 +116,18 @@ public class StreamConfiguration {
         /** The bitrate above is automatic, so a new stream times the link first and starts no higher than it holds. */
         public StreamConfiguration.Builder setProbeFirstBitrate(boolean probe) {
             config.probeFirstBitrate = probe;
+            return this;
+        }
+
+        /** The bitrate above is the automatic one for a conventional codec; PyroWave starts at its own. */
+        public StreamConfiguration.Builder setAutomaticBitrate(boolean automatic) {
+            config.automaticBitrate = automatic;
+            return this;
+        }
+
+        /** This client's cap on the bitrate, 0 for none: PyroWave's default or floor never starts above it. */
+        public StreamConfiguration.Builder setBitrateLimit(int kbps) {
+            config.bitrateLimitKbps = kbps;
             return this;
         }
 
@@ -282,6 +298,14 @@ public class StreamConfiguration {
     
     public boolean probesFirstBitrate() {
         return probeFirstBitrate;
+    }
+
+    public boolean isAutomaticBitrate() {
+        return automaticBitrate;
+    }
+
+    public int getBitrateLimitKbps() {
+        return bitrateLimitKbps;
     }
 
     public FecChoice getFecChoice() {

@@ -51,7 +51,6 @@ import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.AdaptiveQualityController;
 import com.limelight.nvstream.PyroWaveBitrateController;
-import com.limelight.nvstream.PyroWaveBitrateFloor;
 import com.limelight.nvstream.RateChangeResult;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -1579,6 +1578,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setAllowIdleSessionEnd(!getIntent().getBooleanExtra(EXTRA_RECOVERY_MEDIA_FAILURE, false))
                 .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : prefConfig.bitrate)
                 .setProbeFirstBitrate(!smallStream && prefConfig.probesFirstBitrate())
+                .setAutomaticBitrate(!smallStream && prefConfig.automaticBitrate)
+                .setBitrateLimit(StreamRateChanges.clientLimitKbps(prefConfig.layers == null ? null : prefConfig.layers.network,
+                        prefConfig.mobileBitrateLimit))
                 .setFecChoice(prefConfig.fecChoice)
                 .setRateChange(!smallStream && prefConfig.rustEngine)
                 .setEnableSops(!smallStream && prefConfig.enableSops)
@@ -4982,8 +4984,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     runOnUiThread(() -> {
                         currentBitrate = applied;
                         healthOriginalBitrate = healthTrialBitrate = 0;
-                        if (foreground && generation == foregroundGeneration && connected && !isFinishing() &&
-                                !warnIfBelowPyroWaveFloor(applied)) {
+                        if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
                             messages.alert(getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
                         }
                     });
@@ -5120,13 +5121,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             messages.alert(getString(R.string.stream_rate_change_auto_stopped,
                     rateChangeReason(this, result.bitrateReason)), Toast.LENGTH_LONG);
         } else if (answer == StreamRateChanges.Answer.MANUAL) {
-            boolean refused = result.bitrateStatus == RateChangeResult.STATUS_REFUSED ||
-                    result.fpsStatus == RateChangeResult.STATUS_REFUSED;
-            // A bitrate below PyroWave's floor says so instead, unless something was refused.
-            if (refused || !result.bitrateChanged() || !outcome.takesBitrate ||
-                    !warnIfBelowPyroWaveFloor(result.bitrateKbps)) {
-                messages.alert(rateChangeText(this, result), Toast.LENGTH_LONG);
-            }
+            messages.alert(rateChangeText(this, result), Toast.LENGTH_LONG);
         }
     }
 
@@ -5280,21 +5275,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         prefConfig.mobileBitrateLimit),
                 SystemClock.uptimeMillis());
         bitrateHandler.postDelayed(updateRateChangeBitrate, 1000);
-    }
-
-    // PyroWave is intra-only, so below its floor every frame breaks up. True when it was said.
-    private boolean warnIfBelowPyroWaveFloor(int kbps) {
-        if (prefConfig.disableWarnings || kbps <= 0 || decoderRenderer == null) return false;
-        int format = decoderRenderer.getActiveVideoFormat();
-        if ((format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) return false;
-        int[] size = decoderRenderer.getStreamSize();
-        int floor = PyroWaveBitrateFloor.minimumKbps(size[0], size[1], streamFps,
-                (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0, (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0);
-        if (kbps >= floor) return false;
-        String text = getString(R.string.stream_pyrowave_bitrate_low, kbps / 1000.0, floor / 1000,
-                size[0], size[1], streamFps);
-        messages.alert(text, Toast.LENGTH_LONG);
-        return true;
     }
 
     private boolean supportsAdaptiveBitrate() {
@@ -7666,7 +7646,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 // A link test before the launch may have started the stream lower than the setting.
                 currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
-                warnIfBelowPyroWaveFloor(currentBitrate);
                 notePyroWaveFallback();
                 startStreamBitrate();
                 startAdaptiveQuality();

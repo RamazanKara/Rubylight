@@ -2435,6 +2435,9 @@ impl Launcher {
             });
             setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "Sensitivity of the captured pointer.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Send the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
+            if cfg!(windows) {
+                setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Send the touchpad's fingers to a PC that takes them, so its gestures work there. Other PCs get the pointer as before.", |ui, s| toggle(ui, &mut s.native_touchpad));
+            }
             setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
             setting_row(ui, s, &mut rows, &["controllers"], "Controllers", "Every connected controller becomes a controller on the PC.", |ui, s| {
                 toggle(ui, &mut s.controllers)

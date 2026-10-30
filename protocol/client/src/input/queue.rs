@@ -8,7 +8,10 @@ use std::time::{Duration, Instant};
 
 use rubylight_protocol::pen;
 
-use super::packets::{button, capability, motion_type, touch_event, InputEvent, MAX_CONTROLLERS};
+use super::packets::{
+    button, capability, motion_type, touch_event, touchpad, InputEvent, TouchpadContact,
+    MAX_CONTROLLERS,
+};
 use crate::control::negotiation::{feature, HostCapabilities};
 use crate::control::wire::Delivery;
 
@@ -141,6 +144,7 @@ pub struct InputQueue {
     absolute_dirty: bool,
     sensors: [[SensorState; MAX_MOTION_TYPES]; MAX_CONTROLLERS as usize],
     pen_buttons: u8,
+    touchpad_buttons: u8,
     pen_barrel_roll: bool,
     scroll_accumulator: i32,
     position: (f32, f32),
@@ -169,6 +173,7 @@ impl InputQueue {
             absolute_dirty: false,
             sensors: [[SensorState::default(); MAX_MOTION_TYPES]; MAX_CONTROLLERS as usize],
             pen_buttons: 0,
+            touchpad_buttons: 0,
             pen_barrel_roll: false,
             scroll_accumulator: 0,
             position: (0.5, 0.5),
@@ -182,6 +187,11 @@ impl InputQueue {
             let _ = queue.offer(Entry::Event(Pending::new(InputEvent::EnableHaptics)));
         }
         queue
+    }
+
+    /// The host's `x-ss-general.featureFlags`, for a client choosing how to send.
+    pub fn feature_flags(&self) -> u32 {
+        self.feature_flags
     }
 
     /// Refuses further input; what is queued can still be drained.
@@ -674,6 +684,79 @@ impl InputQueue {
         }))
     }
 
+    /// `LiSendTouchpadFrameEvent`: the contacts of one laptop touchpad frame, at most
+    /// [`touchpad::MAX_FRAME_CONTACTS`]. A host without `TOUCHPAD_FRAME_EVENTS` refuses it.
+    pub fn send_touchpad_frame(
+        &mut self,
+        contacts: &[TouchpadContact],
+        buttons: u8,
+        width_mm: u16,
+        height_mm: u16,
+    ) -> Result<(), InputError> {
+        self.check()?;
+        if self.feature_flags & feature::TOUCHPAD_FRAME_EVENTS == 0 {
+            return Err(InputError::Unsupported);
+        }
+        if contacts.len() > touchpad::MAX_FRAME_CONTACTS {
+            return Err(InputError::Invalid);
+        }
+        let mut frame = [TouchpadContact::default(); touchpad::MAX_FRAME_CONTACTS];
+        frame[..contacts.len()].copy_from_slice(contacts);
+        // Only a frame of moves with no button change may be dropped for a newer one.
+        let batchable = contacts.iter().all(|c| touch_event::is_batchable(c.event));
+        let delivery = self.touchpad_delivery(batchable, buttons);
+        let event = InputEvent::TouchpadFrame {
+            count: contacts.len() as u8,
+            buttons,
+            rotation: touchpad::ROTATION_UNKNOWN,
+            width_mm,
+            height_mm,
+            contacts: frame,
+        };
+        self.offer(Entry::Event(Pending { channel: event.channel(), delivery, event }))
+    }
+
+    /// `LiSendTouchpadEvent`: one laptop touchpad contact. A host without `TOUCHPAD_EVENTS`
+    /// refuses it.
+    pub fn send_touchpad(
+        &mut self,
+        contact: TouchpadContact,
+        buttons: u8,
+        width_mm: u16,
+        height_mm: u16,
+    ) -> Result<(), InputError> {
+        self.check()?;
+        if self.feature_flags & feature::TOUCHPAD_EVENTS == 0 {
+            return Err(InputError::Unsupported);
+        }
+        let delivery = self.touchpad_delivery(touch_event::is_batchable(contact.event), buttons);
+        let event = InputEvent::Touchpad {
+            event: contact.event,
+            buttons,
+            rotation: touchpad::ROTATION_UNKNOWN,
+            pointer_id: contact.pointer_id,
+            width_mm,
+            height_mm,
+            x: contact.x,
+            y: contact.y,
+            pressure: contact.pressure,
+            contact_major: 0.0,
+            contact_minor: 0.0,
+        };
+        self.offer(Entry::Event(Pending { channel: event.channel(), delivery, event }))
+    }
+
+    /// Moves without a button change may be dropped; a click or release never is.
+    fn touchpad_delivery(&mut self, batchable: bool, buttons: u8) -> Delivery {
+        let delivery = if batchable && buttons == self.touchpad_buttons {
+            Delivery::Unreliable
+        } else {
+            Delivery::Reliable
+        };
+        self.touchpad_buttons = buttons;
+        delivery
+    }
+
     /// Takes what is ready to send into `out`. `contact_lost` is the driver's view that the
     /// host has been silent through a network grace period. Returns when to call again for
     /// input waiting on a batching interval or the text settle time.
@@ -1035,6 +1118,45 @@ mod tests {
         let mut out = Vec::new();
         q.poll(now, false, &mut out);
         out.iter().map(|p| decode(&p.data).unwrap()).collect()
+    }
+
+    #[test]
+    fn touchpad_contacts_go_only_to_a_host_that_takes_them() {
+        let contact = TouchpadContact { event: touch_event::MOVE, pointer_id: 1, x: 0.5, y: 0.5, pressure: 0.0 };
+        let mut q = queue(&sunshine());
+        assert_eq!(q.send_touchpad_frame(&[contact], 0, 0, 0), Err(InputError::Unsupported));
+        assert_eq!(q.send_touchpad(contact, 0, 0, 0), Err(InputError::Unsupported));
+
+        let caps = HostCapabilities {
+            feature_flags: feature::TOUCHPAD_EVENTS | feature::TOUCHPAD_FRAME_EVENTS,
+            ..sunshine()
+        };
+        let mut q = queue(&caps);
+        assert_eq!(q.send_touchpad_frame(&[contact; 6], 0, 0, 0), Err(InputError::Invalid));
+        // Moves drop for newer ones; the click and its release, or a new contact, never.
+        q.send_touchpad_frame(&[contact; 2], 0, 105, 70).unwrap();
+        q.send_touchpad_frame(&[contact], touchpad::BUTTON_PRIMARY, 105, 70).unwrap();
+        q.send_touchpad_frame(&[contact], touchpad::BUTTON_PRIMARY, 105, 70).unwrap();
+        q.send_touchpad(contact, 0, 105, 70).unwrap();
+        q.send_touchpad(TouchpadContact { event: touch_event::DOWN, ..contact }, 0, 105, 70).unwrap();
+        let mut out = Vec::new();
+        q.poll(Instant::now(), false, &mut out);
+        let sent: Vec<(u32, Delivery)> = out
+            .iter()
+            .map(|p| (u32::from_le_bytes(p.data[4..8].try_into().unwrap()), p.delivery))
+            .collect();
+        use super::super::packets::magic;
+        assert_eq!(
+            sent,
+            [
+                (magic::TOUCHPAD_FRAME, Delivery::Unreliable),
+                (magic::TOUCHPAD_FRAME, Delivery::Reliable),
+                (magic::TOUCHPAD_FRAME, Delivery::Unreliable),
+                (magic::TOUCHPAD, Delivery::Reliable),
+                (magic::TOUCHPAD, Delivery::Reliable),
+            ]
+        );
+        assert!(out.iter().all(|p| p.channel == crate::control::wire::channel::TOUCH));
     }
 
     #[test]

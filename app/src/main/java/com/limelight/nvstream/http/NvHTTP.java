@@ -589,6 +589,55 @@ public class NvHTTP {
         }
     }
 
+    /**
+     * One Foundation Sunshine ABR call (FoundationAbr): the JSON answer, null for 404 (a PC
+     * without it). Other refusals throw with the PC's error text.
+     */
+    private String foundationAbrCall(String path, org.json.JSONObject body) throws IOException {
+        RequestBody content = body == null ? null :
+                RequestBody.create(body.toString(), MediaType.get("application/json; charset=utf-8"));
+        try (HostCall call = hostCall(body == null ? "GET" : "POST", path, null, content)) {
+            ResponseBody response = call.response.body();
+            if (response.source().request(64 * 1024 + 1)) throw new IOException("ABR answer too large");
+            String text = response.string();
+            if (call.response.code() == 404) return null;
+            if (!call.response.isSuccessful()) {
+                String error;
+                try {
+                    error = new org.json.JSONObject(text).optString("error", call.response.message());
+                } catch (org.json.JSONException e) {
+                    error = call.response.message();
+                }
+                throw new IOException("/" + path + ": " + call.response.code() + " " + error);
+            }
+            return text;
+        }
+    }
+
+    /** Whether the PC runs Foundation Sunshine's bitrate controller (GET /api/abr/capabilities). */
+    public boolean supportsFoundationAbr() throws IOException {
+        String answer = foundationAbrCall("api/abr/capabilities", null);
+        return answer != null && FoundationAbr.supported(answer);
+    }
+
+    /** POST /api/abr; the initial bitrate when turning it on. */
+    public int configureFoundationAbr(org.json.JSONObject request) throws IOException {
+        String answer = foundationAbrCall("api/abr", request);
+        if (answer == null) throw new IOException("/api/abr: 404");
+        return FoundationAbr.initialBitrate(answer);
+    }
+
+    /** POST /api/abr/feedback; the answer carries newBitrate when the PC moved the stream. */
+    public org.json.JSONObject sendFoundationAbrFeedback(org.json.JSONObject feedback) throws IOException {
+        String answer = foundationAbrCall("api/abr/feedback", feedback);
+        if (answer == null) throw new IOException("/api/abr/feedback: 404");
+        try {
+            return new org.json.JSONObject(answer);
+        } catch (org.json.JSONException e) {
+            throw new IOException("Invalid ABR feedback answer", e);
+        }
+    }
+
     public NetworkPathInfo getNetworkPath() throws IOException {
         if (serverCert == null || httpsPort <= 0) throw new IOException("Route diagnosis requires a paired host");
         OkHttpClient client = httpClientShortConnectTimeout.newBuilder().callTimeout(4, TimeUnit.SECONDS)
@@ -730,6 +779,57 @@ public class NvHTTP {
             readBandwidthProbe(response, details.pyroWaveBandwidthProbeBytes, progress);
         }
         return details.pyroWaveBandwidthProbeBytes * 8000.0 / Math.max(1, System.nanoTime() - startedNs);
+    }
+
+    /** The largest Foundation Sunshine bandwidth test this client asks for (V+ Android's MAX_NETWORK_PROBE_BYTES). */
+    static final int MAX_FOUNDATION_PROBE_BYTES = 4 * 1024 * 1024;
+
+    /**
+     * Foundation Sunshine's bandwidth test (src/nvhttp/network_probe.cpp, as Moonlight V+ Android's
+     * runNetworkProbe): GET /api/network/capabilities, then /api/network/probe with a nonce the
+     * answer must echo. Between streams only: the PC answers 409 during one. Mbit/s.
+     */
+    public double probeFoundationBandwidth(IntConsumer progress) throws IOException {
+        if (serverCert == null) throw new IOException("The bandwidth test requires a paired host");
+        int bytes;
+        try (HostCall call = hostCall("GET", "api/network/capabilities", null, null)) {
+            if (call.response.code() == 404) throw new FileNotFoundException("/api/network/capabilities");
+            if (!call.response.isSuccessful()) throw new IOException("/api/network/capabilities: " + call.response.code());
+            ResponseBody body = call.response.body();
+            if (body.source().request(64 * 1024 + 1)) throw new IOException("Bandwidth test capabilities too large");
+            bytes = foundationProbeBytes(body.string());
+        }
+        String nonce = UUID.randomUUID().toString();
+        try (HostCall call = hostCall("GET", "api/network/probe", "bytes=" + bytes + "&nonce=" + nonce, null)) {
+            if (!call.response.isSuccessful()) throw new IOException("/api/network/probe: " + call.response.code());
+            if (!"1".equals(call.response.header("X-Bandwidth-Probe-Version")) ||
+                    !nonce.equals(call.response.header("X-Bandwidth-Probe-Nonce"))) {
+                throw new IOException("The bandwidth test answer is not this request's");
+            }
+            long startedNs = System.nanoTime();
+            readBandwidthProbe(call.response.body(), bytes, progress);
+            return bytes * 8000.0 / Math.max(1, System.nanoTime() - startedNs);
+        }
+    }
+
+    /** The probe size from /api/network/capabilities, at most 4 MiB, as V+ Android validates it. */
+    static int foundationProbeBytes(String capabilities) throws IOException {
+        try {
+            org.json.JSONObject root = new org.json.JSONObject(capabilities);
+            org.json.JSONObject probe = root.getJSONObject("bandwidthProbe");
+            if (root.optInt("version", 0) < 1 || probe.optInt("version", 0) < 1) {
+                throw new IOException("Unsupported bandwidth test version");
+            }
+            long min = probe.getLong("minBytes");
+            long max = probe.getLong("maxBytes");
+            if (!"/api/network/probe".equals(probe.getString("endpoint")) || min <= 0 || max < min ||
+                    min > MAX_FOUNDATION_PROBE_BYTES) {
+                throw new IOException("Unsupported bandwidth test");
+            }
+            return (int) Math.min(max, MAX_FOUNDATION_PROBE_BYTES);
+        } catch (org.json.JSONException e) {
+            throw new IOException("Invalid bandwidth test capabilities", e);
+        }
     }
 
     /** What {@link #probeLinkMbps} asks for: the host's largest bandwidth probe. */

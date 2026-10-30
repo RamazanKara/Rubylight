@@ -324,6 +324,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Claims of the host's encoder bitrate that failed in a row. Some hosts report 0 for good.
     private static final int MAX_BITRATE_CLAIM_FAILURES = 6;
     private int adaptiveBitrateClaimFailures;
+    // A Foundation Sunshine PC's own bitrate controller, on in place of this device's.
+    private com.limelight.nvstream.http.FoundationAbr foundationAbr;
     // Automatic quality switched auto bitrate on for itself; the person's own choice was off.
     private boolean qualityAutoBitrate;
     private AdaptiveQualityController adaptiveQuality;
@@ -433,6 +435,40 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         adaptiveBitrate != null && adaptiveBitrate.hasRoomBeforeQualityReduction(),
                         decoderRenderer.takeDecodeTiming(streamFps));
                 if (target != null && !applyAdaptiveQuality(target, now)) return;
+            }
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
+    // Once a second: this second's loss and frame rate for a Foundation PC's controller, and the
+    // report every three seconds (FoundationAbr).
+    private final Runnable foundationAbrTick = new Runnable() {
+        @Override
+        public void run() {
+            com.limelight.nvstream.http.FoundationAbr abr = foundationAbr;
+            if (!connected || abr == null) return;
+            float[] rates = decoderRenderer.getFrameRates();
+            abr.add(decoderRenderer.getNetworkFrameLossPercent(), rates.length > 1 ? Math.max(0, rates[1]) : 0);
+            long rttInfo = MoonBridge.getEstimatedRttInfo();
+            org.json.JSONObject feedback = abr.due(SystemClock.uptimeMillis(), rttInfo == -1 ? 0 : rttInfo >>> 32);
+            if (feedback != null) {
+                NvConnection connection = conn;
+                new Thread(() -> {
+                    org.json.JSONObject action = null;
+                    try {
+                        action = connection.sendFoundationAbrFeedback(feedback);
+                    } catch (IOException e) {
+                        LimeLog.warning("The PC's automatic bitrate report failed: " + e.getMessage());
+                    }
+                    org.json.JSONObject answer = action;
+                    runOnUiThread(() -> {
+                        if (foundationAbr != abr) return;
+                        int kbps = abr.answered(answer);
+                        if (kbps > 0) {
+                            LimeLog.info("The PC set " + kbps + " kbps: " + answer.optString("reason"));
+                            currentBitrate = kbps;
+                        }
+                    });
+                }, "FoundationAbr").start();
             }
             bitrateHandler.postDelayed(this, 1000);
         }
@@ -5077,7 +5113,64 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             setRateChangeBitrateEnabled(true);
         } else if (autoBitrateAtStart()) {
             setAdaptiveBitrateEnabled(true, false);
+        } else if (foundationAbrAtStart()) {
+            startFoundationAbr();
         }
+    }
+
+    // Automatic bitrate on a PC without Rubylight's runtime bitrate: a Foundation Sunshine PC runs
+    // its own controller (as Moonlight V+ asks it to); other PCs answer 404 and nothing changes.
+    private boolean foundationAbrAtStart() {
+        ComputerDetails details = conn.getHostDetails();
+        return connected && app != null && app.getRole() == NvApp.Role.STREAM &&
+                details.caps.family() != HostCapabilities.Family.RUBYLIGHT &&
+                !details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
+                AutoBitrateChoice.isOn(this, adaptiveBitratePreferences(), getIntent().getStringExtra(EXTRA_PC_UUID));
+    }
+
+    private void startFoundationAbr() {
+        NvConnection connection = conn;
+        int maxKbps = currentBitrate == 0 ? prefConfig.bitrate : currentBitrate;
+        new Thread(() -> {
+            try {
+                int initial = connection.startFoundationAbr(maxKbps);
+                runOnUiThread(() -> {
+                    if (initial < 0) {
+                        LimeLog.info("The PC has no automatic bitrate");
+                        return;
+                    }
+                    if (!connected || isFinishing() || conn != connection) {
+                        // The stream ended while the PC turned it on: stopFoundationAbr had nothing to stop.
+                        sendFoundationAbrStop(connection);
+                        return;
+                    }
+                    foundationAbr = new com.limelight.nvstream.http.FoundationAbr(initial, maxKbps, SystemClock.uptimeMillis());
+                    currentBitrate = foundationAbr.currentKbps();
+                    LimeLog.info("The PC's automatic bitrate is on: " + currentBitrate + " kbps, at most " + maxKbps + " kbps");
+                    bitrateHandler.postDelayed(foundationAbrTick, 1000);
+                });
+            } catch (IOException e) {
+                LimeLog.warning("The PC did not start its automatic bitrate: " + e.getMessage());
+            }
+        }, "FoundationAbr").start();
+    }
+
+    // Turns a Foundation PC's controller off at the stream's end (V+ PC's stopSunshineAbr).
+    private void stopFoundationAbr() {
+        if (foundationAbr == null) return;
+        foundationAbr = null;
+        bitrateHandler.removeCallbacks(foundationAbrTick);
+        sendFoundationAbrStop(conn);
+    }
+
+    private static void sendFoundationAbrStop(NvConnection connection) {
+        new Thread(() -> {
+            try {
+                connection.stopFoundationAbr();
+            } catch (IOException e) {
+                LimeLog.warning("The PC's automatic bitrate did not stop: " + e.getMessage());
+            }
+        }, "FoundationAbr").start();
     }
 
     // The host offered this stream 0x553C, which only the Rust engine asks for (rlRateChange).
@@ -7014,6 +7107,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
+        stopFoundationAbr();
         releaseDesktopInput();
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
         rememberMicrophoneMute();

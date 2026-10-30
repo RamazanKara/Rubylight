@@ -206,6 +206,8 @@ pub fn bind_udp(
     Ok(socket)
 }
 
+static TOS_REFUSED: AtomicBool = AtomicBool::new(false);
+
 /// [`bind_udp`], returning the receive buffer the OS granted instead of warning about it (None
 /// with `buffer_size` 0, or when it cannot be read back, which `warn` hears).
 pub fn bind_udp_sized(
@@ -222,6 +224,15 @@ pub fn bind_udp_sized(
         Some(Protocol::UDP),
     )?;
     socket.bind(&address.into())?;
+    // Before the priority: on Linux, IP_TOS resets SO_PRIORITY.
+    if let Err(e) = priority::mark_media_socket(&socket, qos, address.is_ipv6()) {
+        // Once per process: a network or OS that refuses it refuses it for every socket.
+        if !TOS_REFUSED.swap(true, Ordering::Relaxed) {
+            warn(&format!(
+                "Could not mark the {qos:?} socket's DSCP, sending unmarked: {e}"
+            ));
+        }
+    }
     if let Err(e) = priority::prioritize_socket(&socket, qos, network_priority) {
         warn(&format!("Could not set the {qos:?} socket priority: {e}"));
     }
@@ -528,6 +539,22 @@ mod tests {
         }
         assert_eq!(read_priority(&bind(Qos::BestEffort, false)), 0);
         assert_eq!(read_priority(&bind(Qos::BestEffort, true)), 6);
+    }
+
+    // Moonlight V+'s DSCP marking, and the priority it must not reset (IP_TOS does on Linux).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn media_sockets_are_marked_and_keep_their_priority() {
+        use crate::priority::tests::{read_option, read_priority};
+        let bind = |qos| bind_udp((Ipv4Addr::LOCALHOST, 0).into(), 0, qos, false, |_| {}).unwrap();
+        let audio = bind(Qos::Audio);
+        assert_eq!(read_option(&audio, libc::IPPROTO_IP, libc::IP_TOS), 0xB8);
+        assert_eq!(read_priority(&audio), 6);
+        let video = bind(Qos::Video);
+        assert_eq!(read_option(&video, libc::IPPROTO_IP, libc::IP_TOS), 0x88);
+        assert_eq!(read_priority(&video), 5);
+        let plain = bind(Qos::BestEffort);
+        assert_eq!(read_option(&plain, libc::IPPROTO_IP, libc::IP_TOS), 0);
     }
 
     #[test]

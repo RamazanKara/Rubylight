@@ -1528,7 +1528,7 @@ fn a_game_steam_lists_valve_anti_cheat_for_is_refused() {
             .path()
             .join(r"steamapps\common\Black Flag\AC4BFSP.exe");
         for app in [&link, &direct] {
-            let refusal = steam_refusal(app, &exe, &roots);
+            let refusal = steam_refusal(app, std::slice::from_ref(&exe), &roots);
             assert_eq!(refusal.is_some(), listed, "{}: {refusal:?}", app.cmd);
             if let Some(reason) = refusal {
                 assert!(
@@ -1538,13 +1538,80 @@ fn a_game_steam_lists_valve_anti_cheat_for_is_refused() {
             }
         }
         let plain = steam.path().join(r"Games\Game.exe");
-        assert_eq!(steam_refusal(&direct, &plain, &roots), None);
+        assert_eq!(steam_refusal(&direct, &[plain], &roots), None);
     }
-    let reason = steam_refusal(&link, &vac.path().join("Game.exe"), &[]).unwrap();
+    let reason = steam_refusal(&link, &[vac.path().join("Game.exe")], &[]).unwrap();
     assert!(
         reason.starts_with("Rubylight can't tell whether the game uses Valve Anti-Cheat"),
         "{reason}"
     );
+}
+
+/// A Steam game's folder moved elsewhere and linked back into the library
+/// (`mklink /J`) is still Steam's: where the link leads is a plain folder,
+/// but the paths that reached it are asked too (the chosen program, the
+/// app's command, its install), for an install and for a launch.
+#[test]
+fn a_games_folder_linked_back_into_steams_library_is_still_asked_about() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    for (flag, refused) in [("1", true), ("0", false)] {
+        let steam = steam_root(flag);
+        let roots = vec![steam.path().to_path_buf()];
+        *h.neural.steam_roots.lock().unwrap() = Some(roots.clone());
+        let moved = tempdir();
+        std::fs::write(moved.path().join("AC4BFSP.exe"), b"MZ game").unwrap();
+        let linked = steam.path().join(r"steamapps\common\Black Flag");
+        std::fs::remove_dir(&linked).unwrap();
+        junction(&linked, moved.path());
+        let through = linked.join("AC4BFSP.exe");
+        let followed = folder::real(moved.path()).unwrap().join("AC4BFSP.exe");
+
+        let chosen = app_named("Black Flag", "flag");
+        // Before the fix only where the link leads was asked.
+        assert_eq!(
+            steam_refusal(&chosen, std::slice::from_ref(&followed), &roots),
+            None
+        );
+        let mut command = app_named("Black Flag", "flag");
+        command.cmd = format!("\"{}\"", through.display());
+        let mut installed = app_named("Black Flag", "flag");
+        installed
+            .extra
+            .insert("launcher-install-dir".into(), json!(linked));
+        for (app, requested, launch) in [
+            (&chosen, Some(through.clone()), false),
+            // The user chose the program where the link leads.
+            (&command, Some(followed.clone()), true),
+            (&installed, None, true),
+        ] {
+            let response = find_game(h, app, requested, super::install(app)).unwrap();
+            match (&response, refused) {
+                (Response::Refused { reason }, true) => {
+                    assert!(
+                        reason.starts_with("Steam lists Valve Anti-Cheat"),
+                        "{reason}"
+                    );
+                }
+                (Response::Found { exe }, false) => assert_eq!(*exe, followed),
+                _ => panic!("{}: {response:?}", app.cmd),
+            }
+            if launch {
+                let mut on = app.clone();
+                on.extra.insert(KEY.into(), json!({"exe": followed}));
+                let error = before_launch(h, &on).err().map(|e| format!("{e:#}"));
+                assert_eq!(
+                    error
+                        .as_deref()
+                        .is_some_and(|e| e.contains("Valve Anti-Cheat")),
+                    refused,
+                    "{}: {error:?}",
+                    app.cmd
+                );
+            }
+        }
+        std::fs::remove_dir(&linked).unwrap();
+    }
 }
 
 /// A launcher is never the game: an app whose command starts Steam or

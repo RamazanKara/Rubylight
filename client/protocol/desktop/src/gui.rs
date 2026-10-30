@@ -20,6 +20,8 @@ pub struct Gui {
     cursor: Option<egui::CursorIcon>,
     cursors: HashMap<i32, *mut SDL_Cursor>,
     focused: bool,
+    /// Screen readers, once attached to the window (a11y.rs).
+    a11y: Option<crate::a11y::Accessibility>,
 }
 
 /// The system clipboard's text, or None when it holds none.
@@ -165,7 +167,14 @@ impl Gui {
             cursor: None,
             cursors: HashMap::new(),
             focused: true,
+            a11y: None,
         }
+    }
+
+    /// Gives screen readers the launcher and the stream menu. Call before the window is shown.
+    pub fn attach_accessibility(&mut self, window: *mut SDL_Window, wake: crate::hosts::Waker) -> Result<(), String> {
+        self.a11y = Some(crate::a11y::Accessibility::attach(window, wake)?);
+        Ok(())
     }
 
     pub fn push(&mut self, event: Event) {
@@ -246,10 +255,12 @@ impl Gui {
                 }
                 SDL_EVENT_WINDOW_FOCUS_GAINED => {
                     self.focused = true;
+                    if let Some(a11y) = &mut self.a11y { a11y.focus(true); }
                     self.events.push(Event::WindowFocused(true));
                 }
                 SDL_EVENT_WINDOW_FOCUS_LOST => {
                     self.focused = false;
+                    if let Some(a11y) = &mut self.a11y { a11y.focus(false); }
                     self.events.push(Event::WindowFocused(false));
                 }
                 _ => return false,
@@ -271,6 +282,9 @@ impl Gui {
         unsafe { SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h) };
         // The UI zoom multiplies the display scale; egui lays out in points of the product.
         let ppp = scale.pixels_per_point * self.ctx.zoom_factor();
+        if let Some(a11y) = &self.a11y {
+            a11y.begin_pass(&self.ctx, &mut self.events);
+        }
         let mut input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
                 Pos2::ZERO,
@@ -297,8 +311,11 @@ impl Gui {
         self.ctx.run_ui(input, ui)
     }
 
-    /// Applies platform requests: text input, clipboard, cursor.
+    /// Applies platform requests: text input, clipboard, cursor, and the screen reader's tree.
     pub fn platform(&mut self, window: *mut SDL_Window, output: &egui::PlatformOutput) {
+        if let (Some(a11y), Some(update)) = (&mut self.a11y, &output.accesskit_update) {
+            a11y.update(window, update);
+        }
         let wants_text = output.ime.is_some();
         // SDL's own state, not a copy: a stream's text field starts and stops text input too.
         // SAFETY: a live window.
@@ -458,6 +475,8 @@ impl Gui {
 
     /// Drops every texture, before the renderer goes away.
     pub fn destroy(&mut self) {
+        // The subclassing adapter comes off the window before the window goes.
+        self.a11y = None;
         for (_, texture) in self.textures.drain() {
             // SAFETY: textures we created.
             unsafe { SDL_DestroyTexture(texture) };

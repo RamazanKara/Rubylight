@@ -224,11 +224,16 @@ fn edit(ui: &mut egui::Ui, page: &Page, state: &State, row: &Row, pending: bool)
     match row.kind {
         // Right to left: the last widget added sits leftmost.
         Kind::Integer => {
-            if ui.add_enabled(enabled, egui::Button::new("+")).clicked() {
+            // Screen readers would say only "plus" and "minus": these name the setting.
+            let raise = ui.add_enabled(enabled, egui::Button::new("+"));
+            raise.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, trf("Raise {}", &[&row.title()])));
+            if raise.clicked() {
                 send(row.step(1));
             }
             ui.label(row.value_text());
-            if ui.add_enabled(enabled, egui::Button::new("−")).clicked() {
+            let lower = ui.add_enabled(enabled, egui::Button::new("−"));
+            lower.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, trf("Lower {}", &[&row.title()])));
+            if lower.clicked() {
                 send(row.step(-1));
             }
         }

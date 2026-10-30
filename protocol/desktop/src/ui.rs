@@ -95,6 +95,12 @@ pub enum Command {
     OpenFiles(u64),
     /// Show the system's file dialog for files to send from the open Files page.
     ChooseFiles,
+    /// The PIN screen let a start through (or unlocked the app): the start that waited goes on.
+    PinPassed,
+    /// The PIN screen for a stream start was cancelled: the start that waited is dropped.
+    PinCancelled,
+    /// Close Nightjar (the app lock's way out).
+    Quit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -348,6 +354,8 @@ pub struct Launcher {
     pub files: files::Files,
     /// A short notice over the launcher, such as the game quitting after leaving its stream.
     toast: Option<(String, std::time::Instant)>,
+    /// The PIN lock; None in tests that do not look at it.
+    pub pin: Option<crate::pin_ui::PinLock>,
 }
 
 /// What the launcher shows, borrowed from the app each frame.
@@ -367,7 +375,7 @@ const POSTER_W: f32 = 168.0;
 const POSTER_H: f32 = 224.0;
 const CONTENT_MAX: f32 = 1180.0;
 
-fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
+pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
     if response.has_focus() {
         ui.painter().rect_stroke(
             rect.expand(3.0),
@@ -393,6 +401,8 @@ fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
         *on = !*on;
         response.mark_changed();
     }
+    // A switch with its state for screen readers; the row names it (name_for_readers).
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Switch, ui.is_enabled(), *on, ""));
     let t = ui.ctx().animate_bool_responsive(response.id, *on);
     let enabled = ui.is_enabled();
     let track: Color32 = if *on { *MOON } else { *SURFACE_HIGHEST };
@@ -405,7 +415,7 @@ fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     response
 }
 
-fn primary_button(ui: &mut Ui, text: &str) -> Response {
+pub(crate) fn primary_button(ui: &mut Ui, text: &str) -> Response {
     let button = egui::Button::new(RichText::new(tr(text)).color(ON_MOON).font(semibold(text::LABEL)))
         .fill(*MOON)
         .corner_radius(CornerRadius::same(radius::CONTROL))
@@ -415,7 +425,7 @@ fn primary_button(ui: &mut Ui, text: &str) -> Response {
     response
 }
 
-fn quiet_button(ui: &mut Ui, text: &str) -> Response {
+pub(crate) fn quiet_button(ui: &mut Ui, text: &str) -> Response {
     let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::LABEL)))
         .fill(*SURFACE_HIGHEST)
         .corner_radius(CornerRadius::same(radius::CONTROL))
@@ -512,6 +522,7 @@ impl Launcher {
             coop: Default::default(),
             files: Default::default(),
             toast: None,
+            pin: None,
         }
     }
 
@@ -783,6 +794,13 @@ impl Launcher {
             commands.push(Command::SaveSettings);
         }
         self.sync_look(&ctx);
+        // The PIN screen and the PIN lock page cover the launcher while they are up.
+        if let Some(pin) = &mut self.pin {
+            let pcs: Vec<(String, String)> = view.hosts.list.iter().map(|h| (h.record.unique_id.clone(), h.display_name().to_owned())).collect();
+            if pin.ui(ui, &pcs, &mut commands) {
+                return commands;
+            }
+        }
         // A check whose page was left is cancelled here. Settings opened over the page does not
         // leave it: Back returns to the page and its check.
         let page = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {
@@ -2672,6 +2690,14 @@ impl Launcher {
                         toggle(ui, &mut s.input_only_any_host)
                     });
                 }
+                row(ui, "PIN lock", "Ask for a PIN to open Nightjar or to start a stream.", |ui| {
+                    let set = self.pin.as_ref().is_some_and(|p| p.store.has_pin());
+                    let button = quiet_button(ui, if set { en("Change PIN lock") } else { en("Set up") });
+                    if button.clicked() {
+                        if let Some(pin) = self.pin.as_mut() { pin.open_settings(); }
+                    }
+                    button
+                });
                 row(ui, "Language", "The language of the launcher and the stream menu. System default follows the operating system.", |ui| {
                     egui::ComboBox::from_id_salt("language")
                         .selected_text(match s.language {
@@ -3930,7 +3956,7 @@ const MAIN_KEYS: [(&str, &[&str]); 7] = [
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
-const ANDROID_KEYS: [(&str, &str); 34] = [
+const ANDROID_KEYS: [(&str, &str); 35] = [
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
@@ -3947,6 +3973,7 @@ const ANDROID_KEYS: [(&str, &str); 34] = [
     ("input_only_any_host", "checkbox_input_only_any_host"),
     ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("check_updates", "checkbox_check_updates"),
     ("frame_pacing", "frame_pacing"), ("mic_echo_cancel", "list_mic_echo_cancel"),
+    ("pin_lock", "pin_lock"),
 ];
 
 /// Main rows Android has no match for.
@@ -4043,6 +4070,7 @@ fn setting_row(
                 *settings = overrides.apply(inherited);
             }
             let value = ui.add_enabled_ui(own, |ui| control(ui, settings)).inner;
+            name_for_readers(ui, &value, label, description);
             if own { overrides.capture(settings, keys); }
             response.union(value)
         }).inner
@@ -4066,12 +4094,27 @@ fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui
                     ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    out = Some(control(ui));
+                    let response = control(ui);
+                    name_for_readers(ui, &response, label, description);
+                    out = Some(response);
                 });
             });
         });
     ui.add_space(6.0);
     out.expect("control drawn")
+}
+
+/// A row's switch, list or slider has no text of its own: a screen reader says the row's label for
+/// it, and its description, as Android's preferences read their title and summary.
+fn name_for_readers(ui: &Ui, response: &Response, label: &str, description: &str) {
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        if node.role() != egui::Role::Label && node.label().is_none_or(|l| l.trim().is_empty()) && node.labelled_by().is_empty() {
+            node.set_label(tr(label));
+        }
+        if node.description().is_none() {
+            node.set_description(tr(description));
+        }
+    });
 }
 
 /// A PC's card. `line` replaces the address and GPU line (Home shows what it knows of the games).
@@ -4085,6 +4128,7 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     };
     painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
     let (status, color, ring) = host_status(host);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {status}", host.display_name())));
     // The status dot: full and green when the PC is up and paired, a ring otherwise. Amber stays the
     // action's colour, so it never stands for a state.
     let dot = Pos2::new(rect.left() + 26.0, rect.top() + 30.0);
@@ -4217,6 +4261,7 @@ fn favourite_menu(
 
 fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H + 34.0), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, if running { trf("{}, running", &[&name]) } else { name.to_owned() }));
     let image = Rect::from_min_size(rect.min, vec2(POSTER_W, POSTER_H));
     paint_cover(ui, image, name, art, running);
     let painter = ui.painter_at(rect.expand(6.0));
@@ -4230,6 +4275,7 @@ fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response
 /// A game to carry on with: title, and where it runs.
 fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, 84.0), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{title}, {line}")));
     let painter = ui.painter_at(rect.expand(6.0));
     let fill = if response.hovered() || response.has_focus() { SURFACE_HIGH } else { SURFACE };
     painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
@@ -4431,6 +4477,8 @@ mod tests {
         shapes: Vec<egui::epaint::ClippedShape>,
         /// The display's scale (1 everywhere but in screenshots).
         native_ppp: f32,
+        /// The last frame's AccessKit tree, once a test turned AccessKit on.
+        access: Option<egui::accesskit::TreeUpdate>,
     }
 
     impl Drop for Frames {
@@ -4476,6 +4524,7 @@ mod tests {
             let output = self.ctx.run_ui(input, |ui| {
                 commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None, waking: self.waking.clone() });
             });
+            self.access = output.platform_output.accesskit_update.clone();
             // Only screenshots read the textures; everyone else lets them go.
             if self.native_ppp == 1.0 {
                 let mut delta = output.textures_delta;
@@ -4507,6 +4556,7 @@ mod tests {
                 textures: Default::default(),
                 shapes: Vec::new(),
                 native_ppp: 1.0,
+                access: None,
             }
         }
 
@@ -4726,6 +4776,67 @@ mod tests {
         let upper: Vec<String> = SETTINGS_SECTIONS.iter().map(|s| s.to_uppercase()).collect();
         let headings: Vec<&String> = f.drawn.iter().filter(|t| upper.contains(t)).collect();
         assert_eq!(headings, upper.iter().collect::<Vec<_>>(), "and the page has them in the same order");
+    }
+
+    /// The widgets a screen reader can press or change that have no name to say, with their role and place.
+    fn unnamed(f: &Frames) -> Vec<String> {
+        use egui::accesskit::{Action, Role};
+        let tree = f.access.as_ref().expect("AccessKit is on");
+        let pressable = |n: &egui::accesskit::Node| {
+            n.supports_action(Action::Click) || n.supports_action(Action::Focus)
+                || matches!(n.role(), Role::Button | Role::CheckBox | Role::Switch | Role::ComboBox | Role::Slider | Role::TextInput | Role::SpinButton)
+        };
+        tree.nodes.iter()
+            // A label is named by its text, its value.
+            .filter(|(_, n)| pressable(n) && n.role() != Role::Label)
+            .filter(|(_, n)| n.label().is_none_or(|l| l.trim().is_empty()) && n.labelled_by().is_empty())
+            .map(|(_, n)| format!("{:?} at {:?}", n.role(), n.bounds()))
+            .collect()
+    }
+
+    /// Every button, switch, list and field on the main screens has a name for a screen reader.
+    #[test]
+    fn screen_readers_hear_a_name_for_everything_on_the_main_screens() {
+        let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 7)), vec![game(7), game(9)]);
+        f.ctx.enable_accesskit();
+        f.size = vec2(1280.0, 12000.0);
+        let id = f.hosts.list[0].id;
+        let mut screens = vec![("PCs", Screen::Hosts), ("Home", Screen::Home), ("library", Screen::Apps(id)), ("details", Screen::HostDetails(id)), ("PC settings", Screen::HostSettings(id))];
+        screens.push(("settings", Screen::Settings));
+        let mut missing = Vec::new();
+        for (name, screen) in screens {
+            f.l.go(screen);
+            for section in SETTINGS_SECTIONS {
+                f.l.unfolded.insert(section);
+            }
+            f.settle();
+            assert!(f.access.as_ref().is_some_and(|t| t.nodes.len() > 5), "{name}: a tree came out");
+            missing.extend(unnamed(&f).into_iter().map(|w| format!("{name}: {w}")));
+        }
+        f.l.go(Screen::Hosts);
+        f.l.dialog = Dialog::HostOptions { host: id };
+        f.settle();
+        missing.extend(unnamed(&f).into_iter().map(|w| format!("options: {w}")));
+        assert_eq!(missing, Vec::<String>::new(), "unnamed widgets");
+        // The PIN screen: every key, Delete, Confirm and the way out.
+        f.l.dialog = Dialog::None;
+        let dir = std::env::temp_dir().join(format!("nightjar-ui-pin-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::pin_lock::PinStore::new(&dir, Arc::new(crate::pin_lock::SystemClock));
+        store.set_pin(b"1234").unwrap();
+        store.set_mode(crate::pin_lock::Mode::App);
+        f.l.pin = Some(crate::pin_ui::PinLock::with_store(store));
+        f.settle();
+        assert!(f.l.pin.as_ref().unwrap().app_locked());
+        assert_eq!(unnamed(&f), Vec::<String>::new(), "the PIN screen");
+        // A label's name is its value.
+        let labels: Vec<String> = f.access.as_ref().unwrap().nodes.iter().filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned)).collect();
+        for wanted in ["1", "0", "Delete", "Confirm", "Close Nightjar", "0 of 4 digits entered"] {
+            assert!(labels.iter().any(|l| l == wanted), "{wanted} in {labels:?}");
+        }
+        assert!(!labels.iter().any(|l| l.contains("Desk")), "the lock screen hides the PCs from the reader too");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

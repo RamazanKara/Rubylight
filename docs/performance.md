@@ -1,6 +1,6 @@
 # Performance and validation
 
-[Docs](README.md) · [How compute works](architecture.md) · [Troubleshooting](troubleshooting.md) · [Full measurement record](../rust/PERFORMANCE.md)
+[Documentation](README.md) · [How compute works](architecture.md) · [Troubleshooting](troubleshooting.md) · [Full measurement record](../rust/PERFORMANCE.md)
 
 Rubylight's performance work targets fresh pictures and low picture age, especially when the GPU is busy. Everything here was measured on an RX 7900 XT unless a row names another device. Each section is dated and names the build it measured; later builds can differ. The [3.0 results](#30-results) come first, then the earlier full-stream and component tests that show where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) keeps its original builds and results.
 
@@ -12,8 +12,8 @@ Every row links to the method and the raw numbers in the [full record](../rust/P
 
 | What | Result | Record |
 | --- | --- | --- |
-| Frame timing record, 1080p60, loopback | Median capture to client present on 3.0.0-rc.2: AV1 5.89 ms, H.264 6.92 ms, HEVC 8.37 ms, PyroWave 11.14 ms (with the probe fix). Decode medians 3.17, 3.72, 5.12 and 1.22 ms. | [rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [baselines](../rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines) |
-| VRR-aware capture | A 120 Hz game in a 60 fps stream: median age at the encoder 4.68 to 0.25 ms, present to sent 7.27 to 3.50 ms on 3.0.0-rc.2, shown frame rate unchanged. Since rc.3 the age p95 is 2.3 ms (3.71 before). | [rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [pictures](../rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures), [VRR](../rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr) |
+| Frame timing record, 1080p60, loopback | Median capture to client present, measured on 3.0.0-rc.2: AV1 5.89 ms, H.264 6.92 ms, HEVC 8.37 ms, PyroWave 11.14 ms (with the probe fix). Decode medians 3.17, 3.72, 5.12 and 1.22 ms. | [rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [baselines](../rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines) |
+| VRR-aware capture | A 120 Hz game in a 60 fps stream: median age at the encoder 4.68 to 0.25 ms, present to sent 7.27 to 3.50 ms (3.0.0-rc.2), shown frame rate unchanged. Timing the game's own frames brought the age p95 to 2.3 ms (3.71 before). | [rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [pictures](../rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures), [VRR](../rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr) |
 | Link-rate adaptation | 75 Mbps asked of a 50 Mbit/s link: under 2 % of frames lost after the start-up (6.7 % before), the first cut within 1.6 s of the latch, and no change on an emulated 150 Mbit/s Wi-Fi link with 0.5 % loss. | [Link-rate fix](../rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix) |
 | Stream presets | Lowest latency makes the first keyframe 29 % smaller on HEVC and 38 to 40 % smaller on H.264. The median end to end time of the three presets was within 0.15 ms. | [Presets](../rust/PERFORMANCE.md#october-23-stream-presets-b3) |
 | Slice delivery (off by default) | 4K60 HEVC at 80 Mbps: the picture arrives 1.3 to 1.5 ms sooner on loopback and 1.2 to 1.4 ms sooner over Wi-Fi 6E to a laptop running Nightjar desktop. Android phone: no measurable gain; the emulated Wi-Fi run missed the 1 ms gate. | [Slice delivery](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
@@ -23,7 +23,7 @@ Every row links to the method and the raw numbers in the [full record](../rust/P
 
 ### VRR capture age
 
-With variable refresh, a game that runs faster than the stream used to reach the encoder up to a game frame old. The pacer now waits for the game's next frame when it is at least 2 ms away. The runs below used HEVC, 2560x720, a 60 fps stream, the VRR hint on, and a scripted game at three rates, A (old behaviour) against B (default), ABBA, two runs each.
+With variable refresh, a game that runs faster than the stream can reach the encoder up to a game frame old. The pacer therefore waits for the game's next frame when it is at least 2 ms away. The runs below used HEVC, 2560x720, a 60 fps stream, the VRR hint on, and a scripted game at three rates, A (without the wait) against B (default), ABBA, two runs each.
 
 | Game | Age at the encoder, median A / B | Present to sent, median A / B |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ With variable refresh, a game that runs faster than the stream used to reach the
 
 On 3.0.0-rc.2 the 120 Hz case measured a median age of 0.25 ms and present to sent of 3.50 ms ([rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)).
 
-Since 3.0.0-rc.3 the pacer times the game's own frames instead of each capture: Windows can capture each frame of a 120 Hz game two or three times under VRR, which made some claims stop waiting just before the game's next frame. The 120 Hz game's age p95 is now 2.3 ms (3.71 on October 24) and present to sent p95 4.7 ms (6.39), with the median unchanged ([pictures](../rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures)).
+The pacer times the game's own frames rather than each capture: under VRR Windows can capture each frame of a 120 Hz game two or three times, which made some claims stop waiting just before the game's next frame. With that change (3.0.0-rc.3) the 120 Hz game's age p95 is 2.3 ms (3.71 on October 24) and present to sent p95 4.7 ms (6.39), with the median unchanged ([pictures](../rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures)).
 
 ### Soak and correctness
 
@@ -47,7 +47,7 @@ The 2.5.0 work targets smoother recovery, more accurate downscaling and an optio
 
 - **Recovery cadence:** four native-resolution HEVC runs reduced the mean gap after a keyframe from **8.44 to 5.30 ms**. All **6,941 frames decoded**, and every recovery follow-up carried a fresh source timestamp. Overall picture age did not consistently improve. This is a shorter recovery gap, with the same pacing, FEC and encoder settings.
 - **Downscaling:** an independent area reference checks thin moving features, fractional ratios, aspect bars and SDR/HDR across three GPU conversion paths. Native resolution, enlargement and aligned 2× output preserve their pixels. See the detailed record for accuracy, encoded output and GPU costs.
-- **Fence transport:** host-side claim duration fell from about **32 to 1.8 µs** in a two-device component fixture. Completed conversion improved about **0.06 ms** on average, with one HDR pair slower. The [installed-driver follow-up](../rust/PERFORMANCE.md#october-17-installed-driver-fence-comparison) found mixed streaming results and fewer fresh pictures in some loaded fence runs, so the option stayed off by default in 2.5. 3.0 makes the fence ring the default after the [loaded comparison of October 22](../rust/PERFORMANCE.md#october-22-fence-ring-under-gpu-load).
+- **Fence transport:** host-side claim duration fell from about **32 to 1.8 µs** in a two-device component fixture. Completed conversion improved about **0.06 ms** on average, with one HDR pair slower. The [installed-driver follow-up](../rust/PERFORMANCE.md#october-17-installed-driver-fence-comparison) found mixed streaming results and fewer fresh pictures in some loaded fence runs, so the option stayed off by default in 2.5. The fence ring became the default in 3.0 after the [loaded comparison of October 22](../rust/PERFORMANCE.md#october-22-fence-ring-under-gpu-load).
 
 The [full settings, results and limitations](../rust/PERFORMANCE.md#october-17-focused-250-comparisons) distinguish recovery timing, scaler accuracy and component overhead. These measurements do not establish a market-wide ranking or input-to-display latency.
 
@@ -61,7 +61,7 @@ The [full settings, results and limitations](../rust/PERFORMANCE.md#october-17-f
 | **Fresh pictures per second** | Distinct pictures received, counted from changing picture IDs. Repeated frames do not increase this count. |
 | **Encoder time** | Read the probe's timer boundaries. In the native AMF stream, the timer starts before capacity checking and GPU conversion submission, and ends when `QueryOutput` returns the matching encoded frame. Pending capture-copy and conversion dependencies are included; this is not hardware compression time alone. |
 | **Present to sent** (console; `present_to_sent_ms` in the `stream timings` log line) | New pictures, from the capture's present stamp to the last packet handed to the socket, with the stages in between. It includes the capture, the wait for the claim and the send that Moonlight's host latency leaves out. Static repeats have no present and are not counted. See [Comparing host latency between hosts](#comparing-host-latency-between-hosts). |
-| **`host_mean_ms`, `host_p95_ms`, `host_p99_ms`, `host_max_ms`** | The duration reported in Moonlight's frame header; the session API calls these `host_processing_*`. Since 2.4.8, it runs from the capture/encode loop tick that produces the output to entry into packetization. Output polled asynchronously uses that poll's tick, not the original frame's submission. Packetizer backlog is included; prepared-packet queueing, packet pacing and sending are excluded. The wire value truncates to 0.1 ms and saturates at 6553.5 ms. The API keeps microsecond precision. In 2.4.7 it instead ran from the original claim to the combined packetizer/sender dequeue, including its queue. |
+| **`host_mean_ms`, `host_p95_ms`, `host_p99_ms`, `host_max_ms`** | The duration reported in Moonlight's frame header; the session API calls these `host_processing_*`. It runs from the capture/encode loop tick that produces the output to entry into packetization. Output polled asynchronously uses that poll's tick, not the original frame's submission. Packetizer backlog is included; prepared-packet queueing, packet pacing and sending are excluded. The wire value truncates to 0.1 ms and saturates at 6553.5 ms. The API keeps microsecond precision. Measurements from 2.4.7 and earlier used a different span: from the original claim to the combined packetizer/sender dequeue, including its queue. |
 | **Send queue** (`stages.send_queue`; `stage_send_queue_ms` in the log) | From completed packetization through the first socket send. It includes the prepared packets' wait for the sender and its initial pacing wait. Conventional threaded output reports this separately; inline output has no separate send queue. **Present to sent** still includes all of it. |
 
 None of these timings measures button press to visible response on a client display. Compare hosts within the same fixture, and read picture age alongside fresh-picture throughput.
@@ -116,7 +116,7 @@ Rubylight 2.4.0, installed, streamed the Desktop app on a per-device virtual dis
 
 ## October 12: 2.2.9 measurements
 
-Native virtual-HDR capture passed **28/28 stream and timing checks** across DDX and WGC, plus **4/4 HDR pixel checks**. The table below gives the current **DDX** results: arithmetic means of two runs' statistics, measured from a timestamped rendered picture through local hardware decoding. It excludes remote network transit and display time.
+Native virtual-HDR capture passed **28/28 stream and timing checks** across DDX and WGC, plus **4/4 HDR pixel checks**. The table below gives the **DDX** results: arithmetic means of two runs' statistics, measured from a timestamped rendered picture through local hardware decoding. It excludes remote network transit and display time.
 
 | Rubylight 2.2.9, October 12 | Picture age mean / p95 / p99 (ms) | Fresh pictures/s | Host mean (ms) |
 | --- | ---: | ---: | ---: |
@@ -130,7 +130,7 @@ Native virtual-HDR capture passed **28/28 stream and timing checks** across DDX 
 
 ![Rubylight 2.2.9 October 12 and unchanged Vibepollo 2.0 October 8 mean and p95 picture age under GPU load, with different physical desktop conditions.](media/gaming-latency.svg)
 
-**Different dates and physical desktop conditions.** The RX 7900 XT and 120 Hz virtual HDR source are retained; the physical desktop is now **5120×1440 SDR at 240 Hz**, versus **2560×1440 at 120 Hz** on October 8. The loaded native rows request 80 Mbps and use the 60 fps-capped synthetic GPU load. Current Rubylight and historical competitor bars do not establish a matched improvement. The original matched October 8 tables below remain unchanged. [Native runs, source validation and capture scope →](../rust/PERFORMANCE_WORK.md#native-virtual-hdr-headline-streams-october-12)
+**Different dates and physical desktop conditions.** The RX 7900 XT and 120 Hz virtual HDR source are retained; the physical desktop in these runs is **5120×1440 SDR at 240 Hz**, versus **2560×1440 at 120 Hz** on October 8. The loaded native rows request 80 Mbps and use the 60 fps-capped synthetic GPU load. Bars from different days do not establish a matched improvement. The original matched October 8 tables below remain unchanged. [Native runs, source validation and capture scope →](../rust/PERFORMANCE_WORK.md#native-virtual-hdr-headline-streams-october-12)
 
 The AV1 host p95 was **8.4 ms in both morning repeats**. A [25-run follow-up](../rust/PERFORMANCE_WORK.md#av1-host-processing-p95-diagnosis-october-12) traced the slow frames to unfinished DWM graphics work behind DDX's producer-ready GPU fence, before compute copying and compression. Same-condition released-binary controls reproduced a slow tail on rc.24 as well as 2.2.9, and changing the load cadence shifted the slow-frame phase with it. An [earlier-signal experiment](../rust/PERFORMANCE_WORK.md#dwm-dependency-and-early-signal-experiment) and a [post-publication frame hold](../rust/PERFORMANCE_WORK.md#ddx-post-publication-hold-experiment) did not consistently improve picture age or shorten the slow producer waits, so neither was adopted. The original measurements above remain intact; the follow-up identifies a capture-dependency delay rather than a demonstrated persistent release regression.
 
@@ -152,7 +152,7 @@ Official **Moonlight 6.2.0** completed two **165-second 1080p60 HEVC SDR session
 
 ## Next to Vibepollo 2.0
 
-**In the October 8, 2026 rc.24 comparison, p95 picture age under game-like GPU load was 43% lower in HEVC and 48% lower in AV1.** Average picture age fell by 7.4 ms for both codecs. These matched historical results are separate from the current chart above.
+**In the October 8, 2026 rc.24 comparison, p95 picture age under game-like GPU load was 43% lower in HEVC and 48% lower in AV1.** Average picture age fell by 7.4 ms for both codecs. These matched results are separate from the October 12 chart above.
 
 ### Test setup
 
@@ -262,7 +262,7 @@ Every client's input passes through one host thread. Recent changes give virtual
 | Mouse move behind a controller update, CPU-bound load on every core, worst case | 287 ms | **2.0 ms** |
 | Input packet to the input thread beside time-critical threads on every core, median | 3.5 ms | **17 µs** |
 
-Smaller changes take a few tens of microseconds off every input packet (the network acknowledgement now goes out after the input is applied) and remove 2–18 ms pauses at a stream's first input and while its display is created or renamed.
+Smaller changes take a few tens of microseconds off every input packet (the network acknowledgement goes out after the input is applied) and remove 2–18 ms pauses at a stream's first input and while its display is created or renamed.
 
 [Method and all runs →](../rust/PERFORMANCE.md#october-7-input-on-the-control-thread)
 

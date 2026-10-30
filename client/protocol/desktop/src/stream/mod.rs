@@ -3902,7 +3902,7 @@ impl Streaming {
                     match action {
                         Some(Action::Quit) => self.exit = Some(Exit::User),
                         Some(Action::Menu) => self.toggle_menu(window, pads),
-                        Some(Action::Mouse(active)) => self.show_toast(if active { tr("Controller mouse enabled. A/B click; D-pad scrolls. Hold Start to return to gamepad.") } else { tr("Controller mouse disabled.") }),
+                        Some(Action::Mouse(active)) => self.show_toast(menu_extras::mouse_toast(pads, active, true)),
                         None => {}
                     }
                 }

@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Pair each Android installation with your PC's streaming host before opening its library. The host recognizes the installation's certificate and device identity.
+Pair each Nightjar installation with your PC's streaming host before opening its library. The host recognizes the installation by its client certificate. The steps are the same on Android and on Nightjar for Windows and Linux unless a step names one of them.
 
 ## Find the PC
 
@@ -13,18 +13,18 @@ On guest networks, VLANs or VPNs, add the PC manually by its address. Manual ent
 ## PIN flow
 
 1. Select the unpaired PC in Nightjar.
-2. Keep the displayed PIN dialog open on Android.
+2. Keep the PIN dialog open in Nightjar.
 3. Enter that PIN in your host's settings or web UI on the PC.
-4. Wait for Android to report success, then open the PC's library.
+4. Wait for Nightjar to report success, then open the PC's library.
 5. If your host has per-device permissions, enable this device and set its permissions there.
 
 Cancel a pairing attempt before starting another. If a PIN is rejected, retry with a fresh PIN and finish or cancel any pending request in the host's web UI. A host that refuses pairing during an active game must finish that session first.
 
 ## Host-generated one-time PIN
 
-This needs a host that supports one-time PINs (e.g. Apollo or Rubylight). Create a one-time PIN and passphrase in the host's settings or web UI. On Android, long-press the PC and choose **Pair with one-time PIN**. Enter the four-digit PIN and its passphrase, then pair. The PIN expires after three minutes; the passphrase must contain at least four characters.
+This needs a host that supports one-time PINs, such as Apollo, Vibepollo or Rubylight. Create a one-time PIN and passphrase in the host's settings or web UI. On Android, long-press the PC and choose **Pair with one-time PIN**; on the desktop, use the PC's options. Enter the four-digit PIN and its passphrase, then pair. The PIN expires after three minutes; the passphrase must contain at least four characters.
 
-This reverses the ordinary flow: you enter the host's PIN on Android. Generate a new one after expiry.
+This reverses the ordinary flow: you enter the host's PIN in Nightjar. Generate a new one after expiry.
 
 ## Pair with a QR code
 
@@ -52,7 +52,7 @@ The PIN and passphrase pair like a host-generated one-time PIN. The link is a se
 
 ## Per-device permissions
 
-Hosts with per-device permissions (e.g. Apollo or Rubylight) set them in the host's settings or web UI, separately for each paired installation. Android shows the permissions reported by the host and checks them before protected actions. The host stays in charge of every permission. Hosts that do not report permissions keep their usual behavior.
+Hosts with per-device permissions, such as Apollo, Vibepollo and Rubylight, set them in the host's settings or web UI, separately for each paired installation. Nightjar shows the permissions the host reports and checks them before protected actions. The host stays in charge of every permission. Hosts that do not report permissions keep their usual behavior.
 
 | Permission | What it allows |
 | --- | --- |
@@ -64,7 +64,7 @@ Hosts with per-device permissions (e.g. Apollo or Rubylight) set them in the hos
 | Pen input | Send native pen input. |
 | Mouse input | Send a physical or emulated mouse, including trackpad/direct mouse touch modes. |
 | Keyboard input | Send hardware or on-screen keyboard input. |
-| Send clipboard | Send explicitly selected text from Android to the PC. |
+| Send clipboard | Send explicitly selected text from this device to the PC. |
 | Read clipboard | Request text from the PC. |
 | Server commands | Send a command configured by the host administrator. |
 

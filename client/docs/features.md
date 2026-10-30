@@ -2,7 +2,7 @@
 
 [Documentation](index.md) · [Android and desktop](CLIENT-PARITY.md) · [Host feature support](PARITY-MATRIX.md)
 
-Nightjar 4.0 streams your PC to Android phones, handhelds, tablets, Android TV and Fire TV, and to Windows and Linux PCs. Every one of them runs the same Rust streaming engine. This page lists every feature. A feature only one client has says so ([Android and desktop](CLIENT-PARITY.md) compares them row by row), and a feature that needs something from the PC names the host ([host feature support](PARITY-MATRIX.md)). Most extras come from a [Rubylight](https://github.com/RamazanKara/Rubylight) PC; every Moonlight-compatible host gets the stream, the controls and the diagnostics.
+Nightjar 4.0 streams your PC to Android phones, handhelds, tablets, Android TV and Fire TV, and to Windows and Linux PCs. All of them share one streaming engine, written in Rust; Android also keeps the classic moonlight-common-c engine as a setting. This page lists every feature. A feature only one client has says so ([Android and desktop](CLIENT-PARITY.md) compares them row by row), and a feature that needs something from the PC names the host ([host feature support](PARITY-MATRIX.md)). Most extras come from a [Rubylight](https://github.com/RamazanKara/Rubylight) PC; every Moonlight-compatible host gets the stream, the controls and the diagnostics.
 
 ## Your library
 
@@ -22,16 +22,16 @@ Nightjar 4.0 streams your PC to Android phones, handhelds, tablets, Android TV a
 - **Per-device permissions** the host sets, checked before every protected action, with the reason when one is missing.
 - **Settings per PC and per game**, profiles picked by network (mobile data, home Wi-Fi, other Wi-Fi) and a mobile data cap. [Settings](settings.md)
 - **Remote Monitor** to watch a PC without taking its input (Rubylight, Vibepollo), and **Input-only** to drive it without video, on any PC. [Input-only](controls.md#input-only-on-any-pc)
-- **PIN lock** for the app, every stream or the PCs you pick. Android.
+- **PIN lock** for the app or every stream; on Android also for the PCs you pick.
 - **Open the host's web UI** from a PC's settings. Android.
 
 ## The picture
 
 - **H.264, HEVC and AV1** hardware decoding, with low-latency settings per chip for Snapdragon, MediaTek, Tegra, Exynos, Google Tensor and Amlogic decoders on Android ([decoder flags](decoder-flags.md)), D3D11VA on Windows and VAAPI on Linux.
-- **HDR10, HDR10+, HLG and Dolby Vision**, each where the screen and decoder show it, with HDR10+ scene statistics and Dolby Vision 10.1 on AV1 or 8.1 and 8.4 on HEVC from a Rubylight 3.0 PC. Dolby Vision, HDR10+ and HLG on Android; HDR10 on Windows and Linux. [HDR formats](video-and-latency.md#hdr-formats)
+- **HDR10, HDR10+, HLG and Dolby Vision**, each where the screen and decoder show it, with HDR10+ scene statistics and Dolby Vision 10.1 on AV1 or 8.1 and 8.4 on HEVC from a Rubylight 3.0 PC. All four on Android; HDR10, HLG and Dolby Vision on Windows; HDR10 on Linux where the compositor provides an HDR surface. [HDR formats](video-and-latency.md#hdr-formats)
 - **10-bit SDR** against banding and **full-colour 4:4:4** for sharp coloured text, on Android, Windows and Linux. Full chroma packs 4:4:4 into a stream ordinary hardware decoders handle; true 4:4:4 needs a decoder that has it, usually the software one. Each is offered only where this device's decoder handles it; elsewhere the stream is 8-bit or 4:2:0 and names the reason. [HDR and color](video-and-latency.md#hdr-and-color)
 - **PyroWave**, the low-latency wavelet codec, decoded through Vulkan on Android and on the GPU on Windows and Linux, in 4:4:4 and HDR. On Snapdragon you can load a newer Adreno driver for it. Rubylight. [PyroWave decode](pyrowave-decode.md)
-- **Upscaling** on this device with FSR 1 or Snapdragon GSR.
+- **Upscaling** on this device with FSR 1 or Snapdragon GSR, and on the desktop the GPU's video upscaling where the driver offers it.
 - **Render through Vulkan** on Android, so frame-generation overlays can hook the video, with HDR10, HDR10+ and HLG.
 - **A display of its own on the PC**: a virtual display at this device's exact resolution and refresh, fractional rates included, and a choice of what the PC's monitors do during the stream. [PC display mode](controls.md#pc-display-mode-and-administration)
 - **Frames timed to your display**: adaptive refresh and VRR follow the game, and phase-lock timing tells a Rubylight PC how long frames wait for your screen.
@@ -41,7 +41,7 @@ Nightjar 4.0 streams your PC to Android phones, handhelds, tablets, Android TV a
 ## Stream quality and the network
 
 - **Device controls bitrate** follows loss, jitter and your decoder's headroom up to 2000 Mbps, and **automatic quality** changes resolution and frame rate mid-stream for smooth motion, sharp detail or battery life. [Recovery and automatic quality](recovery-and-quality.md)
-- **Change bitrate / frame rate** during a stream, **Loss-based bitrate** (the desktop's Client-hint bitrate) and a choice of **error correction**, from leaving it to the PC to fixed shares. Rubylight. [Bitrate and error correction](video-and-latency.md#bitrate-frame-rate-and-error-correction-with-a-rubylight-pc)
+- **Change bitrate / frame rate** during a stream and **Loss-based bitrate** with a Rubylight PC, and a choice of **error correction**, from leaving it to the PC to fixed shares, with Rubylight PCs and Sunshine-based PCs that accept it. A Sunshine-based PC with its own automatic bitrate follows Nightjar's network reports. [Bitrate and error correction](video-and-latency.md#bitrate-frame-rate-and-error-correction-with-a-rubylight-pc)
 - **Recover interrupted streams**, on by default: up to five tries within a minute bring back the same running game, never a different one. [Recovering a connection](recovery-and-quality.md#recovering-a-connection)
 - **Ride out network drops** of 20, 30 or 60 seconds. [Network drops](video-and-latency.md#network-drops)
 - **A stream made for your link**: Nightjar tells a Rubylight PC that you are on Wi-Fi or how fast your wired link is, and reports lost video once a second.
@@ -49,9 +49,9 @@ Nightjar 4.0 streams your PC to Android phones, handhelds, tablets, Android TV a
 
 ## Sound
 
-- **Stereo, 5.1 and 7.1**, with low-latency AAudio on Android, and lost packets filled in instead of gaps.
+- **Stereo, 5.1, 7.1 and 7.1.4**, with low-latency AAudio on Android, and lost packets filled in instead of gaps. 7.1.4 needs a Rubylight 3.0 PC and a 12-channel output (Android 12L or newer on Android).
 - **Audio passthrough** to a receiver, soundbar or TV: PCM, Dolby Digital or Dolby Digital Plus on Android, PCM on Windows and Linux. Rubylight. [Sound](video-and-latency.md#sound)
-- **Microphone** to the PC, with echo cancellation, noise suppression, automatic gain, a gain slider and a one-tap mute button on Android. [Microphone](controls.md#microphone)
+- **Microphone** to the PC, with echo cancellation on Android and the desktop, and noise suppression, automatic gain, a gain slider and a one-tap mute button on Android. [Microphone](controls.md#microphone)
 
 ## Controls
 

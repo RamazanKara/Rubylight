@@ -1,6 +1,8 @@
 # Home and the session menu
 
-Home, a game's page and the in-stream **Session and graphics** menu use Rubylight's native API. They appear for a [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 host. The Radeon panel needs Rubylight 3.0.0-alpha.2 or newer and stays hidden on alpha.1. Sunshine, Apollo, Vibepollo, older Rubylight and other Moonlight-compatible hosts do not offer the API, so they keep the classic PC and game grid, and nothing in the classic screens changes.
+[Documentation](index.md)
+
+Home, a game's page and the in-stream **Session and graphics** menu use Rubylight's native API, so they appear for PCs running [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 or newer. Other Moonlight-compatible hosts, including older Rubylight versions, keep the classic PC list and app grid, which work as before. Everything on this page applies to Android and to Nightjar for Windows and Linux unless a section names one of them.
 
 ## Home
 

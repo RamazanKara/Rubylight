@@ -56,6 +56,7 @@ import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
@@ -89,6 +90,7 @@ public class NvConnection {
     private final Context appContext;
     private volatile ComputerDetails hostDetails = new ComputerDetails();
     private NvHTTP http;
+    private NvHTTP foundationAbrHttp;
     private Thread connectionThread;
     private volatile boolean stopRequested;
     private boolean nativeStarted;
@@ -1285,6 +1287,9 @@ public class NvConnection {
                         // The session's choice (Game turns it off after a packed failure), not the saved setting.
                         MoonBridge.requestPacked444(context.streamConfig.isPacked444());
                         MoonBridge.requestHdrFormat(context.hdrFormat);
+                        // Sent only to a host whose DESCRIBE offers Foundation's FEC control.
+                        MoonBridge.requestVideoFec((context.fecChoice != null ? context.fecChoice : FecChoice.HOST)
+                                .summaryPercentage());
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
                                 context.streamConfig.getAudioConfiguration().channelCount));
@@ -1497,6 +1502,36 @@ public class NvConnection {
         } catch (IOException | XmlPullParserException e) {
             return false;
         }
+    }
+
+    /**
+     * Turns on Foundation Sunshine's own bitrate controller up to {@code maxKbps} (FoundationAbr).
+     * Returns its initial bitrate, or -1 when the PC has none.
+     */
+    public int startFoundationAbr(int maxKbps) throws IOException {
+        NvHTTP request = foundationAbrHttp();
+        if (!request.supportsFoundationAbr()) return -1;
+        return request.configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.enableRequest(maxKbps));
+    }
+
+    /** Also after {@link #stop}, which cancels {@code http}: the PC must not keep its controller. */
+    public void stopFoundationAbr() throws IOException {
+        foundationAbrHttp().configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.disableRequest());
+    }
+
+    // Turning a Foundation PC's controller on and off goes through its own NvHTTP, which stop()
+    // does not cancel: an enable it aborted could still have reached the PC, and the disable
+    // runs as the stream stops.
+    private synchronized NvHTTP foundationAbrHttp() throws IOException {
+        if (foundationAbrHttp == null) {
+            int httpsPort = hostDetails != null && hostDetails.httpsPort > 0 ? hostDetails.httpsPort : context.httpsPort;
+            foundationAbrHttp = new NvHTTP(context.serverAddress, httpsPort, uniqueId, context.serverCert, cryptoProvider);
+        }
+        return foundationAbrHttp;
+    }
+
+    public org.json.JSONObject sendFoundationAbrFeedback(org.json.JSONObject feedback) throws IOException {
+        return http.sendFoundationAbrFeedback(feedback);
     }
 
     public String getClipboard() throws IOException, XmlPullParserException {

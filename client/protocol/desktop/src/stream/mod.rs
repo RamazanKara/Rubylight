@@ -14,6 +14,7 @@ pub mod present;
 mod microphone;
 mod cursor;
 mod bitrate;
+mod host_abr;
 pub mod doctor;
 pub mod overlay;
 mod recovery;
@@ -54,7 +55,8 @@ use std::time::{Duration, Instant};
 
 use nightjar_core::color;
 use nightjar_core::control::{ClientMessage, ControlEvent};
-use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, NativeCapabilities, ServerInfo};
+use nightjar_core::http::foundation::AbrRequest;
+use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, Error as HttpError, LaunchRequest, NativeCapabilities, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkChange, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
@@ -1274,6 +1276,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         remote_input_aes_iv: iv,
         video_capabilities: 0,
         audio_capabilities: CAPABILITY_DIRECT_SUBMIT,
+        video_fec: settings.error_correction.into(),
         ..Default::default()
     };
     let host = HostInfo {
@@ -1613,6 +1616,10 @@ pub struct Streaming {
     pub bitrate_kbps: u32,
     pub adaptive_bitrate: bool,
     bitrate_policy: Option<bitrate::Bitrate>,
+    /// A Foundation PC's own bitrate controller, on in place of `bitrate_policy`.
+    host_abr: Option<host_abr::HostAbr>,
+    /// The request that turns it on, while the stream may end before the PC answers.
+    host_abr_start: Option<host_abr::AbrStart>,
     /// The stream doctor: its report in the stream menu and after the stream, and the bitrate trial.
     doctor: doctor::Doctor,
     /// Rate changes over 0x553C, on a stream that takes them.
@@ -1818,6 +1825,8 @@ impl Streaming {
             bitrate_kbps,
             adaptive_bitrate: false,
             bitrate_policy: None,
+            host_abr: None,
+            host_abr_start: None,
             doctor,
             rate_change,
             quality_mode,
@@ -2293,6 +2302,30 @@ impl Streaming {
                         }
                     }
                 }
+                Notice::HostAbr(result) => {
+                    self.bitrate_busy = false;
+                    match result {
+                        Ok(Some(configured)) => {
+                            let abr = host_abr::HostAbr::new(&configured, self.facts.bitrate_kbps.max(0) as u32,
+                                self.started.elapsed().as_millis() as u64);
+                            eprintln!("nightjar: the PC's automatic bitrate is on: {} kbps, at most {} kbps",
+                                abr.current_kbps, configured.max_bitrate);
+                            self.facts.bitrate_kbps = abr.current_kbps as i32;
+                            self.bitrate_kbps = abr.current_kbps;
+                            self.host_abr = Some(abr);
+                            self.adaptive_bitrate = true;
+                        }
+                        Ok(None) => eprintln!("nightjar: the PC has no automatic bitrate"),
+                        Err(error) => self.show_toast(error),
+                    }
+                }
+                Notice::HostAbrAction(action) => {
+                    if let Some(kbps) = self.host_abr.as_mut().and_then(|abr| abr.answered(action.as_ref())) {
+                        if let Some(action) = &action { eprintln!("nightjar: the PC set {kbps} kbps: {}", action.reason); }
+                        self.facts.bitrate_kbps = kbps as i32;
+                        self.bitrate_kbps = kbps;
+                    }
+                }
                 Notice::Bitrate { requested, result } => {
                     self.bitrate_busy = false;
                     match result {
@@ -2648,8 +2681,13 @@ impl Streaming {
             return;
         }
         self.bitrate_policy = None;
+        self.stop_host_abr();
         self.adaptive_bitrate = enabled && self.facts.runtime_bitrate && self.facts.role == AppRole::Stream;
-        if !self.adaptive_bitrate { return; }
+        if !self.adaptive_bitrate {
+            // A PC without Rubylight's runtime bitrate may run its own controller (Foundation).
+            if enabled && self.facts.role == AppRole::Stream { self.start_host_abr(); }
+            return;
+        }
         self.doctor.trial.clear();
         let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
         let shared = self.shared.clone();
@@ -2665,6 +2703,50 @@ impl Streaming {
             });
             shared.notify(Notice::AdaptiveBitrate(result));
         });
+    }
+
+    /// Asks a Foundation PC to run its own bitrate controller up to the stream's bitrate, as
+    /// Moonlight V+ PC's `startSunshineAbr` does. Other PCs answer 404: nothing changes there.
+    /// The start may outlive the stream (only `finish` ends it while in flight: `bitrate_busy` holds
+    /// the setting): its own client is not cancelled by `finish`, and `AbrStart` decides who turns
+    /// the PC's controller off.
+    fn start_host_abr(&mut self) {
+        let Some(client) = lock(&self.shared.host_client).as_ref().map(|c| c.detached()) else { return };
+        let shared = self.shared.clone();
+        let max_kbps = self.facts.bitrate_kbps.max(0) as u32;
+        let start = host_abr::AbrStart::default();
+        self.host_abr_start = Some(start.clone());
+        self.bitrate_busy = true;
+        std::thread::spawn(move || {
+            let result = match client.abr_capabilities() {
+                Ok(caps) if caps.supported => client
+                    .configure_abr(&AbrRequest::balanced_up_to(max_kbps))
+                    .map(Some)
+                    .map_err(|e| trf("The PC did not start its automatic bitrate: {}", &[&e])),
+                Ok(_) | Err(HttpError::NotFound(_)) => Ok(None),
+                Err(e) => Err(trf("The PC did not start its automatic bitrate: {}", &[&e])),
+            };
+            if matches!(result, Ok(Some(_))) && !start.turned_on() {
+                // The stream ended while the PC turned it on: nobody else will turn it off.
+                if let Err(e) = client.configure_abr(&AbrRequest::off()) {
+                    eprintln!("nightjar: the PC's automatic bitrate did not stop: {e}");
+                }
+                return;
+            }
+            shared.notify(Notice::HostAbr(result));
+        });
+    }
+
+    /// Turns a Foundation PC's controller off again (V+ PC's `stopSunshineAbr`, 1 s at most).
+    fn stop_host_abr(&mut self) {
+        if self.host_abr.take().is_some() { self.adaptive_bitrate = false; }
+        // On, though its answer may not have come yet; a start still in flight turns it off itself.
+        if !self.host_abr_start.take().is_some_and(|start| start.end()) { return; }
+        if let Some(client) = lock(&self.shared.host_client).clone() {
+            if let Err(e) = client.configure_abr(&AbrRequest::off()) {
+                eprintln!("nightjar: the PC's automatic bitrate did not stop: {e}");
+            }
+        }
     }
 
     /// The trial the doctor offers with this report: none while automatic bitrate or quality owns
@@ -3547,6 +3629,19 @@ impl Streaming {
             ..Default::default()
         };
         self.doctor.timings(&mut tick);
+        let client = self.host_abr.is_some().then(|| lock(&self.shared.host_client).clone()).flatten();
+        if let (Some(abr), Some(client)) = (&mut self.host_abr, client) {
+            abr.add(completed, drops, decoded);
+            let rtt_ms = stats.rtt.map(|(rtt, _)| rtt.as_secs_f64() * 1000.0);
+            if let Some(feedback) = abr.due(tick.now_ms, rtt_ms) {
+                let shared = self.shared.clone();
+                std::thread::spawn(move || {
+                    let action = client.abr_feedback(&feedback)
+                        .map_err(|e| eprintln!("nightjar: the PC's automatic bitrate report failed: {e}")).ok();
+                    shared.notify(Notice::HostAbrAction(action));
+                });
+            }
+        }
         // As on Android: no samples for input-only, or while a manual bitrate change or trial runs.
         if self.facts.role != AppRole::InputOnly && !(self.bitrate_busy && !self.adaptive_bitrate) {
             self.doctor.add(&tick);
@@ -3948,6 +4043,7 @@ impl Streaming {
     /// Ends the stream: releases input, stops the session.
     pub fn finish(mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
         self.microphone = None;
+        self.stop_host_abr();
         if let Some(client) = &*lock(&self.shared.host_client) {
             client.cancel_pending_requests();
         }

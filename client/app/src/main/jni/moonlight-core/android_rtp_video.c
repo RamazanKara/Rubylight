@@ -16,6 +16,8 @@ static void finishFecBlock(PRTP_VIDEO_QUEUE queue, bool unrecovered) {
                        queue->bufferParityPackets,
                        queue->receivedDataPackets + queue->receivedParityPackets,
                        queue->missingPackets, unrecovered);
+    rlFecSummaryBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                      (uint16_t)queue->bufferDataPackets, (uint16_t)queue->receivedDataPackets);
 }
 
 #define RL_FEC_BLOCK_FINISHED finishFecBlock

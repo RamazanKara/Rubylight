@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Корекція помилок</string>
-    <string name="summary_fec_choice">Скільки даних для відновлення ПК з Rubylight додає до відео. «Автоматично» підлаштовується під втрати цього пристрою. Інші ПК використовують власне налаштування.</string>
+    <string name="summary_fec_choice">Скільки даних для відновлення ПК додає до відео. «Автоматично» підлаштовується під втрати цього пристрою. ПК, які не підтримують цей вибір, використовують власне налаштування.</string>
     <string name="fec_choice_host">Налаштування ПК</string>
     <string name="fec_choice_auto">Автоматично</string>
     <string name="title_link_probe">Перевірка каналу перед першим бітрейтом</string>

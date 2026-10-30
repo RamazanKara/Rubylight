@@ -37,6 +37,7 @@ fn params<'a>(
         hdr_formats_offered: 0,
         audio_codec: 0,
         audio_codecs_offered: 0,
+        video_fec_percentage: None,
     }
 }
 
@@ -69,6 +70,34 @@ fn packed_bitrate_reserves_packet_overhead_and_fec() {
             .text
             .contains(&format!("a=x-ml-video.configuredBitrateKbps:{budget} \r\n")));
     }
+}
+
+#[test]
+fn foundation_fec_control_goes_where_v_plus_puts_it() {
+    // V+'s SdpGenerator.c: right after the packet size, the percentage, then summary version 1.
+    let config = StreamConfig::default();
+    let mut p = params(&config, SUNSHINE, "192.168.1.20", VIDEO_FORMAT_H265);
+    for (percentage, line) in [
+        (-2, "a=x-ml-video.fecPercentage:-2 \r\n"),
+        (-1, "a=x-ml-video.fecPercentage:-1 \r\n"),
+        (0, "a=x-ml-video.fecPercentage:0 \r\n"),
+        (100, "a=x-ml-video.fecPercentage:100 \r\n"),
+    ] {
+        p.video_fec_percentage = Some(percentage);
+        let sdp = generate(&p).text;
+        assert!(
+            sdp.contains(&format!(
+                "a=x-nv-video[0].packetSize:1392 \r\n{line}a=x-ml-video.fecSummaryVersion:1 \r\n\
+                 a=x-nv-video[0].rateControlMode:4 \r\n"
+            )),
+            "{sdp}"
+        );
+    }
+    // Without the host's FEC control (Rubylight, Sunshine, Apollo, GameStream): neither.
+    p.video_fec_percentage = None;
+    let sdp = generate(&p).text;
+    assert!(!sdp.contains("x-ml-video.fec"), "{sdp}");
+    assert!(sdp.contains("a=x-nv-video[0].packetSize:1392 \r\na=x-nv-video[0].rateControlMode:4 \r\n"));
 }
 
 #[test]

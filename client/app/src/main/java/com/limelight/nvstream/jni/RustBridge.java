@@ -81,7 +81,7 @@ final class RustBridge {
                                       boolean clientWireless, int networkGracePeriodMs, boolean packed444,
                                       int packed444Modes, boolean remoteMonitor, boolean unbatchedInput,
                                       boolean networkPriority, boolean roaming, boolean roamingMetered,
-                                      int audioPassthrough, int hdrFormat);
+                                      int audioPassthrough, int hdrFormat, int videoFecPercentage);
     static native void stopConnection();
     static native void interruptConnection();
     static native int networkChanged(boolean metered);

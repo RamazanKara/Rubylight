@@ -716,6 +716,69 @@ fn url_and_header_helpers() {
     assert_eq!(transport_port(&r), None);
 }
 
+/// Runs a handshake against [`sunshine_host`] with `describe` as the DESCRIBE answer.
+fn handshake_with(p: HandshakeParams, describe: String) -> RtspOutcome {
+    let mut handshake = Handshake::new(p).unwrap();
+    run(&mut handshake, |method, target| {
+        if method == "DESCRIBE" {
+            ok(2, "", &describe)
+        } else {
+            sunshine_host(method, target)
+        }
+    });
+    handshake.finish().unwrap()
+}
+
+#[test]
+fn foundation_fec_control_is_picked_from_the_host() {
+    const FOUNDATION: &str = "a=x-ss-video[0].fecControlVersion:1\r\n";
+    let foundation = format!("{FOUNDATION}{}", DESCRIBE.replace("a=x-rl-control:0x5530,0x5536\r\n", ""));
+    let mut p = params(None);
+    p.config.video_fec = rubylight_protocol::fec_report::FecChoice::Auto;
+
+    // Foundation Sunshine: the ANNOUNCE asks for the choice and the summaries go out.
+    let outcome = handshake_with(p.clone(), foundation.clone());
+    assert!(outcome.fec_summaries);
+    assert!(outcome.sdp.contains(
+        "a=x-ml-video.fecPercentage:-1 \r\na=x-ml-video.fecSummaryVersion:1 \r\n"
+    ));
+    let mut fixed = p.clone();
+    fixed.config.video_fec = rubylight_protocol::fec_report::FecChoice::Fixed(150);
+    let outcome = handshake_with(fixed, foundation.clone());
+    assert!(outcome.sdp.contains("a=x-ml-video.fecPercentage:100 \r\n"), "capped at 100");
+
+    let plain = |outcome: RtspOutcome| {
+        assert!(!outcome.fec_summaries);
+        assert!(!outcome.sdp.contains("x-ml-video.fec"), "{}", outcome.sdp);
+    };
+    // Rubylight keeps its own (rlFecPercentage and 0x5539), even if it ever said both.
+    plain(handshake_with(p.clone(), DESCRIBE.replace("0x5536", "0x5536,0x5539")));
+    plain(handshake_with(
+        p.clone(),
+        format!("{FOUNDATION}{}", DESCRIBE.replace("0x5536", "0x5536,0x5539")),
+    ));
+    // Plain Sunshine and Apollo say nothing; another version is not this one.
+    plain(handshake_with(p.clone(), DESCRIBE.replace("a=x-rl-control:0x5530,0x5536\r\n", "")));
+    plain(handshake_with(
+        p.clone(),
+        foundation.replace("fecControlVersion:1", "fecControlVersion:2"),
+    ));
+    // GameStream hosts never get it.
+    let mut gfe = p.clone();
+    gfe.app_version = "7.1.431.0".into();
+    plain(handshake_with(gfe, foundation.clone()));
+    // PyroWave keeps its own FEC.
+    let mut pyrowave = p;
+    pyrowave.server_codec_mode_support |= SCM_PYROWAVE;
+    pyrowave.config.supported_video_formats |= VIDEO_FORMAT_PYROWAVE;
+    let outcome = handshake_with(
+        pyrowave,
+        format!("{foundation}a=rtpmap:99 PYROWAVE/90000\r\n{PYROWAVE_BITSTREAM}\r\n"),
+    );
+    assert_eq!(outcome.negotiated_video_format, VIDEO_FORMAT_PYROWAVE);
+    plain(outcome);
+}
+
 #[test]
 fn configuration_checks() {
     let mut p = params(None);

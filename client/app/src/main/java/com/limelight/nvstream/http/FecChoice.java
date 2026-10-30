@@ -37,6 +37,17 @@ public final class FecChoice {
         return HOST;
     }
 
+    /**
+     * The x-ml-video.fecPercentage a Foundation Sunshine host takes in the ANNOUNCE
+     * (rubylight_protocol::fec_report::FecChoice::summary_percentage, V+'s videoFecPercentage):
+     * -2 for the host's own, -1 for automatic, else the fixed share, at most 100.
+     */
+    public int summaryPercentage() {
+        if (equals(HOST)) return -2;
+        if (equals(AUTO)) return -1;
+        return Math.min(Integer.parseInt(wireValue), 100);
+    }
+
     @Override public boolean equals(Object other) {
         return other instanceof FecChoice && ((FecChoice) other).wireValue.equals(wireValue);
     }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">錯誤更正</string>
-    <string name="summary_fec_choice">Rubylight 電腦在影像中加入的復原資料量。自動會依照此裝置的遺失情況調整。其他電腦使用自己的設定。</string>
+    <string name="summary_fec_choice">電腦在影像中加入的復原資料量。自動會依照此裝置的遺失情況調整。不支援此選項的電腦使用自己的設定。</string>
     <string name="fec_choice_host">電腦的設定</string>
     <string name="fec_choice_auto">自動</string>
     <string name="title_link_probe">首次位元率前測試連線</string>

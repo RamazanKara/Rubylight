@@ -639,7 +639,8 @@ Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass 
                                                            jboolean inputOnly, jboolean remoteMonitor,
                                                            jboolean enableMic, jboolean hapticsPcm,
                                                            jint pyrowaveLinkMbps, jint pyrowavePaceMbps,
-                                                           jboolean clientWireless, jint hdrFormat) {
+                                                           jboolean clientWireless, jint hdrFormat,
+                                                           jint videoFecPercentage) {
     AndroidInputOnly = inputOnly;
     AndroidRemoteMonitor = remoteMonitor;
     AndroidMicRequested = enableMic;
@@ -648,8 +649,12 @@ Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass 
     PyroWaveRecordsSupported = (hostFeatures & HOST_FEATURE_PYROWAVE_RECORDS) != 0;
     // Phase-lock reports go only to hosts that announce them in this connection's DESCRIBE answer.
     resetPhaseLockReports();
-    // FEC loss reports count only this stream's blocks.
+    // FEC loss reports and summaries count only this stream's blocks.
     resetFecReports();
+    resetFecSummaries();
+    // V+'s videoFecPercentage (-2 host, -1 automatic, 0-100); asked for only if this connection's
+    // DESCRIBE offers Foundation's FEC control.
+    AndroidVideoFecPercentage = videoFecPercentage < -2 ? -2 : videoFecPercentage > 100 ? 100 : videoFecPercentage;
     // Filled from this connection's DESCRIBE answer (a=x-rl-control).
     resetHostControlMessages();
     resetCursorShapes();

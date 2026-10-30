@@ -2571,7 +2571,8 @@ impl Launcher {
             if let Some(host) = test_host {
                 let online = host.paired() && host.reach == Reach::Online;
                 row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
-                    let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe));
+                    let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe)
+                        || crate::network_test::has_foundation_probe(i));
                     let button = ui.add_enabled(enabled, egui::Button::new(tr("Test speed")));
                     if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
                     button
@@ -2591,7 +2592,7 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["auto_reconnect"], "Recover interrupted streams", "Try to resume the same running app up to five times within one minute.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
             });
-            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "How much recovery data the PC adds to the video. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
                 egui::ComboBox::from_id_salt("error-correction")
                     .selected_text(error_correction_name(s.error_correction))
                     .show_ui(ui, |ui| {

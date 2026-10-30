@@ -119,6 +119,66 @@ impl PyroWaveDecoder {
     }
 }
 
+/// Frame pacing without VRR, Android's `frame_pacing` (`FramePacingPolicy`): how decoded pictures
+/// wait for the display. `stream::present` applies it; with VRR it does not apply, as on Android.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FramePacing {
+    /// The pacing before this setting: the newest picture at each refresh, or each picture at once
+    /// with V-Sync off. Adds no delay.
+    #[default]
+    Latency,
+    /// V-Sync whatever the V-Sync setting says: the newest picture at each refresh, no tearing.
+    Balanced,
+    /// V-Sync, and no more pictures a second than the stream's frame rate: a picture that comes
+    /// early waits for its slot (at most one frame) instead of replacing the one before it.
+    CapFps,
+    /// V-Sync, every picture in turn, one a refresh: a picture is skipped only once it is more
+    /// than a frame old and a newer one is due.
+    Smoothness,
+}
+
+impl FramePacing {
+    pub const ALL: [Self; 4] = [Self::Latency, Self::Balanced, Self::CapFps, Self::Smoothness];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Latency => en("Lowest latency"),
+            Self::Balanced => en("Balanced"),
+            Self::CapFps => en("Balanced with FPS limit"),
+            Self::Smoothness => en("Smoothest video (more delay)"),
+        }
+    }
+
+    /// Every mode but `Latency` waits for the refresh.
+    pub fn forces_vsync(self) -> bool {
+        self != Self::Latency
+    }
+}
+
+/// Microphone echo cancellation, Android's `list_mic_echo_cancel` (`MicProcessing.Echo`):
+/// automatic leaves it off only when this device plays through headphones or a headset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MicEcho {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl MicEcho {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::On, Self::Off];
+
+    pub fn label(self) -> &'static str {
+        match self { Self::Auto => en("Automatic"), Self::On => en("On"), Self::Off => en("Off") }
+    }
+
+    /// Whether echo cancellation runs: `private_output` is a playback device that keeps the
+    /// stream's sound out of the microphone (headphones, a headset), when that is known.
+    pub fn wanted(self, private_output: bool) -> bool {
+        self == Self::On || (self == Self::Auto && !private_output)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QualityMode {
     #[default]
@@ -201,6 +261,8 @@ pub struct Settings {
     pub present_at_host_times: bool,
     /// Without VRR: wait for the display's refresh (no tearing).
     pub vsync: bool,
+    /// Without VRR: how pictures wait for the display (Android's `frame_pacing`).
+    pub frame_pacing: FramePacing,
     /// The performance overlay is on (Android's `checkbox_enable_perf_overlay`), showing
     /// `overlay_mode` in the `overlay_position` corner. The stream menu and its shortcut change
     /// these and keep them.
@@ -251,6 +313,8 @@ pub struct Settings {
     /// better on every leg, docs/pyrowave-decode.md) or on the CPU.
     pub pyrowave_decoder: PyroWaveDecoder,
     pub microphone: bool,
+    /// Echo cancellation on the microphone (`stream::microphone`), automatic by default.
+    pub mic_echo_cancel: MicEcho,
     pub cursor_shapes: bool,
     pub network_grace_ms: u32,
     /// Client roaming (Experimental): keep the stream when this device changes networks, with a
@@ -525,6 +589,7 @@ impl Default for Settings {
             vrr: true,
             present_at_host_times: false,
             vsync: true,
+            frame_pacing: FramePacing::Latency,
             overlay: false,
             overlay_mode: OverlayMode::Compact,
             overlay_position: OverlayCorner::TopLeft,
@@ -552,6 +617,7 @@ impl Default for Settings {
             beam_race_margin_ms: 0,
             pyrowave_decoder: PyroWaveDecoder::default(),
             microphone: false,
+            mic_echo_cancel: MicEcho::Auto,
             cursor_shapes: true,
             network_grace_ms: 3000,
             client_roaming: true,

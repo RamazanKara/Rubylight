@@ -224,6 +224,35 @@ fn launch_environment_refuses_client_shell_syntax() {
 }
 
 #[test]
+fn launch_takes_seven_one_four_sent_as_a_signed_java_int() {
+    let f = Fixture::new();
+    let app: App = serde_json::from_value(json!({"name":"Game"})).unwrap();
+    // Moonlight V+ (and Nightjar's 7.1.4 before it sent the unsigned form) builds
+    // 0xF63F << 16 | 12 as a Java int.
+    let args = HashMap::from([("surroundAudioInfo".into(), "-163643380".into())]);
+    let running = launch_with_environment(&f.host, &app, &args, Ok(BTreeMap::new())).unwrap();
+    assert_eq!(
+        running.environment["SUNSHINE_CLIENT_AUDIO_CONFIGURATION"],
+        "-163643380"
+    );
+    // /launch's audio route and the stream's encoder both see 12 channels, not stereo.
+    assert_eq!(
+        crate::stream::audio_encoder::surround_channels(Some("-163643380")),
+        12
+    );
+    let options = BTreeMap::from_iter(args);
+    assert_eq!(crate::stream::audio_encoder::launch_channels(&options), 12);
+    // Out of 32 bits, or not a number at all, still fails the launch.
+    for value in ["4294967308", "-2147483649", "12a", ""] {
+        let args = HashMap::from([("surroundAudioInfo".into(), value.into())]);
+        assert!(
+            launch_with_environment(&f.host, &app, &args, Ok(BTreeMap::new())).is_err(),
+            "{value}"
+        );
+    }
+}
+
+#[test]
 fn app_environment_expands_apollo_variables_and_preserves_fractional_rates_and_saved_apps() {
     let f = Fixture::new();
     let app: App =

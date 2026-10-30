@@ -2385,16 +2385,10 @@ fn prepare_launch_app(
             && !(launch.role == Role::RemoteMonitor
                 && config.boolean("remote_monitor_mute_audio", false))
         {
-            let channels = args
-                .get("surroundAudioInfo")
-                .and_then(|s| s.parse::<u32>().ok())
-                .map_or(2, |v| v & 0xffff) as usize;
-            // 12 is 7.1.4; ANNOUNCE refuses it later unless it is offered.
-            let channels = if matches!(channels, 2 | 6 | 8 | 12) {
-                channels
-            } else {
-                2
-            };
+            // 2, 6, 8 or 12 (7.1.4; ANNOUNCE refuses it later unless it is offered).
+            let channels = crate::stream::audio_encoder::surround_channels(
+                args.get("surroundAudioInfo").map(String::as_str),
+            ) as usize;
             match butterpollo_windows::audio_route::Route::acquire(
                 &config,
                 &h.directory,

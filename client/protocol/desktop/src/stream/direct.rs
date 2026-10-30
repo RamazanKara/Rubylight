@@ -391,7 +391,8 @@ impl Direct {
             Transfer::Sdr => (None, tone.white_nits, PeakSource::None),
         };
         if picture.transfer != Transfer::Sdr && self.source != Some(source) {
-            eprintln!("nightjar: HDR tone mapping follows {}", source.describe());
+            let peak = peak.map_or(String::new(), |peak| format!(", peak {peak:.0} nits"));
+            eprintln!("nightjar: HDR tone mapping follows {}{peak}", source.describe());
             self.source = Some(source);
         }
         let factors = peak.and_then(|peak| tonemap_factors(peak, white, output.headroom));

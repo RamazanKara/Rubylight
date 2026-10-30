@@ -685,7 +685,8 @@ const ourLegs = {
   'hevc-1440p-120': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 2560, height: 1440, fps: 120, bitrateKbps: 30000, tone: false},
   'hevc-4k-120': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 3840, height: 2160, fps: 120, bitrateKbps: 50000, tone: false},
   'av1-4k-120': {codec: 'av1', width: 3840, height: 2160, fps: 120, bitrateKbps: 50000, tone: false},
-  // Issue 64: at 100 Mbps (the most WebRTC accepts) 4K120 is offered at High tier, which a browser may answer with Main.
+  // Issue 64: at 100 Mbps (the most WebRTC accepts) 4K120 AV1 is offered at High tier, which Edge answers with Main,
+  // and HEVC at Main tier, since Chromium rejects the video of a High tier HEVC offer.
   'hevc-4k-120-high': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 3840, height: 2160, fps: 120, bitrateKbps: 100000, tone: false},
   'av1-4k-120-high': {codec: 'av1', width: 3840, height: 2160, fps: 120, bitrateKbps: 100000, tone: false},
   // The same 4K on the virtual display in SDR, to tell the display's cost from HDR's.

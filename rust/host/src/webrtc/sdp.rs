@@ -188,10 +188,13 @@ fn video_codec_and_format(mode: &VideoMode) -> Result<(Codec, FormatParams)> {
             },
         ),
         VideoCodec::Hevc => (Codec::H265, {
-            let (level, tier) = hevc_params(mode)?;
+            // Main tier at every bitrate: Chromium receives HEVC at Main tier only and rejects the
+            // video of a High tier offer, which 4K120 above 60 Mbps would get. The level and the
+            // bitrate are core's either way.
+            let (level, _) = hevc_params(mode)?;
             FormatParams {
                 level_asymmetry_allowed: Some(true),
-                h265_profile_tier_level: Some((mode.hevc_profile_id(), tier, level).into()),
+                h265_profile_tier_level: Some((mode.hevc_profile_id(), 0, level).into()),
                 ..Default::default()
             }
         }),
@@ -846,8 +849,9 @@ mod tests {
     }
 
     #[test]
-    fn hevc_fmtp_levels_and_tier_come_from_core() {
-        // (width, height, fps, kbps, level-id, tier-flag); core's table, never below level 4.1.
+    fn hevc_fmtp_levels_come_from_core_at_main_tier() {
+        // (width, height, fps, kbps, level-id, tier-flag); core's levels, never below 4.1, and
+        // Main tier even where core's table would need High (the last case).
         let cases = [
             (1280, 720, 60, 10_000, 123, 0),
             (1920, 1080, 60, 10_000, 123, 0),
@@ -857,7 +861,7 @@ mod tests {
             (2560, 1440, 120, 10_000, 153, 0),
             (3840, 2160, 60, 10_000, 153, 0),
             (3840, 2160, 120, 10_000, 156, 0),
-            (3840, 2160, 120, 100_000, 156, 1),
+            (3840, 2160, 120, 100_000, 156, 0),
         ];
         for (w, h, f, kbps, level, tier) in cases {
             for (hdr, profile) in [(false, 1), (true, 2)] {
@@ -1081,37 +1085,52 @@ mod tests {
         }
     }
 
-    /// Issue 64: 4K120 at a high bitrate is offered at High tier, and a Tizen TV answers Main (or
-    /// leaves the tier out). The tier is the receiver's to state, so the session starts.
+    /// Issue 64: at 4K120 above 60 Mbps AV1 is offered at High tier (HEVC stays Main), and a
+    /// Tizen TV or Chromium answers Main, the other tier, or no tier. The tier is the receiver's
+    /// to state, so the session starts; only a malformed tier is refused.
     #[test]
-    fn a_main_tier_answer_to_a_high_tier_offer_starts_the_session() {
-        for (codec, key) in [(VideoCodec::Hevc, "tier-flag"), (VideoCodec::Av1, "tier")] {
+    fn an_answer_with_any_tier_starts_the_session() {
+        for (codec, key, offered) in [
+            (VideoCodec::Hevc, "tier-flag", 0),
+            (VideoCodec::Av1, "tier", 1),
+        ] {
             let mut s = spec(codec, false);
             s.video.width = 3840;
             s.video.height = 2160;
             s.video.fps = 120;
             // The most WebRTC accepts; HEVC and AV1 5.2 Main stop at 60 Mbps.
             s.video.bitrate_kbps = 100_000;
-            let high = format!("{key}=1");
-            let main = |a: &str| a.replace(&high, &format!("{key}=0"));
-            let omitted = |a: &str| {
-                a.replace(&format!(";{high}"), "")
-                    .replace(&format!("{high};"), "")
-            };
-            let same = |a: &str| a.to_owned();
-            type Edit<'a> = &'a dyn Fn(&str) -> String;
-            let edits: [(Edit, u8); 3] = [(&main, 0), (&omitted, 0), (&same, 1)];
-            for (edit, tier) in edits {
+            let ours = format!("{key}={offered}");
+            for (answered, tier) in [(Some(0), 0), (Some(1), 1), (None, 0)] {
                 let (mut rtc, offer) = host_offer(&s, HOST.parse().unwrap());
-                assert!(offer.sdp.contains(&high), "{codec:?}: {}", offer.sdp);
-                let answer = edit(&answer_to(&s, &offer.sdp));
-                assert_eq!(answer.contains(&high), tier == 1, "{codec:?}: {answer}");
-                let (_, info) = accept_answer(&mut rtc, offer, &answer, &s)
-                    .unwrap_or_else(|e| panic!("{codec:?} tier {tier}: {e}\n{answer}"));
-                assert_eq!(info.video_tier, Some(tier), "{codec:?}\n{answer}");
+                assert!(offer.sdp.contains(&ours), "{codec:?}: {}", offer.sdp);
+                let answer = answer_to(&s, &offer.sdp);
+                let answer = match answered {
+                    Some(t) => answer.replace(&ours, &format!("{key}={t}")),
+                    None => answer
+                        .replace(&format!(";{ours}"), "")
+                        .replace(&format!("{ours};"), ""),
+                };
+                assert_eq!(
+                    answer.contains(&format!("{key}=")),
+                    answered.is_some(),
+                    "{answer}"
+                );
+                let (_, info) = accept_answer(&mut rtc, offer, &answer, &s).unwrap_or_else(|e| {
+                    panic!(
+                        "{codec:?} tier {answered:?}: {e}
+{answer}"
+                    )
+                });
+                assert_eq!(
+                    info.video_tier,
+                    Some(tier),
+                    "{codec:?}
+{answer}"
+                );
             }
             let answer = answer_to(&s, &offer_for(&s));
-            let bad = answer.replace(&high, &format!("{key}=2"));
+            let bad = answer.replace(&ours, &format!("{key}=2"));
             let err = check_answer(&bad, &s).unwrap_err().to_string();
             assert!(err.contains("not 0 or 1"), "{err}");
         }

@@ -490,7 +490,7 @@ fn unpack(payload: &mut Payload, progress: &Progress) -> Result<(PathBuf, Vec<pa
     let staging = system::program_data().join("Butterpollo").join("setup");
     let staging_root = staging.parent().context("staging folder has no parent")?;
     std::fs::create_dir_all(staging_root)?;
-    system::restrict(staging_root, true)?;
+    restrict_profile_root(staging_root)?;
     if staging.exists() {
         std::fs::remove_dir_all(&staging).context("removing the previous setup staging folder")?;
     }
@@ -918,8 +918,21 @@ fn import_error(output: &str) -> Option<String> {
 }
 /// SYSTEM and Administrators control the service profile, users may read
 /// it (the launcher reads the port); credentials are not readable by users.
+/// The users' Nucleus copies keep the permissions the host gave them, which
+/// let each user write in their own.
 fn secure_profile(profile: &Path) -> Result<()> {
-    secure_profile_with(profile, system::restrict, system::inherit_contents)
+    let root = profile.parent().context("profile has no parent")?;
+    let opaque = [nucleus_user_root(root)];
+    secure_profile_with(
+        profile,
+        |folder, users_read| system::restrict_except(folder, users_read, &opaque),
+        |root| system::inherit_contents(root, &opaque),
+    )
+}
+/// [`system::restrict`] for the profile's root, which leaves the users'
+/// Nucleus copies as they are: a link a user makes in theirs is no error.
+fn restrict_profile_root(root: &Path) -> Result<()> {
+    system::restrict_except(root, true, &[nucleus_user_root(root)])
 }
 fn secure_profile_with(
     profile: &Path,
@@ -997,15 +1010,7 @@ pub(crate) fn prepare_profile(profile: &Path, installed: bool) -> Result<Option<
         return system::create_restricted(root, true).map(|()| None);
     }
     if installed {
-        return match system::trusted_folder(root) {
-            Err(_) => {
-                // Earlier installers restricted the profile's ACL but left its
-                // user owner. Repair it only after identifying the service.
-                secure_profile(profile)?;
-                system::trusted_folder(root).map(|()| None)
-            }
-            Ok(()) => Ok(None),
-        };
+        return repair_profile(profile).map(|()| None);
     }
     // No service vouches for this folder (left by another tool, an old
     // uninstall or anyone who could create it): it is kept only when no one
@@ -1045,6 +1050,38 @@ pub(crate) fn prepare_profile(profile: &Path, installed: bool) -> Result<Option<
     match system::create_restricted(root, true) {
         Ok(()) => Ok(Some(aside)),
         Err(error) => Err(moved_aside(error, &aside)),
+    }
+}
+/// Makes the installed service's profile, which `prepare_profile` found a
+/// moment ago, all the service's. Earlier installers restricted its ACL but
+/// left its user owner, and a repair that fails partway leaves the rest, so
+/// every run repairs until nothing in it but the users' Nucleus copies
+/// (checked as a fresh install does) is anyone else's. Gone now, it is an
+/// error, not a folder to make with ProgramData's permissions.
+fn repair_profile(profile: &Path) -> Result<()> {
+    let root = profile.parent().context("profile has no parent")?;
+    let opaque = [nucleus_user_root(root)];
+    match system::trusted_tree(root, &opaque) {
+        Ok(()) => Ok(()),
+        Err(error) if error.downcast_ref::<system::Untrusted>().is_some() => {
+            line(format!("repairing {}: {error:#}", root.display()));
+            secure_profile(profile)?;
+            // The repair leaves the Nucleus copies' folder as it is, even one
+            // setup can't trust: it doesn't adopt what may be a user's.
+            let nucleus = &opaque[0];
+            if let Err(error) = system::trusted_tree(nucleus, &opaque)
+                && error.downcast_ref::<system::Untrusted>().is_some()
+            {
+                return Err(error.context(format!(
+                    "an administrator can delete {} (Rubylight copies Nucleus Co-op for each user again), then run setup again",
+                    nucleus.display()
+                )));
+            }
+            system::trusted_tree(root, &opaque).with_context(|| {
+                format!("{} is not the service's after its repair", root.display())
+            })
+        }
+        Err(error) => Err(error.context(format!("checking {}", root.display()))),
     }
 }
 
@@ -1527,7 +1564,7 @@ pub(crate) fn register(install: &Path, entries: &[payload::Entry]) -> Result<()>
 /// let any user replace its programs, so it gets the same rights.
 pub(crate) fn secure_install(install: &Path) -> Result<()> {
     system::restrict(install, true)?;
-    system::inherit_contents(install)
+    system::inherit_contents(install, &[])
 }
 /// Whether the host at `profile`'s address reports a stream, a queued
 /// launch or a running app.
@@ -2159,6 +2196,235 @@ mod tests {
         }
         Ok(())
     }
+    /// `icacls` on `path` with `args`, which must succeed.
+    fn icacls(path: &Path, args: &[&str]) -> Result<()> {
+        let path = path.display().to_string();
+        let args: Vec<&str> = [path.as_str()]
+            .into_iter()
+            .chain(args.iter().copied())
+            .collect();
+        let (code, output) = system::run(
+            &system::system32("icacls.exe"),
+            &args,
+            Duration::from_secs(10),
+        )?;
+        anyhow::ensure!(code == 0, "icacls {args:?}: {output}");
+        Ok(())
+    }
+    /// Whether `path`'s permissions name `sid`.
+    fn names(path: &Path, sid: &str) -> Result<bool> {
+        let (_, output) = system::run(
+            &system::system32("icacls.exe"),
+            &[&path.display().to_string(), "/findsid", sid, "/Q"],
+            Duration::from_secs(10),
+        )?;
+        Ok(output.contains(&path.display().to_string()))
+    }
+    /// `path`'s permissions as icacls lists them.
+    fn acl(path: &Path) -> Result<String> {
+        let (code, output) = system::run(
+            &system::system32("icacls.exe"),
+            &[&path.display().to_string()],
+            Duration::from_secs(10),
+        )?;
+        anyhow::ensure!(code == 0, "{output}");
+        // icacls aligns its lines with the name.
+        let output = output.replace(&path.display().to_string(), "");
+        Ok(output.split_whitespace().collect::<Vec<_>>().join(" "))
+    }
+    /// A user's Nucleus copy below `root`, in folders with the permissions
+    /// the host gives them (`user_copy.rs`), Users standing in for the user:
+    /// they may write in the copy, and own what they put there. With
+    /// `link_to`, that includes a junction to it.
+    fn nucleus_copy(root: &Path, link_to: Option<&Path>) -> Result<PathBuf> {
+        let nucleus = nucleus_user_root(root);
+        // The host's `ROOT`.
+        system::create_restricted(&nucleus, false)?;
+        let folder = nucleus.join("S-1-5-21-1");
+        let copy = folder.join("0123456789abcdef");
+        std::fs::create_dir(&folder)?;
+        std::fs::create_dir(&copy)?;
+        for (path, user) in [
+            (&folder, "*S-1-5-32-545:(RX)"),
+            (&copy, "*S-1-5-32-545:(OI)(CI)(M)"),
+        ] {
+            icacls(
+                path,
+                &[
+                    "/inheritance:r",
+                    "/grant:r",
+                    "*S-1-5-18:(OI)(CI)(F)",
+                    "*S-1-5-32-544:(OI)(CI)(F)",
+                    user,
+                ],
+            )?;
+        }
+        // Named like what setup resets in the profile: a file icacls would
+        // also look for in every folder below, and a folder.
+        std::fs::write(copy.join("handler.js"), b"user's")?;
+        std::fs::create_dir(copy.join("config"))?;
+        icacls(&copy.join("handler.js"), &["/setowner", "*S-1-5-32-545"])?;
+        icacls(&copy.join("config"), &["/setowner", "*S-1-5-32-545"])?;
+        if let Some(target) = link_to {
+            let (code, output) = system::run(
+                &system::system32("cmd.exe"),
+                &[
+                    "/c",
+                    "mklink",
+                    "/J",
+                    &copy.join("linked").display().to_string(),
+                    &target.display().to_string(),
+                ],
+                Duration::from_secs(10),
+            )?;
+            anyhow::ensure!(code == 0, "mklink: {output}");
+        }
+        Ok(copy)
+    }
+    /// The copy and its folders still have the host's permissions: setup
+    /// changed none of them.
+    fn assert_nucleus_copy_kept(root: &Path, copy: &Path) -> Result<()> {
+        let nucleus = nucleus_user_root(root);
+        // Users may not even list the folder of everyone's copies.
+        assert!(!names(&nucleus, "*S-1-5-32-545")?);
+        assert!(names(copy, "*S-1-5-32-545")?);
+        for theirs in [copy.join("handler.js"), copy.join("config")] {
+            let error = system::trusted_folder(&theirs).unwrap_err();
+            assert!(
+                error.to_string().contains("must be owned by"),
+                "{}: {error:#}",
+                theirs.display()
+            );
+        }
+        assert_eq!(std::fs::read(copy.join("handler.js"))?, b"user's");
+        Ok(())
+    }
+    #[test]
+    fn reinstalls_leave_the_users_nucleus_copies_as_the_host_made_them() -> Result<()> {
+        // A reinstall reset every Nucleus copy to the profile's permissions,
+        // so the host could no longer write the user's copy as the user, and
+        // a junction the user made in theirs failed every reinstall.
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let root = temp.path().join("Butterpollo");
+        let profile = root.join("config");
+        system::create_restricted(&root, true)?;
+        std::fs::create_dir_all(profile.join("credentials"))?;
+        std::fs::write(root.join("handler.js"), b"setup's")?;
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside)?;
+        std::fs::write(outside.join("sunshine.conf"), b"unchanged")?;
+        let copy = nucleus_copy(&root, Some(&outside))?;
+        let nucleus = nucleus_user_root(&root);
+        let linked = [outside.clone(), outside.join("sunshine.conf")];
+        let acls = || {
+            linked
+                .iter()
+                .map(|path| acl(path))
+                .collect::<Result<Vec<_>>>()
+        };
+        let before = acls()?;
+        // An update, then a reinstall's or a full installation's steps.
+        for installed in [true, false] {
+            assert_eq!(prepare_profile(&profile, installed)?, None);
+        }
+        restrict_profile_root(&root)?;
+        secure_profile(&profile)?;
+        assert_nucleus_copy_kept(&root, &copy)?;
+        system::trusted_tree(&root, std::slice::from_ref(&nucleus))?;
+        assert_eq!(std::fs::read(outside.join("sunshine.conf"))?, b"unchanged");
+        assert_eq!(acls()?, before);
+        // The copies' folder itself is still checked: a link in its place
+        // is refused, and setup leaves it as it is.
+        std::fs::remove_dir_all(&nucleus)?;
+        std::os::windows::fs::symlink_dir(&outside, &nucleus)?;
+        for error in [
+            restrict_profile_root(&root).unwrap_err(),
+            secure_profile(&profile).unwrap_err(),
+            prepare_profile(&profile, true).unwrap_err(),
+        ] {
+            assert!(error.to_string().contains("reparse point"), "{error:#}");
+        }
+        assert!(
+            std::fs::symlink_metadata(&nucleus)?
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(acls()?, before);
+        std::fs::remove_dir(&nucleus)?;
+        // So is one users may change: the repair leaves it, and fails.
+        std::fs::create_dir(&nucleus)?;
+        icacls(&nucleus, &["/grant", "*S-1-5-32-545:(M)"])?;
+        let error = format!("{:#}", prepare_profile(&profile, true).unwrap_err());
+        for said in [
+            format!("an administrator can delete {}", nucleus.display()),
+            format!("{} may be changed by", nucleus.display()),
+        ] {
+            assert!(error.contains(&said), "{error}");
+        }
+        assert!(names(&nucleus, "*S-1-5-32-545")?);
+        Ok(())
+    }
+    #[test]
+    fn a_legacy_repair_that_failed_partway_is_finished_by_the_next_run() -> Result<()> {
+        // The repair ran only while the root had another owner: once it got
+        // past the root, what it had not reached yet stayed the user's.
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let root = temp.path().join("Butterpollo");
+        let profile = root.join("config");
+        std::fs::create_dir_all(profile.join("credentials"))?;
+        let settings = profile.join("sunshine.conf");
+        std::fs::write(&settings, b"port=48123\n")?;
+        let copy = nucleus_copy(&root, None)?;
+        let nucleus = nucleus_user_root(&root);
+        // As earlier installers left it.
+        for path in [&root, &settings] {
+            icacls(path, &["/setowner", "*S-1-5-32-545"])?;
+        }
+        icacls(&settings, &["/grant", "*S-1-5-32-545:(M)"])?;
+        let error = secure_profile_with(
+            &profile,
+            |folder, users_read| {
+                system::restrict_except(folder, users_read, std::slice::from_ref(&nucleus))
+            },
+            |_| bail!("resetting permissions failed (5)"),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("resetting permissions failed"));
+        // The root is the service's now, its settings still the user's.
+        system::trusted_parents(&profile)?;
+        assert!(system::trusted_tree(&root, std::slice::from_ref(&nucleus)).is_err());
+        // Every later run repairs until all of it is the service's, leaving
+        // the Nucleus copies as they are.
+        for _ in 0..2 {
+            assert_eq!(prepare_profile(&profile, true)?, None);
+            system::trusted_tree(&root, std::slice::from_ref(&nucleus))?;
+            assert_nucleus_copy_kept(&root, &copy)?;
+        }
+        assert_eq!(std::fs::read(&settings)?, b"port=48123\n");
+        Ok(())
+    }
+    #[test]
+    fn an_installed_profile_gone_after_setup_looked_is_an_error() -> Result<()> {
+        // The repair found nothing to check and went on; the update then
+        // made the profile with the permissions ProgramData gives everyone.
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("Butterpollo");
+        let error = repair_profile(&root.join("config")).unwrap_err();
+        assert!(
+            format!("{error:#}").starts_with(&format!("checking {}", root.display())),
+            "{error:#}"
+        );
+        assert!(!root.exists());
+        Ok(())
+    }
     #[test]
     fn fresh_installs_move_an_untrusted_profile_aside_unchanged() -> Result<()> {
         // #61: a ProgramData\Butterpollo that the user owned, with no
@@ -2290,17 +2556,6 @@ mod tests {
             assert!(system::create_restricted(&created, users_read).is_err());
             std::fs::create_dir(&restricted)?;
             system::restrict(&restricted, users_read)?;
-            let acl = |folder: &Path| -> Result<String> {
-                let (code, output) = system::run(
-                    &system::system32("icacls.exe"),
-                    &[&folder.display().to_string()],
-                    Duration::from_secs(10),
-                )?;
-                assert_eq!(code, 0, "{output}");
-                // icacls aligns its lines with the folder's name.
-                let output = output.replace(&folder.display().to_string(), "");
-                Ok(output.split_whitespace().collect::<Vec<_>>().join(" "))
-            };
             assert_eq!(acl(&created)?, acl(&restricted)?);
             system::trusted_tree(&created, &[])?;
         }

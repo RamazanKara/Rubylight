@@ -1063,38 +1063,78 @@ pub fn trusted_folder(folder: &Path) -> Result<()> {
 /// its permissions back, and anyone they let write can plant settings. A
 /// missing `folder` is an error. Of each folder in `opaque` (which the host
 /// lets users write into and checks itself) only the folder is checked.
-/// Entries setup may not read count as untrusted too.
+/// Entries setup may not read count as untrusted too. An entry removed
+/// after its folder was listed (the running host replaces its files) is
+/// skipped: nothing of it is left, and only the trusted can add to a folder
+/// that passed.
 pub fn trusted_tree(folder: &Path, opaque: &[PathBuf]) -> Result<()> {
-    use std::os::windows::fs::MetadataExt;
     let mut pending = vec![folder.to_path_buf()];
     while let Some(path) = pending.pop() {
-        let metadata = std::fs::symlink_metadata(&path)?;
-        if metadata.file_attributes() & 0x400 != 0 {
-            return Err(Untrusted(format!("{} is a reparse point", path.display())).into());
+        match trusted_entry(&path, opaque) {
+            Ok(entries) => pending.extend(entries),
+            Err(error) if path != folder && vanished(&path, &error) => {}
+            Err(error) => return Err(error),
         }
-        let checked = trusted_owner(&path, false)
-            .and_then(|()| other_writer(&path))
-            .and_then(|writer| match writer {
-                Some(writer) => Err(Untrusted(format!(
-                    "{} may be changed by {writer}, not only Administrators, SYSTEM or TrustedInstaller",
-                    path.display()
-                ))
-                .into()),
-                None => Ok(()),
-            });
-        let entries = match checked {
-            Ok(()) if metadata.is_dir() && !opaque.contains(&path) => std::fs::read_dir(&path)
-                .and_then(|entries| {
-                    entries
-                        .map(|entry| entry.map(|entry| entry.path()))
-                        .collect::<std::io::Result<Vec<_>>>()
-                }),
-            Ok(()) => Ok(Vec::new()),
-            Err(error) => return Err(denied_is_untrusted(error, &path)),
-        };
-        pending.extend(entries.map_err(|error| denied_is_untrusted(error.into(), &path))?);
     }
     Ok(())
+}
+/// One entry of [`trusted_tree`] checked, returning the entries in it to
+/// check next.
+fn trusted_entry(path: &Path, opaque: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    use std::os::windows::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_attributes() & 0x400 != 0 {
+        return Err(Untrusted(format!("{} is a reparse point", path.display())).into());
+    }
+    let checked = trusted_owner(path, false)
+        .and_then(|()| other_writer(path))
+        .and_then(|writer| match writer {
+            Some(writer) => Err(Untrusted(format!(
+                "{} may be changed by {writer}, not only Administrators, SYSTEM or TrustedInstaller",
+                path.display()
+            ))
+            .into()),
+            None => Ok(()),
+        });
+    match checked {
+        Ok(()) if metadata.is_dir() && !listed(path, opaque) => std::fs::read_dir(path)
+            .and_then(|entries| {
+                entries
+                    .map(|entry| entry.map(|entry| entry.path()))
+                    .collect::<std::io::Result<Vec<_>>>()
+            })
+            .map_err(|error| denied_is_untrusted(error.into(), path)),
+        Ok(()) => Ok(Vec::new()),
+        Err(error) => Err(denied_is_untrusted(error, path)),
+    }
+}
+/// Whether `path` is one of `folders`, by name as Windows compares them.
+fn listed(path: &Path, folders: &[PathBuf]) -> bool {
+    folders
+        .iter()
+        .any(|folder| folder.as_os_str().eq_ignore_ascii_case(path.as_os_str()))
+}
+/// Whether `error`, about `path`, came from `path` being gone, which it
+/// still is: not-found alone may also come from a path too long for the
+/// calls that read permissions.
+fn vanished(path: &Path, error: &anyhow::Error) -> bool {
+    not_found(error)
+        && std::fs::symlink_metadata(path)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+}
+fn not_found(error: &anyhow::Error) -> bool {
+    use windows::Win32::Foundation::ERROR_PATH_NOT_FOUND;
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+            || cause
+                .downcast_ref::<windows::core::Error>()
+                .is_some_and(|e| {
+                    e.code() == ERROR_FILE_NOT_FOUND.to_hresult()
+                        || e.code() == ERROR_PATH_NOT_FOUND.to_hresult()
+                })
+    })
 }
 /// An entry setup may not read: whoever owns it denied Administrators.
 fn denied_is_untrusted(error: anyhow::Error, path: &Path) -> anyhow::Error {
@@ -1454,6 +1494,10 @@ unsafe fn lookup_account(account: PSID) -> Result<(String, String)> {
     ))
 }
 pub fn no_reparse_points(folder: &Path) -> Result<()> {
+    no_reparse_points_except(folder, &[])
+}
+/// [`no_reparse_points`], looking at each folder in `opaque` but not into it.
+fn no_reparse_points_except(folder: &Path, opaque: &[PathBuf]) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
     let mut pending = vec![folder.to_path_buf()];
     while let Some(path) = pending.pop() {
@@ -1461,7 +1505,7 @@ pub fn no_reparse_points(folder: &Path) -> Result<()> {
         if metadata.file_attributes() & 0x400 != 0 {
             return Err(Untrusted(format!("{} is a reparse point", path.display())).into());
         }
-        if metadata.is_dir() {
+        if metadata.is_dir() && !listed(&path, opaque) {
             for entry in std::fs::read_dir(&path)? {
                 pending.push(entry?.path());
             }
@@ -1472,7 +1516,15 @@ pub fn no_reparse_points(folder: &Path) -> Result<()> {
 /// Limit a folder to SYSTEM and Administrators (and, if `users_read`, read
 /// access for users), replacing the owner and the entire permission list.
 pub fn restrict(folder: &Path, users_read: bool) -> Result<()> {
-    no_reparse_points(folder)?;
+    restrict_except(folder, users_read, &[])
+}
+/// [`restrict`] for a folder holding the folders in `opaque`, which the host
+/// lets users write into: links in them are no error, only a link in their
+/// place. The new permissions reach no further than a folder with its own,
+/// as the host gives these, and Windows carries them through no link either
+/// (measured on Windows 11 with junctions and folder symbolic links).
+pub fn restrict_except(folder: &Path, users_read: bool, opaque: &[PathBuf]) -> Result<()> {
+    no_reparse_points_except(folder, opaque)?;
     use windows::Win32::{
         Foundation::{HLOCAL, LocalFree},
         Security::{Authorization::*, *},
@@ -1547,41 +1599,52 @@ pub fn create_restricted(folder: &Path, users_read: bool) -> Result<()> {
         result.with_context(|| format!("creating {}", folder.display()))
     }
 }
-/// Reset a folder's contents to inherit the folder's permissions.
-pub fn inherit_contents(folder: &Path) -> Result<()> {
-    no_reparse_points(folder)?;
-    if std::fs::read_dir(folder)?.next().is_none() {
+/// Reset a folder's contents to inherit the folder's permissions and belong
+/// to Administrators, except the folders in `opaque` directly in it, which
+/// keep their own and so does everything in them.
+pub fn inherit_contents(folder: &Path, opaque: &[PathBuf]) -> Result<()> {
+    no_reparse_points_except(folder, opaque)?;
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(folder)? {
+        let entry = entry?;
+        if !listed(&entry.path(), opaque) {
+            entries.push((entry.path(), entry.file_type()?.is_dir()));
+        }
+    }
+    if entries.is_empty() {
         return Ok(());
     }
-    let pattern = folder.join("*").display().to_string();
-    let (code, _) = run(
-        &system32("icacls.exe"),
-        &[&pattern, "/reset", "/T", "/C", "/L", "/Q"],
-        Duration::from_secs(300),
-    )?;
-    ensure!(
-        code == 0,
-        "resetting permissions on {} failed ({code})",
-        folder.display()
-    );
-    let (code, _) = run(
-        &system32("icacls.exe"),
-        &[
-            &pattern,
-            "/setowner",
-            "*S-1-5-32-544",
-            "/T",
-            "/C",
-            "/L",
-            "/Q",
-        ],
-        Duration::from_secs(300),
-    )?;
-    ensure!(
-        code == 0,
-        "setting ownership on {} failed ({code})",
-        folder.display()
-    );
+    // Everything in one pass, unless something may be kept, even one made
+    // only after the listing: then each entry on its own, recursing only
+    // into folders, as icacls looks for a file's name in every folder below
+    // it too.
+    let targets = if opaque.is_empty() {
+        vec![(folder.join("*"), true)]
+    } else {
+        entries
+    };
+    // Each change on every entry, as icacls goes on past a file it can't
+    // change (/C).
+    let mut failures = Vec::new();
+    for (target, recurse) in targets {
+        let target = target.display().to_string();
+        for (change, failed) in [
+            (&["/reset"][..], "resetting permissions on"),
+            (&["/setowner", "*S-1-5-32-544"][..], "setting ownership on"),
+        ] {
+            let mut args = vec![target.as_str()];
+            args.extend(change);
+            if recurse {
+                args.push("/T");
+            }
+            args.extend(["/C", "/L", "/Q"]);
+            let (code, _) = run(&system32("icacls.exe"), &args, Duration::from_secs(300))?;
+            if code != 0 {
+                failures.push(format!("{failed} {target} failed ({code})"));
+            }
+        }
+    }
+    ensure!(failures.is_empty(), "{}", failures.join("; "));
     Ok(())
 }
 pub fn shortcut(link: &Path, target: &Path, description: &str) -> Result<()> {
@@ -1676,6 +1739,55 @@ mod tests {
             Duration::from_secs(10),
         )?;
         assert_eq!(code, 0, "{output}");
+        Ok(())
+    }
+    #[test]
+    fn an_entry_removed_during_the_tree_check_is_told_from_other_errors() -> Result<()> {
+        // An update checks the whole profile while the host runs and
+        // replaces its files: one gone since its folder was listed must not
+        // fail the update.
+        let temp = tempfile::tempdir()?;
+        let gone = temp.path().join("gone");
+        for error in [
+            anyhow::Error::from(std::fs::symlink_metadata(&gone).unwrap_err()),
+            std::fs::read_dir(&gone).unwrap_err().into(),
+            trusted_owner(&gone, false).unwrap_err(),
+            other_writer(&gone).unwrap_err(),
+        ] {
+            assert!(vanished(&gone, &error), "{error:#}");
+        }
+        let child = gone.join("child");
+        assert!(vanished(&child, &trusted_owner(&child, false).unwrap_err()));
+        assert!(!vanished(&gone, &Untrusted("planted".into()).into()));
+        // Not-found about an entry that is still there (a path too long for
+        // the permission calls) is no reason to skip it.
+        std::fs::create_dir(temp.path().join("there"))?;
+        let not_found_error =
+            || anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::NotFound));
+        assert!(!vanished(&temp.path().join("there"), &not_found_error()));
+        // Those calls read a link itself, not what it leads to (measured on
+        // Windows 11): an entry its owner swaps for a junction to nowhere
+        // after it was looked at is still read as theirs, never not found.
+        let swapped = temp.path().join("swapped");
+        let (code, output) = run(
+            &system32("cmd.exe"),
+            &[
+                "/c",
+                "mklink",
+                "/J",
+                &swapped.display().to_string(),
+                &gone.display().to_string(),
+            ],
+            Duration::from_secs(10),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        if let Err(error) = trusted_owner(&swapped, false) {
+            assert!(!not_found(&error), "{error:#}");
+        }
+        other_writer(&swapped)?;
+        assert!(!vanished(&swapped, &not_found_error()));
+        // The folder checked must be there.
+        assert!(trusted_tree(&gone, &[]).is_err());
         Ok(())
     }
     #[test]
@@ -1842,7 +1954,7 @@ mod tests {
         }
         assert!(trusted_folder(&folder).is_err());
         restrict(&folder, false)?;
-        inherit_contents(&folder)?;
+        inherit_contents(&folder, &[])?;
         trusted_folder(&folder)?;
         trusted_folder(&child)?;
         for path in [&folder, &child] {

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="56" viewBox="0 0 280 56" role="img" aria-label="Download Rubylight for Windows">
+  <defs>
+    <linearGradient id="fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e0245e"/>
+      <stop offset="1" stop-color="#a80f3c"/>
+    </linearGradient>
+  </defs>
+  <rect width="280" height="56" rx="10" fill="url(#fill)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M29 16v17m-6.5-6.5 6.5 6.5 6.5-6.5M20 35v5h18v-5"/>
+  </g>
+  <text x="54" y="26" fill="#ffffff" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="700">Download Rubylight</text>
+  <text x="54" y="43" fill="#ffe3ea" font-family="Segoe UI,Arial,sans-serif" font-size="12" letter-spacing="0.6">FOR WINDOWS · AMD RADEON</text>
+</svg>

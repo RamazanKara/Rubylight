@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [How compute works](architecture.md) · [Troubleshooting](troubleshooting.md) · [Full measurement record](../rust/PERFORMANCE.md)
 
-Rubylight's performance work targets fresh pictures and low picture age, especially when the GPU is busy. Everything here was measured on an RX 7900 XT unless a row names another device. Each section is dated and names the build it measured; later builds can differ. The [3.0 results](#30-results) come first, then the earlier full-stream and component tests that show where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) keeps its original builds and results.
+Rubylight's performance work targets fresh pictures and low picture age, particularly while the GPU is busy with a game. This page summarises the measurements; the [measurement record](../rust/PERFORMANCE.md) holds every run in full. All figures were measured on an RX 7900 XT unless a row names another device. Each section is dated and names the build it measured; later builds can differ. The [3.0 results](#30-results) come first, followed by earlier full-stream and component tests that show where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) keeps its original builds and results.
 
 **On this page:** [3.0 results](#30-results) · [2.5.0 comparisons](#october-17-250-comparisons) · [Metrics](#what-the-numbers-mean) · [Host latency between hosts](#comparing-host-latency-between-hosts) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
 
@@ -56,10 +56,10 @@ The [full settings, results and limitations](../rust/PERFORMANCE.md#october-17-f
 | Metric | What it measures |
 | --- | --- |
 | **Render-to-decode delay / picture age** | Time from a timestamped rendered picture through independent decoding and readback. The matched host comparisons use loopback on the same PC, so they include composition, capture, encoding and client decoding, but exclude remote network transit and display time. |
-| **Render-to-received** | Read the fixture's arrival boundary: the October 12 hardware receiver estimates completed frame assembly/enqueue, excluding decoder-queue waiting and decoding. The historical October 8 method below describes arrival at decode start. Both include network transit and clock-mapping uncertainty; neither measures display latency. Do not compare their absolute values with render-to-decode measurements. |
+| **Render-to-received** | Ends at the fixture's arrival boundary: the October 12 hardware receiver estimates completed frame assembly/enqueue, excluding decoder-queue waiting and decoding. The historical October 8 method below describes arrival at decode start. Both include network transit and clock-mapping uncertainty; neither measures display latency. Do not compare their absolute values with render-to-decode measurements. |
 | **95th / 99th percentile (p95 / p99)** | The slower end of the sample: 95% / 99% of observations are at or below this delay. The matched host-comparison table averages the per-run metrics rather than pooling samples. |
 | **Fresh pictures per second** | Distinct pictures received, counted from changing picture IDs. Repeated frames do not increase this count. |
-| **Encoder time** | Read the probe's timer boundaries. In the native AMF stream, the timer starts before capacity checking and GPU conversion submission, and ends when `QueryOutput` returns the matching encoded frame. Pending capture-copy and conversion dependencies are included; this is not hardware compression time alone. |
+| **Encoder time** | Bounded by the probe's timer. In the native AMF stream, the timer starts before capacity checking and GPU conversion submission, and ends when `QueryOutput` returns the matching encoded frame. Pending capture-copy and conversion dependencies are included; this is not hardware compression time alone. |
 | **Present to sent** (console; `present_to_sent_ms` in the `stream timings` log line) | New pictures, from the capture's present stamp to the last packet handed to the socket, with the stages in between. It includes the capture, the wait for the claim and the send that Moonlight's host latency leaves out. Static repeats have no present and are not counted. See [Comparing host latency between hosts](#comparing-host-latency-between-hosts). |
 | **`host_mean_ms`, `host_p95_ms`, `host_p99_ms`, `host_max_ms`** | The duration reported in Moonlight's frame header; the session API calls these `host_processing_*`. It runs from the capture/encode loop tick that produces the output to entry into packetization. Output polled asynchronously uses that poll's tick, not the original frame's submission. Packetizer backlog is included; prepared-packet queueing, packet pacing and sending are excluded. The wire value truncates to 0.1 ms and saturates at 6553.5 ms. The API keeps microsecond precision. Measurements from 2.4.7 and earlier used a different span: from the original claim to the combined packetizer/sender dequeue, including its queue. |
 | **Send queue** (`stages.send_queue`; `stage_send_queue_ms` in the log) | From completed packetization through the first socket send. It includes the prepared packets' wait for the sender and its initial pacing wait. Conventional threaded output reports this separately; inline output has no separate send queue. **Present to sent** still includes all of it. |
@@ -167,7 +167,7 @@ Official **Moonlight 6.2.0** completed two **165-second 1080p60 HEVC SDR session
 
 ### Results
 
-Picture age, average / p95 / p99. Host processing is shown separately and is not the basis for the percentage improvement: the implementations' host counters do not cover exactly the same work. The comparison isolates the hosts from a remote network, but includes the local client's decoding. Rubylight's current default capture is WGC; these tests deliberately use DDX for both hosts.
+Picture age, average / p95 / p99. Host processing is shown separately and is not the basis for the percentage improvement: the implementations' host counters do not cover exactly the same work. The comparison isolates the hosts from a remote network, but includes the local client's decoding. Rubylight's automatic capture now uses direct driver push on its own virtual displays and WGC on other displays; these tests deliberately used DDX on both hosts.
 
 | | Rubylight rc.24 | Vibepollo 2.0 |
 | --- | ---: | ---: |
@@ -183,7 +183,7 @@ At 1968×2184, average picture age was 1.5–2.2 ms lower without the load and *
 
 ### Earlier stress comparison
 
-An earlier whole-host comparison on October 4 showed the same pattern at a heavier load. It used **Vibepollo 2.0** and an early Rubylight build with the same settings: native AMF at ultra-low latency, DDX and realtime GPU priority on both. 1080p60 HEVC HDR, 20 Mbps requested, controlled GPU load; arithmetic means of three alternating runs per host on October 4, 2026.
+An earlier whole-host comparison on October 4 showed the same pattern at a heavier load. It used **Vibepollo 2.0** and Rubylight 2.0.0-rc.2 with the same settings: native AMF at ultra-low latency, DDX and realtime GPU priority on both. 1080p60 HEVC HDR, 20 Mbps requested, controlled GPU load; arithmetic means of three alternating runs per host on October 4, 2026.
 
 | Under controlled GPU load | Vibepollo 2.0 | Rubylight |
 | --- | ---: | ---: |
@@ -192,7 +192,7 @@ An earlier whole-host comparison on October 4 showed the same pattern at a heavi
 | Fresh pictures per second | 23.9 | **51.4** |
 | Game frame rate beside the host | 176.7–177.4 fps | 173.8–174.9 fps |
 
-The idle comparison measured 16.0 ms versus 13.8 ms. Most of the loaded gap is not the compute path: with compute off, Rubylight still delivered about 57 fresh pictures a second beside the same load in an earlier batch, and the [same-build comparison](#isolating-radeon-compute) puts the compute gain at 7.5 ms. Vibepollo handed its native AMF encoder about 24 frames a second, and the encoder logged that its output had not caught up. That encoder came from Rubylight's author ([Vibepollo #342](https://github.com/Nonary/Vibepollo/pull/342)).
+The idle comparison measured 16.0 ms versus 13.8 ms. Most of the loaded gap is not the compute path: with compute off, Rubylight still delivered about 57 fresh pictures a second beside the same load in an earlier batch, and the [same-build comparison](#isolating-radeon-compute) puts the compute gain at 7.5 ms. Vibepollo handed its native AMF encoder about 24 frames a second, and the encoder logged that its output had not caught up. Rubylight's author contributed that encoder to Vibepollo ([Vibepollo #342](https://github.com/Nonary/Vibepollo/pull/342)).
 
 [Baseline revision, workload and recorded runs →](../rust/PERFORMANCE.md#against-vibepollo-20)
 
@@ -268,9 +268,9 @@ Smaller changes take a few tens of microseconds off every input packet (the netw
 
 ## WGC capture and pacing
 
-Automatic capture prefers WGC and supported Radeon streams use compute by default. Guarded source-phase pacing waits for a predicted fresh update when the capture history supports it.
+**Automatic** capture uses direct driver push on Rubylight's virtual displays and WGC on other displays, and supported Radeon streams use compute by default. Guarded source-phase pacing waits for a predicted fresh update when the capture history supports it.
 
-In the earlier controlled local 720p60 AV1 comparison, guarded pacing delivered **59.862–60.000 fresh pictures/s**, versus **57.650**, and reduced estimated source-presentation-to-software-decode age by about **3.8 ms on average**. The default-path SDR check recorded **59.999 fresh pictures/s**.
+In an earlier controlled local 720p60 AV1 comparison, guarded pacing delivered **59.862–60.000 fresh pictures/s**, versus **57.650**, and reduced estimated source-presentation-to-software-decode age by about **3.8 ms on average**. The default-path SDR check recorded **59.999 fresh pictures/s**.
 
 These WGC results use a different fixture from the DDX comparisons above. The full record includes slower sources, 120 FPS operation, helper recovery and GPU saturation.
 

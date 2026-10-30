@@ -136,6 +136,6 @@ Each of these needs a permission you grant the device; pairing never grants them
 
 ## Clients
 
-Rubylight implements the Moonlight protocol, so Moonlight and other Sunshine-compatible clients work with it on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, consoles and handhelds. H.264, HEVC and AV1 stream in SDR and HDR wherever the device decodes them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar), which also uses the native API and runs on Android, Android TV, Windows and Linux ([releases](https://github.com/RamazanKara/nightjar/releases)). The [hardware matrix](hardware-matrix.md#4-clients) lists the clients we have tested.
+Rubylight implements the Moonlight protocol, so Moonlight and other Sunshine-compatible clients work with it on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, consoles and handhelds. H.264, HEVC and AV1 stream in SDR and HDR wherever the device decodes them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar), which also uses the native API and runs on Android, Android TV, Windows and Linux ([releases](https://github.com/RamazanKara/nightjar/releases)). The [hardware matrix](hardware-matrix.md#4-clients) lists the clients that have been tested.
 
 To choose a stream format, see [Getting started](getting-started.md#choose-your-stream-format).

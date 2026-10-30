@@ -397,7 +397,7 @@ pub fn open(launcher: &mut Launcher, identity: Option<&Arc<ClientIdentity>>, hos
         return;
     }
     let client = match identity {
-        Some(identity) => client_for(identity, &host.record, &host.record.address),
+        Some(identity) => client_for(identity, &host.record, host.connect_address()),
         None => Err(tr("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned()),
     };
     match client {

@@ -8,6 +8,7 @@
     <string name="stream_auto_bitrate_unavailable">PC này không báo cáo tốc độ bit của stream. “Thiết bị điều khiển tốc độ bit” bị tắt cho stream này.</string>
     <string name="stream_auto_bitrate_status">Thiết bị điều khiển tốc độ bit: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Máy chủ đang bận. Hãy thử lại sau giây lát.</string>
+    <string name="stream_host_abr_failed">PC không bật tốc độ bit tự động: %1$s</string>
     <string name="title_auto_bitrate">Thiết bị điều khiển tốc độ bit</string>
     <string name="dialog_auto_bitrate">Giảm tốc độ bit khi kết nối hoặc thiết bị không theo kịp, rồi tăng lại khi ổn định. Không bao giờ vượt quá tốc độ bit của stream. Đây là mặc định cho mọi PC; menu stream có thể đổi riêng cho một PC.</string>
 </resources>

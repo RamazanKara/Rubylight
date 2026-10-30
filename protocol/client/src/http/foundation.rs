@@ -228,6 +228,12 @@ impl HostClient {
         self.foundation_json("api/abr/feedback", Some(&body), ABR_TIMEOUT)
     }
 
+    /// What the PC's bandwidth test takes. 404 on other hosts: the test is offered only where
+    /// this answers with a probe this device can run ([`NetworkCapabilities::probe_bytes`]).
+    pub fn network_capabilities(&self) -> Result<NetworkCapabilities, Error> {
+        self.foundation_json("api/network/capabilities", None, ABR_TIMEOUT)
+    }
+
     /// Foundation's bandwidth test, between streams only (the PC answers 409 during one): four
     /// capability requests for the answer time, then one download of up to 4 MiB.
     pub fn foundation_network_probe(&self) -> Result<NetworkProbeResult, Error> {
@@ -235,7 +241,7 @@ impl HostClient {
         let mut capabilities: Option<NetworkCapabilities> = None;
         for _ in 0..4 {
             let started = Instant::now();
-            let answer: NetworkCapabilities = self.foundation_json("api/network/capabilities", None, ABR_TIMEOUT)?;
+            let answer = self.network_capabilities()?;
             samples.push(started.elapsed().as_secs_f64() * 1000.0);
             capabilities.get_or_insert(answer);
         }

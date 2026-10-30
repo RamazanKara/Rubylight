@@ -172,6 +172,15 @@ fn restore(directory: &Path, owned: &mut Option<(PathBuf, crate::process::Proces
     }
     Ok(())
 }
+/// Whether a stream that ends up with no limiter provider is a fault worth a
+/// warning in the host log: the user asked for a cap (`frame_limiter_enable`,
+/// or RTSS by name) or a provider failed. `frame_limiter_provider = none`
+/// turns limiting off on purpose, and the automatic virtual-display cap on a
+/// host without RTSS simply stays off; both are quiet, as the console's
+/// warning ([`limiter_warning`]) already is.
+fn missing_provider_is_a_fault(explicit: bool, provider: Provider, error: &str) -> bool {
+    provider != Provider::None && (explicit || provider == Provider::Rtss || !error.is_empty())
+}
 /// `explicit`: the user asked for a cap ("Limit every stream" or a named
 /// provider), rather than the automatic virtual-display limit, which simply
 /// stays off on a host without RTSS.
@@ -308,7 +317,15 @@ impl Lease {
             }
         }
         if state.active == "none" && policy.enabled {
-            tracing::warn!(provider = policy.provider.name(), rtss_root = %root.display(), rtss_available = rtss::available(&root), error = %state.message, "frame limiter has no available provider");
+            if missing_provider_is_a_fault(
+                config.boolean("frame_limiter_enable", false),
+                policy.provider,
+                &state.message,
+            ) {
+                tracing::warn!(provider = policy.provider.name(), rtss_root = %root.display(), rtss_available = rtss::available(&root), error = %state.message, "frame limiter has no available provider");
+            } else {
+                tracing::debug!(provider = policy.provider.name(), rtss_root = %root.display(), rtss_available = rtss::available(&root), "frame limiter stays off: no provider was asked for or is available");
+            }
         }
         state.users = 1;
         Ok(Self)
@@ -380,6 +397,24 @@ mod tests {
         assert!(load(&directory).unwrap().nvidia.is_empty());
         assert!(take_stale_nvidia(&directory).is_none());
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    /// A stream to a virtual display with `frame_limiter_provider = none` used
+    /// to warn "frame limiter has no available provider" at every launch,
+    /// although limiting was turned off on purpose.
+    #[test]
+    fn a_missing_provider_is_a_fault_only_when_a_cap_was_asked_for() {
+        assert!(!missing_provider_is_a_fault(false, Provider::None, ""));
+        assert!(!missing_provider_is_a_fault(true, Provider::None, ""));
+        // The automatic virtual-display cap on a host without RTSS.
+        assert!(!missing_provider_is_a_fault(false, Provider::Auto, ""));
+        assert!(missing_provider_is_a_fault(true, Provider::Auto, ""));
+        assert!(missing_provider_is_a_fault(false, Provider::Rtss, ""));
+        assert!(missing_provider_is_a_fault(
+            false,
+            Provider::Auto,
+            "RTSS did not confirm"
+        ));
     }
 
     #[test]

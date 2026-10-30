@@ -235,10 +235,11 @@ or no window at all, with the last error from its `crashlog.txt` if it wrote
 one (in the user's own copy, read as the user). A click that comes while Nucleus
 Co-op still builds its setup screen fails with "The profile can't be loaded",
 a box that blocks its window until someone closes it. So after the click,
-until a game instance runs, the host closes a box like that (logging it) and
-clicks the profile again every 5 seconds while Nucleus Co-op still lists it;
-when every click ends in such a box, the start fails saying how many were
-closed.
+until a game instance runs, the host closes a box like that (logging what it
+says) and clicks the profile again every 5 seconds while Nucleus Co-op still
+lists it and shows no message box. Once Nucleus Co-op hides the list to play
+the profile, it is never clicked again. When the last click ends in such a box,
+the start fails saying so.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A

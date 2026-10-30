@@ -138,6 +138,8 @@ fn class_of(window: HWND) -> Option<String> {
 
 /// The class of a dialog, which a message box is.
 const DIALOG_CLASS: &str = "#32770";
+/// How the class of a WinForms window starts (`WindowsForms10.Window.8.app...`).
+const FORM_CLASS: &str = "WindowsForms10.";
 
 /// The visible descendants of `parent`.
 fn children(parent: HWND) -> Vec<HWND> {
@@ -350,26 +352,50 @@ impl Desktop for Win32 {
         }
         Ok(found)
     }
-    fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<u64>> {
+    fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
+        use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
         crate::input::follow_input_desktop();
         let mut closed = Vec::new();
         for window in top_level(Some(processes))? {
             let form = hwnd(window.id);
-            if !window.visible || !window.owned || class_of(form).as_deref() == Some(DIALOG_CLASS) {
+            // A native owned window (a tooltip, a message box) is no form.
+            if !window.visible
+                || !window.owned
+                || !class_of(form).is_some_and(|class| class.starts_with(FORM_CLASS))
+            {
                 continue;
             }
+            // ShowDialog disables every other window of its thread: the
+            // owner, the forms open beside it and a modal form below it.
+            // Only the one it shows stays enabled.
             // SAFETY: plain queries of window handles; one that closed meanwhile answers null or
-            // false, and posting never waits for the owner's message loop.
-            unsafe {
+            // false.
+            let modal = unsafe {
                 let owner = GetWindow(form, GW_OWNER).unwrap_or_default();
-                if owner.is_invalid()
-                    || windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(owner).as_bool()
-                {
-                    continue;
-                }
-                PostMessageW(Some(form), WM_CLOSE, WPARAM(0), LPARAM(0))?;
+                !owner.is_invalid()
+                    && !IsWindowEnabled(owner).as_bool()
+                    && IsWindowEnabled(form).as_bool()
+            };
+            if !modal {
+                continue;
             }
-            closed.push(window.id);
+            let text: Vec<String> = children(form)
+                .into_iter()
+                .filter_map(text_of)
+                .filter(|text| !text.trim().is_empty())
+                .collect();
+            let shown = MessageBox {
+                window: window.id,
+                caption: text_of(form).unwrap_or_default(),
+                text: text.join(" "),
+            };
+            // SAFETY: posting never waits for the form's message loop.
+            match unsafe { PostMessageW(Some(form), WM_CLOSE, WPARAM(0), LPARAM(0)) } {
+                Ok(()) => closed.push(shown),
+                // It closed since it was listed.
+                Err(error) if error.code() == ERROR_INVALID_WINDOW_HANDLE.to_hresult() => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         Ok(closed)
     }
@@ -502,24 +528,78 @@ mod tests {
         drop(made);
         assert_eq!(new(&mut desktop), []);
 
-        // A form shown with ShowDialog: owned by the window it disabled,
-        // which is closed. A message box over that window, and a window
-        // whose owner is enabled, are left alone.
+        // A form shown with ShowDialog: the enabled form owned by the window
+        // it disabled, which is closed with what it says. ShowDialog
+        // disables the thread's other windows too: a form open beside it
+        // and the modal form below a nested one are left alone, as are a
+        // native window over the disabled one (a tooltip, a message box)
+        // and a form whose owner is enabled.
+        unsafe extern "system" fn plain(
+            window: HWND,
+            message: u32,
+            w: WPARAM,
+            l: LPARAM,
+        ) -> LRESULT {
+            // SAFETY: the message as Windows passed it.
+            unsafe { DefWindowProcW(window, message, w, l) }
+        }
+        let class = "WindowsForms10.Window.8.app.rubylight-test";
+        let name = windows::core::HSTRING::from(class);
+        let registered = WNDCLASSW {
+            lpfnWndProc: Some(plain),
+            lpszClassName: windows::core::PCWSTR(name.as_ptr()),
+            ..Default::default()
+        };
+        // SAFETY: the class name outlives the call; a second registration fails harmlessly.
+        unsafe { RegisterClassW(&registered) };
+        let disable = |window: HWND| {
+            // SAFETY: a window this thread made.
+            let _ =
+                unsafe { windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(window, false) };
+        };
         let mut made = Made(Vec::new());
         let popup = WS_POPUP | WS_VISIBLE;
-        let owner = make("Static", "owner", hidden, popup, None);
+        let owner = make(class, "Nucleus Co-op", hidden, popup, None);
         made.0.push(owner);
-        let form = make("Static", "form", hidden, popup, Some(owner));
+        let form = make(class, "", hidden, popup, Some(owner));
         made.0.push(form);
+        made.0.push(make(
+            "Static",
+            "The profile can't be loaded.",
+            Default::default(),
+            WS_CHILD | WS_VISIBLE,
+            Some(form),
+        ));
+        let beside = make(class, "beside", hidden, popup, Some(owner));
+        made.0.push(beside);
+        made.0
+            .push(make("Static", "tooltip", hidden, popup, Some(owner)));
         made.0
             .push(make(DIALOG_CLASS, "box", hidden, popup, Some(owner)));
-        let free = make("Static", "free", hidden, popup, None);
+        let free = make(class, "free", hidden, popup, None);
         made.0.push(free);
-        made.0
-            .push(make("Static", "owned", hidden, popup, Some(free)));
+        made.0.push(make(class, "owned", hidden, popup, Some(free)));
         assert!(desktop.close_forms(&own).unwrap().is_empty());
-        // SAFETY: a window this thread made.
-        let _ = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(owner, false) };
-        assert_eq!(desktop.close_forms(&own).unwrap(), [form.0 as usize as u64]);
+        disable(owner);
+        disable(beside);
+        assert_eq!(
+            desktop.close_forms(&own).unwrap(),
+            [MessageBox {
+                window: form.0 as usize as u64,
+                caption: String::new(),
+                text: "The profile can't be loaded.".into(),
+            }]
+        );
+        // A form shown over that one: only it is.
+        let nested = make(class, "nested", hidden, popup, Some(form));
+        made.0.push(nested);
+        disable(form);
+        let closed: Vec<u64> = desktop
+            .close_forms(&own)
+            .unwrap()
+            .iter()
+            .map(|form| form.window)
+            .collect();
+        assert_eq!(closed, [nested.0 as usize as u64]);
     }
 }

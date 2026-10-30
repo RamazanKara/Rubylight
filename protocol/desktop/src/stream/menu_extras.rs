@@ -53,14 +53,17 @@ pub struct HostAudio {
     /// The switches the PC offers this device, from its native capabilities; None until read.
     offered: Option<Vec<&'static str>>,
     audio: Option<Audio>,
+    /// The PC offers switches but didn't say their state: the menu says so instead of showing none.
+    unread: bool,
     /// A read or a change is on its way.
     busy: bool,
 }
 
 /// What came back from the PC for [`HostAudio`].
 pub enum AudioAnswer {
-    /// The offered switches and, when there are any, their state.
-    Read(Result<(Vec<&'static str>, Option<Audio>), String>),
+    /// The offered switches (None when the capabilities weren't read) and, when there are any,
+    /// their state.
+    Read { offered: Option<Vec<&'static str>>, audio: Result<Option<Audio>, String> },
     Changed(Result<Audio, String>),
 }
 
@@ -114,18 +117,32 @@ impl HostAudio {
             .collect()
     }
 
+    /// The line the menu shows when the PC offers switches but their state couldn't be read.
+    pub fn problem(&self) -> Option<&'static str> {
+        self.unread.then(|| tr("The PC's audio settings could not be read"))
+    }
+
     /// Takes the PC's answer; a failed change is the text to show.
     pub fn answered(&mut self, answer: AudioAnswer) -> Result<(), String> {
         self.busy = false;
         match answer {
-            AudioAnswer::Read(Ok((offered, audio))) => {
-                self.offered = Some(offered);
-                self.audio = audio;
-            }
-            // Nothing stale stays on screen: the switches go until the next read.
-            AudioAnswer::Read(Err(error)) => {
-                eprintln!("nightjar: the PC's audio settings were not read: {error}");
-                self.audio = None;
+            AudioAnswer::Read { offered, audio } => {
+                if offered.is_some() {
+                    self.offered = offered;
+                }
+                match audio {
+                    Ok(audio) => {
+                        self.audio = audio;
+                        self.unread = false;
+                    }
+                    // Nothing stale stays on screen: the switches go until the next read, and the
+                    // menu says why when the PC offers them.
+                    Err(error) => {
+                        eprintln!("nightjar: the PC's audio settings were not read: {error}");
+                        self.audio = None;
+                        self.unread = self.offered.as_ref().is_some_and(|offered| !offered.is_empty());
+                    }
+                }
             }
             AudioAnswer::Changed(Ok(audio)) => self.audio = Some(audio),
             AudioAnswer::Changed(Err(error)) => return Err(trf("Could not change the PC's audio: {}", &[&error])),
@@ -135,16 +152,16 @@ impl HostAudio {
 }
 
 /// The switches the PC offers, read once per stream, and their state now.
-fn read_host_audio(client: &HostClient, offered: Option<Vec<&'static str>>) -> Result<(Vec<&'static str>, Option<Audio>), String> {
+fn read_host_audio(client: &HostClient, offered: Option<Vec<&'static str>>) -> AudioAnswer {
     let offered = match offered {
         Some(offered) => offered,
-        None => offered_switches(&client.native_capabilities().map_err(|e| e.to_string())?),
+        None => match client.native_capabilities() {
+            Ok(capabilities) => offered_switches(&capabilities),
+            Err(e) => return AudioAnswer::Read { offered: None, audio: Err(e.to_string()) },
+        },
     };
-    if offered.is_empty() {
-        return Ok((offered, None));
-    }
-    let audio = client.audio().map_err(|e| e.to_string())?;
-    Ok((offered, Some(audio)))
+    let audio = if offered.is_empty() { Ok(None) } else { client.audio().map(Some).map_err(|e| e.to_string()) };
+    AudioAnswer::Read { offered: Some(offered), audio }
 }
 
 impl Streaming {
@@ -163,7 +180,7 @@ impl Streaming {
         let Some(client) = self.audio_client() else { return };
         let (offered, shared) = (self.host_audio.offered.clone(), self.shared.clone());
         self.host_audio.busy = true;
-        std::thread::spawn(move || shared.notify(Notice::HostAudio(AudioAnswer::Read(read_host_audio(&client, offered)))));
+        std::thread::spawn(move || shared.notify(Notice::HostAudio(read_host_audio(&client, offered))));
     }
 
     /// Turns a switch on or off for this stream; the PC's answer sets what the menu shows.
@@ -338,13 +355,14 @@ mod tests {
 
         let mut menu = HostAudio::default();
         assert!(menu.switches().is_empty(), "nothing before the PC answered");
-        menu.answered(AudioAnswer::Read(Ok((vec![NIGHT_MODE, HEADPHONE_SURROUND], Some(audio()))))).unwrap();
+        menu.answered(read(Some(vec![NIGHT_MODE, HEADPHONE_SURROUND]), Ok(Some(audio())))).unwrap();
+        assert_eq!(menu.problem(), None);
         assert_eq!(menu.switches(), [
             Switch { id: NIGHT_MODE, on: true, enabled: true, note: None },
             Switch { id: HEADPHONE_SURROUND, on: false, enabled: true, note: Some("Applies next stream".into()) },
         ]);
         // Only what the capabilities offer, even when the answer has more.
-        menu.answered(AudioAnswer::Read(Ok((vec![NIGHT_MODE], Some(audio()))))).unwrap();
+        menu.answered(read(Some(vec![NIGHT_MODE]), Ok(Some(audio())))).unwrap();
         assert_eq!(menu.switches().iter().map(|s| s.id).collect::<Vec<_>>(), [NIGHT_MODE]);
         // A stream that has ended is unavailable: shown, not changeable.
         let mut ended = audio();
@@ -352,10 +370,38 @@ mod tests {
         ended.settings[0].value = None;
         menu.answered(AudioAnswer::Changed(Ok(ended))).unwrap();
         assert_eq!(menu.switches()[0], Switch { id: NIGHT_MODE, on: false, enabled: false, note: None });
-        // A failed read leaves nothing stale on screen; a failed change says so.
-        menu.answered(AudioAnswer::Read(Err("gone".into()))).unwrap();
-        assert!(menu.switches().is_empty());
+        // A failed change says so.
         assert!(menu.answered(AudioAnswer::Changed(Err("refused".into()))).unwrap_err().contains("refused"));
+    }
+
+    fn read(offered: Option<Vec<&'static str>>, audio: Result<Option<Audio>, String>) -> AudioAnswer {
+        AudioAnswer::Read { offered, audio }
+    }
+
+    #[test]
+    fn a_failed_read_says_so_in_the_menu_instead_of_showing_nothing() {
+        let mut menu = HostAudio::default();
+        menu.answered(read(Some(vec![NIGHT_MODE, HEADPHONE_SURROUND]), Ok(Some(audio())))).unwrap();
+        // The switches go, nothing stale stays, and the menu says why.
+        menu.answered(read(Some(vec![NIGHT_MODE, HEADPHONE_SURROUND]), Err("timed out".into()))).unwrap();
+        assert!(menu.switches().is_empty());
+        assert_eq!(menu.problem(), Some("The PC's audio settings could not be read"));
+        // The next read that works takes the line away.
+        menu.answered(read(Some(vec![NIGHT_MODE, HEADPHONE_SURROUND]), Ok(Some(audio())))).unwrap();
+        assert_eq!(menu.problem(), None);
+        assert_eq!(menu.switches().len(), 2);
+        // The offered switches stay known when only the capabilities failed this time.
+        menu.answered(read(None, Err("refused".into()))).unwrap();
+        assert!(menu.problem().is_some());
+
+        // A PC that offers no switches, or whose capabilities couldn't be read at all, gets no line.
+        let mut none = HostAudio::default();
+        none.answered(read(Some(Vec::new()), Ok(None))).unwrap();
+        assert_eq!(none.problem(), None);
+        let mut unknown = HostAudio::default();
+        unknown.answered(read(None, Err("refused".into()))).unwrap();
+        assert_eq!(unknown.problem(), None);
+        assert!(unknown.switches().is_empty());
     }
 
     #[test]

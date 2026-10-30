@@ -3122,6 +3122,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         dismissStreamMenuHint(true);
         // The audio switches show the host's state as it is now, so they appear once it answers.
         hostAudio = null;
+        hostAudioUnread = false;
         streamMenuSheet = new com.limelight.ui.StreamMenu(this, this::streamMenuOptions, this::onStreamMenuItem,
                 nativeMenuController());
         showStreamDialog(streamMenuSheet.sheet());
@@ -3130,6 +3131,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // Night mode and headphone surround as the host last answered, for the stream menu; null until it does. UI thread.
     private com.limelight.nativeapi.NativeAudio hostAudio;
+    // The host offers the switches but its answer didn't come: the menu says so instead of leaving them out silently.
+    private boolean hostAudioUnread;
     private boolean hostAudioBusy;
 
     private boolean offersHostAudio() {
@@ -3162,6 +3165,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void showHostAudio(com.limelight.nativeapi.NativeAudio audio, int generation) {
         if (generation != foregroundGeneration || isFinishing()) return;
         hostAudio = audio;
+        hostAudioUnread = audio == null;
         if (streamMenuSheet != null) streamMenuSheet.refresh();
     }
 
@@ -3286,6 +3290,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.nightModeOffered = conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE);
         options.headphoneSurroundOffered = conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND);
         options.hostAudio = hostAudio;
+        options.hostAudioUnread = hostAudioUnread;
         options.micButtonAvailable = micButton != null;
         options.micButtonShown = micButton != null && prefConfig.micButton;
         options.overlayShown = prefConfig.enablePerfOverlay;

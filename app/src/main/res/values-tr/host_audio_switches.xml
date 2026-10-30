@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">Kulaklık surround</string>
     <string name="stream_audio_next_stream">Sonraki yayında geçerli olur</string>
     <string name="stream_audio_failed">PC sesi değiştirilemedi: %1$s</string>
+    <string name="stream_audio_unread">Bilgisayarın ses ayarları okunamadı</string>
 </resources>

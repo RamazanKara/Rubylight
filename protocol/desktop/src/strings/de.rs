@@ -780,6 +780,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Headphone surround", "Kopfhörer-Surround"),
     ("Applies next stream", "Gilt ab dem nächsten Stream"),
     ("Could not change the PC's audio: {}", "Der Ton des PCs ließ sich nicht ändern: {}"),
+    ("The PC's audio settings could not be read", "Die Toneinstellungen des PCs ließen sich nicht lesen"),
     ("Nightjar {} is available.", "Nightjar {} ist verfügbar."),
     ("Open download page", "Downloadseite öffnen"),
     ("Not now", "Nicht jetzt"),

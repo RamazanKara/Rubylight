@@ -88,8 +88,9 @@ jobs:
     runs-on: windows-2022
     # A signed release builds without the cache and waits for a SignPath
     # approver once per request (up to three requests, an hour each). A
-    # cached run took 48 minutes in October 2026, so 50 cut one off.
-    timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 75 }}
+    # cached run took 48 minutes in October 2026, so 50 cut one off; with
+    # 3.0's merges two cached runs passed 75 minutes, still in the release build.
+    timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 120 }}
     permissions:
       contents: read
       actions: read

@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Nightjar can stream a game opened from Beacon, ES-DE, Daijisho, Pegasus or another Android launcher. Exported `.art` entries identify the paired PC and app; the launcher opens the entry with Nightjar. No PC-side export script or manually copied game IDs are needed.
+Nightjar can stream a game opened from Beacon, ES-DE, Daijisho, Pegasus or another Android launcher. Exported `.art` entries identify the paired PC and app; the launcher opens the entry with Nightjar. No PC-side export script or manually copied game IDs are needed. On Windows and Linux, launchers start Nightjar from the [command line](#windows-and-linux).
 
 ## Export and update games
 
@@ -110,6 +110,19 @@ A launcher can also target the same component with these string extras instead o
 | `AppName` | App name to resolve from the known library. |
 
 The parser is [FrontendEntry.java](../app/src/main/java/com/limelight/utils/FrontendEntry.java), export paths/commands are in [FrontendExporter.java](../app/src/main/java/com/limelight/utils/FrontendExporter.java), and intent handling is in [ShortcutTrampoline.java](../app/src/main/java/com/limelight/ShortcutTrampoline.java) and the [manifest](../app/src/main/AndroidManifest.xml).
+
+## Windows and Linux
+
+Frontends such as ES-DE, Pegasus and Playnite start a game with:
+
+```text
+nightjar --host <PC name or UUID> [--app <app name or UUID>] [--quit-on-exit]
+```
+
+- The PC must be saved and paired in Nightjar. Names match the PC's own name or the name you gave it, ignoring case.
+- Without `--app`, the PC's app list opens. A running app is resumed; a different running app is an error unless the PC asks its user itself.
+- `--quit-on-exit` closes Nightjar when the stream ends.
+- Exit codes: 0 when you cancel the start, 1 when the PC or app is unknown, ambiguous or unreachable or the stream cannot start (the reason goes to stderr and the log), and 64 for a wrong command line.
 
 ## Fix an integration
 

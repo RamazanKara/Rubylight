@@ -2,7 +2,7 @@
 
 [Documentation](index.md) · [Everything Nightjar does](features.md) · [Host feature support](PARITY-MATRIX.md)
 
-Every Nightjar feature on every Nightjar client: Android (phones, handhelds, tablets, Android TV and Fire TV) and the desktop client for Windows and Linux ([protocol/desktop](../protocol/desktop/README.md)). Both run the same Rust engine, and much of their behaviour comes from the shared `nightjar-policy` crate. Host support is the same for both clients: see [host feature support](PARITY-MATRIX.md).
+Every Nightjar feature on every Nightjar client: Android (phones, handhelds, tablets, Android TV and Fire TV) and the desktop client for Windows and Linux ([protocol/desktop](../protocol/desktop/README.md)). Both run the same streaming engine, written in Rust, and much of their behaviour comes from the shared `nightjar-policy` crate. Host support is the same for both clients: see [host feature support](PARITY-MATRIX.md).
 
 Status words:
 
@@ -12,7 +12,7 @@ Status words:
 - **Missing**: not in this client yet.
 - **N/A**: does not apply to this client.
 
-Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTek, Android 14), a Windows laptop with a Radeon 780M, and a NUC that runs the engine's command-line client on Linux. The Linux desktop client is built and tested by CI; it has not streamed on our hardware. "rc.4 *step*" marks a cell from the Rubylight 3.0.0-rc.4 hardware pass that is still open; it runs again on 3.0.0-rc.5.
+Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTek, Android 14), a Windows laptop with a Radeon 780M, and a NUC that runs the engine's command-line client on Linux. The Linux desktop client is built and tested by CI; it has not streamed on our hardware. "rc.4 *step*" names the step of the Rubylight 3.0.0-rc.4 hardware pass that a cell refers to.
 
 ## Library and PCs
 
@@ -70,7 +70,7 @@ Our hardware: a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTe
 | Device controls bitrate | Done | Partial | Partial | Desktop: an older port of the Android controller; rc.4 L1. |
 | Automatic resolution and frame rate | Done | Done | Done | |
 | Change bitrate / frame rate during a stream | Done | Done | Done | Android: rc.4 R8. Desktop: rc.4 L3. |
-| Loss-based bitrate (desktop: Client-hint bitrate) | Done | Done | Done | Off by default. |
+| Loss-based bitrate | Done | Done | Done | Off by default. |
 | Error correction choice and the loss report | Tested | Done | Tested | Retroid, 2026-10-28: Automatic asked the PC to follow, one loss report a second, none refused. Linux: the NUC's command-line client on shaped links, 2026-10-27 ([measurement](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)). Loss and recovery parity: rc.4 R9. |
 | Link test before the first bitrate | Done | Done | Tested | Off by default; it measured worse on the NUC, 2026-10-27 (same measurement). |
 | Recover interrupted streams (on by default) | Done | Done | Done | Android: rc.4 R11. Desktop: rc.4 L4. |

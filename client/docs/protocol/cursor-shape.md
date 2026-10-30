@@ -1,8 +1,8 @@
-# Host cursor shapes (protocol proposal)
+# Host cursor shapes
 
 [Documentation](../index.md) · [Host feature support](../PARITY-MATRIX.md) · [Controls](../controls.md#touch-modes)
 
-Status: proposal, version 1. Nightjar implements the client side; no host implements it yet.
+Status: version 1. Nightjar implements the client side, and Rubylight 3.0 the host side. Any host can implement it; a client checks the advertisement, never the host name.
 
 In Local cursor touch mode Nightjar draws the pointer on the phone, so it moves with no round trip to the PC. Without help from the host that pointer is always an arrow, and the PC's own cursor can still show in the video a frame or more behind it. This extension lets a host send its cursor image (arrow, I-beam, resize arrows, hand, a game's custom cursor) and whether it is visible, and leave the cursor out of the video while the client draws it.
 

@@ -342,8 +342,11 @@ pub struct OpusConfig {
     pub channel_count: u8,
     pub streams: u8,
     pub coupled_streams: u8,
-    pub mapping: [u8; 8],
+    pub mapping: [u8; MAX_CHANNELS],
 }
+
+/// The most channels a layout has: 7.1.4.
+pub const MAX_CHANNELS: usize = 12;
 
 /// The normal layout and, when the host offers one, the high-quality surround layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -353,28 +356,49 @@ pub struct OpusConfigs {
 }
 
 fn parse_opus_params(params: &str, channels: u8) -> Result<OpusConfig, RtspError> {
-    let digits: Vec<u8> = params.bytes().take(2 + channels as usize).collect();
-    if digits.len() < 2 + channels as usize || !digits.iter().all(u8::is_ascii_digit) {
-        return Err(RtspError::Malformed(format!(
-            "invalid surround-params: {params:.16}"
-        )));
+    let invalid = || RtspError::Malformed(format!("invalid surround-params: {params:.16}"));
+    // The value ends at the line's end or a space.
+    let value = params
+        .split([' ', '\r', '\n'])
+        .next()
+        .unwrap_or_default();
+    let numbers: Vec<u8> = if channels > 8 || value.contains([',', ';', ':', '|']) {
+        // Foundation Sunshine's form for 7.1.4, whose mapping reaches 11:
+        // `12,8,4,0,1,...` after the channel count. Moonlight V+ (its moonlight-common-c
+        // `parseOpusConfigFromDelimitedString`) takes any of these delimiters.
+        let mut numbers = Vec::new();
+        for part in value
+            .split([',', ';', ':', '|'])
+            .filter(|part| !part.is_empty())
+            .take(2 + channels as usize)
+        {
+            numbers.push(part.parse::<u8>().map_err(|_| invalid())?);
+        }
+        numbers
+    } else {
+        let digits: Vec<u8> = value.bytes().take(2 + channels as usize).collect();
+        if !digits.iter().all(u8::is_ascii_digit) {
+            return Err(invalid());
+        }
+        digits.iter().map(|d| d - b'0').collect()
+    };
+    if numbers.len() < 2 + channels as usize {
+        return Err(invalid());
     }
     let mut config = OpusConfig {
         sample_rate: 48000,
         channel_count: channels,
-        streams: digits[0] - b'0',
-        coupled_streams: digits[1] - b'0',
-        mapping: [0; 8],
+        streams: numbers[0],
+        coupled_streams: numbers[1],
+        mapping: [0; MAX_CHANNELS],
     };
-    for (i, d) in digits[2..].iter().enumerate() {
-        config.mapping[i] = d - b'0';
-    }
+    config.mapping[..channels as usize].copy_from_slice(&numbers[2..]);
     Ok(config)
 }
 
 /// The Opus layouts for `channels` from the DESCRIBE answer's `surround-params`.
 pub fn parse_opus_configs(sdp: &str, channels: u8) -> Result<OpusConfigs, RtspError> {
-    if channels as usize > 8 {
+    if channels as usize > MAX_CHANNELS {
         return Err(RtspError::InvalidConfig(format!(
             "invalid channel count: {channels}"
         )));
@@ -387,7 +411,7 @@ pub fn parse_opus_configs(sdp: &str, channels: u8) -> Result<OpusConfigs, RtspEr
                 channel_count: 2,
                 streams: 1,
                 coupled_streams: 1,
-                mapping: [0, 1, 0, 0, 0, 0, 0, 0],
+                mapping: [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             },
             high_quality: None,
         });
@@ -402,7 +426,22 @@ pub fn parse_opus_configs(sdp: &str, channels: u8) -> Result<OpusConfigs, RtspEr
                     channel_count: 6,
                     streams: 4,
                     coupled_streams: 2,
-                    mapping: [0, 4, 1, 5, 2, 3, 0, 0],
+                    mapping: [0, 4, 1, 5, 2, 3, 0, 0, 0, 0, 0, 0],
+                },
+                high_quality: None,
+            });
+        }
+        // Moonlight V+'s fallback for a host that sends no 7.1.4 parameters: Foundation
+        // Sunshine's layout (`audio_ext::LAYOUT_714`).
+        if channels == audio_ext::CHANNELS_714 {
+            let layout = audio_ext::LAYOUT_714;
+            return Ok(OpusConfigs {
+                normal: OpusConfig {
+                    sample_rate: 48000,
+                    channel_count: layout.channels,
+                    streams: layout.streams,
+                    coupled_streams: layout.coupled,
+                    mapping: layout.mapping,
                 },
                 high_quality: None,
             });
@@ -647,11 +686,67 @@ mod tests {
         );
         let seven = parse_opus_configs(RUBYLIGHT, 8).unwrap();
         assert_eq!((seven.normal.streams, seven.normal.coupled_streams), (5, 3));
-        assert_eq!(seven.normal.mapping, [0, 1, 4, 3, 5, 6, 7, 2]);
+        assert_eq!(seven.normal.mapping[..8], [0, 1, 4, 3, 5, 6, 7, 2]);
         let legacy = parse_opus_configs("", 6).unwrap();
         assert_eq!(legacy.normal.mapping[..6], [0, 4, 1, 5, 2, 3]);
         assert!(parse_opus_configs("", 8).is_err());
         assert!(parse_opus_configs("a=fmtp:97 surround-params=64201", 6).is_err());
+        assert!(parse_opus_configs(RUBYLIGHT, 13).is_err());
+    }
+
+    /// 7.1.4 as Foundation Sunshine and Rubylight's DESCRIBE send it, in the comma form, and
+    /// V+'s fallback when a host sends none.
+    #[test]
+    fn seven_one_four_layouts() {
+        use rubylight_protocol::audio_ext::{layout_714_lines, LAYOUT_714, LAYOUT_714_HQ};
+        let sdp = format!("{RUBYLIGHT}{}", layout_714_lines().concat());
+        let configs = parse_opus_configs(&sdp, 12).unwrap();
+        let config = |layout: rubylight_protocol::audio_ext::Layout| OpusConfig {
+            sample_rate: 48000,
+            channel_count: 12,
+            streams: layout.streams,
+            coupled_streams: layout.coupled,
+            mapping: layout.mapping,
+        };
+        assert_eq!(configs.normal, config(LAYOUT_714));
+        assert_eq!(configs.high_quality, Some(config(LAYOUT_714_HQ)));
+        assert_eq!(
+            (configs.normal.streams, configs.normal.coupled_streams),
+            (8, 4)
+        );
+        assert_eq!(
+            configs.normal.mapping,
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        );
+        // The 12-channel lines leave 5.1 and 7.1 as they were.
+        assert_eq!(
+            parse_opus_configs(&sdp, 8).unwrap(),
+            parse_opus_configs(RUBYLIGHT, 8).unwrap()
+        );
+        // A host without the lines: V+'s fallback, normal quality only.
+        let fallback = parse_opus_configs(RUBYLIGHT, 12).unwrap();
+        assert_eq!(
+            (fallback.normal, fallback.high_quality),
+            (config(LAYOUT_714), None)
+        );
+        // V+ takes ; : | too, and a delimited 7.1 line.
+        let other = parse_opus_configs(
+            "a=fmtp:97 surround-params=12;8;4;0;1;2;3;4;5;6;7;8;9;10;11\r\n",
+            12,
+        )
+        .unwrap();
+        assert_eq!(other.normal, config(LAYOUT_714));
+        let seven =
+            parse_opus_configs("a=fmtp:97 surround-params=8,5,3,0,1,4,5,6,7,2,3\r\n", 8).unwrap();
+        assert_eq!(seven.normal.mapping[..8], [0, 1, 4, 3, 5, 6, 7, 2]);
+        for bad in [
+            "a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10\r\n",
+            "a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,x\r\n",
+            "a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,256\r\n",
+            "a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10 11\r\n",
+        ] {
+            assert!(parse_opus_configs(bad, 12).is_err(), "{bad}");
+        }
     }
 
     #[test]

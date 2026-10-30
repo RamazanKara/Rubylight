@@ -83,7 +83,7 @@ impl Decoder {
         channels: u8,
         streams: u8,
         coupled: u8,
-        mapping: &[u8; 8],
+        mapping: &[u8; 12],
     ) -> Result<Self, i32> {
         let mut error = 0;
         let raw = unsafe {
@@ -104,7 +104,7 @@ impl Decoder {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn new(_: u32, _: u8, _: u8, _: u8, _: &[u8; 8]) -> Result<Self, i32> {
+    pub fn new(_: u32, _: u8, _: u8, _: u8, _: &[u8; 12]) -> Result<Self, i32> {
         Err(-1)
     }
 

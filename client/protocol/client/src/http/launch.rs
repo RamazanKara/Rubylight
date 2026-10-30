@@ -3,6 +3,7 @@
 
 use super::apps::AppRole;
 use super::capabilities::{Family, Feature, HostCapabilities};
+use super::luminance::DisplayLuminance;
 use super::transport::encode_query;
 use super::xml;
 use super::{der, Error};
@@ -111,6 +112,9 @@ pub struct LaunchRequest {
     /// Asks a Rubylight host for clipboard sync (`rlClipboardSync=1`); it offers 0x5508 on
     /// DESCRIBE when the device's clipboard permissions allow it.
     pub clipboard_sync: bool,
+    /// The display's luminance, sent at launch to hosts other than Rubylight (which gets it in
+    /// the DisplayCaps control message); `None` leaves it to the host.
+    pub display_luminance: Option<DisplayLuminance>,
 }
 
 impl Default for LaunchRequest {
@@ -144,6 +148,7 @@ impl Default for LaunchRequest {
             rate_change: false,
             confirm_replace: false,
             clipboard_sync: false,
+            display_luminance: None,
         }
     }
 }
@@ -297,6 +302,11 @@ impl LaunchRequest {
         ));
         let persist = self.role != AppRole::RemoteMonitor && self.persist_gamepads;
         q.push_str(&format!("&gcpersist={}", u8::from(persist)));
+        // The display's luminance as Moonlight V+ sends it to Sunshine-family hosts; a Rubylight
+        // host gets it in the DisplayCaps control message once the stream runs.
+        if let Some(luminance) = self.display_luminance.filter(|_| !input_only && caps.family() != Family::Rubylight) {
+            q.push_str(&luminance.query_parameters());
+        }
         if caps.family() == Family::Rubylight {
             q.push_str(&format!(
                 "&{CONFIRM_REPLACE}={}",
@@ -568,6 +578,26 @@ mod tests {
         assert_ne!(caps.family(), Family::Rubylight);
         assert_eq!(confirmed.query(&caps, false), request().query(&caps, false));
         assert!(!request().query(&caps, false).contains(CONFIRM_REPLACE));
+    }
+
+    #[test]
+    fn display_luminance_goes_to_other_hosts_at_launch_and_to_rubylight_by_control_message() {
+        let lit = LaunchRequest {
+            display_luminance: DisplayLuminance::from_display(1000.0, 0.005, 400.0, f32::NAN),
+            ..request()
+        };
+        let other = HostCapabilities::UNKNOWN;
+        assert!(lit.query(&other, false).ends_with(
+            "&gcpersist=0&minBrightness=0.005&maxBrightness=1000.0&maxAverageBrightness=400.0&corever=1"
+        ), "{}", lit.query(&other, false));
+        assert_eq!(lit.query(&rubylight(), false), request().query(&rubylight(), false));
+        let input = LaunchRequest { role: AppRole::InputOnly, ..lit.clone() };
+        assert!(!input.query(&other, false).contains("Brightness"));
+        let small = LaunchRequest { small_stream_input_only: true, ..input };
+        assert!(!small.query(&other, false).contains("Brightness"));
+        // Unknown luminance: nothing, and the host picks its own.
+        assert_eq!(request().query(&other, false), lit.query(&other, false).replace(
+            "&minBrightness=0.005&maxBrightness=1000.0&maxAverageBrightness=400.0", ""));
     }
 
     #[test]

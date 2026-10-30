@@ -2132,7 +2132,10 @@ fn a_damaged_record_is_never_written_over() {
         exe: unconnected_drive().join(r"Games\Away\Away.exe"),
         uuid: None,
     };
-    let error = format!("{:#}", record_pending(h, &[away.clone()]).unwrap_err());
+    let error = format!(
+        "{:#}",
+        record_pending(h, std::slice::from_ref(&away)).unwrap_err()
+    );
     assert!(error.contains("pending removals are damaged"), "{error}");
     clear_pending(h, &away.exe);
     try_pending(h, std::slice::from_ref(&away));

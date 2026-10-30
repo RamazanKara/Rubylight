@@ -270,19 +270,22 @@ mod windows_impl {
         pub picture: (i32, i32),
         pub ten_bit: bool,
         pub colorspace: SDL_Colorspace,
+        /// The picture is PQ, as the presenter decides it for every path (`present::picture_pq`).
+        pub pq: bool,
     }
 
     impl Source {
-        /// SDL's BT.2020 spaces carry the PQ transfer.
         pub fn hdr(&self) -> bool {
-            self.colorspace == SDL_COLORSPACE_BT2020_LIMITED || self.colorspace == SDL_COLORSPACE_BT2020_FULL
+            self.pq
         }
     }
 
     /// The video processor's input and output colour spaces for a picture in `space`.
-    pub fn colors(space: SDL_Colorspace, hdr_output: bool) -> (DXGI_COLOR_SPACE_TYPE, DXGI_COLOR_SPACE_TYPE) {
+    pub fn colors(space: SDL_Colorspace, pq: bool, hdr_output: bool) -> (DXGI_COLOR_SPACE_TYPE, DXGI_COLOR_SPACE_TYPE) {
         let input = match space {
-            SDL_COLORSPACE_BT2020_LIMITED | SDL_COLORSPACE_BT2020_FULL => DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020,
+            _ if pq => DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020,
+            SDL_COLORSPACE_BT2020_LIMITED => DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020,
+            SDL_COLORSPACE_BT2020_FULL => DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020,
             SDL_COLORSPACE_BT601_LIMITED => DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601,
             SDL_COLORSPACE_BT601_FULL => DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601,
             SDL_COLORSPACE_BT709_FULL => DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709,
@@ -468,7 +471,7 @@ mod windows_impl {
                 let (texture, output) = create_texture(renderer, SDL_PIXELFORMAT_ABGR2101010, SDL_TEXTUREACCESS_TARGET, key.output, space,
                     source.hdr().then_some(source.texture))?;
                 let picture = (source.picture.0 as u32, source.picture.1 as u32);
-                match Processor::new(device, &input, picture, &output, frame_rate, colors(source.colorspace, plan.hdr_output), Some((capability.engine, plan))) {
+                match Processor::new(device, &input, picture, &output, frame_rate, colors(source.colorspace, source.pq, plan.hdr_output), Some((capability.engine, plan))) {
                     Ok(processor) => Ok(Self { key, texture, pass: Pass::Processor(processor), label }),
                     Err(e) => { SDL_DestroyTexture(texture); Err(e) }
                 }
@@ -660,6 +663,17 @@ mod gpu_tests {
     }
 
     #[test]
+    fn the_video_processor_reads_pq_only_when_the_picture_is_pq() {
+        use sdl3_sys::everything::{SDL_COLORSPACE_BT2020_FULL, SDL_COLORSPACE_BT2020_LIMITED};
+        // 10-bit SDR is BT.2020 with a gamma transfer, not PQ.
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_LIMITED, false, false).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020);
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_FULL, false, false).0, DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020);
+        // A PQ picture is read as PQ whatever its VUI matrix says.
+        assert_eq!(colors(SDL_COLORSPACE_BT2020_LIMITED, true, true).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+        assert_eq!(colors(SDL_COLORSPACE_BT709_LIMITED, true, true).0, DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
+    }
+
+    #[test]
     #[ignore = "needs an AMD GPU with the AMF runtime"]
     fn the_probe_offers_amf_on_an_amd_gpu() {
         let (device, _, vendor) = device();
@@ -677,7 +691,7 @@ mod gpu_tests {
         let output = target(&device, 192, 64, DXGI_FORMAT_R10G10B10A2_UNORM, (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32);
         // SAFETY: Textures on the test's device, used on this thread.
         unsafe {
-            let processor = Processor::new(&device, &input, (96, 32), &output, 60, colors(SDL_COLORSPACE_BT709_LIMITED, false), None).unwrap();
+            let processor = Processor::new(&device, &input, (96, 32), &output, 60, colors(SDL_COLORSPACE_BT709_LIMITED, false, false), None).unwrap();
             processor.blt().unwrap();
         }
         let pixels = read(&device, &context, &output, 192 * 4, 64);

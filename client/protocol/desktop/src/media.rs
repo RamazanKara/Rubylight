@@ -39,6 +39,9 @@ pub const FRAME_WAVELET: c_int = 5;
 pub const FRAME_YUV444P: c_int = 6;
 pub const FRAME_YUV420P10: c_int = 7;
 pub const FRAME_YUV444P10: c_int = 8;
+/// A VAAPI surface exported as DMA-BUFs for the presenter to import (`crate::dmabuf`), Linux only.
+#[cfg(unix)]
+pub const FRAME_DMABUF: c_int = 9;
 
 /// The shape of a planar picture's textures: R8 planes, or R16 for 10-bit, with half-size chroma
 /// (rounded up, as FFmpeg's) unless the picture is 4:4:4.
@@ -98,11 +101,62 @@ pub enum Codec {
 pub enum Hardware {
     None,
     D3d11(*mut c_void),
+    /// On Linux this stands for the whole `order`: VAAPI first.
     Vaapi,
+    /// NVDEC, with CUDA frames copied to memory for the presenter.
+    Cuda,
+    /// The V4L2 memory-to-memory decoders of ARM handhelds and boards (H.264 and HEVC).
+    V4l2m2m,
 }
 
 // The renderer keeps the device alive until the decoder has stopped; FFmpeg owns a COM reference.
 unsafe impl Send for Hardware {}
+
+impl Hardware {
+    /// The backends to try, in turn, for this choice. On Linux that is moonlight-qt's and Moonlight
+    /// V+'s order: the first-tier hwaccel (VAAPI), then the hardware decoders outside FFmpeg's
+    /// hwaccels (V4L2 M2M), then the second tier (NVDEC); software decoding comes after them all.
+    pub fn order(self) -> Vec<Self> {
+        match self {
+            Self::None => Vec::new(),
+            Self::Vaapi => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
+            other => vec![other],
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "software",
+            Self::D3d11(_) => "D3D11VA",
+            Self::Vaapi => "VAAPI",
+            Self::Cuda => "NVDEC",
+            Self::V4l2m2m => "V4L2 M2M",
+        }
+    }
+}
+
+/// Opens the first backend of `order` that opens; `failed` hears about each one that did not, and
+/// the error names them all.
+fn first_opened<T>(
+    order: Vec<Hardware>,
+    mut open: impl FnMut(Hardware) -> Result<T, String>,
+    mut failed: impl FnMut(Hardware, &str),
+) -> Result<T, String> {
+    let mut errors = Vec::new();
+    for backend in order {
+        match open(backend) {
+            Ok(opened) => return Ok(opened),
+            Err(error) => {
+                failed(backend, &error);
+                errors.push(format!("{}: {error}", backend.label()));
+            }
+        }
+    }
+    if errors.is_empty() {
+        return Err("no hardware decoder".into());
+    }
+    Err(errors.join("; "))
+}
 
 struct Format {
     hardware: AVPixelFormat,
@@ -156,6 +210,13 @@ pub struct VideoDecoder {
     pool_size: usize,
     _format: Box<Format>,
     pub name: String,
+    /// The backend this decoder opened with.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub hardware: Hardware,
+    /// VAAPI pictures go to the presenter as DMA-BUFs until the flag says the presenter cannot
+    /// import them (`export_dmabuf`).
+    #[cfg(unix)]
+    dmabuf: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// The size of the pooled packet buffers for a packet of `needed` bytes with its padding: a
@@ -175,6 +236,17 @@ pub enum Received {
 }
 
 impl VideoDecoder {
+    /// Opens the first backend of `hardware.order()` that opens, logging each that does not
+    /// (`failed`); the error names every one.
+    pub fn open_first(
+        codec: Codec,
+        hardware: Hardware,
+        require_hardware: bool,
+        failed: impl FnMut(Hardware, &str),
+    ) -> Result<Self, String> {
+        first_opened(hardware.order(), |backend| Self::open(codec, backend, 1, require_hardware), failed)
+    }
+
     pub fn open(
         codec: Codec,
         hardware: Hardware,
@@ -187,7 +259,19 @@ impl VideoDecoder {
                 Codec::Hevc => AV_CODEC_ID_HEVC,
                 Codec::Av1 => AV_CODEC_ID_AV1,
             };
-            let mut found = if codec == Codec::Av1 && hardware != Hardware::None {
+            let mut found = if hardware == Hardware::V4l2m2m {
+                // The V4L2 M2M decoders are decoders of their own, not hwaccels of FFmpeg's.
+                let name = match codec {
+                    Codec::H264 => c"h264_v4l2m2m",
+                    Codec::Hevc => c"hevc_v4l2m2m",
+                    Codec::Av1 => c"av1_v4l2m2m",
+                };
+                let found = avcodec_find_decoder_by_name(name.as_ptr());
+                if found.is_null() {
+                    return Err(format!("this FFmpeg has no {} decoder", name.to_string_lossy()));
+                }
+                found
+            } else if codec == Codec::Av1 && hardware != Hardware::None {
                 avcodec_find_decoder_by_name(c"av1".as_ptr())
             } else {
                 ptr::null()
@@ -208,22 +292,27 @@ impl VideoDecoder {
                     required: require_hardware,
                 }),
                 name: CStr::from_ptr((*found).name).to_string_lossy().into_owned(),
+                hardware,
+                #[cfg(unix)]
+                dmabuf: None,
             };
             if video.context.is_null() || video.packet.is_null() {
                 return Err("Could not allocate the video decoder.".into());
             }
             let context = &mut *video.context;
             context.opaque = (&mut *video._format as *mut Format).cast();
-            if hardware != Hardware::None {
-                let kind = match hardware {
-                    Hardware::D3d11(_) => AV_HWDEVICE_TYPE_D3D11VA,
-                    _ => AV_HWDEVICE_TYPE_VAAPI,
-                };
+            let device_type = match hardware {
+                Hardware::D3d11(_) => Some(AV_HWDEVICE_TYPE_D3D11VA),
+                Hardware::Vaapi => Some(AV_HWDEVICE_TYPE_VAAPI),
+                Hardware::Cuda => Some(AV_HWDEVICE_TYPE_CUDA),
+                Hardware::None | Hardware::V4l2m2m => None,
+            };
+            if let Some(kind) = device_type {
                 let mut index = 0;
                 loop {
                     let config = avcodec_get_hw_config(found, index);
                     if config.is_null() {
-                        return Err(format!("{} has no support for {hardware:?}.", video.name));
+                        return Err(format!("{} has no {} support in this FFmpeg", video.name, hardware.label()));
                     }
                     if (*config).device_type == kind
                         && (*config).methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX as i32 != 0
@@ -259,7 +348,7 @@ impl VideoDecoder {
                                 .SetMultithreadProtected(true);
                             let status = av_hwdevice_ctx_init(reference);
                             if status < 0 {
-                                return Err(format!("D3D11VA: {}", error(status)));
+                                return Err(error(status));
                             }
                         }
                         #[cfg(not(windows))]
@@ -268,7 +357,7 @@ impl VideoDecoder {
                             return Err("D3D11VA is only available on Windows.".into());
                         }
                     }
-                    Hardware::Vaapi => {
+                    Hardware::Vaapi | Hardware::Cuda => {
                         let status = av_hwdevice_ctx_create(
                             &mut context.hw_device_ctx,
                             kind,
@@ -277,10 +366,10 @@ impl VideoDecoder {
                             0,
                         );
                         if status < 0 {
-                            return Err(format!("VAAPI: {}", error(status)));
+                            return Err(format!("no device: {}", error(status)));
                         }
                     }
-                    Hardware::None => unreachable!(),
+                    Hardware::None | Hardware::V4l2m2m => unreachable!(),
                 }
                 context.get_format = Some(select_format);
                 context.extra_hw_frames = 6;
@@ -305,10 +394,22 @@ impl VideoDecoder {
             video.name.push_str(match hardware {
                 Hardware::D3d11(_) => " d3d11va",
                 Hardware::Vaapi => " vaapi",
-                Hardware::None => "",
+                Hardware::Cuda => " nvdec",
+                Hardware::None | Hardware::V4l2m2m => "",
             });
             Ok(video)
         }
+    }
+
+    /// Hands VAAPI pictures to the presenter as DMA-BUFs instead of CPU mappings, and says whether
+    /// it does: only a VAAPI decoder on Linux.
+    pub fn export_dmabuf(&mut self) -> bool {
+        #[cfg(unix)]
+        if self.hardware == Hardware::Vaapi {
+            self.dmabuf = Some(Default::default());
+            return true;
+        }
+        false
     }
 
     pub fn send(&mut self, data: &[u8], pts: i64) -> i32 {
@@ -352,7 +453,8 @@ impl VideoDecoder {
             let Some(raw) = NonNull::new(av_frame_alloc()) else {
                 return Received::Error;
             };
-            let frame = Frame { raw, wavelet: false };
+            #[allow(unused_mut)]
+            let mut frame = Frame::new(raw);
             let status = avcodec_receive_frame(self.context, raw.as_ptr());
             if status == -11 || status == -541478725 {
                 return Received::None;
@@ -360,20 +462,30 @@ impl VideoDecoder {
             if status < 0 {
                 return Received::Error;
             }
-            if (*raw.as_ptr()).format == AV_PIX_FMT_VAAPI {
+            let format = (*raw.as_ptr()).format;
+            if format == AV_PIX_FMT_VAAPI {
+                #[cfg(unix)]
+                if let Some(decline) = self.dmabuf.as_ref().filter(|d| !d.load(std::sync::atomic::Ordering::Relaxed)) {
+                    match crate::dmabuf::export(raw.as_ptr(), decline) {
+                        Ok(export) => {
+                            frame.dmabuf = Some(Box::new(export));
+                            return Received::Frame(frame);
+                        }
+                        Err(error) => {
+                            eprintln!("nightjar: VAAPI pictures cannot be exported as DMA-BUFs ({error}); mapping them to memory instead");
+                            decline.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+                return frame.map_to_memory().map_or(Received::Error, Received::Frame);
+            }
+            if format == AV_PIX_FMT_CUDA {
+                // NVDEC's pictures are in CUDA memory, which only CUDA itself can read: copied out.
                 let Some(memory) = NonNull::new(av_frame_alloc()) else {
                     return Received::Error;
                 };
-                let memory = Frame { raw: memory, wavelet: false };
-                // Mapped for reading, not transferred: the driver's copy of the surface goes to
-                // the presenter's texture upload as it is, where a transfer copies it once more
-                // into a new frame first. The mapping holds the surface until the picture is
-                // dropped, as a D3D11 picture does.
-                if av_hwframe_map(
-                    memory.raw.as_ptr(),
-                    raw.as_ptr(),
-                    AV_HWFRAME_MAP_READ as c_int,
-                ) < 0
+                let memory = Frame::new(memory);
+                if av_hwframe_transfer_data(memory.raw.as_ptr(), raw.as_ptr(), 0) < 0
                     || av_frame_copy_props(memory.raw.as_ptr(), raw.as_ptr()) < 0
                 {
                     return Received::Error;
@@ -398,15 +510,58 @@ impl Drop for VideoDecoder {
 pub struct Frame {
     pub(crate) raw: NonNull<AVFrame>,
     wavelet: bool,
+    /// The VAAPI surface's DMA-BUFs, for a presenter that imports them.
+    #[cfg(unix)]
+    dmabuf: Option<Box<crate::dmabuf::Export>>,
 }
 
 // An owned AVFrame reference can be handed from the decoder to the renderer.
 unsafe impl Send for Frame {}
 
 impl Frame {
+    fn new(raw: NonNull<AVFrame>) -> Self {
+        Self {
+            raw,
+            wavelet: false,
+            #[cfg(unix)]
+            dmabuf: None,
+        }
+    }
+
+    /// Another reference to the same picture (its surface, for a hardware one), without the
+    /// export: what keeps an imported surface from going back to the decoder while it is shown.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub fn reference(&self) -> Option<Self> {
+        // SAFETY: a live frame; the clone is a new reference to its buffers.
+        let mut frame = Self::new(NonNull::new(unsafe { av_frame_clone(self.raw.as_ptr()) })?);
+        frame.wavelet = self.wavelet;
+        Some(frame)
+    }
+
+    /// A VAAPI picture mapped for reading, not transferred: the driver's copy of the surface goes
+    /// to the presenter's texture upload as it is, where a transfer copies it once more into a new
+    /// frame first. The mapping holds the surface until the picture is dropped, as a D3D11
+    /// picture does.
+    pub fn map_to_memory(&self) -> Option<Self> {
+        // SAFETY: a live frame; the mapping is a new frame of its own.
+        unsafe {
+            let memory = Self::new(NonNull::new(av_frame_alloc())?);
+            (av_hwframe_map(memory.raw.as_ptr(), self.raw.as_ptr(), AV_HWFRAME_MAP_READ as c_int) >= 0
+                && av_frame_copy_props(memory.raw.as_ptr(), self.raw.as_ptr()) >= 0)
+                .then_some(memory)
+        }
+    }
+
+    /// The exported DMA-BUFs of a `FRAME_DMABUF` picture.
+    #[cfg(unix)]
+    pub fn dmabuf(&self) -> Option<&crate::dmabuf::Export> {
+        self.dmabuf.as_deref()
+    }
+
     pub fn wavelet(width: usize, height: usize) -> Result<Self, String> {
         unsafe {
-            let mut frame = Self { raw: NonNull::new(av_frame_alloc()).ok_or("Could not allocate wavelet frame")?, wavelet: true };
+            let mut frame = Self::new(NonNull::new(av_frame_alloc()).ok_or("Could not allocate wavelet frame")?);
+            frame.wavelet = true;
             let raw = frame.raw.as_mut();
             raw.width = width as i32;
             raw.height = height as i32;
@@ -439,6 +594,15 @@ impl Frame {
                         AV_PIX_FMT_P010LE => (FRAME_D3D11, 1),
                         _ => (4, 0),
                     }
+                }
+                #[cfg(unix)]
+                AV_PIX_FMT_VAAPI if self.dmabuf.is_some() => {
+                    let sw_format = if frame.hw_frames_ctx.is_null() {
+                        AV_PIX_FMT_NONE
+                    } else {
+                        (*((*frame.hw_frames_ctx).data.cast::<AVHWFramesContext>())).sw_format
+                    };
+                    (FRAME_DMABUF, i32::from(sw_format == AV_PIX_FMT_P010LE))
                 }
                 _ => (4, 0),
             } };
@@ -795,6 +959,55 @@ mod tests {
             let size = packet_buffer_size(needed);
             assert!(size >= needed + needed / 4 && size % (64 * 1024) == 0);
         }
+    }
+
+    #[test]
+    fn linux_tries_vaapi_then_v4l2_m2m_then_nvdec_and_other_choices_alone() {
+        assert_eq!(Hardware::Vaapi.order(), [Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda]);
+        assert!(Hardware::None.order().is_empty());
+        let device = ptr::dangling_mut::<c_void>();
+        assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);
+        assert_eq!(Hardware::Cuda.order(), [Hardware::Cuda]);
+    }
+
+    #[test]
+    fn the_first_backend_that_opens_is_used_and_each_one_before_it_is_logged_once() {
+        let mut logged = Vec::new();
+        let mut tried = Vec::new();
+        let opened = first_opened(
+            Hardware::Vaapi.order(),
+            |backend| {
+                tried.push(backend);
+                if backend == Hardware::V4l2m2m { Ok("v4l2") } else { Err(format!("no {}", backend.label())) }
+            },
+            |backend, error| logged.push(format!("{} {error}", backend.label())),
+        );
+        assert_eq!(opened, Ok("v4l2"));
+        assert_eq!(tried, [Hardware::Vaapi, Hardware::V4l2m2m], "NVDEC is not tried once one opened");
+        assert_eq!(logged, ["VAAPI no VAAPI"]);
+
+        logged.clear();
+        let failed: Result<(), String> = first_opened(Hardware::Vaapi.order(), |_| Err("gone".into()), |backend, _| logged.push(backend.label().into()));
+        assert_eq!(failed.unwrap_err(), "VAAPI: gone; V4L2 M2M: gone; NVDEC: gone");
+        assert_eq!(logged, ["VAAPI", "V4L2 M2M", "NVDEC"]);
+        let none: Result<(), String> = first_opened(Vec::new(), |_| Ok(()), |_, _| panic!("nothing was tried"));
+        assert!(none.is_err());
+    }
+
+    #[test]
+    fn a_held_reference_keeps_the_picture_and_a_software_picture_does_not_map() {
+        let fixture = include_bytes!("../../../app/src/main/assets/packed444/hevc-8.bin").as_slice();
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        assert_eq!(decoder.hardware, Hardware::None);
+        assert!(!decoder.export_dmabuf(), "only a VAAPI decoder exports");
+        assert_eq!(decoder.send(fixture, 42), 0);
+        let Received::Frame(frame) = decoder.receive() else { panic!("no decoded frame") };
+        let held = frame.reference().expect("a reference");
+        let info = frame.info();
+        drop(frame);
+        let kept = held.info();
+        assert_eq!((kept.pts, kept.width, kept.data[0]), (42, info.width, info.data[0]), "the reference is the same picture");
+        assert!(held.map_to_memory().is_none(), "only hardware pictures map");
     }
 
     #[test]

@@ -333,6 +333,8 @@ pub struct VideoTexture {
     pub pyrowave_stages: super::stage_times::Stages<2>,
     packed_format: Option<[u32; 12]>,
     white_level: f32,
+    /// The HDR headroom the texture was made with on its own (`ensure_with`), None for SDL's.
+    texture_headroom: Option<f32>,
     hdr_mode: Option<bool>,
     hdr_metadata: Option<nightjar_core::control::HdrMetadata>,
     /// The session negotiated HDR (asked for it and got a 10-bit format), for pictures before or
@@ -410,6 +412,7 @@ impl Default for VideoTexture {
             pyrowave_stages: super::stage_times::Stages::new(super::pyrowave_gpu::UPLOAD_AND_PASSES),
             packed_format: None,
             white_level: 1.0,
+            texture_headroom: None,
             hdr_mode: None,
             hdr_metadata: None,
             hdr_stream: false,
@@ -467,12 +470,26 @@ fn shows_hdr(hdr_mode: Option<bool>, hdr_stream: bool, color_trc: i32) -> bool {
 
 /// The plane shader's constants for a software-decoded planar picture: its colour description is
 /// FFmpeg's, read as `colorspace` reads it (the shader's matrix 0 is BT.601, 2 BT.2020, else BT.709).
-/// An HDR picture with the HLG transfer gets the shader's HLG flag (128), never PQ.
-pub(super) fn planar_parameters(info: &FrameInfo, layout: media::PlanarLayout, hdr: bool, white_level: f32) -> [u32; 8] {
+/// An HDR picture with the HLG transfer gets the shader's HLG flag (128), never PQ, with the
+/// display it is drawn for (`planar_hlg`) in place of the wavelet pass's level and operation,
+/// and that display's white as the SDR white.
+pub(super) fn planar_parameters(info: &FrameInfo, layout: media::PlanarLayout, hdr: bool, white_level: f32, headroom: f32) -> [u32; 8] {
     let matrix = match info.color_space { 5 | 6 => 0, 9 | 10 => 2, _ => 1 };
+    let hlg = planar_hlg(info, hdr, white_level, headroom);
     let flags = u32::from(info.color_range == 2) | (u32::from(hdr) << 1) | (matrix << 2) | (u32::from(layout.ten_bit) << 4)
-        | (u32::from(layout.chroma444) << 5) | (u32::from(layout.ten_bit) << 6) | (u32::from(hdr && info.color_trc == TRC_HLG) << 7);
-    [layout.width, layout.height, layout.width, layout.height, 0, 3, flags, white_level.to_bits()]
+        | (u32::from(layout.chroma444) << 5) | (u32::from(layout.ten_bit) << 6) | (u32::from(hlg.is_some()) << 7);
+    match hlg {
+        Some(display) => [layout.width, layout.height, layout.width, layout.height, display.peak.to_bits(), display.gamma.to_bits(), flags, (display.white / 80.0).to_bits()],
+        None => [layout.width, layout.height, layout.width, layout.height, 0, 3, flags, white_level.to_bits()],
+    }
+}
+
+/// The display a plane shader picture shown as HDR with the HLG transfer is drawn for, as the
+/// Windows draw pass draws it (`hlg::hlg_display`): an HDR output's own peak (`headroom` over the
+/// SDR white of `white_level` x 80 nits), else HLG's 1000-nit reference display with its
+/// reference white at SDR white, which SDL's tone map brings into SDR. None for other pictures.
+pub(super) fn planar_hlg(info: &FrameInfo, hdr: bool, white_level: f32, headroom: f32) -> Option<super::hlg::HlgDisplay> {
+    (hdr && info.color_trc == TRC_HLG).then(|| super::hlg::hlg_display(headroom, 80.0 * white_level))
 }
 
 /// Whether a picture SDL would show (NV12 or P010 from memory, or an imported VAAPI surface) goes
@@ -649,6 +666,12 @@ impl VideoTexture {
         )
     }
 
+    /// The picture can only be shown on an HDR output. An HLG picture can be shown on an SDR one
+    /// too: the draw pass and the plane shader draw it for HLG's reference display, tone mapped.
+    pub fn needs_hdr_output(&self) -> bool {
+        self.is_hdr() && !self.hlg_frame
+    }
+
     pub fn size(&self) -> (i32, i32) {
         (self.width, self.height)
     }
@@ -675,12 +698,29 @@ impl VideoTexture {
         space: SDL_Colorspace,
         white_level: f32,
     ) -> bool {
+        self.ensure_with(renderer, format, width, height, space, white_level, None)
+    }
+
+    /// `ensure` for a texture with an HDR headroom of its own (an HLG picture's), which SDL tone
+    /// maps down to an output with less.
+    #[allow(clippy::too_many_arguments)]
+    fn ensure_with(
+        &mut self,
+        renderer: *mut SDL_Renderer,
+        format: SDL_PixelFormat,
+        width: i32,
+        height: i32,
+        space: SDL_Colorspace,
+        white_level: f32,
+        texture_headroom: Option<f32>,
+    ) -> bool {
         if !self.texture.is_null()
             && self.format == format
             && self.width == width
             && self.height == height
             && self.colorspace == space
             && self.white_level == white_level
+            && self.texture_headroom == texture_headroom
         {
             return true;
         }
@@ -723,7 +763,7 @@ impl VideoTexture {
             if let Some(white_point) = hdr.white_point {
                 SDL_SetFloatProperty(props, SDL_PROP_TEXTURE_CREATE_SDR_WHITE_POINT_FLOAT, white_point);
             }
-            if let Some(headroom) = hdr.headroom {
+            if let Some(headroom) = texture_headroom.or(hdr.headroom) {
                 SDL_SetFloatProperty(props, SDL_PROP_TEXTURE_CREATE_HDR_HEADROOM_FLOAT, headroom);
             }
             self.texture = SDL_CreateTextureWithProperties(renderer, props);
@@ -735,7 +775,7 @@ impl VideoTexture {
                     pixel_format_name(format),
                     space.0,
                     hdr.white_point,
-                    hdr.headroom,
+                    texture_headroom.or(hdr.headroom),
                     crate::sdl::renderer_name(renderer),
                 );
                 self.fail(detail, error);
@@ -753,6 +793,7 @@ impl VideoTexture {
         self.height = height;
         self.colorspace = space;
         self.white_level = white_level;
+        self.texture_headroom = texture_headroom;
         true
     }
 
@@ -1386,14 +1427,22 @@ impl VideoTexture {
     /// RGBA64F texture, as the GPU decoder's planes are drawn: SDL has no texture formats for them.
     fn upload_planar(&mut self, renderer: *mut SDL_Renderer, info: &FrameInfo, layout: media::PlanarLayout, white_level: f32) -> bool {
         let hdr = shows_hdr(self.hdr_mode, self.hdr_stream, info.color_trc);
-        if hdr && !crate::sdl::hdr_available(renderer) {
+        // An HLG picture needs no HDR output: on an SDR one it is drawn for HLG's reference
+        // display and SDL's tone map brings it into SDR (`planar_hlg`).
+        let hdr_output = crate::sdl::hdr_available(renderer);
+        if hdr && info.color_trc != TRC_HLG && !hdr_output {
             self.destroy();
             self.fail(format!("an HDR {}x{} picture needs HDR output, which the renderer {} does not offer", layout.width, layout.height, crate::sdl::renderer_name(renderer)), "the display has no HDR output".into());
             return false;
         }
-        let parameters = planar_parameters(info, layout, hdr, white_level);
+        // SAFETY: The live renderer belongs to the presenting thread.
+        let headroom = if hdr_output { unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0) } } else { 1.0 };
+        let hlg = planar_hlg(info, hdr, white_level, headroom);
+        let parameters = planar_parameters(info, layout, hdr, white_level, headroom);
         if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
-        if !self.ensure(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level) { return false; }
+        // The HLG picture's own peak over its white, which SDL tone maps down to an output with less.
+        let texture_headroom = hlg.map(|display| display.peak / display.white);
+        if !self.ensure_with(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level, texture_headroom) { return false; }
         #[cfg(windows)]
         let drawn = {
             if self.planes.is_none() {
@@ -1599,18 +1648,34 @@ pub(crate) mod tests {
         let layout = |info: &FrameInfo| media::PlanarLayout::of(info).unwrap();
         // 8-bit 4:4:4, BT.709 limited: matrix 1, 4:4:4 (32).
         let yuv444 = info(media::FRAME_YUV444P, 64, 32, 1, 1);
-        assert_eq!(planar_parameters(&yuv444, layout(&yuv444), false, 1.0), [64, 32, 64, 32, 0, 3, 4 | 32, 1.0f32.to_bits()]);
+        assert_eq!(planar_parameters(&yuv444, layout(&yuv444), false, 1.0, 1.0), [64, 32, 64, 32, 0, 3, 4 | 32, 1.0f32.to_bits()]);
         // 10-bit 4:2:0, BT.601 full: full (1), matrix 0, ten (16), FFmpeg's low-bit samples (64).
         let main10 = info(media::FRAME_YUV420P10, 7, 3, 6, 2);
-        assert_eq!(planar_parameters(&main10, layout(&main10), false, 1.0)[6], 1 | 16 | 64);
+        assert_eq!(planar_parameters(&main10, layout(&main10), false, 1.0, 1.0)[6], 1 | 16 | 64);
         // 10-bit 4:4:4 HDR, BT.2020, white 2.5.
         let hdr = info(media::FRAME_YUV444P10, 16, 16, 9, 1);
-        assert_eq!(planar_parameters(&hdr, layout(&hdr), true, 2.5)[6..], [2 | 8 | 16 | 32 | 64, 2.5f32.to_bits()]);
+        assert_eq!(planar_parameters(&hdr, layout(&hdr), true, 2.5, 4.0)[4..], [0, 3, 2 | 8 | 16 | 32 | 64, 2.5f32.to_bits()]);
         // An HLG one gets the HLG flag (128) beside HDR, so the shader does not read it as PQ;
         // with the host's HDR mode off it is drawn as SDR, without it.
         let hlg = FrameInfo { color_trc: TRC_HLG, ..hdr };
-        assert_eq!(planar_parameters(&hlg, layout(&hlg), true, 2.5)[6], 2 | 8 | 16 | 32 | 64 | 128);
-        assert_eq!(planar_parameters(&hlg, layout(&hlg), false, 1.0)[6], 8 | 16 | 32 | 64);
+        // Its display comes in place of the wavelet pass's level and operation: a 4 x 200-nit
+        // output is an 800-nit HLG display with BT.2100's gamma for it, white staying 2.5.
+        let display = super::super::hlg::hlg_display(4.0, 200.0);
+        assert_eq!(planar_parameters(&hlg, layout(&hlg), true, 2.5, 4.0)[4..],
+            [display.peak.to_bits(), display.gamma.to_bits(), 2 | 8 | 16 | 32 | 64 | 128, 2.5f32.to_bits()]);
+        assert_eq!(planar_parameters(&hlg, layout(&hlg), false, 1.0, 1.0)[4..], [0, 3, 8 | 16 | 32 | 64, 1.0f32.to_bits()]);
+        // On an SDR output: the 1000-nit reference display with its 203-nit white as SDR white,
+        // and the texture says the 1000 / 203 headroom SDL tone maps from.
+        assert_eq!(planar_parameters(&hlg, layout(&hlg), true, 1.0, 1.0)[4..],
+            [1000.0f32.to_bits(), 1.2f32.to_bits(), 2 | 8 | 16 | 32 | 64 | 128, (203.0f32 / 80.0).to_bits()]);
+        let sdr = planar_hlg(&hlg, true, 1.0, 1.0).unwrap();
+        assert_eq!(sdr.peak / sdr.white, 1000.0 / 203.0);
+        assert!(planar_hlg(&hdr, true, 2.5, 4.0).is_none() && planar_hlg(&hlg, false, 1.0, 1.0).is_none());
+        // So an HLG picture keeps the stream going when the output loses HDR; a PQ one ends it.
+        let texture = VideoTexture { hlg_frame: true, hdr_mode: Some(true), ..Default::default() };
+        assert!(texture.is_hdr() && !texture.needs_hdr_output());
+        let texture = VideoTexture { hdr_frame: true, ..Default::default() };
+        assert!(texture.needs_hdr_output());
         // Odd 4:2:0 pictures round their chroma up, as FFmpeg does.
         assert_eq!([0, 1, 2].map(|p| layout(&main10).plane_size(p)), [(7, 3), (4, 2), (4, 2)]);
         assert_eq!([0, 1, 2].map(|p| layout(&yuv444).plane_size(p)), [(64, 32); 3]);
@@ -1642,9 +1707,9 @@ pub(crate) mod tests {
         let p010 = info(media::FRAME_P010, TRC_HLG);
         let layout = media::PlanarLayout::of_semi_planar(&p010).unwrap();
         assert_eq!(layout.plane_size(1), (32, 16));
-        assert_eq!(planar_parameters(&p010, layout, true, 2.5)[6], 2 | 8 | 16 | 64 | 128);
+        assert_eq!(planar_parameters(&p010, layout, true, 2.5, 4.0)[6], 2 | 8 | 16 | 64 | 128);
         let nv12 = info(media::FRAME_NV12, TRC_HLG);
-        assert_eq!(planar_parameters(&nv12, media::PlanarLayout::of_semi_planar(&nv12).unwrap(), true, 2.5)[6], 2 | 8 | 128);
+        assert_eq!(planar_parameters(&nv12, media::PlanarLayout::of_semi_planar(&nv12).unwrap(), true, 2.5, 4.0)[6], 2 | 8 | 128);
         assert!(media::PlanarLayout::of_semi_planar(&info(media::FRAME_DMABUF, TRC_HLG)).is_none(), "a surface is mapped first");
     }
 

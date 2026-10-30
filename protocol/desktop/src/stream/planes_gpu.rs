@@ -333,8 +333,8 @@ mod tests {
 
     /// The HLG picture on the GPU (a Vulkan device and SDL's offscreen video driver, so ignored:
     /// `cargo test -p nightjar-desktop -- --ignored stream::planes_gpu`): HLG's reference white
-    /// (75 %) in P010 and NV12 comes out at BT.2408's 203 nits, in units of SDR white (80 nits
-    /// here). Read as PQ, the same code would be 1000 nits.
+    /// (75 %) in P010 and NV12 comes out at BT.2408's 203 nits on a 1000-nit display, and at SDR
+    /// white on an SDR one. Read as PQ, the same code would be 983 nits.
     #[test]
     #[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
     fn hlg_reference_white_is_drawn_at_203_nits_from_p010_and_nv12() {
@@ -353,13 +353,18 @@ mod tests {
             assert_eq!(crate::sdl::renderer_name(renderer), "gpu");
             let target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, SDL_TEXTUREACCESS_TARGET, width as i32, height as i32);
             assert!(!target.is_null(), "{}", crate::sdl::error());
-            for (kind, luma, chroma, bytes) in [(FRAME_P010, &p010_luma, &p010_chroma, 2), (FRAME_NV12, &nv12_luma, &nv12_chroma, 1)] {
+            // A 1000-nit HDR output (headroom 12.5 over 80 nits), where 1.0 is 80 nits, and an SDR
+            // one, drawn for the reference display with its 203-nit white at 1.0.
+            let outputs = [(12.5, 80.0), (1.0, 203.0)];
+            for ((kind, luma, chroma, bytes), (headroom, unit)) in [(FRAME_P010, &p010_luma, &p010_chroma, 2), (FRAME_NV12, &nv12_luma, &nv12_chroma, 1)]
+                .into_iter().flat_map(|picture| outputs.map(|output| (picture, output)))
+            {
                 let (mut luma, mut chroma) = (luma.clone(), chroma.clone());
                 let mut info = picture(kind, &mut luma, &mut chroma, (width * bytes) as i32);
                 (info.width, info.height) = (width as i32, height as i32);
                 assert!(super::super::present::hlg_through_planes(&info));
                 let layout = PlanarLayout::of_semi_planar(&info).unwrap();
-                let parameters = super::super::present::planar_parameters(&info, layout, true, 1.0);
+                let parameters = super::super::present::planar_parameters(&info, layout, true, 1.0, headroom);
                 let mut pass = PlanesPass::for_frames(renderer, layout).unwrap();
                 pass.draw_frame(renderer, target, &info, &parameters).unwrap();
                 assert!(SDL_SetRenderTarget(renderer, target), "{}", crate::sdl::error());
@@ -370,8 +375,8 @@ mod tests {
                 SDL_SetRenderTarget(renderer, ptr::null_mut());
                 let rgb = std::slice::from_raw_parts((*pixels).pixels.cast::<f32>(), 3).to_vec();
                 SDL_DestroySurface(pixels);
-                let nits = rgb.iter().map(|value| value * 80.0).collect::<Vec<f32>>();
-                eprintln!("kind {kind}: {nits:?} nits");
+                let nits = rgb.iter().map(|value| value * unit).collect::<Vec<f32>>();
+                eprintln!("kind {kind}, headroom {headroom}: {nits:?} nits");
                 for value in nits {
                     assert!((value - 203.0).abs() < 203.0 * 0.03, "kind {kind}: {value} nits, not HLG's reference white");
                 }

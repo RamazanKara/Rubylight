@@ -108,6 +108,12 @@ impl AudioConfiguration {
         channel_count: 8,
         channel_mask: 0x63F,
     };
+    /// Moonlight V+'s `AUDIO_CONFIGURATION_714_SURROUND`, which Foundation Sunshine and
+    /// Rubylight hosts stream.
+    pub const SURROUND_714: Self = Self {
+        channel_count: rubylight_protocol::audio_ext::CHANNELS_714,
+        channel_mask: rubylight_protocol::audio_ext::WIRE_CHANNEL_MASK_714,
+    };
 
     /// The `surroundAudioInfo` launch parameter.
     pub fn surround_audio_info(self) -> u32 {

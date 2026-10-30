@@ -457,6 +457,13 @@ mod tests {
             Some(AudioConfiguration::SURROUND_51)
         );
         assert_eq!(audio_configuration_from_int(0x0003_0200), None);
+        // 7.1.4's mask sets the sign bit, as Java's MoonBridge.AUDIO_CONFIGURATION_714_SURROUND.
+        let seven_one_four = audio_configuration_to_int(AudioConfiguration::SURROUND_714);
+        assert_eq!(seven_one_four as u32, 0xF63F_0CCA);
+        assert_eq!(
+            audio_configuration_from_int(seven_one_four),
+            Some(AudioConfiguration::SURROUND_714)
+        );
     }
 
     #[test]

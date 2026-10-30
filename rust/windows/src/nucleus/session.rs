@@ -529,6 +529,9 @@ struct Runner {
     /// game's .exe, kept there when the game refuses ProtoInput's hooks
     /// ([`files::refuse_hooks`]).
     own_game: Option<(PathBuf, String)>,
+    /// Until when Nucleus may still show that box: it injects once, right
+    /// after the game's window shows. Set at the first window.
+    inject_by: Option<Instant>,
     /// The user's Nucleus settings the session changed (None from the
     /// user's own copy, whose stay), then the game's compatibility settings
     /// from before Nucleus started; last, so they drop after Nucleus. None
@@ -583,7 +586,11 @@ impl Runner {
             self.deadline = now + START_TIMEOUT;
         }
         self.windows = pass.windows.clone();
+        if windows > 0 && self.inject_by.is_none() {
+            self.inject_by = Some(now + START_TIMEOUT);
+        }
         if roots > 0
+            && self.inject_by.is_none_or(|by| now < by)
             && let Some(end) = self.refused_hooks(&job)
         {
             return Some(end);
@@ -1226,6 +1233,7 @@ fn begin(
             .handler
             .own
             .then(|| (start.folder.to_path_buf(), start.exe_path.to_string())),
+        inject_by: None,
         settings,
         layers: Some(layers),
     };
@@ -1656,6 +1664,7 @@ mod tests {
             failed: 0,
             game_folder: None,
             own_game: None,
+            inject_by: None,
             settings: None,
             layers: None,
         }
@@ -1807,6 +1816,21 @@ mod tests {
             assert!(files::hooks_refused(host.path(), &exe.to_uppercase()).unwrap());
             assert!(!files::hooks_refused(host.path(), r"D:\Games\Other\Game.exe").unwrap());
         }
+
+        // Nucleus injects right after the window shows: a minute later the
+        // boxes are no longer looked through for it.
+        let t0 = Instant::now();
+        let host = tempfile::tempdir().unwrap();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        runner.own_game = Some((host.path().to_path_buf(), exe.to_string()));
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        instance(&screen, 0);
+        assert_eq!(runner.step(t0), None);
+        screen.0.lock().unwrap().boxes.push((NUCLEUS, refused));
+        assert_eq!(runner.step(t0 + START_TIMEOUT), None);
+        assert!(!files::hooks_refused(host.path(), exe).unwrap());
     }
 
     /// A box Nucleus shows after the click (its End-key reminder) holds the

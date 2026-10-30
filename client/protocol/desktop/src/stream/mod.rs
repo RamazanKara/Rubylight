@@ -11,6 +11,7 @@ pub mod color_probe;
 pub mod pipeline;
 mod playout;
 pub mod present;
+mod hlg;
 mod microphone;
 #[cfg(windows)]
 mod voice_capture;
@@ -3348,7 +3349,7 @@ impl Streaming {
         renderer: *mut SDL_Renderer,
         mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
     ) -> bool {
-        if self.texture.is_hdr() && !crate::sdl::hdr_available(renderer) {
+        if self.texture.needs_hdr_output() && !crate::sdl::hdr_available(renderer) {
             self.texture.destroy();
             self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
             self.needs_redraw = true;

@@ -6,7 +6,7 @@ This page lists everything Rubylight sends over a network, so you can turn off w
 
 ## Third-party services
 
-Four features contact services outside your network. Only the update check is on by default.
+Five features contact services outside your network. Only the update check is on by default.
 
 | Feature | When it runs | Where it connects | What that service receives |
 | --- | --- | --- | --- |
@@ -14,6 +14,7 @@ Four features contact services outside your network. Only the update check is on
 | Update download | When you choose **Install** for an offered update, or automatically if you turn on `auto_update` (off by default). | `github.com` and GitHub's download servers | The download of the installer, and your IP address. |
 | Steam covers | Only if the Steam library is on (`steam_enabled`, off by default), for Steam games whose cover is missing or too small. | `shared.fastly.steamstatic.com` (Valve's image servers) | The Steam app IDs of those games, and your IP address. |
 | Cover search | When you click **Find cover** for an app in the console. Your browser runs the search; the host then downloads the cover you pick. | `raw.githubusercontent.com` (LizardByte's GameDB on GitHub) and `images.igdb.com` (IGDB) | The first letters of the search and the IDs of matching games, the cover you pick, your IP address and browser user agent, and the console's address as the browser's origin (for example `https://192.168.1.20:47990`). |
+| Neural Rendering | When you turn on **Neural Rendering** for a game and the mod's pinned release isn't downloaded yet. Off for every game by default. | `api.github.com` (GitHub) for the release's file list by its tag, then `github.com` and GitHub's download servers for parts of the archives (their file lists) and the whole release, about 1 GB | Requests for that release and its files with the user agent `Rubylight`, and your IP address. Not your game, host ID, settings or anything about your PC. |
 
 Their privacy policies: [GitHub](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement), [Valve](https://store.steampowered.com/privacy_agreement/), [IGDB, run by Twitch](https://www.twitch.tv/p/legal/privacy-policy/). Uploading your own cover image sends it to your host only.
 

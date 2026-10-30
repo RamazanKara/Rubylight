@@ -1528,7 +1528,7 @@ fn a_game_steam_lists_valve_anti_cheat_for_is_refused() {
             .path()
             .join(r"steamapps\common\Black Flag\AC4BFSP.exe");
         for app in [&link, &direct] {
-            let refusal = steam_refusal(app, &exe, &roots);
+            let refusal = steam_refusal(app, std::slice::from_ref(&exe), &roots);
             assert_eq!(refusal.is_some(), listed, "{}: {refusal:?}", app.cmd);
             if let Some(reason) = refusal {
                 assert!(
@@ -1538,13 +1538,124 @@ fn a_game_steam_lists_valve_anti_cheat_for_is_refused() {
             }
         }
         let plain = steam.path().join(r"Games\Game.exe");
-        assert_eq!(steam_refusal(&direct, &plain, &roots), None);
+        assert_eq!(steam_refusal(&direct, &[plain], &roots), None);
     }
-    let reason = steam_refusal(&link, &vac.path().join("Game.exe"), &[]).unwrap();
+    let reason = steam_refusal(&link, &[vac.path().join("Game.exe")], &[]).unwrap();
     assert!(
         reason.starts_with("Rubylight can't tell whether the game uses Valve Anti-Cheat"),
         "{reason}"
     );
+}
+
+/// A Steam game's folder moved elsewhere and linked back into the library
+/// (`mklink /J`) is still Steam's: where the link leads is a plain folder,
+/// but the paths that reached it are asked too (the chosen program, the
+/// app's command, its install), for an install and for a launch.
+#[test]
+fn a_games_folder_linked_back_into_steams_library_is_still_asked_about() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    for (flag, refused) in [("1", true), ("0", false)] {
+        let steam = steam_root(flag);
+        let roots = vec![steam.path().to_path_buf()];
+        *h.neural.steam_roots.lock().unwrap() = Some(roots.clone());
+        let moved = tempdir();
+        std::fs::write(moved.path().join("AC4BFSP.exe"), b"MZ game").unwrap();
+        let linked = steam.path().join(r"steamapps\common\Black Flag");
+        std::fs::remove_dir(&linked).unwrap();
+        junction(&linked, moved.path());
+        let through = linked.join("AC4BFSP.exe");
+        let followed = folder::real(moved.path()).unwrap().join("AC4BFSP.exe");
+
+        let chosen = app_named("Black Flag", "flag");
+        // Before the fix only where the link leads was asked.
+        assert_eq!(
+            steam_refusal(&chosen, std::slice::from_ref(&followed), &roots),
+            None
+        );
+        let mut command = app_named("Black Flag", "flag");
+        command.cmd = format!("\"{}\"", through.display());
+        let mut installed = app_named("Black Flag", "flag");
+        installed
+            .extra
+            .insert("launcher-install-dir".into(), json!(linked));
+        for (app, requested, launch) in [
+            (&chosen, Some(through.clone()), false),
+            // The user chose the program where the link leads.
+            (&command, Some(followed.clone()), true),
+            (&installed, None, true),
+        ] {
+            let response = find_game(h, app, requested, super::install(app)).unwrap();
+            match (&response, refused) {
+                (Response::Refused { reason }, true) => {
+                    assert!(
+                        reason.starts_with("Steam lists Valve Anti-Cheat"),
+                        "{reason}"
+                    );
+                }
+                (Response::Found { exe }, false) => assert_eq!(*exe, followed),
+                _ => panic!("{}: {response:?}", app.cmd),
+            }
+            if launch {
+                let mut on = app.clone();
+                on.extra.insert(KEY.into(), json!({"exe": followed}));
+                let error = before_launch(h, &on).err().map(|e| format!("{e:#}"));
+                assert_eq!(
+                    error
+                        .as_deref()
+                        .is_some_and(|e| e.contains("Valve Anti-Cheat")),
+                    refused,
+                    "{}: {error:?}",
+                    app.cmd
+                );
+            }
+        }
+        std::fs::remove_dir(&linked).unwrap();
+    }
+}
+
+/// A game Steam lists Valve Anti-Cheat for is refused before the download:
+/// GitHub is never asked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vac_game_is_refused_before_the_download() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    *h.neural.probe.lock().unwrap() = Some(Probe {
+        gpus: vec![Gpu {
+            name: "AMD Radeon RX 7900 XT".into(),
+            arch: "gfx1100".into(),
+            compute_units: 84,
+            luid: None,
+        }],
+        driver: Some("26.10.1".into()),
+        error: None,
+    });
+    accept(h).unwrap();
+    let steam = steam_root("1");
+    *h.neural.steam_roots.lock().unwrap() = Some(vec![steam.path().to_path_buf()]);
+    let folder = steam.path().join(r"steamapps\common\Black Flag");
+    std::fs::write(folder.join("AC4BFSP.exe"), b"MZ game").unwrap();
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({"name": "Black Flag", "uuid": "flag", "launcher-install-dir": folder}));
+        true
+    })
+    .unwrap();
+    let files = r2_files();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let list = release_list(&base, "Alpha0.3.5.8R2", &files);
+    pin_files(h, &files);
+    let server = serve(listener, list, Arc::new(files)).await;
+    *h.neural.origin.lock().unwrap() = Some(server.base);
+
+    enable(h, "flag", None).unwrap();
+    let job = ended(h, "flag").await;
+    assert_eq!(job.phase, "failed", "{job:?}");
+    let error = job.error.unwrap();
+    assert!(error.starts_with("Steam lists Valve Anti-Cheat"), "{error}");
+    assert!(server.log.lock().unwrap().is_empty());
+    assert!(cached(&cache_root(h)).is_none());
+    assert_eq!(names(&folder), ["AC4BFSP.exe"]);
 }
 
 /// A launcher is never the game: an app whose command starts Steam or
@@ -2012,6 +2123,22 @@ fn a_damaged_record_is_never_written_over() {
         assert!(record_pending(h, &[]).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), damaged);
     }
+    // A pending removals list that doesn't parse fails each change, and
+    // nothing writes over the removals it holds.
+    let damaged = br#"{"accepted_at": 1, "pending_removals": [{"name": "Game", "exe": 7}]}"#;
+    std::fs::write(&path, damaged).unwrap();
+    let away = Pending {
+        name: "Away".into(),
+        exe: unconnected_drive().join(r"Games\Away\Away.exe"),
+        uuid: None,
+    };
+    let error = format!("{:#}", record_pending(h, &[away.clone()]).unwrap_err());
+    assert!(error.contains("pending removals are damaged"), "{error}");
+    clear_pending(h, &away.exe);
+    try_pending(h, std::slice::from_ref(&away));
+    remove_pending(h);
+    assert!(pending(h).is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), damaged);
 }
 
 /// A cache is used only as this host keeps it: no link on the way to it,
@@ -2507,7 +2634,9 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     pin_files(h, &files);
     let server = serve(listener, list, Arc::new(files)).await;
     *h.neural.origin.lock().unwrap() = Some(server.base);
-    enable(h, "game", None).unwrap();
+    // The game's program is found before the download.
+    let temp = tempdir();
+    enable(h, "game", Some(game(temp.path()))).unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
     let job = loop {
         let job = h.neural.lock().jobs["game"].clone();

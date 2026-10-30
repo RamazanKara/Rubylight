@@ -72,6 +72,9 @@ pub struct Neural {
     /// A test's release in place of [`neural::PINNED`].
     #[cfg(test)]
     pub pin: Mutex<Option<neural::Pin<'static>>>,
+    /// A test's Steam folders in place of this PC's.
+    #[cfg(test)]
+    pub steam_roots: Mutex<Option<Vec<PathBuf>>>,
 }
 
 #[derive(Default)]
@@ -419,14 +422,15 @@ fn settings(h: &Shared) -> Value {
         json!({})
     })
 }
-fn update_settings(h: &Shared, change: impl FnOnce(&mut Value)) -> Result<()> {
+/// Change the record and write it; nothing is written when `change` fails.
+fn update_settings(h: &Shared, change: impl FnOnce(&mut Value) -> Result<()>) -> Result<()> {
     let _one = h
         .neural
         .record
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
     let mut value = read_settings(h)?;
-    change(&mut value);
+    change(&mut value)?;
     butterpollo_core::state::write_json(&h.directory.join(SETTINGS_FILE), &value)
 }
 /// Whether the user accepted the notice that comes before the first download.
@@ -434,7 +438,10 @@ pub fn accepted(h: &Shared) -> bool {
     settings(h)["accepted_at"].as_u64().is_some()
 }
 pub fn accept(h: &Shared) -> Result<()> {
-    update_settings(h, |value| value["accepted_at"] = json!(now()))?;
+    update_settings(h, |value| {
+        value["accepted_at"] = json!(now());
+        Ok(())
+    })?;
     tracing::info!("Neural Rendering: the user accepted the third-party mod notice");
     Ok(())
 }
@@ -1066,23 +1073,88 @@ fn install(app: &App) -> Option<PathBuf> {
 
 /// Why the game is refused when Steam lists Valve Anti-Cheat for it, which
 /// no file in its install shows, or can't say ([`steam::valve_anti_cheat`]
-/// with Steam's `roots`).
+/// with Steam's `roots`): asked for each of `paths` ([`reached_by`]), as a
+/// game's folder moved elsewhere and linked back into Steam's library is a
+/// plain folder where the link leads.
 ///
 /// [`steam::valve_anti_cheat`]: butterpollo_core::steam::valve_anti_cheat
-fn steam_refusal(app: &App, exe: &Path, roots: &[PathBuf]) -> Option<String> {
+fn steam_refusal(app: &App, paths: &[PathBuf], roots: &[PathBuf]) -> Option<String> {
     let appid = serde_json::to_value(app)
         .ok()
         .and_then(|app| butterpollo_core::steam::game_of(&app));
-    match butterpollo_core::steam::valve_anti_cheat(appid, exe, "", roots) {
-        Ok(false) => None,
-        Ok(true) => Some(
-            "Steam lists Valve Anti-Cheat for the game, and an anti-cheat treats Neural Rendering's DLL as a cheat"
-                .into(),
-        ),
-        Err(message) => Some(format!(
-            "Rubylight can't tell whether the game uses Valve Anti-Cheat ({message})"
-        )),
+    // A Steam game's link is asked once: its flag names no file.
+    let paths = if appid.is_some() {
+        &paths[..paths.len().min(1)]
+    } else {
+        paths
+    };
+    paths.iter().find_map(|exe| {
+        match butterpollo_core::steam::valve_anti_cheat(appid, exe, "", roots) {
+            Ok(false) => None,
+            Ok(true) => Some(
+                "Steam lists Valve Anti-Cheat for the game, and an anti-cheat treats Neural Rendering's DLL as a cheat"
+                    .into(),
+            ),
+            Err(message) => Some(format!(
+                "Rubylight can't tell whether the game uses Valve Anti-Cheat ({message})"
+            )),
+        }
+    })
+}
+
+/// The game's .exe `exe` (where a linked game folder leads, as the helper
+/// works there) and the paths it was reached by before the link was
+/// followed: the chosen program `requested`, the app's command, and `exe`
+/// in the app's install as named.
+fn reached_by(app: &App, requested: Option<&Path>, exe: &Path) -> Vec<PathBuf> {
+    let named = install(app).and_then(|install| {
+        let relative = folder::real(&install)
+            .and_then(|real| exe.strip_prefix(real).ok().map(Path::to_path_buf))
+            .or_else(|| exe.strip_prefix(&install).ok().map(Path::to_path_buf))
+            .or_else(|| exe.file_name().map(PathBuf::from))?;
+        Some(install.join(relative))
+    });
+    let mut paths = vec![exe.to_path_buf()];
+    for path in [requested.map(Path::to_path_buf), command_exe(app), named]
+        .into_iter()
+        .flatten()
+    {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
     }
+    paths
+}
+
+/// Steam's folders on this PC, or a test's.
+fn steam_roots(h: &Shared) -> Vec<PathBuf> {
+    #[cfg(test)]
+    if let Some(roots) = h.neural.steam_roots.lock().unwrap().clone() {
+        return roots;
+    }
+    let _ = h;
+    butterpollo_windows::steam::roots()
+}
+
+/// The game's program as an install places it ([`Request::Find`]), or why
+/// not: Steam lists Valve Anti-Cheat for the game at it or at a path it was
+/// reached by ([`steam_refusal`]). Blocks.
+fn find_game(
+    h: &Shared,
+    app: &App,
+    exe: Option<PathBuf>,
+    install: Option<PathBuf>,
+) -> Result<Response> {
+    let requested = exe.clone();
+    let exe = match run_folder(Request::Find { exe, install }, &|_, _| {})? {
+        Response::Found { exe } => exe,
+        other => return Ok(other),
+    };
+    let paths = reached_by(app, requested.as_deref(), &exe);
+    Ok(match steam_refusal(app, &paths, &steam_roots(h)) {
+        Some(reason) => Response::Refused { reason },
+        None => Response::Found { exe },
+    })
 }
 
 /// The app's command when it starts a program directly.
@@ -1240,6 +1312,21 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     start_job(h, uuid, "install", "download")?;
     let (h, uuid) = (h.clone(), uuid.to_owned());
     tokio::spawn(async move {
+        let (exe, install) = (exe.or_else(|| game_command(&app)), install(&app));
+        // The game's program and Valve Anti-Cheat before the download: a game
+        // that is refused never waits for about 1 GB. Asked again after it,
+        // as the game may have changed meanwhile.
+        let checked = {
+            let (h, app, exe, install) = (h.clone(), app.clone(), exe.clone(), install.clone());
+            tokio::task::spawn_blocking(move || find_game(&h, &app, exe, install)).await
+        };
+        match checked {
+            Ok(Ok(Response::Found { .. })) => {}
+            Ok(response) => return finish_install(&h, &uuid, &app, None, response),
+            Err(error) => {
+                return fail_job(&h, &uuid, format!("the install stopped: {error}"), false);
+            }
+        }
         let progress = |done, total| {
             update_job(&h, &uuid, |job| {
                 job.done = done;
@@ -1262,11 +1349,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
         update_job(&h, &uuid, |job| {
             (job.phase, job.done, job.total) = ("place", 0, 0)
         });
-        let (exe, install, package) = (
-            exe.or_else(|| game_command(&app)),
-            install(&app),
-            package.with(using.folder.clone()),
-        );
+        let package = package.with(using.folder.clone());
         let worker = h.clone();
         let task_uuid = uuid.clone();
         let finished = tokio::task::spawn_blocking(move || {
@@ -1282,19 +1365,10 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
                 // The game's program first: its removal is recorded before
                 // anything is written, so an install cut short (a timeout,
                 // a host restart) is taken out by the pending removals.
-                let request = Request::Find {
-                    exe,
-                    install: install.clone(),
-                };
-                let exe = match run_folder(request, &|_, _| {})? {
+                let exe = match find_game(&worker, &app, exe, install.clone())? {
                     Response::Found { exe } => exe,
                     other => return Ok(other),
                 };
-                if let Some(reason) =
-                    steam_refusal(&app, &exe, &butterpollo_windows::steam::roots())
-                {
-                    return Ok(Response::Refused { reason });
-                }
                 let pending = Pending {
                     name: app.name.clone(),
                     exe: exe.clone(),
@@ -1564,8 +1638,22 @@ impl Pending {
     }
 }
 
+/// The record's removals, none when it has no list yet. A list that can't
+/// be read is an error, never taken for empty and written over.
+fn pending_in(record: &Value) -> Result<Vec<Pending>> {
+    match &record[PENDING] {
+        Value::Null => Ok(Vec::new()),
+        list => serde_json::from_value(list.clone())
+            .with_context(|| format!("{SETTINGS_FILE}'s pending removals are damaged")),
+    }
+}
+
+/// [`pending_in`] for a reader, empty and logged when it can't be read.
 fn pending(h: &Shared) -> Vec<Pending> {
-    serde_json::from_value(settings(h)[PENDING].clone()).unwrap_or_default()
+    pending_in(&settings(h)).unwrap_or_else(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: its pending removals can't be read");
+        Vec::new()
+    })
 }
 
 /// Take the mod placed beside `exe` out again (true), or leave its removal
@@ -1595,10 +1683,10 @@ fn take_back(h: &Shared, uuid: &str, name: &str, exe: &Path) -> Result<bool> {
 /// there, or nothing was written.
 fn clear_pending(h: &Shared, exe: &Path) {
     let saved = update_settings(h, |value| {
-        let mut list: Vec<Pending> =
-            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        let mut list = pending_in(value)?;
         list.retain(|removal| removal.exe != exe);
         value[PENDING] = json!(list);
+        Ok(())
     });
     if let Err(error) = saved {
         tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");
@@ -1608,14 +1696,14 @@ fn clear_pending(h: &Shared, exe: &Path) {
 /// Add removals to the record (once each).
 fn record_pending(h: &Shared, removals: &[Pending]) -> Result<()> {
     update_settings(h, |value| {
-        let mut list: Vec<Pending> =
-            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        let mut list = pending_in(value)?;
         for removal in removals {
             if !list.iter().any(|old| old.exe == removal.exe) {
                 list.push(removal.clone());
             }
         }
         value[PENDING] = json!(list);
+        Ok(())
     })
 }
 
@@ -1728,8 +1816,7 @@ fn try_pending(h: &Shared, also: &[Pending]) {
         return;
     }
     let saved = update_settings(h, |value| {
-        let mut list: Vec<Pending> =
-            serde_json::from_value(value[PENDING].clone()).unwrap_or_default();
+        let mut list = pending_in(value)?;
         for removal in also {
             if !list.iter().any(|old| old.exe == removal.exe) {
                 list.push(removal.clone());
@@ -1737,6 +1824,7 @@ fn try_pending(h: &Shared, also: &[Pending]) {
         }
         list.retain(|removal| !done.contains(&removal.exe));
         value[PENDING] = json!(list);
+        Ok(())
     });
     if let Err(error) = saved {
         tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");
@@ -1777,7 +1865,8 @@ fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
     let package = launch_cache(h).context(
         "Neural Rendering's download can't be used; turn Neural Rendering off and on again",
     )?;
-    let response = match steam_refusal(app, &exe, &butterpollo_windows::steam::roots()) {
+    let paths = reached_by(app, None, &exe);
+    let response = match steam_refusal(app, &paths, &steam_roots(h)) {
         Some(reason) => Response::Refused { reason },
         None => run_folder(
             Request::Prepare {

@@ -812,6 +812,32 @@ public class NvHTTP {
         }
     }
 
+    /**
+     * Whether the PC has Foundation Sunshine's bandwidth test: /api/network/capabilities answers
+     * with a probe this device can run. Stock Sunshine, Apollo and Vibepollo answer otherwise.
+     * Throws only when the question did not get through.
+     */
+    public boolean supportsFoundationBandwidthTest() throws IOException {
+        if (serverCert == null) return false;
+        String capabilities;
+        try (HostCall call = hostCall("GET", "api/network/capabilities", null, null)) {
+            if (!call.response.isSuccessful()) {
+                LimeLog.info("The PC has no bandwidth test of its own: " + call.response.code());
+                return false;
+            }
+            ResponseBody body = call.response.body();
+            if (body.source().request(64 * 1024 + 1)) throw new IOException("Bandwidth test capabilities too large");
+            capabilities = body.string();
+        }
+        try {
+            foundationProbeBytes(capabilities);
+            return true;
+        } catch (IOException e) {
+            LimeLog.info("The PC's bandwidth test is not offered: " + e.getMessage());
+            return false;
+        }
+    }
+
     /** The probe size from /api/network/capabilities, at most 4 MiB, as V+ Android validates it. */
     static int foundationProbeBytes(String capabilities) throws IOException {
         try {

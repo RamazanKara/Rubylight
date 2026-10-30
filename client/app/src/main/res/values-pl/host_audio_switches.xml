@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">Dźwięk przestrzenny na słuchawkach</string>
     <string name="stream_audio_next_stream">Zadziała od następnego streamu</string>
     <string name="stream_audio_failed">Nie udało się zmienić dźwięku komputera: %1$s</string>
+    <string name="stream_audio_unread">Nie udało się odczytać ustawień dźwięku komputera</string>
 </resources>

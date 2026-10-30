@@ -2,6 +2,7 @@ package com.limelight.ui;
 
 import android.app.Activity;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.core.view.ViewCompat;
 
@@ -99,6 +100,8 @@ public final class StreamMenu {
         public boolean nightModeOffered, headphoneSurroundOffered;
         /** What the host last said about them (GET /audio); null until it answered. */
         public NativeAudio hostAudio;
+        /** The host offers them but GET /audio failed: the first page says so in a line. */
+        public boolean hostAudioUnread;
         /** Host, codec, size, bitrate and link for the native page; null leaves the connection facts out. */
         public ConnectionInfo connection;
 
@@ -370,6 +373,7 @@ public final class StreamMenu {
     private List<Entry> entries = new ArrayList<>();
     private final NativeMenuController radeon;
     private RadeonPanelView radeonView;
+    private TextView audioNote;
 
     public StreamMenu(Activity activity, Supplier<Options> options, Listener listener) {
         this(activity, options, listener, null);
@@ -428,12 +432,24 @@ public final class StreamMenu {
                 target == Page.NATIVE ? R.string.native_menu_row : R.string.stream_overlay_page));
         sheet.setBackHandler(target == Page.MAIN ? null : this::back);
         entries = pageEntries(target, o);
+        audioNote = null;
+        // Under the quick toggles, where the audio switches would be; first when there are none.
+        boolean noteAudio = target == Page.MAIN && o.role == NvApp.Role.STREAM && o.hostAudioUnread;
+        if (noteAudio && (entries.isEmpty() || entries.get(0).section != Section.QUICK)) {
+            audioNote = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_audio_unread), false);
+            noteAudio = false;
+        }
         LinearLayout quickRow = null;
         Section section = null;
         for (Entry entry : entries) {
             MaterialButton button;
             if (entry.section == Section.QUICK) {
-                if (quickRow == null) quickRow = sheet.addToggleRow();
+                if (quickRow == null) {
+                    quickRow = sheet.addToggleRow();
+                    if (noteAudio) {
+                        audioNote = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_audio_unread), false);
+                    }
+                }
                 button = sheet.addToggle(quickRow, entry.icon, activity.getString(entry.label), Boolean.TRUE.equals(entry.checked));
                 if (entry.checked == null) button.setCheckable(false);
             } else {
@@ -478,8 +494,14 @@ public final class StreamMenu {
         for (Entry entry : pageEntries(Page.MAIN, o)) now.add(entry.item);
         List<Item> shown = new ArrayList<>();
         for (Entry entry : entries) shown.add(entry.item);
-        if (now.equals(shown)) refreshToggles();
+        boolean noted = o.role == NvApp.Role.STREAM && o.hostAudioUnread;
+        if (now.equals(shown) && noted == (audioNote != null)) refreshToggles();
         else render(Page.MAIN, o, null);
+    }
+
+    /** The line saying the host's audio settings could not be read, or null when the page has none. */
+    public TextView audioNote() {
+        return audioNote;
     }
 
     // The connection facts and the Radeon panel under the native page's actions.

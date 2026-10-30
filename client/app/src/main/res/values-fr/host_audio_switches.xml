@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">Surround au casque</string>
     <string name="stream_audio_next_stream">S\'applique au prochain stream</string>
     <string name="stream_audio_failed">Impossible de modifier le son du PC : %1$s</string>
+    <string name="stream_audio_unread">Impossible de lire les réglages audio du PC</string>
 </resources>

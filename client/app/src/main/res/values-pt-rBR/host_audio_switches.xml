@@ -4,4 +4,5 @@
     <string name="stream_headphone_surround">Surround para fones</string>
     <string name="stream_audio_next_stream">Vale a partir da próxima transmissão</string>
     <string name="stream_audio_failed">Não foi possível alterar o áudio do PC: %1$s</string>
+    <string name="stream_audio_unread">Não foi possível ler as configurações de áudio do PC</string>
 </resources>

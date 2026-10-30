@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use butterpollo_core::wake::{Adapter, ApplyReport, FixPlan, Medium, NicReport, SystemFacts};
 use std::{
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::RwLock,
     time::{Duration, Instant},
 };
@@ -146,40 +146,65 @@ unsafe fn socket_address(
     }
 }
 
-/// The PC's own address on its IPv4 default route: the source Windows picks
-/// toward a public address. Nothing is sent. `None` without a default route.
+/// The PC's own address on its default route: the source Windows picks toward
+/// a public IPv4 address, or toward a public IPv6 one on an IPv6-only
+/// network. Nothing is sent. `None` without a default route.
 pub fn default_route_source() -> Result<Option<IpAddr>> {
+    // Any public addresses; the route lookup only reads the routing table.
+    const PUBLIC_V4: Ipv4Addr = Ipv4Addr::new(8, 8, 8, 8);
+    const PUBLIC_V6: Ipv6Addr = Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888);
+    match route_source(PUBLIC_V4.into()) {
+        Ok(None) => route_source(PUBLIC_V6.into()),
+        Ok(source) => Ok(source),
+        // An IPv6 route still names the adapter; otherwise the IPv4 error stands.
+        Err(error) => match route_source(PUBLIC_V6.into()) {
+            Ok(Some(source)) => Ok(Some(source)),
+            _ => Err(error),
+        },
+    }
+}
+
+/// The source address of the best route toward `destination`; `None` when
+/// none leads there.
+fn route_source(destination: IpAddr) -> Result<Option<IpAddr>> {
     use windows::Win32::{
         Foundation::{ERROR_NETWORK_UNREACHABLE, ERROR_NOT_FOUND, ERROR_SUCCESS},
         NetworkManagement::IpHelper::{GetBestRoute2, MIB_IPFORWARD_ROW2},
-        Networking::WinSock::{AF_INET, SOCKADDR_INET},
+        Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR_INET},
     };
-    // Any public address; the route lookup only reads the routing table.
-    const PUBLIC: Ipv4Addr = Ipv4Addr::new(8, 8, 8, 8);
-    let mut destination = SOCKADDR_INET::default();
-    destination.si_family = AF_INET;
-    // The IPv4 view of a zeroed union whose family says IPv4.
-    destination.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(PUBLIC.octets());
+    let mut target = SOCKADDR_INET::default();
+    match destination {
+        IpAddr::V4(v4) => {
+            target.si_family = AF_INET;
+            // The IPv4 view of a zeroed union whose family says IPv4.
+            target.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(v4.octets());
+        }
+        IpAddr::V6(v6) => {
+            target.si_family = AF_INET6;
+            target.Ipv6.sin6_addr.u.Byte = v6.octets();
+        }
+    }
     let mut route = MIB_IPFORWARD_ROW2::default();
     let mut source = SOCKADDR_INET::default();
     // SAFETY: Every pointer is to a local that outlives the call.
-    let status = unsafe { GetBestRoute2(None, 0, None, &destination, 0, &mut route, &mut source) };
+    let status = unsafe { GetBestRoute2(None, 0, None, &target, 0, &mut route, &mut source) };
     if status == ERROR_NETWORK_UNREACHABLE || status == ERROR_NOT_FOUND {
         return Ok(None);
     }
     if status != ERROR_SUCCESS {
         return Err(std::io::Error::from_raw_os_error(status.0 as i32))
-            .context("GetBestRoute2 toward the default route");
+            .with_context(|| format!("GetBestRoute2 toward {destination}"));
     }
-    // SAFETY: The family field is shared by every view; the IPv4 view is read
-    // only when it says IPv4.
+    // SAFETY: The family field is shared by every view; a view is read only
+    // when the family names it.
     let address = unsafe {
-        (source.si_family == AF_INET)
-            .then(|| Ipv4Addr::from(source.Ipv4.sin_addr.S_un.S_addr.to_ne_bytes()))
+        match source.si_family {
+            AF_INET => Some(IpAddr::from(source.Ipv4.sin_addr.S_un.S_addr.to_ne_bytes())),
+            AF_INET6 => Some(IpAddr::from(source.Ipv6.sin6_addr.u.Byte).to_canonical()),
+            _ => None,
+        }
     };
-    Ok(address
-        .filter(|address| !address.is_unspecified())
-        .map(IpAddr::V4))
+    Ok(address.filter(|address| !address.is_unspecified()))
 }
 
 /// Whether each adapter, by GUID, was last read with wake on magic packet
@@ -558,17 +583,23 @@ mod tests {
 
     #[test]
     fn the_default_route_leaves_from_an_adapters_own_address() -> Result<()> {
-        // Without a default route (an offline runner) there is nothing to check.
-        let Some(source) = default_route_source()? else {
-            return Ok(());
-        };
-        assert!(!source.is_loopback(), "{source}");
-        assert!(
-            adapters()?
-                .iter()
-                .any(|adapter| adapter.addresses.contains(&source)),
-            "{source} belongs to no adapter"
-        );
+        // Without a default route (an offline runner) there is nothing to check;
+        // IPv6 may be off or unrouted.
+        let adapters = adapters()?;
+        let ipv6 = route_source(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888).into());
+        let ipv6 = ipv6.ok().flatten();
+        for source in [default_route_source()?, ipv6].into_iter().flatten() {
+            assert!(!source.is_loopback(), "{source}");
+            assert!(
+                adapters
+                    .iter()
+                    .any(|adapter| adapter.addresses.contains(&source)),
+                "{source} belongs to no adapter"
+            );
+        }
+        if let Some(source) = ipv6 {
+            assert!(source.is_ipv6(), "{source}");
+        }
         Ok(())
     }
 

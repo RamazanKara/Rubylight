@@ -211,6 +211,10 @@ pub struct Direct {
     views: Option<(usize, bool, std::collections::HashMap<u32, Planes>)>,
     tracker: PeakTracker,
     source: Option<PeakSource>,
+    /// The view of SDL's back buffer, for the swap chain and output size it was made at. It is
+    /// let go before SDL resizes the buffers (a size change, or a frame the pass does not draw):
+    /// ResizeBuffers fails while a buffer is still referenced.
+    back_buffer: Option<(usize, (i32, i32), ID3D11RenderTargetView)>,
 }
 
 impl Direct {
@@ -270,6 +274,7 @@ impl Direct {
             views: None,
             tracker: PeakTracker::default(),
             source: None,
+            back_buffer: None,
         })
     }
 
@@ -278,6 +283,23 @@ impl Direct {
         self.tracker = PeakTracker::default();
         self.source = None;
         self.views = None;
+        self.back_buffer = None;
+    }
+
+    /// Lets go of SDL's back buffer, for a frame the pass does not draw (SDL may resize then).
+    pub fn release_back_buffer(&mut self) {
+        self.back_buffer = None;
+    }
+
+    /// Converts `picture` to gamma-coded RGB in `target` (its whole size), for what SDL draws
+    /// or upscales instead of a picture its own shaders would decode wrongly (10-bit SDR).
+    ///
+    /// # Safety
+    /// As `draw`.
+    pub unsafe fn convert(&mut self, target: &ID3D11RenderTargetView, size: (u32, u32), picture: &Picture,
+        lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
+        let output = Output { linear: false, color_scale: 1.0, headroom: 1.0 };
+        self.draw(target, [0.0, 0.0, size.0 as f32, size.1 as f32], picture, output, Tone::default(), lock)
     }
 
     /// The smoothed measured peak in nits, once one is in.
@@ -399,13 +421,24 @@ impl Direct {
     pub unsafe fn present(&mut self, renderer: *mut sdl3_sys::everything::SDL_Renderer, destination: &sdl3_sys::everything::SDL_FRect,
         picture: &Picture, tone: Tone, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
         use sdl3_sys::everything::*;
-        if !SDL_FlushRenderer(renderer) { return Err(format!("SDL_FlushRenderer: {}", crate::sdl::error())); }
         let properties = SDL_GetRendererProperties(renderer);
-        let swapchain = SDL_GetPointerProperty(properties, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER, std::ptr::null_mut());
-        let swapchain = windows::Win32::Graphics::Dxgi::IDXGISwapChain::from_raw_borrowed(&swapchain).ok_or("the renderer has no swap chain")?;
-        let buffer = swapchain.GetBuffer::<ID3D11Texture2D>(0).map_err(|e| format!("the back buffer: {e}"))?;
-        let mut target = None;
-        self.device.CreateRenderTargetView(&buffer, None, Some(&mut target)).map_err(|e| format!("the back buffer's view: {e}"))?;
+        let swapchain_raw = SDL_GetPointerProperty(properties, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER, std::ptr::null_mut());
+        let mut size = (0, 0);
+        SDL_GetCurrentRenderOutputSize(renderer, &mut size.0, &mut size.1);
+        // A new size is resized by SDL's next command run, the flush below: let go first.
+        if !self.back_buffer.as_ref().is_some_and(|(swapchain, at, _)| *swapchain == swapchain_raw as usize && *at == size) {
+            self.back_buffer = None;
+        }
+        // SDL's clear has to land before the picture (it runs SDL's queue; no GPU flush).
+        if !SDL_FlushRenderer(renderer) { return Err(format!("SDL_FlushRenderer: {}", crate::sdl::error())); }
+        if self.back_buffer.is_none() {
+            let swapchain = windows::Win32::Graphics::Dxgi::IDXGISwapChain::from_raw_borrowed(&swapchain_raw).ok_or("the renderer has no swap chain")?;
+            let buffer = swapchain.GetBuffer::<ID3D11Texture2D>(0).map_err(|e| format!("the back buffer: {e}"))?;
+            let mut target = None;
+            self.device.CreateRenderTargetView(&buffer, None, Some(&mut target)).map_err(|e| format!("the back buffer's view: {e}"))?;
+            self.back_buffer = Some((swapchain_raw as usize, size, target.ok_or("no back buffer view")?));
+        }
+        let target = self.back_buffer.as_ref().unwrap().2.clone();
         let mut scale = 1.0;
         SDL_GetRenderColorScale(renderer, &mut scale);
         let output = Output {
@@ -414,8 +447,7 @@ impl Direct {
             headroom: SDL_GetFloatProperty(properties, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0),
         };
         let viewport = [destination.x, destination.y, destination.w, destination.h];
-        // The back buffer and its view go before SDL next resizes the window.
-        self.draw(target.as_ref().unwrap(), viewport, picture, output, tone, lock)
+        self.draw(&target, viewport, picture, output, tone, lock)
     }
 }
 
@@ -628,6 +660,23 @@ mod gpu_tests {
         let output = Output { linear: true, color_scale: 2.5, headroom: 4.0 };
         let pixels = render(&device, &context, &mut pass, &picture, (96, 32), DXGI_FORMAT_R16G16B16A16_FLOAT, output, Tone::default());
         assert!(pixels[16 * 96 + 16].iter().all(|c| (c - 2.5).abs() < 0.02), "{:?}", pixels[16 * 96 + 16]);
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_ten_bit_sdr_picture_converts_as_gamma_not_pq() {
+        let (device, context) = device();
+        // BT.2020 limited-range 10-bit white and half grey (luma 940 and 502).
+        let texture = picture_array(&device, (64, 32), (64, 32), 1, true, |x, _| if x < 32 { [940, 512, 512] } else { [502, 512, 512] });
+        let picture = Picture { texture: texture.as_raw(), slice: 0, size: (64, 32), ten_bit: true, full_range: false, matrix: 2, pq: false };
+        // SAFETY: The test's device, on this thread.
+        let mut pass = unsafe { Direct::new(&device) }.unwrap();
+        // What `convert` draws for SDL: gamma-coded, unscaled.
+        let output = Output { linear: false, color_scale: 1.0, headroom: 1.0 };
+        let pixels = render(&device, &context, &mut pass, &picture, (64, 32), DXGI_FORMAT_R8G8B8A8_UNORM, output, Tone::default());
+        assert!(pixels[16 * 64 + 16].iter().all(|c| *c > 0.98), "white {:?}", pixels[16 * 64 + 16]);
+        // As PQ the grey would be about 92 nits; as gamma it stays half.
+        assert!(pixels[16 * 64 + 48].iter().all(|c| (c - 0.5).abs() < 0.03), "grey {:?}", pixels[16 * 64 + 48]);
     }
 
     #[test]

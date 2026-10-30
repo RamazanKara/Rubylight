@@ -3199,12 +3199,12 @@ impl Streaming {
     /// Draws the picture itself into the back buffer (`direct`), or returns false for SDL to draw
     /// the video texture.
     #[cfg(windows)]
-    fn draw_direct(&mut self, renderer: *mut SDL_Renderer, dst: &SDL_FRect) -> bool {
-        self.texture.draw_direct(renderer, dst)
+    fn draw_direct(&mut self, renderer: *mut SDL_Renderer, dst: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
+        self.texture.draw_direct(renderer, dst, texture)
     }
 
     #[cfg(not(windows))]
-    fn draw_direct(&mut self, _renderer: *mut SDL_Renderer, _dst: &SDL_FRect) -> bool {
+    fn draw_direct(&mut self, _renderer: *mut SDL_Renderer, _dst: &SDL_FRect, _texture: *mut SDL_Texture) -> bool {
         false
     }
 
@@ -3224,12 +3224,14 @@ impl Streaming {
                 let use_upscaler = self.settings.upscaling.is_shader() && !self.upscale_failed
                     && !self.texture.is_hdr() && output.0 >= input.0 && output.1 >= input.1 && output != input
                     && output.0 <= 16384 && output.1 <= 16384;
-                // The upscalers and AI enhancement read the video texture.
-                if self.settings.upscaling == config::Upscaling::Ai || use_upscaler { self.texture.materialize(); }
                 if self.settings.upscaling == config::Upscaling::Ai {
+                    // AI enhancement reads the YUV picture in the video texture.
+                    self.texture.copy_held();
                     self.upscaler = None;
                     if let Some(enhanced) = self.enhanced(renderer, output) { texture = enhanced; }
                 } else if use_upscaler {
+                    // The upscalers read the picture as SDL would draw it.
+                    texture = self.texture.sdl_texture(renderer);
                     if !self.upscaler.as_ref().is_some_and(|u| u.matches(input, output, self.settings.upscaling)) {
                         self.upscaler = upscale::Upscaler::new(renderer, input, output, self.settings.upscaling);
                     }
@@ -3242,8 +3244,8 @@ impl Streaming {
                         }
                     }
                 } else { self.upscaler = None; }
-                if !(texture == self.texture.texture && self.draw_direct(renderer, &dst)) {
-                    if texture == self.texture.texture { self.texture.materialize(); }
+                if !self.draw_direct(renderer, &dst, texture) {
+                    if texture == self.texture.texture { texture = self.texture.sdl_texture(renderer); }
                     SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
                 }
             } else if !self.texture.draw(renderer, &dst) {
